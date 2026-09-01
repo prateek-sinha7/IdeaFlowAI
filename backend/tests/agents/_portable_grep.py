@@ -25,7 +25,9 @@ def _iter_py_files(root: Path):
     yield from root.rglob("*.py")
 
 
-def grep_files_matching(pattern: str, root: str | Path, *, regex: bool = False) -> GrepResult:
+def grep_files_matching(
+    pattern: str, root: str | Path, *, regex: bool = False
+) -> GrepResult:
     """Portable equivalent of ``grep -rl[E] <pattern> <root> --include='*.py'``.
 
     Returns the NEWLINE-joined list of matching file paths in ``stdout``

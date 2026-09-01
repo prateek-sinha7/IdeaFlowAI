@@ -67,7 +67,9 @@ def _region() -> str:
 
 
 def _issuer() -> str:
-    return f"https://cognito-idp.{_region()}.amazonaws.com/{settings.COGNITO_USER_POOL_ID}"
+    return (
+        f"https://cognito-idp.{_region()}.amazonaws.com/{settings.COGNITO_USER_POOL_ID}"
+    )
 
 
 def _jwks_url() -> str:
@@ -83,6 +85,7 @@ def _jwks_url() -> str:
 # Fails CLOSED: if the JWKS cannot be fetched and the cache is empty (or
 # stale past a hard ceiling), verification raises rather than accepting an
 # unverifiable token.
+
 
 class _JwksCache:
     def __init__(self) -> None:
@@ -133,7 +136,11 @@ def _get_signing_key(kid: str) -> dict[str, Any]:
     JWKS endpoint on a sustained attack of bad kids.
     """
     ttl = settings.COGNITO_JWKS_CACHE_TTL_SECONDS
-    if _jwks_cache.is_empty() or _jwks_cache.is_stale(ttl) or _jwks_cache.get(kid) is None:
+    if (
+        _jwks_cache.is_empty()
+        or _jwks_cache.is_stale(ttl)
+        or _jwks_cache.get(kid) is None
+    ):
         _jwks_cache.replace(_fetch_jwks())
 
     key = _jwks_cache.get(kid)
@@ -142,7 +149,9 @@ def _get_signing_key(kid: str) -> dict[str, Any]:
     return key
 
 
-def verify_cognito_access_token(token: str, *, verify_exp: bool = True) -> CognitoPrincipal:
+def verify_cognito_access_token(
+    token: str, *, verify_exp: bool = True
+) -> CognitoPrincipal:
     """Verify a Cognito *access* token offline against the pool's JWKS.
 
     Enforces: signature (RS256), `kid` resolution, `iss` matches this pool,
@@ -199,7 +208,9 @@ def verify_cognito_access_token(token: str, *, verify_exp: bool = True) -> Cogni
 
     client_id = claims.get("client_id")
     if not client_id or client_id != settings.COGNITO_CLIENT_ID:
-        raise CognitoVerificationError("token client_id does not match configured app client")
+        raise CognitoVerificationError(
+            "token client_id does not match configured app client"
+        )
 
     sub = claims.get("sub")
     jti = claims.get("jti")
@@ -220,6 +231,7 @@ def verify_cognito_access_token(token: str, *, verify_exp: bool = True) -> Cogni
 # ---------------------------------------------------------------------------
 # SECRET_HASH + thin boto3 admin wrappers
 # ---------------------------------------------------------------------------
+
 
 def compute_secret_hash(username: str) -> str:
     """Compute the SECRET_HASH Cognito requires for a confidential app client.
@@ -342,7 +354,9 @@ def revoke_token(refresh_token: str) -> None:
     )
 
 
-def change_password(access_token: str, previous_password: str, proposed_password: str) -> None:
+def change_password(
+    access_token: str, previous_password: str, proposed_password: str
+) -> None:
     """``ChangePassword`` (non-admin) -- requires the *caller's own* Cognito
     access token, unlike every other wrapper in this module which uses the
     Admin* surface. The backend has the token because it just validated the
@@ -355,7 +369,9 @@ def change_password(access_token: str, previous_password: str, proposed_password
     )
 
 
-def admin_create_user(email: str, temporary_password: str | None = None) -> dict[str, Any]:
+def admin_create_user(
+    email: str, temporary_password: str | None = None
+) -> dict[str, Any]:
     """``AdminCreateUser``. `temporary_password` omitted -> Cognito generates
     one and (if email delivery is configured) sends the invite; the caller
     then typically calls ``admin_set_user_password`` with a known temp
@@ -497,7 +513,9 @@ def associate_software_token(access_token: str) -> str:
     return resp["SecretCode"]
 
 
-def verify_software_token(access_token: str, user_code: str, device_name: str | None = None) -> str:
+def verify_software_token(
+    access_token: str, user_code: str, device_name: str | None = None
+) -> str:
     """Complete TOTP enrolment by proving possession of the secret.
 
     Returns Cognito's status string (``SUCCESS`` / ``ERROR``). Raises
@@ -549,7 +567,9 @@ def apply_mfa_preference(
     current = get_confirmed_mfa_factors(email)
 
     resolved_totp = (TOTP_FACTOR in current) if totp_enabled is None else totp_enabled
-    resolved_email = (EMAIL_FACTOR in current) if email_enabled is None else email_enabled
+    resolved_email = (
+        (EMAIL_FACTOR in current) if email_enabled is None else email_enabled
+    )
 
     if email_enabled:
         preferred = EMAIL_FACTOR

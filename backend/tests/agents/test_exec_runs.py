@@ -91,18 +91,16 @@ def test_0018_reversible_offline(fresh_db_url: str) -> None:
     inspector = inspect(engine)
     assert inspector.has_table("exec_runs"), "exec_runs missing after upgrade 0018"
     cols = {c["name"] for c in inspector.get_columns("exec_runs")}
-    assert _EXPECTED_EXEC_COLUMNS.issubset(cols), (
-        f"exec_runs missing columns: {sorted(_EXPECTED_EXEC_COLUMNS - cols)}"
-    )
+    assert _EXPECTED_EXEC_COLUMNS.issubset(
+        cols
+    ), f"exec_runs missing columns: {sorted(_EXPECTED_EXEC_COLUMNS - cols)}"
     engine.dispose()
 
     # downgrade -1 drops exec_runs (pinned at 0018; -1 lands on 0017).
     command.downgrade(cfg, "-1")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert not inspector.has_table("exec_runs"), (
-        "downgrade -1 must drop exec_runs"
-    )
+    assert not inspector.has_table("exec_runs"), "downgrade -1 must drop exec_runs"
     engine.dispose()
 
     # upgrade head recreates it.
@@ -155,8 +153,8 @@ async def test_record_exec_run_allowed_writes_scoped_row(db_session):
     row = rows[0]
     assert row.id == row_id
     assert row.run_id == "run-1"
-    assert row.owner_id == "alice"        # AUTHZ-01
-    assert row.workspace_id == "ws-1"     # AUTHZ-01
+    assert row.owner_id == "alice"  # AUTHZ-01
+    assert row.workspace_id == "ws-1"  # AUTHZ-01
     assert row.step == "build"
     assert row.outcome == "allowed"
     assert row.exit_code == 0
@@ -231,6 +229,6 @@ def test_kernel_services_has_workspace_attribute_default():
     import inspect as _inspect
 
     src = _inspect.getsource(KernelServices.__init__)
-    assert "self.workspace" in src, (
-        "KernelServices.__init__ must declare self.workspace (10-02 host seam)"
-    )
+    assert (
+        "self.workspace" in src
+    ), "KernelServices.__init__ must declare self.workspace (10-02 host seam)"

@@ -77,9 +77,9 @@ async def test_db_constitution_injected_under_running_loop() -> None:
         "A DB-stored Constitution must be injected into the composed prompt under a "
         "running event loop (AGENTRT-06 / R12 fix)."
     )
-    assert _CONSTITUTION_BODY in system_prompt, (
-        "The full Constitution body must appear verbatim in the composed prompt."
-    )
+    assert (
+        _CONSTITUTION_BODY in system_prompt
+    ), "The full Constitution body must appear verbatim in the composed prompt."
 
 
 @pytest.mark.asyncio

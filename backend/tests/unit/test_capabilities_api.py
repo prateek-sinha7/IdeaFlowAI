@@ -160,7 +160,7 @@ class TestPaletteShape:
         models = body["model_catalog"]
         catalog_ids = {m.id for m in ModelCatalog().list()}
         api_ids = {m["id"] for m in models}
-        assert api_ids == catalog_ids, (catalog_ids ^ api_ids)
+        assert api_ids == catalog_ids, catalog_ids ^ api_ids
         for m in models:
             assert set(("id", "label", "user_allowed")).issubset(m), m
 

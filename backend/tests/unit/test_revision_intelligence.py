@@ -122,7 +122,9 @@ def db_factory(monkeypatch):
     TestingSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     # Every ScopedStore._acquire() does `from app.models.database import SessionLocal`
     # then `SessionLocal()` — patch the attribute so it resolves to our test factory.
-    monkeypatch.setattr("app.models.database.SessionLocal", TestingSession, raising=False)
+    monkeypatch.setattr(
+        "app.models.database.SessionLocal", TestingSession, raising=False
+    )
     try:
         yield TestingSession
     finally:
@@ -134,7 +136,9 @@ def engine() -> ExecutionEngine:
     return ExecutionEngine()
 
 
-def _seed_run(session_factory, *, run_id: str, owner_id: str, workspace_id: str = WS) -> None:
+def _seed_run(
+    session_factory, *, run_id: str, owner_id: str, workspace_id: str = WS
+) -> None:
     """Insert the parent ``workflow_runs`` row (assert_owns reads its true owner)."""
     s = session_factory()
     try:
@@ -312,7 +316,9 @@ async def test_empty_instruction_raises(engine: ExecutionEngine, db_factory) -> 
 
 
 @pytest.mark.asyncio
-async def test_whitespace_only_instruction_raises(engine: ExecutionEngine, db_factory) -> None:
+async def test_whitespace_only_instruction_raises(
+    engine: ExecutionEngine, db_factory
+) -> None:
     async def ws(e: dict) -> None:  # pragma: no cover - never reached
         pass
 
@@ -388,7 +394,9 @@ async def test_nonexistent_artifact_raises(engine: ExecutionEngine, db_factory) 
 
 
 @pytest.mark.asyncio
-async def test_revision_stores_new_version_with_lineage(engine: ExecutionEngine, db_factory) -> None:
+async def test_revision_stores_new_version_with_lineage(
+    engine: ExecutionEngine, db_factory
+) -> None:
     """The revision run persists a NEW exact-kind ref whose content is
     execute()'s final_output (the scripted REVISED deck, unwrapped) with
     derived_from == the seeded parent original (FR-014 chain link 1).
@@ -440,18 +448,22 @@ async def test_revision_stores_new_version_with_lineage(engine: ExecutionEngine,
 
 
 @pytest.mark.asyncio
-async def test_revision_contains_three_separate_inputs(engine: ExecutionEngine, db_factory) -> None:
+async def test_revision_contains_three_separate_inputs(
+    engine: ExecutionEngine, db_factory
+) -> None:
     """The three-section contract ("three separate structured inputs, NOT
     concatenated") is the dispatched agents' INPUT — observable on the
     forwarded ``agent_input`` event's context_message (after 14-03 it is no
     longer the run's output)."""
     parent = "run-parent-3inputs"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
-    original_content = (
-        "<!doctype html><html><body><section class='deck-slide'>Intro</section></body></html>"
-    )
+    original_content = "<!doctype html><html><body><section class='deck-slide'>Intro</section></body></html>"
     _seed_ref(
-        db_factory, run_id=parent, owner_id=OWNER, kind="ppt_output", content=original_content
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="ppt_output",
+        content=original_content,
     )
 
     instruction = "Improve the Introduction slide only"
@@ -471,9 +483,9 @@ async def test_revision_contains_three_separate_inputs(engine: ExecutionEngine, 
     # Original content + instruction preserved verbatim INSIDE their sections.
     original_section = _original_section(context_message, "ppt_output")
     assert original_content in original_section
-    instruction_section = context_message.split("=== REVISION INSTRUCTION ===", 1)[1].split(
-        "=== END REVISION INSTRUCTION ===", 1
-    )[0]
+    instruction_section = context_message.split("=== REVISION INSTRUCTION ===", 1)[
+        1
+    ].split("=== END REVISION INSTRUCTION ===", 1)[0]
     assert instruction in instruction_section
 
     orig_pos = context_message.index("=== ORIGINAL ARTIFACT")
@@ -518,7 +530,9 @@ async def test_planning_context_prefix_absent_when_no_planning_artifact(
 
 
 @pytest.mark.asyncio
-async def test_planning_context_available_when_present(engine: ExecutionEngine, db_factory) -> None:
+async def test_planning_context_available_when_present(
+    engine: ExecutionEngine, db_factory
+) -> None:
     """A planning_context artifact on the parent → the "=== PLANNING CONTEXT"
     guardrail block is PREPENDED to the dispatched context_message, verbatim
     content included."""
@@ -536,7 +550,9 @@ async def test_planning_context_available_when_present(engine: ExecutionEngine, 
         run_id=parent,
         owner_id=OWNER,
         kind="planning_context",
-        content=json.dumps({"inferred_intent": "Build a login feature", "execution_gate": "PROCEED"}),
+        content=json.dumps(
+            {"inferred_intent": "Build a login feature", "execution_gate": "PROCEED"}
+        ),
     )
 
     _, sent = await _dispatch_revision(
@@ -566,7 +582,9 @@ async def test_cross_owner_revision_denied(engine: ExecutionEngine, db_factory) 
     assert_owns(parent_run_id) BEFORE any cross-run read (T-5-SEED)."""
     parent = "run-parent-owned-by-x"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
-    _seed_ref(db_factory, run_id=parent, owner_id=OWNER, kind="spec", content="# Owner X spec")
+    _seed_ref(
+        db_factory, run_id=parent, owner_id=OWNER, kind="spec", content="# Owner X spec"
+    )
 
     events: list[dict] = []
 
@@ -633,8 +651,8 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
             WorkflowRun(
                 id=rev_run_id,
                 user_id=OWNER,
-                owner_id=OWNER,        # AUTHZ-03 — never None at creation
-                workspace_id=None,     # transiently null — execute() stamps it
+                owner_id=OWNER,  # AUTHZ-03 — never None at creation
+                workspace_id=None,  # transiently null — execute() stamps it
                 title="Revision: x",
                 type="ppt_revision",
                 status="revising",
@@ -673,9 +691,9 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
         # seq is contiguous from 1 with NO duplicates — the single-stamping
         # regression trap: a second counter would duplicate or skip.
         seqs = [r.seq for r in rows]
-        assert seqs == list(range(1, len(seqs) + 1)), (
-            f"seq must be contiguous 1..N with no duplicates; got {seqs}"
-        )
+        assert seqs == list(
+            range(1, len(seqs) + 1)
+        ), f"seq must be contiguous 1..N with no duplicates; got {seqs}"
         # The terminal pipeline_complete row is present in the ledger.
         types = [r.type for r in rows]
         assert "pipeline_start" in types
@@ -690,9 +708,9 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
         row = chk2.query(WorkflowRun).filter(WorkflowRun.id == rev_run_id).first()
         assert row is not None
         assert row.owner_id == OWNER
-        assert row.workspace_id == minted_ws, (
-            "revision run workspace must be execute()'s minted workspace"
-        )
+        assert (
+            row.workspace_id == minted_ws
+        ), "revision run workspace must be execute()'s minted workspace"
     finally:
         chk2.close()
 
@@ -727,7 +745,11 @@ async def test_clarifications_round_trip_via_artifact_refs(db_factory) -> None:
     clarify._workspace_id = WS
 
     questions = [
-        {"question_id": "r1_q1", "question_text": "What topic?", "impact_level": "high"},
+        {
+            "question_id": "r1_q1",
+            "question_text": "What topic?",
+            "impact_level": "high",
+        },
     ]
     responses = [{"question_id": "r1_q1", "answer": "Login feature"}]
     await clarify._persist_qa(run_id, questions, responses, round_num=1)
@@ -778,7 +800,9 @@ def _seed_realistic_parent(
         "summary_v1": "Composing the 4-slide deck per the strategist plan.",
         "summary_v2": "Validation passed. Final deck: <section class='deck-slide'>Title</section>",
         "deliverable": "<!doctype html><html><body><section class='deck-slide'>Title</section></body></html>",
-        "planning": json.dumps({"inferred_intent": "Pitch deck", "execution_gate": "PROCEED"}),
+        "planning": json.dumps(
+            {"inferred_intent": "Pitch deck", "execution_gate": "PROCEED"}
+        ),
     }
     _seed_ref(
         session_factory,
@@ -1027,7 +1051,9 @@ async def test_fe_target_cross_owner_still_denied_on_realistic_parent(
 
     # Nothing was written for the attacker's revision run.
     attacker_store = ScopedStore(owner_id=OTHER_OWNER)
-    refs = await attacker_store.list_refs("run-rev-realistic-cross-owner", kind="ppt_output")
+    refs = await attacker_store.list_refs(
+        "run-rev-realistic-cross-owner", kind="ppt_output"
+    )
     assert refs == []
 
 

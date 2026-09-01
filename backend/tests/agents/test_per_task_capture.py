@@ -54,8 +54,13 @@ def _seed_workflow_run(session, run_id, *, owner, workspace_id, status="generati
 
     session.add(
         WorkflowRun(
-            id=run_id, user_id=owner, owner_id=owner, workspace_id=workspace_id,
-            status=status, type="prototype", input="brief",
+            id=run_id,
+            user_id=owner,
+            owner_id=owner,
+            workspace_id=workspace_id,
+            status=status,
+            type="prototype",
+            input="brief",
         )
     )
     session.commit()
@@ -127,30 +132,37 @@ async def test_multifile_task_capture_produces_sibling_file_bundles(tmp_path):
     sandbox.write("nested/part_c.md", "# sibling C")
     sandbox.write(".uploads/doc.txt", "uploaded — must never be captured")
 
-    await runner.persist_task_html(task_num=1, agent_id="prototype-build", filename=declared)
+    await runner.persist_task_html(
+        task_num=1, agent_id="prototype-build", filename=declared
+    )
 
     rows = await store.tree(ectx.run_id)
 
     html_rows = [r for r in rows if r.kind == "html_file"]
-    assert len(html_rows) == 1, f"exactly one html_file ref expected, got {len(html_rows)}"
+    assert (
+        len(html_rows) == 1
+    ), f"exactly one html_file ref expected, got {len(html_rows)}"
     assert html_rows[0].location == declared
     assert html_rows[0].content == "<html>declared</html>"
     assert html_rows[0].task_id == "1"
 
     bundle_locs = {r.location for r in rows if r.kind == "file_bundle"}
-    assert bundle_locs == {"part_b.txt", "nested/part_c.md"}, (
-        f"every non-declared sibling must be captured as file_bundle; got {bundle_locs}"
-    )
+    assert bundle_locs == {
+        "part_b.txt",
+        "nested/part_c.md",
+    }, f"every non-declared sibling must be captured as file_bundle; got {bundle_locs}"
 
     # .uploads/ is the Phase-47 fence — NEVER captured (no ref at any .uploads/ path).
-    assert not any(r.location.startswith(".uploads/") for r in rows), (
-        "a file under .uploads/ must never be captured"
-    )
+    assert not any(
+        r.location.startswith(".uploads/") for r in rows
+    ), "a file under .uploads/ must never be captured"
 
     # Every task-tagged ref carries this task's id.
     for r in rows:
         if r.kind in ("html_file", "file_bundle"):
-            assert r.task_id == "1", f"{r.location} should be tagged task_id=1, got {r.task_id!r}"
+            assert (
+                r.task_id == "1"
+            ), f"{r.location} should be tagged task_id=1, got {r.task_id!r}"
 
     session.close()
 
@@ -166,15 +178,21 @@ async def test_sibling_dedup_no_runaway_versions(tmp_path):
     sandbox.write(declared, "<html>v1</html>")
     sandbox.write("part_b.txt", "unchanged sibling")
 
-    await runner.persist_task_html(task_num=1, agent_id="prototype-build", filename=declared)
+    await runner.persist_task_html(
+        task_num=1, agent_id="prototype-build", filename=declared
+    )
     # Second capture — the sibling content is byte-identical.
-    await runner.persist_task_html(task_num=1, agent_id="prototype-build", filename=declared)
+    await runner.persist_task_html(
+        task_num=1, agent_id="prototype-build", filename=declared
+    )
 
     rows = await store.tree(ectx.run_id)
-    bundle_b = [r for r in rows if r.kind == "file_bundle" and r.location == "part_b.txt"]
-    assert len(bundle_b) == 1, (
-        f"an unchanged sibling must not spawn a new version; got {len(bundle_b)} refs"
-    )
+    bundle_b = [
+        r for r in rows if r.kind == "file_bundle" and r.location == "part_b.txt"
+    ]
+    assert (
+        len(bundle_b) == 1
+    ), f"an unchanged sibling must not spawn a new version; got {len(bundle_b)} refs"
 
     session.close()
 
@@ -188,14 +206,22 @@ async def test_sibling_recaptured_when_content_changes(tmp_path):
     declared = "prototype.html"
     sandbox.write(declared, "<html>v1</html>")
     sandbox.write("part_b.txt", "first")
-    await runner.persist_task_html(task_num=1, agent_id="prototype-build", filename=declared)
+    await runner.persist_task_html(
+        task_num=1, agent_id="prototype-build", filename=declared
+    )
 
     sandbox.write("part_b.txt", "second — edited")
-    await runner.persist_task_html(task_num=1, agent_id="prototype-build", filename=declared)
+    await runner.persist_task_html(
+        task_num=1, agent_id="prototype-build", filename=declared
+    )
 
     rows = await store.tree(ectx.run_id)
-    bundle_b = [r for r in rows if r.kind == "file_bundle" and r.location == "part_b.txt"]
-    assert len(bundle_b) == 2, f"a changed sibling must be recaptured; got {len(bundle_b)}"
+    bundle_b = [
+        r for r in rows if r.kind == "file_bundle" and r.location == "part_b.txt"
+    ]
+    assert (
+        len(bundle_b) == 2
+    ), f"a changed sibling must be recaptured; got {len(bundle_b)}"
     assert {r.content for r in bundle_b} == {"first", "second — edited"}
 
     session.close()
@@ -212,7 +238,9 @@ async def test_prototype_byte_neutrality_single_html_file(tmp_path):
     declared = "prototype.html"
     sandbox.write(declared, "<html>only declared</html>")
 
-    await runner.persist_task_html(task_num=1, agent_id="prototype-build", filename=declared)
+    await runner.persist_task_html(
+        task_num=1, agent_id="prototype-build", filename=declared
+    )
 
     rows = await store.tree(ectx.run_id)
     html_rows = [r for r in rows if r.kind == "html_file"]

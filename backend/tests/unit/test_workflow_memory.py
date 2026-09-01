@@ -87,7 +87,9 @@ async def test_set_and_get_constitution(memory: WorkflowMemory) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_constitution_returns_none_when_not_set(memory: WorkflowMemory) -> None:
+async def test_get_constitution_returns_none_when_not_set(
+    memory: WorkflowMemory,
+) -> None:
     result = await memory.get_constitution("user-no-constitution")
     assert result is None
 
@@ -102,7 +104,9 @@ async def test_delete_constitution(memory: WorkflowMemory) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_nonexistent_constitution_returns_false(memory: WorkflowMemory) -> None:
+async def test_delete_nonexistent_constitution_returns_false(
+    memory: WorkflowMemory,
+) -> None:
     deleted = await memory.delete_constitution("user-no-constitution")
     assert deleted is False
 
@@ -125,7 +129,9 @@ async def test_1000_entry_limit_enforced(memory: WorkflowMemory) -> None:
 
 
 @pytest.mark.asyncio
-async def test_overwriting_existing_key_does_not_count_toward_limit(memory: WorkflowMemory) -> None:
+async def test_overwriting_existing_key_does_not_count_toward_limit(
+    memory: WorkflowMemory,
+) -> None:
     user_id = "user-overwrite"
     for i in range(1000):
         await memory.set_entry(user_id, f"key-{i}", f"value-{i}")

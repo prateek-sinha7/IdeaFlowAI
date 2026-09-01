@@ -114,13 +114,13 @@ def test_skip_linter_finds_unrecorded_pytest_skip(temp_repo_root):
     test_file = temp_repo_root / "backend" / "tests" / "test_example.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
 
-    test_content = '''
+    test_content = """
 def test_recorded_skip():
     pytest.skip("Known skip")
 
 def test_unrecorded_skip():
     pytest.skip("Unknown skip")
-'''
+"""
     test_file.write_text(test_content)
 
     linter = SkipEnforcementLinter(repo_root=temp_repo_root)
@@ -137,11 +137,11 @@ def test_skip_linter_finds_unrecorded_pytest_mark_skip(temp_repo_root):
     test_file = temp_repo_root / "backend" / "tests" / "test_marked.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
 
-    test_content = '''
+    test_content = """
 @pytest.mark.skip
 def test_unrecorded_marked_skip():
     pass
-'''
+"""
     test_file.write_text(test_content)
 
     linter = SkipEnforcementLinter(repo_root=temp_repo_root)
@@ -157,11 +157,11 @@ def test_skip_linter_finds_unrecorded_vitest_skip(temp_repo_root):
     test_file = temp_repo_root / "frontend" / "src" / "test_example.test.ts"
     test_file.parent.mkdir(parents=True, exist_ok=True)
 
-    test_content = '''
+    test_content = """
 test.skip("unrecorded test skip", () => {
   expect(true).toBe(true);
 });
-'''
+"""
     test_file.write_text(test_content)
 
     linter = SkipEnforcementLinter(repo_root=temp_repo_root)
@@ -178,11 +178,11 @@ def test_skip_linter_finds_unrecorded_vitest_fixme(temp_repo_root):
     test_file = temp_repo_root / "frontend" / "src" / "test_example.test.ts"
     test_file.parent.mkdir(parents=True, exist_ok=True)
 
-    test_content = '''
+    test_content = """
 test.fixme("unrecorded test fixme", () => {
   expect(true).toBe(true);
 });
-'''
+"""
     test_file.write_text(test_content)
 
     linter = SkipEnforcementLinter(repo_root=temp_repo_root)
@@ -200,10 +200,10 @@ def test_skip_linter_ignores_recorded_skips(temp_repo_root):
     test_file = temp_repo_root / "backend" / "tests" / "test_recorded.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
 
-    test_content = '''
+    test_content = """
 def test_known_skip():
     pytest.skip("This is recorded")
-'''
+"""
     test_file.write_text(test_content)
 
     linter = SkipEnforcementLinter(repo_root=temp_repo_root)
@@ -237,12 +237,14 @@ def test_skip_linter_format_findings(temp_repo_root):
     assert "No unrecorded test skips found" in output
 
     # Add a finding manually
-    linter.findings.append({
-        "file": "backend/tests/test_example.py",
-        "line": 42,
-        "directive": "pytest.skip()",
-        "case_id": "test_example",
-    })
+    linter.findings.append(
+        {
+            "file": "backend/tests/test_example.py",
+            "line": 42,
+            "directive": "pytest.skip()",
+            "case_id": "test_example",
+        }
+    )
 
     output = linter.format_findings()
     assert "Unrecorded test skips/disables found" in output
@@ -274,7 +276,7 @@ def test_linter_multiple_findings(temp_repo_root):
     test_file = temp_repo_root / "backend" / "tests" / "test_multi.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
 
-    test_content = '''
+    test_content = """
 def test_skip1():
     pytest.skip("skip1")
 
@@ -284,7 +286,7 @@ def test_skip2():
 
 def test_skip3():
     pytest.skip("skip3")
-'''
+"""
     test_file.write_text(test_content)
 
     linter = SkipEnforcementLinter(repo_root=temp_repo_root)

@@ -77,12 +77,12 @@ def test_each_table_has_not_null_owner_and_workspace(fresh_db_url: str) -> None:
         cols = {c["name"]: c for c in inspector.get_columns(table)}
         assert "owner_id" in cols, f"{table} missing owner_id"
         assert "workspace_id" in cols, f"{table} missing workspace_id"
-        assert cols["owner_id"]["nullable"] is False, (
-            f"{table}.owner_id must be NOT NULL"
-        )
-        assert cols["workspace_id"]["nullable"] is False, (
-            f"{table}.workspace_id must be NOT NULL"
-        )
+        assert (
+            cols["owner_id"]["nullable"] is False
+        ), f"{table}.owner_id must be NOT NULL"
+        assert (
+            cols["workspace_id"]["nullable"] is False
+        ), f"{table}.workspace_id must be NOT NULL"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -133,7 +133,10 @@ async def test_gate_event_write_is_owner_workspace_scoped(db_session) -> None:
 
     alice = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
     row_id = await alice.record_gate_event(
-        "run-1", step="prototype-build", gate="security", outcome="block",
+        "run-1",
+        step="prototype-build",
+        gate="security",
+        outcome="block",
         detail={"reason": "exec requested, exec OFF"},
     )
     assert row_id
@@ -171,9 +174,9 @@ def test_migration_0016_down_revision_is_0015() -> None:
     script = ScriptDirectory.from_config(_make_config("sqlite://"))
     rev = script.get_revision("0016")
     assert rev is not None, "revision 0016 not found in the migration ledger"
-    assert rev.down_revision == "0015", (
-        f"0016 down_revision is {rev.down_revision!r}, expected '0015'"
-    )
+    assert (
+        rev.down_revision == "0015"
+    ), f"0016 down_revision is {rev.down_revision!r}, expected '0015'"
     # The ledger must resolve to exactly ONE head. Asserting a hardcoded
     # revision number here goes stale on every new migration (0016 was the head
     # when this test was written); the invariant worth guarding is single-head,
@@ -203,9 +206,9 @@ def test_migration_0023_down_revision_is_0022() -> None:
     script = ScriptDirectory.from_config(_make_config("sqlite://"))
     rev = script.get_revision("0023")
     assert rev is not None, "revision 0023 not found in the migration ledger"
-    assert rev.down_revision == "0022", (
-        f"0023 down_revision is {rev.down_revision!r}, expected '0022'"
-    )
+    assert (
+        rev.down_revision == "0022"
+    ), f"0023 down_revision is {rev.down_revision!r}, expected '0022'"
     # Single-head, not a hardcoded revision number — see the note in
     # test_migration_0016_down_revision_is_0015.
     # The chain must still resolve to a SINGLE head (no branch point), even if
@@ -218,12 +221,7 @@ def test_migration_0023_is_additive_only() -> None:
     """Migration 0023 is single-head additive (down_revision 0022); upgrade adds
     ONLY the selections_json column and contains no drop/alter-narrow of existing
     columns (WR-02). Source-level assertion — no DB round-trip required."""
-    mig = (
-        _BACKEND_DIR
-        / "alembic"
-        / "versions"
-        / "0023_workflow_run_selections.py"
-    )
+    mig = _BACKEND_DIR / "alembic" / "versions" / "0023_workflow_run_selections.py"
     src = mig.read_text(encoding="utf-8")
     assert 'revision = "0023"' in src
     assert 'down_revision = "0022"' in src
@@ -247,12 +245,7 @@ def test_migration_0026_is_additive() -> None:
     contains no drop/alter-narrow/drop-table of existing columns (RESUME-06).
     Source-level assertion — no DB round-trip (the round-trip lives in
     tests/agents/test_subagent_runs.py)."""
-    mig = (
-        _BACKEND_DIR
-        / "alembic"
-        / "versions"
-        / "0026_subagent_task_identity.py"
-    )
+    mig = _BACKEND_DIR / "alembic" / "versions" / "0026_subagent_task_identity.py"
     src = mig.read_text(encoding="utf-8")
     assert 'revision = "0026"' in src
     assert 'down_revision = "0025"' in src

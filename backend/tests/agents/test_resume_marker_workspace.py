@@ -66,12 +66,14 @@ async def test_set_run_scope_resolves_scoped_get_run_and_preserves_idor():
 
     row = await scoped.get_run(run_id)
     assert row is not None, "after stamping, the scoped get_run must resolve the run"
-    assert row.status is not None and row.status == "generating", (
-        "pipeline_reconnected.status source must be non-null after stamping"
-    )
+    assert (
+        row.status is not None and row.status == "generating"
+    ), "pipeline_reconnected.status source must be non-null after stamping"
 
     # IDOR preserved: a cross-owner store still resolves ∅ …
-    cross = ScopedStore(owner_id="someone-else", workspace_id=workspace_id, session=session)
+    cross = ScopedStore(
+        owner_id="someone-else", workspace_id=workspace_id, session=session
+    )
     assert await cross.get_run(run_id) is None, "cross-owner get_run must stay ∅"
     # … and a cross-owner re-scope attempt fails loud (IN-02), never clobbers.
     with pytest.raises(PermissionError):
@@ -105,9 +107,9 @@ async def test_engine_drive_stamps_workflow_runs_workspace_consistent_with_sink(
         await engine.resume_run(run_id)
 
     wr = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert wr.workspace_id is not None, (
-        "the driven run must stamp workflow_runs.workspace_id (Gap 2c root cause)"
-    )
+    assert (
+        wr.workspace_id is not None
+    ), "the driven run must stamp workflow_runs.workspace_id (Gap 2c root cause)"
     evt = session.query(RunEvent).filter(RunEvent.run_id == run_id).first()
     assert evt is not None, "the drive must have persisted run_events"
     assert wr.workspace_id == evt.workspace_id, (
@@ -146,8 +148,11 @@ async def test_stamp_resume_marker_persists_under_recovered_workspace():
     N = 3
     for seq in range(1, N + 1):
         await sink_store.append_event(
-            run_id, seq=seq, event_id=f"rm-{seq}",
-            type=f"agent_chunk_{seq}", payload_json={"seq": seq},
+            run_id,
+            seq=seq,
+            event_id=f"rm-{seq}",
+            type=f"agent_chunk_{seq}",
+            payload_json={"seq": seq},
         )
     session.commit()
 
@@ -236,7 +241,11 @@ async def test_stamp_resume_marker_survives_concurrent_racing_writers():
     # against (an empty tail would make every concurrent writer race for seq=1).
     seed_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
     await seed_store.append_event(
-        run_id, seq=1, event_id="cc-seed", type="agent_chunk_1", payload_json={"seq": 1},
+        run_id,
+        seq=1,
+        event_id="cc-seed",
+        type="agent_chunk_1",
+        payload_json={"seq": 1},
     )
     session.commit()
 
@@ -264,7 +273,7 @@ async def test_stamp_resume_marker_survives_concurrent_racing_writers():
     assert len(set(seqs)) == len(seqs), f"marker seqs must be unique, got {seqs}"
     # No gaps/duplicates across the whole persisted log for this run either.
     all_seqs = sorted(r.seq for r in rows)
-    assert all_seqs == list(range(1, len(rows) + 1)), (
-        f"the run's full seq log must stay contiguous and unique, got {all_seqs}"
-    )
+    assert all_seqs == list(
+        range(1, len(rows) + 1)
+    ), f"the run's full seq log must stay contiguous and unique, got {all_seqs}"
     session.close()

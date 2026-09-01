@@ -41,6 +41,7 @@ silently creating an unusable account.
 Safe to re-run: existing users are reconciled in place (password + tier +
 group membership reset).
 """
+
 import os
 import sys
 

@@ -18,6 +18,7 @@ Import purity (import-linter): imports ONLY the registry decorator + stdlib typi
 from __future__ import annotations
 
 from agents.capabilities.hooks import behavioral  # noqa: F401 — import side effect: @register
+
 # Order matters (WR-02): import the SECURITY hook (``secret_scan``) BEFORE the
 # OPTIONAL-dependency observability hook (``otel_tracing``) so the security control
 # registers independently — even though otel_tracing now guards its imports, keeping

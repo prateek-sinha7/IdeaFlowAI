@@ -141,8 +141,7 @@ _PREEXISTING_NITS = {_PREEXISTING_NIT, _PREEXISTING_ROUTER_DEAD}
 # routes map with no matching <section data-page="ghost"> (pure static; render
 # stays green). The EXACT issue string static_check reports for it.
 _REGRESSION_ISSUE = (
-    "routes map has extra id 'ghost' with no matching "
-    '<section data-page="ghost">'
+    "routes map has extra id 'ghost' with no matching " '<section data-page="ghost">'
 )
 
 # The revision request the user made (re-injected into the fix prompt).
@@ -173,7 +172,13 @@ def _edit_turn(old: str, new: str, *, text: str, call_id: str) -> _ScriptedTurn:
         tool_calls=[
             (
                 "edit_file",
-                json.dumps({"file_path": "prototype.html", "old_string": old, "new_string": new}),
+                json.dumps(
+                    {
+                        "file_path": "prototype.html",
+                        "old_string": old,
+                        "new_string": new,
+                    }
+                ),
                 call_id,
             )
         ],
@@ -186,8 +191,10 @@ def _edit_turn(old: str, new: str, *, text: str, call_id: str) -> _ScriptedTurn:
 def _revision_introduce_regression_turns() -> list[_ScriptedTurn]:
     return [
         _edit_turn(
-            _ROUTES_ORIGINAL, _ROUTES_WITH_GHOST,
-            text="Adding the ghost route to the map. ", call_id="rev_edit",
+            _ROUTES_ORIGINAL,
+            _ROUTES_WITH_GHOST,
+            text="Adding the ghost route to the map. ",
+            call_id="rev_edit",
         ),
         _final_text_turn(),
     ]
@@ -198,8 +205,10 @@ def _revision_introduce_regression_turns() -> list[_ScriptedTurn]:
 def _fix_remove_regression_turns() -> list[_ScriptedTurn]:
     return [
         _edit_turn(
-            _ROUTES_WITH_GHOST, _ROUTES_ORIGINAL,
-            text="Fixing the stray route. ", call_id="fix_edit",
+            _ROUTES_WITH_GHOST,
+            _ROUTES_ORIGINAL,
+            text="Fixing the stray route. ",
+            call_id="fix_edit",
         ),
         _final_text_turn(),
     ]
@@ -210,8 +219,10 @@ def _fix_remove_regression_turns() -> list[_ScriptedTurn]:
 def _clean_revision_turns() -> list[_ScriptedTurn]:
     return [
         _edit_turn(
-            "<h1>Dashboard</h1>", "<h1>Home</h1>",
-            text="Renaming the dashboard heading. ", call_id="clean_edit",
+            "<h1>Dashboard</h1>",
+            "<h1>Home</h1>",
+            text="Renaming the dashboard heading. ",
+            call_id="clean_edit",
         ),
         _final_text_turn(),
     ]
@@ -243,7 +254,9 @@ class _RecordingScriptedModel(ScriptedFakeChatModel):
     captures it verbatim regardless of how the graph wraps it.
     """
 
-    def __init__(self, turns: list[_ScriptedTurn], *, log: list, key: tuple, **kw: Any) -> None:
+    def __init__(
+        self, turns: list[_ScriptedTurn], *, log: list, key: tuple, **kw: Any
+    ) -> None:
         super().__init__(turns, **kw)
         object.__setattr__(self, "_log", log)
         object.__setattr__(self, "_key", key)
@@ -251,7 +264,9 @@ class _RecordingScriptedModel(ScriptedFakeChatModel):
     def _stream(self, messages: list, stop=None, run_manager=None, **kwargs):  # type: ignore[override]
         rendered = "\n".join(_message_text(m) for m in messages)
         self._log.append((self._key, rendered))
-        yield from super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        yield from super()._stream(
+            messages, stop=stop, run_manager=run_manager, **kwargs
+        )
 
 
 def _message_text(m: Any) -> str:
@@ -296,7 +311,9 @@ def _fresh_engine(monkeypatch, tmp_path):
 
     engine._store.store = _noop_store  # type: ignore[assignment]
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -380,7 +397,9 @@ def _provision_parent_run_db(monkeypatch, *, parent_run_id, owner_id="anon"):
     return TestingSession
 
 
-def _install_recording_runner_factory(monkeypatch, engine_mod, *, turns_for, transcripts):
+def _install_recording_runner_factory(
+    monkeypatch, engine_mod, *, turns_for, transcripts
+):
     """Patch ``engine.create_runner`` to return a REAL ``DeepAgentRunner`` over a
     ``_RecordingScriptedModel`` and RECORD every call.
 
@@ -483,7 +502,9 @@ class TestParentSeeding:
         parent_sb = RunSandbox("anon", parent_run_id)
         parent_sb.ensure()
         spec_text = "# Specification\nThe app manages tasks.\n## Architecture\nSPA, hash routing."
-        design_text = "# ACTIVE TEMPLATE (web-prototype)\n## Workflow\nUse .card / .grid."
+        design_text = (
+            "# ACTIVE TEMPLATE (web-prototype)\n## Workflow\nUse .card / .grid."
+        )
         tasks_text = "## Task 1: Build the HTML shell\nCreate the skeleton.\n"
         parent_sb.write("spec.md", spec_text)
         parent_sb.write("design.md", design_text)
@@ -498,17 +519,27 @@ class TestParentSeeding:
         transcripts: list = []
         run_id = "revision-seed-001"
         await _execute_revision(
-            engine, run_id, parent_run_id=parent_run_id,
-            turns_for=turns_for, transcripts=transcripts,
-            monkeypatch=monkeypatch, engine_mod=engine_mod,
+            engine,
+            run_id,
+            parent_run_id=parent_run_id,
+            turns_for=turns_for,
+            transcripts=transcripts,
+            monkeypatch=monkeypatch,
+            engine_mod=engine_mod,
         )
 
         # The REVISION run's sandbox now holds the parent's reference files,
         # byte-identical to the seeded contents.
         rev_sb = RunSandbox("anon", run_id)
-        assert rev_sb.read("spec.md") == spec_text, "parent spec.md must be seeded verbatim"
-        assert rev_sb.read("design.md") == design_text, "parent design.md must be seeded verbatim"
-        assert rev_sb.read("tasks.md") == tasks_text, "parent tasks.md must be seeded verbatim"
+        assert (
+            rev_sb.read("spec.md") == spec_text
+        ), "parent spec.md must be seeded verbatim"
+        assert (
+            rev_sb.read("design.md") == design_text
+        ), "parent design.md must be seeded verbatim"
+        assert (
+            rev_sb.read("tasks.md") == tasks_text
+        ), "parent tasks.md must be seeded verbatim"
 
     @pytest.mark.asyncio
     async def test_partial_parent_seeds_only_present_files(
@@ -532,15 +563,23 @@ class TestParentSeeding:
         transcripts: list = []
         run_id = "revision-seed-002"
         await _execute_revision(
-            engine, run_id, parent_run_id=parent_run_id,
-            turns_for=turns_for, transcripts=transcripts,
-            monkeypatch=monkeypatch, engine_mod=engine_mod,
+            engine,
+            run_id,
+            parent_run_id=parent_run_id,
+            turns_for=turns_for,
+            transcripts=transcripts,
+            monkeypatch=monkeypatch,
+            engine_mod=engine_mod,
         )
 
         rev_sb = RunSandbox("anon", run_id)
         assert rev_sb.read("spec.md") == "# Spec only\n"
-        assert rev_sb.read("design.md") is None, "absent parent design.md must not be fabricated"
-        assert rev_sb.read("tasks.md") is None, "absent parent tasks.md must not be fabricated"
+        assert (
+            rev_sb.read("design.md") is None
+        ), "absent parent design.md must not be fabricated"
+        assert (
+            rev_sb.read("tasks.md") is None
+        ), "absent parent tasks.md must not be fabricated"
 
 
 # ===========================================================================
@@ -564,14 +603,14 @@ class TestFixPolicyEndToEnd:
         # the ORIGINAL has EXACTLY the pre-existing nit; the introduced-regression
         # HTML has the nit PLUS the regression.
         orig_issues = set(static_check(_ORIGINAL_HTML).issues)
-        assert orig_issues == _PREEXISTING_NITS, (
-            f"fixture drift: ORIGINAL must carry exactly the pre-existing nits; got {orig_issues}"
-        )
+        assert (
+            orig_issues == _PREEXISTING_NITS
+        ), f"fixture drift: ORIGINAL must carry exactly the pre-existing nits; got {orig_issues}"
         revised_html = _ORIGINAL_HTML.replace(_ROUTES_ORIGINAL, _ROUTES_WITH_GHOST)
         revised_issues = set(static_check(revised_html).issues)
-        assert revised_issues == _PREEXISTING_NITS | {_REGRESSION_ISSUE}, (
-            f"fixture drift: revised HTML must carry nits + regression; got {revised_issues}"
-        )
+        assert (
+            revised_issues == _PREEXISTING_NITS | {_REGRESSION_ISSUE}
+        ), f"fixture drift: revised HTML must carry nits + regression; got {revised_issues}"
 
         def turns_for(agent_id, thread_id, is_fix):
             # KAN-108: prototype-revision-validate is the new second declared step —
@@ -588,22 +627,30 @@ class TestFixPolicyEndToEnd:
         transcripts: list = []
         run_id = "revision-fix-core"
         events, calls = await _execute_revision(
-            engine, run_id, parent_run_id=None,
-            turns_for=turns_for, transcripts=transcripts,
-            monkeypatch=monkeypatch, engine_mod=engine_mod,
+            engine,
+            run_id,
+            parent_run_id=None,
+            turns_for=turns_for,
+            transcripts=transcripts,
+            monkeypatch=monkeypatch,
+            engine_mod=engine_mod,
         )
 
         # ── The internal fix sub-agent fired on a distinct :revision:fix thread. ──
         fix_calls = [(a, t) for (a, t) in calls if ":fix" in t]
-        assert fix_calls, f"a regression must re-invoke the fix sub-agent; calls={calls}"
-        assert all(a == "prototype-revision-agent" for (a, t) in fix_calls), (
-            f"the fix must reuse the SAME revision agent id; got {fix_calls}"
-        )
-        assert all(":prototype-revision-agent:revision:fix" in t for (a, t) in fix_calls), (
-            f"fix thread must be the generalized revision fix thread; got {fix_calls}"
-        )
+        assert (
+            fix_calls
+        ), f"a regression must re-invoke the fix sub-agent; calls={calls}"
+        assert all(
+            a == "prototype-revision-agent" for (a, t) in fix_calls
+        ), f"the fix must reuse the SAME revision agent id; got {fix_calls}"
+        assert all(
+            ":prototype-revision-agent:revision:fix" in t for (a, t) in fix_calls
+        ), f"fix thread must be the generalized revision fix thread; got {fix_calls}"
         # Repaired in one attempt (the post-fix file has only the baselined nit).
-        assert len(fix_calls) == 1, f"the regression was repaired in one fix attempt; got {fix_calls}"
+        assert (
+            len(fix_calls) == 1
+        ), f"the regression was repaired in one fix attempt; got {fix_calls}"
         assert fix_calls[0][1].endswith(":revision:fix1")
 
         # ── Capture the fix message the fix sub-agent received and assert policy. ──
@@ -614,34 +661,36 @@ class TestFixPolicyEndToEnd:
         fix_message = fix_msgs[0]
 
         # (a) It CONTAINS the regression issue (fed back for fixing).
-        assert _REGRESSION_ISSUE in fix_message, (
-            f"fix message must list the NEW regression; got:\n{fix_message}"
-        )
+        assert (
+            _REGRESSION_ISSUE in fix_message
+        ), f"fix message must list the NEW regression; got:\n{fix_message}"
         # (b) It does NOT contain the pre-existing baselined nits (suppressed).
-        assert _PREEXISTING_NIT not in fix_message, (
-            f"fix message must NOT list the pre-existing baselined nit; got:\n{fix_message}"
-        )
-        assert _PREEXISTING_ROUTER_DEAD not in fix_message, (
-            f"fix message must NOT list the pre-existing router-dead nit; got:\n{fix_message}"
-        )
+        assert (
+            _PREEXISTING_NIT not in fix_message
+        ), f"fix message must NOT list the pre-existing baselined nit; got:\n{fix_message}"
+        assert (
+            _PREEXISTING_ROUTER_DEAD not in fix_message
+        ), f"fix message must NOT list the pre-existing router-dead nit; got:\n{fix_message}"
         # (c) It re-injects the user's revision instruction (stay focused).
-        assert _USER_INSTRUCTION in fix_message, (
-            f"fix message must re-inject the user's revision instruction; got:\n{fix_message}"
-        )
+        assert (
+            _USER_INSTRUCTION in fix_message
+        ), f"fix message must re-inject the user's revision instruction; got:\n{fix_message}"
 
         # ── The final deliverable is the CLEAN HTML (regression removed). ──
         rev_sb = RunSandbox("anon", run_id)
         final_html = rev_sb.read("prototype.html") or ""
-        assert _ROUTES_WITH_GHOST not in final_html, "the fix must have removed the ghost route"
+        assert (
+            _ROUTES_WITH_GHOST not in final_html
+        ), "the fix must have removed the ghost route"
         # Only the pre-existing baselined nits remain (the fix left them alone).
         assert set(static_check(final_html).issues) == _PREEXISTING_NITS, (
             f"final HTML must carry ONLY the untouched pre-existing nits; "
             f"got {static_check(final_html).issues}"
         )
         # The engine's pipeline_complete.final_output IS that clean read-back.
-        assert _final_output(events) == final_html, (
-            "pipeline_complete.final_output must be the validated edited prototype.html"
-        )
+        assert (
+            _final_output(events) == final_html
+        ), "pipeline_complete.final_output must be the validated edited prototype.html"
         assert _ROUTES_WITH_GHOST not in _final_output(events)
 
     @pytest.mark.asyncio
@@ -683,21 +732,25 @@ class TestFixPolicyEndToEnd:
         transcripts: list = []
         run_id = "revision-baseline"
         await _execute_revision(
-            engine, run_id, parent_run_id=None,
-            turns_for=turns_for, transcripts=transcripts,
-            monkeypatch=monkeypatch, engine_mod=engine_mod,
+            engine,
+            run_id,
+            parent_run_id=None,
+            turns_for=turns_for,
+            transcripts=transcripts,
+            monkeypatch=monkeypatch,
+            engine_mod=engine_mod,
         )
 
         # The baseline captured the ORIGINAL's pre-existing nit (so the fix-loop
         # treats it as not-a-regression), and did NOT capture the ghost regression
         # (which only exists AFTER the edit).
         baseline_static = captured.get("baseline_static") or set()
-        assert _PREEXISTING_NIT in baseline_static, (
-            "baseline must capture the pre-existing nit from the seeded ORIGINAL"
-        )
-        assert _REGRESSION_ISSUE not in baseline_static, (
-            "baseline must be pre-edit — the regression must NOT be in it"
-        )
+        assert (
+            _PREEXISTING_NIT in baseline_static
+        ), "baseline must capture the pre-existing nit from the seeded ORIGINAL"
+        assert (
+            _REGRESSION_ISSUE not in baseline_static
+        ), "baseline must be pre-edit — the regression must NOT be in it"
         # The instruction threaded into the fix prompt is the user's verbatim request.
         assert captured.get("user_instruction") == _USER_INSTRUCTION
 
@@ -724,9 +777,13 @@ class TestGracefulDegradeNoParent:
         transcripts: list = []
         run_id = "revision-no-parent"
         events, _calls = await _execute_revision(
-            engine, run_id, parent_run_id=None,
-            turns_for=turns_for, transcripts=transcripts,
-            monkeypatch=monkeypatch, engine_mod=engine_mod,
+            engine,
+            run_id,
+            parent_run_id=None,
+            turns_for=turns_for,
+            transcripts=transcripts,
+            monkeypatch=monkeypatch,
+            engine_mod=engine_mod,
         )
 
         rev_sb = RunSandbox("anon", run_id)
@@ -756,9 +813,13 @@ class TestGracefulDegradeNoParent:
         run_id = "revision-ghost-parent"
         with caplog.at_level(logging.WARNING, logger="agents.execution_engine.engine"):
             events, _calls = await _execute_revision(
-                engine, run_id, parent_run_id="parent-that-was-swept-by-ttl",
-                turns_for=turns_for, transcripts=transcripts,
-                monkeypatch=monkeypatch, engine_mod=engine_mod,
+                engine,
+                run_id,
+                parent_run_id="parent-that-was-swept-by-ttl",
+                turns_for=turns_for,
+                transcripts=transcripts,
+                monkeypatch=monkeypatch,
+                engine_mod=engine_mod,
             )
 
         rev_sb = RunSandbox("anon", run_id)
@@ -805,9 +866,13 @@ class TestEventVocabularyUnchanged:
         transcripts: list = []
         run_id = "revision-vocab"
         events, calls = await _execute_revision(
-            engine, run_id, parent_run_id=None,
-            turns_for=turns_for, transcripts=transcripts,
-            monkeypatch=monkeypatch, engine_mod=engine_mod,
+            engine,
+            run_id,
+            parent_run_id=None,
+            turns_for=turns_for,
+            transcripts=transcripts,
+            monkeypatch=monkeypatch,
+            engine_mod=engine_mod,
         )
         assert events, "revision run produced no events"
 
@@ -825,9 +890,9 @@ class TestEventVocabularyUnchanged:
             if required is None:
                 continue
             missing = required - set(ev.get("data", {}).keys())
-            assert not missing, (
-                f"event '{ev['type']}' dropped required keys {sorted(missing)}"
-            )
+            assert (
+                not missing
+            ), f"event '{ev['type']}' dropped required keys {sorted(missing)}"
 
     @pytest.mark.asyncio
     async def test_internal_fix_loop_leaks_no_phantom_second_agent(
@@ -849,25 +914,31 @@ class TestEventVocabularyUnchanged:
         transcripts: list = []
         run_id = "revision-no-leak"
         events, calls = await _execute_revision(
-            engine, run_id, parent_run_id=None,
-            turns_for=turns_for, transcripts=transcripts,
-            monkeypatch=monkeypatch, engine_mod=engine_mod,
+            engine,
+            run_id,
+            parent_run_id=None,
+            turns_for=turns_for,
+            transcripts=transcripts,
+            monkeypatch=monkeypatch,
+            engine_mod=engine_mod,
         )
 
         # ── The fix sub-agent DID run internally (a :fix thread create_runner). ──
         fix_threads = [t for (_a, t) in calls if ":fix" in t]
-        assert fix_threads, f"the regression must trigger an internal fix; calls={calls}"
+        assert (
+            fix_threads
+        ), f"the regression must trigger an internal fix; calls={calls}"
 
         # ── …the UI now sees TWO declared agents: the revision agent (index 0)
         #    and the new validation agent (index 1, KAN-108). The INTERNAL fix
         #    sub-agent (":fix" thread) must still NOT emit a third agent_start. ──
         counts = Counter(e["type"] for e in events)
-        assert counts["agent_start"] == 2, (
-            f"must see exactly 2 agent_starts (revision + validation); counts={dict(counts)}"
-        )
-        assert counts["agent_complete"] == 2, (
-            f"must see exactly 2 agent_completes (revision + validation); counts={dict(counts)}"
-        )
+        assert (
+            counts["agent_start"] == 2
+        ), f"must see exactly 2 agent_starts (revision + validation); counts={dict(counts)}"
+        assert (
+            counts["agent_complete"] == 2
+        ), f"must see exactly 2 agent_completes (revision + validation); counts={dict(counts)}"
 
         # ── The fix's edit_file tool call is INTERNAL — not in the visible stream. ──
         # The visible revision made ONE edit_file (introduce the ghost route); the
@@ -875,7 +946,9 @@ class TestEventVocabularyUnchanged:
         # (prototype-revision-validate, KAN-108) is a DECLARED step and its tool_call
         # events ARE in the visible stream — so we now expect 2 visible edit_file calls
         # (one per declared agent), NOT the fix's third internal edit_file.
-        visible_tool_calls = [e["data"]["tool"] for e in events if e["type"] == "tool_call"]
+        visible_tool_calls = [
+            e["data"]["tool"] for e in events if e["type"] == "tool_call"
+        ]
         assert visible_tool_calls.count("edit_file") == 2, (
             f"the two declared agents' edits appear in the stream; the fix's edit must "
             f"be internal; got tool_calls={visible_tool_calls}"

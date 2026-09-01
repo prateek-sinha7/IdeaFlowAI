@@ -31,7 +31,9 @@ from app.core.config import settings
 # ---------------------------------------------------------------------------
 
 
-def test_mistral_settings_fields_have_expected_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mistral_settings_fields_have_expected_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Settings declares MISTRAL_API_KEY / MISTRAL_MODEL_ID with the documented
     defaults, alongside the existing Anthropic/Bedrock fields."""
     from app.core.config import Settings
@@ -114,7 +116,9 @@ def test_anthropic_tier_used_when_key_set(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_bedrock_tier_used_when_no_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_cls = _mock_chat_bedrock(monkeypatch)
-    monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setattr(
+        settings, "BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
 
     result = build_model()
 
@@ -127,11 +131,15 @@ def test_bedrock_tier_used_when_no_anthropic(monkeypatch: pytest.MonkeyPatch) ->
 # ---------------------------------------------------------------------------
 
 
-def test_mistral_fallback_used_when_nothing_else_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mistral_fallback_used_when_nothing_else_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     mock_cls = _mock_chat_mistral(monkeypatch)
     monkeypatch.setattr(settings, "MISTRAL_API_KEY", "fake-mistral-key")
 
-    result = build_model(model="mistral-medium-latest")  # deliberately != the default, proves override wins
+    result = build_model(
+        model="mistral-medium-latest"
+    )  # deliberately != the default, proves override wins
 
     mock_cls.assert_called_once_with(
         model="mistral-medium-latest",
@@ -141,7 +149,9 @@ def test_mistral_fallback_used_when_nothing_else_configured(monkeypatch: pytest.
     assert result is mock_cls.return_value
 
 
-def test_mistral_fallback_uses_default_model_id(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mistral_fallback_uses_default_model_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     mock_cls = _mock_chat_mistral(monkeypatch)
     monkeypatch.setattr(settings, "MISTRAL_API_KEY", "fake-mistral-key")
 
@@ -154,11 +164,15 @@ def test_mistral_fallback_uses_default_model_id(monkeypatch: pytest.MonkeyPatch)
     )
 
 
-def test_bedrock_wins_over_mistral_fallback_tier(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bedrock_wins_over_mistral_fallback_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Tier 2 (Bedrock) must win over tier 3 (Mistral) when both are configured."""
     bedrock_cls = _mock_chat_bedrock(monkeypatch)
     mistral_cls = _mock_chat_mistral(monkeypatch)
-    monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setattr(
+        settings, "BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
     monkeypatch.setattr(settings, "MISTRAL_API_KEY", "fake-mistral-key")
 
     result = build_model()
@@ -184,7 +198,9 @@ def test_nothing_configured_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_explicit_provider_mistral_overrides_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_explicit_provider_mistral_overrides_anthropic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """provider='mistral' must force Mistral even when ANTHROPIC_API_KEY is set —
     this is the "only use Mistral for evals, keep the rest as-is" guarantee."""
     anthropic_cls = _mock_chat_anthropic(monkeypatch)
@@ -203,11 +219,15 @@ def test_explicit_provider_mistral_overrides_anthropic(monkeypatch: pytest.Monke
     assert result is mistral_cls.return_value
 
 
-def test_explicit_provider_mistral_overrides_bedrock(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_explicit_provider_mistral_overrides_bedrock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The explicit opt-in beats a configured higher tier, not just an unconfigured one."""
     bedrock_cls = _mock_chat_bedrock(monkeypatch)
     mistral_cls = _mock_chat_mistral(monkeypatch)
-    monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setattr(
+        settings, "BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
     monkeypatch.setattr(settings, "MISTRAL_API_KEY", "fake-mistral-key")
 
     build_model(provider="mistral")
@@ -231,7 +251,9 @@ def test_explicit_provider_mistral_without_key_raises_immediately(
     anthropic_cls.assert_not_called()
 
 
-def test_provider_none_is_unaffected_by_mistral_key_presence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_none_is_unaffected_by_mistral_key_presence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Regression guard: every existing call site omits `provider` — confirm
     that with provider=None (the default), behavior is identical whether or
     not MISTRAL_API_KEY happens to be set, as long as Anthropic resolves."""

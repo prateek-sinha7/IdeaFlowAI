@@ -65,7 +65,9 @@ def _failing_static(_path):
     """A static_check result with one issue — enough to open a fix thread."""
     return SimpleNamespace(
         ok=False,
-        issues=["no active page: expected one <section data-page> with class=\"is-active\""],
+        issues=[
+            'no active page: expected one <section data-page> with class="is-active"'
+        ],
         warnings=[],
         summary=lambda: "1 issue(s)",
     )

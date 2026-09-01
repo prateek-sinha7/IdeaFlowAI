@@ -305,23 +305,39 @@ def _build_pipeline(
         stack = contextlib.ExitStack()
         # handoff_github fakes (patch on the real module; the pipeline calls gh.<fn>).
         stack.enter_context(patch.object(gh, "clone", _fake_clone))
-        stack.enter_context(patch.object(gh, "get_repo_metadata", _fake_get_repo_metadata))
-        stack.enter_context(patch.object(gh, "create_pull_request", _fake_create_pull_request))
-        stack.enter_context(patch.object(gh, "checkout_new_branch", lambda ws, b: _FakeGitResult(0)))
+        stack.enter_context(
+            patch.object(gh, "get_repo_metadata", _fake_get_repo_metadata)
+        )
+        stack.enter_context(
+            patch.object(gh, "create_pull_request", _fake_create_pull_request)
+        )
+        stack.enter_context(
+            patch.object(gh, "checkout_new_branch", lambda ws, b: _FakeGitResult(0))
+        )
         stack.enter_context(patch.object(gh, "stage_all", lambda ws: _FakeGitResult(0)))
         stack.enter_context(patch.object(gh, "commit", lambda ws, m: _FakeGitResult(0)))
-        stack.enter_context(patch.object(gh, "push", lambda t, p, ws, b: _FakeGitResult(0)))
-        stack.enter_context(patch.object(gh, "wipe_credentialed_remote", lambda ws: None))
-        stack.enter_context(patch.object(gh, "cleanup_workspace", _fake_cleanup_workspace))
+        stack.enter_context(
+            patch.object(gh, "push", lambda t, p, ws, b: _FakeGitResult(0))
+        )
+        stack.enter_context(
+            patch.object(gh, "wipe_credentialed_remote", lambda ws: None)
+        )
+        stack.enter_context(
+            patch.object(gh, "cleanup_workspace", _fake_cleanup_workspace)
+        )
         # Agent fakes (patch the symbols AS BOUND IN THE PIPELINE — migration-agnostic).
         stack.enter_context(
-            patch.object(hp, "CodingAgent", lambda: _FakeCodingAgent(raises=coding_raises))
+            patch.object(
+                hp, "CodingAgent", lambda: _FakeCodingAgent(raises=coding_raises)
+            )
         )
         stack.enter_context(
             patch.object(hp, "TestAgent", lambda: _FakeTestAgent(raises=test_raises))
         )
         stack.enter_context(
-            patch.object(hp, "ComplianceAgent", lambda: _FakeComplianceAgent(raises=comp_raises))
+            patch.object(
+                hp, "ComplianceAgent", lambda: _FakeComplianceAgent(raises=comp_raises)
+            )
         )
         stack.enter_context(patch.object(hp, "classify_task", _fake_classify))
 
@@ -431,7 +447,11 @@ def _normalise(event: dict) -> dict:
     if isinstance(data, dict):
         norm_data = dict(data)
         # clone phase_end carries the real temp workspace path.
-        if event["type"] == "phase_end" and event["section"] == "clone" and "workspace" in norm_data:
+        if (
+            event["type"] == "phase_end"
+            and event["section"] == "clone"
+            and "workspace" in norm_data
+        ):
             norm_data["workspace"] = _WORKSPACE_SENTINEL
         # pipeline_complete carries the started_at/completed_at ISO timestamps.
         if event["type"] == "pipeline_complete":
@@ -454,6 +474,7 @@ def _normalise_all(events: list[dict]) -> list[dict]:
 # by 7c-4's re-run against the migrated agents — fails the assertion.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 # ── Shared opening: setup → clone ────────────────────────────────────────────
 def _setup_clone_block() -> list[dict]:
     return [
@@ -468,7 +489,11 @@ def _setup_clone_block() -> list[dict]:
             "data": {"default_branch": DEFAULT_BRANCH, "base_branch": DEFAULT_BRANCH},
         },
         {"type": "phase_start", "section": "clone", "data": {"branch": DEFAULT_BRANCH}},
-        {"type": "phase_end", "section": "clone", "data": {"workspace": _WORKSPACE_SENTINEL}},
+        {
+            "type": "phase_end",
+            "section": "clone",
+            "data": {"workspace": _WORKSPACE_SENTINEL},
+        },
     ]
 
 
@@ -500,7 +525,9 @@ def _coding_block() -> list[dict]:
             "type": "phase_end",
             "section": "apply_edits",
             "data": {
-                "results": [{"path": "app/main.py", "operation": "modify", "status": "applied"}]
+                "results": [
+                    {"path": "app/main.py", "operation": "modify", "status": "applied"}
+                ]
             },
         },
     ]
@@ -512,7 +539,10 @@ def _test_and_compliance_block() -> list[dict]:
         {
             "type": "agent_thinking",
             "section": None,
-            "data": {"agent_id": "test_agent", "thinking": "Analysing test coverage..."},
+            "data": {
+                "agent_id": "test_agent",
+                "thinking": "Analysing test coverage...",
+            },
         },
         {
             "type": "agent_complete",
@@ -530,7 +560,10 @@ def _test_and_compliance_block() -> list[dict]:
         {
             "type": "agent_complete",
             "section": None,
-            "data": {"agent_id": "compliance_agent", "report": _deepish_copy(COMPLIANCE_REPORT)},
+            "data": {
+                "agent_id": "compliance_agent",
+                "report": _deepish_copy(COMPLIANCE_REPORT),
+            },
         },
     ]
 
@@ -545,13 +578,21 @@ def _commit_push_pr_block() -> list[dict]:
             "data": {"committed": True, "message": "Add subtract function"},
         },
         {"type": "phase_start", "section": "push", "data": {"branch": BRANCH_NAME}},
-        {"type": "phase_end", "section": "push", "data": {"pushed": True, "branch": BRANCH_NAME}},
+        {
+            "type": "phase_end",
+            "section": "push",
+            "data": {"pushed": True, "branch": BRANCH_NAME},
+        },
         {
             "type": "phase_start",
             "section": "open_pr",
             "data": {"head": BRANCH_NAME, "base": DEFAULT_BRANCH},
         },
-        {"type": "pr_created", "section": None, "data": {"url": PR_URL, "number": PR_NUMBER}},
+        {
+            "type": "pr_created",
+            "section": None,
+            "data": {"url": PR_URL, "number": PR_NUMBER},
+        },
     ]
 
 
@@ -562,7 +603,9 @@ GOLDEN_PIPELINE_OUTPUT_CODING: dict[str, Any] = {
     "handoff_id": HANDOFF_ID,
     "started_at": _TS_SENTINEL,
     "branch_name": BRANCH_NAME,
-    "edit_results": [{"path": "app/main.py", "operation": "modify", "status": "applied"}],
+    "edit_results": [
+        {"path": "app/main.py", "operation": "modify", "status": "applied"}
+    ],
     "base_branch": DEFAULT_BRANCH,
     "default_branch": DEFAULT_BRANCH,
     "resolved_mode": "coding",
@@ -605,7 +648,13 @@ GOLDEN_CODING: list[dict] = (
     + _coding_block()
     + _test_and_compliance_block()
     + _commit_push_pr_block()
-    + [{"type": "pipeline_complete", "section": None, "data": GOLDEN_PIPELINE_OUTPUT_CODING}]
+    + [
+        {
+            "type": "pipeline_complete",
+            "section": None,
+            "data": GOLDEN_PIPELINE_OUTPUT_CODING,
+        }
+    ]
 )
 
 
@@ -624,7 +673,11 @@ GOLDEN_TEST: list[dict] = (
                 "message": "No file changes were applied (test-only run or no edits accepted).",
             },
         },
-        {"type": "pipeline_complete", "section": None, "data": GOLDEN_PIPELINE_OUTPUT_TEST},
+        {
+            "type": "pipeline_complete",
+            "section": None,
+            "data": GOLDEN_PIPELINE_OUTPUT_TEST,
+        },
     ]
 )
 
@@ -648,7 +701,11 @@ GOLDEN_AUTO_TEST: list[dict] = (
                 "message": "No file changes were applied (test-only run or no edits accepted).",
             },
         },
-        {"type": "pipeline_complete", "section": None, "data": GOLDEN_PIPELINE_OUTPUT_TEST},
+        {
+            "type": "pipeline_complete",
+            "section": None,
+            "data": GOLDEN_PIPELINE_OUTPUT_TEST,
+        },
     ]
 )
 
@@ -851,7 +908,9 @@ async def test_phase_envelope_pairing_coding() -> None:
     the bracketed sections appear in the exact order.
     """
     _LONE_PHASE_END_SECTIONS = {"apply_edits", "commit"}
-    _PR_EVENT_CLOSES = "open_pr"  # open_pr's phase_start is closed by pr_created, not phase_end
+    _PR_EVENT_CLOSES = (
+        "open_pr"  # open_pr's phase_start is closed by pr_created, not phase_end
+    )
     factory = _build_pipeline(requested_mode="coding")
     events = await collect_events(factory)
 
@@ -875,20 +934,20 @@ async def test_phase_envelope_pairing_coding() -> None:
         elif t == "phase_end":
             if open_section is None:
                 # A lone phase_end is only allowed for the two report-only sections.
-                assert ev["section"] in _LONE_PHASE_END_SECTIONS, (
-                    f"lone phase_end for unexpected section {ev['section']!r}"
-                )
+                assert (
+                    ev["section"] in _LONE_PHASE_END_SECTIONS
+                ), f"lone phase_end for unexpected section {ev['section']!r}"
                 lone_ends.append(ev["section"])
             else:
-                assert open_section == ev["section"], (
-                    f"phase_end {ev['section']!r} != open {open_section!r}"
-                )
+                assert (
+                    open_section == ev["section"]
+                ), f"phase_end {ev['section']!r} != open {open_section!r}"
                 open_section = None
         elif t == "pr_created":
             # pr_created terminates the open_pr phase_start (no phase_end for open_pr).
-            assert open_section == _PR_EVENT_CLOSES, (
-                f"pr_created without an open {_PR_EVENT_CLOSES!r} phase (open={open_section!r})"
-            )
+            assert (
+                open_section == _PR_EVENT_CLOSES
+            ), f"pr_created without an open {_PR_EVENT_CLOSES!r} phase (open={open_section!r})"
             open_section = None
         # other agent_* / pipeline_complete events are not part of the phase envelope.
     assert open_section is None, "unclosed phase envelope"
@@ -988,7 +1047,12 @@ def test_goldens_are_plain_literals_no_pipeline_import() -> None:
     token — so when 7c-3 deletes ``base.py`` and widens ``test_no_baseagent.py`` to scan
     this tree, this module stays clean, and the golden remains the single source of truth.
     """
-    for golden in (GOLDEN_CODING, GOLDEN_TEST, GOLDEN_AUTO_TEST, GOLDEN_CODING_ERROR_EVENTS):
+    for golden in (
+        GOLDEN_CODING,
+        GOLDEN_TEST,
+        GOLDEN_AUTO_TEST,
+        GOLDEN_CODING_ERROR_EVENTS,
+    ):
         assert isinstance(golden, list) and golden
     assert GOLDEN_CODING[-1]["type"] == "pipeline_complete"
     assert GOLDEN_TEST[-1]["type"] == "pipeline_complete"
@@ -1010,17 +1074,17 @@ def test_goldens_are_plain_literals_no_pipeline_import() -> None:
     }
     for node in tree.body:  # tree.body == module-level statements only
         if isinstance(node, ast.ImportFrom):
-            assert node.module not in _FORBIDDEN_MODULES, (
-                f"module-level import from {node.module!r} leaks the pipeline stack"
-            )
+            assert (
+                node.module not in _FORBIDDEN_MODULES
+            ), f"module-level import from {node.module!r} leaks the pipeline stack"
             assert all(
                 alias.name != "BaseAgent" for alias in node.names
             ), "module-level BaseAgent import leaks the legacy stack"
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                assert alias.name not in _FORBIDDEN_MODULES, (
-                    f"module-level import {alias.name!r} leaks the pipeline stack"
-                )
+                assert (
+                    alias.name not in _FORBIDDEN_MODULES
+                ), f"module-level import {alias.name!r} leaks the pipeline stack"
 
 
 def test_collect_events_is_factory_agnostic() -> None:

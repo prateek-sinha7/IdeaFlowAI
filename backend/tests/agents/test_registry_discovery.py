@@ -38,7 +38,11 @@ class TestNoOrphanedAgent:
             spec = load_agent_spec(agent_id)
             # pipeline_type may be a list (revision-pipeline-agent-reuse spec):
             # every element must resolve to a known PIPELINE_AGENTS key.
-            pts = spec.pipeline_type if isinstance(spec.pipeline_type, list) else [spec.pipeline_type]
+            pts = (
+                spec.pipeline_type
+                if isinstance(spec.pipeline_type, list)
+                else [spec.pipeline_type]
+            )
             for pt in pts:
                 assert pt in PIPELINE_AGENTS, (
                     f"{agent_id!r}: pipeline_type element {pt!r} has no "
@@ -65,7 +69,11 @@ class TestNoOrphanedAgent:
             spec = load_agent_spec(agent_id)
             # pipeline_type may be a list (revision-pipeline-agent-reuse spec):
             # the agent must appear in at least one of its declared pipelines.
-            pts = spec.pipeline_type if isinstance(spec.pipeline_type, list) else [spec.pipeline_type]
+            pts = (
+                spec.pipeline_type
+                if isinstance(spec.pipeline_type, list)
+                else [spec.pipeline_type]
+            )
             found = any(agent_id in PIPELINE_AGENTS[pt] for pt in pts)
             assert found, (
                 f"{agent_id!r} is on disk with pipeline_type={spec.pipeline_type!r} "
@@ -128,9 +136,9 @@ class TestGetAllAgentsFlatCompleteness:
             pts = pt if isinstance(pt, list) else [pt]
             if any(p in SUPPORTED_PIPELINE_TYPES for p in pts):
                 expected.add(agent_id)
-        assert expected <= flat_ids, (
-            f"agents missing from get_all_agents_flat(): {expected - flat_ids}"
-        )
+        assert (
+            expected <= flat_ids
+        ), f"agents missing from get_all_agents_flat(): {expected - flat_ids}"
 
     def test_includes_spec_kit_agents(self):
         flat_ids = {s.id for s in get_all_agents_flat()}
@@ -153,9 +161,9 @@ class TestPipelineAgentsParity:
                 # for the ppt/od_ppt sibling case, which IS included).
                 assert "od_prototype" not in PIPELINE_AGENTS
                 continue
-            assert PIPELINE_AGENTS[pipeline_type] == list_agent_ids(pipeline_type), (
-                f"PIPELINE_AGENTS[{pipeline_type!r}] drifted from list_agent_ids()"
-            )
+            assert PIPELINE_AGENTS[pipeline_type] == list_agent_ids(
+                pipeline_type
+            ), f"PIPELINE_AGENTS[{pipeline_type!r}] drifted from list_agent_ids()"
 
     def test_known_pipeline_agent_counts_unchanged(self):
         # Hand-verified counts from the pre-FIX-051 literal dict, pinned as a

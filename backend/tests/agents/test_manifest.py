@@ -47,7 +47,9 @@ steps:
 """
 
 
-def _write_manifest(base_dir: Path, workflow_id: str = "w", text: str | None = None, **kwargs) -> Path:
+def _write_manifest(
+    base_dir: Path, workflow_id: str = "w", text: str | None = None, **kwargs
+) -> Path:
     """Write ``<base_dir>/<workflow_id>/workflow.yaml`` and return the dir.
 
     Can be called in two ways:
@@ -57,6 +59,7 @@ def _write_manifest(base_dir: Path, workflow_id: str = "w", text: str | None = N
     if text is None:
         # Build YAML from base template + kwargs
         import yaml
+
         doc = yaml.safe_load(_WELL_FORMED)
         doc.update(kwargs)
         text = yaml.dump(doc, sort_keys=False)
@@ -80,7 +83,10 @@ def test_loads_well_formed_manifest(tmp_path: Path):
     assert isinstance(manifest, WorkflowManifest)
     assert manifest.id == "demo"
     assert manifest.planner == "run"
-    assert manifest.clarify == {"mode": "auto", "defaults": ["target_audience", "scope"]}
+    assert manifest.clarify == {
+        "mode": "auto",
+        "defaults": ["target_audience", "scope"],
+    }
     assert manifest.deliverable == {"strategy": "streamed_text", "name": "output.md"}
     assert manifest.context_providers == ["previous_run"]
     assert manifest.seed_files == {}
@@ -94,7 +100,9 @@ def test_loads_well_formed_manifest(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("missing", ["id", "steps", "deliverable", "planner", "clarify"])
+@pytest.mark.parametrize(
+    "missing", ["id", "steps", "deliverable", "planner", "clarify"]
+)
 def test_missing_field_named(tmp_path: Path, missing: str):
     # Build a YAML doc omitting exactly one required field.
     lines = {
@@ -110,9 +118,9 @@ def test_missing_field_named(tmp_path: Path, missing: str):
     with pytest.raises(ManifestValidationError) as exc:
         load_manifest("demo", base)
 
-    assert missing in str(exc.value), (
-        f"error message must name the missing field {missing!r}: {exc.value}"
-    )
+    assert missing in str(
+        exc.value
+    ), f"error message must name the missing field {missing!r}: {exc.value}"
 
 
 # ---------------------------------------------------------------------------
@@ -162,9 +170,9 @@ def test_user_launchable_rejects_non_bool(tmp_path: Path):
     with pytest.raises(ManifestValidationError) as exc:
         load_manifest("demo", base)
 
-    assert "user_launchable" in str(exc.value), (
-        f"error message must name 'user_launchable': {exc.value}"
-    )
+    assert "user_launchable" in str(
+        exc.value
+    ), f"error message must name 'user_launchable': {exc.value}"
 
 
 def test_display_name_rejects_non_str(tmp_path: Path):
@@ -175,9 +183,9 @@ def test_display_name_rejects_non_str(tmp_path: Path):
     with pytest.raises(ManifestValidationError) as exc:
         load_manifest("demo", base)
 
-    assert "display_name" in str(exc.value), (
-        f"error message must name 'display_name': {exc.value}"
-    )
+    assert "display_name" in str(
+        exc.value
+    ), f"error message must name 'display_name': {exc.value}"
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +201,9 @@ def test_rejects_unknown_key(tmp_path: Path, bad_key: str):
     with pytest.raises(ManifestValidationError) as exc:
         load_manifest("demo", base)
 
-    assert bad_key in str(exc.value), (
-        f"error message must name the unknown key {bad_key!r}: {exc.value}"
-    )
+    assert bad_key in str(
+        exc.value
+    ), f"error message must name the unknown key {bad_key!r}: {exc.value}"
 
 
 # ---------------------------------------------------------------------------
@@ -338,9 +346,9 @@ _AUTHORED_DISPLAY_NAME = (
 @pytest.mark.parametrize("workflow_id", _AUTHORED_DISPLAY_NAME)
 def test_display_name_authored_on_real_launchable_manifest(workflow_id: str):
     m = load_manifest(workflow_id, _WORKFLOWS_DIR)
-    assert m.user_launchable is True, (
-        f"{workflow_id} is expected to be a launchable manifest"
-    )
+    assert (
+        m.user_launchable is True
+    ), f"{workflow_id} is expected to be a launchable manifest"
     assert isinstance(m.display_name, str) and m.display_name.strip(), (
         f"{workflow_id} must author a non-empty display_name (UXFIX-01/D-18); "
         f"got {m.display_name!r}"
@@ -381,7 +389,9 @@ def test_build_manifest_from_dict_rejects_unknown_top_level_key():
     assert "when" in str(exc.value)
 
 
-@pytest.mark.parametrize("missing", ["id", "steps", "deliverable", "planner", "clarify"])
+@pytest.mark.parametrize(
+    "missing", ["id", "steps", "deliverable", "planner", "clarify"]
+)
 def test_build_manifest_from_dict_rejects_missing_required_field(missing: str):
     import yaml
 
@@ -391,9 +401,9 @@ def test_build_manifest_from_dict_rejects_missing_required_field(missing: str):
     with pytest.raises(ManifestValidationError) as exc:
         build_manifest_from_dict(data, "workflow:some-uuid")
 
-    assert missing in str(exc.value), (
-        f"error message must name the missing field {missing!r}: {exc.value}"
-    )
+    assert missing in str(
+        exc.value
+    ), f"error message must name the missing field {missing!r}: {exc.value}"
 
 
 def test_build_manifest_from_dict_rejects_wrong_type():
@@ -419,9 +429,9 @@ def test_build_manifest_from_dict_error_names_source_label():
     with pytest.raises(ManifestValidationError) as exc:
         build_manifest_from_dict(data, "workflow:some-uuid")
 
-    assert "workflow:some-uuid" in str(exc.value), (
-        f"error message must contain the source_label: {exc.value}"
-    )
+    assert "workflow:some-uuid" in str(
+        exc.value
+    ), f"error message must contain the source_label: {exc.value}"
 
 
 def test_load_manifest_still_raises_file_not_found(tmp_path: Path):

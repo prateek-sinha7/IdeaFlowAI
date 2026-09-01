@@ -143,7 +143,7 @@ def _revision_id(source: str, path: Path) -> str:
     match = _REVISION_RE.search(source)
     if not match:
         raise GuardError(
-            f"{path.name}: no top-level `revision = \"...\"` assignment found. "
+            f'{path.name}: no top-level `revision = "..."` assignment found. '
             "Every Alembic revision file must declare one."
         )
     return match.group(1)

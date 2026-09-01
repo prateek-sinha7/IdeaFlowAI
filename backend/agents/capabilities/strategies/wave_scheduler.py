@@ -89,9 +89,7 @@ def build_waves(tasks: list[Task]) -> list[list[Task]]:
     for t in tasks:
         for dep in t.depends_on:
             if dep not in by_id:
-                raise WaveBuildError(
-                    f"task '{t.id}' depends_on unknown task '{dep}'"
-                )
+                raise WaveBuildError(f"task '{t.id}' depends_on unknown task '{dep}'")
 
     # 2. Kahn levels (deterministic: sort the ready set by task id each round).
     indeg = {t.id: len(set(t.depends_on)) for t in tasks}
@@ -110,7 +108,9 @@ def build_waves(tasks: list[Task]) -> list[list[Task]]:
         used_keys: set[str] = set()
         for tid in ready_ids:
             t = by_id[tid]
-            keys = set(t.conflict_keys) or set(t.targets)  # documented default (Pitfall 6)
+            keys = set(t.conflict_keys) or set(
+                t.targets
+            )  # documented default (Pitfall 6)
             if keys & used_keys:
                 # Defer: leave it in `remaining` (indeg still 0) → picked next round.
                 continue
@@ -317,7 +317,11 @@ class WaveSchedulerStrategy:
             )
             yield {
                 "type": "wave_started",
-                "data": {"step": step_id, "wave_index": wave_index, "task_ids": task_ids},
+                "data": {
+                    "step": step_id,
+                    "wave_index": wave_index,
+                    "task_ids": task_ids,
+                },
             }
             try:
                 async for event in runner.run_fanout(requests, ctx, step=step):
@@ -341,11 +345,19 @@ class WaveSchedulerStrategy:
                 await runner.update_wave_run(row_id, status="failed")
                 yield {
                     "type": "wave_failed",
-                    "data": {"step": step_id, "wave_index": wave_index, "task_ids": task_ids},
+                    "data": {
+                        "step": step_id,
+                        "wave_index": wave_index,
+                        "task_ids": task_ids,
+                    },
                 }
                 raise
             await runner.update_wave_run(row_id, status="completed")
             yield {
                 "type": "wave_completed",
-                "data": {"step": step_id, "wave_index": wave_index, "task_ids": task_ids},
+                "data": {
+                    "step": step_id,
+                    "wave_index": wave_index,
+                    "task_ids": task_ids,
+                },
             }

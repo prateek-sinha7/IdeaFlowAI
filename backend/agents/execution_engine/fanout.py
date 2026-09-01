@@ -55,7 +55,10 @@ import asyncio
 import logging
 from typing import Any, AsyncIterator
 
-from agents.execution_engine.budget import DEFAULT_MAX_CONCURRENCY, MERGE_AGENT_MAX_ATTEMPTS
+from agents.execution_engine.budget import (
+    DEFAULT_MAX_CONCURRENCY,
+    MERGE_AGENT_MAX_ATTEMPTS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -280,11 +283,20 @@ def _select_isolation_scope(base_workspace: Any) -> str:
     isolation engine-controlled: a user-authored manifest cannot downgrade isolation
     (T-11-02-03 / INV-7).
     """
-    return _ISOLATION_WORKTREE if getattr(base_workspace, "has_git", False) else _ISOLATION_SUB_SANDBOX
+    return (
+        _ISOLATION_WORKTREE
+        if getattr(base_workspace, "has_git", False)
+        else _ISOLATION_SUB_SANDBOX
+    )
 
 
-async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
-                     event_queue: asyncio.Queue | None = None) -> AsyncIterator[dict]:
+async def run_fanout(
+    requests: list[dict],
+    ctx: Any,
+    *,
+    step: Any,
+    event_queue: asyncio.Queue | None = None,
+) -> AsyncIterator[dict]:
     """Spawn the fan-out children — the ONLY spawn path (FANOUT-02).
 
     An async generator yielding lifecycle-only events (``subagent_spawned`` /
@@ -338,7 +350,10 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
         # untouched). The aggregate is checked against the configured workspace ceiling.
         workspace_spent = 0
         ws_spent_fn = getattr(runner, "workspace_budget_spent", None)
-        if ws_spent_fn is not None and getattr(budget, "workspace_ceiling", None) is not None:
+        if (
+            ws_spent_fn is not None
+            and getattr(budget, "workspace_ceiling", None) is not None
+        ):
             try:
                 workspace_spent = int((await ws_spent_fn()).get("subagents", 0))
             except Exception as exc:  # noqa: BLE001 — a ceiling read failure degrades to 0
@@ -351,7 +366,9 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
                 depth=depth,
                 workspace_spent=workspace_spent,
             )
-        except Exception as exc:  # the budget module's BudgetExceeded — surface + re-raise
+        except (
+            Exception
+        ) as exc:  # the budget module's BudgetExceeded — surface + re-raise
             # A failed reserve emits a visible budget_warning BEFORE the abort propagates
             # (OBS-01) so the stream reports the breached ceiling; pending workers never
             # spawn (we are still pre-spawn). No completed fragments exist yet at this
@@ -413,7 +430,10 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
         # allocator is reachable (shared_read fallback) the worker runs against the
         # run's shared workspace exactly as 11-01 did.
         worker_ws = None
-        if isolation in (_ISOLATION_SUB_SANDBOX, _ISOLATION_WORKTREE) and allocate is not None:
+        if (
+            isolation in (_ISOLATION_SUB_SANDBOX, _ISOLATION_WORKTREE)
+            and allocate is not None
+        ):
             worker_ws = await allocate(isolation, step_id, worker_index=idx)
             if worker_ws is not None:
                 allocated.append(worker_ws)
@@ -442,7 +462,8 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
         worker_tokens = 0
         try:
             async for _child_event in runner.run_worker(
-                step, ctx,
+                step,
+                ctx,
                 worker_index=idx,
                 thread_id=thread_id,
                 agent_id=agent_id,
@@ -499,7 +520,9 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
                 try:
                     commit_fn(f"fanout: worker {idx} ({agent_id})")
                 except Exception as exc:  # noqa: BLE001 — a commit failure degrades to no fragment
-                    logger.warning("fan-out worker %s worktree commit failed: %s", idx, exc)
+                    logger.warning(
+                        "fan-out worker %s worktree commit failed: %s", idx, exc
+                    )
 
         # (5a) Fragment persistence BEFORE merge (FANOUT-06 / WR-03) — EVERY file the
         # worker wrote persists as a typed lineage-tracked fragment artifact (one ref
@@ -508,7 +531,9 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
         # (or no persist handle reachable) leaves artifact_refs empty.
         artifact_refs: list = []
         write_fragment = getattr(runner, "write_fragment_artifact", None)
-        frag_files = _fragment_files(worker_ws, base_commit=_spawn_point(base_workspace))
+        frag_files = _fragment_files(
+            worker_ws, base_commit=_spawn_point(base_workspace)
+        )
         if status == "complete" and write_fragment is not None and frag_files:
             for relpath in sorted(frag_files.keys()):
                 ref = await write_fragment(
@@ -522,14 +547,16 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
                     artifact_refs.append(ref)
 
         # Record the merge inputs for this worker (the merge reads them after collect).
-        fragments_meta.append({
-            "index": idx,
-            "agent_id": agent_id,
-            "workspace": worker_ws,
-            "status": status,
-            "branch": getattr(worker_ws, "_worktree_branch", None),
-            "base_commit": _spawn_point(base_workspace),
-        })
+        fragments_meta.append(
+            {
+                "index": idx,
+                "agent_id": agent_id,
+                "workspace": worker_ws,
+                "status": status,
+                "branch": getattr(worker_ws, "_worktree_branch", None),
+                "base_commit": _spawn_point(base_workspace),
+            }
+        )
 
         result = {"worker": idx, "agent": agent_id, "row_id": row_id, "status": status}
         if artifact_refs:
@@ -571,8 +598,12 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
                 _note_wall_clock(budget)
                 yield {
                     "type": "subagent_spawned",
-                    "data": {"worker": worker["index"], "agent": worker["agent_id"],
-                             "isolation": isolation, "depth": depth},
+                    "data": {
+                        "worker": worker["index"],
+                        "agent": worker["agent_id"],
+                        "isolation": isolation,
+                        "depth": depth,
+                    },
                 }
                 res = await _run_one(worker)
                 results.append(res)
@@ -586,8 +617,12 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
             for worker in selected:
                 yield {
                     "type": "subagent_spawned",
-                    "data": {"worker": worker["index"], "agent": worker["agent_id"],
-                             "isolation": isolation, "depth": depth},
+                    "data": {
+                        "worker": worker["index"],
+                        "agent": worker["agent_id"],
+                        "isolation": isolation,
+                        "depth": depth,
+                    },
                 }
 
             async def _bounded(worker: dict) -> dict:
@@ -915,8 +950,12 @@ async def _merge_fragments(
 
     yield {
         "type": "merge_started",
-        "data": {"step": step_id, "strategy": strategy_name,
-                 "fragments": len(completed), "isolation": isolation},
+        "data": {
+            "step": step_id,
+            "strategy": strategy_name,
+            "fragments": len(completed),
+            "isolation": isolation,
+        },
     }
 
     # Resolve the MergeStrategy through the runner handle (no direct registry import in
@@ -924,15 +963,23 @@ async def _merge_fragments(
     # resolver is reachable the merge degrades to a clean no-op.
     strategy = _resolve_strategy(runner, strategy_name)
     if strategy is None or not completed:
-        yield {"type": "merge_completed",
-               "data": {"step": step_id, "strategy": strategy_name, "applied": [], "conflicts": 0}}
+        yield {
+            "type": "merge_completed",
+            "data": {
+                "step": step_id,
+                "strategy": strategy_name,
+                "applied": [],
+                "conflicts": 0,
+            },
+        }
         return
 
     # Build the typed fragments for the selected strategy.
     if strategy_name == "git_3way":
         fragments = [
             _WorktreeFragmentView(runner, m["branch"], m.get("base_commit", ""))
-            for m in completed if m.get("branch")
+            for m in completed
+            if m.get("branch")
         ]
         base = base_workspace
     else:
@@ -951,33 +998,53 @@ async def _merge_fragments(
         # continues (the crash never aborts the fan-out) but downstream sees the
         # truth, mirroring the conflict path's no-silent-overwrite discipline.
         logger.warning("merge strategy %s raised: %s", strategy_name, exc)
-        yield {"type": "merge_failed",
-               "data": {"step": step_id, "strategy": strategy_name,
-                        "error": str(exc), "applied": [], "conflicts": 0}}
+        yield {
+            "type": "merge_failed",
+            "data": {
+                "step": step_id,
+                "strategy": strategy_name,
+                "error": str(exc),
+                "applied": [],
+                "conflicts": 0,
+            },
+        }
         return
 
     if not getattr(merge_result, "conflicts", None):
-        yield {"type": "merge_completed", "data": {
-            "step": step_id, "strategy": strategy_name,
-            "applied": list(getattr(merge_result, "applied", []) or []),
-            "conflicts": 0,
-        }}
+        yield {
+            "type": "merge_completed",
+            "data": {
+                "step": step_id,
+                "strategy": strategy_name,
+                "applied": list(getattr(merge_result, "applied", []) or []),
+                "conflicts": 0,
+            },
+        }
         return
 
     # ── Conflict path (FANOUT-08) — first-class, never a silent overwrite. ─────
     conflicts = list(merge_result.conflicts)
     payload = {
-        "step": step_id, "strategy": strategy_name, "conflicts": conflicts,
+        "step": step_id,
+        "strategy": strategy_name,
+        "conflicts": conflicts,
         "applied": list(getattr(merge_result, "applied", []) or []),
     }
     ref_id = None
     write_conflict = getattr(runner, "write_merge_conflict_artifact", None)
     if write_conflict is not None:
-        ref_id = await write_conflict(producer_step=step_id, conflicts=conflicts, payload=payload)
-    yield {"type": "merge_conflict", "data": {
-        "step": step_id, "strategy": strategy_name,
-        "conflicts": conflicts, "artifact_ref": ref_id,
-    }}
+        ref_id = await write_conflict(
+            producer_step=step_id, conflicts=conflicts, payload=payload
+        )
+    yield {
+        "type": "merge_conflict",
+        "data": {
+            "step": step_id,
+            "strategy": strategy_name,
+            "conflicts": conflicts,
+            "artifact_ref": ref_id,
+        },
+    }
 
     async for ev in _resolve_conflict(
         runner, step, merge_result, payload, fragments_meta
@@ -1031,11 +1098,14 @@ async def _resolve_conflict(
 
     if policy == "partial":
         # Keep the applied (non-conflicting) fragments; mark conflicted work failed.
-        yield {"type": "merge_partial", "data": {
-            "step": getattr(step, "agent_id", "fanout"),
-            "applied": list(getattr(merge_result, "applied", []) or []),
-            "dropped": [c.get("path") for c in merge_result.conflicts],
-        }}
+        yield {
+            "type": "merge_partial",
+            "data": {
+                "step": getattr(step, "agent_id", "fanout"),
+                "applied": list(getattr(merge_result, "applied", []) or []),
+                "dropped": [c.get("path") for c in merge_result.conflicts],
+            },
+        }
         return
 
     if policy == "merge_agent":
@@ -1048,7 +1118,9 @@ async def _resolve_conflict(
         yield ev
 
 
-async def _run_merge_agent(runner: Any, step: Any, payload: dict) -> AsyncIterator[dict]:
+async def _run_merge_agent(
+    runner: Any, step: Any, payload: dict
+) -> AsyncIterator[dict]:
     """Bounded merge-agent retry (≤ MERGE_AGENT_MAX_ATTEMPTS) then human_gate fallback.
 
     The merge worker is the step's declared merge-agent worker; when none is designated
@@ -1064,22 +1136,33 @@ async def _run_merge_agent(runner: Any, step: Any, payload: dict) -> AsyncIterat
     if merge_worker and callable(run_merge_worker):
         while attempts < MERGE_AGENT_MAX_ATTEMPTS and not resolved:
             attempts += 1
-            yield {"type": "merge_agent_attempt", "data": {
-                "step": getattr(step, "agent_id", "fanout"),
-                "worker": merge_worker, "attempt": attempts,
-                "max_attempts": MERGE_AGENT_MAX_ATTEMPTS,
-            }}
+            yield {
+                "type": "merge_agent_attempt",
+                "data": {
+                    "step": getattr(step, "agent_id", "fanout"),
+                    "worker": merge_worker,
+                    "attempt": attempts,
+                    "max_attempts": MERGE_AGENT_MAX_ATTEMPTS,
+                },
+            }
             try:
-                resolved = bool(await run_merge_worker(merge_worker, payload, attempt=attempts))
+                resolved = bool(
+                    await run_merge_worker(merge_worker, payload, attempt=attempts)
+                )
             except Exception as exc:  # noqa: BLE001 — a failed attempt counts, never aborts
                 logger.warning("merge_agent attempt %s failed: %s", attempts, exc)
                 resolved = False
         if resolved:
-            yield {"type": "merge_completed", "data": {
-                "step": getattr(step, "agent_id", "fanout"),
-                "strategy": payload.get("strategy"), "resolved_by": "merge_agent",
-                "attempts": attempts, "conflicts": 0,
-            }}
+            yield {
+                "type": "merge_completed",
+                "data": {
+                    "step": getattr(step, "agent_id", "fanout"),
+                    "strategy": payload.get("strategy"),
+                    "resolved_by": "merge_agent",
+                    "attempts": attempts,
+                    "conflicts": 0,
+                },
+            }
             return
 
     # Unresolved (no designated worker, or bound exhausted) → human_gate fallback.
@@ -1102,16 +1185,21 @@ async def _run_human_gate_resolution(
     """
     gate_fn = getattr(runner, "run_human_gate", None)
     if not callable(gate_fn):
-        yield {"type": "merge_human_gate_skipped", "data": {
-            "step": getattr(step, "agent_id", "fanout"),
-            "reason": "no durable HITL handle reachable (offline)",
-        }}
+        yield {
+            "type": "merge_human_gate_skipped",
+            "data": {
+                "step": getattr(step, "agent_id", "fanout"),
+                "reason": "no durable HITL handle reachable (offline)",
+            },
+        }
         return
     async for ev in gate_fn(step, payload=payload):
         yield ev
 
 
-async def _teardown_allocated(runner: Any, base_workspace: Any, allocated: list) -> None:
+async def _teardown_allocated(
+    runner: Any, base_workspace: Any, allocated: list
+) -> None:
     """Reclaim EVERY allocated isolated workspace — happy path AND cancel AND abort.
 
     Invoked from the ``run_fanout`` ``finally`` so it runs whether the fan-out body

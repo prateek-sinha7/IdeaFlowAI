@@ -20,7 +20,9 @@ from pathlib import Path
 import pytest
 
 from agents.capabilities.deliverables.single_file import SingleFileResolver
-from agents.capabilities.deliverables.serialized_sandbox import SerializedSandboxResolver
+from agents.capabilities.deliverables.serialized_sandbox import (
+    SerializedSandboxResolver,
+)
 from agents.capabilities.deliverables.streamed_text import StreamedTextResolver
 from agents.capabilities.deliverables.ppt import PptResolver
 from app.agents.sandbox import (
@@ -62,8 +64,9 @@ class _Deliverable:
 class _Ctx:
     """Minimal ExecutionContext stand-in for the resolvers."""
 
-    def __init__(self, runner, *, deliverable=None, last_streamed="",
-                 revision_original_html="") -> None:
+    def __init__(
+        self, runner, *, deliverable=None, last_streamed="", revision_original_html=""
+    ) -> None:
         self.runner = runner
         self.deliverable = deliverable or _Deliverable()
         self.last_streamed = last_streamed
@@ -249,8 +252,7 @@ def test_ppt_matches_canonical_transform_byte_for_byte(sandbox):
 # WR-02 confirm-then-fix repro (a carousel deck that the composer wrapped in an
 # <artifact> tag and that carries the carousel-breaking `.slide:not(.active)` hide rule).
 _WRAPPED_CAROUSEL_DECK = (
-    "Validation passed.\n"
-    "<artifact>" + _CAROUSEL_DECK + "</artifact>"
+    "Validation passed.\n" "<artifact>" + _CAROUSEL_DECK + "</artifact>"
 )
 
 

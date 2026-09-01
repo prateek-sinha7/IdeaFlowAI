@@ -82,7 +82,7 @@ class HtmlRenderValidator:
                     Issue(
                         severity="P0",
                         message=f"render unavailable (require_render): "
-                                f"{getattr(result, 'note', '')}",
+                        f"{getattr(result, 'note', '')}",
                         validator="html_render",
                     )
                 ]
@@ -92,13 +92,19 @@ class HtmlRenderValidator:
         issues: list[Issue] = []
         for msg in getattr(result, "console_errors", None) or []:
             issues.append(
-                Issue(severity="P0", message=f"console error: {msg}",
-                      validator="html_render")
+                Issue(
+                    severity="P0",
+                    message=f"console error: {msg}",
+                    validator="html_render",
+                )
             )
         for msg in getattr(result, "page_errors", None) or []:
             issues.append(
-                Issue(severity="P0", message=f"uncaught exception: {msg}",
-                      validator="html_render")
+                Issue(
+                    severity="P0",
+                    message=f"uncaught exception: {msg}",
+                    validator="html_render",
+                )
             )
         for nav in getattr(result, "nav_results", None) or []:
             if not getattr(nav, "ok", True):
@@ -106,15 +112,18 @@ class HtmlRenderValidator:
                     Issue(
                         severity="P0",
                         message=f"dead nav link: {getattr(nav, 'href', '?')} "
-                                f"(no section activated)",
+                        f"(no section activated)",
                         validator="html_render",
                     )
                 )
         # Nav-COVERAGE findings (a multi-section SPA that exercised 0 nav) — P0.
         for msg in getattr(result, "coverage_errors", None) or []:
             issues.append(
-                Issue(severity="P0", message=f"nav coverage: {msg}",
-                      validator="html_render")
+                Issue(
+                    severity="P0",
+                    message=f"nav coverage: {msg}",
+                    validator="html_render",
+                )
             )
 
         await _record(target, "html_render", issues)
@@ -137,7 +146,9 @@ class HtmlRenderValidator:
         note = getattr(result, "note", "") or ""
         step = getattr(target, "step", "") or ""
         attempt = int((getattr(target, "task_meta", None) or {}).get("attempt", 0))
-        logger.info("html_render: render skipped (%s) — recording validator_skipped", note)
+        logger.info(
+            "html_render: render skipped (%s) — recording validator_skipped", note
+        )
         await record(
             step,
             "html_render",

@@ -30,6 +30,7 @@ from agents.workflows.selections import _synthesize_step, synthesize_manifest
 # Link 1 — the selections synth projects `skills` onto the raw step
 # --------------------------------------------------------------------------
 
+
 def test_synthesize_step_projects_skills():
     step = _synthesize_step("some-agent", {"skills": ["emoji", "joke"]})
     assert step["skills"] == ["emoji", "joke"]
@@ -48,7 +49,9 @@ def test_synthesized_manifest_compiles_under_trust_user():
     from agents.workflows.compiler import WorkflowCompiler
 
     manifest = synthesize_manifest(
-        "custom", ["market-research-agent"], {"market-research-agent": {"skills": ["emoji"]}}
+        "custom",
+        ["market-research-agent"],
+        {"market-research-agent": {"skills": ["emoji"]}},
     )
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
     assert compiled.steps[0].skills == ["emoji"]
@@ -58,6 +61,7 @@ def test_synthesized_manifest_compiles_under_trust_user():
 # Link 2 — the engine overlay lands them on the compiled Step
 # --------------------------------------------------------------------------
 
+
 @pytest.fixture
 def custom_plan():
     return compile_for_run("custom")
@@ -65,7 +69,9 @@ def custom_plan():
 
 def test_overlay_puts_selected_skills_on_the_compiled_step(custom_plan):
     agent_id = custom_plan.steps[0].agent_id
-    assert custom_plan.steps[0].skills == [], "fixture assumption: base step declares none"
+    assert (
+        custom_plan.steps[0].skills == []
+    ), "fixture assumption: base step declares none"
 
     plan, _ = ExecutionEngine._apply_selections(
         custom_plan, {agent_id: {"skills": ["emoji", "joke"]}}, run_agent_ids=[agent_id]
@@ -81,7 +87,9 @@ def test_overlay_unions_rather_than_replaces(custom_plan):
     plan_in = dataclasses.replace(custom_plan, steps=[seeded, *custom_plan.steps[1:]])
 
     plan, _ = ExecutionEngine._apply_selections(
-        plan_in, {seeded.agent_id: {"skills": ["emoji"]}}, run_agent_ids=[seeded.agent_id]
+        plan_in,
+        {seeded.agent_id: {"skills": ["emoji"]}},
+        run_agent_ids=[seeded.agent_id],
     )
     assert plan.steps[0].skills == ["html-page", "emoji"]
 
@@ -111,6 +119,7 @@ def test_no_skills_selected_leaves_the_plan_untouched(custom_plan):
 # --------------------------------------------------------------------------
 # Link 3 — Step.skills resolves to a real staged payload
 # --------------------------------------------------------------------------
+
 
 def test_selected_ids_resolve_to_skill_payloads_with_content():
     """The last link: ids become the {"id","name","content"} shape stage_skills

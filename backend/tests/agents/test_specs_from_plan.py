@@ -94,7 +94,9 @@ def test_specs_from_plan_matches_real_composed_manifest():
     Agent", the overlay broke."""
     engine = ExecutionEngine()
     compiled = compile_for_run("sample_subagents_parallel")
-    assert compiled.steps, "fixture manifest compiled to zero steps — update the fixture reference"
+    assert (
+        compiled.steps
+    ), "fixture manifest compiled to zero steps — update the fixture reference"
 
     specs = engine._specs_from_plan(compiled.steps)
     names = {s.id: s.name for s in specs}
@@ -123,7 +125,9 @@ def test_resume_paths_call_the_shared_helper_not_a_bare_comprehension():
     silently drop the display_name overlay again — this fails the build instead."""
     source = _ENGINE_PY.read_text(encoding="utf-8")
 
-    banned = re.compile(r"\[\s*load_agent_spec\(s\.agent_id\)\s+for\s+s\s+in\s+compiled\.steps\s*\]")
+    banned = re.compile(
+        r"\[\s*load_agent_spec\(s\.agent_id\)\s+for\s+s\s+in\s+compiled\.steps\s*\]"
+    )
     assert not banned.search(source), (
         "engine.py contains a bare `[load_agent_spec(s.agent_id) for s in "
         "compiled.steps]` — this is the FIX-266 regression pattern (no display_name "
@@ -167,8 +171,13 @@ async def test_resume_run_builds_display_names_for_a_real_composed_workflow():
     session = sessionmaker(bind=db, autocommit=False, autoflush=False)()
     session.add(
         WorkflowRun(
-            id="resume-fixture-run", user_id="u1", owner_id="u1", workspace_id=None,
-            status="running", type="sample_subagents_parallel", input="topic",
+            id="resume-fixture-run",
+            user_id="u1",
+            owner_id="u1",
+            workspace_id=None,
+            status="running",
+            type="sample_subagents_parallel",
+            input="topic",
         )
     )
     session.commit()

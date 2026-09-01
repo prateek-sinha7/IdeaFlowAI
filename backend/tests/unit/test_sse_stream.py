@@ -97,13 +97,18 @@ def api(db_session, monkeypatch):
     import app.models.database as _db_mod
 
     test_sessionmaker = sessionmaker(
-        bind=db_session.get_bind(), autocommit=False, autoflush=False, expire_on_commit=False
+        bind=db_session.get_bind(),
+        autocommit=False,
+        autoflush=False,
+        expire_on_commit=False,
     )
     monkeypatch.setattr(_db_mod, "SessionLocal", test_sessionmaker)
     return TestClient(app), state
 
 
-def _seed_run(db, *, run_id="run-1", owner_id="owner", workspace_id="ws-1", status="running"):
+def _seed_run(
+    db, *, run_id="run-1", owner_id="owner", workspace_id="ws-1", status="running"
+):
     db.add(
         WorkflowRun(
             id=run_id,
@@ -169,11 +174,16 @@ class TestReplay:
         # The replayed body now also carries the row's authoritative event_id COLUMN
         # (see TestReplayIdentityProjection); _seed_events mints a fresh uuid4 per row,
         # so the expected value is read back rather than hardcoded.
-        row_event_id = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
+        row_event_id = (
+            db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
+        )
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=1, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=1,
+                    live_queue=None,
                 )
             )
         )
@@ -193,7 +203,10 @@ class TestReplay:
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=0,
+                    live_queue=None,
                 )
             )
         )
@@ -220,7 +233,11 @@ class TestReplay:
             assert resp.status_code == 200
             assert "text/event-stream" in resp.headers["content-type"]
             text = "".join(resp.iter_text())
-        ids = [ln.split("id:", 1)[1].strip() for ln in text.splitlines() if ln.startswith("id:")]
+        ids = [
+            ln.split("id:", 1)[1].strip()
+            for ln in text.splitlines()
+            if ln.startswith("id:")
+        ]
         # seq 3 replayed (>2); seq 1,2 skipped; handshake carries the last replayed seq.
         assert "3" in ids and "1" not in ids and "2" not in ids
         assert "stream_attached" in text
@@ -249,7 +266,9 @@ class TestReplayIdentityProjection:
     it. This pins the projection at the source.
     """
 
-    def test_replayed_identity_less_chat_reply_carries_its_row_identity(self, db_session):
+    def test_replayed_identity_less_chat_reply_carries_its_row_identity(
+        self, db_session
+    ):
         _seed_run(db_session)
         _seed_events(
             db_session,
@@ -269,16 +288,23 @@ class TestReplayIdentityProjection:
         )
         # _seed_events mints a fresh uuid4 per row, so the expected value must be read
         # back from the DB — a hardcoded literal would be wrong on every run.
-        row_event_id = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
+        row_event_id = (
+            db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
+        )
 
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=1, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=1,
+                    live_queue=None,
                 )
             )
         )
-        replay = [p for p in (_parse(f) for f in frames) if p["type"] != "stream_attached"]
+        replay = [
+            p for p in (_parse(f) for f in frames) if p["type"] != "stream_attached"
+        ]
         assert [p["type"] for p in replay] == ["chat_reply"]
 
         data = replay[0]["data"]
@@ -296,13 +322,18 @@ class TestReplayIdentityProjection:
 # attach — stream_attached handshake + live-queue drain
 # ════════════════════════════════════════════════════════════════════════════
 class TestAttach:
-    def test_stream_attached_after_replay_marks_live_false_when_finished(self, db_session):
+    def test_stream_attached_after_replay_marks_live_false_when_finished(
+        self, db_session
+    ):
         _seed_run(db_session)
         _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=0,
+                    live_queue=None,
                 )
             )
         )
@@ -349,7 +380,9 @@ class TestLiveDrainTerminals:
 
         async def _drive():
             await q.put({"type": "review_gate_approved", "data": {"seq": 2}})
-            await q.put({"type": "agent_start", "data": {"seq": 3, "agent": "prototype-plan"}})
+            await q.put(
+                {"type": "agent_start", "data": {"seq": 3, "agent": "prototype-plan"}}
+            )
             await q.put(None)  # sentinel
             return await _collect(
                 _iter_sse_frames(
@@ -361,10 +394,12 @@ class TestLiveDrainTerminals:
         # FAIL-BEFORE: review_gate_approved is in _GATE_RESOLUTION_TYPES, so the drain
         # returns right after yielding it → the post-approve agent_start (id "3") is
         # never yielded (RED). GREEN once :198 uses _STREAM_TERMINAL_TYPES.
-        assert any(p["id"] == "2" and p["type"] == "review_gate_approved" for p in parsed)
-        assert any(p["id"] == "3" and p["type"] == "agent_start" for p in parsed), (
-            "post-approve agent_start dropped — approve wrongly closed the live stream"
+        assert any(
+            p["id"] == "2" and p["type"] == "review_gate_approved" for p in parsed
         )
+        assert any(
+            p["id"] == "3" and p["type"] == "agent_start" for p in parsed
+        ), "post-approve agent_start dropped — approve wrongly closed the live stream"
 
     def test_pipeline_complete_ends_the_drain(self, db_session):
         """CONTROL: a genuine terminal still ends the drain before any later event."""
@@ -384,9 +419,9 @@ class TestLiveDrainTerminals:
 
         parsed = [_parse(f) for f in asyncio.run(_drive())]
         assert any(p["id"] == "2" and p["type"] == "pipeline_complete" for p in parsed)
-        assert not any(p["id"] == "3" for p in parsed), (
-            "pipeline_complete must end the drain before the post-terminal event"
-        )
+        assert not any(
+            p["id"] == "3" for p in parsed
+        ), "pipeline_complete must end the drain before the post-terminal event"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -427,11 +462,16 @@ class TestHandshake:
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=0,
+                    live_queue=None,
                 )
             )
         )
-        handshake = next(_parse(f) for f in frames if _parse(f)["type"] == "stream_attached")
+        handshake = next(
+            _parse(f) for f in frames if _parse(f)["type"] == "stream_attached"
+        )
         assert handshake["data"]["replayed_through_seq"] == 3
         assert handshake["id"] == "3"  # cursor line does not advance past the tail
 
@@ -442,11 +482,16 @@ class TestHandshake:
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=2, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=2,
+                    live_queue=None,
                 )
             )
         )
-        handshake = next(_parse(f) for f in frames if _parse(f)["type"] == "stream_attached")
+        handshake = next(
+            _parse(f) for f in frames if _parse(f)["type"] == "stream_attached"
+        )
         assert handshake["data"]["replayed_through_seq"] == 2
 
 
@@ -461,7 +506,11 @@ class TestGateRearm:
             [
                 (1, "agent_start", {"seq": 1}),
                 (2, "agent_complete", {"seq": 2}),
-                (3, "review_gate_ready", {"seq": 3, "agent_id": "prototype-specify", "gate_key": "gk"}),
+                (
+                    3,
+                    "review_gate_ready",
+                    {"seq": 3, "agent_id": "prototype-specify", "gate_key": "gk"},
+                ),
             ],
         )
         # Client cursor already PAST the gate frame — without re-arm it would never
@@ -469,7 +518,10 @@ class TestGateRearm:
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=3, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=3,
+                    live_queue=None,
                 )
             )
         )
@@ -491,7 +543,10 @@ class TestGateRearm:
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=3, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=3,
+                    live_queue=None,
                 )
             )
         )
@@ -531,7 +586,9 @@ class TestGateRearm:
                 )
             )
         )
-        rearmed = [p for p in (_parse(f) for f in frames) if p["type"] == "review_gate_ready"]
+        rearmed = [
+            p for p in (_parse(f) for f in frames) if p["type"] == "review_gate_ready"
+        ]
         assert rearmed == [], "a terminal run must NOT re-arm a dangling gate"
 
     def test_rearm_is_read_only(self, db_session):
@@ -545,12 +602,17 @@ class TestGateRearm:
         asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=0,
+                    live_queue=None,
                 )
             )
         )
         after = db_session.query(RunEvent).count()
-        assert after == before, "gate re-arm must be read-only (no artifact/graph mutation)"
+        assert (
+            after == before
+        ), "gate re-arm must be read-only (no artifact/graph mutation)"
 
     def test_fresh_attach_does_not_double_emit_open_gate(self, db_session):
         """CR-01: a fresh attach (after_seq=0) to a run paused at an open gate must yield
@@ -574,7 +636,10 @@ class TestGateRearm:
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=None
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=0,
+                    live_queue=None,
                 )
             )
         )
@@ -644,7 +709,9 @@ class TestLastEventOfTypes:
                 "run-1", {"review_gate_ready"}, after_seq=2
             )
         )
-        assert row is None, "seq <= after_seq rows must be excluded (equivalence contract)"
+        assert (
+            row is None
+        ), "seq <= after_seq rows must be excluded (equivalence contract)"
 
     def test_returns_none_when_no_type_matches(self, db_session):
         _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
@@ -680,9 +747,9 @@ class TestLastEventOfTypes:
             workspace_id="ws-2",
         )
         row = asyncio.run(
-            _store(db_session, owner_id="owner", workspace_id="ws-1").last_event_of_types(
-                "run-1", {"review_gate_ready"}, after_seq=0
-            )
+            _store(
+                db_session, owner_id="owner", workspace_id="ws-1"
+            ).last_event_of_types("run-1", {"review_gate_ready"}, after_seq=0)
         )
         assert row is not None and row.seq == 1, (
             "must return only the caller's own scoped row, never the other owner's "
@@ -738,7 +805,9 @@ async def test_endpoint_frames_satisfy_wire_parity(db_session):
         p = _parse(f)
         if p["type"] == "stream_attached":
             continue
-        endpoint_rows.append({"seq": int(p["id"]), "type": p["type"], "payload": p["data"]})
+        endpoint_rows.append(
+            {"seq": int(p["id"]), "type": p["type"], "payload": p["data"]}
+        )
 
     # The binding gate: the endpoint-derived rows, reference-projected, == the recorded
     # WS frames. A dropped/added/mutated frame trips assert_wire_parity.
@@ -808,7 +877,9 @@ class TestCleanupSentinel:
         assert "run-1" not in registries._PIPELINE_QUEUES
 
     @pytest.mark.asyncio
-    async def test_cleanup_releases_a_client_still_in_replay(self, db_session, registries):
+    async def test_cleanup_releases_a_client_still_in_replay(
+        self, db_session, registries
+    ):
         """The sentinel must not be lost when it lands while the client is still in the
         durable replay (step 1) rather than the live drain (step 4): the generator holds
         the queue OBJECT, so the pop does not detach it and the sentinel is consumed when
@@ -903,7 +974,9 @@ class TestFanOutPump:
         """An event put on the PRODUCER queue must be observable on the
         SUBSCRIBER queue — this is the exact wiring that was missing."""
         producer_q = registries._get_or_create_queue("run-1")
-        registries._PIPELINE_TASKS["run-1"] = asyncio.current_task()  # any live sentinel
+        registries._PIPELINE_TASKS["run-1"] = (
+            asyncio.current_task()
+        )  # any live sentinel
 
         sub_q = await registries._subscribe("run-1")
         try:
@@ -946,7 +1019,9 @@ class TestFanOutPump:
         assert event is None
 
     @pytest.mark.asyncio
-    async def test_cleanup_pipeline_sentinel_reaches_subscriber_via_pump(self, registries):
+    async def test_cleanup_pipeline_sentinel_reaches_subscriber_via_pump(
+        self, registries
+    ):
         """The resume/gate-re-arm teardown shape: `_cleanup_pipeline` sentinels the
         PRODUCER queue with no prior sentinel. The pump must forward that sentinel
         to the subscriber (this is the H-10-adjacent leak this bus must not have)."""
@@ -959,7 +1034,9 @@ class TestFanOutPump:
         assert event is None
 
     @pytest.mark.asyncio
-    async def test_subscribe_to_a_run_with_no_producer_closes_immediately(self, registries):
+    async def test_subscribe_to_a_run_with_no_producer_closes_immediately(
+        self, registries
+    ):
         """A subscriber that attaches after the producer queue is already gone
         (the race between `_is_run_live` and `_subscribe`) must get a queue that
         resolves to the sentinel immediately, not one that hangs forever."""
@@ -1015,7 +1092,10 @@ class TestReplayLiveDedup:
             # The SAME event (same event_id) also sitting on the live queue — the
             # persist-before-queue race the fix targets.
             await q.put(
-                {"type": "agent_chunk", "data": {"seq": 1, "event_id": "evt-1", "text": "hi"}}
+                {
+                    "type": "agent_chunk",
+                    "data": {"seq": 1, "event_id": "evt-1", "text": "hi"},
+                }
             )
             await q.put(None)
             return await _collect(
@@ -1026,9 +1106,9 @@ class TestReplayLiveDedup:
 
         parsed = [_parse(f) for f in await _drive()]
         chunk_frames = [p for p in parsed if p["type"] == "agent_chunk"]
-        assert len(chunk_frames) == 1, (
-            f"expected exactly one agent_chunk frame, got {len(chunk_frames)}: {chunk_frames}"
-        )
+        assert (
+            len(chunk_frames) == 1
+        ), f"expected exactly one agent_chunk frame, got {len(chunk_frames)}: {chunk_frames}"
 
     @pytest.mark.asyncio
     async def test_events_persisted_during_the_replay_window_are_not_duplicated(
@@ -1098,21 +1178,31 @@ class TestReplayLiveDedup:
         sub_a = await registries._subscribe("run-1")
         sub_b = await registries._subscribe("run-1")
         try:
-            producer_q.put_nowait({"type": "agent_start", "data": {"seq": 1, "event_id": "evt-1"}})
+            producer_q.put_nowait(
+                {"type": "agent_start", "data": {"seq": 1, "event_id": "evt-1"}}
+            )
             producer_q.put_nowait(None)
 
             frames_a = await _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=sub_a
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=0,
+                    live_queue=sub_a,
                 )
             )
             frames_b = await _collect(
                 _iter_sse_frames(
-                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=sub_b
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=0,
+                    live_queue=sub_b,
                 )
             )
             for frames in (frames_a, frames_b):
-                starts = [p for p in (_parse(f) for f in frames) if p["type"] == "agent_start"]
+                starts = [
+                    p for p in (_parse(f) for f in frames) if p["type"] == "agent_start"
+                ]
                 assert len(starts) == 1
         finally:
             registries._cleanup_pipeline("run-1")
@@ -1140,7 +1230,9 @@ class TestPumpGenerationSafety:
 
         # Old pump is draining `old_queue` but has NOT yet seen its sentinel (it's
         # blocked on `await queue.get()`), so it is still un-done() when cleanup runs.
-        registries._cleanup_pipeline("run-1")  # pops old queue/task, sentinels old_queue
+        registries._cleanup_pipeline(
+            "run-1"
+        )  # pops old queue/task, sentinels old_queue
 
         # A resume installs a NEW producer queue under the SAME run_id -> new generation.
         new_queue = registries._get_or_create_queue("run-1")
@@ -1318,10 +1410,11 @@ class TestSubscriberLeakOnErrorPaths:
             )
 
         subs = [q for (q, _g) in registries._SUBSCRIBERS.get("run-1", ())]
-        assert sub_q not in subs, "a gate-re-arm failure must not leak the subscriber queue"
+        assert (
+            sub_q not in subs
+        ), "a gate-re-arm failure must not leak the subscriber queue"
 
         registries._cleanup_pipeline("run-1")
-
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1396,7 +1489,6 @@ class TestSSETerminalTypesSyncWithFrontend:
 # ════════════════════════════════════════════════════════════════════════════
 
 
-
 # ════════════════════════════════════════════════════════════════════════════
 # SSE-004 (R-07) — stream_attached handshake contract + terminal convergence
 # (no duplicate events on reconnect, deterministic closure)
@@ -1413,7 +1505,9 @@ class TestStreamAttachedHandshakeConvergence:
     """
 
     @pytest.mark.asyncio
-    async def test_fresh_attach_handshake_marks_terminal_run_as_nolive(self, db_session):
+    async def test_fresh_attach_handshake_marks_terminal_run_as_nolive(
+        self, db_session
+    ):
         """SSE-004: a fresh attach (no Last-Event-ID) to a TERMINAL run yields:
         - durable replay (all events, seq=0 not filtered)
         - stream_attached {live=false, replayed_through_seq=<max_seq>}
@@ -1468,26 +1562,36 @@ class TestStreamAttachedHandshakeConvergence:
         parsed = [_parse(f) for f in frames]
 
         # Expect: 3 durable events (all replayed) + stream_attached + nothing else.
-        durable = [p for p in parsed if p["type"] in {"agent_start", "pipeline_complete"}]
-        assert len(durable) == 3, f"Expected 3 durable events, got {len(durable)}: {parsed}"
+        durable = [
+            p for p in parsed if p["type"] in {"agent_start", "pipeline_complete"}
+        ]
+        assert (
+            len(durable) == 3
+        ), f"Expected 3 durable events, got {len(durable)}: {parsed}"
 
         # stream_attached should mark live=false and replayed_through_seq=3 (the max).
         attach = [p for p in parsed if p["type"] == "stream_attached"]
-        assert len(attach) == 1, f"Expected 1 stream_attached, got {len(attach)}: {parsed}"
+        assert (
+            len(attach) == 1
+        ), f"Expected 1 stream_attached, got {len(attach)}: {parsed}"
         assert attach[0]["data"]["live"] is False, "Terminal run should have live=false"
-        assert attach[0]["data"]["replayed_through_seq"] == 3, (
-            f"Expected replayed_through_seq=3 (max), got {attach[0]['data']['replayed_through_seq']}"
-        )
+        assert (
+            attach[0]["data"]["replayed_through_seq"] == 3
+        ), f"Expected replayed_through_seq=3 (max), got {attach[0]['data']['replayed_through_seq']}"
 
         # No frames after stream_attached (stream closed immediately).
-        attach_idx = next((i for i, p in enumerate(parsed) if p["type"] == "stream_attached"), -1)
-        frames_after_attach = parsed[attach_idx + 1 :]
-        assert len(frames_after_attach) == 0, (
-            f"Terminal run should close after handshake, got {len(frames_after_attach)} extra frames: {frames_after_attach}"
+        attach_idx = next(
+            (i for i, p in enumerate(parsed) if p["type"] == "stream_attached"), -1
         )
+        frames_after_attach = parsed[attach_idx + 1 :]
+        assert (
+            len(frames_after_attach) == 0
+        ), f"Terminal run should close after handshake, got {len(frames_after_attach)} extra frames: {frames_after_attach}"
 
     @pytest.mark.asyncio
-    async def test_reconnect_after_partial_drain_replays_only_newer_events(self, db_session):
+    async def test_reconnect_after_partial_drain_replays_only_newer_events(
+        self, db_session
+    ):
         """SSE-004: a reconnect with Last-Event-ID set correctly bounds the replay.
 
         If client last saw seq=2, a fresh connect (after_seq=2) should replay only seq > 2.
@@ -1543,21 +1647,25 @@ class TestStreamAttachedHandshakeConvergence:
         parsed = [_parse(f) for f in frames]
 
         # Expect: 3 replayed events (seq=3,4,5) + stream_attached.
-        replayed = [p for p in parsed if p["type"] in {"agent_start", "pipeline_complete"}]
-        assert len(replayed) == 3, (
-            f"Expected 3 replayed events (seq > 2), got {len(replayed)}: {parsed}"
-        )
+        replayed = [
+            p for p in parsed if p["type"] in {"agent_start", "pipeline_complete"}
+        ]
+        assert (
+            len(replayed) == 3
+        ), f"Expected 3 replayed events (seq > 2), got {len(replayed)}: {parsed}"
         replayed_seqs = {p["data"].get("seq") for p in replayed if p.get("data")}
-        assert replayed_seqs == {3, 4, 5}, (
-            f"Expected seq {{3,4,5}}, got {replayed_seqs}"
-        )
+        assert replayed_seqs == {
+            3,
+            4,
+            5,
+        }, f"Expected seq {{3,4,5}}, got {replayed_seqs}"
 
         # stream_attached should mark replayed_through_seq=5 (the max replayed).
         attach = [p for p in parsed if p["type"] == "stream_attached"]
         assert len(attach) == 1
-        assert attach[0]["data"]["replayed_through_seq"] == 5, (
-            f"Expected replayed_through_seq=5, got {attach[0]['data']['replayed_through_seq']}"
-        )
+        assert (
+            attach[0]["data"]["replayed_through_seq"] == 5
+        ), f"Expected replayed_through_seq=5, got {attach[0]['data']['replayed_through_seq']}"
 
     # EVERY member of _STREAM_TERMINAL_TYPES is exercised, not an arbitrary one.
     # ``sorted()`` matters: iterating a frozenset of str yields a DIFFERENT order per
@@ -1611,8 +1719,16 @@ class TestStreamAttachedHandshakeConvergence:
         # (which should NOT be yielded because the stream closes on the terminal).
         live_queue = asyncio.Queue()
 
-        await live_queue.put({"type": terminal_type, "event_id": f"terminal-{terminal_type}", "data": {"seq": 2}})
-        await live_queue.put({"type": "agent_complete", "event_id": "e-after", "data": {"seq": 3}})  # Should NOT be yielded
+        await live_queue.put(
+            {
+                "type": terminal_type,
+                "event_id": f"terminal-{terminal_type}",
+                "data": {"seq": 2},
+            }
+        )
+        await live_queue.put(
+            {"type": "agent_complete", "event_id": "e-after", "data": {"seq": 3}}
+        )  # Should NOT be yielded
         await live_queue.put(None)  # Sentinel
 
         frames = await _collect(
@@ -1629,15 +1745,15 @@ class TestStreamAttachedHandshakeConvergence:
 
         # Expect: 1 replayed (seq=1) + stream_attached + 1 terminal event, total 3.
         # The "agent_complete" event after the terminal should NOT appear.
-        assert len(parsed) == 3, (
-            f"Expected 3 frames (durable + attach + terminal), got {len(parsed)}: {parsed}"
-        )
+        assert (
+            len(parsed) == 3
+        ), f"Expected 3 frames (durable + attach + terminal), got {len(parsed)}: {parsed}"
 
         # Verify the terminal is the last frame.
         last = parsed[-1]
-        assert last["type"] == terminal_type, (
-            f"Expected terminal type '{terminal_type}' as last frame, got {last['type']}"
-        )
+        assert (
+            last["type"] == terminal_type
+        ), f"Expected terminal type '{terminal_type}' as last frame, got {last['type']}"
 
     # C-06a event_id dedup on reconnect is deliberately NOT re-tested here.
     # `TestReplayLiveDedup` (above) already covers it three ways, each stronger than

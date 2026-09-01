@@ -128,9 +128,10 @@ def test_router_takes_no_workflow_argument() -> None:
     signature carries NO workflow / pipeline_type / spec.id parameter, so a brand-new
     workflow routes identically with zero router code (SC-001/INV-1)."""
     params = list(inspect.signature(route_chat_turn).parameters)
-    assert params == ["run_state", "turn"], (
-        f"route_chat_turn must key only on generic run state; got params {params}"
-    )
+    assert params == [
+        "run_state",
+        "turn",
+    ], f"route_chat_turn must key only on generic run state; got params {params}"
 
 
 # ===========================================================================
@@ -151,9 +152,10 @@ def test_registry_resolves_shared_concierge_impl() -> None:
     assert hasattr(impl_a, "converse")
     # resolve keys ONLY on (kind, name) — no workflow / pipeline_type parameter.
     params = list(inspect.signature(registry.resolve).parameters)
-    assert params == ["kind", "name"], (
-        f"registry.resolve must key only on (kind, name); got {params}"
-    )
+    assert params == [
+        "kind",
+        "name",
+    ], f"registry.resolve must key only on (kind, name); got {params}"
 
 
 # ===========================================================================
@@ -168,7 +170,9 @@ def test_chat_block_compiles_as_data(throwaway_manifest_home) -> None:
     discover()
     registry = CapabilityRegistry()
     manifest = load_manifest(_THROWAWAY_WF, throwaway_manifest_home)
-    assert manifest.chat.get("suggestions"), "manifest must carry the authored chat data"
+    assert manifest.chat.get(
+        "suggestions"
+    ), "manifest must carry the authored chat data"
 
     compiled = WorkflowCompiler().compile(manifest, registry)
     assert compiled.chat == manifest.chat, "compiler must carry chat verbatim (INV-5)"

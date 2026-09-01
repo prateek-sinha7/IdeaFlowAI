@@ -111,7 +111,9 @@ def test_unknown_trust_falls_to_the_restrictive_cap() -> None:
 
 
 @pytest.mark.parametrize("trust", ["file", "builtin"])
-def test_engineer_authored_manifests_may_hold_privileged_capabilities(trust: str) -> None:
+def test_engineer_authored_manifests_may_hold_privileged_capabilities(
+    trust: str,
+) -> None:
     """The trusted cap PERMITS exec/spawn — it does not grant them.
 
     Permitted-by-cap and granted-to-a-step are different things: a step still has
@@ -123,7 +125,9 @@ def test_engineer_authored_manifests_may_hold_privileged_capabilities(trust: str
 
 
 @pytest.mark.parametrize("trust", ["user", "db"])
-def test_user_authored_manifests_cannot_hold_privileged_capabilities(trust: str) -> None:
+def test_user_authored_manifests_cannot_hold_privileged_capabilities(
+    trust: str,
+) -> None:
     """The untrusted cap withholds the privileges that escape the sandbox."""
     cap = cap_for_trust(trust)
     assert cap.exec is False
@@ -241,7 +245,9 @@ def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
     prompts = Path("agents/prompts")
     declares_fs: set[str] = set()
     for agent_md in prompts.glob("*/AGENT.md"):
-        match = re.search(r"^---\n(.*?)\n---", agent_md.read_text(encoding="utf-8"), re.S)
+        match = re.search(
+            r"^---\n(.*?)\n---", agent_md.read_text(encoding="utf-8"), re.S
+        )
         frontmatter = yaml.safe_load(match.group(1)) if match else {}
         if frontmatter.get("tools"):
             declares_fs.add(agent_md.parent.name)

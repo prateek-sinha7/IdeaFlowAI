@@ -47,7 +47,12 @@ from app.core.config import settings
 from app.core.security import verify_password
 from app.models.database import Base
 from app.models.user import User
-from app.scripts.bootstrap_admin import EXIT_BOOTSTRAP_REQUIRED, EXIT_OK, check_only, create_admin
+from app.scripts.bootstrap_admin import (
+    EXIT_BOOTSTRAP_REQUIRED,
+    EXIT_OK,
+    check_only,
+    create_admin,
+)
 
 pytestmark = pytest.mark.requires_postgres
 
@@ -92,7 +97,9 @@ def _resolve_test_database_url() -> str:
     if not url:
         pytest.skip(f"{ENV_VAR} is not set — skipping the PostgreSQL bootstrap suite")
 
-    if not url.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")):
+    if not url.startswith(
+        ("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")
+    ):
         pytest.skip(f"{ENV_VAR} is not a PostgreSQL URL — skipping")
 
     # Never operate on the database the application itself is configured for.
@@ -164,14 +171,23 @@ def _users(factory) -> list[User]:
 class TestRealTableLock:
     def test_lock_statement_is_accepted_by_postgres(self, session_factory):
         """The statement is dialect-specific SQL — a typo only shows up here."""
-        assert create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
         assert len(_users(session_factory)) == 1
 
     def test_lock_is_released_by_the_commit(self, session_factory):
         """A held lock would deadlock the next writer instead of no-opping."""
-        assert create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
         # Would block forever if the first call left its transaction open.
-        assert create_admin("second@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("second@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
         assert len(_users(session_factory)) == 1
 
     def test_lock_is_released_by_the_noop_rollback(self, session_factory):
@@ -179,7 +195,10 @@ class TestRealTableLock:
 
         # Three consecutive no-ops: each must roll back and release.
         for _ in range(3):
-            assert create_admin("other@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+            assert (
+                create_admin("other@example.com", VALID_PASSWORD, session_factory)
+                == EXIT_OK
+            )
 
         session = session_factory()
         try:
@@ -215,7 +234,9 @@ class TestConcurrentBootstrap:
             thread.start()
         for thread in threads:
             thread.join(timeout=60)
-            assert not thread.is_alive(), "a bootstrap thread deadlocked on the table lock"
+            assert (
+                not thread.is_alive()
+            ), "a bootstrap thread deadlocked on the table lock"
 
         # Both succeed: one inserts, the loser observes the row and no-ops.
         assert results == [EXIT_OK, EXIT_OK]
@@ -233,16 +254,22 @@ class TestConcurrentBootstrap:
 
         def bootstrap(index: int) -> None:
             barrier.wait(timeout=30)
-            code = create_admin(f"admin{index}@example.com", VALID_PASSWORD, session_factory)
+            code = create_admin(
+                f"admin{index}@example.com", VALID_PASSWORD, session_factory
+            )
             with lock:
                 results.append(code)
 
-        threads = [threading.Thread(target=bootstrap, args=(i,)) for i in range(thread_count)]
+        threads = [
+            threading.Thread(target=bootstrap, args=(i,)) for i in range(thread_count)
+        ]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(timeout=90)
-            assert not thread.is_alive(), "a bootstrap thread deadlocked on the table lock"
+            assert (
+                not thread.is_alive()
+            ), "a bootstrap thread deadlocked on the table lock"
 
         assert results == [EXIT_OK] * thread_count
         assert len(_users(session_factory)) == 1
@@ -297,7 +324,9 @@ class TestEndToEndOnPostgres:
         """The exact sequence remote-deploy.sh §12 drives across two deploys."""
         assert check_only(session_factory) == EXIT_BOOTSTRAP_REQUIRED
 
-        assert create_admin("admin@flowin.io", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@flowin.io", VALID_PASSWORD, session_factory) == EXIT_OK
+        )
 
         admin = _users(session_factory)[0]
         assert admin.is_admin is True
@@ -313,7 +342,12 @@ class TestEndToEndOnPostgres:
         original = _users(session_factory)[0]
         original_id, original_hash = original.id, original.password_hash
 
-        assert create_admin("admin@flowin.io", "a-different-password-9876", session_factory) == EXIT_OK
+        assert (
+            create_admin(
+                "admin@flowin.io", "a-different-password-9876", session_factory
+            )
+            == EXIT_OK
+        )
 
         again = _users(session_factory)[0]
         assert (again.id, again.password_hash) == (original_id, original_hash)
@@ -322,14 +356,21 @@ class TestEndToEndOnPostgres:
         session = session_factory()
         try:
             session.add(
-                User(email="basic@flowin.io", password_hash="hash", tier="basic", is_admin=False)
+                User(
+                    email="basic@flowin.io",
+                    password_hash="hash",
+                    tier="basic",
+                    is_admin=False,
+                )
             )
             session.commit()
         finally:
             session.close()
 
         assert check_only(session_factory) == EXIT_OK
-        assert create_admin("admin@flowin.io", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@flowin.io", VALID_PASSWORD, session_factory) == EXIT_OK
+        )
 
         users = _users(session_factory)
         assert len(users) == 1

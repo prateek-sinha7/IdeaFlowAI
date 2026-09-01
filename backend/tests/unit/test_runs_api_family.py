@@ -193,10 +193,20 @@ class TestFamilyForeignParentTerminates:
     def test_foreign_parent_in_chain_terminates_walk_no_leak(self, api, db_session):
         client, _ = api
         # F is owned by someone else; C (ours) points its parent at F.
-        _seed_run(db_session, run_id="F", owner_id="stranger",
-                  title="STRANGERS SECRET DECK", created_offset=0)
-        _seed_run(db_session, run_id="C", owner_id="owner",
-                  parent_run_id="F", created_offset=10)
+        _seed_run(
+            db_session,
+            run_id="F",
+            owner_id="stranger",
+            title="STRANGERS SECRET DECK",
+            created_offset=0,
+        )
+        _seed_run(
+            db_session,
+            run_id="C",
+            owner_id="owner",
+            parent_run_id="F",
+            created_offset=10,
+        )
 
         resp = client.get("/api/runs/C/family")
         assert resp.status_code == 200, resp.text

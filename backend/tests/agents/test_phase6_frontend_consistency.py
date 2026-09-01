@@ -64,12 +64,7 @@ from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # …/flowin
 _AGENT_LIBRARY_TS = (
-    _REPO_ROOT
-    / "frontend"
-    / "src"
-    / "components"
-    / "workflow"
-    / "AgentLibraryData.ts"
+    _REPO_ROOT / "frontend" / "src" / "components" / "workflow" / "AgentLibraryData.ts"
 )
 
 
@@ -258,9 +253,9 @@ class TestPrototypeAndPptSpecifics:
         """Post-collapse, ``PIPELINE_AGENTS["ppt"]`` IS the real (former
         od_ppt) agent set directly — no separate od_ppt key exists to compare
         against anymore."""
-        assert "od_ppt" not in PIPELINE_AGENTS, (
-            "od_ppt should no longer be a PIPELINE_AGENTS key post-collapse"
-        )
+        assert (
+            "od_ppt" not in PIPELINE_AGENTS
+        ), "od_ppt should no longer be a PIPELINE_AGENTS key post-collapse"
         assert set(PIPELINE_AGENTS["ppt"]) == {
             "ppt-brief-analyst",
             "ppt-composer",
@@ -330,7 +325,9 @@ class TestNoStaleIds:
     def test_no_stale_id_string_in_file(self):
         src = _require_ts_file()
         present = [sid for sid in self.STALE_IDS if f'"{sid}"' in src]
-        assert not present, f"stale agent ids still present in AgentLibraryData.ts: {present}"
+        assert (
+            not present
+        ), f"stale agent ids still present in AgentLibraryData.ts: {present}"
 
     def test_no_stale_id_in_parsed_agents(self, frontend_agents):
         fe_ids = {a["id"] for a in frontend_agents}
@@ -362,7 +359,9 @@ class TestPipelineCategoryCounts:
         assert cats["ppt"] == 3, "ppt category count must be 3 (od_ppt agents)"
         # prototype grew 4 -> 5: the prototype-analyze agent (a Spec Kit-style
         # cross-artifact analysis step, Human_Gate) was added to the pipeline.
-        assert cats["prototype"] == 5, "prototype category count must be 5 (+ prototype-analyze)"
+        assert (
+            cats["prototype"] == 5
+        ), "prototype category count must be 5 (+ prototype-analyze)"
 
     def test_category_counts_match_real_registry(self):
         """For prototype + ppt, the declared category count equals the real
@@ -399,13 +398,11 @@ class TestPipelineCategoryCounts:
         cats = self._categories()
         src = _require_ts_file()
         members = _parse_agents(_extract_block(src, "LIBRARY_AGENTS"))
-        assert cats["all"] == len(members), (
-            f"`all` count {cats['all']} != len(LIBRARY_AGENTS) {len(members)}"
-        )
+        assert cats["all"] == len(
+            members
+        ), f"`all` count {cats['all']} != len(LIBRARY_AGENTS) {len(members)}"
         # And that equals the sum of every non-`all`, non-`custom` category.
-        per_category_sum = sum(
-            v for k, v in cats.items() if k not in ("all", "custom")
-        )
+        per_category_sum = sum(v for k, v in cats.items() if k not in ("all", "custom"))
         assert cats["all"] == per_category_sum, (
             f"`all` count {cats['all']} != sum of non-custom categories "
             f"{per_category_sum}"

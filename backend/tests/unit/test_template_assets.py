@@ -49,7 +49,10 @@ def test_missing_asset_returns_none():
 
 
 def test_unknown_template_returns_none():
-    assert od_loader.get_template_asset_path("no-such-template-xyz", "template.html") is None
+    assert (
+        od_loader.get_template_asset_path("no-such-template-xyz", "template.html")
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -101,7 +104,9 @@ def test_route_404_for_missing_asset(client):
 
 
 def test_route_404_for_unknown_template(client):
-    resp = client.get("/api/prototype/templates/no-such-template-xyz/assets/template.html")
+    resp = client.get(
+        "/api/prototype/templates/no-such-template-xyz/assets/template.html"
+    )
     assert resp.status_code == 404
 
 

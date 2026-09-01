@@ -45,18 +45,72 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     "ppt": {
         "description": "OpenDesign presentation pipeline — generates a complete HTML slide deck",
         "what_makes_good_brief": "A specific topic, target audience, purpose/objective, and content depth",
-        "common_missing": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
-        "topic_indicators": ["comparison", "analysis", "overview", "strategy", "results", "report", "pitch", "proposal"],
-        "quality_targets": ["Clear narrative arc", "Consistent visual style", "Data-backed claims", "Actionable takeaways"],
-        "typical_personas": ["Executive", "Business stakeholder", "Technical team", "Sales team"],
+        "common_missing": [
+            "target_audience",
+            "tone_and_style",
+            "key_objectives",
+            "slide_count",
+            "content_depth",
+            "data_availability",
+            "visual_style",
+            "key_sections",
+        ],
+        "topic_indicators": [
+            "comparison",
+            "analysis",
+            "overview",
+            "strategy",
+            "results",
+            "report",
+            "pitch",
+            "proposal",
+        ],
+        "quality_targets": [
+            "Clear narrative arc",
+            "Consistent visual style",
+            "Data-backed claims",
+            "Actionable takeaways",
+        ],
+        "typical_personas": [
+            "Executive",
+            "Business stakeholder",
+            "Technical team",
+            "Sales team",
+        ],
         "nfrs": ["Visual consistency", "Readability", "Slide flow", "Brand alignment"],
     },
     "user_stories": {
         "description": "User stories pipeline — generates product backlog with epics, stories, acceptance criteria",
         "what_makes_good_brief": "A specific product/feature name, target users, core functionality, business goals, and user journeys",
-        "common_missing": ["target_audience", "scope", "priority", "technology", "personas", "user_journeys", "business_rules", "compliance_security"],
-        "topic_indicators": ["app", "platform", "system", "portal", "dashboard", "service", "tool", "feature", "module"],
-        "quality_targets": ["Complete acceptance criteria", "Testable stories", "Prioritized backlog", "Clear personas", "Covered business rules", "NFRs captured"],
+        "common_missing": [
+            "target_audience",
+            "scope",
+            "priority",
+            "technology",
+            "personas",
+            "user_journeys",
+            "business_rules",
+            "compliance_security",
+        ],
+        "topic_indicators": [
+            "app",
+            "platform",
+            "system",
+            "portal",
+            "dashboard",
+            "service",
+            "tool",
+            "feature",
+            "module",
+        ],
+        "quality_targets": [
+            "Complete acceptance criteria",
+            "Testable stories",
+            "Prioritized backlog",
+            "Clear personas",
+            "Covered business rules",
+            "NFRs captured",
+        ],
         "typical_personas": ["End user", "Admin", "Developer", "Business owner"],
         "nfrs": ["Accessibility", "Performance", "Security", "Scalability"],
         "scope_hints": {
@@ -68,25 +122,90 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     "prototype": {
         "description": "Prototype pipeline — generates interactive HTML prototype",
         "what_makes_good_brief": "A specific product type, target users, key screens/flows, and interaction patterns",
-        "common_missing": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
+        "common_missing": [
+            "target_audience",
+            "scope",
+            "priority",
+            "style",
+            "user_journeys",
+            "key_screens",
+            "interactions",
+            "personas",
+        ],
         # These four lists come from the retired ``od_prototype`` entry, not the old
         # ``prototype`` one. Both keys existed and only od_prototype was reachable
         # (a bare ``prototype`` launch was rejected upstream), so od_prototype's copy
         # is the one that was maintained and actually used; the ``prototype`` twin had
         # gone stale. Collapsing the label kept the LIVE values.
-        "topic_indicators": ["app", "dashboard", "portal", "website", "interface", "screen", "flow", "checkout", "onboarding"],
-        "quality_targets": ["Realistic interactions", "Consistent design system", "Complete user flows", "Responsive layout"],
+        "topic_indicators": [
+            "app",
+            "dashboard",
+            "portal",
+            "website",
+            "interface",
+            "screen",
+            "flow",
+            "checkout",
+            "onboarding",
+        ],
+        "quality_targets": [
+            "Realistic interactions",
+            "Consistent design system",
+            "Complete user flows",
+            "Responsive layout",
+        ],
         "typical_personas": ["End user", "Admin", "Mobile user", "Desktop user"],
-        "nfrs": ["Accessibility (WCAG 2.1)", "Mobile responsiveness", "Performance", "Usability"],
+        "nfrs": [
+            "Accessibility (WCAG 2.1)",
+            "Mobile responsiveness",
+            "Performance",
+            "Usability",
+        ],
     },
     "app_builder": {
         "description": "Full-stack application builder — generates complete application architecture, code, and infrastructure",
         "what_makes_good_brief": "A specific application type, tech stack, core features, user journeys, and data model",
-        "common_missing": ["technology", "scope", "target_audience", "security", "user_journeys", "data_model", "integrations", "performance"],
-        "topic_indicators": ["app", "platform", "system", "service", "api", "backend", "frontend", "saas", "tool"],
-        "quality_targets": ["Production-ready code", "Security best practices", "Test coverage", "CI/CD pipeline", "Documentation"],
-        "typical_personas": ["Developer", "DevOps engineer", "Product manager", "End user"],
-        "nfrs": ["Security (OWASP)", "Performance", "Scalability", "Maintainability", "Test coverage ≥80%"],
+        "common_missing": [
+            "technology",
+            "scope",
+            "target_audience",
+            "security",
+            "user_journeys",
+            "data_model",
+            "integrations",
+            "performance",
+        ],
+        "topic_indicators": [
+            "app",
+            "platform",
+            "system",
+            "service",
+            "api",
+            "backend",
+            "frontend",
+            "saas",
+            "tool",
+        ],
+        "quality_targets": [
+            "Production-ready code",
+            "Security best practices",
+            "Test coverage",
+            "CI/CD pipeline",
+            "Documentation",
+        ],
+        "typical_personas": [
+            "Developer",
+            "DevOps engineer",
+            "Product manager",
+            "End user",
+        ],
+        "nfrs": [
+            "Security (OWASP)",
+            "Performance",
+            "Scalability",
+            "Maintainability",
+            "Test coverage ≥80%",
+        ],
         "tech_defaults": {
             "web": "React/Next.js + Node.js/FastAPI + PostgreSQL",
             "mobile": "React Native or Flutter",
@@ -97,27 +216,97 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     "mulesoft_to_springboot": {
         "description": "Mulesoft → Spring Boot migration pipeline",
         "what_makes_good_brief": "The Mulesoft application name, integration patterns, target AWS infrastructure, and compliance requirements",
-        "common_missing": ["scope", "technology", "timeline", "priority", "integration_patterns", "target_infrastructure", "data_migration", "compliance_security"],
-        "topic_indicators": ["mulesoft", "integration", "api", "flow", "connector", "dataweave", "migration"],
-        "quality_targets": ["Zero data loss", "API parity", "Performance equivalence", "Test coverage"],
-        "typical_personas": ["Integration architect", "Backend developer", "DevOps engineer"],
-        "nfrs": ["Zero downtime migration", "API backward compatibility", "Security compliance"],
+        "common_missing": [
+            "scope",
+            "technology",
+            "timeline",
+            "priority",
+            "integration_patterns",
+            "target_infrastructure",
+            "data_migration",
+            "compliance_security",
+        ],
+        "topic_indicators": [
+            "mulesoft",
+            "integration",
+            "api",
+            "flow",
+            "connector",
+            "dataweave",
+            "migration",
+        ],
+        "quality_targets": [
+            "Zero data loss",
+            "API parity",
+            "Performance equivalence",
+            "Test coverage",
+        ],
+        "typical_personas": [
+            "Integration architect",
+            "Backend developer",
+            "DevOps engineer",
+        ],
+        "nfrs": [
+            "Zero downtime migration",
+            "API backward compatibility",
+            "Security compliance",
+        ],
     },
     "dotnet_to_azure": {
         "description": ".NET → Azure migration pipeline",
         "what_makes_good_brief": "The .NET application name, current architecture, Azure target services, and compliance requirements",
-        "common_missing": ["scope", "technology", "timeline", "priority", "azure_services", "data_migration", "integration_patterns", "compliance_security"],
-        "topic_indicators": [".net", "dotnet", "c#", "azure", "migration", "modernization", "cloud"],
-        "quality_targets": ["Cloud-native architecture", "Cost optimization", "Security hardening", "Performance improvement"],
+        "common_missing": [
+            "scope",
+            "technology",
+            "timeline",
+            "priority",
+            "azure_services",
+            "data_migration",
+            "integration_patterns",
+            "compliance_security",
+        ],
+        "topic_indicators": [
+            ".net",
+            "dotnet",
+            "c#",
+            "azure",
+            "migration",
+            "modernization",
+            "cloud",
+        ],
+        "quality_targets": [
+            "Cloud-native architecture",
+            "Cost optimization",
+            "Security hardening",
+            "Performance improvement",
+        ],
         "typical_personas": ["Cloud architect", ".NET developer", "DevOps engineer"],
-        "nfrs": ["Zero downtime migration", "Cost efficiency", "Security compliance", "Scalability"],
+        "nfrs": [
+            "Zero downtime migration",
+            "Cost efficiency",
+            "Security compliance",
+            "Scalability",
+        ],
     },
     "custom": {
         "description": "Custom AI workflow pipeline",
         "what_makes_good_brief": "A specific task, deliverable type, target audience, and output format requirements",
-        "common_missing": ["target_audience", "key_objectives", "scope", "priority", "output_format", "constraints", "domain", "assumptions"],
+        "common_missing": [
+            "target_audience",
+            "key_objectives",
+            "scope",
+            "priority",
+            "output_format",
+            "constraints",
+            "domain",
+            "assumptions",
+        ],
         "topic_indicators": [],
-        "quality_targets": ["Clear deliverable", "Actionable output", "Accurate information"],
+        "quality_targets": [
+            "Clear deliverable",
+            "Actionable output",
+            "Accurate information",
+        ],
         "typical_personas": ["Business user", "Technical user", "Decision maker"],
         "nfrs": ["Accuracy", "Completeness", "Clarity"],
     },
@@ -132,6 +321,7 @@ def _get_domain_knowledge(pipeline_type: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Smart Planner
 # ---------------------------------------------------------------------------
+
 
 class SmartPlanner:
     """Single-call intelligent planner.
@@ -156,9 +346,15 @@ class SmartPlanner:
     def _build_llm(self):
         """Build the LLM client — Anthropic direct, Bedrock bearer-token, or Bedrock IAM."""
         from app.core.config import settings
+
         if settings.ANTHROPIC_API_KEY:
             from langchain_anthropic import ChatAnthropic
-            model = self.model_id or settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5-20251001"
+
+            model = (
+                self.model_id
+                or settings.ANTHROPIC_MODEL_ID
+                or "claude-haiku-4-5-20251001"
+            )
             return ChatAnthropic(
                 model=model,
                 api_key=settings.ANTHROPIC_API_KEY,
@@ -169,17 +365,25 @@ class SmartPlanner:
         from langchain_aws import ChatBedrockConverse
         from botocore.config import Config
         from app.core.config import settings as s
+
         model = self.model_id or s.BEDROCK_INFERENCE_PROFILE_ID or s.BEDROCK_MODEL_ID
-        botocore_cfg = Config(read_timeout=600, connect_timeout=30, retries={"max_attempts": 5, "mode": "adaptive"})
+        botocore_cfg = Config(
+            read_timeout=600,
+            connect_timeout=30,
+            retries={"max_attempts": 5, "mode": "adaptive"},
+        )
 
         if s.AWS_BEARER_TOKEN_BEDROCK:
             from app.agents.model_factory import _build_bedrock_bearer_session
+
             boto_session = _build_bedrock_bearer_session()
             return ChatBedrockConverse(
                 model=model,
                 region_name=s.AWS_REGION,
                 max_tokens=2048,
-                client=boto_session.client("bedrock-runtime", region_name=s.AWS_REGION, config=botocore_cfg),
+                client=boto_session.client(
+                    "bedrock-runtime", region_name=s.AWS_REGION, config=botocore_cfg
+                ),
             )
 
         return ChatBedrockConverse(
@@ -189,7 +393,9 @@ class SmartPlanner:
             config=botocore_cfg,
         )
 
-    def _build_prompt(self, brief: str, pipeline_type: str, design_context: dict | None = None) -> str:
+    def _build_prompt(
+        self, brief: str, pipeline_type: str, design_context: dict | None = None
+    ) -> str:
         """Build the rich planning prompt with domain knowledge and coverage scan."""
         kb = _get_domain_knowledge(pipeline_type)
 
@@ -202,21 +408,21 @@ class SmartPlanner:
             tail_budget = settings.BRIEF_MAX_CHARS - head_budget
             head = brief[:head_budget].rstrip()
             tail = brief[-tail_budget:].lstrip()
-            brief_for_prompt = (
-                f"{head}\n\n[... document continues — {len(brief) - settings.BRIEF_MAX_CHARS} chars omitted ...]\n\n{tail}"
-            )
+            brief_for_prompt = f"{head}\n\n[... document continues — {len(brief) - settings.BRIEF_MAX_CHARS} chars omitted ...]\n\n{tail}"
 
         # ISS-056/H3(b): if the wizard already resolved a design system/template,
         # inject a short note so the planner doesn't flag visual style as missing.
         # Uses friendly names only (never the full ds_body/template_body — those are
         # up to 120k chars and would overwhelm a 2–5s structured-call budget).
         design_note = ""
-        if design_context and (design_context.get("ds_name") or design_context.get("template_name")):
+        if design_context and (
+            design_context.get("ds_name") or design_context.get("template_name")
+        ):
             _tmpl = design_context.get("template_name") or "a template"
             _ds = design_context.get("ds_name") or "a design system"
             design_note = (
                 f"\n## Design already chosen\n"
-                f"The user already selected the \"{_tmpl}\" template and \"{_ds}\" design "
+                f'The user already selected the "{_tmpl}" template and "{_ds}" design '
                 f"system in the wizard before this brief was written. "
                 f"Do NOT flag visual style / UI look-and-feel as missing or ambiguous — "
                 f"it is already decided.\n"
@@ -305,90 +511,9 @@ Return ONLY valid JSON:
   "user_request_summary": "1-2 sentence summary of what the user provided"
 }}"""
 
-        return f"""You are an expert pipeline planner. Analyze the user's brief and produce a structured planning context.
-
-## Pipeline Being Run
-**Type**: {pipeline_type}
-**Description**: {kb['description']}
-**What makes a good brief**: {kb['what_makes_good_brief']}
-{design_note}
-## User Brief
-"{brief_for_prompt}"
-
-## Your Analysis Tasks
-
-### 1. Topic Detection
-Does the brief contain a SPECIFIC topic/subject?
-
-A brief HAS a topic when it names something specific:
-- ✅ "Apple vs Samsung comparison" → has topic
-- ✅ "Q3 sales results for the board" → has topic
-- ✅ "hospital booking system" → has topic
-- ✅ "climate change impact" → has topic
-
-A brief does NOT have a topic:
-- ❌ "make a presentation" → no topic
-- ❌ "build something" → no topic
-- ❌ "create a prototype" → no topic
-- ❌ "generate user stories" → no topic
-
-### 2. Missing Information — CRITICAL: only include items GENUINELY absent from the brief
-Based on the brief and pipeline type, identify what's genuinely MISSING or AMBIGUOUS.
-
-**Candidate missing items for {pipeline_type}**: {json.dumps(kb['common_missing'])}
-
-**STRICT RULE**: Only include an item in missing_information if:
-1. It is genuinely unclear or absent from the brief
-2. It would materially change the output if answered differently
-3. It is NOT already answered or clearly implied by the brief
-
-If the brief mentions nurses in a hospital booking system → "target_audience" is CLEAR, do NOT add it.
-If the brief is a 100-page user-story document → most standard items are likely already covered.
-If the brief specifies a web app → "technology" may already be implied.
-Read the brief carefully and SKIP any item that is already answered.
-
-If the brief has no topic → add "topic" as the FIRST item.
-If the brief is rich and covers most dimensions → missing_information may be short (1-2 items) or even empty.
-
-### 3. Infer Context
-From the brief, infer:
-- Inferred intent (what the user actually wants to achieve)
-- Explicit constraints (things explicitly stated in the brief)
-- Implicit constraints (things implied by the domain/context)
-- Relevant personas (extracted FROM the brief when possible)
-- NFRs (non-functional requirements mentioned or implied)
-- Quality targets
-- Domain insights: 2-3 specific observations about THIS brief's content
-
-**Typical personas for {pipeline_type}** (use only if not already specified in brief): {json.dumps(kb['typical_personas'])}
-**Typical NFRs**: {json.dumps(kb['nfrs'])}
-**Quality targets**: {json.dumps(kb['quality_targets'])}
-
-### 4. Gate Decision
-- `CLARIFY_REQUIRED` if missing_information is non-empty
-- `PROCEED` if missing_information is empty (brief is complete enough)
-
-## Output Format
-Return ONLY valid JSON, no other text:
-
-{{
-  "inferred_intent": "concise description of what the user wants to achieve",
-  "has_topic": true/false,
-  "topic": "the specific topic if found, or null",
-  "explicit_constraints": ["list of things explicitly stated in the brief"],
-  "implicit_constraints": ["list of things implied by the domain/context"],
-  "missing_information": ["only items GENUINELY missing — may be empty for a rich brief"],
-  "execution_strategy": "sequential",
-  "execution_gate": "PROCEED" or "CLARIFY_REQUIRED",
-  "inferred_personas": ["list of relevant user personas — extracted from brief where possible"],
-  "inferred_nfrs": ["list of non-functional requirements"],
-  "quality_targets": ["list of quality goals for this pipeline run"],
-  "pipeline_type": "{pipeline_type}",
-  "domain_insights": ["2-3 specific insights about THIS brief that agents should know"],
-  "user_request_summary": "1-2 sentence summary of what the user provided (useful for downstream context)"
-}}"""
-
-    async def plan(self, brief: str, pipeline_type: str, design_context: dict | None = None) -> dict:
+    async def plan(
+        self, brief: str, pipeline_type: str, design_context: dict | None = None
+    ) -> dict:
         """Run the smart planner. Returns a complete PlanningContext dict."""
         from langchain_core.messages import HumanMessage
 
@@ -409,7 +534,7 @@ Return ONLY valid JSON, no other text:
             )
 
             # Extract JSON from response (handle markdown code blocks)
-            json_match = re.search(r'\{[\s\S]*\}', raw)
+            json_match = re.search(r"\{[\s\S]*\}", raw)
             if not json_match:
                 raise ValueError("No JSON found in planner response")
 
@@ -417,7 +542,11 @@ Return ONLY valid JSON, no other text:
             ctx["pipeline_type"] = pipeline_type  # ensure it's set
             # Store the original user request (capped at settings.BRIEF_MAX_CHARS for
             # context-window safety) so ClarifyEngine can generate content-aware questions.
-            ctx["user_request"] = brief[:settings.BRIEF_MAX_CHARS] if len(brief) > settings.BRIEF_MAX_CHARS else brief
+            ctx["user_request"] = (
+                brief[: settings.BRIEF_MAX_CHARS]
+                if len(brief) > settings.BRIEF_MAX_CHARS
+                else brief
+            )
 
             logger.info(
                 "SmartPlanner: pipeline=%s has_topic=%s gate=%s missing=%s",
@@ -449,6 +578,8 @@ Return ONLY valid JSON, no other text:
             "quality_targets": kb["quality_targets"][:2],
             "pipeline_type": pipeline_type,
             "domain_insights": [],
-            "user_request": brief[:settings.BRIEF_MAX_CHARS] if len(brief) > settings.BRIEF_MAX_CHARS else brief,
+            "user_request": brief[: settings.BRIEF_MAX_CHARS]
+            if len(brief) > settings.BRIEF_MAX_CHARS
+            else brief,
             "planner_fallback": True,
         }

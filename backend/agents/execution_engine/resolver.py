@@ -37,6 +37,7 @@ _EXEMPT_TYPES: frozenset[str] = frozenset({"planning_context", "constitution"})
 @dataclass
 class DagEdge:
     """A resolved producer→consumer edge in the Workflow DAG."""
+
     from_agent_id: str
     to_agent_id: str
     artifact_type: str
@@ -45,6 +46,7 @@ class DagEdge:
 @dataclass
 class UnresolvedEdge:
     """An unsatisfied Consumes_Contract entry (no upstream producer found)."""
+
     consuming_agent_id: str
     artifact_type: str
 
@@ -52,9 +54,10 @@ class UnresolvedEdge:
 @dataclass
 class ValidationResult:
     """Result of WorkflowResolver.validate()."""
+
     satisfiable: bool
     errors: list[str] = field(default_factory=list)
-    dag: list = field(default_factory=list)          # list[AgentSpec] in topological order
+    dag: list = field(default_factory=list)  # list[AgentSpec] in topological order
     edges: list[DagEdge] = field(default_factory=list)
     unresolved_edges: list[UnresolvedEdge] = field(default_factory=list)
 
@@ -124,8 +127,7 @@ class WorkflowResolver:
         # available and are never counted toward the "no entries resolved" check.
         for consumer_idx, consumer in enumerate(agents):
             consumer_consumes = [
-                a for a in getattr(consumer, "consumes", [])
-                if a not in _EXEMPT_TYPES
+                a for a in getattr(consumer, "consumes", []) if a not in _EXEMPT_TYPES
             ]
             if not consumer_consumes:
                 continue  # Nothing to validate; agent is a DAG root.
@@ -267,8 +269,7 @@ class WorkflowResolver:
 
         for consumer in agents:
             consumer_consumes = [
-                a for a in getattr(consumer, "consumes", [])
-                if a not in _EXEMPT_TYPES
+                a for a in getattr(consumer, "consumes", []) if a not in _EXEMPT_TYPES
             ]
             if not consumer_consumes:
                 continue
@@ -297,7 +298,9 @@ class WorkflowResolver:
 
         cycle_errors = self._detect_cycles(agents, dependencies)
         if cycle_errors:
-            raise ValueError("Workflow DAG is unsatisfiable: " + "; ".join(cycle_errors))
+            raise ValueError(
+                "Workflow DAG is unsatisfiable: " + "; ".join(cycle_errors)
+            )
 
         return self._topological_sort(agents, dependencies)
 
@@ -341,7 +344,9 @@ class WorkflowResolver:
     ) -> list:
         """Kahn's algorithm topological sort. Returns agents in execution order."""
         # in-degree count: in_degree[node] = number of nodes that must precede it
-        in_degree: dict[str, int] = {a.id: len(dependencies.get(a.id, set())) for a in agents}
+        in_degree: dict[str, int] = {
+            a.id: len(dependencies.get(a.id, set())) for a in agents
+        }
 
         queue: deque = deque()
         for agent in agents:

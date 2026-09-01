@@ -128,9 +128,9 @@ async def _post_update_specs_at_real_gate(engine, run_id: str, *, eligible: bool
     finally:
         client.cancel()
 
-    assert posted[:1] == ["update_specs"], (
-        f"the gate never armed, so nothing was tested; posted={posted} events={events}"
-    )
+    assert posted[:1] == [
+        "update_specs"
+    ], f"the gate never armed, so nothing was tested; posted={posted} events={events}"
     types = [e.get("type") for e in events]
     verdict = _HONORED if "_gate_update_specs" in types else _REFUSED
     return verdict, events
@@ -160,9 +160,9 @@ async def test_ineligible_update_specs_keeps_the_gate_waiting() -> None:
         "the gate ran the spec-revision sub-pipeline at a firing that advertised "
         f"update_specs_eligible=False (ISS-053); events={types}"
     )
-    assert "_gate_rejected" not in types, (
-        f"an ineligible action must never cancel the run; events={types}"
-    )
+    assert (
+        "_gate_rejected" not in types
+    ), f"an ineligible action must never cancel the run; events={types}"
     # The gate was still open afterwards: the follow-up approve is what closed it.
     assert "review_gate_approved" in types, (
         "the gate did not stay open — an ineligible action must leave approve / reject / "
@@ -182,13 +182,13 @@ async def test_eligible_update_specs_still_fires() -> None:
     )
     types = [e.get("type") for e in events]
 
-    assert verdict == _HONORED, (
-        f"an eligible update_specs no longer fires the sub-pipeline; events={types}"
-    )
+    assert (
+        verdict == _HONORED
+    ), f"an eligible update_specs no longer fires the sub-pipeline; events={types}"
     report = [e for e in events if e.get("type") == "_gate_update_specs"]
-    assert report and report[0].get("analysis_report") == "THE REPORT", (
-        f"the analysis report was dropped on the way to the sub-pipeline; got {report}"
-    )
+    assert (
+        report and report[0].get("analysis_report") == "THE REPORT"
+    ), f"the analysis report was dropped on the way to the sub-pipeline; got {report}"
 
 
 # ===========================================================================
@@ -197,7 +197,9 @@ async def test_eligible_update_specs_still_fires() -> None:
 
 
 @pytest.mark.asyncio
-async def test_three_gate_vector_is_enforced_and_leaves_a_second_cycle_reachable() -> None:
+async def test_three_gate_vector_is_enforced_and_leaves_a_second_cycle_reachable() -> (
+    None
+):
     """Outer analyze gate → honored, in-pass gate → REFUSED, re-opened gate → honored.
 
     The eligibility values are HARVESTED from a real engine drive (``_drive_cycles``
@@ -254,8 +256,11 @@ class _UpdateSpecsEmittingRunner:
         gate_key = f"{self.run_id}:{getattr(step, 'agent_id', '?')}"
         yield {
             "type": "review_gate_ready",
-            "data": {"gate_key": gate_key, "redoable": False,
-                     "update_specs_eligible": False},
+            "data": {
+                "gate_key": gate_key,
+                "redoable": False,
+                "update_specs_eligible": False,
+            },
         }
         yield {"type": "_gate_update_specs", "analysis_report": "a crafted report"}
 
@@ -281,7 +286,9 @@ class _FakeCtx:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("gate_cls", [HumanGate, ApprovalGate])
-async def test_declared_gate_consumes_update_specs_never_passes_or_leaks(gate_cls) -> None:
+async def test_declared_gate_consumes_update_specs_never_passes_or_leaks(
+    gate_cls,
+) -> None:
     """A declared human|approval gate receiving ``_gate_update_specs`` must CONSUME it:
     never yield the internal signal to the wire, never resolve to ``GATE_PASS``.
 
@@ -302,9 +309,9 @@ async def test_declared_gate_consumes_update_specs_never_passes_or_leaks(gate_cl
             terminal = item
 
     leaked = [e for e in events if e.get("type") == "_gate_update_specs"]
-    assert leaked == [], (
-        f"{gate_cls.__name__} leaked the internal _gate_update_specs signal to the wire"
-    )
+    assert (
+        leaked == []
+    ), f"{gate_cls.__name__} leaked the internal _gate_update_specs signal to the wire"
 
     assert terminal is not None, f"{gate_cls.__name__} produced no terminal GateOutcome"
     assert terminal.outcome != GATE_PASS, (

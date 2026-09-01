@@ -204,7 +204,7 @@ invoke_optional_scan() {
         return
     fi
     
-    echo "  > $tool ${args[@]}" >&2
+    echo "  > $tool ${args[*]}" >&2
     (cd "$work_dir" && "$tool" "${args[@]}" || {
         local exit_code=$?
         echo "  [warn] $tool reported findings (exit $exit_code). Review before applying." >&2

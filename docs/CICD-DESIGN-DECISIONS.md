@@ -1010,7 +1010,7 @@ Merged two apt-get update calls into one:
 - name: Scan backend image (blocking on HIGH,CRITICAL)
   run: |
     trivy image --severity HIGH,CRITICAL --exit-code 1 \
-      --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE"
+      --ignore-unfixed --ignorefile ci/trivyignore.images "$IMAGE"
 ```
 
 **Now**: No `--exit-code 0`, no `|| true`. Scan failure = deploy failure.

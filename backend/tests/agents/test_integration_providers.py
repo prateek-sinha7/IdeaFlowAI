@@ -73,14 +73,19 @@ def test_scope_resolution_default_none_binds_nothing() -> None:
     assert exposed == {}
 
 
-@pytest.mark.parametrize("provider_name,scope", [
-    ("github", "github_read"),
-    ("gitlab", "gitlab_read"),
-    ("jira", "jira_read"),
-    ("slack", "slack_post"),
-])
+@pytest.mark.parametrize(
+    "provider_name,scope",
+    [
+        ("github", "github_read"),
+        ("gitlab", "gitlab_read"),
+        ("jira", "jira_read"),
+        ("slack", "slack_post"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_integration_resolves_from_create_runner_path(provider_name, scope) -> None:
+async def test_integration_resolves_from_create_runner_path(
+    provider_name, scope
+) -> None:
     """A granted scope surfaces the integration's tools into the unified create_runner seam.
 
     The bridge composes the MCP server-config from the granted scope; the SAME
@@ -147,7 +152,11 @@ def test_no_parallel_sdk_import_in_the_bridge() -> None:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     top = alias.name.split(".")[0]
-                    assert top not in banned_modules, f"{py.name} imports vendor SDK {top!r}"
+                    assert (
+                        top not in banned_modules
+                    ), f"{py.name} imports vendor SDK {top!r}"
             elif isinstance(node, ast.ImportFrom):
                 top = (node.module or "").split(".")[0]
-                assert top not in banned_modules, f"{py.name} imports vendor SDK {top!r}"
+                assert (
+                    top not in banned_modules
+                ), f"{py.name} imports vendor SDK {top!r}"

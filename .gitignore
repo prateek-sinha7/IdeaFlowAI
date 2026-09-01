@@ -136,3 +136,9 @@ TODO.md
 # Stale local run output — the live RUNS_ROOT is /tmp/flowin-runs, nothing references this
 backend/.runs-local/
 graphify-out/
+
+# Load-test harness (tools/loadtest). The harness SOURCE is committed; only the
+# account list (real credentials) and the run reports (run ids + timings) are not.
+# Do not ignore the directory itself — a negation cannot re-include a file whose
+# parent directory is excluded, so users.example.json would disappear with it.
+/tools/loadtest/

@@ -81,9 +81,10 @@ async def test_declared_gate_edit_stamps_derived_from_on_task_list() -> None:
     await engine._apply_declared_gate_edit("EDITED PLAN", results, [_Spec()], ectx)
 
     refs = _task_list_refs(ectx)
-    assert [r.version for r in refs] == [1, 2], (
-        f"expected v1 + edited v2, got versions {[r.version for r in refs]}"
-    )
+    assert [r.version for r in refs] == [
+        1,
+        2,
+    ], f"expected v1 + edited v2, got versions {[r.version for r in refs]}"
     assert refs[1].derived_from == refs[0].id, (
         "declared gate-edit did NOT stamp derived_from lineage to the prior "
         "task_list version (RESUME-15 gap)"
@@ -107,7 +108,9 @@ async def test_inline_gate_edited_stamps_derived_from_on_task_list() -> None:
         yield {"type": "_gate_edited", "edited_content": "EDITED PLAN"}
 
     def _model_for(agent_id, idx):
-        return ScriptedFakeChatModel([_ScriptedTurn(texts=["ORIGINAL PLAN. "], usage=(5, 3))])
+        return ScriptedFakeChatModel(
+            [_ScriptedTurn(texts=["ORIGINAL PLAN. "], usage=(5, 3))]
+        )
 
     with _EngineHarness(_model_for) as h:
         h.engine._run_review_gate = _fake_gate  # type: ignore[assignment]
@@ -116,9 +119,10 @@ async def test_inline_gate_edited_stamps_derived_from_on_task_list() -> None:
         await _drive_agent(h.engine, spec, ectx, results, [spec])
 
     refs = _task_list_refs(ectx)
-    assert [r.version for r in refs] == [1, 2], (
-        f"expected v1 (model) + edited v2, got versions {[r.version for r in refs]}"
-    )
+    assert [r.version for r in refs] == [
+        1,
+        2,
+    ], f"expected v1 (model) + edited v2, got versions {[r.version for r in refs]}"
     assert refs[1].derived_from == refs[0].id, (
         "inline gate-edit did NOT stamp derived_from lineage to the prior "
         "task_list version (RESUME-15 gap)"

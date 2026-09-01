@@ -145,7 +145,9 @@ async def test_the_engine_reads_the_same_event_object_the_rest_registry_holds(re
     registry._register_resume_task(run_id, object())  # the restore create_task site
 
     engine = ExecutionEngine()
-    engine._resume_cancel_event = registry._resume_cancel_event  # the app/main.py wiring
+    engine._resume_cancel_event = (
+        registry._resume_cancel_event
+    )  # the app/main.py wiring
     recorded: dict = {}
     engine._execute_impl = _recording_impl(recorded)  # type: ignore[assignment]
 
@@ -176,8 +178,11 @@ async def _interrupted_run(session, db_engine, call_log):
         engine_a = h.make_engine()
         try:
             async for _ev in engine_a._execute_impl(
-                agents=list(h.specs), user_message="Run the wave workflow.",
-                pipeline_run_id=run_id, pipeline_type=_FIXTURE_ID, user_id=owner,
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
                 gate_agent_ids=[],
             ):
                 pass
@@ -225,9 +230,9 @@ async def test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row(registry
         engine_b._resume_cancel_event = registry._resume_cancel_event
         await engine_b.resume_run(run_id)
 
-    assert call_log == calls_before, (
-        f"a cancelled resume kept dispatching agents: {calls_before} -> {call_log}"
-    )
+    assert (
+        call_log == calls_before
+    ), f"a cancelled resume kept dispatching agents: {calls_before} -> {call_log}"
     assert "pipeline_cancelled" in _persisted_types(session, run_id), (
         "a cancelled run must persist exactly the pipeline_cancelled terminal — "
         "without it nothing downstream (UI, status, cost accounting) is ever told"
@@ -291,7 +296,7 @@ async def test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume(registry
         await engine_c.restore_non_terminal_runs()
         await asyncio.sleep(0.05)  # let any spawned driver task actually run
 
-    assert adopted == [], (
-        f"the next boot re-adopted a run the owner paid to stop: {adopted}"
-    )
+    assert (
+        adopted == []
+    ), f"the next boot re-adopted a run the owner paid to stop: {adopted}"
     session.close()

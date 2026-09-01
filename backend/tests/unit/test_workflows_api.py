@@ -56,9 +56,9 @@ class TestList:
         # FIX-051: "authored workflow" = has a workflow.yaml manifest, not just
         # a PIPELINE_AGENTS key (PIPELINE_AGENTS can now list a pipeline_type
         # with agents but no manifest yet, e.g. spec_kit — see ISS-035).
-        assert ids == _KNOWN_WORKFLOW_IDS, (
-            f"list did not cover every authored workflow: {ids ^ _KNOWN_WORKFLOW_IDS}"
-        )
+        assert (
+            ids == _KNOWN_WORKFLOW_IDS
+        ), f"list did not cover every authored workflow: {ids ^ _KNOWN_WORKFLOW_IDS}"
         assert len(body) == len(_KNOWN_WORKFLOW_IDS)
 
     def test_list_entries_carry_metadata(self, client):
@@ -152,9 +152,9 @@ class TestList:
                 f"{sample_id} references agents with no AGENT.md and cannot run; "
                 "its manifest must declare user_launchable: false"
             )
-            assert by_id[sample_id]["is_beta"] is True, (
-                f"{sample_id} is incomplete and must render greyed-out"
-            )
+            assert (
+                by_id[sample_id]["is_beta"] is True
+            ), f"{sample_id} is incomplete and must render greyed-out"
 
         for wid in ("prototype", "ppt"):
             assert by_id[wid]["user_launchable"] is True, f"{wid} should be launchable"
@@ -164,9 +164,9 @@ class TestList:
         non_launchable = {wid for wid in by_id if wid.endswith("_revision")} | {"chat"}
         assert non_launchable, "expected at least one non-launchable id to assert on"
         for wid in non_launchable:
-            assert by_id[wid]["user_launchable"] is False, (
-                f"{wid} must NOT be user_launchable"
-            )
+            assert (
+                by_id[wid]["user_launchable"] is False
+            ), f"{wid} must NOT be user_launchable"
             assert by_id[wid]["launch_surface"] is None
 
         # display_name carries ONLY the manifest's EXPLICIT label (WR-01 /
@@ -266,9 +266,9 @@ class TestList:
         # list (INV-3 parity) — never raises, never omits the key.
         for wid in ("chat", "custom", "reverse_engineer"):
             if wid in by_id:
-                assert by_id[wid]["chained_from"] == [], (
-                    f"{wid} should have no authored chaining relationships"
-                )
+                assert (
+                    by_id[wid]["chained_from"] == []
+                ), f"{wid} should have no authored chaining relationships"
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +378,10 @@ class TestKnownWorkflowIdsDiscovery:
         # sample_subagents_parallel is the control: same directory, same is_beta,
         # but its agent (custom-agent) DOES exist, so it is legitimately launchable.
         assert "sample_subagents_parallel" in _KNOWN_WORKFLOW_IDS
-        assert load_manifest("sample_subagents_parallel", _WORKFLOWS_DIR).user_launchable is True
+        assert (
+            load_manifest("sample_subagents_parallel", _WORKFLOWS_DIR).user_launchable
+            is True
+        )
 
     def test_spec_kit_has_agents_but_no_manifest_yet(self):
         # ISS-035 proof case: spec_kit agents are real and discoverable via
@@ -387,9 +390,9 @@ class TestKnownWorkflowIdsDiscovery:
         # launchable workflow. If a manifest is later added, this assertion
         # forces a conscious test update rather than an unnoticed catalog
         # change.
-        assert get_pipeline_agents("spec_kit"), (
-            "expected spec_kit to have real, loadable agents on disk"
-        )
+        assert get_pipeline_agents(
+            "spec_kit"
+        ), "expected spec_kit to have real, loadable agents on disk"
         assert "spec_kit" not in _KNOWN_WORKFLOW_IDS
 
     def test_every_known_workflow_id_compiles(self):

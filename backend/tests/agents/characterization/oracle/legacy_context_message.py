@@ -80,7 +80,9 @@ ORACLE_USER_MESSAGE = "Build me a thing for managing tasks."
 # ONE reference file, short bodies. These are RAW parts — they already carry their own
 # block envelope and the legacy engine appended them un-rewrapped.
 # provenance: acd1636:backend/agents/prototype/context.py:104-128 (get_template_injection_parts)
-_ORACLE_TEMPLATE_SEED_BODY = "<!doctype html><html><body><!-- web-prototype seed --></body></html>"
+_ORACLE_TEMPLATE_SEED_BODY = (
+    "<!doctype html><html><body><!-- web-prototype seed --></body></html>"
+)
 _ORACLE_TEMPLATE_REF_NAME = "layouts"
 _ORACLE_TEMPLATE_REF_BODY = "Use a 12-column grid. Cards snap to the grid gutters."
 
@@ -102,7 +104,9 @@ _ALL_INJECTION_PARTS: list[str] = [_INJECTION_PART_SEED, _INJECTION_PART_REFEREN
 
 # The example.html bytes (builder-only). Short, < 8000 chars so no truncation marker.
 # provenance: acd1636:context.py:130-148 (get_example_html) + engine.py:3370-3376
-_ORACLE_EXAMPLE_HTML = "<!doctype html><html><body><main>example dashboard</main></body></html>"
+_ORACLE_EXAMPLE_HTML = (
+    "<!doctype html><html><body><main>example dashboard</main></body></html>"
+)
 
 # The fixture's prior prototype HTML for build task 2 (drives the skeleton block). The
 # legacy engine derived a compact skeleton via self._extract_html_skeleton; for the
@@ -121,9 +125,17 @@ _ORACLE_SKELETON = "<body><section data-page='dashboard'>…</section></body>"
 # all four (the prototype AGENT.md files declare injects=[template, design_system]).
 _CLASS_INPUTS: dict[str, dict] = {
     # provenance: prototype-specify AGENT.md — injects=[template, design_system], tools=[]
-    "prototype-specify": {"injects": ["template", "design_system"], "tools": [], "task": ""},
+    "prototype-specify": {
+        "injects": ["template", "design_system"],
+        "tools": [],
+        "task": "",
+    },
     # provenance: prototype-plan AGENT.md — injects=[template, design_system], tools=[]
-    "prototype-plan": {"injects": ["template", "design_system"], "tools": [], "task": ""},
+    "prototype-plan": {
+        "injects": ["template", "design_system"],
+        "tools": [],
+        "task": "",
+    },
     # provenance: prototype-build AGENT.md — injects=[template, design_system],
     #             tools=["prototype_emit_only"]
     "prototype-build:1": {
@@ -138,7 +150,11 @@ _CLASS_INPUTS: dict[str, dict] = {
     },
 }
 
-AGENT_CLASSES: tuple[str, ...] = ("prototype-specify", "prototype-plan", "prototype-build")
+AGENT_CLASSES: tuple[str, ...] = (
+    "prototype-specify",
+    "prototype-plan",
+    "prototype-build",
+)
 
 
 def _resolve_inputs(agent_class: str, task: str) -> dict:
@@ -287,14 +303,17 @@ def build_oracle_message(
     # provenance: acd1636:engine.py:3408-3461 — `if spec.id == "prototype-build":`
     if is_build:
         task_num_str = task
-        total_str = "2" if task_total is None else task_total  # fixture pipeline = 2 tasks
+        total_str = (
+            "2" if task_total is None else task_total
+        )  # fixture pipeline = 2 tasks
         if task_num_str:
             # provenance: acd1636:engine.py:3414-3422 — CURRENT TASK block. The body is
             # the planner's `## Task N:` block text (the routed path injects the real
             # task block); default to the legacy fallback wording when none supplied.
             body = (
                 "Execute ONLY this task from the task list above."
-                if task_body is None else task_body
+                if task_body is None
+                else task_body
             )
             parts.append(
                 f"\n=== CURRENT TASK ===\n"

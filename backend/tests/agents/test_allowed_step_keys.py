@@ -64,7 +64,8 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     "compaction": (_VALID_COMPACTION, lambda s, c: s.compaction == _VALID_COMPACTION),
     "task_source": (
         {"kind": "parsed", "parser": _VALID_PARSER},
-        lambda s, c: s.task_source is not None and s.task_source.parser == _VALID_PARSER,
+        lambda s, c: s.task_source is not None
+        and s.task_source.parser == _VALID_PARSER,
     ),
     "post_step": (_VALID_POST_STEP, lambda s, c: s.post_step == _VALID_POST_STEP),
     "tools": ({"read_files": True}, lambda s, c: s.tools.read_files is True),
@@ -189,7 +190,5 @@ def test_non_allowlisted_key_raises() -> None:
     bogus = "definitely_not_allowed_xyz"
     assert bogus not in _ALLOWED_STEP_KEYS
     with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(
-            _manifest_one_step(bogus, "v"), CapabilityRegistry()
-        )
+        WorkflowCompiler().compile(_manifest_one_step(bogus, "v"), CapabilityRegistry())
     assert bogus in str(exc.value)

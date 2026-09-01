@@ -25,14 +25,14 @@ class RunCapabilities(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    runtime = Column(String, nullable=False)         # e.g. langchain_deepagents (05-04)
-    model_overrides = Column(JSON, nullable=True)    # Phase 6
-    skills = Column(JSON, nullable=True)             # Phase 8
-    hooks = Column(JSON, nullable=True)              # Phase 8
-    integrations = Column(JSON, nullable=True)       # Phase 9
-    mcp_servers = Column(JSON, nullable=True)        # Phase 9
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    runtime = Column(String, nullable=False)  # e.g. langchain_deepagents (05-04)
+    model_overrides = Column(JSON, nullable=True)  # Phase 6
+    skills = Column(JSON, nullable=True)  # Phase 8
+    hooks = Column(JSON, nullable=True)  # Phase 8
+    integrations = Column(JSON, nullable=True)  # Phase 9
+    mcp_servers = Column(JSON, nullable=True)  # Phase 9
     versions = Column(JSON, nullable=True)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

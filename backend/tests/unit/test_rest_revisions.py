@@ -102,8 +102,11 @@ def env(monkeypatch):
     client = TestClient(app)
 
     yield {
-        "ws": ws_module, "rc": rc_module, "client": client,
-        "state": state, "Session": TestingSession,
+        "ws": ws_module,
+        "rc": rc_module,
+        "client": client,
+        "state": state,
+        "Session": TestingSession,
     }
 
     Base.metadata.drop_all(bind=db_engine)
@@ -130,11 +133,18 @@ def _seed_parent(env, owner_id: str, run_type="ppt") -> str:
     parent_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=parent_id, user_id=owner_id, owner_id=owner_id,
-            title="parent deck", type=run_type, status="completed",
-            input="make a deck", agent_count=3,
-        ))
+        db.add(
+            WorkflowRun(
+                id=parent_id,
+                user_id=owner_id,
+                owner_id=owner_id,
+                title="parent deck",
+                type=run_type,
+                status="completed",
+                input="make a deck",
+                agent_count=3,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -146,11 +156,18 @@ def _seed_child(env, owner_id: str, *, run_type="ppt_revision") -> str:
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=owner_id, owner_id=owner_id,
-            title="Revision: x", type=run_type, status="revising", input="x",
-            agent_count=1,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=owner_id,
+                owner_id=owner_id,
+                title="Revision: x",
+                type=run_type,
+                status="revising",
+                input="x",
+                agent_count=1,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -237,7 +254,10 @@ def test_cross_owner_parent_returns_404(env, monkeypatch):
     # No child row was minted for the attacker.
     db = env["Session"]()
     try:
-        assert db.query(WorkflowRun).filter(WorkflowRun.user_id == attacker.id).count() == 0
+        assert (
+            db.query(WorkflowRun).filter(WorkflowRun.user_id == attacker.id).count()
+            == 0
+        )
     finally:
         db.close()
 
@@ -276,7 +296,9 @@ def test_agent_count_derives_for_ppt_revision(env, monkeypatch):
 
 
 async def _noop_complete(kwargs):
-    await kwargs["websocket_send_fn"]({"type": "pipeline_complete", "data": {"final_output": "x"}})
+    await kwargs["websocket_send_fn"](
+        {"type": "pipeline_complete", "data": {"final_output": "x"}}
+    )
 
 
 @pytest.mark.asyncio
@@ -284,13 +306,24 @@ async def test_driver_happy_path_completed(env, monkeypatch):
     async def _happy(kwargs):
         send = kwargs["websocket_send_fn"]
         await send({"type": "pipeline_start", "data": {"agents": []}})
-        await send({"type": "pipeline_complete", "data": {"final_output": "<html>revised</html>"}})
+        await send(
+            {
+                "type": "pipeline_complete",
+                "data": {"final_output": "<html>revised</html>"},
+            }
+        )
 
     _install_stub(env, monkeypatch, _happy)
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
-    drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="ppt_output", instruction="x", user=owner)
+    drained = await _drive(
+        env,
+        run_id=run_id,
+        parent_run_id="parent",
+        target="ppt_output",
+        instruction="x",
+        user=owner,
+    )
     assert [e["type"] for e in drained].count("pipeline_complete") == 1
     assert _row(env, run_id).status == "completed"
     assert _row(env, run_id).completed_at is not None
@@ -310,25 +343,52 @@ async def test_driver_happy_path_persists_output_columns(env, monkeypatch):
     async def _rich(kwargs):
         send = kwargs["websocket_send_fn"]
         await send({"type": "pipeline_start", "data": {"agents": []}})
-        await send({"type": "agent_start", "data": {
-            "agent_id": "user-stories-revision-agent", "name": "Reviser",
-            "role": "r", "icon": "i"}})
+        await send(
+            {
+                "type": "agent_start",
+                "data": {
+                    "agent_id": "user-stories-revision-agent",
+                    "name": "Reviser",
+                    "role": "r",
+                    "icon": "i",
+                },
+            }
+        )
         await send({"type": "agent_chunk", "data": {"chunk": "<html>revised</html>"}})
-        await send({"type": "agent_complete", "data": {
-            "duration": 2.1, "input_tokens": 3944, "output_tokens": 297,
-            "total_tokens": 4241}})
-        await send({"type": "pipeline_complete", "data": {
-            "final_output": "<html>revised</html>",
-            "deliverable_mimetype": "text/markdown",
-            "deliverable_filename": "user_stories.md",
-        }})
+        await send(
+            {
+                "type": "agent_complete",
+                "data": {
+                    "duration": 2.1,
+                    "input_tokens": 3944,
+                    "output_tokens": 297,
+                    "total_tokens": 4241,
+                },
+            }
+        )
+        await send(
+            {
+                "type": "pipeline_complete",
+                "data": {
+                    "final_output": "<html>revised</html>",
+                    "deliverable_mimetype": "text/markdown",
+                    "deliverable_filename": "user_stories.md",
+                },
+            }
+        )
 
     _install_stub(env, monkeypatch, _rich)
     owner = _seed_user(env, "owner")
     owner.preferred_model = "claude-sonnet-test"
     run_id = _seed_child(env, owner.id)
-    await _drive(env, run_id=run_id, parent_run_id="parent",
-                 target="od_ppt_output", instruction="x", user=owner)
+    await _drive(
+        env,
+        run_id=run_id,
+        parent_run_id="parent",
+        target="od_ppt_output",
+        instruction="x",
+        user=owner,
+    )
 
     row = _row(env, run_id)
     assert row.status == "completed"
@@ -355,8 +415,14 @@ async def test_driver_pipeline_failed_records_failed(env, monkeypatch):
     _install_stub(env, monkeypatch, _fails)
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
-    drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="ppt_output", instruction="x", user=owner)
+    drained = await _drive(
+        env,
+        run_id=run_id,
+        parent_run_id="parent",
+        target="ppt_output",
+        instruction="x",
+        user=owner,
+    )
     assert [e["type"] for e in drained].count("pipeline_failed") == 1
     row = _row(env, run_id)
     assert row.status == "failed"
@@ -371,8 +437,14 @@ async def test_driver_value_error_maps_to_validation_error(env, monkeypatch):
     _install_stub(env, monkeypatch, _raises)
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
-    drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="ppt_output", instruction="x", user=owner)
+    drained = await _drive(
+        env,
+        run_id=run_id,
+        parent_run_id="parent",
+        target="ppt_output",
+        instruction="x",
+        user=owner,
+    )
     errors = [e for e in drained if e["type"] == "error"]
     assert len(errors) == 1
     assert errors[0]["data"]["code"] == "revision_validation_error"
@@ -389,8 +461,14 @@ async def test_driver_runtime_error_maps_to_revision_error(env, monkeypatch):
     _install_stub(env, monkeypatch, _raises)
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
-    drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="ppt_output", instruction="x", user=owner)
+    drained = await _drive(
+        env,
+        run_id=run_id,
+        parent_run_id="parent",
+        target="ppt_output",
+        instruction="x",
+        user=owner,
+    )
     errors = [e for e in drained if e["type"] == "error"]
     assert len(errors) == 1
     assert errors[0]["data"]["code"] == "revision_error"
@@ -402,17 +480,28 @@ async def test_driver_runtime_error_maps_to_revision_error(env, monkeypatch):
 @pytest.mark.asyncio
 async def test_driver_degraded_completion_records_degraded(env, monkeypatch):
     async def _degraded(kwargs):
-        await kwargs["websocket_send_fn"]({
-            "type": "pipeline_complete",
-            "data": {"final_output": "<html>partial</html>", "status": "degraded",
-                     "agents_failed": ["ppt-revision-assembler"]},
-        })
+        await kwargs["websocket_send_fn"](
+            {
+                "type": "pipeline_complete",
+                "data": {
+                    "final_output": "<html>partial</html>",
+                    "status": "degraded",
+                    "agents_failed": ["ppt-revision-assembler"],
+                },
+            }
+        )
 
     _install_stub(env, monkeypatch, _degraded)
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
-    await _drive(env, run_id=run_id, parent_run_id="parent",
-                 target="ppt_output", instruction="x", user=owner)
+    await _drive(
+        env,
+        run_id=run_id,
+        parent_run_id="parent",
+        target="ppt_output",
+        instruction="x",
+        user=owner,
+    )
     row = _row(env, run_id)
     assert row.status == "degraded"
     assert row.status != "completed"
@@ -430,8 +519,14 @@ async def test_driver_cancellation_records_cancelled(env, monkeypatch):
     _install_stub(env, monkeypatch, _cooperative)
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
-    drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="ppt_output", instruction="x", user=owner)
+    drained = await _drive(
+        env,
+        run_id=run_id,
+        parent_run_id="parent",
+        target="ppt_output",
+        instruction="x",
+        user=owner,
+    )
     assert "pipeline_cancelled" in [e["type"] for e in drained]
     row = _row(env, run_id)
     assert row.status == "cancelled"
@@ -458,7 +553,10 @@ class TestResolverDirect:
         parent_id = _seed_parent(env, owner.id)
         db = env["Session"]()
         try:
-            assert env["ws"]._resolve_owned_parent_run_id(db, parent_id, owner.id) == parent_id
+            assert (
+                env["ws"]._resolve_owned_parent_run_id(db, parent_id, owner.id)
+                == parent_id
+            )
         finally:
             db.close()
 
@@ -469,7 +567,10 @@ class TestResolverDirect:
         db = env["Session"]()
         try:
             # The attacker names a real run id — but it is not theirs → dropped.
-            assert env["ws"]._resolve_owned_parent_run_id(db, parent_id, attacker.id) is None
+            assert (
+                env["ws"]._resolve_owned_parent_run_id(db, parent_id, attacker.id)
+                is None
+            )
         finally:
             db.close()
 
@@ -477,9 +578,10 @@ class TestResolverDirect:
         owner = _seed_user(env, "owner")
         db = env["Session"]()
         try:
-            assert env["ws"]._resolve_owned_parent_run_id(
-                db, "does-not-exist", owner.id
-            ) is None
+            assert (
+                env["ws"]._resolve_owned_parent_run_id(db, "does-not-exist", owner.id)
+                is None
+            )
         finally:
             db.close()
 
@@ -491,6 +593,7 @@ class TestResolverDirect:
                 raise AssertionError("a falsy candidate must not issue a query")
 
         for falsy in (None, ""):
-            assert env["ws"]._resolve_owned_parent_run_id(
-                _ExplodingDb(), falsy, owner.id
-            ) is None
+            assert (
+                env["ws"]._resolve_owned_parent_run_id(_ExplodingDb(), falsy, owner.id)
+                is None
+            )

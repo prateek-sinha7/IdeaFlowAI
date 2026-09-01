@@ -237,8 +237,14 @@ def test_in01_vocabulary_and_revision_target_kinds_do_not_warn(caplog) -> None:
 
     graph = ArtifactGraph()
     with caplog.at_level(_logging.WARNING, logger="agents.artifacts.graph"):
-        for kind in ("spec", "deliverable", "clarifications", "planning_context",
-                     "ppt_output", "od_ppt_output"):
+        for kind in (
+            "spec",
+            "deliverable",
+            "clarifications",
+            "planning_context",
+            "ppt_output",
+            "od_ppt_output",
+        ):
             _write_kind(graph, kind)
     assert not [
         r for r in caplog.records if "outside ARTIFACT_KINDS" in r.message

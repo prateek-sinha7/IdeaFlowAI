@@ -83,9 +83,10 @@ class RevisionValidationPostStep:
             baseline_static: set[str] = set()
             baseline_console: set[str] = set()
             if original_html:
-                baseline_static, baseline_console = (
-                    await runner.compute_revision_baseline(original_html)
-                )
+                (
+                    baseline_static,
+                    baseline_console,
+                ) = await runner.compute_revision_baseline(original_html)
                 # Mirror onto ctx for parity with the legacy ectx.revision_baseline_*
                 # (the phase-5 suite reads these off the threaded fix-loop args).
                 ctx.revision_baseline_static = baseline_static
@@ -93,7 +94,8 @@ class RevisionValidationPostStep:
                 logger.info(
                     "revision_validation: pre-edit baseline — %d static issue(s), "
                     "%d console error(s)",
-                    len(baseline_static), len(baseline_console),
+                    len(baseline_static),
+                    len(baseline_console),
                 )
 
             # ── Post-edit Both-validation + bounded internal fix-loop ────────────

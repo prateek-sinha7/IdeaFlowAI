@@ -1,8 +1,9 @@
 # =============================================================================
 # Trivy misconfiguration ignores.
 # =============================================================================
-# Consumed by .github/workflows/ci.yml (`security-scan` job):
-#   trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile .trivyignore
+# Location: ci/trivyignore (moved from the repo root).
+# Consumed by .github/workflows/ci.yml (`security-scan-iac` job):
+#   trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile ci/trivyignore
 #     --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" infra/terraform
 # (previously by the retired infra/buildspec.yml pre_build phase — same flags).
 # The HIGH,CRITICAL threshold matters: the accepts below were triaged at it.
@@ -10,7 +11,7 @@
 # Each ID below is an ACCEPTED finding for this single-account / single-EC2 /
 # single-region architecture. Each maps ONLY to the resources noted, so a
 # global ignore loses no real coverage today. These mirror the accepts already
-# documented in .checkov.yaml and the inline checkov:skip annotations.
+# documented in ci/checkov.yaml and the inline checkov:skip annotations.
 
 # AVD-AWS-0104 — Security group rule allows unrestricted egress to 0.0.0.0/0.
 # The single EC2 host needs outbound internet on 443/80/53 to reach AWS APIs

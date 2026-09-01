@@ -73,16 +73,18 @@ class TestStructuralRegression:
 
     @pytest.mark.parametrize(
         "pipeline_type",
-        [pt for pt in sorted(PIPELINE_AGENTS) if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE],
+        [
+            pt
+            for pt in sorted(PIPELINE_AGENTS)
+            if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE
+        ],
     )
     def test_pipeline_resolves_to_satisfiable_dag(self, pipeline_type):
         agents = _resolve_agents(pipeline_type)
         if not agents:
             pytest.skip(f"{pipeline_type} has no agents")
         result = WorkflowResolver().validate(agents)
-        assert result.satisfiable, (
-            f"{pipeline_type} unsatisfiable: {result.errors}"
-        )
+        assert result.satisfiable, f"{pipeline_type} unsatisfiable: {result.errors}"
 
     def test_ppt_pipeline_resolves(self):
         agents = _resolve_agents("ppt")
@@ -92,7 +94,11 @@ class TestStructuralRegression:
 
     @pytest.mark.parametrize(
         "pipeline_type",
-        [pt for pt in sorted(PIPELINE_AGENTS) if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE],
+        [
+            pt
+            for pt in sorted(PIPELINE_AGENTS)
+            if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE
+        ],
     )
     def test_topological_order_is_dependency_valid(self, pipeline_type):
         """The resolved execution order must be a valid topological sort:
@@ -124,7 +130,11 @@ class TestStructuralRegression:
 
     @pytest.mark.parametrize(
         "pipeline_type",
-        [pt for pt in sorted(PIPELINE_AGENTS) if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE],
+        [
+            pt
+            for pt in sorted(PIPELINE_AGENTS)
+            if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE
+        ],
     )
     def test_every_consumes_is_satisfied_upstream(self, pipeline_type):
         agents = _resolve_agents(pipeline_type)

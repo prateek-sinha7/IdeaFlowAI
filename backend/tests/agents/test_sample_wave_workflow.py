@@ -73,10 +73,32 @@ _TASK_PLAN = (
     + _json.dumps(
         {
             "tasks": [
-                {"id": "t1", "title": "Write A", "body": "Write the file part_a.txt with the content 'a'.", "targets": ["part_a.txt"]},
-                {"id": "t2", "title": "Write B", "body": "Write the file part_b.txt with the content 'b'.", "targets": ["part_b.txt"]},
-                {"id": "t3", "title": "Write C", "body": "Write the file part_c.txt with the content 'c'.", "targets": ["part_c.txt"], "depends_on": ["t1"]},
-                {"id": "t4", "title": "Write D", "body": "Write the file part_d.txt with the content 'd'.", "targets": ["part_d.txt"], "depends_on": ["t2"]},
+                {
+                    "id": "t1",
+                    "title": "Write A",
+                    "body": "Write the file part_a.txt with the content 'a'.",
+                    "targets": ["part_a.txt"],
+                },
+                {
+                    "id": "t2",
+                    "title": "Write B",
+                    "body": "Write the file part_b.txt with the content 'b'.",
+                    "targets": ["part_b.txt"],
+                },
+                {
+                    "id": "t3",
+                    "title": "Write C",
+                    "body": "Write the file part_c.txt with the content 'c'.",
+                    "targets": ["part_c.txt"],
+                    "depends_on": ["t1"],
+                },
+                {
+                    "id": "t4",
+                    "title": "Write D",
+                    "body": "Write the file part_d.txt with the content 'd'.",
+                    "targets": ["part_d.txt"],
+                    "depends_on": ["t2"],
+                },
             ]
         },
         indent=2,
@@ -110,7 +132,11 @@ class _PartWritingModel(ScriptedFakeChatModel):
             yield ChatGenerationChunk(
                 message=AIMessageChunk(
                     content="Done.",
-                    usage_metadata={"input_tokens": 4, "output_tokens": 2, "total_tokens": 6},
+                    usage_metadata={
+                        "input_tokens": 4,
+                        "output_tokens": 2,
+                        "total_tokens": 6,
+                    },
                     chunk_position="last",
                 )
             )
@@ -124,12 +150,18 @@ class _PartWritingModel(ScriptedFakeChatModel):
                 tool_call_chunks=[
                     {
                         "name": "write_file",
-                        "args": _json.dumps({"file_path": fname, "content": f"{letter}\n"}),
+                        "args": _json.dumps(
+                            {"file_path": fname, "content": f"{letter}\n"}
+                        ),
                         "id": f"c_w_{letter}",
                         "index": 0,
                     }
                 ],
-                usage_metadata={"input_tokens": 12, "output_tokens": 6, "total_tokens": 18},
+                usage_metadata={
+                    "input_tokens": 12,
+                    "output_tokens": 6,
+                    "total_tokens": 18,
+                },
                 chunk_position="last",
             )
         )
@@ -185,6 +217,7 @@ async def _drive_wave() -> tuple[list[dict], dict]:
     from agents.authz import ScopedStore
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     # A real in-memory SQLite store so wave_runs / subagent_runs persist (Open Q3).
@@ -254,7 +287,9 @@ async def _drive_wave() -> tuple[list[dict], dict]:
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -325,39 +360,48 @@ async def test_sample_wave_runs_multiple_waves_and_persists_wave_runs() -> None:
     assert len(wave_rows) >= 2, f"expected >=2 wave_runs rows, saw {len(wave_rows)}"
     indices = [r.wave_index for r in wave_rows]
     assert len(set(indices)) == len(indices), f"wave_index not distinct: {indices}"
-    assert all(r.status == "completed" for r in wave_rows), (
-        f"a wave did not reach terminal completed: {[r.status for r in wave_rows]}"
-    )
+    assert all(
+        r.status == "completed" for r in wave_rows
+    ), f"a wave did not reach terminal completed: {[r.status for r in wave_rows]}"
 
     # (2) >= 2 subagent_runs rows for a single wave (the 2 parallel workers in wave 1).
-    sub_rows = session.query(SubagentRun).filter(SubagentRun.parent_run_id == run_id).all()
-    assert len(sub_rows) >= 4, f"expected >=4 subagent_runs (4 tasks), saw {len(sub_rows)}"
+    sub_rows = (
+        session.query(SubagentRun).filter(SubagentRun.parent_run_id == run_id).all()
+    )
+    assert (
+        len(sub_rows) >= 4
+    ), f"expected >=4 subagent_runs (4 tasks), saw {len(sub_rows)}"
     # Wave 1 fans out exactly the 2 disjoint root tasks (t1,t2).
     assert wave_rows[0].wave_index == 0
-    assert len(wave_rows[0].task_ids) >= 2, (
-        f"wave 1 should fan >=2 parallel workers, saw task_ids={wave_rows[0].task_ids}"
-    )
+    assert (
+        len(wave_rows[0].task_ids) >= 2
+    ), f"wave 1 should fan >=2 parallel workers, saw task_ids={wave_rows[0].task_ids}"
 
     # (3) The merged base contains every task's file (part_a/b/c/d.txt).
     sandbox_root = probe["sandbox_root"]
-    assert sandbox_root is not None and sandbox_root.is_dir(), "run sandbox missing on disk"
+    assert (
+        sandbox_root is not None and sandbox_root.is_dir()
+    ), "run sandbox missing on disk"
     produced = {
-        p.name for p in sandbox_root.rglob("*.txt")
+        p.name
+        for p in sandbox_root.rglob("*.txt")
         if _PART_RE.fullmatch(p.name) and ".worktrees" not in p.parts
     }
-    assert produced == {"part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"}, (
-        f"the wave workers did not produce all 4 distinct merged files: {sorted(produced)}"
-    )
+    assert (
+        produced == {"part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"}
+    ), f"the wave workers did not produce all 4 distinct merged files: {sorted(produced)}"
 
     # (4) Wave lifecycle events fired (>=2 started/completed pairs).
     started = [e for e in events if e.get("type") == "wave_started"]
     completed = [e for e in events if e.get("type") == "wave_completed"]
     assert len(started) >= 2, f"expected >=2 wave_started events, saw {len(started)}"
-    assert len(completed) >= 2, f"expected >=2 wave_completed events, saw {len(completed)}"
+    assert (
+        len(completed) >= 2
+    ), f"expected >=2 wave_completed events, saw {len(completed)}"
     assert not any(e.get("type") == "wave_failed" for e in events)
-    assert not any(e.get("type") == "merge_conflict" for e in events), (
-        "copy_disjoint reported a conflict over disjoint files"
-    )
+    assert not any(
+        e.get("type") == "merge_conflict" for e in events
+    ), "copy_disjoint reported a conflict over disjoint files"
 
     # (5) Gap 3 (12-10): the DECLARED deliverable (serialized_sandbox) resolves from
     # the PRODUCED files — the final output is the filename:-block bundle of the
@@ -366,9 +410,9 @@ async def test_sample_wave_runs_multiple_waves_and_persists_wave_runs() -> None:
     assert complete, "no pipeline_complete event emitted"
     final_output = complete[-1]["data"]["final_output"]
     assert final_output and final_output.strip(), "final deliverable is empty"
-    assert "(no files written)" not in final_output, (
-        "serialized_sandbox found no deliverable files — the merge did not land"
-    )
+    assert (
+        "(no files written)" not in final_output
+    ), "serialized_sandbox found no deliverable files — the merge did not land"
     for part in ("part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"):
         assert f"filename: {part}" in final_output, (
             f"deliverable bundle missing produced file {part} — the declared "
@@ -390,7 +434,9 @@ def test_sample_wave_runs_on_registered_capabilities_only() -> None:
     assert reg.is_registered("merge", "copy_disjoint")
     assert reg.is_registered("deliverable", "serialized_sandbox")
 
-    manifest_text = (_MANIFEST_HOME / _FIXTURE_ID / "workflow.yaml").read_text(encoding="utf-8")
+    manifest_text = (_MANIFEST_HOME / _FIXTURE_ID / "workflow.yaml").read_text(
+        encoding="utf-8"
+    )
     assert "strategy: wave_scheduler" in manifest_text
     assert "parser: json_tasks" in manifest_text
     assert "spawn_subagents: true" in manifest_text
@@ -405,16 +451,18 @@ def test_sample_wave_kernel_names_no_workflow() -> None:
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     )
     engine_pkg = repo_root / "backend" / "agents" / "execution_engine"
     from tests.agents._portable_grep import grep_files_matching
 
     hits = grep_files_matching("sample_wave", engine_pkg).stdout.strip()
-    assert hits == "", (
-        f"the kernel names the workflow sample_wave (INV-1 violation) in:\n{hits}"
-    )
+    assert (
+        hits == ""
+    ), f"the kernel names the workflow sample_wave (INV-1 violation) in:\n{hits}"
 
     proof_artifacts = [
         "backend/agents/workflows/sample_wave/workflow.yaml",
@@ -424,9 +472,9 @@ def test_sample_wave_kernel_names_no_workflow() -> None:
     ]
     for rel in proof_artifacts:
         assert (repo_root / rel).is_file(), f"missing proof artifact: {rel}"
-        assert not rel.startswith("backend/agents/execution_engine/"), (
-            f"SC-001 proof artifact {rel} lives under the engine package"
-        )
+        assert not rel.startswith(
+            "backend/agents/execution_engine/"
+        ), f"SC-001 proof artifact {rel} lives under the engine package"
 
 
 if __name__ == "__main__":  # pragma: no cover

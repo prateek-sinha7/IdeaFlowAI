@@ -261,11 +261,16 @@ def _normalise_all(events: list[dict]) -> list[dict]:
 # 7b-6 — fails the assertion.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 # Reusable per-section phase blocks (phase_start → 2×stream → phase_end).
 def _phase_block(section: str, phase: int, name: str, text: str) -> list[dict]:
     c1, c2 = _split_two(text)
     return [
-        {"type": "phase_start", "section": section, "data": {"phase": phase, "name": name}},
+        {
+            "type": "phase_start",
+            "section": section,
+            "data": {"phase": phase, "name": name},
+        },
         {"type": "stream", "section": section, "chunk": c1},
         {"type": "stream", "section": section, "chunk": c2},
         {"type": "phase_end", "section": section, "data": {"phase": phase}},
@@ -348,7 +353,11 @@ _FAILURE_MESSAGE = "scripted requirements failure"
 GOLDEN_FAILURE: list[dict] = (
     _phase_block("discovery", 0, "Discovery", DISCOVERY_SUBSET_TEXT)
     + [
-        {"type": "phase_start", "section": "requirements", "data": {"phase": 1, "name": "Requirements"}},
+        {
+            "type": "phase_start",
+            "section": "requirements",
+            "data": {"phase": 1, "name": "Requirements"},
+        },
         {
             "type": "error",
             "section": "requirements",
@@ -434,7 +443,10 @@ async def test_contract_subset_outputs(factory_id: str) -> None:
     """
     factory = _build_factory(factory_id, discovery_text=DISCOVERY_SUBSET_TEXT)
     events = await collect_events(
-        factory, message="I want stories and a prototype", mode="default", mode_prompt=""
+        factory,
+        message="I want stories and a prototype",
+        mode="default",
+        mode_prompt="",
     )
     assert _normalise_all(events) == GOLDEN_SUBSET
 
@@ -494,9 +506,7 @@ async def test_contract_phase_failure(factory_id: str) -> None:
 async def test_event_shape_is_stream_message_model(factory_id: str) -> None:
     """Every event has exactly the ``{type, chunk, section, data}`` keys (StreamMessageModel)."""
     factory = _build_factory(factory_id, discovery_text=DISCOVERY_ALL_TEXT)
-    events = await collect_events(
-        factory, message="x", mode="default", mode_prompt=""
-    )
+    events = await collect_events(factory, message="x", mode="default", mode_prompt="")
     assert events, "expected a non-empty event stream"
     for ev in events:
         assert set(ev.keys()) == {"type", "chunk", "section", "data"}, ev
@@ -507,9 +517,7 @@ async def test_event_shape_is_stream_message_model(factory_id: str) -> None:
 async def test_stream_shape_invariant(factory_id: str) -> None:
     """``stream`` events carry chunk text with ``data is None``; non-stream have ``chunk is None``."""
     factory = _build_factory(factory_id, discovery_text=DISCOVERY_ALL_TEXT)
-    events = await collect_events(
-        factory, message="x", mode="default", mode_prompt=""
-    )
+    events = await collect_events(factory, message="x", mode="default", mode_prompt="")
     for ev in events:
         if ev["type"] == "stream":
             assert ev["chunk"] is not None and ev["chunk"] != ""
@@ -528,9 +536,7 @@ async def test_phase_envelope_ordering(factory_id: str) -> None:
     ``complete`` is the single trailing event.
     """
     factory = _build_factory(factory_id, discovery_text=DISCOVERY_ALL_TEXT)
-    events = await collect_events(
-        factory, message="x", mode="default", mode_prompt=""
-    )
+    events = await collect_events(factory, message="x", mode="default", mode_prompt="")
 
     # complete is last and unique.
     assert events[-1]["type"] == "complete"
@@ -552,13 +558,20 @@ async def test_phase_envelope_ordering(factory_id: str) -> None:
             open_section = None
         else:  # stream / error must be inside an open envelope for their section
             assert open_section is not None, f"{t} outside any phase envelope"
-            assert ev["section"] == open_section, f"{t} section {ev['section']} != open {open_section}"
+            assert (
+                ev["section"] == open_section
+            ), f"{t} section {ev['section']} != open {open_section}"
     assert open_section is None, "unclosed phase envelope"
     assert starts == ends, "phase_start/phase_end sections must pair in order"
     # ALL-selection → these sections in this exact order.
     assert starts == [
-        "discovery", "requirements", "user_stories", "ppt",
-        "prototype", "ui_design", "ui_preview",
+        "discovery",
+        "requirements",
+        "user_stories",
+        "ppt",
+        "prototype",
+        "ui_design",
+        "ui_preview",
     ]
 
 
@@ -567,14 +580,20 @@ async def test_phase_envelope_ordering(factory_id: str) -> None:
 async def test_complete_has_exactly_ten_keys(factory_id: str) -> None:
     """``complete.data`` is the 10-key FinalOutputModel — the exact key set, no more/less."""
     factory = _build_factory(factory_id, discovery_text=DISCOVERY_SUBSET_TEXT)
-    events = await collect_events(
-        factory, message="x", mode="default", mode_prompt=""
-    )
+    events = await collect_events(factory, message="x", mode="default", mode_prompt="")
     complete = events[-1]
     assert complete["type"] == "complete"
     assert set(complete["data"].keys()) == {
-        "auth", "realtime", "dashboard", "discovery", "requirements",
-        "user_stories", "ppt", "prototype", "ui_design", "ui_preview",
+        "auth",
+        "realtime",
+        "dashboard",
+        "discovery",
+        "requirements",
+        "user_stories",
+        "ppt",
+        "prototype",
+        "ui_design",
+        "ui_preview",
     }
 
 
@@ -657,7 +676,9 @@ def test_goldens_are_plain_literals_no_legacy_import() -> None:
         assert len(golden[-1]["data"]) == 10
 
     # No module-level import binds the deleted legacy stack (it must be lazy/in-function).
-    src = inspect.getsource(inspect.getmodule(test_goldens_are_plain_literals_no_legacy_import))
+    src = inspect.getsource(
+        inspect.getmodule(test_goldens_are_plain_literals_no_legacy_import)
+    )
     module_header = src.split("def _agent_texts", 1)[0]
     assert "import AgentOrchestrator" not in module_header
     assert "from app.agents.orchestrator" not in module_header

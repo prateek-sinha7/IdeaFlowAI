@@ -38,6 +38,7 @@ def skill_spy(monkeypatch):
         return None
 
     import app.agents.skills as skills_mod
+
     monkeypatch.setattr(skills_mod, "get_skill_content", _spy)
     return calls
 
@@ -63,10 +64,12 @@ def test_explicit_user_id_is_forwarded(skill_spy):
 
 def test_skill_content_collected_when_present(monkeypatch):
     """When get_skill_content returns content, it is collected under agent_id."""
+
     def _fake(agent_id: str, user_id: str | None = None):
         return "SKILL BODY" if agent_id == "domain-analyst" else None
 
     import app.agents.skills as skills_mod
+
     monkeypatch.setattr(skills_mod, "get_skill_content", _fake)
 
     engine = ExecutionEngine()
@@ -77,10 +80,12 @@ def test_skill_content_collected_when_present(monkeypatch):
 
 def test_get_skill_content_failure_is_swallowed(monkeypatch):
     """A failure loading one agent's skill must not break the run."""
+
     def _boom(agent_id: str, user_id: str | None = None):
         raise RuntimeError("disk error")
 
     import app.agents.skills as skills_mod
+
     monkeypatch.setattr(skills_mod, "get_skill_content", _boom)
 
     engine = ExecutionEngine()

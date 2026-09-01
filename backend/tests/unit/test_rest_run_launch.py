@@ -89,6 +89,7 @@ def env(monkeypatch):
     # queue registries + validators are shared object references, so they need no patch.
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
     import app.api.run_commands as rc_module
+
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
 
     _RecordingEngine.invoked = False
@@ -184,7 +185,9 @@ def test_unknown_agent_id_rejected(env):
     user = _seed_user(env)
     env["state"]["user"] = user
     resp = _post_launch(
-        env, message="deck", pipeline_type="user_stories",
+        env,
+        message="deck",
+        pipeline_type="user_stories",
         agent_ids=["totally-nonexistent-agent-xyz"],
     )
     assert resp.status_code == 400
@@ -235,8 +238,9 @@ def test_nonempty_brief_still_launches(env):
     this, a guard that rejected everything would pass the two tests above."""
     user = _seed_user(env)
     env["state"]["user"] = user
-    resp = _post_launch(env, message="build a stationery ordering flow",
-                        pipeline_type="user_stories")
+    resp = _post_launch(
+        env, message="build a stationery ordering flow", pipeline_type="user_stories"
+    )
     assert resp.status_code == 200, resp.json()
     assert _run_count(env) == 1
 
@@ -295,7 +299,10 @@ def test_unsatisfiable_custom_composition_rejected_pre_mint(env):
     user = _seed_user(env)
     env["state"]["user"] = user
     resp = _post_launch(
-        env, message="x", pipeline_type="custom", agent_ids=["ppt-composer"],
+        env,
+        message="x",
+        pipeline_type="custom",
+        agent_ids=["ppt-composer"],
     )
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"]["code"] == "workflow_unsatisfiable"
@@ -383,11 +390,18 @@ async def test_driver_drives_engine_and_populates_queue(env):
     run_id = str(uuid.uuid4())
     db = env["ws"]._get_db()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user.id, title="t", type="user_stories",
-            status="running", input="build a backlog", agent_count=1,
-            session_id=user.id,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user.id,
+                title="t",
+                type="user_stories",
+                status="running",
+                input="build a backlog",
+                agent_count=1,
+                session_id=user.id,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -435,7 +449,9 @@ async def test_driver_drives_engine_and_populates_queue(env):
     # The _RecordingEngine emits a clean pipeline_complete, so this stays "completed".
     row = _latest_run(env)
     assert row.status == "completed"
-    assert row.status != "failed"  # anti-regression: clean terminal must not fail-safe to failed
+    assert (
+        row.status != "failed"
+    )  # anti-regression: clean terminal must not fail-safe to failed
     assert run_id not in env["ws"]._PIPELINE_QUEUES
 
 
@@ -460,20 +476,37 @@ async def test_driver_persists_full_agent_history_like_ws(env, monkeypatch):
         """Emits the full per-agent event vocabulary the WS driver records."""
 
         async def execute(self, **kwargs):
-            yield {"type": "agent_start", "data": {
-                "agent_id": "a1", "name": "A1", "role": "r", "icon": "i"}}
-            yield {"type": "agent_input", "data": {
-                "context_message": "PROMPT-TEXT", "context_sources": ["upstream-1"]}}
+            yield {
+                "type": "agent_start",
+                "data": {"agent_id": "a1", "name": "A1", "role": "r", "icon": "i"},
+            }
+            yield {
+                "type": "agent_input",
+                "data": {
+                    "context_message": "PROMPT-TEXT",
+                    "context_sources": ["upstream-1"],
+                },
+            }
             yield {"type": "agent_thinking", "data": {"thinking": "let me "}}
             yield {"type": "agent_thinking", "data": {"thinking": "think..."}}
-            yield {"type": "tool_call", "data": {
-                "tool": "write_file", "args": {"path": "x"}}}
-            yield {"type": "tool_result", "data": {
-                "tool": "write_file", "result": "ok"}}
+            yield {
+                "type": "tool_call",
+                "data": {"tool": "write_file", "args": {"path": "x"}},
+            }
+            yield {
+                "type": "tool_result",
+                "data": {"tool": "write_file", "result": "ok"},
+            }
             yield {"type": "agent_chunk", "data": {"chunk": "hello"}}
-            yield {"type": "agent_complete", "data": {
-                "duration": 1.2, "input_tokens": 10, "output_tokens": 5,
-                "total_tokens": 15}}
+            yield {
+                "type": "agent_complete",
+                "data": {
+                    "duration": 1.2,
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "total_tokens": 15,
+                },
+            }
             yield {"type": "pipeline_complete", "data": {"final_output": "done"}}
 
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RichEngine())
@@ -482,11 +515,18 @@ async def test_driver_persists_full_agent_history_like_ws(env, monkeypatch):
     run_id = str(uuid.uuid4())
     db = env["ws"]._get_db()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user.id, title="t", type="user_stories",
-            status="running", input="build a backlog", agent_count=1,
-            session_id=user.id,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user.id,
+                title="t",
+                type="user_stories",
+                status="running",
+                input="build a backlog",
+                agent_count=1,
+                session_id=user.id,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -547,12 +587,17 @@ async def test_driver_generic_error_records_failed(env, monkeypatch):
     class _ErrorEngine:
         async def execute(self, **kwargs):
             yield {"type": "pipeline_start", "data": {"agents": []}}
-            yield {"type": "error", "data": {
-                "error": ("Workflow DAG is unsatisfiable: Agent 'swot-analyst' "
-                          "consumes 'market-research' but no upstream agent produces it"),
-                "code": "workflow_unsatisfiable",
-                "recoverable": False,
-            }}
+            yield {
+                "type": "error",
+                "data": {
+                    "error": (
+                        "Workflow DAG is unsatisfiable: Agent 'swot-analyst' "
+                        "consumes 'market-research' but no upstream agent produces it"
+                    ),
+                    "code": "workflow_unsatisfiable",
+                    "recoverable": False,
+                },
+            }
 
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _ErrorEngine())
 
@@ -560,11 +605,18 @@ async def test_driver_generic_error_records_failed(env, monkeypatch):
     run_id = str(uuid.uuid4())
     db = env["ws"]._get_db()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user.id, title="t", type="user_stories",
-            status="running", input="build a backlog", agent_count=1,
-            session_id=user.id,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user.id,
+                title="t",
+                type="user_stories",
+                status="running",
+                input="build a backlog",
+                agent_count=1,
+                session_id=user.id,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -615,11 +667,18 @@ async def test_driver_pipeline_failed_records_failed(env, monkeypatch):
     run_id = str(uuid.uuid4())
     db = env["ws"]._get_db()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user.id, title="t", type="user_stories",
-            status="running", input="build a backlog", agent_count=1,
-            session_id=user.id,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user.id,
+                title="t",
+                type="user_stories",
+                status="running",
+                input="build a backlog",
+                agent_count=1,
+                session_id=user.id,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -695,11 +754,15 @@ def test_prototype_launch_od_context_parity():
 
     from app.api.run_commands import _resolve_launch_agents
 
-    body = _launch_body(pipeline_type="prototype",
-                        template_id=_PROTO_TEMPLATE, design_system_id=_PROTO_DS)
+    body = _launch_body(
+        pipeline_type="prototype",
+        template_id=_PROTO_TEMPLATE,
+        design_system_id=_PROTO_DS,
+    )
     base, od_context = _resolve_launch_agents(body)
     expected = load_prototype_od_context(
-        _PROTO_TEMPLATE, _PROTO_DS, custom_ds_body=None, custom_template_body=None)
+        _PROTO_TEMPLATE, _PROTO_DS, custom_ds_body=None, custom_template_body=None
+    )
     assert base == "prototype"
     assert od_context == expected
 
@@ -714,7 +777,8 @@ def test_ppt_launch_od_context_parity():
     body = _launch_body(pipeline_type="ppt", template_id=_PPT_TEMPLATE)
     base, od_context = _resolve_launch_agents(body)
     expected = load_ppt_od_context(
-        _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None)
+        _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None
+    )
     assert base == "ppt"
     assert od_context == expected
 
@@ -771,10 +835,16 @@ def test_seam_prototype_parity_via_declared_signal():
     from app.api.launch_context import resolve_launch_od_context
 
     base, od_context = resolve_launch_od_context(
-        "prototype", _PROTO_TEMPLATE, _PROTO_DS,
-        custom_ds_body=None, custom_template_body=None, fatal=True)
+        "prototype",
+        _PROTO_TEMPLATE,
+        _PROTO_DS,
+        custom_ds_body=None,
+        custom_template_body=None,
+        fatal=True,
+    )
     expected = load_prototype_od_context(
-        _PROTO_TEMPLATE, _PROTO_DS, custom_ds_body=None, custom_template_body=None)
+        _PROTO_TEMPLATE, _PROTO_DS, custom_ds_body=None, custom_template_body=None
+    )
     assert base == "prototype"
     assert od_context == expected
 
@@ -785,8 +855,13 @@ def test_seam_undeclared_returns_none():
     from app.api.launch_context import resolve_launch_od_context
 
     base, od_context = resolve_launch_od_context(
-        "user_stories", None, None,
-        custom_ds_body=None, custom_template_body=None, fatal=True)
+        "user_stories",
+        None,
+        None,
+        custom_ds_body=None,
+        custom_template_body=None,
+        fatal=True,
+    )
     assert base == "user_stories"
     assert od_context is None
 
@@ -798,8 +873,13 @@ def test_seam_fatal_propagates_lookup_error():
 
     with pytest.raises(LookupError):
         resolve_launch_od_context(
-            "ppt", _BAD_TEMPLATE, None,
-            custom_ds_body=None, custom_template_body=None, fatal=True)
+            "ppt",
+            _BAD_TEMPLATE,
+            None,
+            custom_ds_body=None,
+            custom_template_body=None,
+            fatal=True,
+        )
 
 
 def test_seam_ppt_revision_non_fatal_swallows_lookup_error():
@@ -808,8 +888,13 @@ def test_seam_ppt_revision_non_fatal_swallows_lookup_error():
     from app.api.launch_context import resolve_launch_od_context
 
     base, od_context = resolve_launch_od_context(
-        "ppt_revision", _BAD_TEMPLATE, None,
-        custom_ds_body=None, custom_template_body=None, fatal=False)
+        "ppt_revision",
+        _BAD_TEMPLATE,
+        None,
+        custom_ds_body=None,
+        custom_template_body=None,
+        fatal=False,
+    )
     assert base == "ppt_revision"
     assert od_context is None
 
@@ -822,10 +907,16 @@ def test_seam_ppt_revision_non_fatal_loads_when_resolvable():
     from app.api.launch_context import resolve_launch_od_context
 
     base, od_context = resolve_launch_od_context(
-        "ppt_revision", _PPT_TEMPLATE, None,
-        custom_ds_body=None, custom_template_body=None, fatal=False)
+        "ppt_revision",
+        _PPT_TEMPLATE,
+        None,
+        custom_ds_body=None,
+        custom_template_body=None,
+        fatal=False,
+    )
     expected = load_ppt_od_context(
-        _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None)
+        _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None
+    )
     assert base == "ppt_revision"
     assert od_context == expected
 
@@ -851,11 +942,19 @@ def _seed_run_owned_by(env, owner_id: str) -> str:
     run_id = str(uuid.uuid4())
     db = env["ws"]._get_db()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=owner_id, owner_id=owner_id, title="parent",
-            type="user_stories", status="completed", input="prior run",
-            agent_count=1, session_id=owner_id,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=owner_id,
+                owner_id=owner_id,
+                title="parent",
+                type="user_stories",
+                status="completed",
+                input="prior run",
+                agent_count=1,
+                session_id=owner_id,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -877,7 +976,9 @@ def test_owned_source_links_the_child(env):
     env["state"]["user"] = user
 
     resp = _post_launch(
-        env, message="continue from prior", pipeline_type="user_stories_revision",
+        env,
+        message="continue from prior",
+        pipeline_type="user_stories_revision",
         source_workflow_run_id=parent_id,
     )
     assert resp.status_code == 200, resp.text
@@ -896,7 +997,9 @@ def test_foreign_source_drops_the_link_but_still_launches(env):
     env["state"]["user"] = attacker
 
     resp = _post_launch(
-        env, message="steal the lineage", pipeline_type="user_stories",
+        env,
+        message="steal the lineage",
+        pipeline_type="user_stories",
         source_workflow_run_id=foreign_parent,
     )
     assert resp.status_code == 200, resp.text
@@ -913,7 +1016,9 @@ def test_unknown_source_drops_the_link_but_still_launches(env):
     env["state"]["user"] = user
 
     resp = _post_launch(
-        env, message="unknown parent", pipeline_type="user_stories",
+        env,
+        message="unknown parent",
+        pipeline_type="user_stories",
         source_workflow_run_id=str(uuid.uuid4()),
     )
     assert resp.status_code == 200, resp.text
@@ -978,11 +1083,19 @@ async def test_driver_persists_model_id_and_prices_non_circular(env, monkeypatch
 
     class _RichEngine:
         async def execute(self, **kwargs):
-            yield {"type": "agent_start", "data": {
-                "agent_id": "a1", "name": "A1", "role": "r", "icon": "i"}}
-            yield {"type": "agent_complete", "data": {
-                "duration": 1.2, "input_tokens": _IN, "output_tokens": _OUT,
-                "total_tokens": _IN + _OUT}}
+            yield {
+                "type": "agent_start",
+                "data": {"agent_id": "a1", "name": "A1", "role": "r", "icon": "i"},
+            }
+            yield {
+                "type": "agent_complete",
+                "data": {
+                    "duration": 1.2,
+                    "input_tokens": _IN,
+                    "output_tokens": _OUT,
+                    "total_tokens": _IN + _OUT,
+                },
+            }
             yield {"type": "pipeline_complete", "data": {"final_output": "done"}}
 
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RichEngine())
@@ -995,11 +1108,18 @@ async def test_driver_persists_model_id_and_prices_non_circular(env, monkeypatch
     run_id = str(uuid.uuid4())
     db = env["ws"]._get_db()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user.id, title="t", type="user_stories",
-            status="running", input="build a backlog", agent_count=1,
-            session_id=user.id,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user.id,
+                title="t",
+                type="user_stories",
+                status="running",
+                input="build a backlog",
+                agent_count=1,
+                session_id=user.id,
+            )
+        )
         db.commit()
     finally:
         db.close()

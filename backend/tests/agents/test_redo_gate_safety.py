@@ -65,7 +65,10 @@ class _RedoEmittingRunner:
     async def run_human_gate(self, step, *, output: str = "", payload=None):
         gate_key = f"{self.run_id}:{getattr(step, 'agent_id', '?')}"
         # The declared path stamps redoable=False (only the inline call site sets True).
-        yield {"type": "review_gate_ready", "data": {"gate_key": gate_key, "redoable": False}}
+        yield {
+            "type": "review_gate_ready",
+            "data": {"gate_key": gate_key, "redoable": False},
+        }
         # A scripted/malicious client sent action:"redo" → the shared primitive emits
         # this internal signal even on the un-wired declared path.
         yield {"type": "_gate_redo", "instructions": "do it differently"}
@@ -113,9 +116,9 @@ async def test_f1_declared_gate_consumes_redo_never_passes_or_leaks(gate_cls) ->
 
     # (b) the terminal outcome is NOT GATE_PASS — the step does not silently advance.
     assert terminal is not None, f"{gate_cls.__name__} produced no terminal GateOutcome"
-    assert terminal.outcome != GATE_PASS, (
-        f"{gate_cls.__name__} silently PASSED on a stray redo (F1 defect)"
-    )
+    assert (
+        terminal.outcome != GATE_PASS
+    ), f"{gate_cls.__name__} silently PASSED on a stray redo (F1 defect)"
 
     # The public review_gate_ready (carrying redoable=False) still flowed through —
     # the FE therefore never offers Redo on a declared gate.
@@ -143,7 +146,9 @@ class _EngineHarness:
         # model_for: callable(agent_id, call_index) -> ScriptedFakeChatModel
         self._model_for = model_for
         self._call_index: dict[str, int] = {}
-        self.thread_ids: list[str] = []  # thread_id per create_runner call (redo regression)
+        self.thread_ids: list[
+            str
+        ] = []  # thread_id per create_runner call (redo regression)
 
     def __enter__(self):
         import agents.factory as factory_mod
@@ -231,7 +236,9 @@ async def test_f2_unbounded_redos_keep_a_flat_stack() -> None:
     # gate (e.g. `update_specs_eligible`) and swallows any stub TypeError into an `agent_error`
     # event via its broad `except Exception`. A stale stub signature therefore does NOT error —
     # the test silently observes ZERO gate firings and fails on a confusing count assertion.
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
+    async def _fake_gate(
+        pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs
+    ):
         # Stack depth measured at the gate, inside _run_agent's loop body.
         depths.append(len(inspect.stack()))
         gate_calls["n"] += 1
@@ -246,16 +253,18 @@ async def test_f2_unbounded_redos_keep_a_flat_stack() -> None:
 
     spec = load_agent_spec("domain-analyst")  # text-only agent
 
-    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("spec output. "))) as h:
+    with _EngineHarness(
+        lambda aid, idx: ScriptedFakeChatModel(_text_turn("spec output. "))
+    ) as h:
         h.engine._run_review_gate = _fake_gate  # type: ignore[assignment]
         ectx = _make_ectx("f2-run", gate_agent_ids=[spec.id])
         results: list[dict] = []
         await _drive_agent(h.engine, spec, ectx, results, [spec])
 
     assert gate_calls["n"] == N + 1, "expected N redos then one approve"
-    assert len(set(depths)) == 1, (
-        f"engine stack at the gate GREW across redos (recursion!): {sorted(set(depths))}"
-    )
+    assert (
+        len(set(depths)) == 1
+    ), f"engine stack at the gate GREW across redos (recursion!): {sorted(set(depths))}"
 
 
 @pytest.mark.asyncio
@@ -266,7 +275,9 @@ async def test_f3_empty_output_after_redo_does_not_leak_lineage() -> None:
 
     gate_calls = {"n": 0}
 
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
+    async def _fake_gate(
+        pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs
+    ):
         gate_calls["n"] += 1
         yield {
             "type": "review_gate_ready",
@@ -304,7 +315,8 @@ async def test_f3_empty_output_after_redo_does_not_leak_lineage() -> None:
         # The rejected v1 (the MAIN-kind handoff write) IS still present and was NOT
         # superseded by a v2 (the empty re-run wrote nothing) — decision #4.
         a_main = [
-            r for r in ectx.artifacts.tree(ectx.run_id)
+            r
+            for r in ectx.artifacts.tree(ectx.run_id)
             if r.producer_agent == spec_a.id and r.kind == "summary"
         ]
         assert len(a_main) == 1 and a_main[0].version == 1
@@ -313,17 +325,18 @@ async def test_f3_empty_output_after_redo_does_not_leak_lineage() -> None:
         b_events = await _drive_agent(h.engine, spec_b, ectx, results, ordered, index=1)
 
     b_main = [
-        r for r in ectx.artifacts.tree(ectx.run_id)
+        r
+        for r in ectx.artifacts.tree(ectx.run_id)
         if r.producer_agent == spec_b.id and r.kind == "summary"
     ]
     assert b_main, "agent B wrote no main artifact"
-    assert b_main[-1].derived_from is None, (
-        "agent B's artifact inherited a spurious derived_from (lineage leak, F3)"
-    )
+    assert (
+        b_main[-1].derived_from is None
+    ), "agent B's artifact inherited a spurious derived_from (lineage leak, F3)"
     b_input = next(e for e in b_events if e["type"] == "agent_input")
-    assert "ADDITIONAL INSTRUCTIONS" not in b_input["data"]["context_message"], (
-        "agent B's context leaked a REVISE block (directive leak, F3)"
-    )
+    assert (
+        "ADDITIONAL INSTRUCTIONS" not in b_input["data"]["context_message"]
+    ), "agent B's context leaked a REVISE block (directive leak, F3)"
 
 
 @pytest.mark.asyncio
@@ -333,7 +346,9 @@ async def test_f3_exception_after_redo_does_not_leak_lineage() -> None:
 
     gate_calls = {"n": 0}
 
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
+    async def _fake_gate(
+        pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs
+    ):
         gate_calls["n"] += 1
         yield {
             "type": "review_gate_ready",
@@ -350,7 +365,9 @@ async def test_f3_exception_after_redo_does_not_leak_lineage() -> None:
     def _model_for(agent_id, idx):
         if agent_id == spec_a.id:
             if idx == 0:
-                return ScriptedFakeChatModel([_ScriptedTurn(texts=["real spec. "], usage=(5, 3))])
+                return ScriptedFakeChatModel(
+                    [_ScriptedTurn(texts=["real spec. "], usage=(5, 3))]
+                )
             # iteration 2 (the re-run) hard-fails (non-transient → no model switch,
             # propagates to _run_agent's except handler).
             return ScriptedFakeChatModel([], raise_exc=ScriptedNonTransientError())
@@ -369,13 +386,14 @@ async def test_f3_exception_after_redo_does_not_leak_lineage() -> None:
         b_events = await _drive_agent(h.engine, spec_b, ectx, results, ordered, index=1)
 
     b_main = [
-        r for r in ectx.artifacts.tree(ectx.run_id)
+        r
+        for r in ectx.artifacts.tree(ectx.run_id)
         if r.producer_agent == spec_b.id and r.kind == "summary"
     ]
     assert b_main, "agent B wrote no main artifact"
-    assert b_main[-1].derived_from is None, (
-        "agent B inherited a spurious derived_from after an errored redo (F3)"
-    )
+    assert (
+        b_main[-1].derived_from is None
+    ), "agent B inherited a spurious derived_from after an errored redo (F3)"
     b_input = next(e for e in b_events if e["type"] == "agent_input")
     assert "ADDITIONAL INSTRUCTIONS" not in b_input["data"]["context_message"]
 
@@ -400,14 +418,27 @@ async def test_f5_latest_typed_content_is_max_version_after_rehydrate() -> None:
     # Build the two versions in a source graph (v1 rejected, v2 approved redo).
     src = ArtifactGraph()
     v1 = src.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="spec",
-        producer_step=producer, producer_agent=producer, task_id=None,
-        content="REJECTED v1", location="spec.md",
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="spec",
+        producer_step=producer,
+        producer_agent=producer,
+        task_id=None,
+        content="REJECTED v1",
+        location="spec.md",
     )
     v2 = src.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="spec",
-        producer_step=producer, producer_agent=producer, task_id=None,
-        content="APPROVED v2", location="spec.md", derived_from=v1.id,
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="spec",
+        producer_step=producer,
+        producer_agent=producer,
+        task_id=None,
+        content="APPROVED v2",
+        location="spec.md",
+        derived_from=v1.id,
     )
     assert (v1.version, v2.version) == (1, 2)
 
@@ -416,15 +447,18 @@ async def test_f5_latest_typed_content_is_max_version_after_rehydrate() -> None:
     rehydrated = ArtifactGraph()
     rehydrated.adopt(v2)
     rehydrated.adopt(v1)
-    assert [r.content for r in rehydrated.tree(run_id)] == ["APPROVED v2", "REJECTED v1"]
+    assert [r.content for r in rehydrated.tree(run_id)] == [
+        "APPROVED v2",
+        "REJECTED v1",
+    ]
 
     ectx = ExecutionContext(run_id=run_id, owner_id="anon")
     ectx.artifacts = rehydrated
 
     latest = ExecutionEngine()._latest_typed_content(ectx, producer)
-    assert latest == "APPROVED v2", (
-        "latest selection served the REJECTED prior version after rehydrate (F5)"
-    )
+    assert (
+        latest == "APPROVED v2"
+    ), "latest selection served the REJECTED prior version after rehydrate (F5)"
 
 
 # ===========================================================================
@@ -448,7 +482,9 @@ async def test_redo_uses_fresh_checkpoint_thread_per_attempt() -> None:
     REDOS = 2
     gate_calls = {"n": 0}
 
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
+    async def _fake_gate(
+        pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs
+    ):
         gate_calls["n"] += 1
         yield {
             "type": "review_gate_ready",
@@ -461,7 +497,9 @@ async def test_redo_uses_fresh_checkpoint_thread_per_attempt() -> None:
 
     spec = load_agent_spec("domain-analyst")  # text-only, single_shot (task_num None)
 
-    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("spec output. "))) as h:
+    with _EngineHarness(
+        lambda aid, idx: ScriptedFakeChatModel(_text_turn("spec output. "))
+    ) as h:
         h.engine._run_review_gate = _fake_gate  # type: ignore[assignment]
         ectx = _make_ectx("redo-thread-run", gate_agent_ids=[spec.id])
         results: list[dict] = []
@@ -469,10 +507,16 @@ async def test_redo_uses_fresh_checkpoint_thread_per_attempt() -> None:
 
     tids = [t for t in h.thread_ids if t]
     base = f"{ectx.run_id}:{spec.id}"
-    assert len(tids) == REDOS + 1, (
-        f"expected {REDOS + 1} runs (initial + {REDOS} redos), got {tids}"
-    )
+    assert (
+        len(tids) == REDOS + 1
+    ), f"expected {REDOS + 1} runs (initial + {REDOS} redos), got {tids}"
     # Distinct threads — the bug reused one (all == base → the model 'remembers').
-    assert len(set(tids)) == len(tids), f"a redo REUSED a checkpoint thread (the live bug): {tids}"
+    assert len(set(tids)) == len(
+        tids
+    ), f"a redo REUSED a checkpoint thread (the live bug): {tids}"
     # First run keeps the exact base id (INV-3 dormant); redos carry :redo{n}.
-    assert tids == [base, f"{base}:redo1", f"{base}:redo2"], f"unexpected thread ids: {tids}"
+    assert tids == [
+        base,
+        f"{base}:redo1",
+        f"{base}:redo2",
+    ], f"unexpected thread ids: {tids}"

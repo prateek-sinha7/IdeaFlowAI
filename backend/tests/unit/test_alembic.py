@@ -90,9 +90,7 @@ class TestAlembicMigrations:
             "command silently no-opped"
         )
 
-    def test_downgrade_base_rolls_back_cleanly(
-        self, fresh_db_url: str
-    ) -> None:
+    def test_downgrade_base_rolls_back_cleanly(self, fresh_db_url: str) -> None:
         """``upgrade head`` followed by ``downgrade base`` must leave only
         the alembic-managed bookkeeping table.
 
@@ -142,9 +140,7 @@ class TestAlembicMigrations:
             f"and review the result."
         )
 
-    def test_upgrade_creates_expected_indexes(
-        self, fresh_db_url: str
-    ) -> None:
+    def test_upgrade_creates_expected_indexes(self, fresh_db_url: str) -> None:
         """The model declares ``index=True`` / ``unique=True`` on a few
         columns; the migration must reproduce them. If autogenerate ever
         emits a migration without these we want to catch it here, not when
@@ -161,15 +157,11 @@ class TestAlembicMigrations:
         assert "ix_users_email" in users_indexes
 
         # revoked_tokens.jti: unique-indexed.
-        rt_indexes = {
-            ix["name"] for ix in inspector.get_indexes("revoked_tokens")
-        }
+        rt_indexes = {ix["name"] for ix in inspector.get_indexes("revoked_tokens")}
         assert "ix_revoked_tokens_jti" in rt_indexes
         assert "ix_revoked_tokens_user_id" in rt_indexes
 
-    def test_upgrade_then_check_reports_no_drift(
-        self, fresh_db_url: str
-    ) -> None:
+    def test_upgrade_then_check_reports_no_drift(self, fresh_db_url: str) -> None:
         """After ``upgrade head``, ``alembic check`` must report no pending
         operations — i.e. the migration captures the models exactly.
 

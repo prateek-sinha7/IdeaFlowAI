@@ -113,7 +113,6 @@ async def test_live_haiku_clarify_returns_content_aware_questions(caplog):
     # The tolerant parser accepted Haiku's output — the static fallback must NOT
     # have fired for the LLM path.
     fell_back = any(
-        "falling back to static library" in rec.getMessage()
-        for rec in caplog.records
+        "falling back to static library" in rec.getMessage() for rec in caplog.records
     )
     assert not fell_back, "LLM path fell back to the static library (parse failed)"

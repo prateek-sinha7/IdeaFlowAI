@@ -171,16 +171,23 @@ def postgres_url():
     collide on a checkpoint row.
     """
     if not _docker_available():
-        pytest.skip("docker is not available — skipping cross-process Postgres resume test.")
+        pytest.skip(
+            "docker is not available — skipping cross-process Postgres resume test."
+        )
 
     port = _free_port()
     name = f"flowin-phase8-pg-{uuid.uuid4().hex[:8]}"
     run = subprocess.run(
         [
-            "docker", "run", "-d",
-            "--name", name,
-            "-p", f"{port}:5432",
-            "-e", "POSTGRES_PASSWORD=postgres",
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-p",
+            f"{port}:5432",
+            "-e",
+            "POSTGRES_PASSWORD=postgres",
             _PG_IMAGE,
         ],
         capture_output=True,
@@ -213,7 +220,9 @@ def postgres_url():
 # ===========================================================================
 
 
-def _run_child(phase: str, thread_id: str, run_id: str, database_url: str, *, kill: bool = False):
+def _run_child(
+    phase: str, thread_id: str, run_id: str, database_url: str, *, kill: bool = False
+):
     """Run ``_resume_child.py`` as a REAL subprocess and return the CompletedProcess.
 
     The child is a separate OS process with ``DATABASE_URL`` (+ ``ENV``) injected
@@ -229,17 +238,24 @@ def _run_child(phase: str, thread_id: str, run_id: str, database_url: str, *, ki
     # but PYTHONPATH makes ``tests.agents._scripted_model`` resolve cleanly too).
     existing_pp = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = (
-        f"{_BACKEND_ROOT}{os.pathsep}{existing_pp}" if existing_pp else str(_BACKEND_ROOT)
+        f"{_BACKEND_ROOT}{os.pathsep}{existing_pp}"
+        if existing_pp
+        else str(_BACKEND_ROOT)
     )
     # A writable RUNS_ROOT for the child's RunSandbox (the real /app/runs is absent).
-    env.setdefault("RUNS_ROOT", str(Path(env.get("TMPDIR", "/tmp")) / "phase8-resume-runs"))
+    env.setdefault(
+        "RUNS_ROOT", str(Path(env.get("TMPDIR", "/tmp")) / "phase8-resume-runs")
+    )
 
     cmd = [
         sys.executable,
         str(_CHILD),
-        "--phase", phase,
-        "--thread-id", thread_id,
-        "--run-id", run_id,
+        "--phase",
+        phase,
+        "--thread-id",
+        thread_id,
+        "--run-id",
+        run_id,
     ]
     if kill:
         cmd.append("--kill-after-interrupt")
@@ -327,7 +343,9 @@ class TestCrossProcessResumeAfterKill:
         run_id = f"r-pg-{'kill' if kill else 'clean'}-{suffix}"
 
         # ── Process A: drive to the interrupt, persisting it to Postgres. ──────
-        a = _run_child("run-until-interrupt", thread_id, run_id, postgres_url, kill=kill)
+        a = _run_child(
+            "run-until-interrupt", thread_id, run_id, postgres_url, kill=kill
+        )
 
         # A must have reached the gate and announced it (before any self-kill).
         assert f"{MARK_INTERRUPTED} {thread_id}" in a.stdout, (
@@ -346,9 +364,9 @@ class TestCrossProcessResumeAfterKill:
                 f"(exit 137 / -9), proving no graceful teardown ran.{_dump('process A', a)}"
             )
         else:
-            assert a.returncode == 0, (
-                f"the clean producer must exit 0 after pausing.{_dump('process A', a)}"
-            )
+            assert (
+                a.returncode == 0
+            ), f"the clean producer must exit 0 after pausing.{_dump('process A', a)}"
 
         # ── Process B: a FRESH process resumes from the Postgres checkpoint. ───
         b = _run_child("resume", thread_id, run_id, postgres_url)
@@ -357,11 +375,13 @@ class TestCrossProcessResumeAfterKill:
             "Process B (fresh process) must resume the persisted pause to completion "
             f"and exit 0.{_dump('process B', b)}"
         )
-        assert f"{MARK_CHECKPOINTER} AsyncPostgresSaver" in b.stdout, (
-            f"Process B must also use the AsyncPostgresSaver.{_dump('process B', b)}"
-        )
+        assert (
+            f"{MARK_CHECKPOINTER} AsyncPostgresSaver" in b.stdout
+        ), f"Process B must also use the AsyncPostgresSaver.{_dump('process B', b)}"
         # The fresh process SAW the persisted pause (the durability signal).
-        assert "PRE_RESUME_STATE next=['HumanInTheLoopMiddleware.after_model']" in b.stdout, (
+        assert (
+            "PRE_RESUME_STATE next=['HumanInTheLoopMiddleware.after_model']" in b.stdout
+        ), (
             "the fresh process must SEE the persisted HITL pause read back from "
             f"Postgres (a non-empty `next`).{_dump('process B', b)}"
         )
@@ -402,14 +422,16 @@ class TestCrossProcessResumeAfterKill:
 
         # Process A: interrupts in-process (the InMemory pause lives in A's heap).
         a = _run_child("run-until-interrupt", thread_id, run_id, sqlite_url)
-        assert a.returncode == 0, f"InMemory Process A should pause cleanly.{_dump('process A', a)}"
+        assert (
+            a.returncode == 0
+        ), f"InMemory Process A should pause cleanly.{_dump('process A', a)}"
         assert f"{MARK_CHECKPOINTER} InMemorySaver" in a.stdout, (
             "a non-Postgres DATABASE_URL must select InMemorySaver (the dev path)."
             f"{_dump('process A', a)}"
         )
-        assert f"{MARK_INTERRUPTED} {thread_id}" in a.stdout, (
-            f"InMemory Process A still interrupts within its own process.{_dump('process A', a)}"
-        )
+        assert (
+            f"{MARK_INTERRUPTED} {thread_id}" in a.stdout
+        ), f"InMemory Process A still interrupts within its own process.{_dump('process A', a)}"
 
         # Process B: a fresh process with a brand-new (empty) InMemory saver.
         b = _run_child("resume", thread_id, run_id, sqlite_url)

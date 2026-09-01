@@ -27,9 +27,7 @@ class RevokedToken(Base):
     # Indexed so "revoke all this user's tokens" / audit queries are cheap,
     # even though we currently use the ``password_changed_at`` blanket-revoke
     # path for password changes (see app.api.auth.change_password).
-    user_id = Column(
-        String, ForeignKey("users.id"), index=True, nullable=False
-    )
+    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
     # timezone=True (0035): stores timestamptz on Postgres so this instant
     # survives the round-trip regardless of the DB session's timezone --
     # see alembic/versions/0035_timezone_aware_auth_timestamps.py.

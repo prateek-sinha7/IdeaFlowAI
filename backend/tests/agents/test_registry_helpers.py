@@ -77,6 +77,7 @@ def _all_non_revision_non_internal_agents() -> set[str]:
         out.update(ids)
     return out
 
+
 # Phase 7a removed the legacy ``app.agents.registry``. The original T2 verify
 # gate parity-tested YOUR allow-list against the legacy helper for the pipelines
 # that agreed (user_stories, app_builder, every revision). The legacy module is
@@ -89,7 +90,9 @@ def _all_non_revision_non_internal_agents() -> set[str]:
 # custom pool" behaviour in commit d1a338fd — "custom workflow with prototype/ppt
 # agents now runs correctly"; ``custom`` was never part of the legacy-parity
 # guarantee.)
-_AGREEING_REVISION_PIPELINES = sorted(REVISION_BASE_MAP.keys())  # excludes od_ppt_revision
+_AGREEING_REVISION_PIPELINES = sorted(
+    REVISION_BASE_MAP.keys()
+)  # excludes od_ppt_revision
 _AGREEING_BASE_PIPELINES = ["user_stories", "app_builder"]
 _CUSTOM_POOL = set(PIPELINE_AGENTS["custom"])
 
@@ -155,9 +158,9 @@ class TestAllowListAgreeingPipelines:
         for rev in _AGREEING_REVISION_PIPELINES:
             allowed = allowed_custom_agent_ids(rev)
             assert allowed == set(PIPELINE_AGENTS[rev])
-            assert not (allowed & custom) or set(PIPELINE_AGENTS[rev]) & custom, (
-                f"revision {rev!r} unexpectedly includes custom-utility agents"
-            )
+            assert (
+                not (allowed & custom) or set(PIPELINE_AGENTS[rev]) & custom
+            ), f"revision {rev!r} unexpectedly includes custom-utility agents"
 
     def test_base_pipelines_include_custom_pool(self):
         """A base pipeline allow-list is its own agents AND the custom pool —
@@ -169,9 +172,9 @@ class TestAllowListAgreeingPipelines:
             assert allowed == _tight_base_allow_list(base)
             assert set(PIPELINE_AGENTS[base]) <= allowed
             assert custom <= allowed
-            assert allowed < everything, (
-                f"{base!r} allow-list is the full union — the tier bypass is back"
-            )
+            assert (
+                allowed < everything
+            ), f"{base!r} allow-list is the full union — the tier bypass is back"
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +197,11 @@ class TestAllowListRealIdsAndOdFix:
         # And the custom pool is folded in (prototype is a base pipeline).
         assert set(PIPELINE_AGENTS["custom"]) <= allowed
         # The retired prototype_v1 ids must NOT be present.
-        retired = {"requirements-analyst", "html-prototype-builder", "prototype-polisher"}
+        retired = {
+            "requirements-analyst",
+            "html-prototype-builder",
+            "prototype-polisher",
+        }
         assert not (retired & allowed), f"retired ids leaked: {retired & allowed}"
 
     def test_retired_od_prototype_label_grants_nothing(self):
@@ -252,13 +259,16 @@ class TestAllowListRealIdsAndOdFix:
         # The safety equivalence: any tier holding "custom" must hold every
         # pipeline whose agents this branch exposes.
         exposed = {
-            pt for pt in PIPELINE_AGENTS
+            pt
+            for pt in PIPELINE_AGENTS
             if not pt.endswith("_revision") and pt not in _INTERNAL_PIPELINES
         }
         for tier, pipelines in TIER_PIPELINES.items():
             if "custom" not in pipelines:
                 continue
-            missing = {pt for pt in exposed if pt in TIER_PIPELINES["enterprise"]} - pipelines
+            missing = {
+                pt for pt in exposed if pt in TIER_PIPELINES["enterprise"]
+            } - pipelines
             assert not missing, (
                 f"tier {tier!r} may run 'custom' — which exposes every pipeline's "
                 f"agents — but is not entitled to {sorted(missing)}. That makes the "
@@ -341,9 +351,9 @@ class TestGetAllAgentsFlat:
         # can select is the feature not existing.
         all_declared = {aid for ids in PIPELINE_AGENTS.values() for aid in ids}
         all_declared |= TEMPLATE_AGENT_IDS_BY_FLAG
-        assert flat_ids <= all_declared, (
-            f"flat list has undeclared ids: {flat_ids - all_declared}"
-        )
+        assert (
+            flat_ids <= all_declared
+        ), f"flat list has undeclared ids: {flat_ids - all_declared}"
 
     def test_stable_order(self):
         """The flat ordering is deterministic across calls."""

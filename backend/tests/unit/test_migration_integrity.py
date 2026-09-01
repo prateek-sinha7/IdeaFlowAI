@@ -85,8 +85,7 @@ class TestMigrationChainIntegrity:
         modified = sorted(
             rev
             for rev, entry in current.items()
-            if rev in pinned
-            and entry["logic_sha256"] != pinned[rev]["logic_sha256"]
+            if rev in pinned and entry["logic_sha256"] != pinned[rev]["logic_sha256"]
         )
         assert not modified, (
             f"released migration(s) {modified} were edited. Alembic records only "
@@ -99,7 +98,7 @@ class TestMigrationChainIntegrity:
         removed = sorted(set(pinned) - set(current))
         assert not removed, (
             f"released migration(s) {removed} were deleted. Every database that "
-            "recorded those IDs will fail with \"Can't locate revision\" on the "
+            'recorded those IDs will fail with "Can\'t locate revision" on the '
             "next upgrade."
         )
 

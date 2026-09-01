@@ -41,7 +41,7 @@ class TaskParser(Protocol):
 
 @runtime_checkable
 class ExecutionStrategy(Protocol):
-    """"How a step runs" — single_shot | task_loop | fanout_batch | wave_scheduler (Q8)."""
+    """ "How a step runs" — single_shot | task_loop | fanout_batch | wave_scheduler (Q8)."""
 
     name: str
 

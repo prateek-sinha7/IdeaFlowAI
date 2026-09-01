@@ -28,6 +28,7 @@ PROVENANCE_PATTERNS = [
     "copilot",
 ]
 
+
 @dataclass(frozen=True)
 class Violation:
     skill_id: str
@@ -51,9 +52,7 @@ def audit(root: Path = AUDIT_DIR) -> list[Violation]:
 
         # Check: SKILL.md exists
         if not skill_md.exists():
-            violations.append(
-                Violation(skill_id, "frontmatter", "SKILL.md not found")
-            )
+            violations.append(Violation(skill_id, "frontmatter", "SKILL.md not found"))
             continue
 
         # Parse frontmatter
@@ -105,9 +104,7 @@ def audit(root: Path = AUDIT_DIR) -> list[Violation]:
         for key in forbidden_keys:
             if key in post.metadata:
                 violations.append(
-                    Violation(
-                        skill_id, "frontmatter", f"forbidden key '{key}' present"
-                    )
+                    Violation(skill_id, "frontmatter", f"forbidden key '{key}' present")
                 )
 
         # Check: identity (first 200 chars)

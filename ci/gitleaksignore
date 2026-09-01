@@ -1,0 +1,57 @@
+# =============================================================================
+# gitleaks ignore file. Loaded via `-i ci/gitleaksignore` — gitleaks only
+# AUTO-loads an ignore file named `.gitleaksignore` at the --source root
+# (cmd/root.go), so keeping it here makes the flag mandatory.
+#
+# FORMAT: these are GLOBAL (commit-independent) fingerprints —
+#   file:rule-id:start-line
+# NOT the 4-part `commit:file:rule-id:start-line` form that `gitleaks -v`
+# prints. Both are accepted (detect.go `AddFinding` checks the 3-part
+# globalFingerprint first, then the commit-scoped one), but the 4-part form is
+# unusable for this repo's two scan contexts:
+#
+#   * `fast-checks` scans FULL history (fetch-depth: 0), so a finding is
+#     reported under its ORIGINAL commit SHA.
+#   * `security-scan-secrets` uses a shallow checkout, and on a pull_request
+#     GitHub checks out an ephemeral `refs/pull/N/merge` commit. The same
+#     finding is therefore reported under a DIFFERENT, per-run synthetic SHA
+#     ("1 commits scanned"), which no committed fingerprint can ever match.
+#
+# Commit-pinned entries silently covered only the first case and let the same
+# findings fail the second job. Global fingerprints match in both.
+#
+# To regenerate: run the scan, take each `Fingerprint:` line, and DROP the
+# leading `<commit>:` segment.
+#   gitleaks detect --redact --no-banner -v \
+#     --config ci/gitleaks.toml -i ci/gitleaksignore --source .
+#
+# Each entry below was manually triaged (see ci/gitleaks.toml for the pointer):
+#
+#   - generic-api-key on identity.py:133 and identity.py:159 — false
+#     positive. Matches `verify_exp=not allow_expired` (a boolean kwarg),
+#     not a secret.
+#   - generic-api-key on infra/terraform/velocityai-alb/README.md:14 — false
+#     positive. Matches the prose "Secrets: none created or read by this
+#     layer."
+#   - generic-api-key on infra/terraform/foundation/README.md:13 — false
+#     positive. Matches the prose "Secrets: `app_secret_key` / `db_password`
+#     default empty and are auto-generated...".
+#   - aws-access-token on backend/evals/minimal/OPUS-AUTOMATIC/FINDINGS.md:167
+#     — a real STS temporary session ID pasted into a debugging doc.
+#     Confirmed EXPIRED by the doc's own text (the session died ~23 minutes
+#     after issue, months before this scan). The file no longer exists on
+#     any branch. (Value deliberately not quoted here: naming it re-triggered
+#     this very rule on this file.)
+#   - jwt on .vscode/settings.json:5 — a real signed JWT committed to a
+#     local REST Client config. Decoded `exp` claim is in the past
+#     (confirmed expired). The file no longer exists on any branch and
+#     `.vscode/` is gitignored going forward.
+#
+# Rotate-then-allowlist, never allowlist-first: both real (non-false-positive)
+# findings above were independently confirmed dead before being listed here.
+infra/terraform/velocityai-alb/README.md:generic-api-key:14
+infra/terraform/foundation/README.md:generic-api-key:13
+backend/app/core/identity.py:generic-api-key:133
+backend/app/core/identity.py:generic-api-key:159
+backend/evals/minimal/OPUS-AUTOMATIC/FINDINGS.md:aws-access-token:167
+.vscode/settings.json:jwt:5

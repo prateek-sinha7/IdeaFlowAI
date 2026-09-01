@@ -30,8 +30,8 @@ class Repository(Base):
     __tablename__ = "repositories"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
     # Free String (NO sa.Enum): 'github' | 'gitlab' | 'local' — additive/reversible.
     provider = Column(String, nullable=False)
     url = Column(String, nullable=False)

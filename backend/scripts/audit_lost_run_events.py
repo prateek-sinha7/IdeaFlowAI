@@ -108,14 +108,15 @@ def audit(db_path: str, fix240_utc: str = FIX240_LANDED_UTC) -> dict:
 
         findings: dict[str, list] = defaultdict(list)
         protected = {
-            rid for rid, r in runs.items()
-            if (r.get("created_at") or "") > fix240_utc
+            rid for rid, r in runs.items() if (r.get("created_at") or "") > fix240_utc
         }
 
         for (run_id, _owner, _ws), scope_rows in by_scope.items():
             if run_id in protected:
                 continue
-            writer = {r["seq"]: classify_writer(r["event_id"], r["type"]) for r in scope_rows}
+            writer = {
+                r["seq"]: classify_writer(r["event_id"], r["type"]) for r in scope_rows
+            }
             counter = None
             for r in scope_rows:
                 seq, kind = r["seq"], writer[r["seq"]]
@@ -127,15 +128,22 @@ def audit(db_path: str, fix240_utc: str = FIX240_LANDED_UTC) -> dict:
                 if kind == "STEAL":
                     continue
                 if kind == "CARD":
-                    source = r["event_id"][len(CARD_EVENT_ID_PREFIX):]
-                    if not source.startswith("pipeline_start:") and source not in event_ids[run_id]:
+                    source = r["event_id"][len(CARD_EVENT_ID_PREFIX) :]
+                    if (
+                        not source.startswith("pipeline_start:")
+                        and source not in event_ids[run_id]
+                    ):
                         card = json.loads(r["payload_json"] or "{}")
-                        findings[run_id].append({
-                            "seq": seq,
-                            "signature": "ORPHAN-CARD",
-                            "destroyed_type": _type_from_card(card.get("card_kind"), card.get("text")),
-                            "evidence": f"card_kind={card.get('card_kind')} text={card.get('text')!r}",
-                        })
+                        findings[run_id].append(
+                            {
+                                "seq": seq,
+                                "signature": "ORPHAN-CARD",
+                                "destroyed_type": _type_from_card(
+                                    card.get("card_kind"), card.get("text")
+                                ),
+                                "evidence": f"card_kind={card.get('card_kind')} text={card.get('text')!r}",
+                            }
+                        )
                     # The engine jumps its counter past a card, so a card absorbs any
                     # steals below it for free.
                     if counter is None or seq + 1 > counter:
@@ -148,12 +156,16 @@ def audit(db_path: str, fix240_utc: str = FIX240_LANDED_UTC) -> dict:
                 for stolen in range(counter, seq):
                     if writer.get(stolen) != "STEAL":
                         continue
-                    findings[run_id].append({
-                        "seq": stolen,
-                        "signature": "WALKED-ONTO",
-                        "destroyed_type": _infer_destroyed_type(by_seq[run_id], stolen),
-                        "evidence": f"seq taken by {by_seq[run_id][stolen]['type']}",
-                    })
+                    findings[run_id].append(
+                        {
+                            "seq": stolen,
+                            "signature": "WALKED-ONTO",
+                            "destroyed_type": _infer_destroyed_type(
+                                by_seq[run_id], stolen
+                            ),
+                            "evidence": f"seq taken by {by_seq[run_id][stolen]['type']}",
+                        }
+                    )
                 counter = seq + 1
 
         # Second-order damage: _persist_resume_output_columns rebuilds
@@ -168,7 +180,11 @@ def audit(db_path: str, fix240_utc: str = FIX240_LANDED_UTC) -> dict:
                 if agent:
                     item["recovery"] = _measure_hole(con, run_id, agent)
 
-        return {"runs": runs, "findings": dict(findings), "protected": sorted(protected)}
+        return {
+            "runs": runs,
+            "findings": dict(findings),
+            "protected": sorted(protected),
+        }
     finally:
         con.close()
 
@@ -199,6 +215,7 @@ def _infer_destroyed_type(seq_rows: dict, stolen_seq: int) -> str:
     healthy gates both read ``ready | card | review_gate_approved | …`` — independent
     corroboration that the missing row is the approval.
     """
+
     def _prev_non_card(seq: int):
         for back in range(1, 4):
             row = seq_rows.get(seq - back)
@@ -229,7 +246,8 @@ def _measure_hole(con, run_id: str, agent_id: str) -> str:
     """
     replay = 0
     for r in con.execute(
-        "SELECT payload_json FROM run_events WHERE run_id=? AND type='agent_chunk'", (run_id,)
+        "SELECT payload_json FROM run_events WHERE run_id=? AND type='agent_chunk'",
+        (run_id,),
     ):
         try:
             payload = json.loads(r["payload_json"] or "{}")
@@ -242,10 +260,13 @@ def _measure_hole(con, run_id: str, agent_id: str) -> str:
     # (gate redo / spec revision) has one artifact_refs row PER VERSION, and summing them
     # reports a hole of exactly one whole document. Measured wrong first, then corrected —
     # a 1-character hole came out as 18,718 before this was a max() instead of a sum.
-    versions = [len(r["content"] or "") for r in con.execute(
-        "SELECT content FROM artifact_refs WHERE run_id=? AND producer_agent=?",
-        (run_id, agent_id),
-    )]
+    versions = [
+        len(r["content"] or "")
+        for r in con.execute(
+            "SELECT content FROM artifact_refs WHERE run_id=? AND producer_agent=?",
+            (run_id, agent_id),
+        )
+    ]
     if not versions:
         return f"agent {agent_id}: replay={replay} chars (no artifact_refs row to align against)"
     artifact = max(versions)
@@ -282,33 +303,47 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="ISS-123 read-only lost-event audit")
     ap.add_argument("--db", default=str(default_db), help="path to the SQLite database")
     ap.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    ap.add_argument("--fix240-utc", default=FIX240_LANDED_UTC,
-                    help="runs created after this UTC timestamp are protected by FIX-240")
+    ap.add_argument(
+        "--fix240-utc",
+        default=FIX240_LANDED_UTC,
+        help="runs created after this UTC timestamp are protected by FIX-240",
+    )
     args = ap.parse_args()
 
     result = audit(args.db, args.fix240_utc)
     runs, findings = result["runs"], result["findings"]
 
     if args.json:
-        print(json.dumps({
-            "total_destroyed": sum(len(v) for v in findings.values()),
-            "runs_affected": len(findings),
-            "by_run": findings,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "total_destroyed": sum(len(v) for v in findings.values()),
+                    "runs_affected": len(findings),
+                    "by_run": findings,
+                },
+                indent=2,
+            )
+        )
         return
 
     by_type: Counter = Counter()
     total = 0
     print("=" * 92)
-    print("ISS-123 — engine events destroyed by the pre-FIX-240 seq collision (READ-ONLY)")
+    print(
+        "ISS-123 — engine events destroyed by the pre-FIX-240 seq collision (READ-ONLY)"
+    )
     print("=" * 92)
     for run_id in sorted(findings, key=lambda r: runs[r]["created_at"]):
         run, items = runs[run_id], findings[run_id]
         total += len(items)
-        print(f"\n{run_id[:8]}  {run['type']:<14} status={run['status']:<10} destroyed={len(items)}")
+        print(
+            f"\n{run_id[:8]}  {run['type']:<14} status={run['status']:<10} destroyed={len(items)}"
+        )
         for i in items:
             by_type[i["destroyed_type"]] += 1
-            print(f"     seq {i['seq']:>6}  {i['signature']:<12} {i['destroyed_type']:<24} {i['evidence']}")
+            print(
+                f"     seq {i['seq']:>6}  {i['signature']:<12} {i['destroyed_type']:<24} {i['evidence']}"
+            )
             if i.get("recovery"):
                 print(f"                    {i['recovery']}")
 
@@ -317,9 +352,15 @@ def main() -> None:
     for t, n in by_type.most_common():
         print(f"    {t:<26} {n}")
     print("=" * 92)
-    print("A run whose durable log has no terminal event renders correctly anyway since")
-    print("ISS-126; a run short an agent_chunk replays a transcript truncated by that many")
-    print("characters. NOTHING here is repaired, and run_events must never be back-filled.")
+    print(
+        "A run whose durable log has no terminal event renders correctly anyway since"
+    )
+    print(
+        "ISS-126; a run short an agent_chunk replays a transcript truncated by that many"
+    )
+    print(
+        "characters. NOTHING here is repaired, and run_events must never be back-filled."
+    )
 
 
 if __name__ == "__main__":

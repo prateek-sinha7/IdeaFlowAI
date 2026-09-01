@@ -22,10 +22,19 @@ def _parse(text: str):
 
 
 def test_parses_plain_json_array():
-    out = _parse(json.dumps([
-        {"id": "a", "title": "A", "body": "do a", "targets": ["f1"]},
-        {"id": "b", "body": "do b", "depends_on": ["a"], "conflict_keys": ["k1"]},
-    ]))
+    out = _parse(
+        json.dumps(
+            [
+                {"id": "a", "title": "A", "body": "do a", "targets": ["f1"]},
+                {
+                    "id": "b",
+                    "body": "do b",
+                    "depends_on": ["a"],
+                    "conflict_keys": ["k1"],
+                },
+            ]
+        )
+    )
     assert [t.id for t in out] == ["a", "b"]
     assert out[0].title == "A"
     assert out[0].targets == ["f1"]
@@ -70,10 +79,12 @@ def test_object_without_tasks_key_raises():
 
 
 def test_unknown_depends_on_ref_raises_named_valueerror():
-    payload = json.dumps([
-        {"id": "a"},
-        {"id": "b", "depends_on": ["ghost"]},
-    ])
+    payload = json.dumps(
+        [
+            {"id": "a"},
+            {"id": "b", "depends_on": ["ghost"]},
+        ]
+    )
     with pytest.raises(ValueError) as exc:
         _parse(payload)
     msg = str(exc.value)
@@ -95,11 +106,13 @@ def test_duplicate_task_id_raises_named_valueerror():
 
     FAILS on the pre-fix parser (last-wins ``by_id`` silently drops the earlier task).
     """
-    payload = json.dumps([
-        {"id": "a", "body": "first a"},
-        {"id": "b", "body": "b"},
-        {"id": "a", "body": "second a"},
-    ])
+    payload = json.dumps(
+        [
+            {"id": "a", "body": "first a"},
+            {"id": "b", "body": "b"},
+            {"id": "a", "body": "second a"},
+        ]
+    )
     with pytest.raises(ValueError) as exc:
         _parse(payload)
     msg = str(exc.value)

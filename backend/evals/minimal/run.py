@@ -119,10 +119,14 @@ def run(
         _merge_config(run_id, resolved, stage=stage, from_run=from_run, repeats=repeats)
     else:
         run_id = store.new_run_id(resolved.get("dataset_id", "eval"))
-        store.snapshot_config(run_id, {**resolved, "stage": stage, "from_run": from_run,
-                                        "repeats": repeats})
+        store.snapshot_config(
+            run_id,
+            {**resolved, "stage": stage, "from_run": from_run, "repeats": repeats},
+        )
 
-    seed_stage = _preceding_stage(order, stages_to_run[0]) if stage is not None else None
+    seed_stage = (
+        _preceding_stage(order, stages_to_run[0]) if stage is not None else None
+    )
     upstream_artifacts = (
         _upstream_artifacts(from_run, seed_stage) if seed_stage is not None else {}
     )
@@ -135,18 +139,23 @@ def run(
     # seeded purely from `artifacts` handed them nothing and every stage ran
     # on the bare brief. Runs 260731-104736 and -113247 both show
     # `specify artifacts=[]` followed by `plan artifacts=[]`.
-    completed: dict[str, dict[tuple, str]] = _prior_outputs(run_id, order, stages_to_run[0]) \
-        if into else {}
+    completed: dict[str, dict[tuple, str]] = (
+        _prior_outputs(run_id, order, stages_to_run[0]) if into else {}
+    )
 
     total_dispatches = len(rows) * repeats
     for name in stages_to_run:
         stage_def = stage_defs[name]
         stage_rows = []
-        _report(f"[{name}] dispatching {total_dispatches} row(s) via {stage_def['agent_id']}")
+        _report(
+            f"[{name}] dispatching {total_dispatches} row(s) via {stage_def['agent_id']}"
+        )
         for row in rows:
             for repeat in range(repeats):
-                sandbox_run_id = f"{run_id}-{row['id']}" if repeats == 1 else (
-                    f"{run_id}-{row['id']}-r{repeat}"
+                sandbox_run_id = (
+                    f"{run_id}-{row['id']}"
+                    if repeats == 1
+                    else (f"{run_id}-{row['id']}-r{repeat}")
                 )
                 # Sandbox FILES, not just context text. prototype-build's
                 # AGENT.md opens with `read_file("spec.md")`; seeded with
@@ -159,35 +168,61 @@ def run(
                 # `seed_as` in the config is where each stage's output lands.
                 seed_files = dict(upstream_artifacts.get((row["id"], repeat), {}))
                 seed_files.update(
-                    _canonical_seeds(stage_defs, order, completed, (row["id"], repeat), name)
+                    _canonical_seeds(
+                        stage_defs, order, completed, (row["id"], repeat), name
+                    )
                 )
                 message = _compose_message(
-                    row["prompt"], stage_def["agent_id"], stage_defs, order, completed,
+                    row["prompt"],
+                    stage_def["agent_id"],
+                    stage_defs,
+                    order,
+                    completed,
                     (row["id"], repeat),
                 )
                 index = len(stage_rows) + 1
-                _report(f"[{name}] ({index}/{total_dispatches}) {row['id']} repeat {repeat} — dispatching…")
+                _report(
+                    f"[{name}] ({index}/{total_dispatches}) {row['id']} repeat {repeat} — dispatching…"
+                )
                 record = _dispatch_row(
-                    row, agent_id=stage_def["agent_id"], sandbox_run_id=sandbox_run_id,
-                    seed_files=seed_files, deliverable=stage_def.get("deliverable"),
+                    row,
+                    agent_id=stage_def["agent_id"],
+                    sandbox_run_id=sandbox_run_id,
+                    seed_files=seed_files,
+                    deliverable=stage_def.get("deliverable"),
                     # The name this stage's output is KNOWN by — `seed_as` for a
                     # text stage, the deliverable for a tool-using one. Used as
                     # the saved artifact's filename, so the run folder reads in
                     # the workflow's own vocabulary.
-                    artifact_name=stage_def.get("seed_as") or stage_def.get("deliverable"),
-                    repeat=repeat, repeats=repeats, run_id=run_id, stage=name,
-                    provider=provider, model=model, single=single, message=message,
+                    artifact_name=stage_def.get("seed_as")
+                    or stage_def.get("deliverable"),
+                    repeat=repeat,
+                    repeats=repeats,
+                    run_id=run_id,
+                    stage=name,
+                    provider=provider,
+                    model=model,
+                    single=single,
+                    message=message,
                 )
                 stage_rows.append(record)
                 store.write_phase(run_id, "run", name, stage_rows)
-                status = "ERROR: " + record["error_reason"] if record["errored"] else "ok"
+                status = (
+                    "ERROR: " + record["error_reason"] if record["errored"] else "ok"
+                )
                 tokens = f"in={record['tokens_in']} out={record['tokens_out']}"
-                _report(f"[{name}] ({index}/{total_dispatches}) {row['id']} repeat {repeat} — {status} ({tokens})")
+                _report(
+                    f"[{name}] ({index}/{total_dispatches}) {row['id']} repeat {repeat} — {status} ({tokens})"
+                )
         # the next configured stage (when running the whole chain) reseeds from
         # what THIS stage's rows just wrote, keyed by (row id, repeat) so
         # parallel repeats never bleed into each other downstream
-        upstream_artifacts = {(r["row_id"], r["repeat"]): r["artifacts"] for r in stage_rows}
-        completed[name] = {(r["row_id"], r["repeat"]): r["response"] for r in stage_rows}
+        upstream_artifacts = {
+            (r["row_id"], r["repeat"]): r["artifacts"] for r in stage_rows
+        }
+        completed[name] = {
+            (r["row_id"], r["repeat"]): r["response"] for r in stage_rows
+        }
 
         # A stage where EVERY row failed ends the chain. Continuing would
         # dispatch the next agent with no upstream artifact — it invents its
@@ -196,16 +231,21 @@ def run(
         # this point is already stored and still worth checking and scoring,
         # so this returns normally rather than raising.
         if stage_rows and all(r["errored"] for r in stage_rows):
-            _report(f"[{name}] every row errored — stopping the chain here. "
-                    f"Stages already completed are stored and can be scored.")
+            _report(
+                f"[{name}] every row errored — stopping the chain here. "
+                f"Stages already completed are stored and can be scored."
+            )
             break
 
     return run_id
 
 
 def _canonical_seeds(
-    stage_defs: dict, order: list[str], completed: dict[str, dict[tuple, str]],
-    key: tuple, upto: str,
+    stage_defs: dict,
+    order: list[str],
+    completed: dict[str, dict[tuple, str]],
+    key: tuple,
+    upto: str,
 ) -> dict[str, str]:
     """Upstream stage output written under the filename the next agent reads.
 
@@ -227,7 +267,9 @@ def _canonical_seeds(
     return files
 
 
-def _prior_outputs(run_id: str, order: list[str], upto: str) -> dict[str, dict[tuple, str]]:
+def _prior_outputs(
+    run_id: str, order: list[str], upto: str
+) -> dict[str, dict[tuple, str]]:
     """Every already-stored stage output for this run, for `--into` chaining.
 
     A stage appended to an existing run has no in-memory history to consume,
@@ -242,13 +284,19 @@ def _prior_outputs(run_id: str, order: list[str], upto: str) -> dict[str, dict[t
             rows = store.read_phase(run_id, "run", name)
         except FileNotFoundError:
             continue
-        outputs[name] = {(r["row_id"], r["repeat"]): r.get("response") or "" for r in rows}
+        outputs[name] = {
+            (r["row_id"], r["repeat"]): r.get("response") or "" for r in rows
+        }
     return outputs
 
 
 def _compose_message(
-    brief: str, agent_id: str, stage_defs: dict, order: list[str],
-    completed: dict[str, dict[tuple, str]], key: tuple,
+    brief: str,
+    agent_id: str,
+    stage_defs: dict,
+    order: list[str],
+    completed: dict[str, dict[tuple, str]],
+    key: tuple,
 ) -> str:
     """The brief plus whatever upstream output THIS agent declares it consumes.
 
@@ -258,7 +306,9 @@ def _compose_message(
     Reading the contract off the real AGENT.md keeps the eval measuring what
     production routes, rather than a second opinion about what it should.
     """
-    consumes = set(getattr(agents.loader.load_agent_spec(agent_id), "consumes", []) or [])
+    consumes = set(
+        getattr(agents.loader.load_agent_spec(agent_id), "consumes", []) or []
+    )
     if not consumes:
         return brief
     blocks = []
@@ -268,7 +318,9 @@ def _compose_message(
         upstream_id = (stage_defs.get(name) or {}).get("agent_id")
         if not upstream_id:
             continue
-        produces = set(getattr(agents.loader.load_agent_spec(upstream_id), "produces", []) or [])
+        produces = set(
+            getattr(agents.loader.load_agent_spec(upstream_id), "produces", []) or []
+        )
         text = completed[name].get(key)
         if produces & consumes and text:
             blocks.append(f"=== OUTPUT FROM {upstream_id} ===\n{text}\n=== END ===")
@@ -290,12 +342,21 @@ def _merge_config(run_id: str, resolved: dict, *, stage, from_run, repeats) -> N
         stored = {}
     order = list(stored.get("order") or [])
     order += [name for name in (resolved.get("order") or []) if name not in order]
-    store.snapshot_config(run_id, {
-        **stored, **resolved,
-        "agents": {**(stored.get("agents") or {}), **(resolved.get("agents") or {})},
-        "order": order,
-        "stage": stage, "from_run": from_run, "repeats": repeats,
-    })
+    store.snapshot_config(
+        run_id,
+        {
+            **stored,
+            **resolved,
+            "agents": {
+                **(stored.get("agents") or {}),
+                **(resolved.get("agents") or {}),
+            },
+            "order": order,
+            "stage": stage,
+            "from_run": from_run,
+            "repeats": repeats,
+        },
+    )
 
 
 def _report(message: str) -> None:
@@ -304,14 +365,18 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def compose_agent_prompt(agent_id: str, ctx: "agents.factory.AgentContext | None" = None) -> str:
+def compose_agent_prompt(
+    agent_id: str, ctx: "agents.factory.AgentContext | None" = None
+) -> str:
     """The REAL composed system prompt for an agent — same call `create_runner`
     makes. Reused by `cli.py`'s advisor so advice targets the actual current
     prompt, not a stale mirror."""
     ctx = ctx or agents.factory.AgentContext(user_request="", user_id=USER_ID)
     spec = agents.loader.load_agent_spec(agent_id)
     custom_tools, exclude_builtin = agents.factory._resolve_runner_tools(spec, ctx)
-    return agents.factory._compose_system_prompt(spec, ctx, no_tools=exclude_builtin and not custom_tools)
+    return agents.factory._compose_system_prompt(
+        spec, ctx, no_tools=exclude_builtin and not custom_tools
+    )
 
 
 def _artifact_suffix(row_id: str, repeat: int, *, repeats: int, single: bool) -> str:
@@ -336,8 +401,16 @@ def _artifact_ext(response: str, deliverable: str | None) -> str:
 
 
 def _write_artifact(
-    run_id: str, stage: str, response: str, deliverable: str | None,
-    artifact_name: str | None, row_id: str, repeat: int, *, repeats: int, single: bool,
+    run_id: str,
+    stage: str,
+    response: str,
+    deliverable: str | None,
+    artifact_name: str | None,
+    row_id: str,
+    repeat: int,
+    *,
+    repeats: int,
+    single: bool,
 ) -> None:
     """Save this row's output under the name the workflow actually gave it.
 
@@ -355,8 +428,12 @@ def _write_artifact(
         store.write_artifact(run_id, stage, artifact_name, response, suffix=suffix)
     else:
         store.write_artifact(
-            run_id, stage, f"{stage}.{_artifact_ext(response, deliverable)}",
-            response, suffix=suffix, bare=True,
+            run_id,
+            stage,
+            f"{stage}.{_artifact_ext(response, deliverable)}",
+            response,
+            suffix=suffix,
+            bare=True,
         )
 
 
@@ -374,9 +451,20 @@ def _unwrap_artifact(response: str) -> str:
 
 
 def _dispatch_row(
-    row: dict, *, agent_id: str, sandbox_run_id: str, seed_files: dict[str, str],
-    deliverable: str | None, artifact_name: str | None, repeat: int, repeats: int,
-    run_id: str, stage: str, provider: str | None, model: str | None, single: bool,
+    row: dict,
+    *,
+    agent_id: str,
+    sandbox_run_id: str,
+    seed_files: dict[str, str],
+    deliverable: str | None,
+    artifact_name: str | None,
+    repeat: int,
+    repeats: int,
+    run_id: str,
+    stage: str,
+    provider: str | None,
+    model: str | None,
+    single: bool,
     message: str | None = None,
 ) -> dict:
     """Dispatch one row through `create_runner`, or seed it with a fixture answer.
@@ -399,25 +487,51 @@ def _dispatch_row(
     """
     if "seed_response" in row:
         response = row["seed_response"]
-        _write_artifact(run_id, stage, response, deliverable, artifact_name,
-                        row["id"], repeat, repeats=repeats, single=single)
+        _write_artifact(
+            run_id,
+            stage,
+            response,
+            deliverable,
+            artifact_name,
+            row["id"],
+            repeat,
+            repeats=repeats,
+            single=single,
+        )
         return {
-            "row_id": row["id"], "repeat": repeat, "agent_id": agent_id,
-            "prompt": row["prompt"], "response": response,
-            "tokens_in": 0, "tokens_out": 0, "model_id": "seeded",
-            "system_prompt_hash": None, "origin": "seeded",
-            "errored": False, "error_reason": None, "artifacts": dict(seed_files),
+            "row_id": row["id"],
+            "repeat": repeat,
+            "agent_id": agent_id,
+            "prompt": row["prompt"],
+            "response": response,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "model_id": "seeded",
+            "system_prompt_hash": None,
+            "origin": "seeded",
+            "errored": False,
+            "error_reason": None,
+            "artifacts": dict(seed_files),
         }
 
     for attempt in range(RATE_LIMIT_RETRIES + 1):
         try:
             record = asyncio.run(
                 _dispatch_row_async(
-                    row, agent_id=agent_id, sandbox_run_id=sandbox_run_id,
-                    seed_files=seed_files, deliverable=deliverable,
-                    artifact_name=artifact_name, repeat=repeat, repeats=repeats,
-                    run_id=run_id, stage=stage, provider=provider, model=model,
-                    single=single, message=message,
+                    row,
+                    agent_id=agent_id,
+                    sandbox_run_id=sandbox_run_id,
+                    seed_files=seed_files,
+                    deliverable=deliverable,
+                    artifact_name=artifact_name,
+                    repeat=repeat,
+                    repeats=repeats,
+                    run_id=run_id,
+                    stage=stage,
+                    provider=provider,
+                    model=model,
+                    single=single,
+                    message=message,
                 )
             )
             spent = record["tokens_in"] + record["tokens_out"]
@@ -429,41 +543,69 @@ def _dispatch_row(
                 # same tokens against the same exhausted budget and fail
                 # further in. Report it and let the operator resume the stage
                 # deliberately: `--stage <name> --into <run_id>`.
-                _report(f"[{stage}] {row['id']}: rate limited AFTER spending "
-                        f"{spent:,} tokens — not retrying (a retry restarts the stage "
-                        f"from zero). Resume with: --stage {stage} --into {run_id}")
+                _report(
+                    f"[{stage}] {row['id']}: rate limited AFTER spending "
+                    f"{spent:,} tokens — not retrying (a retry restarts the stage "
+                    f"from zero). Resume with: --stage {stage} --into {run_id}"
+                )
                 return record
-            delay = (2 ** attempt) * RATE_LIMIT_BASE_DELAY + random.uniform(0, 1)
-            _report(f"[{stage}] {row['id']}: rate limited before spending anything — "
-                    f"retry {attempt + 1}/{RATE_LIMIT_RETRIES} in {delay:.0f}s")
+            delay = (2**attempt) * RATE_LIMIT_BASE_DELAY + random.uniform(0, 1)
+            _report(
+                f"[{stage}] {row['id']}: rate limited before spending anything — "
+                f"retry {attempt + 1}/{RATE_LIMIT_RETRIES} in {delay:.0f}s"
+            )
             time.sleep(delay)
             continue
         except Exception as exc:  # noqa: BLE001 - a failed row must not kill the chain
             rate_limited = bool(RATE_LIMIT_PATTERN.search(str(exc)))
             if rate_limited and attempt < RATE_LIMIT_RETRIES:
-                delay = (2 ** attempt) * RATE_LIMIT_BASE_DELAY + random.uniform(0, 1)
-                _report(f"[{stage}] {row['id']}: rate limited — retry "
-                        f"{attempt + 1}/{RATE_LIMIT_RETRIES} in {delay:.0f}s")
+                delay = (2**attempt) * RATE_LIMIT_BASE_DELAY + random.uniform(0, 1)
+                _report(
+                    f"[{stage}] {row['id']}: rate limited — retry "
+                    f"{attempt + 1}/{RATE_LIMIT_RETRIES} in {delay:.0f}s"
+                )
                 time.sleep(delay)
                 continue
-            reason = (f"rate limited, {RATE_LIMIT_RETRIES} retries exhausted: {exc}"
-                      if rate_limited else f"{type(exc).__name__}: {exc}")
+            reason = (
+                f"rate limited, {RATE_LIMIT_RETRIES} retries exhausted: {exc}"
+                if rate_limited
+                else f"{type(exc).__name__}: {exc}"
+            )
             return {
-                "row_id": row["id"], "repeat": repeat, "agent_id": agent_id,
-                "prompt": row["prompt"], "response": "",
-                "tokens_in": 0, "tokens_out": 0, "model_id": model or "unknown",
-                "system_prompt_hash": None, "origin": "dispatched",
-                "errored": True, "error_reason": reason,
-                "deliverable_declared": deliverable, "deliverable_source": None,
+                "row_id": row["id"],
+                "repeat": repeat,
+                "agent_id": agent_id,
+                "prompt": row["prompt"],
+                "response": "",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "model_id": model or "unknown",
+                "system_prompt_hash": None,
+                "origin": "dispatched",
+                "errored": True,
+                "error_reason": reason,
+                "deliverable_declared": deliverable,
+                "deliverable_source": None,
                 "artifacts": {},
             }
     raise RuntimeError("unreachable")  # pragma: no cover
 
 
 async def _dispatch_row_async(
-    row: dict, *, agent_id: str, sandbox_run_id: str, seed_files: dict[str, str],
-    deliverable: str | None, artifact_name: str | None, repeat: int, repeats: int,
-    run_id: str, stage: str, provider: str | None, model: str | None, single: bool,
+    row: dict,
+    *,
+    agent_id: str,
+    sandbox_run_id: str,
+    seed_files: dict[str, str],
+    deliverable: str | None,
+    artifact_name: str | None,
+    repeat: int,
+    repeats: int,
+    run_id: str,
+    stage: str,
+    provider: str | None,
+    model: str | None,
+    single: bool,
     message: str | None = None,
 ) -> dict:
     """The real dispatch: build a sandbox, run the agent, capture the response.
@@ -482,16 +624,22 @@ async def _dispatch_row_async(
     # by build_model's own chain inside create_runner.
     resolved_model = (
         app.agents.model_factory.build_model(model, provider=provider)
-        if provider is not None else model
+        if provider is not None
+        else model
     )
     dispatch_message = message or row["prompt"]
     ctx = agents.factory.AgentContext(
-        user_request=dispatch_message, user_id=USER_ID, run_id=sandbox_run_id,
+        user_request=dispatch_message,
+        user_id=USER_ID,
+        run_id=sandbox_run_id,
         model=resolved_model,
     )
     system_prompt = compose_agent_prompt(agent_id, ctx)
     runner = agents.factory.create_runner(
-        agent_id, ctx, thread_id=f"{sandbox_run_id}:{agent_id}", run_sandbox=sandbox,
+        agent_id,
+        ctx,
+        thread_id=f"{sandbox_run_id}:{agent_id}",
+        run_sandbox=sandbox,
     )
     resolved_model_id = getattr(runner, "model_id", None) or "unknown"
 
@@ -541,9 +689,11 @@ async def _dispatch_row_async(
             # od-ppt-composer wrote no file at all and od-ppt-validator wrote
             # `workspace/presentation.html`, so both stages were silently
             # graded on an `<artifact>`-wrapped stream.
-            _report(f"[{stage}] WARNING {row['id']}: deliverable {deliverable!r} not found in "
-                    f"the sandbox — grading the streamed response instead. Files written: "
-                    f"{sorted(_snapshot_sandbox(sandbox)) or 'none'}")
+            _report(
+                f"[{stage}] WARNING {row['id']}: deliverable {deliverable!r} not found in "
+                f"the sandbox — grading the streamed response instead. Files written: "
+                f"{sorted(_snapshot_sandbox(sandbox)) or 'none'}"
+            )
 
     if not errored and not response.strip():
         errored = True
@@ -551,37 +701,67 @@ async def _dispatch_row_async(
 
     # ONE log file per phase (not per row): every row/repeat's transcript is
     # appended, header first, so the whole phase reads as one document.
-    store.append_log(run_id, stage, (
-        f"=== {row['id']} (repeat {repeat}) — {agent_id} — "
-        f"{time.strftime('%Y-%m-%d %H:%M:%S')} ===\n"
-        f"{''.join(log_lines)}\n"
-        f"--- result: {'ERROR' if errored else 'CAPTURED'} — "
-        f"tokens in={tokens_in} out={tokens_out} ---\n\n"
-    ))
-    _write_artifact(run_id, stage, response, deliverable, artifact_name,
-                    row["id"], repeat, repeats=repeats, single=single)
+    store.append_log(
+        run_id,
+        stage,
+        (
+            f"=== {row['id']} (repeat {repeat}) — {agent_id} — "
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')} ===\n"
+            f"{''.join(log_lines)}\n"
+            f"--- result: {'ERROR' if errored else 'CAPTURED'} — "
+            f"tokens in={tokens_in} out={tokens_out} ---\n\n"
+        ),
+    )
+    _write_artifact(
+        run_id,
+        stage,
+        response,
+        deliverable,
+        artifact_name,
+        row["id"],
+        repeat,
+        repeats=repeats,
+        single=single,
+    )
     # The DISPATCH call, into the same `logs/calls.jsonl` the judge and advisor
     # already append to. It was missing: a 5-stage run logged 10 records (5
     # judge + 5 advise) and zero dispatches, so the one prompt you actually
     # want to inspect after a prompt-override experiment was the one prompt
     # not written down. `system_prompt_hash` on the run row proves WHETHER the
     # prompt changed; only this proves WHAT was sent.
-    store.log_call(run_id, stage, {
-        "kind": "dispatch", "stage": stage, "row_id": row["id"], "repeat": repeat,
-        "agent_id": agent_id, "model": resolved_model_id,
-        "system_prompt": system_prompt,
-        "system_prompt_hash": _hash_prompt(system_prompt),
-        "prompt": dispatch_message, "raw": response,
-        "tokens_in": tokens_in, "tokens_out": tokens_out,
-        "error": error_reason,
-    })
+    store.log_call(
+        run_id,
+        stage,
+        {
+            "kind": "dispatch",
+            "stage": stage,
+            "row_id": row["id"],
+            "repeat": repeat,
+            "agent_id": agent_id,
+            "model": resolved_model_id,
+            "system_prompt": system_prompt,
+            "system_prompt_hash": _hash_prompt(system_prompt),
+            "prompt": dispatch_message,
+            "raw": response,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "error": error_reason,
+        },
+    )
 
     return {
-        "row_id": row["id"], "repeat": repeat, "agent_id": agent_id,
-        "prompt": row["prompt"], "response": response,
-        "tokens_in": tokens_in, "tokens_out": tokens_out, "model_id": resolved_model_id,
-        "system_prompt_hash": _hash_prompt(system_prompt), "origin": "dispatched",
-        "errored": errored, "error_reason": error_reason,
+        "row_id": row["id"],
+        "repeat": repeat,
+        "agent_id": agent_id,
+        "prompt": row["prompt"],
+        "response": response,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "model_id": resolved_model_id,
+        "system_prompt_hash": _hash_prompt(system_prompt),
+        "origin": "dispatched",
+        "errored": errored,
+        "error_reason": error_reason,
         # WHAT WAS GRADED, recorded per row: the sandbox path the deliverable
         # was read from, or None meaning the streamed response was graded
         # instead. A stage that declares a deliverable and stores None here
@@ -626,7 +806,9 @@ def _read_deliverable(sandbox, deliverable: str) -> tuple[str | None, str | None
     if content is not None:
         return content, deliverable
     basename = Path(deliverable).name
-    matches = [path for path in _snapshot_sandbox(sandbox) if Path(path).name == basename]
+    matches = [
+        path for path in _snapshot_sandbox(sandbox) if Path(path).name == basename
+    ]
     if len(matches) == 1:
         return sandbox.read(matches[0]), matches[0]
     return None, None
@@ -644,7 +826,9 @@ def _snapshot_sandbox(sandbox) -> dict[str, str]:
     for path in sandbox.root.rglob("*"):
         if path.is_file():
             try:
-                files[str(path.relative_to(sandbox.root))] = path.read_text(encoding="utf-8")
+                files[str(path.relative_to(sandbox.root))] = path.read_text(
+                    encoding="utf-8"
+                )
             except (UnicodeDecodeError, OSError):
                 continue
     return files
@@ -660,7 +844,8 @@ def _preceding_stage(order: list[str], stage: str) -> str | None:
 
 
 def _upstream_artifacts(
-    from_run: str | None, seed_stage: str,
+    from_run: str | None,
+    seed_stage: str,
 ) -> dict[tuple[str, int], dict[str, str]]:
     if from_run is None:
         raise ValueError(f"--from is required to isolate a stage after {seed_stage!r}")

@@ -43,7 +43,11 @@ def test_artifact_fallback_writes_missing_file_and_returns_filename(tmp_path):
     ectx = SimpleNamespace(topic="crm-rollout")
 
     result = engine._check_artifact_fallback(
-        ectx, "custom-agent:research-a", "the streamed text", sandbox, "Build a CRM",
+        ectx,
+        "custom-agent:research-a",
+        "the streamed text",
+        sandbox,
+        "Build a CRM",
     )
 
     expected = artifact_name("research-a", "crm-rollout")
@@ -61,7 +65,10 @@ def test_artifact_fallback_noop_when_file_already_exists(tmp_path):
     sandbox.write(filename, "the agent's real deliverable")
 
     result = engine._check_artifact_fallback(
-        ectx, "custom-agent:research-a", "streamed text (should be ignored)", sandbox,
+        ectx,
+        "custom-agent:research-a",
+        "streamed text (should be ignored)",
+        sandbox,
         "Build a CRM",
     )
 
@@ -77,7 +84,11 @@ def test_artifact_fallback_noop_for_non_custom_agent_step(tmp_path):
     ectx = SimpleNamespace(topic="crm-rollout")
 
     result = engine._check_artifact_fallback(
-        ectx, "domain-analyst", "streamed text", sandbox, "Build a CRM",
+        ectx,
+        "domain-analyst",
+        "streamed text",
+        sandbox,
+        "Build a CRM",
     )
 
     assert result is None
@@ -91,7 +102,11 @@ def test_artifact_fallback_computes_topic_when_ectx_carries_none(tmp_path):
     ectx = SimpleNamespace()  # no .topic attribute at all
 
     result = engine._check_artifact_fallback(
-        ectx, "custom-agent:research-a", "streamed text", sandbox, "Build a CRM!",
+        ectx,
+        "custom-agent:research-a",
+        "streamed text",
+        sandbox,
+        "Build a CRM!",
     )
 
     assert result == artifact_name("research-a", topic_slug("Build a CRM!"))

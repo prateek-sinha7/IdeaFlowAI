@@ -1,8 +1,12 @@
 # =============================================================================
 # VelocityAI gitleaks configuration.
 # =============================================================================
-# Consumed by .github/workflows/ci.yml (`security-scan` job) — previously by
-# the retired infra/buildspec.yml pre_build phase, same invocation.
+# Location: ci/gitleaks.toml (moved from the repo root). Passed explicitly via
+# `--config ci/gitleaks.toml`; gitleaks only auto-discovers `.gitleaks.toml` at
+# the --source root, so the flag is REQUIRED now that this file lives in ci/.
+# Consumed by .github/workflows/ci.yml (`fast-checks` + `security-scan-secrets`
+# jobs) — previously by the retired infra/buildspec.yml pre_build phase, same
+# invocation.
 # Extends gitleaks' built-in rule set (so all default detectors stay active on
 # real, shipping code) and adds a PATH allowlist for directories that
 # legitimately contain EXAMPLE / TEST / PLACEHOLDER secret-shaped strings.
@@ -42,6 +46,24 @@ paths = [
   '''.*\.example$''',
   # LocalStack throwaway layer — values are explicit placeholders, never real.
   '''infra/terraform/localstack/.*''',
+  # gitleaks' OWN config + ignore metadata, at any path.
+  #
+  # gitleaks auto-skips the config file passed to `--config` (detect.go:
+  # `fragment.FilePath == d.Config.Path`) but does NOT skip the ignore file,
+  # and — because `detect` scans the FULL git log, not just the working tree —
+  # it does not skip historical copies of either file at their previous paths.
+  # Two concrete consequences this rule exists for:
+  #   1. The triage comments in `gitleaksignore` describe the very findings
+  #      they suppress. A comment that named the offending AWS key ID
+  #      re-triggered `aws-access-token` ON THE IGNORE FILE ITSELF, and stayed
+  #      triggered from history even after the value was redacted at HEAD.
+  #   2. These files moved from the repo root into `ci/`. The root copies are
+  #      still in history and would otherwise be re-scanned unskipped.
+  # Neither file ever legitimately holds a live credential — one holds
+  # allowlist rules, the other holds `commit:file:rule:line` fingerprints —
+  # so scoping both out by path loses no real coverage.
+  '''(^|/)\.?gitleaks\.toml$''',
+  '''(^|/)\.?gitleaksignore$''',
 ]
 
 # Belt-and-suspenders: well-known *example* credentials that are published as
@@ -53,3 +75,12 @@ regexes = [
   '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
   '''sk_live_abc123''',
 ]
+
+# NOTE: gitleaks' [allowlist] table has no `fingerprints` key (only `paths`,
+# `regexes`, `commits`, `stopwords` — see gitleaks/config/allowlist.go). Six
+# specific historical findings (4 false positives + 2 confirmed-expired dead
+# secrets) are triaged individually by exact finding fingerprint instead, via
+# `ci/gitleaksignore`, passed with `-i ci/gitleaksignore`. (gitleaks only
+# auto-loads an ignore file named `.gitleaksignore` from the --source root, so
+# the flag is REQUIRED now that it lives in ci/.) See that file for the full
+# rationale per finding.

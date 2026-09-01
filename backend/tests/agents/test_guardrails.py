@@ -57,12 +57,13 @@ class TestGuardrailInjection:
         """domain-analyst declares guardrails: [agile]; agile.md content must appear verbatim."""
         # Confirm domain-analyst has the agile guardrail
         spec = load_agent_spec("domain-analyst")
-        assert "agile" in spec.guardrails, (
-            "domain-analyst must declare 'agile' in its guardrails list"
-        )
+        assert (
+            "agile" in spec.guardrails
+        ), "domain-analyst must declare 'agile' in its guardrails list"
 
         # Read the actual guardrail file content
         from agents.factory import _GUARDRAILS_DIR
+
         agile_file = _GUARDRAILS_DIR / "agile.md"
         assert agile_file.exists(), f"agile.md not found at {agile_file}"
         agile_content = agile_file.read_text(encoding="utf-8")
@@ -85,9 +86,9 @@ class TestGuardrailInjection:
         ctx = AgentContext(user_request="Test guardrail header")
         system_prompt = self._compose("domain-analyst", ctx)
 
-        assert "## Guardrail: agile" in system_prompt, (
-            "Expected '## Guardrail: agile' heading in system_prompt"
-        )
+        assert (
+            "## Guardrail: agile" in system_prompt
+        ), "Expected '## Guardrail: agile' heading in system_prompt"
 
     def test_guardrail_appears_before_prompt_body(self):
         """Requirement 3.2: guardrail content must precede the prompt body."""
@@ -95,6 +96,7 @@ class TestGuardrailInjection:
         assert "agile" in spec.guardrails
 
         from agents.factory import _GUARDRAILS_DIR
+
         agile_content = (_GUARDRAILS_DIR / "agile.md").read_text(encoding="utf-8")
 
         ctx = AgentContext(user_request="Test guardrail ordering")
@@ -105,9 +107,9 @@ class TestGuardrailInjection:
 
         assert guardrail_pos != -1, "agile.md content not found in system_prompt"
         assert body_pos != -1, "prompt_body not found in system_prompt"
-        assert guardrail_pos < body_pos, (
-            "Guardrail content must appear before the prompt body in system_prompt"
-        )
+        assert (
+            guardrail_pos < body_pos
+        ), "Guardrail content must appear before the prompt body in system_prompt"
 
     def test_all_agents_with_guardrails_inject_content_verbatim(self):
         """For every agent that declares guardrails, each guardrail file appears verbatim."""
@@ -134,7 +136,9 @@ class TestGuardrailInjection:
 
                 ctx = AgentContext(
                     user_request="Guardrail verbatim check",
-                    od_context=stub_od_context if getattr(spec, "injects", []) else None,
+                    od_context=stub_od_context
+                    if getattr(spec, "injects", [])
+                    else None,
                 )
                 system_prompt = self._compose(agent_id, ctx)
 
@@ -198,7 +202,9 @@ def _compose_blocks_for(spec, ctx: AgentContext) -> dict:
     # ONLY eager skills source left is ctx.disk_skill (D6). Mirrors
     # ``_compose_system_prompt``'s current skills-block construction exactly.
     disk_skill = getattr(ctx, "disk_skill", None)
-    skill_blocks = extract_ui_skill_blocks([{"content": disk_skill}] if disk_skill else [])
+    skill_blocks = extract_ui_skill_blocks(
+        [{"content": disk_skill}] if disk_skill else []
+    )
     skill_entries = [b for b in skill_blocks if b.content]
     if skill_entries:
         rendered_skills = [
@@ -210,7 +216,9 @@ def _compose_blocks_for(spec, ctx: AgentContext) -> dict:
             f"--- END SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
             for b in skill_entries
         ]
-        blocks["skills"] = "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
+        blocks["skills"] = (
+            "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
+        )
 
     hook_blocks = asyncio.run(BehavioralHookProvider().provide(ctx))
     hook_contents = [b.content for b in hook_blocks if b.content]
@@ -275,7 +283,11 @@ class TestPromptAssemblyPolicyParity:
             user_request="full-block parity",
             disk_skill="Use the brand voice.",
             attached_hooks=[
-                {"name": "concise", "event": "on_response", "description": "Be concise."},
+                {
+                    "name": "concise",
+                    "event": "on_response",
+                    "description": "Be concise.",
+                },
                 {"name": "", "event": "x", "description": "no name → skipped"},
             ],
         )
@@ -304,7 +316,9 @@ class TestPromptAssemblyPolicyParity:
                 spec = load_agent_spec(agent_id)
                 ctx = AgentContext(
                     user_request="parity sweep",
-                    od_context=stub_od_context if getattr(spec, "injects", []) else None,
+                    od_context=stub_od_context
+                    if getattr(spec, "injects", [])
+                    else None,
                 )
                 expected = _compose_system_prompt(spec, ctx)
                 actual = policy.assemble(_compose_blocks_for(spec, ctx), ctx)
@@ -359,7 +373,11 @@ class TestBehavioralHookProvider:
         ctx = AgentContext(
             user_request="x",
             attached_hooks=[
-                {"name": "concise", "event": "on_response", "description": "Be concise."},
+                {
+                    "name": "concise",
+                    "event": "on_response",
+                    "description": "Be concise.",
+                },
                 {"name": "fallback", "event": "post", "trigger": "use trigger"},
             ],
         )
@@ -369,7 +387,9 @@ class TestBehavioralHookProvider:
         assert block.kind == "behavioral"
         assert block.content.startswith("## Active Behavioral Hooks")
         assert "- **concise** (on_response): Be concise." in block.content
-        assert "- **fallback** (post): use trigger" in block.content  # description or trigger
+        assert (
+            "- **fallback** (post): use trigger" in block.content
+        )  # description or trigger
 
     def test_block_matches_inline_synthesis_byte_for_byte(self):
         """The provider's block equals the factory's inline ``## Active Behavioral Hooks``."""
@@ -394,5 +414,7 @@ class TestBehavioralHookProvider:
     def test_no_named_hook_renders_nothing(self):
         """No attached hook with a name ⇒ empty list (mirrors the inline guard)."""
         provider = self._provider()
-        ctx = AgentContext(user_request="x", attached_hooks=[{"event": "e", "name": ""}])
+        ctx = AgentContext(
+            user_request="x", attached_hooks=[{"event": "e", "name": ""}]
+        )
         assert asyncio.run(provider.provide(ctx)) == []

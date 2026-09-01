@@ -153,7 +153,9 @@ class RepoIndex:
         self._built = False
 
     # -- the DEFAULT search (grep/glob, always available) --------------------
-    def search(self, runner: Any, pattern: str, *, glob: str | None = None) -> list[Match]:
+    def search(
+        self, runner: Any, pattern: str, *, glob: str | None = None
+    ) -> list[Match]:
         """Grep the workspace tree for ``pattern`` via the ``Workspace.search`` handle.
 
         ALWAYS available (no index build). Reaches the workspace grep through the

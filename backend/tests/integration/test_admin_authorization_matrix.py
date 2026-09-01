@@ -50,6 +50,7 @@ from tests.fixtures.user_factory import create_user
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────
 
+
 @pytest.fixture()
 def admin_api_client(monkeypatch, tmp_path):
     """FastAPI TestClient backed by fresh in-memory SQLite DB.
@@ -70,7 +71,11 @@ def admin_api_client(monkeypatch, tmp_path):
 
     # Stamp alembic_version so the lifespan check passes.
     with test_engine.begin() as conn:
-        conn.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR PRIMARY KEY)"))
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR PRIMARY KEY)"
+            )
+        )
         conn.execute(text("DELETE FROM alembic_version"))
         conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0026')"))
 
@@ -105,14 +110,16 @@ def admin_user(admin_api_client):
     """Create an admin user and return (user_id, jwt_token)."""
     session = admin_api_client.SessionLocal()
     try:
-        admin = create_user(session, "admin@example.com", "SecurePassword123", is_admin=True)
+        admin = create_user(
+            session, "admin@example.com", "SecurePassword123", is_admin=True
+        )
         admin_id = admin.id
     finally:
         session.close()
 
     resp = admin_api_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "SecurePassword123"}
+        json={"email": "admin@example.com", "password": "SecurePassword123"},
     )
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
@@ -124,14 +131,16 @@ def regular_user(admin_api_client):
     """Create a regular non-admin user and return (user_id, jwt_token)."""
     session = admin_api_client.SessionLocal()
     try:
-        user = create_user(session, "regular@example.com", "SecurePassword123", is_admin=False)
+        user = create_user(
+            session, "regular@example.com", "SecurePassword123", is_admin=False
+        )
         user_id = user.id
     finally:
         session.close()
 
     resp = admin_api_client.post(
         "/api/auth/login",
-        json={"email": "regular@example.com", "password": "SecurePassword123"}
+        json={"email": "regular@example.com", "password": "SecurePassword123"},
     )
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
@@ -147,10 +156,7 @@ def _snapshot_all_users(session):
     from app.models.user import User
 
     users = session.query(User).all()
-    return {
-        u.id: (u.email, u.tier, u.is_admin)
-        for u in users
-    }
+    return {u.id: (u.email, u.tier, u.is_admin) for u in users}
 
 
 def _assert_users_unchanged(session, before_snapshot):
@@ -161,8 +167,7 @@ def _assert_users_unchanged(session, before_snapshot):
     from app.models.user import User
 
     after_snapshot = {
-        u.id: (u.email, u.tier, u.is_admin)
-        for u in session.query(User).all()
+        u.id: (u.email, u.tier, u.is_admin) for u in session.query(User).all()
     }
     assert after_snapshot == before_snapshot, (
         f"User records changed unexpectedly.\n"
@@ -172,6 +177,7 @@ def _assert_users_unchanged(session, before_snapshot):
 
 
 # ─── Tests: GET /api/admin/users ────────────────────────────────────────────
+
 
 class TestListUsersAuthorization:
     """Test GET /api/admin/users across authorization states."""
@@ -207,7 +213,9 @@ class TestListUsersAuthorization:
         # At least the admin user should be present
         assert any(u["id"] == admin_id for u in users)
 
-    def test_list_users_expired_token_rejected(self, admin_api_client, admin_user, monkeypatch):
+    def test_list_users_expired_token_rejected(
+        self, admin_api_client, admin_user, monkeypatch
+    ):
         """Expired JWT → 401 with non-disclosing body.
 
         Validates: Requirement 5.2 (missing credential covers expiry).
@@ -217,6 +225,7 @@ class TestListUsersAuthorization:
         session = admin_api_client.SessionLocal()
         try:
             from app.models.user import User
+
             user = session.query(User).filter(User.id == admin_id).first()
             if user:
                 session.delete(user)
@@ -232,6 +241,7 @@ class TestListUsersAuthorization:
 
 # ─── Tests: POST /api/admin/users (Create) ─────────────────────────────────
 
+
 class TestCreateUserAuthorization:
     """Test POST /api/admin/users across authorization states."""
 
@@ -241,7 +251,7 @@ class TestCreateUserAuthorization:
             "email": "newuser@example.com",
             "password": "SecurePass123",
             "tier": "basic",
-            "is_admin": False
+            "is_admin": False,
         }
         resp = admin_api_client.post("/api/admin/users", json=payload)
         assert resp.status_code == 401
@@ -257,7 +267,7 @@ class TestCreateUserAuthorization:
             "email": "another@example.com",
             "password": "SecurePass123",
             "tier": "basic",
-            "is_admin": False
+            "is_admin": False,
         }
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.post("/api/admin/users", json=payload, headers=headers)
@@ -270,7 +280,7 @@ class TestCreateUserAuthorization:
             "email": "created@example.com",
             "password": "SecurePass123",
             "tier": "pro",
-            "is_admin": False
+            "is_admin": False,
         }
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.post("/api/admin/users", json=payload, headers=headers)
@@ -284,14 +294,19 @@ class TestCreateUserAuthorization:
         session = admin_api_client.SessionLocal()
         try:
             from app.models.user import User
-            user = session.query(User).filter(User.email == "created@example.com").first()
+
+            user = (
+                session.query(User).filter(User.email == "created@example.com").first()
+            )
             assert user is not None
             assert user.tier == "pro"
             assert user.is_admin is False
         finally:
             session.close()
 
-    def test_create_user_duplicate_email_conflict(self, admin_api_client, admin_user, regular_user):
+    def test_create_user_duplicate_email_conflict(
+        self, admin_api_client, admin_user, regular_user
+    ):
         """Duplicate email on unique field → 409 Conflict with byte-identical pre-state.
 
         Validates: Requirement 5.6 (conflict on unique constraint).
@@ -311,13 +326,16 @@ class TestCreateUserAuthorization:
             "email": "regular@example.com",  # Already exists
             "password": "DifferentPass456",
             "tier": "basic",
-            "is_admin": False
+            "is_admin": False,
         }
         headers = {"Authorization": f"Bearer {admin_token}"}
         resp = admin_api_client.post("/api/admin/users", json=payload, headers=headers)
         assert resp.status_code == 409
         error = resp.json()
-        assert "email" in error.get("detail", "").lower() or "conflict" in error.get("detail", "").lower()
+        assert (
+            "email" in error.get("detail", "").lower()
+            or "conflict" in error.get("detail", "").lower()
+        )
 
         # Verify no new user was created (byte-identical state)
         session = admin_api_client.SessionLocal()
@@ -327,7 +345,9 @@ class TestCreateUserAuthorization:
         finally:
             session.close()
 
-    def test_create_user_invalid_tier_validation_error(self, admin_api_client, admin_user):
+    def test_create_user_invalid_tier_validation_error(
+        self, admin_api_client, admin_user
+    ):
         """Invalid tier value → 400 Bad Request with byte-identical pre-state.
 
         Validates: Requirement 5.7 (validation error with unchanged records).
@@ -344,7 +364,7 @@ class TestCreateUserAuthorization:
             "email": "invalid_tier@example.com",
             "password": "SecurePass123",
             "tier": "invalid_tier_name",  # Not in TIER_PIPELINES
-            "is_admin": False
+            "is_admin": False,
         }
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.post("/api/admin/users", json=payload, headers=headers)
@@ -359,7 +379,9 @@ class TestCreateUserAuthorization:
         finally:
             session.close()
 
-    def test_create_user_short_password_validation_error(self, admin_api_client, admin_user):
+    def test_create_user_short_password_validation_error(
+        self, admin_api_client, admin_user
+    ):
         """Password too short → 400 with byte-identical pre-state."""
         admin_id, token = admin_user
 
@@ -373,7 +395,7 @@ class TestCreateUserAuthorization:
             "email": "shortpass@example.com",
             "password": "short",  # Less than 8 chars
             "tier": "basic",
-            "is_admin": False
+            "is_admin": False,
         }
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.post("/api/admin/users", json=payload, headers=headers)
@@ -390,6 +412,7 @@ class TestCreateUserAuthorization:
 
 
 # ─── Tests: PATCH /api/admin/users/{user_id}/tier (Update Tier) ────────────
+
 
 class TestUpdateUserTierAuthorization:
     """Test PATCH /api/admin/users/{user_id}/tier across authorization states."""
@@ -410,13 +433,13 @@ class TestUpdateUserTierAuthorization:
         payload = {"tier": "pro"}
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.patch(
-            f"/api/admin/users/{target_user_id}/tier",
-            json=payload,
-            headers=headers
+            f"/api/admin/users/{target_user_id}/tier", json=payload, headers=headers
         )
         assert resp.status_code == 403
 
-    def test_update_tier_succeeds_for_admin_on_other_user(self, admin_api_client, admin_user, regular_user):
+    def test_update_tier_succeeds_for_admin_on_other_user(
+        self, admin_api_client, admin_user, regular_user
+    ):
         """Admin updates other user's tier → 200 with persisted change."""
         admin_id, admin_token = admin_user
         user_id, _ = regular_user
@@ -424,9 +447,7 @@ class TestUpdateUserTierAuthorization:
         payload = {"tier": "pro"}
         headers = {"Authorization": f"Bearer {admin_token}"}
         resp = admin_api_client.patch(
-            f"/api/admin/users/{user_id}/tier",
-            json=payload,
-            headers=headers
+            f"/api/admin/users/{user_id}/tier", json=payload, headers=headers
         )
         assert resp.status_code == 200
         updated = resp.json()
@@ -437,6 +458,7 @@ class TestUpdateUserTierAuthorization:
         session = admin_api_client.SessionLocal()
         try:
             from app.models.user import User
+
             user = session.query(User).filter(User.id == user_id).first()
             assert user.tier == "pro"
         finally:
@@ -460,13 +482,14 @@ class TestUpdateUserTierAuthorization:
         payload = {"tier": "basic"}  # Attempt to downgrade self
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.patch(
-            f"/api/admin/users/{admin_id}/tier",
-            json=payload,
-            headers=headers
+            f"/api/admin/users/{admin_id}/tier", json=payload, headers=headers
         )
         assert resp.status_code == 400
         error = resp.json()
-        assert "own tier" in error.get("detail", "").lower() or "yourself" in error.get("detail", "").lower()
+        assert (
+            "own tier" in error.get("detail", "").lower()
+            or "yourself" in error.get("detail", "").lower()
+        )
 
         # Verify state unchanged (admin's tier still unchanged)
         session = admin_api_client.SessionLocal()
@@ -475,7 +498,9 @@ class TestUpdateUserTierAuthorization:
         finally:
             session.close()
 
-    def test_update_tier_target_not_found_no_disclosure(self, admin_api_client, admin_user):
+    def test_update_tier_target_not_found_no_disclosure(
+        self, admin_api_client, admin_user
+    ):
         """Target user does not exist → 404 with byte-identical pre-state.
 
         Validates: Requirement 5.5 (not-found with unchanged records).
@@ -492,9 +517,7 @@ class TestUpdateUserTierAuthorization:
         payload = {"tier": "pro"}
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.patch(
-            f"/api/admin/users/{nonexistent_id}/tier",
-            json=payload,
-            headers=headers
+            f"/api/admin/users/{nonexistent_id}/tier", json=payload, headers=headers
         )
         assert resp.status_code == 404
 
@@ -505,7 +528,9 @@ class TestUpdateUserTierAuthorization:
         finally:
             session.close()
 
-    def test_update_tier_invalid_tier_validation_error(self, admin_api_client, admin_user, regular_user):
+    def test_update_tier_invalid_tier_validation_error(
+        self, admin_api_client, admin_user, regular_user
+    ):
         """Invalid tier value → 400 with byte-identical pre-state."""
         admin_id, admin_token = admin_user
         user_id, _ = regular_user
@@ -519,9 +544,7 @@ class TestUpdateUserTierAuthorization:
         payload = {"tier": "not_a_real_tier"}
         headers = {"Authorization": f"Bearer {admin_token}"}
         resp = admin_api_client.patch(
-            f"/api/admin/users/{user_id}/tier",
-            json=payload,
-            headers=headers
+            f"/api/admin/users/{user_id}/tier", json=payload, headers=headers
         )
         assert resp.status_code == 400
         error = resp.json()
@@ -536,6 +559,7 @@ class TestUpdateUserTierAuthorization:
 
 
 # ─── Tests: DELETE /api/admin/users/{user_id} ──────────────────────────────
+
 
 class TestDeleteUserAuthorization:
     """Test DELETE /api/admin/users/{user_id} across authorization states."""
@@ -553,7 +577,9 @@ class TestDeleteUserAuthorization:
         resp = admin_api_client.delete(f"/api/admin/users/{user_id}", headers=headers)
         assert resp.status_code == 403
 
-    def test_delete_user_succeeds_for_admin(self, admin_api_client, admin_user, regular_user):
+    def test_delete_user_succeeds_for_admin(
+        self, admin_api_client, admin_user, regular_user
+    ):
         """Admin deletes another user → 204 No Content with user removed."""
         admin_id, admin_token = admin_user
         user_id, _ = regular_user
@@ -566,6 +592,7 @@ class TestDeleteUserAuthorization:
         session = admin_api_client.SessionLocal()
         try:
             from app.models.user import User
+
             user = session.query(User).filter(User.id == user_id).first()
             assert user is None
         finally:
@@ -590,7 +617,10 @@ class TestDeleteUserAuthorization:
         resp = admin_api_client.delete(f"/api/admin/users/{admin_id}", headers=headers)
         assert resp.status_code == 400
         error = resp.json()
-        assert "own account" in error.get("detail", "").lower() or "yourself" in error.get("detail", "").lower()
+        assert (
+            "own account" in error.get("detail", "").lower()
+            or "yourself" in error.get("detail", "").lower()
+        )
 
         # Verify state unchanged
         session = admin_api_client.SessionLocal()
@@ -611,7 +641,9 @@ class TestDeleteUserAuthorization:
 
         nonexistent_id = "00000000-0000-0000-0000-000000000000"
         headers = {"Authorization": f"Bearer {token}"}
-        resp = admin_api_client.delete(f"/api/admin/users/{nonexistent_id}", headers=headers)
+        resp = admin_api_client.delete(
+            f"/api/admin/users/{nonexistent_id}", headers=headers
+        )
         assert resp.status_code == 404
 
         # Verify state unchanged
@@ -623,6 +655,7 @@ class TestDeleteUserAuthorization:
 
 
 # ─── Tests: Cross-scope isolation (if applicable) ──────────────────────────
+
 
 class TestAdminCrossWorkspaceIsolation:
     """Test admin endpoints against cross-workspace isolation.

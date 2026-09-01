@@ -303,7 +303,10 @@ async def resolve_gate(
             raise _deny_update_specs_not_offered(gate_key)
         analysis_report = body.analysis_report or ""
         await store.set_review_response(
-            gate_key, approved=False, action="update_specs", instructions=analysis_report
+            gate_key,
+            approved=False,
+            action="update_specs",
+            instructions=analysis_report,
         )
     elif action == "reject":
         await store.set_review_response(
@@ -440,7 +443,9 @@ async def _record_cancellation_in_the_durable_tail(
         db.close()
 
     try:
-        workspace_id = await get_execution_engine()._recover_workspace_id(owner_id, run_id)
+        workspace_id = await get_execution_engine()._recover_workspace_id(
+            owner_id, run_id
+        )
         store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
         await store.append_event_at_or_after(
             run_id,
@@ -490,8 +495,12 @@ async def _cancel_run_without_a_live_driver(run_id: str) -> dict:
     # included, and write nothing. This is what makes a repeated Stop idempotent.
     if status_now not in NON_TERMINAL_RUN_STATUSES:
         return {
-            "ok": True, "run_id": run_id, "accepted": False, "cancelled": False,
-            "status": "not_running", "message": "No active pipeline",
+            "ok": True,
+            "run_id": run_id,
+            "accepted": False,
+            "cancelled": False,
+            "status": "not_running",
+            "message": "No active pipeline",
         }
 
     await _record_cancellation_in_the_durable_tail(run_id)
@@ -502,7 +511,10 @@ async def _cancel_run_without_a_live_driver(run_id: str) -> dict:
         _persist_resume_status(run_id, "cancelled")
     except Exception as exc:  # noqa: BLE001 — surfaced, never swallowed into a false ack
         logger.error(
-            "cancel(run=%s): terminal status write FAILED: %s", run_id, exc, exc_info=True
+            "cancel(run=%s): terminal status write FAILED: %s",
+            run_id,
+            exc,
+            exc_info=True,
         )
         raise _reject(
             "cancel_not_persisted",
@@ -513,7 +525,10 @@ async def _cancel_run_without_a_live_driver(run_id: str) -> dict:
         ) from exc
 
     return {
-        "ok": True, "run_id": run_id, "accepted": True, "cancelled": True,
+        "ok": True,
+        "run_id": run_id,
+        "accepted": True,
+        "cancelled": True,
         "status": "cancelled",
     }
 
@@ -561,7 +576,10 @@ async def cancel_run(
         event.set()
     _arm_cancel_escalation(run_id)
     return {
-        "ok": True, "run_id": run_id, "accepted": True, "cancelled": False,
+        "ok": True,
+        "run_id": run_id,
+        "accepted": True,
+        "cancelled": False,
         "status": "stopping",
     }
 
@@ -687,6 +705,7 @@ async def resume_run_endpoint(
         # D5 (KAN-139): use the public StateMachine.forget_run() instead of the private
         # dict reach (FIX-105 workaround) — the new method is the authorised eviction path.
         from agents.execution_engine.state_machine import get_state_machine
+
         get_state_machine().forget_run(run_id)
     finally:
         db.close()
@@ -728,16 +747,16 @@ async def _drive_user_resume(run_id: str, *, user: User) -> None:
             if wr_snap is not None:
                 await engine._stamp_resume_marker(wr_snap)
         except Exception as _stamp_exc:  # noqa: BLE001
-            logger.warning("_drive_user_resume: stamp failed run=%s: %s", run_id, _stamp_exc)
+            logger.warning(
+                "_drive_user_resume: stamp failed run=%s: %s", run_id, _stamp_exc
+            )
         finally:
             db.close()
 
         await engine.resume_run(run_id)  # SOLE drive path — armed-singleton hooks fire.
         await _reconcile_terminal_status(run_id)
     except Exception as exc:  # noqa: BLE001 — any drive failure → honest state
-        logger.error(
-            "user-resume drive failed run=%s: %s", run_id, exc, exc_info=True
-        )
+        logger.error("user-resume drive failed run=%s: %s", run_id, exc, exc_info=True)
         _flip_back_to_failed(run_id, str(exc))
 
 
@@ -799,11 +818,17 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         # run_resuming / pipeline_start row, so require one BETWEEN the cancellation
         # and the winning completion — same-attempt tails then keep the cancellation.
         cancelled_seqs = [e.seq for e in events if e.type == "pipeline_cancelled"]
-        complete_seqs = [e.seq for e in completes
-                         if not (isinstance(e.payload_json, dict)
-                                 and e.payload_json.get("status") == "degraded")]
-        reattempt_seqs = [e.seq for e in events
-                          if e.type in ("run_resuming", "pipeline_start")]
+        complete_seqs = [
+            e.seq
+            for e in completes
+            if not (
+                isinstance(e.payload_json, dict)
+                and e.payload_json.get("status") == "degraded"
+            )
+        ]
+        reattempt_seqs = [
+            e.seq for e in events if e.type in ("run_resuming", "pipeline_start")
+        ]
         resume_supersedes = (
             cancelled
             and complete_seqs
@@ -841,7 +866,9 @@ def _flip_back_to_failed(run_id: str, err: str) -> None:
     _persist_resume_status(run_id, "failed", error=err)
 
 
-def _persist_resume_status(run_id: str, new_status: str, *, error: str | None = None) -> None:
+def _persist_resume_status(
+    run_id: str, new_status: str, *, error: str | None = None
+) -> None:
     """The shared terminal-status persist idiom (``_persist_terminal_status:1707``):
     ``_get_db``/query/``.status=``/``completed_at``/commit/``finally close``. Best-effort —
     a schemaless / offline session degrades without perturbing the drive (INV-3)."""
@@ -1105,12 +1132,21 @@ def _build_attached_files_block(file_contents: list[dict] | None) -> str:
         if error:
             # Extraction failed — include a diagnostic note so the Concierge can
             # inform the user rather than silently omitting the file.
-            parts.append(f"=== ATTACHED FILE: {name} ===\n[Extraction error: {error}]\n=== END FILE ===")
+            parts.append(
+                f"=== ATTACHED FILE: {name} ===\n[Extraction error: {error}]\n=== END FILE ==="
+            )
         elif text:
             capped = text[:_ATTACHED_FILE_TEXT_CAP]
-            suffix = "\n[Content truncated — showing first portion]" if len(text) > _ATTACHED_FILE_TEXT_CAP else ""
-            parts.append(f"=== ATTACHED FILE: {name} ===\n{capped}{suffix}\n=== END FILE ===")
+            suffix = (
+                "\n[Content truncated — showing first portion]"
+                if len(text) > _ATTACHED_FILE_TEXT_CAP
+                else ""
+            )
+            parts.append(
+                f"=== ATTACHED FILE: {name} ===\n{capped}{suffix}\n=== END FILE ==="
+            )
     return "\n\n".join(parts)
+
 
 class _ConciergeCtx:
     """The minimal owner-scoped ctx handed to ``ConciergeCapability.converse``.
@@ -1135,8 +1171,17 @@ class _ConciergeCtx:
     """
 
     def __init__(
-        self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None,
-        chain_hints=None, run_summary=None, open_gate=None, run_status=None,
+        self,
+        *,
+        run_id,
+        scoped_store,
+        owner_id,
+        workspace_id,
+        compiled=None,
+        chain_hints=None,
+        run_summary=None,
+        open_gate=None,
+        run_status=None,
         attached_files=None,
     ):
         self.run_id = run_id
@@ -1304,6 +1349,7 @@ async def _dispose_concierge_proposal(
             )
             return {"channel": channel, "held": True, "params": params}
         from app.api.chat_router import apply_steering
+
         apply_steering(ectx, {"text": params.get("note", ""), "sticky": False})
         return {"channel": channel, "disposed": "steering"}
 
@@ -1356,7 +1402,9 @@ async def _dispose_concierge_proposal(
             if not _review_gate_advertises_update_specs(gate_key):
                 raise _deny_update_specs_not_offered(gate_key)
             await art_store.set_review_response(
-                gate_key, approved=False, action="update_specs",
+                gate_key,
+                approved=False,
+                action="update_specs",
                 instructions=rationale or "",
             )
         elif action == "reject":
@@ -1415,15 +1463,17 @@ async def _dispose_concierge_proposal(
         # (which must end with "_output"), discard it and use the derived default.
         # The LLM sometimes passes a run_id as target when confused by the docstring.
         import re as _re_uuid
+
         _UUID_RE = _re_uuid.compile(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-            _re_uuid.IGNORECASE
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            _re_uuid.IGNORECASE,
         )
         if target and not target.endswith("_output") and _UUID_RE.match(target):
             logger.warning(
                 "_dispose_concierge_proposal: target %r looks like a run ID, not an "
                 "artifact type — discarding and using derived default %r",
-                target, f"{base_type}_output",
+                target,
+                f"{base_type}_output",
             )
             target = f"{base_type}_output"
         instruction = params.get("instruction", "")
@@ -1455,7 +1505,11 @@ async def _dispose_concierge_proposal(
             user_instruction = instruction.strip()
             file_section = (
                 "=== USER'S REVISION REQUEST (PRIMARY — always follow this) ===\n"
-                + (user_instruction if user_instruction else "(apply the reference material to improve the deliverable)")
+                + (
+                    user_instruction
+                    if user_instruction
+                    else "(apply the reference material to improve the deliverable)"
+                )
                 + "\n=== END USER REQUEST ===\n\n"
                 "=== SUPPLEMENTARY REFERENCE MATERIAL (user-attached files) ===\n"
                 "Use this content ONLY where it is relevant and consistent with the user's request above.\n"
@@ -1474,8 +1528,11 @@ async def _dispose_concierge_proposal(
         rdb = _get_db()
         try:
             _mint_revision_row(
-                rdb, user=current_user, parent_run_id=run_id,
-                target_artifact_type=target, instruction=instruction,
+                rdb,
+                user=current_user,
+                parent_run_id=run_id,
+                target_artifact_type=target,
+                instruction=instruction,
                 pipeline_run_id=child_run_id,
                 extra_agent_count=0,  # analyzer now runs as manifest step 0 (task 6.2)
             )
@@ -1493,7 +1550,11 @@ async def _dispose_concierge_proposal(
             )
         )
         _PIPELINE_TASKS[child_run_id] = task
-        return {"channel": channel, "disposed": "revision", "revision_run_id": child_run_id}
+        return {
+            "channel": channel,
+            "disposed": "revision",
+            "revision_run_id": child_run_id,
+        }
 
     # Unknown channel — inert (a proposal never self-executes past the known seams).
     return {"channel": channel, "disposed": "noop"}
@@ -1573,7 +1634,11 @@ async def post_message(
         _wr_output_preview = _wr_output[:400] + ("…" if len(_wr_output) > 400 else "")
         wr_run_summary = (
             (f"Run title: {_wr_title}\n" if _wr_title else "")
-            + (f"Deliverable preview:\n{_wr_output_preview}" if _wr_output_preview else "")
+            + (
+                f"Deliverable preview:\n{_wr_output_preview}"
+                if _wr_output_preview
+                else ""
+            )
         ).strip()
     finally:
         db.close()
@@ -1671,7 +1736,9 @@ async def post_message(
             if not _review_gate_advertises_update_specs(_gk):
                 raise _deny_update_specs_not_offered(_gk)
             await art_store.set_review_response(
-                _gk, approved=False, action="update_specs",
+                _gk,
+                approved=False,
+                action="update_specs",
                 instructions=dispatch.instructions or "",
             )
         elif dispatch.action == "reject":
@@ -1728,7 +1795,9 @@ async def post_message(
         rdb = _get_db()
         try:
             child_run_id, _ = _mint_revision_row(
-                rdb, user=current_user, parent_run_id=run_id,
+                rdb,
+                user=current_user,
+                parent_run_id=run_id,
                 target_artifact_type=target_artifact_type,
                 instruction=dispatch.instruction or "",
             )
@@ -1750,8 +1819,12 @@ async def post_message(
         )
         _PIPELINE_TASKS[child_run_id] = task
         return {
-            "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
-            "channel": dispatch.channel, "revision_run_id": child_run_id,
+            "ok": True,
+            "run_id": run_id,
+            "seq": seq,
+            "persisted": created,
+            "channel": dispatch.channel,
+            "revision_run_id": child_run_id,
         }
     elif dispatch.channel == CHANNEL_CONCIERGE:
         # ── Free-form → Concierge (D-04, Phase 33). The router CLASSIFIED this turn as
@@ -1787,10 +1860,18 @@ async def post_message(
                 params=dict(pending.get("params") or {}),  # DURABLE params, not body
             )
             result = await _dispose_concierge_proposal(
-                intent, confirmed=True, store=store, art_store=art_store,
-                run_id=run_id, message_id=body.message_id, current_user=current_user,
-                wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
-                ectx=ectx, open_gate=open_gate,
+                intent,
+                confirmed=True,
+                store=store,
+                art_store=art_store,
+                run_id=run_id,
+                message_id=body.message_id,
+                current_user=current_user,
+                wr_status=wr_status,
+                wr_type=wr_type,
+                gate_key=resolved_gate_key,
+                ectx=ectx,
+                open_gate=open_gate,
                 attached_files=_build_attached_files_block(body.file_contents),
             )
             # Mark the durable pending row RESOLVED (additive; namespaced event_id so a
@@ -1809,8 +1890,12 @@ async def post_message(
                 },
             )
             return {
-                "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
-                "channel": dispatch.channel, "proposal": result,
+                "ok": True,
+                "run_id": run_id,
+                "seq": seq,
+                "persisted": created,
+                "channel": dispatch.channel,
+                "proposal": result,
             }
 
         # A fresh free-form turn: invoke the Concierge (owner-scoped) and project its
@@ -1830,8 +1915,10 @@ async def post_message(
         except Exception:
             compiled = None
         ctx = _ConciergeCtx(
-            run_id=run_id, scoped_store=store,
-            owner_id=current_user.id, workspace_id=wr_workspace,
+            run_id=run_id,
+            scoped_store=store,
+            owner_id=current_user.id,
+            workspace_id=wr_workspace,
             compiled=compiled,
             # c72: thread the FE-computed chain suggestions onto the ctx as GENERIC
             # data (absent ⇒ []). No workflow-name branch (INV-1) — the Concierge
@@ -1870,8 +1957,7 @@ async def post_message(
             _user_msg = (body.text or "").strip()
             if _user_msg:
                 _steering_text = (
-                    f"USER INSTRUCTION: {_user_msg}\n\n"
-                    f"{_attached_block}"
+                    f"USER INSTRUCTION: {_user_msg}\n\n" f"{_attached_block}"
                 )
             else:
                 _steering_text = _attached_block
@@ -1897,11 +1983,17 @@ async def post_message(
         async def _on_chunk(delta: str) -> None:
             # TRANSIENT chunk frame: seq=0 placeholder (no durable seq), no event_id —
             # the terminal ``chat_reply`` below stays the single canonical record.
-            await frame_q.put(_sse_frame(0, "chat_reply_chunk", {
-                "pipeline_run_id": run_id,
-                "message_id": body.message_id,
-                "delta": delta,
-            }))
+            await frame_q.put(
+                _sse_frame(
+                    0,
+                    "chat_reply_chunk",
+                    {
+                        "pipeline_run_id": run_id,
+                        "message_id": body.message_id,
+                        "delta": delta,
+                    },
+                )
+            )
 
         async def _drive() -> None:
             # ``store`` here is the session-less/owned ScopedStore built above (after
@@ -1915,9 +2007,9 @@ async def post_message(
             held: list = []
             errored = False
             try:
-                answer_text = await concierge.converse(
-                    ctx, body.text, on_chunk=_on_chunk
-                ) or ""
+                answer_text = (
+                    await concierge.converse(ctx, body.text, on_chunk=_on_chunk) or ""
+                )
             except Exception:  # noqa: BLE001 — stream a partial terminal, still persist.
                 logger.exception("Concierge stream failed for run %s", run_id)
                 errored = True
@@ -1994,10 +2086,17 @@ async def post_message(
                 # chip (T-33-03-01), never auto-executed; only the call-site moved here.
                 for intent in _drain_concierge_proposals(concierge, ctx):
                     disposed = await _dispose_concierge_proposal(
-                        intent, confirmed=False, store=store, art_store=art_store,
-                        run_id=run_id, message_id=body.message_id,
-                        current_user=current_user, wr_status=wr_status,
-                        wr_type=wr_type, gate_key=resolved_gate_key, ectx=ectx,
+                        intent,
+                        confirmed=False,
+                        store=store,
+                        art_store=art_store,
+                        run_id=run_id,
+                        message_id=body.message_id,
+                        current_user=current_user,
+                        wr_status=wr_status,
+                        wr_type=wr_type,
+                        gate_key=resolved_gate_key,
+                        ectx=ectx,
                         open_gate=open_gate,
                         attached_files=_attached_block,
                     )
@@ -2018,7 +2117,8 @@ async def post_message(
                 display_text = answer_text or (
                     "I'm sorry, I couldn't retrieve the run status right now. "
                     "Please try again in a moment."
-                    if errored else ""
+                    if errored
+                    else ""
                 )
                 # FIX-211: emit each HELD proposal as its own concierge_proposal SSE
                 # frame BEFORE the terminal chat_reply, so the FE receives the proposal
@@ -2034,16 +2134,22 @@ async def post_message(
                 for h in held:
                     h_channel = h.get("channel")
                     if h.get("held") and h_channel:
-                        await frame_q.put(_sse_frame(reply_seq or 0, "concierge_proposal", {
-                            "pipeline_run_id": run_id,
-                            "message_id": body.message_id,
-                            "channel": h_channel,
-                            "params": h.get("params", {}),
-                            "status": "pending",
-                            # Match the durable row's event_id so seenRef dedup
-                            # drops the fetchEvents re-fetch of the same row.
-                            "event_id": f"concierge-proposal:{body.message_id}:{h_channel}",
-                        }))
+                        await frame_q.put(
+                            _sse_frame(
+                                reply_seq or 0,
+                                "concierge_proposal",
+                                {
+                                    "pipeline_run_id": run_id,
+                                    "message_id": body.message_id,
+                                    "channel": h_channel,
+                                    "params": h.get("params", {}),
+                                    "status": "pending",
+                                    # Match the durable row's event_id so seenRef dedup
+                                    # drops the fetchEvents re-fetch of the same row.
+                                    "event_id": f"concierge-proposal:{body.message_id}:{h_channel}",
+                                },
+                            )
+                        )
                 terminal = {
                     "pipeline_run_id": run_id,
                     # Carry the SAME distinct event_id the durable row uses (:1266) so the
@@ -2085,7 +2191,10 @@ async def post_message(
         )
 
     return {
-        "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
+        "ok": True,
+        "run_id": run_id,
+        "seq": seq,
+        "persisted": created,
         "channel": dispatch.channel,
     }
 
@@ -2173,8 +2282,14 @@ class LaunchCommand(BaseModel):
     capabilities: dict | None = None
 
 
-def _reject(code: str, error: str, *, http_status: int = status.HTTP_400_BAD_REQUEST,
-            recoverable: bool = False, **extra) -> HTTPException:
+def _reject(
+    code: str,
+    error: str,
+    *,
+    http_status: int = status.HTTP_400_BAD_REQUEST,
+    recoverable: bool = False,
+    **extra,
+) -> HTTPException:
     """Shape a rejection identically to the WS error-event ``data`` triple, but as
     an HTTP error (the REST channel's equivalent of ``ws.send_json({"type":"error"})``
     + ``return`` before ``engine.execute`` — never a silent drop)."""
@@ -2337,8 +2452,8 @@ def _clean_run_title(content: str | None, pipeline_type: str) -> str:
     # Strip "Title: " prefix if present — can appear when a prior polluted run's
     # title (which itself contained "Title: ...") cascaded into enrichedInput.
     if title.startswith("Title: "):
-        title = title[len("Title: "):].strip()
-    return (title[:60].strip() or "Untitled")
+        title = title[len("Title: ") :].strip()
+    return title[:60].strip() or "Untitled"
 
 
 @router.post("")
@@ -2389,7 +2504,10 @@ async def launch_run(
             )
         finally:
             launch_db.close()
-        if user_workflow_row.manifest_json and "steps" in user_workflow_row.manifest_json:
+        if (
+            user_workflow_row.manifest_json
+            and "steps" in user_workflow_row.manifest_json
+        ):
             launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
         else:
             launch_source = LaunchSource.USER_WORKFLOW_FLAT
@@ -2444,7 +2562,9 @@ async def launch_run(
         )
         raw_manifest["planner"] = body.planner or raw_manifest.get("planner") or "skip"
         raw_manifest["clarify"] = (
-            body.clarify or raw_manifest.get("clarify") or {"mode": "skip", "defaults": []}
+            body.clarify
+            or raw_manifest.get("clarify")
+            or {"mode": "skip", "defaults": []}
         )
         raw_manifest["capabilities"] = (
             body.capabilities or raw_manifest.get("capabilities") or {}
@@ -2547,7 +2667,9 @@ async def launch_run(
         else:
             agents = get_pipeline_agents(base_pipeline_type)
             if not agents and base_pipeline_type == "ppt":
-                agents = [load_agent_spec(aid) for aid in PIPELINE_AGENTS.get("ppt", [])]
+                agents = [
+                    load_agent_spec(aid) for aid in PIPELINE_AGENTS.get("ppt", [])
+                ]
             # Composed workflows (nodes are INSTANCES of an agent template, e.g.
             # "custom-agent:facts") have no AGENT.md on disk, so the registry
             # legitimately returns [] for them. Fall back to the compiled plan —
@@ -2588,7 +2710,9 @@ async def launch_run(
     # harmless here since its pipeline_type is always "custom", which does not
     # declare `opendesign`, so `_needs_template` is False for it.
     _template_injecting = [
-        spec.id for spec in (agents or []) if "template" in (getattr(spec, "injects", None) or [])
+        spec.id
+        for spec in (agents or [])
+        if "template" in (getattr(spec, "injects", None) or [])
     ]
     # The second half of the predicate was a pipeline-name allow-list —
     # ``pipeline_type in ("prototype", "ppt", "od_prototype")`` — which is exactly
@@ -2682,7 +2806,9 @@ async def launch_run(
         # should appear as SEPARATE entries in history, never as vN of the source family.
         # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
         parent_run_id = (
-            _resolve_owned_parent_run_id(db, body.source_workflow_run_id, current_user.id)
+            _resolve_owned_parent_run_id(
+                db, body.source_workflow_run_id, current_user.id
+            )
             if pipeline_type.endswith("_revision")
             else None
         )
@@ -2784,22 +2910,29 @@ def _apply_terminal_output_columns(
                 "name": data.get("name"),
                 "role": data.get("role"),
                 "icon": data.get("icon"),
-                "output": "", "duration": None,
-                "input_prompt": None, "context_sources": [],
-                "tool_calls": [], "thinking_text": "",
+                "output": "",
+                "duration": None,
+                "input_prompt": None,
+                "context_sources": [],
+                "tool_calls": [],
+                "thinking_text": "",
             }
         elif utype == "agent_input":
             current_agent["input_prompt"] = data.get("context_message")
             current_agent["context_sources"] = data.get("context_sources", [])
         elif utype == "agent_thinking":
-            current_agent["thinking_text"] = (current_agent.get("thinking_text") or "") + data.get("thinking", "")
+            current_agent["thinking_text"] = (
+                current_agent.get("thinking_text") or ""
+            ) + data.get("thinking", "")
         elif utype == "tool_call":
-            current_agent.setdefault("tool_calls", []).append({
-                "tool": data.get("tool"),
-                "args": data.get("args", {}),
-                "result": None,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            current_agent.setdefault("tool_calls", []).append(
+                {
+                    "tool": data.get("tool"),
+                    "args": data.get("args", {}),
+                    "result": None,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         elif utype == "tool_result":
             # FIFO, not LIFO. The tool_call event carries no call id, so the only
             # thing to pair on is the tool NAME — and results come back in call
@@ -2813,7 +2946,9 @@ def _apply_terminal_output_columns(
                     tc["result"] = data.get("result")
                     break
         elif utype == "agent_chunk":
-            current_agent["output"] = current_agent.get("output", "") + data.get("chunk", "")
+            current_agent["output"] = current_agent.get("output", "") + data.get(
+                "chunk", ""
+            )
         elif utype == "agent_complete":
             current_agent["duration"] = data.get("duration")
             current_agent["input_tokens"] = data.get("input_tokens", 0)
@@ -2851,34 +2986,42 @@ def _apply_terminal_output_columns(
     wr.model_id = model_id
     total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
     total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
-    total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)
-    total_cache_write = sum(a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector)
+    total_cache_read = sum(
+        a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector
+    )
+    total_cache_write = sum(
+        a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector
+    )
     if total_input + total_output > 0:
-        wr.token_usage = json.dumps({
-            "total_input_tokens": total_input,
-            "total_output_tokens": total_output,
-            "total_tokens": total_input + total_output,
-            "total_cache_read_tokens": total_cache_read,
-            "total_cache_write_tokens": total_cache_write,
-            "estimated_cost_usd": estimate_cost_usd(
-                wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
-                input_tokens=max(0, total_input - total_cache_read - total_cache_write),
-                output_tokens=total_output,
-                cache_read_tokens=total_cache_read,
-                cache_write_tokens=total_cache_write,
-                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
-            ),
-            # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base, so
-            # Analytics can report the SIGNED effect of prompt caching. Rows written
-            # before this key existed simply lack it — every reader is a tolerant
-            # json.loads and the Analytics fold treats an absent key as a ZERO delta
-            # (never a fabricated $0 baseline), so no migration is needed.
-            "estimated_cost_full_usd": estimate_cost_usd(
-                wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
-                input_tokens=total_input,
-                output_tokens=total_output,
-            ),
-        })
+        wr.token_usage = json.dumps(
+            {
+                "total_input_tokens": total_input,
+                "total_output_tokens": total_output,
+                "total_tokens": total_input + total_output,
+                "total_cache_read_tokens": total_cache_read,
+                "total_cache_write_tokens": total_cache_write,
+                "estimated_cost_usd": estimate_cost_usd(
+                    wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                    input_tokens=max(
+                        0, total_input - total_cache_read - total_cache_write
+                    ),
+                    output_tokens=total_output,
+                    cache_read_tokens=total_cache_read,
+                    cache_write_tokens=total_cache_write,
+                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+                ),
+                # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base, so
+                # Analytics can report the SIGNED effect of prompt caching. Rows written
+                # before this key existed simply lack it — every reader is a tolerant
+                # json.loads and the Analytics fold treats an absent key as a ZERO delta
+                # (never a fabricated $0 baseline), so no migration is needed.
+                "estimated_cost_full_usd": estimate_cost_usd(
+                    wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                ),
+            }
+        )
     if not wr.completed_at:
         wr.completed_at = datetime.now(timezone.utc)
     if duration_seconds is not None and not wr.duration:
@@ -2917,7 +3060,9 @@ def _persist_resume_output_columns(run_id: str, events) -> None:
     normalized = [
         (
             getattr(e, "type", "") or "",
-            e.payload_json if isinstance(getattr(e, "payload_json", None), dict) else {},
+            e.payload_json
+            if isinstance(getattr(e, "payload_json", None), dict)
+            else {},
         )
         for e in events
     ]
@@ -2962,7 +3107,9 @@ async def persist_resume_output_columns(run_id: str) -> None:
         store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
         events = await store.read_events(run_id, after_seq=0)
     except Exception as exc:  # noqa: BLE001 — best-effort tail read (offline degrade)
-        logger.warning("persist_resume_output_columns(%s) tail read failed: %s", run_id, exc)
+        logger.warning(
+            "persist_resume_output_columns(%s) tail read failed: %s", run_id, exc
+        )
         return
 
     _persist_resume_output_columns(run_id, events)
@@ -2999,6 +3146,7 @@ async def _drive_launch_to_queue(
     # milestone_sink below (the kernel never imports app.* — import-linter). Local import keeps
     # module load clean and mirrors the file's other lazy-import pattern.
     from app.agents.chat_narrator import persist_milestone_card
+
     # BUG-R03: capture every engine event as a normalized ``(type, data)`` tuple for the
     # SHARED terminal-column mapping (_apply_terminal_output_columns) — the SOLE
     # event→WorkflowRun output-column accumulation, now reused by the two resume entry
@@ -3053,7 +3201,9 @@ async def _drive_launch_to_queue(
             # deleted at 43-09). `persist_milestone_card` lives in the app layer (no kernel import).
             milestone_sink=persist_milestone_card,
         ):
-            await event_queue.put({"type": update["type"], "data": update.get("data", {})})
+            await event_queue.put(
+                {"type": update["type"], "data": update.get("data", {})}
+            )
             utype = update["type"]
             # BUG-R03: record the raw event for the shared terminal-column mapping (the SOLE
             # agent_*/pipeline_complete accumulation now lives in
@@ -3062,11 +3212,15 @@ async def _drive_launch_to_queue(
             raw_events.append((utype, update.get("data", {})))
             if utype == "agent_error":
                 if first_agent_error_msg is None:
-                    first_agent_error_msg = update["data"].get("error") or "Agent execution error"
+                    first_agent_error_msg = (
+                        update["data"].get("error") or "Agent execution error"
+                    )
             elif utype == "pipeline_complete":
                 pipeline_complete_seen = True
                 if update["data"].get("status") == "degraded":
-                    degraded_failed_agents = list(update["data"].get("agents_failed", []))
+                    degraded_failed_agents = list(
+                        update["data"].get("agents_failed", [])
+                    )
             elif utype == "pipeline_cancelled":
                 pipeline_cancelled_seen = True
             elif utype == "error":
@@ -3080,12 +3234,18 @@ async def _drive_launch_to_queue(
             elif utype == "pipeline_failed":
                 pipeline_failed_seen = True
                 if pipeline_error_msg is None:
-                    pipeline_error_msg = update["data"].get("error") or "Pipeline failed"
+                    pipeline_error_msg = (
+                        update["data"].get("error") or "Pipeline failed"
+                    )
 
         if workflow_run_id:
             db = _get_db()
             try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                wr = (
+                    db.query(WorkflowRun)
+                    .filter(WorkflowRun.id == workflow_run_id)
+                    .first()
+                )
                 if wr:
                     if pipeline_cancelled_seen:
                         wr.status = "cancelled"
@@ -3094,7 +3254,8 @@ async def _drive_launch_to_queue(
                     elif degraded_failed_agents is not None:
                         wr.status = "degraded"
                         wr.error = first_agent_error_msg or (
-                            "degraded: agent(s) failed: " + ", ".join(degraded_failed_agents)
+                            "degraded: agent(s) failed: "
+                            + ", ".join(degraded_failed_agents)
                         )
                     elif (
                         pipeline_complete_seen
@@ -3124,7 +3285,9 @@ async def _drive_launch_to_queue(
             finally:
                 db.close()
     except asyncio.CancelledError:
-        await event_queue.put({"type": "pipeline_cancelled", "data": {"message": "Pipeline cancelled"}})
+        await event_queue.put(
+            {"type": "pipeline_cancelled", "data": {"message": "Pipeline cancelled"}}
+        )
         # ISS-124: make the terminal DURABLE, not queue-only. This branch is the
         # ``stop_run_driver`` escalation path (``task.cancel()`` for a driver that could
         # not observe the cooperative event in bounded time), and it wrote no ``run_events``
@@ -3142,7 +3305,11 @@ async def _drive_launch_to_queue(
             )
             db = _get_db()
             try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                wr = (
+                    db.query(WorkflowRun)
+                    .filter(WorkflowRun.id == workflow_run_id)
+                    .first()
+                )
                 if wr:
                     wr.status = "cancelled"
                     wr.completed_at = datetime.now(timezone.utc)
@@ -3150,15 +3317,27 @@ async def _drive_launch_to_queue(
             finally:
                 db.close()
     except Exception as e:  # pragma: no cover - defensive parity with WS driver
-        logger.error("REST launch driver error — run=%s: %s", workflow_run_id, e, exc_info=True)
-        await event_queue.put({"type": "error", "data": {
-            "error": f"Pipeline execution failed: {e}",
-            "code": "pipeline_error", "recoverable": True,
-        }})
+        logger.error(
+            "REST launch driver error — run=%s: %s", workflow_run_id, e, exc_info=True
+        )
+        await event_queue.put(
+            {
+                "type": "error",
+                "data": {
+                    "error": f"Pipeline execution failed: {e}",
+                    "code": "pipeline_error",
+                    "recoverable": True,
+                },
+            }
+        )
         if workflow_run_id:
             db = _get_db()
             try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                wr = (
+                    db.query(WorkflowRun)
+                    .filter(WorkflowRun.id == workflow_run_id)
+                    .first()
+                )
                 if wr:
                     wr.status = "failed"
                     wr.error = str(e)
@@ -3193,10 +3372,16 @@ class RevisionCommand(BaseModel):
     instruction: str
 
 
-def _mint_revision_row(db, *, user: User, parent_run_id: str,
-                       target_artifact_type: str, instruction: str,
-                       extra_agent_count: int = 0,
-                       pipeline_run_id: str | None = None) -> tuple[str, str]:
+def _mint_revision_row(
+    db,
+    *,
+    user: User,
+    parent_run_id: str,
+    target_artifact_type: str,
+    instruction: str,
+    extra_agent_count: int = 0,
+    pipeline_run_id: str | None = None,
+) -> tuple[str, str]:
     """Mint the child revision WorkflowRun (mirror websocket.py:2475-2524) and return
     ``(run_id, revision_pipeline_type)``. ``agent_count`` derives from the LIVE
     registry membership of the derived revision alias (Pitfall 6 — never a
@@ -3247,12 +3432,16 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     # is threaded to every caller already.
     _rev_allowed, _rev_reason = can_run_pipeline(user.tier, revision_pipeline_type)
     if not _rev_allowed:
-        raise _reject("pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN)
+        raise _reject(
+            "pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN
+        )
 
     # Inherit workspace_id from the parent run (required — run_events.workspace_id
     # is NOT NULL; a revision row without it fails on the first event write).
     parent_wr = db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()
-    parent_workspace_id = getattr(parent_wr, "workspace_id", None) if parent_wr else None
+    parent_workspace_id = (
+        getattr(parent_wr, "workspace_id", None) if parent_wr else None
+    )
     wr = WorkflowRun(
         id=pipeline_run_id,
         user_id=user.id,
@@ -3283,8 +3472,8 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
 # respected. No workflow-name literal enters the kernel.
 
 _REVISION_TIER_TARGET_MAP: dict[str, str] = {
-    "small":   "prototype_output",          # → prototype_revision (existing)
-    "large":   "prototype_large_output",    # → prototype_large_revision
+    "small": "prototype_output",  # → prototype_revision (existing)
+    "large": "prototype_large_output",  # → prototype_large_revision
     "feature": "prototype_feature_output",  # → prototype_feature_revision
 }
 
@@ -3335,9 +3524,7 @@ async def _classify_revision_tier(
         db = _get_db()
         try:
             parent_wr = (
-                db.query(WorkflowRun)
-                .filter(WorkflowRun.id == parent_run_id)
-                .first()
+                db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()
             )
             if parent_wr and parent_wr.output:
                 existing_html = parent_wr.output
@@ -3389,14 +3576,18 @@ async def _classify_revision_tier(
         logger.info(
             "_classify_revision_tier: classifying revision for parent=%s "
             "(html=%d chars, instruction=%r)",
-            parent_run_id, len(existing_html), revision_text[:80],
+            parent_run_id,
+            len(existing_html),
+            revision_text[:80],
         )
         response = await llm.ainvoke([HumanMessage(content=classifier_prompt)])
         tier = response.content.strip().lower()
         if tier in ("small", "large", "feature"):
             logger.info(
                 "_classify_revision_tier: classified as %r → pipeline=%s (parent=%s)",
-                tier, _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output"), parent_run_id,
+                tier,
+                _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output"),
+                parent_run_id,
             )
             return tier
         # Unexpected output — default to large (safer than small for uncertain cases)
@@ -3406,7 +3597,8 @@ async def _classify_revision_tier(
         return "large"
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "_classify_revision_tier: classification failed (%s) — defaulting to small", exc
+            "_classify_revision_tier: classification failed (%s) — defaulting to small",
+            exc,
         )
         return "small"
 
@@ -3516,6 +3708,7 @@ async def _drive_revision_to_queue(
     A sanctioned duplication of the WS ``_run_revision_to_queue`` closure body
     (websocket.py:2543-2650), minus the socket drainer."""
     from agents.execution_engine.engine import get_execution_engine
+
     # A.4 (Phase 43, DEF-43-03-1): inject the narrator so chat_reply milestone
     # cards are persisted for revision runs (FIX-171) — same pattern as the
     # _run_workflow_to_queue fresh-run path. The kernel never imports app.*.
@@ -3526,7 +3719,10 @@ async def _drive_revision_to_queue(
     _revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
     logger.info(
         "▶ revision driver starting: run=%s parent=%s pipeline=%s target=%s",
-        workflow_run_id, parent_run_id, _revision_pipeline_type, target_artifact_type,
+        workflow_run_id,
+        parent_run_id,
+        _revision_pipeline_type,
+        target_artifact_type,
     )
 
     # live_ectx_register is always the plain function — the analyzer_solution
@@ -3563,7 +3759,9 @@ async def _drive_revision_to_queue(
     def _persist_terminal_status(new_status: str) -> None:
         sdb = _get_db()
         try:
-            swr = sdb.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            swr = (
+                sdb.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            )
             if swr:
                 swr.status = new_status
                 swr.completed_at = datetime.now(timezone.utc)
@@ -3611,17 +3809,24 @@ async def _drive_revision_to_queue(
             else "failed"
         )
     except ValueError as exc:
-        await event_queue.put({
-            "type": "error",
-            "data": {"error": str(exc), "code": "revision_validation_error",
-                     "recoverable": False},
-        })
+        await event_queue.put(
+            {
+                "type": "error",
+                "data": {
+                    "error": str(exc),
+                    "code": "revision_validation_error",
+                    "recoverable": False,
+                },
+            }
+        )
         _persist_terminal_status("failed")
     except asyncio.CancelledError:
-        await event_queue.put({
-            "type": "pipeline_cancelled",
-            "data": {"message": "Revision cancelled"},
-        })
+        await event_queue.put(
+            {
+                "type": "pipeline_cancelled",
+                "data": {"message": "Revision cancelled"},
+            }
+        )
         # ISS-124 (second locus) — identical hole, identical fix. See the launch driver's
         # CancelledError branch for the full rationale; the two drivers stay behaviorally
         # identical by design (LOCK-B).
@@ -3631,11 +3836,16 @@ async def _drive_revision_to_queue(
         _persist_terminal_status("cancelled")
     except Exception as exc:
         logger.error("REST revision driver failed: %s", exc, exc_info=True)
-        await event_queue.put({
-            "type": "error",
-            "data": {"error": f"Revision failed: {exc}",
-                     "code": "revision_error", "recoverable": True},
-        })
+        await event_queue.put(
+            {
+                "type": "error",
+                "data": {
+                    "error": f"Revision failed: {exc}",
+                    "code": "revision_error",
+                    "recoverable": True,
+                },
+            }
+        )
         _persist_terminal_status("failed")
     finally:
         await event_queue.put(None)
@@ -3731,11 +3941,13 @@ async def user_message_shim(
             try:
                 assistant_content = "".join(assistant_chunks)
                 if assistant_content:
-                    pdb.add(Message(
-                        chat_session_id=chat_session_id,
-                        role="assistant",
-                        content=assistant_content,
-                    ))
+                    pdb.add(
+                        Message(
+                            chat_session_id=chat_session_id,
+                            role="assistant",
+                            content=assistant_content,
+                        )
+                    )
                 cs = (
                     pdb.query(ChatSession)
                     .filter(ChatSession.id == chat_session_id)
@@ -3743,7 +3955,11 @@ async def user_message_shim(
                 )
                 if cs:
                     cs.last_activity = datetime.now(timezone.utc)
-                    if last_msg and last_msg.get("type") == "complete" and last_msg.get("data"):
+                    if (
+                        last_msg
+                        and last_msg.get("type") == "complete"
+                        and last_msg.get("data")
+                    ):
                         cs.final_output = json.dumps(last_msg["data"])
                     pdb.commit()
             finally:

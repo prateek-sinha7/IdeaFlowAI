@@ -85,7 +85,9 @@ class RunSandbox:
     disk IO lives in ONE place.
     """
 
-    def __init__(self, user_id: str, run_id: str, *, runs_root: str | None = None) -> None:
+    def __init__(
+        self, user_id: str, run_id: str, *, runs_root: str | None = None
+    ) -> None:
         self.user_seg = _safe_segment(user_id, fallback="anonymous")
         self.run_seg = _safe_segment(run_id, fallback="run")
         base = Path(runs_root or settings.RUNS_ROOT).resolve()
@@ -217,7 +219,9 @@ def sweep_expired(
     Safe to call periodically (on pipeline completion or a timer). Walks exactly two
     levels: ``<RUNS_ROOT>/<user>/<run>``.
     """
-    ttl_seconds = (ttl_hours if ttl_hours is not None else settings.RUN_DIR_TTL_HOURS) * 3600
+    ttl_seconds = (
+        ttl_hours if ttl_hours is not None else settings.RUN_DIR_TTL_HOURS
+    ) * 3600
     root = Path(runs_root or settings.RUNS_ROOT)
     if not root.is_dir():
         return 0
@@ -243,7 +247,9 @@ def sweep_expired(
             except OSError:
                 continue
     if removed:
-        logger.info("sandbox sweep: removed %d expired run dir(s) under %s", removed, root)
+        logger.info(
+            "sandbox sweep: removed %d expired run dir(s) under %s", removed, root
+        )
     return removed
 
 

@@ -36,7 +36,9 @@ class _FakeRunner:
 
 
 class _FakeCtx:
-    def __init__(self, runner: _FakeRunner, *, base_branch: str, working_branch: str) -> None:
+    def __init__(
+        self, runner: _FakeRunner, *, base_branch: str, working_branch: str
+    ) -> None:
         self.runner = runner
         self.base_branch = base_branch
         self.working_branch = working_branch
@@ -86,7 +88,16 @@ def cloned_workspace(local_git_fixture: Path, tmp_path: Path):
     # Commit the agent edit onto the work branch (the agent/workflow's own commit,
     # NOT the resolver's — the resolver must perform no commit/push of its own).
     _git_lines(run_root, "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A")
-    _git_lines(run_root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "agent edit")
+    _git_lines(
+        run_root,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-m",
+        "agent edit",
+    )
     return ws, run_root
 
 
@@ -105,7 +116,7 @@ def test_repo_diff_returns_tree_diff_and_summary(cloned_workspace) -> None:
     assert "src/app.py" in per_file
     app_diff = per_file["src/app.py"]
     assert "diff --git" in app_diff
-    assert "+    return f\"hello dear {name}\"" in app_diff, app_diff
+    assert '+    return f"hello dear {name}"' in app_diff, app_diff
     # The full unified diff also carries the edit.
     assert "hello dear" in result["diff"]
 
@@ -116,7 +127,9 @@ def test_repo_diff_returns_tree_diff_and_summary(cloned_workspace) -> None:
     assert summary["lines_removed"] >= 1
 
 
-def test_repo_diff_performs_no_commit_or_push(cloned_workspace, local_git_fixture) -> None:
+def test_repo_diff_performs_no_commit_or_push(
+    cloned_workspace, local_git_fixture
+) -> None:
     """The resolver is diff-only: resolving it creates NO new commit on ``work`` and
     pushes NOTHING — the cloned ``origin`` (the local fixture) gains no ``work`` ref.
 

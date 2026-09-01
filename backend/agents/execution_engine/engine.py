@@ -91,6 +91,7 @@ from agents.capabilities.registry import CapabilityRegistry  # noqa: E402
 from agents.capabilities.validators.severity import render_coverage_status  # noqa: E402
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager  # noqa: E402
 from agents.execution_engine.fanout import FanoutWorkerFailed  # noqa: E402
+
 # _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
 # function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
 # is still exactly one ClarifyEngine and one _merge_answers — only the RESOLUTION TIMING
@@ -135,6 +136,7 @@ def _log_event(
     Optional: agent_id, duration_ms, error.
     """
     import json as _json
+
     entry: dict = {
         "timestamp": _now(),
         "pipeline_run_id": pipeline_run_id,
@@ -239,13 +241,15 @@ class _ChunkStreamSanitizer:
     # construction to decide whether buffering is needed at all (so a tool-using stream
     # is byte-AND-chunk-identical, not merely join-identical). Generic — the probe is a
     # behavioral test of the runner capability, NOT a workflow/agent-name check (SC-001).
-    _PROBE = "<function_calls><invoke name=\"_probe_\"></invoke></function_calls>"
+    _PROBE = '<function_calls><invoke name="_probe_"></invoke></function_calls>'
 
     def __init__(self, sanitize: Callable[[str], str] | None) -> None:
         # ``sanitize`` is the runner's duck-typed ``sanitize_output`` (identity for
         # tool-using agents / clean text — same-object return). ``None`` when the
         # runner exposes no such capability → pass-through identity.
-        self._sanitize: Callable[[str], str] = sanitize if callable(sanitize) else (lambda t: t)
+        self._sanitize: Callable[[str], str] = (
+            sanitize if callable(sanitize) else (lambda t: t)
+        )
         self._buffer: str = ""
         # Is the sanitizer ACTUALLY active (tool-less)? Probe once: if it strips the
         # fabricated-XML probe, buffering is needed; if it returns the probe unchanged
@@ -298,7 +302,9 @@ class _ChunkStreamSanitizer:
         # the joined text re-scans for the complete/partial opener on the next ``feed``.
         for opener in _TOOL_XML_OPENERS:
             # Longest proper prefix of `opener` (length >= 2) that is a suffix of `text`.
-            for plen in range(len(opener) - 1, 1, -1):  # stop at 2, never hold a lone "<"
+            for plen in range(
+                len(opener) - 1, 1, -1
+            ):  # stop at 2, never hold a lone "<"
                 if text.endswith(opener[:plen]):
                     pos = len(text) - plen
                     if hold == -1 or pos < hold:
@@ -396,7 +402,9 @@ class _RunEventSink:
         self._store = store
         self._run_id = run_id
 
-    async def emit_milestone_card(self, event: dict) -> "tuple[bool, int, dict, str] | None":
+    async def emit_milestone_card(
+        self, event: dict
+    ) -> "tuple[bool, int, dict, str] | None":
         """Project + persist a ``chat_reply`` milestone card for one stamped engine event (A.4).
 
         Returns the injected sink's ``(created, seq, card, reply_eid)`` result — or ``None``
@@ -431,7 +439,8 @@ class _RunEventSink:
             logger.warning(
                 "milestone-card persist failed for run %s (%s) — DB write degraded "
                 "(offline harness / schema unavailable); stream unaffected (A.4 best-effort)",
-                self._run_id, exc,
+                self._run_id,
+                exc,
             )
             return None
 
@@ -467,7 +476,9 @@ class _RunEventSink:
                 "run_events persist failed for run %s seq %d (%s) — "
                 "DB write degraded (offline harness / schema unavailable); "
                 "stream unaffected (PERSIST-03 best-effort)",
-                self._run_id, seq, exc,
+                self._run_id,
+                seq,
+                exc,
             )
             return None
 
@@ -485,8 +496,13 @@ PLANNER_AGENT_ID = "deep-planner"
 # five different ``file:line`` values in one week, and every citation was wrong within days.
 # One definition, imported — never re-stated (INV-12).
 NON_TERMINAL_RUN_STATUSES: tuple[str, ...] = (
-    "running", "planning", "clarifying", "waiting_for_user",
-    "generating", "analyzing", "revising",
+    "running",
+    "planning",
+    "clarifying",
+    "waiting_for_user",
+    "generating",
+    "analyzing",
+    "revising",
 )
 
 # API-001 (task.md R-05): the CANONICAL terminal-status set. Before this, "terminal"
@@ -506,7 +522,12 @@ NON_TERMINAL_RUN_STATUSES: tuple[str, ...] = (
 # cancelled/failed/degraded subset; every mutating REST command below now checks
 # membership in THIS tuple, imported — never re-stated (INV-12, mirrors
 # NON_TERMINAL_RUN_STATUSES's own precedent immediately above).
-TERMINAL_RUN_STATUSES: tuple[str, ...] = ("completed", "cancelled", "failed", "degraded")
+TERMINAL_RUN_STATUSES: tuple[str, ...] = (
+    "completed",
+    "cancelled",
+    "failed",
+    "degraded",
+)
 
 
 def is_terminal_run_status(status_value: str | None) -> bool:
@@ -522,6 +543,7 @@ def is_terminal_run_status(status_value: str | None) -> bool:
     """
     return status_value in TERMINAL_RUN_STATUSES
 
+
 # ── Human-in-the-loop: always ask clarifying questions ────────────────────────
 # (Migrated L6, 07-05) The former module-level always-clarify flag is GONE; the
 # "force CLARIFY_REQUIRED on every run" behavior is now declared per-workflow by the
@@ -532,6 +554,7 @@ def is_terminal_run_status(status_value: str | None) -> bool:
 
 def _now() -> str:
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -615,7 +638,9 @@ def _drain_turn_images(ectx) -> None:
     pending = getattr(ectx, "pending_turn_images", None)
     if not pending:
         return
-    ectx.turn_images_once = (getattr(ectx, "turn_images_once", None) or []) + list(pending)
+    ectx.turn_images_once = (getattr(ectx, "turn_images_once", None) or []) + list(
+        pending
+    )
     ectx.pending_turn_images = []
 
 
@@ -646,6 +671,7 @@ def resolve_alias(pipeline_type: str) -> str:
 
 
 import functools as _functools  # noqa: E402
+
 
 @_functools.lru_cache(maxsize=None)
 def compile_for_run(pipeline_type: str) -> CompiledWorkflow:
@@ -1058,7 +1084,8 @@ class ExecutionEngine:
 
         return [
             dataclasses.replace(load_agent_spec(s.agent_id), name=s.display_name)
-            if getattr(s, "display_name", "") else load_agent_spec(s.agent_id)
+            if getattr(s, "display_name", "")
+            else load_agent_spec(s.agent_id)
             for s in steps
         ]
 
@@ -1178,7 +1205,9 @@ class ExecutionEngine:
                 # Last-Event-ID resumption. Identical to the milestone-card re-sync below.
                 # ``None`` (unarmed sink / degraded write — the goldens) ⇒ no re-stamp, so
                 # the offline seq stays contiguous 1,2,3,… (SAFE-03 / INV-3).
-                actual_seq = await sink.persist(seq, event_id, event.get("type", ""), data)
+                actual_seq = await sink.persist(
+                    seq, event_id, event.get("type", ""), data
+                )
                 if actual_seq is not None and actual_seq != seq:
                     data["seq"] = actual_seq
                     if actual_seq >= next_seq:
@@ -1343,13 +1372,17 @@ class ExecutionEngine:
         # for file-granted agents instead of inducing fabricated tool syntax on
         # tool-less prompts. Best-effort: a seed failure degrades to the inline
         # template block already carried in the inject.
-        for _seed_rel, _seed_content in ((od_context or {}).get("template_files") or {}).items():
+        for _seed_rel, _seed_content in (
+            (od_context or {}).get("template_files") or {}
+        ).items():
             try:
                 sandbox.write(_seed_rel, _seed_content)
             except Exception:  # noqa: BLE001 — never abort a run on seed failure
                 logger.warning(
                     "od template seed failed for %s (run %s)",
-                    _seed_rel, pipeline_run_id, exc_info=True,
+                    _seed_rel,
+                    pipeline_run_id,
+                    exc_info=True,
                 )
         # ── DB owner principal (AUTHZ-03 / D-09): always a real, non-None scoped subject ──
         # ``user_id`` when authenticated; otherwise ``anon:<session_id>`` (true per-session
@@ -1371,7 +1404,9 @@ class ExecutionEngine:
             owner_id=owner_id,
             disk_principal=disk_principal,
             od_context=od_context,  # threaded into AgentContext per agent
-            run_images=_normalize_run_images(images),  # image-input Wave 1 carrier (dormant by default)
+            run_images=_normalize_run_images(
+                images
+            ),  # image-input Wave 1 carrier (dormant by default)
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
@@ -1391,7 +1426,9 @@ class ExecutionEngine:
                 live_ectx_register(pipeline_run_id, ectx)
             except Exception:  # noqa: BLE001 — a registry failure must never break the run
                 logger.warning(
-                    "live_ectx_register failed for run %s", pipeline_run_id, exc_info=True
+                    "live_ectx_register failed for run %s",
+                    pipeline_run_id,
+                    exc_info=True,
                 )
         # ISS-033: run-usage accumulator for the model calls that run OUTSIDE the
         # per-agent stream and so never reach ``results``. Three sources feed it:
@@ -1508,7 +1545,8 @@ class ExecutionEngine:
                     logger.warning(
                         "execute(): workflow_runs scope stamping failed for %s "
                         "(%s) — proceeding",
-                        pipeline_run_id, _stamp_exc,
+                        pipeline_run_id,
+                        _stamp_exc,
                     )
             # ── Per-run integration scopes + active MCP servers (09-06 / CAPRUN-01) ──
             # Record the run's active integration scopes + the MCP servers they activate
@@ -1600,6 +1638,7 @@ class ExecutionEngine:
         # gets its OWN unique thread_id below so per-agent graph states never
         # collide on this shared checkpointer; the disk sandbox stays per-run/shared.
         from app.agents.checkpointer import get_checkpointer
+
         ectx.checkpointer = await get_checkpointer()
 
         # ── Cumulative prototype task-completion list (run-level, run-shared) ──
@@ -1679,6 +1718,7 @@ class ExecutionEngine:
         # existing workflows (byte/event-identical — the budget is dormant until a
         # fan-out step runs).
         from app.core.config import settings as _budget_settings
+
         ectx.budget = BudgetManager.from_limits(
             getattr(compiled, "limits", None),
             workspace_ceiling=getattr(
@@ -1738,8 +1778,8 @@ class ExecutionEngine:
 
             _const_key = ectx.disk_principal or owner_id
             if _const_key:
-                ectx.prewarmed_constitution = await get_workflow_memory().get_constitution(
-                    _const_key
+                ectx.prewarmed_constitution = (
+                    await get_workflow_memory().get_constitution(_const_key)
                 )
         except Exception as _const_exc:  # noqa: BLE001 — never break a run on the pre-warm
             logger.warning(
@@ -1791,10 +1831,14 @@ class ExecutionEngine:
                 # run_capabilities is computed ONCE at the scoped-store entry
                 # (_rec_servers via SCOPE_TO_SERVER) — do not duplicate it here.
                 if _integ_configs:
-                    _merged_configs = dict(getattr(ectx, "mcp_server_configs", None) or {})
+                    _merged_configs = dict(
+                        getattr(ectx, "mcp_server_configs", None) or {}
+                    )
                     _merged_configs.update(_integ_configs)
                     ectx.mcp_server_configs = _merged_configs
-                    _merged_exposed = dict(getattr(ectx, "mcp_exposed_tools", None) or {})
+                    _merged_exposed = dict(
+                        getattr(ectx, "mcp_exposed_tools", None) or {}
+                    )
                     _merged_exposed.update(_integ_exposed)
                     ectx.mcp_exposed_tools = _merged_exposed
             except Exception as _integ_exc:  # noqa: BLE001 — never break a run on the bridge
@@ -1811,7 +1855,9 @@ class ExecutionEngine:
 
                 _mcp_allowed = getattr(ectx, "mcp_exposed_tools", None)
                 _adapter = McpClientAdapter(_mcp_configs)
-                ectx.prewarmed_mcp_tools = await _adapter.get_tools(allowed=_mcp_allowed)
+                ectx.prewarmed_mcp_tools = await _adapter.get_tools(
+                    allowed=_mcp_allowed
+                )
         except Exception as _mcp_exc:  # noqa: BLE001 — never break a run on the pre-warm
             logger.warning(
                 "execute(): MCP tool pre-warm failed (%s) — proceeding without "
@@ -1827,11 +1873,18 @@ class ExecutionEngine:
                 "pipeline_run_id": pipeline_run_id,
                 "satisfiable": validation.satisfiable,
                 "dag_edges": [
-                    {"from": e.from_agent_id, "to": e.to_agent_id, "artifact_type": e.artifact_type}
+                    {
+                        "from": e.from_agent_id,
+                        "to": e.to_agent_id,
+                        "artifact_type": e.artifact_type,
+                    }
                     for e in validation.edges
                 ],
                 "unresolved_edges": [
-                    {"consuming_agent_id": u.consuming_agent_id, "artifact_type": u.artifact_type}
+                    {
+                        "consuming_agent_id": u.consuming_agent_id,
+                        "artifact_type": u.artifact_type,
+                    }
                     for u in validation.unresolved_edges
                 ],
                 "timestamp": _now(),
@@ -1841,7 +1894,8 @@ class ExecutionEngine:
             yield {
                 "type": "error",
                 "data": {
-                    "error": "Workflow DAG is unsatisfiable: " + "; ".join(validation.errors),
+                    "error": "Workflow DAG is unsatisfiable: "
+                    + "; ".join(validation.errors),
                     "code": "workflow_unsatisfiable",
                     "recoverable": False,
                 },
@@ -1871,9 +1925,7 @@ class ExecutionEngine:
         if not _declared_edges:
             ordered_agents = _dag_order
         else:
-            _pos = {
-                getattr(a, "id", None): i for i, a in enumerate(_dag_order)
-            }
+            _pos = {getattr(a, "id", None): i for i, a in enumerate(_dag_order)}
             # A declared edge is violated when the resolver placed the DEPENDENCY
             # after the step that depends on it. Edges naming an agent the resolver
             # never placed (a custom-agent template with no contracts) are skipped
@@ -1885,8 +1937,7 @@ class ExecutionEngine:
             # An edge whose endpoints the resolver never ordered at all means the
             # DAG is not a usable ordering for this plan — take the compiler's.
             _unplaced = any(
-                dep not in _pos or child not in _pos
-                for child, dep in _declared_edges
+                dep not in _pos or child not in _pos for child, dep in _declared_edges
             )
             if _violated or _unplaced:
                 ordered_agents = list(agents)  # already topo-sorted by the compiler
@@ -2000,7 +2051,9 @@ class ExecutionEngine:
         skip_planner = compiled.planner == "skip" or _resuming or _replaying_clarify
 
         if skip_planner:
-            logger.info("Prototype pipeline (Approach 2+3): skipping planner + clarifier")
+            logger.info(
+                "Prototype pipeline (Approach 2+3): skipping planner + clarifier"
+            )
             # D2: a RESUME rehydrates its planning context from the durable rows instead
             # of rebuilding the stub. The planner is still NOT re-invoked (TRAP 4 /
             # BUG-R05 / quick 260719-hd5, guarded by
@@ -2033,13 +2086,22 @@ class ExecutionEngine:
             # can show a "planning…" overlay immediately.
             yield {
                 "type": "planner_start",
-                "data": {"pipeline_run_id": pipeline_run_id, "pipeline_type": pipeline_type, "timestamp": _now()},
+                "data": {
+                    "pipeline_run_id": pipeline_run_id,
+                    "pipeline_type": pipeline_type,
+                    "timestamp": _now(),
+                },
             }
 
             planner_start_ms = time.time() * 1000
             planning_context, gate_verdict = await self._run_planner(
-                user_message, pipeline_run_id, model_id, cancel_event, pipeline_type,
-                ectx=ectx, usage_sink=aux_token_usage.append,
+                user_message,
+                pipeline_run_id,
+                model_id,
+                cancel_event,
+                pipeline_type,
+                ectx=ectx,
+                usage_sink=aux_token_usage.append,
             )
 
             # ── Clarify-mode routing concern — sourced from the compiled plan ─────
@@ -2063,7 +2125,9 @@ class ExecutionEngine:
                 planning_context["execution_gate"] = "PROCEED"
 
             elif clarify_auto and gate_verdict != "CLARIFY_REQUIRED":
-                logger.info("clarify.mode=auto — overriding gate verdict PROCEED → CLARIFY_REQUIRED")
+                logger.info(
+                    "clarify.mode=auto — overriding gate verdict PROCEED → CLARIFY_REQUIRED"
+                )
                 gate_verdict = "CLARIFY_REQUIRED"
                 planning_context["execution_gate"] = "CLARIFY_REQUIRED"
                 if not planning_context.get("missing_information"):
@@ -2081,7 +2145,9 @@ class ExecutionEngine:
                     planning_context["missing_information"] = defaults
                     logger.info(
                         "clarify.mode=auto: seeding defaults has_topic=%s pipeline=%s: %s",
-                        has_topic, pipeline_type, defaults
+                        has_topic,
+                        pipeline_type,
+                        defaults,
                     )
 
             # KAN-87: no-template prototype — ensure UI style question is asked.
@@ -2113,14 +2179,19 @@ class ExecutionEngine:
             # KAN-87 above has already forced ui_style back in for that path).
             # Keyed on od_context content (generic, INV-1-compliant), not pipeline_type.
             _od = ectx.od_context or {}
-            if _od.get("ds_id") and not _od.get("no_template") and gate_verdict == "CLARIFY_REQUIRED":
+            if (
+                _od.get("ds_id")
+                and not _od.get("no_template")
+                and gate_verdict == "CLARIFY_REQUIRED"
+            ):
                 _missing = planning_context.get("missing_information") or []
                 _filtered = [m for m in _missing if m not in ("style", "ui_style")]
                 if len(_filtered) != len(_missing):
                     planning_context["missing_information"] = _filtered
                     logger.info(
                         "ISS-056/H3: pruned style/ui_style from missing_information "
-                        "(ds_id=%s already chosen)", _od.get("ds_id")
+                        "(ds_id=%s already chosen)",
+                        _od.get("ds_id"),
                     )
 
             # ISS-056/H3(b): thread the design system's friendly name into
@@ -2133,7 +2204,8 @@ class ExecutionEngine:
                 if _od.get("template_name"):
                     planning_context["template_name"] = _od.get("template_name")
             _log_event(
-                "planner_complete", pipeline_run_id,
+                "planner_complete",
+                pipeline_run_id,
                 duration_ms=(time.time() * 1000 - planner_start_ms),
                 gate_verdict=gate_verdict,
             )
@@ -2143,29 +2215,61 @@ class ExecutionEngine:
                 try:
                     planner_md_lines = ["# PLANNER.md — Deep Planner Analysis\n"]
                     if planning_context.get("inferred_intent"):
-                        planner_md_lines.append(f"**Inferred Intent**: {planning_context['inferred_intent']}\n")
+                        planner_md_lines.append(
+                            f"**Inferred Intent**: {planning_context['inferred_intent']}\n"
+                        )
                     if planning_context.get("topic"):
-                        planner_md_lines.append(f"**Topic**: {planning_context['topic']}\n")
+                        planner_md_lines.append(
+                            f"**Topic**: {planning_context['topic']}\n"
+                        )
                     if planning_context.get("execution_gate"):
-                        planner_md_lines.append(f"**Gate Verdict**: {planning_context['execution_gate']}\n")
+                        planner_md_lines.append(
+                            f"**Gate Verdict**: {planning_context['execution_gate']}\n"
+                        )
                     if planning_context.get("explicit_constraints"):
-                        planner_md_lines.append("\n**Explicit Constraints**:\n" +
-                            "\n".join(f"- {c}" for c in planning_context["explicit_constraints"]))
+                        planner_md_lines.append(
+                            "\n**Explicit Constraints**:\n"
+                            + "\n".join(
+                                f"- {c}"
+                                for c in planning_context["explicit_constraints"]
+                            )
+                        )
                     if planning_context.get("implicit_constraints"):
-                        planner_md_lines.append("\n**Implicit Constraints**:\n" +
-                            "\n".join(f"- {c}" for c in planning_context["implicit_constraints"]))
+                        planner_md_lines.append(
+                            "\n**Implicit Constraints**:\n"
+                            + "\n".join(
+                                f"- {c}"
+                                for c in planning_context["implicit_constraints"]
+                            )
+                        )
                     if planning_context.get("quality_targets"):
-                        planner_md_lines.append("\n**Quality Targets**:\n" +
-                            "\n".join(f"- {q}" for q in planning_context["quality_targets"]))
+                        planner_md_lines.append(
+                            "\n**Quality Targets**:\n"
+                            + "\n".join(
+                                f"- {q}" for q in planning_context["quality_targets"]
+                            )
+                        )
                     if planning_context.get("inferred_personas"):
-                        planner_md_lines.append("\n**Inferred Personas**:\n" +
-                            "\n".join(f"- {p}" for p in planning_context["inferred_personas"]))
+                        planner_md_lines.append(
+                            "\n**Inferred Personas**:\n"
+                            + "\n".join(
+                                f"- {p}" for p in planning_context["inferred_personas"]
+                            )
+                        )
                     if planning_context.get("inferred_nfrs"):
-                        planner_md_lines.append("\n**Non-Functional Requirements**:\n" +
-                            "\n".join(f"- {n}" for n in planning_context["inferred_nfrs"]))
+                        planner_md_lines.append(
+                            "\n**Non-Functional Requirements**:\n"
+                            + "\n".join(
+                                f"- {n}" for n in planning_context["inferred_nfrs"]
+                            )
+                        )
                     if planning_context.get("domain_insights"):
-                        planner_md_lines.append("\n**Domain Insights**:\n" +
-                            "\n".join(f"- {i}" for i in planning_context["domain_insights"]))
+                        planner_md_lines.append(
+                            "\n**Domain Insights**:\n"
+                            + "\n".join(
+                                f"- {i}" for i in planning_context["domain_insights"]
+                            )
+                        )
                     sandbox.write("PLANNER.md", "\n".join(planner_md_lines))
                 except Exception as _planner_md_exc:
                     logger.debug("PLANNER.md generation failed: %s", _planner_md_exc)
@@ -2258,7 +2362,10 @@ class ExecutionEngine:
             try:
                 planning_context = clarify_task.result()
             except Exception as _clarify_exc:
-                logger.warning("ClarifyEngine failed: %s — proceeding with original context", _clarify_exc)
+                logger.warning(
+                    "ClarifyEngine failed: %s — proceeding with original context",
+                    _clarify_exc,
+                )
 
         # ── Step 4: Run domain agents ─────────────────────────────────────
         self._state_machine.transition(pipeline_run_id, "generating")
@@ -2270,8 +2377,13 @@ class ExecutionEngine:
                 "pipeline_run_id": pipeline_run_id,
                 "agent_count": len(ordered_agents),
                 "agents": [
-                    {"id": s.id, "name": s.name, "role": s.role, "icon": s.icon,
-                     "order": getattr(s, "order", 0)}
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "role": s.role,
+                        "icon": s.icon,
+                        "order": getattr(s, "order", 0),
+                    }
                     for s in ordered_agents
                 ],
                 # KAN-120 BUG-2: surface the resume offset so the FE can mark
@@ -2344,7 +2456,7 @@ class ExecutionEngine:
         # Audit tab as "Active Behavioral Guidelines" — giving the user traceability
         # of which hooks were active for this run. Best-effort: a write failure
         # must never abort the run.
-        for _ah in (attached_hooks or []):
+        for _ah in attached_hooks or []:
             _ah_name = _ah.get("name") or _ah.get("id") or "Unknown Hook"
             _ah_event = _ah.get("event") or _ah.get("trigger") or "run_start"
             _ah_desc = _ah.get("description") or f"{_ah_name}: {_ah_event}"
@@ -2491,7 +2603,8 @@ class ExecutionEngine:
             except Exception as _cur_exc:  # noqa: BLE001 — fail-safe: leave the cursor None
                 logger.warning(
                     "resume: skip-cursor compute failed (%s) — re-running remaining "
-                    "work in full (no per-task/worker skip)", _cur_exc
+                    "work in full (no per-task/worker skip)",
+                    _cur_exc,
                 )
                 ectx.resume_completed_task_ids = None
                 ectx.resume_completed_ordered = None
@@ -2515,7 +2628,8 @@ class ExecutionEngine:
             except Exception as _bnd_exc:  # noqa: BLE001 — fail-safe: default global-max
                 logger.warning(
                     "resume: cumulative boundary compute failed (%s) — re-materializing "
-                    "the global-max deliverable (no boundary restore)", _bnd_exc
+                    "the global-max deliverable (no boundary restore)",
+                    _bnd_exc,
                 )
                 _boundaries = {}
             # RESUME-16 independent: the per wave-step current-key allow-set that gates
@@ -2530,11 +2644,13 @@ class ExecutionEngine:
             except Exception as _wav_exc:  # noqa: BLE001 — fail-safe: keep all fragments
                 logger.warning(
                     "resume: wave orphan allow-set compute failed (%s) — re-materializing "
-                    "all fragments (no orphan exclusion)", _wav_exc
+                    "all fragments (no orphan exclusion)",
+                    _wav_exc,
                 )
                 _wave_allow = {}
             await self._rematerialize_artifacts_to_disk(
-                ectx, sandbox,
+                ectx,
+                sandbox,
                 boundary_by_agent=_boundaries,
                 wave_allow_by_step=_wave_allow,
             )
@@ -2613,7 +2729,10 @@ class ExecutionEngine:
                 # would keep dispatching steps and then report "completed" at Step 5.
                 # Checked before cancel_event so a state-machine-only cancellation
                 # (no event set) is caught too.
-                if self._state_machine.get_state(pipeline_run_id) in ("cancelled", "failed"):
+                if self._state_machine.get_state(pipeline_run_id) in (
+                    "cancelled",
+                    "failed",
+                ):
                     return
                 if cancel_event and cancel_event.is_set():
                     # ── ISS-007 (16-02): pre-agent cooperative cancel ─────────
@@ -2653,7 +2772,9 @@ class ExecutionEngine:
                     # so this stays byte-identical (INV-3) to the old bare-single_shot
                     # synthesis for every non-composed run.
                     step = _user_steps_by_agent.get(spec.id)
-                strategy_name = getattr(step, "strategy", "single_shot") if step else "single_shot"
+                strategy_name = (
+                    getattr(step, "strategy", "single_shot") if step else "single_shot"
+                )
                 if step is None:
                     # Synthesize a minimal step carrying the agent id so the handle
                     # can resolve the AgentSpec (single_shot needs only agent_id).
@@ -2671,7 +2792,10 @@ class ExecutionEngine:
                 # registry-driven entry point that delegates to the SAME review gate.
                 _halted = False
                 async for _ge, _outcome, _gdetail in self._evaluate_gates(
-                    step, ectx, _registry, phase="pre",
+                    step,
+                    ectx,
+                    _registry,
+                    phase="pre",
                     # WR-02 (13 review fix): when the legacy inline review gate
                     # will fire for THIS agent (_should_gate — AGENT.md
                     # ``gate: Human_Gate`` or an explicit gate_agent_ids opt-in),
@@ -2699,9 +2823,7 @@ class ExecutionEngine:
                         # waiting_for_user.
                         _cur = self._state_machine.get_state(pipeline_run_id)
                         if _cur not in ("cancelled", "failed"):
-                            self._state_machine.transition(
-                                pipeline_run_id, "cancelled"
-                            )
+                            self._state_machine.transition(pipeline_run_id, "cancelled")
                         await self._persist_budget_snapshot_if_active(ectx)
                         yield {
                             "type": "pipeline_cancelled",
@@ -2747,7 +2869,10 @@ class ExecutionEngine:
                 # hook (otel_tracing) records a span/hook_runs row + emits NO WS event;
                 # a declared blocking hook would halt the step additively.
                 _hook_outcome = await self._fire_hooks(
-                    "before_step", step, ectx, _registry,
+                    "before_step",
+                    step,
+                    ectx,
+                    _registry,
                     extra={"agent_name": spec.name, "step_index": i},
                 )
                 if _hook_outcome == "block":
@@ -2815,9 +2940,14 @@ class ExecutionEngine:
                 if getattr(step, "produces_solution_plan", False):
                     try:
                         from app.agents.revision_analyzer import parse_analyzer_output  # noqa: PLC0415
+
                         _raw = ectx.last_streamed or ""
                         ectx.analyzer_solution = parse_analyzer_output(_raw)
-                        logger.debug("produces_solution_plan hook: solution_len=%d (run=%s)", len(ectx.analyzer_solution), ectx.run_id)
+                        logger.debug(
+                            "produces_solution_plan hook: solution_len=%d (run=%s)",
+                            len(ectx.analyzer_solution),
+                            ectx.run_id,
+                        )
                     except Exception as _psp_exc:  # noqa: BLE001
                         logger.warning(
                             "produces_solution_plan hook failed (%s) — ectx.analyzer_solution stays ''",
@@ -2833,7 +2963,10 @@ class ExecutionEngine:
                 # need a separate mechanism). INV-3 parity: a legacy step with no
                 # declared hooks → nothing fires here (same as before_step).
                 await self._fire_hooks(
-                    "after_step", step, ectx, _registry,
+                    "after_step",
+                    step,
+                    ectx,
+                    _registry,
                     extra={"agent_name": spec.name, "step_index": i},
                 )
 
@@ -2873,7 +3006,10 @@ class ExecutionEngine:
             # Strictly conditional on fan-out activity so a cancelled non-fanout run
             # stays byte/event-identical (no snapshot written when nothing fanned out).
             await self._persist_budget_snapshot_if_active(ectx)
-            yield {"type": "pipeline_cancelled", "data": {"pipeline_run_id": pipeline_run_id}}
+            yield {
+                "type": "pipeline_cancelled",
+                "data": {"pipeline_run_id": pipeline_run_id},
+            }
             # ── ISS-023 (IN-04): single canonical pipeline_cancelled on the ───────
             # cooperative per-chunk cancel path. The Stop button sets ``cancel_event``;
             # the per-chunk check (:2613) raises CancelledError, which lands HERE. If we
@@ -3111,6 +3247,7 @@ class ExecutionEngine:
         await self._persist_budget_snapshot_if_active(ectx)
 
         from app.core.config import settings as _settings
+
         _tok_in = sum(r.get("input_tokens", 0) or 0 for r in results)
         _tok_out = sum(r.get("output_tokens", 0) or 0 for r in results)
         # ISS-032: run-total prompt-cache split (0 under the scripted model → the
@@ -3125,7 +3262,9 @@ class ExecutionEngine:
         _tok_in += sum(u.get("input_tokens", 0) or 0 for u in aux_token_usage)
         _tok_out += sum(u.get("output_tokens", 0) or 0 for u in aux_token_usage)
         _cache_read += sum(u.get("cache_read_tokens", 0) or 0 for u in aux_token_usage)
-        _cache_write += sum(u.get("cache_write_tokens", 0) or 0 for u in aux_token_usage)
+        _cache_write += sum(
+            u.get("cache_write_tokens", 0) or 0 for u in aux_token_usage
+        )
         # ── ISS-021 (18-01): the DECLARED deliverable shape hint ────────────────
         # Surface a type-driven deliverable contract on EVERY pipeline_complete so
         # the FE renderer (18-03) dispatches on a mimetype, never a workflow name
@@ -3136,6 +3275,7 @@ class ExecutionEngine:
         from agents.capabilities.deliverables._mimetype import (
             default_mimetype as _default_mimetype,
         )
+
         _deliverable_name = getattr(ectx.deliverable, "name", None)
         # WR-01 (18 review fix): derive the default from the EFFECTIVE strategy
         # (the resolver that actually produced the bytes), not the DECLARED one, so
@@ -3231,7 +3371,7 @@ class ExecutionEngine:
             if (agent_id, task_number) not in _completed_pairs
         }
         # Floor (no regression): an errored agent with zero completions anywhere.
-        _unrecovered_agents |= (_failed_agent_ids - _completed_agent_ids)
+        _unrecovered_agents |= _failed_agent_ids - _completed_agent_ids
         if results and _unrecovered_agents:
             _pipeline_complete_data["status"] = "degraded"
             _pipeline_complete_data["agents_failed"] = sorted(_unrecovered_agents)
@@ -3273,12 +3413,16 @@ class ExecutionEngine:
                     "template_name": _od.get("template_name"),
                     "ds_name": _od.get("ds_name"),
                 }
-                if _od.get("ds_id") else None
+                if _od.get("ds_id")
+                else None
             )
             planning_context = await asyncio.wait_for(
                 self._invoke_planner(
-                    user_message, model_id, pipeline_type,
-                    usage_sink=usage_sink, design_context=design_context,
+                    user_message,
+                    model_id,
+                    pipeline_type,
+                    usage_sink=usage_sink,
+                    design_context=design_context,
                 ),
                 timeout=PLANNER_TIMEOUT_SECONDS,
             )
@@ -3303,7 +3447,9 @@ class ExecutionEngine:
             return planning_context, gate
         except asyncio.TimeoutError:
             logger.warning("Deep planner timed out — defaulting to PROCEED")
-            return self._default_planning_context(user_message, timed_out=True), "PROCEED"
+            return self._default_planning_context(
+                user_message, timed_out=True
+            ), "PROCEED"
         except Exception as exc:
             logger.exception("Deep planner failed — defaulting to PROCEED")
             ctx = self._default_planning_context(user_message)
@@ -3311,8 +3457,12 @@ class ExecutionEngine:
             return ctx, "PROCEED"
 
     async def _invoke_planner(
-        self, user_message: str, model_id: str | None, pipeline_type: str = "custom",
-        usage_sink=None, design_context: dict | None = None,
+        self,
+        user_message: str,
+        model_id: str | None,
+        pipeline_type: str = "custom",
+        usage_sink=None,
+        design_context: dict | None = None,
     ) -> dict:
         """Invoke the SmartPlanner — single structured LLM call, 2-5 seconds."""
         from agents.planner.smart_planner import SmartPlanner
@@ -3320,9 +3470,13 @@ class ExecutionEngine:
         # ISS-033: thread the run-usage sink so the planner's model-call tokens are
         # counted in the run accounting (via the shared cached_invoke inside plan()).
         planner = SmartPlanner(model_id=model_id, usage_sink=usage_sink)
-        return await planner.plan(user_message, pipeline_type, design_context=design_context)
+        return await planner.plan(
+            user_message, pipeline_type, design_context=design_context
+        )
 
-    def _default_planning_context(self, user_message: str, timed_out: bool = False) -> dict:
+    def _default_planning_context(
+        self, user_message: str, timed_out: bool = False
+    ) -> dict:
         # DO NOT add keys: this dict is serialized verbatim into the planner event and the
         # characterization normalizer does not recurse into it, so a new key breaks INV-3.
         return {
@@ -3341,7 +3495,9 @@ class ExecutionEngine:
             "planner_timed_out": timed_out,
         }
 
-    def _rehydrate_planning_context(self, ectx: ExecutionContext, user_message: str) -> dict:
+    def _rehydrate_planning_context(
+        self, ectx: ExecutionContext, user_message: str
+    ) -> dict:
         """Reconstruct a resumed run's planning context from the DURABLE rows.
 
         BUGFIX-SPEC-REVISION-CONTEXT D2. A resume takes the planner-skip path and used to
@@ -3384,12 +3540,15 @@ class ExecutionEngine:
         try:
             base = json.loads(base_ref.content)
             if not isinstance(base, dict):
-                raise ValueError(f"planning_context is {type(base).__name__}, not a dict")
+                raise ValueError(
+                    f"planning_context is {type(base).__name__}, not a dict"
+                )
         except (ValueError, TypeError) as exc:
             logger.warning(
                 "resume rehydrate: planning_context for run %s is unreadable (%s) — "
                 "falling back to the default stub",
-                ectx.run_id, exc,
+                ectx.run_id,
+                exc,
             )
             return self._default_planning_context(user_message)
 
@@ -3406,7 +3565,8 @@ class ExecutionEngine:
                 logger.warning(
                     "resume rehydrate: planning_context for run %s has explicit_constraints "
                     "as %s, not a list — dropping it and merging onto an empty list",
-                    ectx.run_id, type(_constraints).__name__,
+                    ectx.run_id,
+                    type(_constraints).__name__,
                 )
             base["explicit_constraints"] = []
         else:
@@ -3415,7 +3575,8 @@ class ExecutionEngine:
                 logger.warning(
                     "resume rehydrate: planning_context for run %s carried %d non-string "
                     "explicit_constraint(s) — dropped",
-                    ectx.run_id, len(_constraints) - len(_strs),
+                    ectx.run_id,
+                    len(_constraints) - len(_strs),
                 )
             base["explicit_constraints"] = _strs
 
@@ -3431,14 +3592,18 @@ class ExecutionEngine:
             except (ValueError, TypeError):
                 logger.warning(
                     "resume rehydrate: clarifications v%s for run %s is unreadable — skipped",
-                    ref.version, ectx.run_id, exc_info=True,
+                    ref.version,
+                    ectx.run_id,
+                    exc_info=True,
                 )
                 continue
             if not isinstance(pairs, list):
                 logger.warning(
                     "resume rehydrate: clarifications v%s for run %s is a %s, not a list "
                     "of Q&A pairs — skipped",
-                    ref.version, ectx.run_id, type(pairs).__name__,
+                    ref.version,
+                    ectx.run_id,
+                    type(pairs).__name__,
                 )
                 continue
             # Idempotent: a pair whose rendered constraint is already present is dropped,
@@ -3448,17 +3613,25 @@ class ExecutionEngine:
             for p in pairs:
                 # A row whose shape is wrong is skipped rather than crashing the resume:
                 # _merge_answers indexes q["question_text"] directly.
-                if not isinstance(p, dict) or not p.get("question_id") or not p.get("question_text"):
+                if (
+                    not isinstance(p, dict)
+                    or not p.get("question_id")
+                    or not p.get("question_text")
+                ):
                     continue
                 answer = p.get("answer")
                 if answer and f"{p['question_text']} → {answer}" in existing:
                     continue
-                questions.append({
-                    "question_id": p["question_id"],
-                    "question_text": p["question_text"],
-                })
+                questions.append(
+                    {
+                        "question_id": p["question_id"],
+                        "question_text": p["question_text"],
+                    }
+                )
                 if answer:
-                    responses.append({"question_id": p["question_id"], "answer": answer})
+                    responses.append(
+                        {"question_id": p["question_id"], "answer": answer}
+                    )
             if not questions:
                 continue
             try:
@@ -3474,7 +3647,9 @@ class ExecutionEngine:
                 logger.warning(
                     "resume rehydrate: clarifications v%s for run %s has an unexpected "
                     "shape — keeping the unmerged context for this round",
-                    ref.version, ectx.run_id, exc_info=True,
+                    ref.version,
+                    ectx.run_id,
+                    exc_info=True,
                 )
 
         # A resumed run is mid-build: a stale CLARIFY_REQUIRED on the persisted row must
@@ -3485,8 +3660,11 @@ class ExecutionEngine:
             "resume rehydrate: run %s reconstructed planning context from durable rows — "
             "%d clarification round(s) merged, %d explicit constraint(s), %d chars of "
             "planner JSON (stub would have been %d chars of intent)",
-            ectx.run_id, rounds_merged, len(base.get("explicit_constraints") or []),
-            len(base_ref.content), len(user_message[:200]),
+            ectx.run_id,
+            rounds_merged,
+            len(base.get("explicit_constraints") or []),
+            len(base_ref.content),
+            len(user_message[:200]),
         )
         return base
 
@@ -3502,7 +3680,11 @@ class ExecutionEngine:
         if planning_context.get("planner_timed_out"):
             yield {
                 "type": "planner_timeout",
-                "data": {"pipeline_run_id": pipeline_run_id, "elapsed_seconds": PLANNER_TIMEOUT_SECONDS, "timestamp": _now()},
+                "data": {
+                    "pipeline_run_id": pipeline_run_id,
+                    "elapsed_seconds": PLANNER_TIMEOUT_SECONDS,
+                    "timestamp": _now(),
+                },
             }
         yield {
             "type": "planner_complete",
@@ -3515,7 +3697,11 @@ class ExecutionEngine:
         }
         yield {
             "type": "gate_status",
-            "data": {"pipeline_run_id": pipeline_run_id, "verdict": gate_verdict, "timestamp": _now()},
+            "data": {
+                "pipeline_run_id": pipeline_run_id,
+                "verdict": gate_verdict,
+                "timestamp": _now(),
+            },
         }
 
     # ------------------------------------------------------------------
@@ -3539,7 +3725,9 @@ class ExecutionEngine:
             return model_id
         return resolver.resolve(spec, step)
 
-    async def _derive_fanout(self, event: dict, ectx: ExecutionContext) -> AsyncGenerator[dict, None]:
+    async def _derive_fanout(
+        self, event: dict, ectx: ExecutionContext
+    ) -> AsyncGenerator[dict, None]:
         """Derive a fan-out from a ``spawn_subagents`` tool_result + fulfil it (FANOUT-02).
 
         Parses the structured request the spawn_subagents request emitter returned
@@ -3598,8 +3786,14 @@ class ExecutionEngine:
                 if existing is not None:
                     new_fanout = _copy.copy(existing)
                 else:
-                    new_fanout = _SN(mode=None, max_parallel=None, agent=None,
-                                     count=None, workers=[], merge_agent=None)
+                    new_fanout = _SN(
+                        mode=None,
+                        max_parallel=None,
+                        agent=None,
+                        count=None,
+                        workers=[],
+                        merge_agent=None,
+                    )
                 new_fanout.mode = mode
                 fo_step.fanout = new_fanout
             except Exception:  # noqa: BLE001 — a non-copyable step degrades to declared mode
@@ -3642,11 +3836,15 @@ class ExecutionEngine:
         (WR-05 preserved). Best-effort: never abort the run on a bookkeeping miss.
         """
         try:
-            ectx.failed_invocations.add((agent_id, getattr(ectx, "build_task_number", "") or ""))
+            ectx.failed_invocations.add(
+                (agent_id, getattr(ectx, "build_task_number", "") or "")
+            )
         except Exception:  # noqa: BLE001 — failure bookkeeping must never break the run
             pass
 
-    def _build_roster(self, ectx: ExecutionContext, topic: str, sandbox: RunSandbox) -> str:
+    def _build_roster(
+        self, ectx: ExecutionContext, topic: str, sandbox: RunSandbox
+    ) -> str:
         """Build the parent's roster block from artifacts that ACTUALLY exist (R-15, D-05).
 
         Reads the about-to-run step's ``depends_on`` (``ectx.current_step``) — the
@@ -3671,7 +3869,9 @@ class ExecutionEngine:
             steps_by_agent = getattr(ectx, "steps_by_agent", None) or {}
             lines: list[str] = []
             for dep_id in deps:
-                if not isinstance(dep_id, str) or not dep_id.startswith(CUSTOM_AGENT_PREFIX):
+                if not isinstance(dep_id, str) or not dep_id.startswith(
+                    CUSTOM_AGENT_PREFIX
+                ):
                     continue
                 instance_id = dep_id.split(":", 1)[1]
                 dep_step = steps_by_agent.get(dep_id)
@@ -3689,7 +3889,9 @@ class ExecutionEngine:
                 + "\nRead the files you need before you start."
             )
         except Exception as exc:  # noqa: BLE001 — roster build must never break the run
-            logger.warning("_build_roster: failed to build roster (%s) — omitting it", exc)
+            logger.warning(
+                "_build_roster: failed to build roster (%s) — omitting it", exc
+            )
             return ""
 
     @staticmethod
@@ -3793,7 +3995,8 @@ class ExecutionEngine:
         except Exception as exc:  # noqa: BLE001 — the guarantee must never break the run
             logger.warning(
                 "artifact_fallback: could not guarantee an artifact for %s: %s",
-                spec_id, exc,
+                spec_id,
+                exc,
             )
             return None
 
@@ -3833,7 +4036,8 @@ class ExecutionEngine:
         if current_state in ("cancelled", "failed"):
             logger.info(
                 "_run_agent: skipping %s — pipeline already in terminal state=%s",
-                spec.id, current_state,
+                spec.id,
+                current_state,
             )
             return
 
@@ -3845,11 +4049,13 @@ class ExecutionEngine:
         # F3): captured per iteration and reset BEFORE the model call, so an
         # empty-output / errored / non-redo exit can never leak lineage, a REVISE
         # block or a prior-artifact block onto the next agent.
-        redo_directive = ""          # extra instructions for the NEXT re-run
-        redo_derived_from = None     # rejected ref id the re-run supersedes
-        redo_prior_artifact = ""     # ISS-086: the rejected CONTENT the re-run amends
-        redo_attempt = 0             # 0 = first run; N>0 = Nth redo → fresh checkpoint thread
-        spec_revision_attempt = 0   # KAN-101: 0 = first run; N>0 = Nth spec revision cycle
+        redo_directive = ""  # extra instructions for the NEXT re-run
+        redo_derived_from = None  # rejected ref id the re-run supersedes
+        redo_prior_artifact = ""  # ISS-086: the rejected CONTENT the re-run amends
+        redo_attempt = 0  # 0 = first run; N>0 = Nth redo → fresh checkpoint thread
+        spec_revision_attempt = (
+            0  # KAN-101: 0 = first run; N>0 = Nth spec revision cycle
+        )
         while True:
             agent_start = time.time()
 
@@ -3875,9 +4081,10 @@ class ExecutionEngine:
                     results.append({"agent_id": spec.id, "output": output})
                 # Seed the redo / spec-revision loop locals from durable evidence so a
                 # post-restart redo / update_specs never reuses a pre-restart thread id.
-                redo_attempt, spec_revision_attempt = (
-                    await self._seed_gate_reentry_attempts(ectx, spec)
-                )
+                (
+                    redo_attempt,
+                    spec_revision_attempt,
+                ) = await self._seed_gate_reentry_attempts(ectx, spec)
                 if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # Re-open the gate directly — skip the model call entirely. The five-
                     # branch consumer below is the SAME logic as the post-stream inline
@@ -3911,20 +4118,32 @@ class ExecutionEngine:
                         if gate_event.get("type") == "_gate_rejected":
                             current = self._state_machine.get_state(pipeline_run_id)
                             if current not in ("cancelled", "failed"):
-                                self._state_machine.transition(pipeline_run_id, "cancelled")
-                            yield {"type": "pipeline_cancelled", "data": {
-                                "pipeline_run_id": pipeline_run_id,
-                                "reason": f"User rejected output from {spec.name}",
-                            }}
+                                self._state_machine.transition(
+                                    pipeline_run_id, "cancelled"
+                                )
+                            yield {
+                                "type": "pipeline_cancelled",
+                                "data": {
+                                    "pipeline_run_id": pipeline_run_id,
+                                    "reason": f"User rejected output from {spec.name}",
+                                },
+                            }
                             return
                         elif gate_event.get("type") == "_gate_edited":
                             edited = gate_event.get("edited_content", output)
                             if edited:
                                 _ek = self._artifact_kind_for(spec)
-                                _ek_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                                _ek_html_loc = (
+                                    getattr(
+                                        getattr(ectx, "deliverable", None), "name", None
+                                    )
+                                    or "prototype.html"
+                                )
                                 # RESUME-15: stamp lineage to the version this edit
                                 # supersedes (resolved BEFORE the write == prior max).
-                                _prior_ref = self._latest_typed_ref_id(ectx, spec.id, _ek)
+                                _prior_ref = self._latest_typed_ref_id(
+                                    ectx, spec.id, _ek
+                                )
                                 await self._dual_write_artifact(
                                     ectx,
                                     producer_agent=spec.id,
@@ -3943,10 +4162,15 @@ class ExecutionEngine:
                         elif gate_event.get("type") == "_gate_redo":
                             # RESUME-17 gate re-entry: identical to the live consumer, via
                             # the ONE shared helper (INV-12).
-                            (redo_directive, redo_derived_from,
-                             redo_prior_artifact) = await self._consume_redo(
-                                gate_event=gate_event, spec=spec,
-                                results=results, ectx=ectx,
+                            (
+                                redo_directive,
+                                redo_derived_from,
+                                redo_prior_artifact,
+                            ) = await self._consume_redo(
+                                gate_event=gate_event,
+                                spec=spec,
+                                results=results,
+                                ectx=ectx,
                             )
                             redo_attempt += 1
                             break
@@ -3957,13 +4181,22 @@ class ExecutionEngine:
                             spec_revision_attempt += 1
                             _us_cancelled = False
                             async for _us_event in self._consume_update_specs(
-                                gate_event=gate_event, spec=spec, index=index,
-                                ordered_agents=ordered_agents, user_message=user_message,
-                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
-                                pipeline_type=pipeline_type, planning_context=planning_context,
-                                attached_skills=attached_skills, attached_hooks=attached_hooks,
-                                model_id=model_id, results=results, cancel_event=cancel_event,
-                                ectx=ectx, revision_index=spec_revision_attempt,
+                                gate_event=gate_event,
+                                spec=spec,
+                                index=index,
+                                ordered_agents=ordered_agents,
+                                user_message=user_message,
+                                sandbox=sandbox,
+                                pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type,
+                                planning_context=planning_context,
+                                attached_skills=attached_skills,
+                                attached_hooks=attached_hooks,
+                                model_id=model_id,
+                                results=results,
+                                cancel_event=cancel_event,
+                                ectx=ectx,
+                                revision_index=spec_revision_attempt,
                             ):
                                 if _us_event.get("type") == "_update_specs_done":
                                     _us_cancelled = bool(_us_event.get("cancelled"))
@@ -3996,7 +4229,9 @@ class ExecutionEngine:
             # stored on ectx scratch (cleared here so it's consume-once). This avoids
             # a full model re-run for the gate-owner agent when the real new output
             # came from the sub-pipeline. Keyed on generic ectx field (SC-001/INV-1).
-            pending_revision_output = getattr(ectx, "spec_revision_pending_output", None)
+            pending_revision_output = getattr(
+                ectx, "spec_revision_pending_output", None
+            )
             if pending_revision_output is not None:
                 ectx.spec_revision_pending_output = None  # consume-once
                 # Update `output` with the sub-pipeline's new analysis text so the
@@ -4029,11 +4264,16 @@ class ExecutionEngine:
                         if gate_event.get("type") == "_gate_rejected":
                             current = self._state_machine.get_state(pipeline_run_id)
                             if current not in ("cancelled", "failed"):
-                                self._state_machine.transition(pipeline_run_id, "cancelled")
-                            yield {"type": "pipeline_cancelled", "data": {
-                                "pipeline_run_id": pipeline_run_id,
-                                "reason": f"User rejected output from {spec.name}",
-                            }}
+                                self._state_machine.transition(
+                                    pipeline_run_id, "cancelled"
+                                )
+                            yield {
+                                "type": "pipeline_cancelled",
+                                "data": {
+                                    "pipeline_run_id": pipeline_run_id,
+                                    "reason": f"User rejected output from {spec.name}",
+                                },
+                            }
                             return
                         elif gate_event.get("type") == "_gate_edited":
                             edited = gate_event.get("edited_content", output)
@@ -4042,7 +4282,9 @@ class ExecutionEngine:
                                 # RESUME-15: stamp lineage to the version this edit
                                 # supersedes (resolved BEFORE the write == prior max).
                                 # None on a first-ever write ⇒ byte-identical (INV-3).
-                                _prior_ref = self._latest_typed_ref_id(ectx, spec.id, _ek)
+                                _prior_ref = self._latest_typed_ref_id(
+                                    ectx, spec.id, _ek
+                                )
                                 await self._dual_write_artifact(
                                     ectx,
                                     producer_agent=spec.id,
@@ -4064,10 +4306,15 @@ class ExecutionEngine:
                             # also under-seeded ``_seed_gate_reentry_attempts``, risking a
                             # colliding ``:redo{N}`` after a restart. Driving the ONE
                             # shared consumer closes all three for free (INV-12).
-                            (redo_directive, redo_derived_from,
-                             redo_prior_artifact) = await self._consume_redo(
-                                gate_event=gate_event, spec=spec,
-                                results=results, ectx=ectx,
+                            (
+                                redo_directive,
+                                redo_derived_from,
+                                redo_prior_artifact,
+                            ) = await self._consume_redo(
+                                gate_event=gate_event,
+                                spec=spec,
+                                results=results,
+                                ectx=ectx,
                             )
                             redo_attempt += 1
                             break
@@ -4097,13 +4344,22 @@ class ExecutionEngine:
                             spec_revision_attempt += 1
                             _us_cancelled = False
                             async for _us_event in self._consume_update_specs(
-                                gate_event=gate_event, spec=spec, index=index,
-                                ordered_agents=ordered_agents, user_message=user_message,
-                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
-                                pipeline_type=pipeline_type, planning_context=planning_context,
-                                attached_skills=attached_skills, attached_hooks=attached_hooks,
-                                model_id=model_id, results=results, cancel_event=cancel_event,
-                                ectx=ectx, revision_index=spec_revision_attempt,
+                                gate_event=gate_event,
+                                spec=spec,
+                                index=index,
+                                ordered_agents=ordered_agents,
+                                user_message=user_message,
+                                sandbox=sandbox,
+                                pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type,
+                                planning_context=planning_context,
+                                attached_skills=attached_skills,
+                                attached_hooks=attached_hooks,
+                                model_id=model_id,
+                                results=results,
+                                cancel_event=cancel_event,
+                                ectx=ectx,
+                                revision_index=spec_revision_attempt,
                             ):
                                 if _us_event.get("type") == "_update_specs_done":
                                     _us_cancelled = bool(_us_event.get("cancelled"))
@@ -4121,8 +4377,14 @@ class ExecutionEngine:
 
             yield {
                 "type": "agent_start",
-                "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
-                         "icon": spec.icon, "index": index, "total": len(ordered_agents)},
+                "data": {
+                    "agent_id": spec.id,
+                    "name": spec.name,
+                    "role": spec.role,
+                    "icon": spec.icon,
+                    "index": index,
+                    "total": len(ordered_agents),
+                },
             }
             _log_event("agent_start", pipeline_run_id, agent_id=spec.id)
             RunLog(getattr(sandbox, "root", None)).write("step_start", agent_id=spec.id)
@@ -4162,13 +4424,17 @@ class ExecutionEngine:
                 ectx.spec_revision_prior_artifact = redo_prior_artifact
             try:
                 context_message = await self._compose_context_message(
-                    spec, index, ordered_agents, user_message,
-                    planning_context, ectx,
+                    spec,
+                    index,
+                    ordered_agents,
+                    user_message,
+                    planning_context,
+                    ectx,
                 )
             finally:
                 ectx.redo_directive = ""
                 ectx.spec_revision_prior_artifact = _saved_prior_artifact
-            _iter_derived = redo_derived_from   # lineage for THIS iteration's write
+            _iter_derived = redo_derived_from  # lineage for THIS iteration's write
             redo_directive = ""
             redo_derived_from = None
             redo_prior_artifact = ""
@@ -4196,7 +4462,9 @@ class ExecutionEngine:
             # Emit agent_input event (Phase 3 / T040) — shows full input prompt
             # and context sources in the Thinking tab (FR-015).
             context_sources = self._build_context_sources(
-                spec, ordered_agents, ectx,
+                spec,
+                ordered_agents,
+                ectx,
                 agent_index=index,
                 user_message=user_message,
             )
@@ -4234,7 +4502,9 @@ class ExecutionEngine:
 
                 ctx = AgentContext(
                     user_request=user_message,
-                    agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx),
+                    agent_outputs=self._filter_consumed_outputs(
+                        spec, ordered_agents, ectx
+                    ),
                     attached_skills=merged_skills,
                     disk_skill=disk_skill,
                     attached_hooks=list(attached_hooks or []),
@@ -4245,7 +4515,9 @@ class ExecutionEngine:
                     # wiring it here lets tier 2 (``step.model``, the ``selections`` overlay
                     # from ``_apply_selections``) actually win instead of always resolving
                     # None (ISS-164).
-                    model=self._resolve_model(ectx, spec, model_id, step=ectx.current_step),
+                    model=self._resolve_model(
+                        ectx, spec, model_id, step=ectx.current_step
+                    ),
                     od_context=ectx.od_context,
                     planning_context=planning_context,
                     # Byte-identity guard (D-09): pass disk_principal (== user_id or "anon"),
@@ -4265,7 +4537,9 @@ class ExecutionEngine:
                     # ONCE at run entry (above) so the SYNC factory unions them into the runner
                     # tool set under this running loop WITHOUT awaiting. Empty when no MCP
                     # scope is active → graceful no-op (parity; snapshots byte-identical).
-                    prewarmed_mcp_tools=list(getattr(ectx, "prewarmed_mcp_tools", None) or []),
+                    prewarmed_mcp_tools=list(
+                        getattr(ectx, "prewarmed_mcp_tools", None) or []
+                    ),
                     # step_injects (WIRE-03 / D-16): the compiled Step.injects for THIS step,
                     # read GENERICALLY off ectx.current_step (the compiled Step bound by the
                     # strategy handle before this call — the SAME seam current_step.hooks uses,
@@ -4273,7 +4547,8 @@ class ExecutionEngine:
                     # spec.injects (AGENT.md). [] for every step declaring no per-step injects:
                     # (all 5 goldens) → the merge is a no-op → byte-identical (INV-3).
                     step_injects=list(
-                        getattr(getattr(ectx, "current_step", None), "injects", None) or []
+                        getattr(getattr(ectx, "current_step", None), "injects", None)
+                        or []
                     ),
                     # step_skills (spec 012 / R-01, D-03): the compiled Step.skills for
                     # THIS step, read off ectx.current_step (the SAME seam step_injects
@@ -4281,7 +4556,8 @@ class ExecutionEngine:
                     # falls back to ctx.attached_skills unchanged, so behaviour stays
                     # byte-identical (R-16) for the goldens, which declare no skills.
                     step_skills=list(
-                        getattr(getattr(ectx, "current_step", None), "skills", None) or []
+                        getattr(getattr(ectx, "current_step", None), "skills", None)
+                        or []
                     ),
                     # skills_prune_scope (ADR-0006 Consequences): the union of the
                     # concurrently-dispatched cohort's skill ids, so a sibling running
@@ -4296,7 +4572,8 @@ class ExecutionEngine:
                     # (they declare no ``prompt`` — R-06), so this is a no-op for every
                     # existing agent (R-16 parity).
                     step_prompt=str(
-                        getattr(getattr(ectx, "current_step", None), "prompt", None) or ""
+                        getattr(getattr(ectx, "current_step", None), "prompt", None)
+                        or ""
                     ),
                     # topic (spec 012 / R-12, R-14, T11/T16): the run's topic slug,
                     # computed ONCE at run entry (ectx.topic, above) and reused for
@@ -4307,7 +4584,9 @@ class ExecutionEngine:
                     # once at run entry, above — the SAME seam step_injects/step_skills
                     # use). {} for every manifest declaring none, so this is a no-op
                     # for every existing agent (R-16 parity).
-                    capabilities=dict(getattr(ectx, "compiled_capabilities", None) or {}),
+                    capabilities=dict(
+                        getattr(ectx, "compiled_capabilities", None) or {}
+                    ),
                     # step_tools / workflow_name: CARRIED, never decided. The
                     # engine makes no permission decision — the compiled Step's
                     # effective ToolPermissions were resolved by
@@ -4324,7 +4603,9 @@ class ExecutionEngine:
                     # mutually exclusive, and the readback looks for the declared name.
                     # None elsewhere, so the factory falls back to artifact_name().
                     deliverable_filename_override=self._deliverable_filename_override(
-                        ectx, index, ordered_agents,
+                        ectx,
+                        index,
+                        ordered_agents,
                     ),
                 )
                 # Roster block built from the artifacts the dependencies ACTUALLY wrote,
@@ -4416,7 +4697,9 @@ class ExecutionEngine:
                             }
                             for h in (attached_hooks or [])
                         ],
-                        "skills_load_errors": list(getattr(_delivery, "errors", []) or []),
+                        "skills_load_errors": list(
+                            getattr(_delivery, "errors", []) or []
+                        ),
                         "estimated_tokens": getattr(_delivery, "est_tokens", 0),
                     },
                 }
@@ -4424,7 +4707,9 @@ class ExecutionEngine:
                 if getattr(_delivery, "est_tokens", 0) > 8000:
                     logger.warning(
                         "agent=%s advertises %d skill(s) at ~%d tok/agent (ceiling 8000)",
-                        spec.id, len(getattr(_delivery, "staged", []) or []), _delivery.est_tokens,
+                        spec.id,
+                        len(getattr(_delivery, "staged", []) or []),
+                        _delivery.est_tokens,
                     )
 
                 output_chunks: list[str] = []
@@ -4508,7 +4793,9 @@ class ExecutionEngine:
                 if _resolver is not None and hasattr(_resolver, "set_chain"):
                     _resolver.set_chain(_resolved_model_id)
                 # Bound: chain length when armed, else a single attempt.
-                _max_attempts = len(getattr(_resolver, "_chain", []) or [None]) if _resolver else 1
+                _max_attempts = (
+                    len(getattr(_resolver, "_chain", []) or [None]) if _resolver else 1
+                )
 
                 # Prototype task progress is derived from the report_task_complete
                 # tool events (the store-free runner_tools.report_task_complete no
@@ -4530,7 +4817,9 @@ class ExecutionEngine:
                     # ISS-004: a fresh chunk-straddle buffer per attempt so a re-stream
                     # never inherits a held tail from the throttled prior attempt (the FE
                     # discards prior agent_chunk events on agent_model_fallback/reset_output).
-                    _chunk_sanitizer = _ChunkStreamSanitizer(getattr(agent, "sanitize_output", None))
+                    _chunk_sanitizer = _ChunkStreamSanitizer(
+                        getattr(agent, "sanitize_output", None)
+                    )
                     agent_input_tokens = 0
                     agent_output_tokens = 0
                     # ISS-032: reset the cache split too so a re-streamed attempt
@@ -4563,20 +4852,36 @@ class ExecutionEngine:
                                     # close arrives. Suppress empty deltas (nothing to stream).
                                     _safe_chunk = _chunk_sanitizer.feed(event["chunk"])
                                     if _safe_chunk:
-                                        yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _safe_chunk}}
+                                        yield {
+                                            "type": "agent_chunk",
+                                            "data": {
+                                                "agent_id": spec.id,
+                                                "chunk": _safe_chunk,
+                                            },
+                                        }
                                 elif etype == "thinking":
                                     # Live model reasoning (extended-thinking providers) —
                                     # mirrors the "chunk" -> agent_chunk mapping directly
                                     # above. The FE already has a full agent_thinking
                                     # handler + Thinking tab (useWorkflow.ts, AgentThinkingTab)
                                     # waiting on this; only the emission was missing.
-                                    yield {"type": "agent_thinking", "data": {"agent_id": spec.id, "thinking": event["thinking"]}}
+                                    yield {
+                                        "type": "agent_thinking",
+                                        "data": {
+                                            "agent_id": spec.id,
+                                            "thinking": event["thinking"],
+                                        },
+                                    }
                                 elif etype == "usage":
                                     agent_input_tokens += event.get("input_tokens", 0)
                                     agent_output_tokens += event.get("output_tokens", 0)
                                     # ISS-032: accumulate the per-turn cache split.
-                                    agent_cache_read_tokens += event.get("cache_read_tokens", 0) or 0
-                                    agent_cache_write_tokens += event.get("cache_write_tokens", 0) or 0
+                                    agent_cache_read_tokens += (
+                                        event.get("cache_read_tokens", 0) or 0
+                                    )
+                                    agent_cache_write_tokens += (
+                                        event.get("cache_write_tokens", 0) or 0
+                                    )
                                 elif etype == "tool_call":
                                     # ── Prototype task progress ──────────────────────────────
                                     # report_task_complete carries the task in its args; record
@@ -4584,13 +4889,22 @@ class ExecutionEngine:
                                     # (fired on the matching tool_result) reflects every task.
                                     if event.get("tool") == "report_task_complete":
                                         args = event.get("args", {}) or {}
-                                        ectx.completed_tasks.append({
-                                            "number": args.get("task_number"),
-                                            "title": args.get("task_title"),
-                                            "summary": args.get("summary", ""),
-                                        })
+                                        ectx.completed_tasks.append(
+                                            {
+                                                "number": args.get("task_number"),
+                                                "title": args.get("task_title"),
+                                                "summary": args.get("summary", ""),
+                                            }
+                                        )
                                         _attempt_task_count += 1
-                                    yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
+                                    yield {
+                                        "type": "tool_call",
+                                        "data": {
+                                            "agent_id": spec.id,
+                                            "tool": event["tool"],
+                                            "args": event.get("args", {}),
+                                        },
+                                    }
                                     # ── Audit: log tool call to hook_runs + live WS (KAN-73) ──
                                     # Best-effort — must never abort the run or the stream.
                                     _tc_tool = event.get("tool", "unknown")
@@ -4601,8 +4915,11 @@ class ExecutionEngine:
                                         "event": "tool_call",
                                         "tool": _tc_tool,
                                         "args_summary": ", ".join(
-                                            f"{k}={str(v)[:40]}" for k, v in list(_tc_args.items())[:3]
-                                        ) if _tc_args else "",
+                                            f"{k}={str(v)[:40]}"
+                                            for k, v in list(_tc_args.items())[:3]
+                                        )
+                                        if _tc_args
+                                        else "",
                                         "timestamp": _now(),
                                         "outcome": "continue",
                                         "summary": f"{spec.name} used tool: {_tc_tool}",
@@ -4613,18 +4930,32 @@ class ExecutionEngine:
                                     if _runner is not None:
                                         try:
                                             await _runner.record_hook_run(
-                                                "audit_logger", "tool_call", "continue", _tc_detail
+                                                "audit_logger",
+                                                "tool_call",
+                                                "continue",
+                                                _tc_detail,
                                             )
                                         except Exception:
                                             pass
                                         try:
-                                            _emit_fn = getattr(_runner, "emit_hook_event", None)
+                                            _emit_fn = getattr(
+                                                _runner, "emit_hook_event", None
+                                            )
                                             if callable(_emit_fn):
                                                 _emit_fn(_tc_detail)
                                         except Exception:
                                             pass
                                 elif etype == "tool_result":
-                                    yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
+                                    yield {
+                                        "type": "tool_result",
+                                        "data": {
+                                            "agent_id": spec.id,
+                                            "tool": event["tool"],
+                                            "result": str(event.get("result", ""))[
+                                                :500
+                                            ],
+                                        },
+                                    }
                                     # ── Audit: log tool result to hook_runs + live WS (KAN-73) ──
                                     _tr_tool = event.get("tool", "unknown")
                                     _tr_result = str(event.get("result", ""))
@@ -4633,7 +4964,8 @@ class ExecutionEngine:
                                         "agent_name": spec.name,
                                         "event": "tool_result",
                                         "tool": _tr_tool,
-                                        "result_preview": _tr_result[:120] + ("…" if len(_tr_result) > 120 else ""),
+                                        "result_preview": _tr_result[:120]
+                                        + ("…" if len(_tr_result) > 120 else ""),
                                         "timestamp": _now(),
                                         "outcome": "continue",
                                         "summary": f"{spec.name} tool result: {_tr_tool}",
@@ -4643,7 +4975,10 @@ class ExecutionEngine:
                                     if _runner is not None:
                                         try:
                                             await _runner.record_hook_run(
-                                                "audit_logger", "tool_result", "continue", _tr_detail
+                                                "audit_logger",
+                                                "tool_result",
+                                                "continue",
+                                                _tr_detail,
                                             )
                                         except Exception:
                                             pass
@@ -4662,8 +4997,12 @@ class ExecutionEngine:
                                             "data": {
                                                 "agent_id": spec.id,
                                                 "pipeline_run_id": pipeline_run_id,
-                                                "completed_tasks": list(ectx.completed_tasks),
-                                                "completed_count": len(ectx.completed_tasks),
+                                                "completed_tasks": list(
+                                                    ectx.completed_tasks
+                                                ),
+                                                "completed_count": len(
+                                                    ectx.completed_tasks
+                                                ),
                                                 "timestamp": _now(),
                                             },
                                         }
@@ -4676,7 +5015,9 @@ class ExecutionEngine:
                                     # non-fanout run takes the IDENTICAL path as today (zero new
                                     # events, zero reordering — fanout stays DORMANT, Pitfall 3).
                                     elif event.get("tool") == "spawn_subagents":
-                                        async for _fo_ev in self._derive_fanout(event, ectx):
+                                        async for _fo_ev in self._derive_fanout(
+                                            event, ectx
+                                        ):
                                             yield _fo_ev
                                 elif etype == "error":
                                     # ── ISS-016 (A1): consume the runner's swallowed-error event ──
@@ -4702,8 +5043,12 @@ class ExecutionEngine:
                                     # (T-16-01-ID: bounded, no stack frames, no secrets). Keyed on the
                                     # generic event type only — no provider/model/workflow match (SC-001).
                                     agent_errored = True
-                                    agent_error_raw = str(event.get("error", "") or "")[:500]
-                                    agent_error_message = _sanitize_agent_error(agent_error_raw)
+                                    agent_error_raw = str(event.get("error", "") or "")[
+                                        :500
+                                    ]
+                                    agent_error_message = _sanitize_agent_error(
+                                        agent_error_raw
+                                    )
                                     break
                         # ISS-004 (19-03): flush any residual held tail through the
                         # chunk-straddle sanitizer at stream end. An unterminated tool-XML
@@ -4712,7 +5057,10 @@ class ExecutionEngine:
                         # legitimate trailing content is never silently swallowed.
                         _flushed_chunk = _chunk_sanitizer.flush()
                         if _flushed_chunk:
-                            yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _flushed_chunk}}
+                            yield {
+                                "type": "agent_chunk",
+                                "data": {"agent_id": spec.id, "chunk": _flushed_chunk},
+                            }
                         # Stream consumed cleanly (no throttle) — done, exit the retry loop.
                         break
                     except asyncio.TimeoutError:
@@ -4733,13 +5081,19 @@ class ExecutionEngine:
                         if _attempt_task_count:
                             del ectx.completed_tasks[-_attempt_task_count:]
                         # Advance to the next fallback chain id, if any.
-                        _next_id = _resolver.advance() if _resolver is not None and hasattr(_resolver, "advance") else None
+                        _next_id = (
+                            _resolver.advance()
+                            if _resolver is not None and hasattr(_resolver, "advance")
+                            else None
+                        )
                         if _next_id is None or _attempt >= _max_attempts:
                             # Chain exhausted — re-raise the last throttle (no silent blank).
                             logger.warning(
                                 "Agent %s: fallback chain exhausted after %d attempt(s); "
                                 "re-raising last throttle (%s)",
-                                spec.id, _attempt, _exc,
+                                spec.id,
+                                _attempt,
+                                _exc,
                             )
                             raise
                         # Rebuild the runner on the next chain id via create_runner (the
@@ -4749,7 +5103,10 @@ class ExecutionEngine:
                         logger.warning(
                             "Agent %s: transient throttle on model — advancing to fallback "
                             "model %s (attempt %d/%d)",
-                            spec.id, _next_id, _attempt + 1, _max_attempts,
+                            spec.id,
+                            _next_id,
+                            _attempt + 1,
+                            _max_attempts,
                         )
                         ctx.model = _next_id
                         # ── CR-02: fresh checkpoint thread_id per retry attempt ──────
@@ -4792,7 +5149,8 @@ class ExecutionEngine:
                 if timed_out:
                     logger.warning(
                         "Agent %s timed out after %.0fs — using best available output",
-                        spec.id, agent_timeout,
+                        spec.id,
+                        agent_timeout,
                     )
                     # For tool-based agents: prefer whatever partial output was streamed
                     # (may be partial HTML) over the previous agent's output (which may
@@ -4801,11 +5159,19 @@ class ExecutionEngine:
                     if partial and len(partial) > 500:
                         # Partial output is substantial — use it
                         output_chunks = [partial]
-                        logger.info("Agent %s: using partial output (%d chars)", spec.id, len(partial))
+                        logger.info(
+                            "Agent %s: using partial output (%d chars)",
+                            spec.id,
+                            len(partial),
+                        )
                     elif results:
                         fallback = results[-1].get("output", "")
                         output_chunks = [fallback] if fallback else output_chunks
-                        logger.info("Agent %s: using previous agent output as fallback (%d chars)", spec.id, len(fallback))
+                        logger.info(
+                            "Agent %s: using previous agent output as fallback (%d chars)",
+                            spec.id,
+                            len(fallback),
+                        )
                     # ISS-028: record the (agent_id, task_number) failure pair. The
                     # timeout path RECOVERS — it falls through to results.append below
                     # under the SAME task_number, so this pair is subtracted out by the
@@ -4843,12 +5209,20 @@ class ExecutionEngine:
                     logger.warning(
                         "Agent %s: runner surfaced an error event — marking failed (no "
                         "completion). raw=%s | client=%s",
-                        spec.id, agent_error_raw, agent_error_message,
+                        spec.id,
+                        agent_error_raw,
+                        agent_error_message,
                     )
-                    _log_event("agent_error", pipeline_run_id, agent_id=spec.id,
-                               error=agent_error_message)
+                    _log_event(
+                        "agent_error",
+                        pipeline_run_id,
+                        agent_id=spec.id,
+                        error=agent_error_message,
+                    )
                     RunLog(getattr(sandbox, "root", None)).write(
-                        "agent_error", agent_id=spec.id, error=agent_error_message,
+                        "agent_error",
+                        agent_id=spec.id,
+                        error=agent_error_message,
                     )
                     # ISS-028: record the (agent_id, task_number) failure pair. This arm
                     # RETURNS without a results.append, so the pair stays UNRECOVERED — a
@@ -4896,13 +5270,18 @@ class ExecutionEngine:
                 # confirmation" readback that the per-agent output (and output_length) needs.
                 _deliv = getattr(ectx, "deliverable", None)
                 _deliv_strategy = getattr(_deliv, "strategy", None)
-                if _deliv_strategy == "single_file" and not getattr(ectx, "is_revision_workflow", False):
+                if _deliv_strategy == "single_file" and not getattr(
+                    ectx, "is_revision_workflow", False
+                ):
                     _deliv_name = getattr(_deliv, "name", None) or "prototype.html"
                     file_from_disk = sandbox.read(_deliv_name)
                     if file_from_disk and len(file_from_disk) > len(output):
                         logger.info(
                             "Agent %s: using sandbox %s (%d chars) instead of text output (%d chars)",
-                            spec.id, _deliv_name, len(file_from_disk), len(output),
+                            spec.id,
+                            _deliv_name,
+                            len(file_from_disk),
+                            len(output),
                         )
                         output = file_from_disk
 
@@ -4935,15 +5314,24 @@ class ExecutionEngine:
                 # ADDITIVELY (the artifact is not written; no new WS event type) — the
                 # fine-grained complement to the coarse pre-step ``security`` gate.
                 _cur_step = getattr(ectx, "current_step", None)
-                if output and _cur_step is not None and getattr(_cur_step, "hooks", None):
+                if (
+                    output
+                    and _cur_step is not None
+                    and getattr(_cur_step, "hooks", None)
+                ):
                     _bw_outcome = await self._fire_hooks(
-                        "before_write", _cur_step, ectx, _CAPABILITY_REGISTRY, payload=output
+                        "before_write",
+                        _cur_step,
+                        ectx,
+                        _CAPABILITY_REGISTRY,
+                        payload=output,
                     )
                     if _bw_outcome == "block":
                         logger.warning(
                             "before_write hook blocked the deliverable write for agent %s "
                             "(declared hooks=%s) — skipping persist (additive halt)",
-                            spec.id, list(getattr(_cur_step, "hooks", []) or []),
+                            spec.id,
+                            list(getattr(_cur_step, "hooks", []) or []),
                         )
                         output = ""
 
@@ -4961,7 +5349,10 @@ class ExecutionEngine:
                     # the declared name IS "prototype.html", so the persisted location stays
                     # byte-identical; a future non-prototype html_file workflow now persists
                     # under its own declared name instead of a wrong prototype location.
-                    _html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                    _html_loc = (
+                        getattr(getattr(ectx, "deliverable", None), "name", None)
+                        or "prototype.html"
+                    )
                     _location = (
                         _html_loc
                         if _kind == "html_file"
@@ -5011,18 +5402,28 @@ class ExecutionEngine:
                 # (an agent that streams instead of writing yielding a silently empty
                 # deliverable).
                 _fallback_filename = self._check_artifact_fallback(
-                    ectx, spec.id, output, sandbox, user_message,
+                    ectx,
+                    spec.id,
+                    output,
+                    sandbox,
+                    user_message,
                     deliverable_filename=self._deliverable_filename_override(
-                        ectx, index, ordered_agents,
+                        ectx,
+                        index,
+                        ordered_agents,
                     ),
                 )
                 if _fallback_filename:
                     _log_event(
-                        "artifact_fallback", pipeline_run_id,
-                        agent_id=spec.id, filename=_fallback_filename,
+                        "artifact_fallback",
+                        pipeline_run_id,
+                        agent_id=spec.id,
+                        filename=_fallback_filename,
                     )
                     RunLog(getattr(sandbox, "root", None)).write(
-                        "artifact_fallback", agent_id=spec.id, filename=_fallback_filename,
+                        "artifact_fallback",
+                        agent_id=spec.id,
+                        filename=_fallback_filename,
                     )
                     yield {
                         "type": "artifact_fallback",
@@ -5031,46 +5432,67 @@ class ExecutionEngine:
 
                 duration = time.time() - agent_start
                 agent_total_tokens = agent_input_tokens + agent_output_tokens
-                results.append({
-                    "agent_id": spec.id, "name": spec.name, "role": spec.role,
-                    "icon": spec.icon, "output": output, "duration": duration,
-                    "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
-                    "total_tokens": agent_total_tokens,
-                    # ISS-032: per-agent prompt-cache split (summed into the run totals
-                    # below; 0 under the scripted characterization model).
-                    "cache_read_tokens": agent_cache_read_tokens,
-                    "cache_write_tokens": agent_cache_write_tokens,
-                    # ISS-028: the task identity of THIS completed invocation ("" for a
-                    # single_shot agent) so the terminal degraded decision can subtract
-                    # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
-                    # An internal-only field — results never reaches the wire / a snapshot
-                    # (the WS layer builds its agent_outputs from EVENTS, and every reader
-                    # of ``results`` uses .get()/["output"]/["agent_id"]/len), so INV-3
-                    # byte-parity is unaffected.
-                    "task_number": getattr(ectx, "build_task_number", "") or "",
-                })
-                _log_event("agent_complete", pipeline_run_id, agent_id=spec.id,
-                           duration_ms=duration * 1000)
+                results.append(
+                    {
+                        "agent_id": spec.id,
+                        "name": spec.name,
+                        "role": spec.role,
+                        "icon": spec.icon,
+                        "output": output,
+                        "duration": duration,
+                        "input_tokens": agent_input_tokens,
+                        "output_tokens": agent_output_tokens,
+                        "total_tokens": agent_total_tokens,
+                        # ISS-032: per-agent prompt-cache split (summed into the run totals
+                        # below; 0 under the scripted characterization model).
+                        "cache_read_tokens": agent_cache_read_tokens,
+                        "cache_write_tokens": agent_cache_write_tokens,
+                        # ISS-028: the task identity of THIS completed invocation ("" for a
+                        # single_shot agent) so the terminal degraded decision can subtract
+                        # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
+                        # An internal-only field — results never reaches the wire / a snapshot
+                        # (the WS layer builds its agent_outputs from EVENTS, and every reader
+                        # of ``results`` uses .get()/["output"]/["agent_id"]/len), so INV-3
+                        # byte-parity is unaffected.
+                        "task_number": getattr(ectx, "build_task_number", "") or "",
+                    }
+                )
+                _log_event(
+                    "agent_complete",
+                    pipeline_run_id,
+                    agent_id=spec.id,
+                    duration_ms=duration * 1000,
+                )
                 RunLog(getattr(sandbox, "root", None)).write(
-                    "step_end", agent_id=spec.id, model=_resolved_model_id,
-                    tokens_in=agent_input_tokens, tokens_out=agent_output_tokens,
+                    "step_end",
+                    agent_id=spec.id,
+                    model=_resolved_model_id,
+                    tokens_in=agent_input_tokens,
+                    tokens_out=agent_output_tokens,
                 )
                 yield {
                     "type": "agent_complete",
-                    "data": {"agent_id": spec.id, "name": spec.name, "duration": round(duration, 2),
-                             "output_length": len(output), "index": index, "total": len(ordered_agents),
-                             "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
-                             "total_tokens": agent_total_tokens,
-                             # CWF-002 (fix a): the per-agent RESOLVED primary model id (captured
-                             # at :3055, the id the MODEL-02 fallback chain is armed on) — makes the
-                             # effective model queryable in the live stream. Reuses the existing
-                             # _VOLATILE_STRIP_KEYS "model_id" entry, so the 5 characterization
-                             # goldens stay byte/event-identical (INV-3) with no _normalize edit.
-                             "model_id": _resolved_model_id,
-                             # ISS-032: per-agent cache split (stripped by _VOLATILE_STRIP_KEYS,
-                             # golden-neutral; the WS collector sums these into the run totals).
-                             "cache_read_tokens": agent_cache_read_tokens,
-                             "cache_write_tokens": agent_cache_write_tokens},
+                    "data": {
+                        "agent_id": spec.id,
+                        "name": spec.name,
+                        "duration": round(duration, 2),
+                        "output_length": len(output),
+                        "index": index,
+                        "total": len(ordered_agents),
+                        "input_tokens": agent_input_tokens,
+                        "output_tokens": agent_output_tokens,
+                        "total_tokens": agent_total_tokens,
+                        # CWF-002 (fix a): the per-agent RESOLVED primary model id (captured
+                        # at :3055, the id the MODEL-02 fallback chain is armed on) — makes the
+                        # effective model queryable in the live stream. Reuses the existing
+                        # _VOLATILE_STRIP_KEYS "model_id" entry, so the 5 characterization
+                        # goldens stay byte/event-identical (INV-3) with no _normalize edit.
+                        "model_id": _resolved_model_id,
+                        # ISS-032: per-agent cache split (stripped by _VOLATILE_STRIP_KEYS,
+                        # golden-neutral; the WS collector sums these into the run totals).
+                        "cache_read_tokens": agent_cache_read_tokens,
+                        "cache_write_tokens": agent_cache_write_tokens,
+                    },
                 }
 
                 # ── Human_Gate: pause for user review if agent declares gate ──
@@ -5111,11 +5533,16 @@ class ExecutionEngine:
                             # Guard: only transition if not already in a terminal state
                             current = self._state_machine.get_state(pipeline_run_id)
                             if current not in ("cancelled", "failed"):
-                                self._state_machine.transition(pipeline_run_id, "cancelled")
-                            yield {"type": "pipeline_cancelled", "data": {
-                                "pipeline_run_id": pipeline_run_id,
-                                "reason": f"User rejected output from {spec.name}",
-                            }}
+                                self._state_machine.transition(
+                                    pipeline_run_id, "cancelled"
+                                )
+                            yield {
+                                "type": "pipeline_cancelled",
+                                "data": {
+                                    "pipeline_run_id": pipeline_run_id,
+                                    "reason": f"User rejected output from {spec.name}",
+                                },
+                            }
                             return
                         elif gate_event.get("type") == "_gate_edited":
                             # User edited the output.
@@ -5125,11 +5552,18 @@ class ExecutionEngine:
                             if edited:
                                 _ek = self._artifact_kind_for(spec)
                                 # WR-01 de-hardcode: declared deliverable name for html_file.
-                                _ek_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                                _ek_html_loc = (
+                                    getattr(
+                                        getattr(ectx, "deliverable", None), "name", None
+                                    )
+                                    or "prototype.html"
+                                )
                                 # RESUME-15: stamp lineage to the version this edit
                                 # supersedes (resolved BEFORE the write == prior max).
                                 # None on a first-ever write ⇒ byte-identical (INV-3).
-                                _prior_ref = self._latest_typed_ref_id(ectx, spec.id, _ek)
+                                _prior_ref = self._latest_typed_ref_id(
+                                    ectx, spec.id, _ek
+                                )
                                 await self._dual_write_artifact(
                                     ectx,
                                     producer_agent=spec.id,
@@ -5154,10 +5588,15 @@ class ExecutionEngine:
                             # lineage to it, and (ISS-086) the re-run's PROMPT carries
                             # that same version as its subject. Keyed on the GENERIC
                             # event type (SC-001); the body is the ONE shared consumer.
-                            (redo_directive, redo_derived_from,
-                             redo_prior_artifact) = await self._consume_redo(
-                                gate_event=gate_event, spec=spec,
-                                results=results, ectx=ectx,
+                            (
+                                redo_directive,
+                                redo_derived_from,
+                                redo_prior_artifact,
+                            ) = await self._consume_redo(
+                                gate_event=gate_event,
+                                spec=spec,
+                                results=results,
+                                ectx=ectx,
                             )
                             redo_attempt += 1  # next re-run gets a FRESH checkpoint thread (:redo{N})
                             break  # leave the gate consumer; the while-loop re-runs
@@ -5178,13 +5617,22 @@ class ExecutionEngine:
                             spec_revision_attempt += 1
                             _us_cancelled = False
                             async for _us_event in self._consume_update_specs(
-                                gate_event=gate_event, spec=spec, index=index,
-                                ordered_agents=ordered_agents, user_message=user_message,
-                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
-                                pipeline_type=pipeline_type, planning_context=planning_context,
-                                attached_skills=attached_skills, attached_hooks=attached_hooks,
-                                model_id=model_id, results=results, cancel_event=cancel_event,
-                                ectx=ectx, revision_index=spec_revision_attempt,
+                                gate_event=gate_event,
+                                spec=spec,
+                                index=index,
+                                ordered_agents=ordered_agents,
+                                user_message=user_message,
+                                sandbox=sandbox,
+                                pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type,
+                                planning_context=planning_context,
+                                attached_skills=attached_skills,
+                                attached_hooks=attached_hooks,
+                                model_id=model_id,
+                                results=results,
+                                cancel_event=cancel_event,
+                                ectx=ectx,
+                                revision_index=spec_revision_attempt,
                             ):
                                 if _us_event.get("type") == "_update_specs_done":
                                     _us_cancelled = bool(_us_event.get("cancelled"))
@@ -5211,37 +5659,64 @@ class ExecutionEngine:
                 raise
             except (FileNotFoundError, PermissionError) as exc:
                 # Missing AGENT.md or template — fatal
-                _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
-                RunLog(getattr(sandbox, "root", None)).write("agent_error", agent_id=spec.id, error=str(exc))
+                _log_event(
+                    "agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc)
+                )
+                RunLog(getattr(sandbox, "root", None)).write(
+                    "agent_error", agent_id=spec.id, error=str(exc)
+                )
                 # ISS-028: unrecovered (agent_id, task_number) failure — no results.append.
                 self._record_failed_invocation(ectx, spec.id)
-                yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": False}}
+                yield {
+                    "type": "agent_error",
+                    "data": {
+                        "agent_id": spec.id,
+                        "error": str(exc),
+                        "recoverable": False,
+                    },
+                }
                 return  # REDO-GATE: terminate the redo while-loop (no re-run on a fatal error)
             except Exception as exc:
                 # If the run is already in a terminal state (cancelled/failed), don't
                 # treat this as a recoverable error — re-raise so the pipeline stops.
                 from agents.execution_engine.state_machine import StateMachineError
+
                 if isinstance(exc, StateMachineError):
                     current = self._state_machine.get_state(pipeline_run_id)
                     if current in ("cancelled", "failed"):
                         logger.info(
                             "Agent %s: pipeline already in terminal state=%s — stopping",
-                            spec.id, current,
+                            spec.id,
+                            current,
                         )
                         return  # Stop the agent loop cleanly
                 logger.exception("Agent %s failed", spec.id)
-                _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
-                RunLog(getattr(sandbox, "root", None)).write("agent_error", agent_id=spec.id, error=str(exc))
+                _log_event(
+                    "agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc)
+                )
+                RunLog(getattr(sandbox, "root", None)).write(
+                    "agent_error", agent_id=spec.id, error=str(exc)
+                )
                 # ISS-028: unrecovered (agent_id, task_number) failure — this handler
                 # writes an [Error:…] placeholder but never appends to results.
                 self._record_failed_invocation(ectx, spec.id)
-                yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": True}}
+                yield {
+                    "type": "agent_error",
+                    "data": {
+                        "agent_id": spec.id,
+                        "error": str(exc),
+                        "recoverable": True,
+                    },
+                }
                 # Typed-write the error placeholder so a downstream consumer reading from
                 # the typed graph sees it (the SOLE artifact path since 05-07; parity).
                 _err_output = f"[Error: {exc}]"
                 _erk = self._artifact_kind_for(spec)
                 # WR-01 de-hardcode: declared deliverable name for html_file.
-                _erk_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                _erk_html_loc = (
+                    getattr(getattr(ectx, "deliverable", None), "name", None)
+                    or "prototype.html"
+                )
                 await self._dual_write_artifact(
                     ectx,
                     producer_agent=spec.id,
@@ -5249,7 +5724,9 @@ class ExecutionEngine:
                     content=_err_output,
                     kind=_erk,
                     location=(
-                        _erk_html_loc if _erk == "html_file" else f"artifact_refs/{spec.id}"
+                        _erk_html_loc
+                        if _erk == "html_file"
+                        else f"artifact_refs/{spec.id}"
                     ),
                 )
                 return  # REDO-GATE: terminate the redo while-loop after an errored run
@@ -5331,7 +5808,9 @@ class ExecutionEngine:
         if not html_path.is_file():
             logger.warning(
                 "Validation: task %d/%d wrote no %s — skipping validation",
-                task_num, total_tasks, filename,
+                task_num,
+                total_tasks,
+                filename,
             )
             return
 
@@ -5344,9 +5823,14 @@ class ExecutionEngine:
             try:
                 rres = await render_check(html_path)
             except Exception as exc:  # noqa: BLE001 — render harness must never crash the build
-                logger.warning("Validation: render_check raised (%s) — treating as skipped", exc)
+                logger.warning(
+                    "Validation: render_check raised (%s) — treating as skipped", exc
+                )
                 from app.agents.render_check import RenderResult
-                rres = RenderResult(ok=True, available=False, note=f"render_check error: {exc}")
+
+                rres = RenderResult(
+                    ok=True, available=False, note=f"render_check error: {exc}"
+                )
 
             # Route render availability through the SINGLE policy helper (RENDER-SEAM).
             # ``status == "ok"`` iff the render ran; a skip (blocked/allowed) never
@@ -5361,22 +5845,31 @@ class ExecutionEngine:
                 logger.info(
                     "Validation: task %d/%d render skipped (%s) — status=%s "
                     "(require_render=%s); not opening a fix thread for it",
-                    task_num, total_tasks, rres.summary(), _render_status,
+                    task_num,
+                    total_tasks,
+                    rres.summary(),
+                    _render_status,
                     bool(require_render),
                 )
             # The fix-list (pure selection). With empty baselines this is byte-
             # identical to today's build ``error_lines`` and ``bool(...)`` of it
             # equals today's ``(not sres.ok) or render_failed`` (see docstring).
             error_lines = _select_issues_to_fix(
-                sres, rres, baseline_static, baseline_console,
+                sres,
+                rres,
+                baseline_static,
+                baseline_console,
                 require_render=bool(require_render),
             )
             failing = bool(error_lines)
 
             logger.info(
                 "Validation: task %d/%d attempt %d — static=%s render=%s%s",
-                task_num, total_tasks, attempt,
-                sres.summary(), rres.summary(),
+                task_num,
+                total_tasks,
+                attempt,
+                sres.summary(),
+                rres.summary(),
                 " (render skipped)" if render_skipped else "",
             )
 
@@ -5392,8 +5885,7 @@ class ExecutionEngine:
                         residual.extend(rres.console_errors)
                         residual.extend(rres.page_errors)
                         residual.extend(
-                            _dead_nav_line(n)
-                            for n in rres.nav_results if not n.ok
+                            _dead_nav_line(n) for n in rres.nav_results if not n.ok
                         )
                         residual.extend(getattr(rres, "coverage_errors", None) or [])
                 else:
@@ -5402,7 +5894,10 @@ class ExecutionEngine:
                 logger.warning(
                     "Validation: task %d/%d still failing after %d fix attempt(s) — "
                     "continuing build. Residual issues: %s",
-                    task_num, total_tasks, max_attempts, "; ".join(residual) or "(none)",
+                    task_num,
+                    total_tasks,
+                    max_attempts,
+                    "; ".join(residual) or "(none)",
                 )
                 return
 
@@ -5416,11 +5911,11 @@ class ExecutionEngine:
                     f"=== VALIDATION ERRORS (fix {filename}) ===\n"
                     f"The prototype you built for task {task_num} of {total_tasks} failed "
                     f"validation. Read the current {filename} with "
-                    f"read_file(file_path=\"{filename}\") and apply MINIMAL "
-                    f"edit_file(file_path=\"{filename}\", ...) changes to fix ONLY "
+                    f'read_file(file_path="{filename}") and apply MINIMAL '
+                    f'edit_file(file_path="{filename}", ...) changes to fix ONLY '
                     f"the issues listed below. Do NOT rebuild the document, do NOT add "
                     f"new pages, do NOT touch anything unrelated to these errors. You "
-                    f"may read_file(\"spec.md\") / read_file(\"design.md\") for reference.\n\n"
+                    f'may read_file("spec.md") / read_file("design.md") for reference.\n\n'
                     + "\n".join(f"- {e}" for e in error_lines)
                     + "\n=== END VALIDATION ERRORS ==="
                 )
@@ -5430,16 +5925,16 @@ class ExecutionEngine:
                 fix_message = (
                     f"=== VALIDATION ERRORS (fix {filename}) ===\n"
                     f"The user asked you to revise this prototype:\n"
-                    f"\"{user_instruction}\"\n\n"
+                    f'"{user_instruction}"\n\n'
                     f"You revised this prototype to satisfy that request — keep that "
                     f"change intact. Now fix ONLY the issues listed below (they were "
                     f"introduced by your edit, or they stop the page rendering / "
                     f"displaying content); do not touch anything unrelated.\n\n"
                     f"Read the current {filename} with "
-                    f"read_file(file_path=\"{filename}\") and apply MINIMAL "
-                    f"edit_file(file_path=\"{filename}\", ...) changes. Do NOT "
+                    f'read_file(file_path="{filename}") and apply MINIMAL '
+                    f'edit_file(file_path="{filename}", ...) changes. Do NOT '
                     f"rebuild the document and do NOT undo the requested change. You "
-                    f"may read_file(\"spec.md\") / read_file(\"design.md\") for the "
+                    f'may read_file("spec.md") / read_file("design.md") for the '
                     f"original requirements + design system if present.\n\n"
                     + "\n".join(f"- {e}" for e in error_lines)
                     + "\n=== END VALIDATION ERRORS ==="
@@ -5447,7 +5942,11 @@ class ExecutionEngine:
 
             logger.info(
                 "Validation: task %d/%d FAILING — internal fix attempt %d/%d (%d issue(s))",
-                task_num, total_tasks, attempt, max_attempts, len(error_lines),
+                task_num,
+                total_tasks,
+                attempt,
+                max_attempts,
+                len(error_lines),
             )
 
             # Re-invoke the sub-agent on a distinct fix thread; drive its stream
@@ -5481,8 +5980,10 @@ class ExecutionEngine:
                             {
                                 "input_tokens": _ev.get("input_tokens", 0) or 0,
                                 "output_tokens": _ev.get("output_tokens", 0) or 0,
-                                "cache_read_tokens": _ev.get("cache_read_tokens", 0) or 0,
-                                "cache_write_tokens": _ev.get("cache_write_tokens", 0) or 0,
+                                "cache_read_tokens": _ev.get("cache_read_tokens", 0)
+                                or 0,
+                                "cache_write_tokens": _ev.get("cache_write_tokens", 0)
+                                or 0,
                             }
                         )
                     if cancel_event and cancel_event.is_set():
@@ -5494,7 +5995,10 @@ class ExecutionEngine:
             except Exception as exc:  # noqa: BLE001 — a fix failure must not abort the build
                 logger.warning(
                     "Validation: task %d/%d fix attempt %d errored (%s) — continuing",
-                    task_num, total_tasks, attempt, exc,
+                    task_num,
+                    total_tasks,
+                    attempt,
+                    exc,
                 )
                 return
             # Loop back to re-validate the (possibly) fixed prototype.html.
@@ -5631,7 +6135,9 @@ class ExecutionEngine:
             except Exception as exc:  # noqa: BLE001 — a hook must never abort the run
                 logger.warning(
                     "hook %r on event %s raised (%s) — treating as continue",
-                    getattr(hook, "name", "?"), event_name, exc,
+                    getattr(hook, "name", "?"),
+                    event_name,
+                    exc,
                 )
                 continue
             outcome = getattr(result, "outcome", HOOK_CONTINUE)
@@ -5723,11 +6229,15 @@ class ExecutionEngine:
             # even when the user deselected all gates in the wizard, because
             # _should_gate returns False → inline_gated=False → the dedupe only
             # fires on the inline path, not on the user-deselect path.
-            if name == "human" and phase == "pre" and (
-                inline_gated
-                or (
-                    ectx.gate_agent_ids is not None
-                    and getattr(step, "agent_id", None) not in ectx.gate_agent_ids
+            if (
+                name == "human"
+                and phase == "pre"
+                and (
+                    inline_gated
+                    or (
+                        ectx.gate_agent_ids is not None
+                        and getattr(step, "agent_id", None) not in ectx.gate_agent_ids
+                    )
                 )
             ):
                 logger.info(
@@ -5782,13 +6292,17 @@ class ExecutionEngine:
                     logger.warning(
                         "gate %r on step %s raised (%s) — FAIL-CLOSED: "
                         "treating as gate_blocked (WR-07)",
-                        name, getattr(step, "agent_id", "?"), exc,
+                        name,
+                        getattr(step, "agent_id", "?"),
+                        exc,
                     )
                     yield None, "block", {"gate": name, "reason": f"gate error: {exc}"}
                     return
                 logger.warning(
                     "gate %r on step %s raised (%s) — treating as pass",
-                    name, getattr(step, "agent_id", "?"), exc,
+                    name,
+                    getattr(step, "agent_id", "?"),
+                    exc,
                 )
                 continue
             # ── WR-03 (13 review fix): HITL rejection cancels the RUN ─────────
@@ -5851,7 +6365,8 @@ class ExecutionEngine:
         if prev_spec is None:
             logger.warning(
                 "declared-gate edit: no spec found for upstream agent %r — "
-                "edit dropped (WR-04)", prev_id,
+                "edit dropped (WR-04)",
+                prev_id,
             )
             return
         _ek = self._artifact_kind_for(prev_spec)
@@ -5966,7 +6481,8 @@ class ExecutionEngine:
             logger.warning(
                 "Spec revision sub-pipeline: agent %s at index %d < 2 — cannot "
                 "find predecessor specify/plan agents; skipping sub-pipeline",
-                spec.id, index,
+                spec.id,
+                index,
             )
             return
 
@@ -5981,7 +6497,9 @@ class ExecutionEngine:
         # — that is the whole guarantee that no two passes mint the same :rev{N}.
         # First cycle: high-water 0, revision_index 1 → 1 > 0 → 1 ⇒ :rev1 unchanged (INV-3).
         _prev_high = getattr(ectx, "revision_high_water", 0)
-        effective_index = revision_index if revision_index > _prev_high else _prev_high + 1
+        effective_index = (
+            revision_index if revision_index > _prev_high else _prev_high + 1
+        )
         ectx.revision_high_water = effective_index
 
         # Capture the state THIS pass is about to overwrite, so the finally can restore it
@@ -6050,8 +6568,13 @@ class ExecutionEngine:
                 ):
                     # Propagate all events except internal gate signals upstream.
                     evt_type = event.get("type", "")
-                    if evt_type in ("_gate_rejected", "_gate_edited", "_gate_redo",
-                                    "_gate_update_specs", "_revision_analyze_output"):
+                    if evt_type in (
+                        "_gate_rejected",
+                        "_gate_edited",
+                        "_gate_redo",
+                        "_gate_update_specs",
+                        "_revision_analyze_output",
+                    ):
                         # If a nested gate signals rejection, propagate it and abort.
                         if evt_type == "_gate_rejected":
                             yield event
@@ -6131,17 +6654,21 @@ class ExecutionEngine:
         if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
             try:
                 await _us_runner.record_gate_event(
-                    spec.id, "human", "update_specs",
+                    spec.id,
+                    "human",
+                    "update_specs",
                     {"has_report": bool(analysis_report)},
                 )
             except Exception:  # noqa: BLE001 — audit never aborts a run
                 logger.debug(
                     "update_specs audit row failed for agent %s (ignored)",
-                    spec.id, exc_info=True,
+                    spec.id,
+                    exc_info=True,
                 )
         logger.info(
             "Spec revision sub-pipeline: pipeline=%s attempt=%d",
-            pipeline_run_id, revision_index,
+            pipeline_run_id,
+            revision_index,
         )
 
         # Run specify → plan → analyze with the analysis report injected as revision
@@ -6173,10 +6700,13 @@ class ExecutionEngine:
                 current = self._state_machine.get_state(pipeline_run_id)
                 if current not in ("cancelled", "failed"):
                     self._state_machine.transition(pipeline_run_id, "cancelled")
-                yield {"type": "pipeline_cancelled", "data": {
-                    "pipeline_run_id": pipeline_run_id,
-                    "reason": "Cancelled during spec revision sub-pipeline",
-                }}
+                yield {
+                    "type": "pipeline_cancelled",
+                    "data": {
+                        "pipeline_run_id": pipeline_run_id,
+                        "reason": "Cancelled during spec revision sub-pipeline",
+                    },
+                }
                 yield {"type": "_update_specs_done", "cancelled": True}
                 return
             else:
@@ -6231,8 +6761,7 @@ class ExecutionEngine:
         directive = gate_event.get("instructions") or ""
         kind = self._artifact_kind_for(spec)
         cands = [
-            r for r in ectx.artifacts.list_by_kind(kind)
-            if r.producer_agent == spec.id
+            r for r in ectx.artifacts.list_by_kind(kind) if r.producer_agent == spec.id
         ]
         latest = max(cands, key=lambda r: r.version) if cands else None
         derived_from = latest.id if latest is not None else None
@@ -6255,13 +6784,16 @@ class ExecutionEngine:
         if _runner is not None and hasattr(_runner, "record_gate_event"):
             try:
                 await _runner.record_gate_event(
-                    spec.id, "human", "redo",
+                    spec.id,
+                    "human",
+                    "redo",
                     {"has_instructions": bool(directive)},
                 )
             except Exception:  # noqa: BLE001 — audit never aborts a run
                 logger.debug(
                     "redo audit row failed for agent %s (ignored)",
-                    spec.id, exc_info=True,
+                    spec.id,
+                    exc_info=True,
                 )
         return directive, derived_from, prior_artifact
 
@@ -6327,13 +6859,17 @@ class ExecutionEngine:
         if current_state in ("cancelled", "failed"):
             logger.info(
                 "Review gate skipped: pipeline=%s agent=%s already in terminal state=%s",
-                pipeline_run_id, agent_id, current_state,
+                pipeline_run_id,
+                agent_id,
+                current_state,
             )
             yield {"type": "_gate_rejected"}
             return
 
         self._state_machine.transition(pipeline_run_id, "waiting_for_user")
-        logger.info("Review gate opened: pipeline=%s agent=%s", pipeline_run_id, agent_id)
+        logger.info(
+            "Review gate opened: pipeline=%s agent=%s", pipeline_run_id, agent_id
+        )
 
         yield {
             "type": "review_gate_ready",
@@ -6385,7 +6921,8 @@ class ExecutionEngine:
                     # Cancel fired before the user responded — bail out.
                     logger.info(
                         "Review gate cancelled: pipeline=%s agent=%s — cancel_event set",
-                        pipeline_run_id, agent_id,
+                        pipeline_run_id,
+                        agent_id,
                     )
                     yield {"type": "_gate_rejected"}
                     return
@@ -6411,7 +6948,9 @@ class ExecutionEngine:
                 self._state_machine.transition(pipeline_run_id, "generating")
                 logger.info(
                     "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
-                    pipeline_run_id, agent_id, bool(instructions),
+                    pipeline_run_id,
+                    agent_id,
+                    bool(instructions),
                 )
                 yield {"type": "_gate_redo", "instructions": instructions or ""}
                 return
@@ -6445,7 +6984,9 @@ class ExecutionEngine:
                         "Review gate update_specs REFUSED: pipeline=%s agent=%s "
                         "kind=%s — this firing published update_specs_eligible=False; "
                         "gate stays open (ISS-053)",
-                        pipeline_run_id, agent_id, artifact_kind,
+                        pipeline_run_id,
+                        agent_id,
+                        artifact_kind,
                     )
                     event.clear()
                     continue
@@ -6453,7 +6994,9 @@ class ExecutionEngine:
                 analysis_report = instructions or ""
                 logger.info(
                     "Review gate update_specs: pipeline=%s agent=%s has_report=%s",
-                    pipeline_run_id, agent_id, bool(analysis_report),
+                    pipeline_run_id,
+                    agent_id,
+                    bool(analysis_report),
                 )
                 yield {"type": "_gate_update_specs", "analysis_report": analysis_report}
                 return
@@ -6466,7 +7009,10 @@ class ExecutionEngine:
             self._state_machine.transition(pipeline_run_id, "generating")
         logger.info(
             "Review gate closed: pipeline=%s agent=%s approved=%s edited=%s",
-            pipeline_run_id, agent_id, approved, edited_content is not None,
+            pipeline_run_id,
+            agent_id,
+            approved,
+            edited_content is not None,
         )
 
         if not approved:
@@ -6503,7 +7049,9 @@ class ExecutionEngine:
         from datetime import datetime, timezone
 
         start = datetime.now(timezone.utc)
-        logger.info("ExecutionEngine.restore_non_terminal_runs: scanning for paused runs…")
+        logger.info(
+            "ExecutionEngine.restore_non_terminal_runs: scanning for paused runs…"
+        )
 
         try:
             from app.models.database import SessionLocal
@@ -6576,13 +7124,16 @@ class ExecutionEngine:
                             # mirroring _is_resumable_in_flight's owner derivation).
                             try:
                                 _owner_id = (
-                                    wr.owner_id or wr.user_id
+                                    wr.owner_id
+                                    or wr.user_id
                                     or f"anon:{wr.session_id or wr.id}"
                                 )
                                 _gate_store = ScopedStore(
                                     owner_id=_owner_id, workspace_id=wr.workspace_id
                                 )
-                                _rows = await _gate_store.read_events(wr.id, after_seq=0)
+                                _rows = await _gate_store.read_events(
+                                    wr.id, after_seq=0
+                                )
                             except Exception:  # noqa: BLE001 — no durable substrate
                                 _rows = []
                             open_kind, open_gate_key = derive_open_gate(_rows)
@@ -6618,7 +7169,8 @@ class ExecutionEngine:
                                             logger.warning(
                                                 "re-arm queue registration failed for "
                                                 "%s: %s",
-                                                pipeline_run_id, _q_exc,
+                                                pipeline_run_id,
+                                                _q_exc,
                                             )
                                     # Spawn the DISTINCT re-arm driver (NOT resume_run —
                                     # the KAN-88 spy; the driver ≠ resume_run is what keeps
@@ -6636,14 +7188,16 @@ class ExecutionEngine:
                                             logger.warning(
                                                 "re-arm task registration failed for "
                                                 "%s: %s",
-                                                pipeline_run_id, _reg_exc,
+                                                pipeline_run_id,
+                                                _reg_exc,
                                             )
                                     restored += 1
                                 except Exception as _arm_exc:  # noqa: BLE001 — fail-safe
                                     logger.warning(
                                         "branch (a) re-arm failed for %s: %s — falling "
                                         "back to WR-05 fail",
-                                        pipeline_run_id, _arm_exc,
+                                        pipeline_run_id,
+                                        _arm_exc,
                                     )
                                     wr.status = "failed"
                                     wr.error = (
@@ -6676,8 +7230,12 @@ class ExecutionEngine:
                         # Gate-parked runs NEVER hold the semaphore (resume_run only
                         # acquires it around the actual model call, not the whole
                         # lifespan), so this cannot deadlock.
-                        if not hasattr(self, "_restore_sem") or self._restore_sem is None:
+                        if (
+                            not hasattr(self, "_restore_sem")
+                            or self._restore_sem is None
+                        ):
                             from app.core.config import settings as _cfg
+
                             self._restore_sem = _asyncio.Semaphore(
                                 _cfg.RESTORE_ADMISSION_CONCURRENCY
                             )
@@ -6688,6 +7246,7 @@ class ExecutionEngine:
                         _stagger_s: float
                         try:
                             from app.core.config import settings as _cfg2
+
                             _stagger_s = _cfg2.RESTORE_ADMISSION_STAGGER_SECONDS
                             _concurrency = _cfg2.RESTORE_ADMISSION_CONCURRENCY
                         except Exception:
@@ -6731,13 +7290,11 @@ class ExecutionEngine:
                                 self._resume_register_queue(pipeline_run_id)
                             except Exception as _q_exc:  # noqa: BLE001
                                 logger.warning(
-                                    "resume queue registration failed for "
-                                    "%s: %s",
-                                    pipeline_run_id, _q_exc,
+                                    "resume queue registration failed for " "%s: %s",
+                                    pipeline_run_id,
+                                    _q_exc,
                                 )
-                        _resume_task = _asyncio.create_task(
-                            _admitted_resume()
-                        )
+                        _resume_task = _asyncio.create_task(_admitted_resume())
                         # ── 12-09 Gap 2a: register the resume DRIVER task in the
                         # WS pipeline registry via the injected bridge so a
                         # reconnect during the resumed run sees a live task and
@@ -6751,7 +7308,8 @@ class ExecutionEngine:
                             except Exception as _reg_exc:  # noqa: BLE001
                                 logger.warning(
                                     "resume task registration failed for %s: %s",
-                                    pipeline_run_id, _reg_exc,
+                                    pipeline_run_id,
+                                    _reg_exc,
                                 )
                         resumed += 1
                     else:
@@ -6775,7 +7333,10 @@ class ExecutionEngine:
                     "restore_non_terminal_runs: restored %d resumable run(s), "
                     "auto-resumed %d in-flight run(s), marked %d abandoned run(s) "
                     "failed, in %.2fs",
-                    restored, resumed, abandoned, elapsed,
+                    restored,
+                    resumed,
+                    abandoned,
+                    elapsed,
                 )
             finally:
                 db.close()
@@ -6845,7 +7406,8 @@ class ExecutionEngine:
                     self._resume_live_ectx_unregister(run_id)
                 except Exception:  # noqa: BLE001 — teardown never masks the outcome
                     logger.warning(
-                        "_rearm_gate_run(%s): live_ectx_unregister failed", run_id,
+                        "_rearm_gate_run(%s): live_ectx_unregister failed",
+                        run_id,
                         exc_info=True,
                     )
 
@@ -6944,7 +7506,8 @@ class ExecutionEngine:
             # "no durable substrate" case.
             logger.error(
                 "_stamp_resume_marker(%s) exhausted seq-allocation retries: %s",
-                run_id, exc,
+                run_id,
+                exc,
             )
         except Exception as exc:  # noqa: BLE001 — the marker is best-effort audit
             logger.warning("_stamp_resume_marker(%s) failed: %s", run_id, exc)
@@ -7002,9 +7565,7 @@ class ExecutionEngine:
         # loud at the seam. Mirror ClarifyEngine.run's falsy-owner guard so the
         # contract is explicit.
         if not owner_id:
-            raise ValueError(
-                "_handle_revision requires a real owner_id (AUTHZ-03)"
-            )
+            raise ValueError("_handle_revision requires a real owner_id (AUTHZ-03)")
 
         # Owner-scoped persisted store for the cross-run parent reads + revision
         # write. owner_id is the run owner (user.id at the WS call site). No
@@ -7072,7 +7633,10 @@ class ExecutionEngine:
         # link that resolved the parent original.
         logger.info(
             "FR-014 lookup resolved: target_kind=%r resolved_kind=%r ref=%s parent_run=%s",
-            target_artifact_type, _resolved_kind, original.id, parent_run_id,
+            target_artifact_type,
+            _resolved_kind,
+            original.id,
+            parent_run_id,
         )
 
         # Version history = the owner-scoped refs list of WHICHEVER chain link
@@ -7260,22 +7824,27 @@ class ExecutionEngine:
                 new_artifact_id = await store.write_ref(_rev_ref)
                 logger.info(
                     "Revision stored: parent_run=%s type=%s new_artifact=%s planning_unavailable=%s",
-                    parent_run_id, target_artifact_type, new_artifact_id, planning_context_unavailable,
+                    parent_run_id,
+                    target_artifact_type,
+                    new_artifact_id,
+                    planning_context_unavailable,
                 )
             except Exception as exc:  # noqa: BLE001 — preserve the state_restoration_failed emit
                 # RESEARCH Open Q2 (resolved): keep the event vocabulary on a
                 # lineage-persist failure but do NOT fail the run — the dispatch
                 # already completed, and the terminal-block kind="deliverable" ref
                 # keeps FR-014 chain link 2 functional for revision-of-revision.
-                await websocket_send_fn({
-                    "type": "state_restoration_failed",
-                    "data": {
-                        "pipeline_run_id": pipeline_run_id,
-                        "parent_run_id": parent_run_id,
-                        "error": str(exc),
-                        "timestamp": _now(),
-                    },
-                })
+                await websocket_send_fn(
+                    {
+                        "type": "state_restoration_failed",
+                        "data": {
+                            "pipeline_run_id": pipeline_run_id,
+                            "parent_run_id": parent_run_id,
+                            "error": str(exc),
+                            "timestamp": _now(),
+                        },
+                    }
+                )
                 return
 
     def _build_context_sources(
@@ -7315,15 +7884,17 @@ class ExecutionEngine:
         # Dormant for downstream agents (they have prior-agent sources instead).
         # context_sources is already in _VOLATILE_STRIP_KEYS so the goldens stay
         # byte-identical (INV-3) regardless of what we add here.
-        is_first_agent = (agent_index == 0)
+        is_first_agent = agent_index == 0
         if is_first_agent:
             # User brief — always present for the first agent
             if user_message:
-                sources.append({
-                    "type": "run_input",
-                    "label": "prompt.md",
-                    "size_chars": len(user_message),
-                })
+                sources.append(
+                    {
+                        "type": "run_input",
+                        "label": "prompt.md",
+                        "size_chars": len(user_message),
+                    }
+                )
 
             # OD template and design system — present when od_context is loaded
             # (od_prototype / od_ppt runs). Read from ectx.od_context (same pattern
@@ -7334,17 +7905,21 @@ class ExecutionEngine:
             template_body = od.get("template_body") or ""
             ds_body = od.get("ds_body") or ""
             if template_id:  # show chip even if template_body empty (slug is enough)
-                sources.append({
-                    "type": "context_block",
-                    "label": f"Template: {template_id}",
-                    "size_chars": len(template_body) if template_body else 0,
-                })
+                sources.append(
+                    {
+                        "type": "context_block",
+                        "label": f"Template: {template_id}",
+                        "size_chars": len(template_body) if template_body else 0,
+                    }
+                )
             if ds_id and ds_body:
-                sources.append({
-                    "type": "context_block",
-                    "label": f"Design system: {ds_id}",
-                    "size_chars": len(ds_body),
-                })
+                sources.append(
+                    {
+                        "type": "context_block",
+                        "label": f"Design system: {ds_id}",
+                        "size_chars": len(ds_body),
+                    }
+                )
 
             # KAN-103: for revision runs ectx.od_context is None, but design.md was
             # seeded into the sandbox by the previous_run provider (from the parent
@@ -7356,9 +7931,11 @@ class ExecutionEngine:
             if not (template_id and ds_id):
                 try:
                     import re as _re
+
                     _sandbox = getattr(ectx, "_sandbox", None)
                     if _sandbox is None:
                         from app.agents.sandbox import RunSandbox as _RS
+
                         _run_id = getattr(ectx, "run_id", None)
                         _disk_p = getattr(ectx, "disk_principal", None)
                         if _run_id and _disk_p:
@@ -7368,36 +7945,50 @@ class ExecutionEngine:
                         if _design_md:
                             _tmpl_m = _re.search(
                                 r"^#\s+ACTIVE TEMPLATE\s*(?:\(([^)]+)\))?",
-                                _design_md, _re.MULTILINE
+                                _design_md,
+                                _re.MULTILINE,
                             )
-                            _tmpl_slug = (_tmpl_m.group(1) or "").strip() if _tmpl_m else ""
+                            _tmpl_slug = (
+                                (_tmpl_m.group(1) or "").strip() if _tmpl_m else ""
+                            )
                             _ds_m = _re.search(
                                 r"^#\s+ACTIVE DESIGN SYSTEM\s*(?:\(([^)]+)\))?",
-                                _design_md, _re.MULTILINE
+                                _design_md,
+                                _re.MULTILINE,
                             )
                             _ds_slug = (_ds_m.group(1) or "").strip() if _ds_m else ""
                             if _tmpl_slug and not template_id:
-                                sources.append({
-                                    "type": "context_block",
-                                    "label": f"Template: {_tmpl_slug}",
-                                    "size_chars": len(_design_md),
-                                })
+                                sources.append(
+                                    {
+                                        "type": "context_block",
+                                        "label": f"Template: {_tmpl_slug}",
+                                        "size_chars": len(_design_md),
+                                    }
+                                )
                             if _ds_slug and not ds_id:
-                                sources.append({
-                                    "type": "context_block",
-                                    "label": f"Design system: {_ds_slug}",
-                                    "size_chars": len(_design_md),
-                                })
-                        if not template_id and _sandbox.path_for("template.html").is_file():
+                                sources.append(
+                                    {
+                                        "type": "context_block",
+                                        "label": f"Design system: {_ds_slug}",
+                                        "size_chars": len(_design_md),
+                                    }
+                                )
+                        if (
+                            not template_id
+                            and _sandbox.path_for("template.html").is_file()
+                        ):
                             _tmpl_html = _sandbox.read("template.html") or ""
                             if _tmpl_html and not any(
-                                s.get("label", "").startswith("Template:") for s in sources
+                                s.get("label", "").startswith("Template:")
+                                for s in sources
                             ):
-                                sources.append({
-                                    "type": "context_block",
-                                    "label": "Template: (reference)",
-                                    "size_chars": len(_tmpl_html),
-                                })
+                                sources.append(
+                                    {
+                                        "type": "context_block",
+                                        "label": "Template: (reference)",
+                                        "size_chars": len(_tmpl_html),
+                                    }
+                                )
                 except Exception:  # noqa: BLE001 — observability, never abort agent dispatch
                     pass
 
@@ -7411,23 +8002,27 @@ class ExecutionEngine:
             _rev_html = getattr(ectx, "revision_original_html", "") or ""
             _s_tools = list(getattr(spec, "tools", []) or [])
             if _rev_html and not _s_tools:
-                sources.append({
-                    "type": "context_block",
-                    "label": "prototype.html",
-                    "size_chars": len(_rev_html),
-                })
+                sources.append(
+                    {
+                        "type": "context_block",
+                        "label": "prototype.html",
+                        "size_chars": len(_rev_html),
+                    }
+                )
 
         # ── Prior-agent outputs (inter-agent handoff sources) ─────────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
         for aid, output in consumed.items():
             prev = next((s for s in ordered_agents if s.id == aid), None)
-            sources.append({
-                "type": "summary",
-                "agent_id": aid,
-                "agent_name": prev.name if prev else aid,
-                "summary_length": len(output),
-                "full_output_length": len(output),
-            })
+            sources.append(
+                {
+                    "type": "summary",
+                    "agent_id": aid,
+                    "agent_name": prev.name if prev else aid,
+                    "summary_length": len(output),
+                    "full_output_length": len(output),
+                }
+            )
 
         # ── Revision analysis (additive, INV-1 / SC-001 compliant) ───────────────
         # When ectx.analyzer_solution is non-empty (set by the produces_solution_plan
@@ -7439,11 +8034,13 @@ class ExecutionEngine:
         # golden parity holds.
         _analyzer_solution = getattr(ectx, "analyzer_solution", "") or ""
         if _analyzer_solution and not is_first_agent:
-            sources.append({
-                "type": "context_block",
-                "label": "Revision Analysis",
-                "size_chars": len(_analyzer_solution),
-            })
+            sources.append(
+                {
+                    "type": "context_block",
+                    "label": "Revision Analysis",
+                    "size_chars": len(_analyzer_solution),
+                }
+            )
 
         return sources
 
@@ -7567,9 +8164,8 @@ class ExecutionEngine:
         index + save/restore in ``_run_spec_revision_sub_pipeline`` (T-si4-01) remain as
         defence in depth, so a nested pass would still be SAFE if it were ever reached.
         """
-        return (
-            artifact_kind in self._UPDATE_SPECS_ELIGIBLE_KINDS
-            and not getattr(ectx, "revision_attempt", 0)
+        return artifact_kind in self._UPDATE_SPECS_ELIGIBLE_KINDS and not getattr(
+            ectx, "revision_attempt", 0
         )
 
     def _stamp_revision_marks(self, ectx) -> tuple[int, bool]:
@@ -7656,7 +8252,9 @@ class ExecutionEngine:
                     "artifact_refs persist failed for run %s kind %s (%s) — "
                     "DB write degraded (offline harness / schema unavailable); "
                     "typed graph unaffected (PERSIST-02 best-effort)",
-                    ectx.run_id, kind, exc,
+                    ectx.run_id,
+                    kind,
+                    exc,
                 )
 
     def _latest_typed_content(
@@ -7716,7 +8314,9 @@ class ExecutionEngine:
                 best = ref
         return best.id if best is not None else None
 
-    async def _seed_gate_reentry_attempts(self, ectx: ExecutionContext, spec) -> tuple[int, int]:
+    async def _seed_gate_reentry_attempts(
+        self, ectx: ExecutionContext, spec
+    ) -> tuple[int, int]:
         """RESUME-17 (A2): seed ``(redo_attempt, spec_revision_attempt)`` FAIL-SAFE HIGH.
 
         On a post-restart gate re-entry the loop locals reset to 0, but a redo /
@@ -7759,14 +8359,16 @@ class ExecutionEngine:
             except Exception:  # noqa: BLE001 — an audit read must never abort a resume
                 logger.debug(
                     "gate-reentry: read_gate_events failed for %s (ignored)",
-                    spec.id, exc_info=True,
+                    spec.id,
+                    exc_info=True,
                 )
         # (2) durable typed-artifact version count for this agent+kind.
         version_count = 0
         try:
             version_count = len(
                 [
-                    r for r in ectx.artifacts.list_by_kind(_kind)
+                    r
+                    for r in ectx.artifacts.list_by_kind(_kind)
                     if r.producer_agent == spec.id
                 ]
             )
@@ -7792,7 +8394,9 @@ class ExecutionEngine:
     # ──────────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _apply_selections(compiled, selections: dict | None, run_agent_ids: list[str] | None = None):
+    def _apply_selections(
+        compiled, selections: dict | None, run_agent_ids: list[str] | None = None
+    ):
         """Overlay user-composed per-step selections onto the compiled plan (EMP-01).
 
         ``selections`` is the compact ``{agent_id: {validators, gates, model, retry,
@@ -7877,7 +8481,9 @@ class ExecutionEngine:
             # keeps a single entry. The model/retry overlay wins when selected.
             patch: dict = {}
             if sel.get("validators"):
-                merged_v = list(dict.fromkeys([*step.validators, *user_step.validators]))
+                merged_v = list(
+                    dict.fromkeys([*step.validators, *user_step.validators])
+                )
                 patch["validators"] = merged_v
             if user_step.gates:
                 merged_g = list(dict.fromkeys([*step.gates, *user_step.gates]))
@@ -7922,7 +8528,8 @@ class ExecutionEngine:
                         logger.warning(
                             "engine: dropping unknown per-step skill ids %s for agent "
                             "%s (not in the global skills catalog)",
-                            _dropped, step.agent_id,
+                            _dropped,
+                            step.agent_id,
                         )
                     patch["skills"] = [s for s in _merged if s in _known]
             # Fan-out levers (D3, the crux) — each fires ONLY when the user selected
@@ -7955,6 +8562,7 @@ class ExecutionEngine:
         _deliverable_override = (selections or {}).get("__deliverable__")
         if _deliverable_override and isinstance(_deliverable_override, dict):
             from agents.workflows.plan import DeliverableSpec
+
             try:
                 patched_deliverable = DeliverableSpec(**_deliverable_override)
                 # Force clarify.mode=skip: the custom composer brief already captures
@@ -8027,7 +8635,8 @@ class ExecutionEngine:
             attempt += 1
             # Snapshot existing refs for THIS step so we can identify the new one.
             before_ids = {
-                r.id for r in ectx.artifacts.tree(ectx.run_id)
+                r.id
+                for r in ectx.artifacts.tree(ectx.run_id)
                 if r.producer_agent == step_id
             }
             # KRN-006 (task.md R-04): a strategy can signal a terminal outcome
@@ -8192,7 +8801,9 @@ class ExecutionEngine:
         upstream_hashes = self._upstream_content_hashes(step, ectx)
 
         runner = getattr(ectx, "runner", None)
-        resolved_input = getattr(runner, "user_message", "") if runner is not None else ""
+        resolved_input = (
+            getattr(runner, "user_message", "") if runner is not None else ""
+        )
         task_block = getattr(ectx, "current_task_block", None)
         if task_block:
             resolved_input = f"{resolved_input}\n{task_block}"
@@ -8229,7 +8840,10 @@ class ExecutionEngine:
             payload = getattr(row, "payload_json", None) or {}
             if not isinstance(payload, dict):
                 continue
-            if payload.get("step") != step_id or payload.get("input_hash") != input_hash:
+            if (
+                payload.get("step") != step_id
+                or payload.get("input_hash") != input_hash
+            ):
                 continue
             output_ref_id = payload.get("output_ref_id")
             if not output_ref_id:
@@ -8451,16 +9065,18 @@ class ExecutionEngine:
                 if _binfo.get("restore_nothing"):
                     continue  # (iii) p==0 → this agent's deliverable is NOT restored
                 _btid = _binfo.get("boundary_task_id")
-                if _btid is not None and str(getattr(row, "task_id", None)) != str(_btid):
+                if _btid is not None and str(getattr(row, "task_id", None)) != str(
+                    _btid
+                ):
                     continue  # (ii) only the boundary task's versions are eligible
             # RESUME-16 independent orphan-fragment gate (default path leaves this
             # untouched — _wave_allow empty ⇒ dormant). Keyed on the fragment's
             # producer_step (== the wave step agent id).
             _allow = _wave_allow.get(getattr(row, "producer_step", None))
             if _allow is not None:
-                _keys = _wi_to_keys.get(
-                    getattr(row, "producer_step", None), {}
-                ).get(str(getattr(row, "task_id", None)))
+                _keys = _wi_to_keys.get(getattr(row, "producer_step", None), {}).get(
+                    str(getattr(row, "task_id", None))
+                )
                 # EXCLUDE only on an UNAMBIGUOUS resolvable join whose key is NOT in the
                 # current-key allow-set (case 2, confidently orphaned). No mapping (None)
                 # or an ambiguous (>1) map falls through to RESTORE (case 3, fail-safe).
@@ -8468,7 +9084,9 @@ class ExecutionEngine:
                     if next(iter(_keys)) not in _allow:
                         continue  # (2) confidently orphaned → not restored to disk
             prev = latest.get(location)
-            if prev is None or getattr(row, "version", 0) >= getattr(prev, "version", 0):
+            if prev is None or getattr(row, "version", 0) >= getattr(
+                prev, "version", 0
+            ):
                 latest[location] = row
         for location, row in latest.items():
             try:
@@ -8510,7 +9128,9 @@ class ExecutionEngine:
         boundaries: dict = {}
         if not completed_ordered:
             return boundaries
-        _steps_by_agent = {s.agent_id: s for s in (getattr(compiled, "steps", None) or [])}
+        _steps_by_agent = {
+            s.agent_id: s for s in (getattr(compiled, "steps", None) or [])
+        }
         for spec in ordered_agents:
             agent_id = getattr(spec, "id", None)
             done_ordered = completed_ordered.get(agent_id) if agent_id else None
@@ -8589,7 +9209,9 @@ class ExecutionEngine:
         allowsets: dict = {}
         if not completed_sets:
             return allowsets
-        _steps_by_agent = {s.agent_id: s for s in (getattr(compiled, "steps", None) or [])}
+        _steps_by_agent = {
+            s.agent_id: s for s in (getattr(compiled, "steps", None) or [])
+        }
         for spec in ordered_agents:
             agent_id = getattr(spec, "id", None)
             if not agent_id or not completed_sets.get(agent_id):
@@ -8700,7 +9322,9 @@ class ExecutionEngine:
                     if sid is None or widx is None:
                         continue
                     if status == "completed":
-                        terminal_wave_indices_by_step.setdefault(sid, set()).add(int(widx))
+                        terminal_wave_indices_by_step.setdefault(sid, set()).add(
+                            int(widx)
+                        )
                     else:
                         running_wave_steps.add(sid)
             except Exception:  # noqa: BLE001 — no durable wave evidence → treat as incomplete
@@ -9022,9 +9646,7 @@ class ExecutionEngine:
         try:
             self._resume_cleanup(run_id)
         except Exception as _cl_exc:  # noqa: BLE001 — cleanup is best-effort
-            logger.warning(
-                "resume_run(%s): bridge cleanup failed: %s", run_id, _cl_exc
-            )
+            logger.warning("resume_run(%s): bridge cleanup failed: %s", run_id, _cl_exc)
 
     def _resolve_resume_cancel_event(self, run_id: str) -> "asyncio.Event | None":
         """Resolve this run's cooperative cancel Event via the injected hook (ISS-084).
@@ -9071,7 +9693,9 @@ class ExecutionEngine:
         try:
             wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
             if wr is None:
-                logger.warning("resume_run(%s): no workflow_runs row — skipping", run_id)
+                logger.warning(
+                    "resume_run(%s): no workflow_runs row — skipping", run_id
+                )
                 # WR-01: drop the task entry registered at the create_task site.
                 self._fire_resume_cleanup(run_id)
                 return
@@ -9143,7 +9767,9 @@ class ExecutionEngine:
             if compiled.steps:
                 agents = self._specs_from_plan(compiled.steps)
         if not agents:
-            logger.warning("resume_run(%s): empty agent list — nothing to resume", run_id)
+            logger.warning(
+                "resume_run(%s): empty agent list — nothing to resume", run_id
+            )
             # WR-01: drop the task entry registered at the create_task site.
             self._fire_resume_cleanup(run_id)
             return
@@ -9158,11 +9784,16 @@ class ExecutionEngine:
 
         logger.info(
             "resume_run(%s): resuming pipeline=%s at step offset %d/%d",
-            run_id, pipeline_type, offset, len(agents),
+            run_id,
+            pipeline_type,
+            offset,
+            len(agents),
         )
         if offset >= len(agents):
             # Every step already complete — finalize without re-driving any agent.
-            logger.info("resume_run(%s): all steps complete — nothing to re-drive", run_id)
+            logger.info(
+                "resume_run(%s): all steps complete — nothing to re-drive", run_id
+            )
 
         # ── Seed the resume seq counter PAST the durable tail (CR-01 / RESUME-03) ─────
         # The pre-restart run already persisted run_events at seq 1..N (plus the
@@ -9187,7 +9818,8 @@ class ExecutionEngine:
         except Exception as exc:  # noqa: BLE001 — no durable tail → start=1 (offline)
             logger.debug(
                 "resume_run(%s): durable-tail read failed (%s) → seeding seq at 1",
-                run_id, exc,
+                run_id,
+                exc,
             )
             start = 1
 
@@ -9203,7 +9835,8 @@ class ExecutionEngine:
             except Exception as _q_exc:  # noqa: BLE001 — bridge is best-effort
                 logger.warning(
                     "resume_run(%s): live-queue registration failed: %s",
-                    run_id, _q_exc,
+                    run_id,
+                    _q_exc,
                 )
                 live_queue = None
 
@@ -9351,7 +9984,9 @@ class ExecutionEngine:
                 # the chat lane's concurrent seq allocation as a launched one, and the
                 # live push below carries data["seq"] onto the wire. Same contract as the
                 # execute() wrapper (engine.py:1065).
-                actual_seq = await sink.persist(seq, event_id, event.get("type", ""), data)
+                actual_seq = await sink.persist(
+                    seq, event_id, event.get("type", ""), data
+                )
                 if actual_seq is not None and actual_seq != seq:
                     data["seq"] = actual_seq
                     if actual_seq >= next_seq:
@@ -9423,7 +10058,8 @@ class ExecutionEngine:
                     self._resume_live_ectx_unregister(run_id)
                 except Exception:  # noqa: BLE001 — teardown must never mask the outcome
                     logger.warning(
-                        "resumed-stream drive(%s): live_ectx_unregister failed", run_id,
+                        "resumed-stream drive(%s): live_ectx_unregister failed",
+                        run_id,
                         exc_info=True,
                     )
             # BUG-R03: persist the terminal OUTPUT-bearing columns (output/agent_outputs/
@@ -9441,7 +10077,8 @@ class ExecutionEngine:
                     await self._resume_output_persist_sink(run_id)
                 except Exception:  # noqa: BLE001 — persistence must never crash the resume
                     logger.warning(
-                        "resumed-stream drive(%s): output-column persist failed", run_id,
+                        "resumed-stream drive(%s): output-column persist failed",
+                        run_id,
                         exc_info=True,
                     )
 
@@ -9537,7 +10174,8 @@ class ExecutionEngine:
             # payload). Leave the run parked untouched rather than drive an empty replay.
             logger.warning(
                 "_replay_clarify_run(%s): open gate has no durable questions — leaving "
-                "parked", run_id,
+                "parked",
+                run_id,
             )
             self._fire_resume_cleanup(run_id)
             return
@@ -9554,7 +10192,8 @@ class ExecutionEngine:
         except Exception as exc:  # noqa: BLE001 — no durable tail → start=1 (offline)
             logger.debug(
                 "_replay_clarify_run(%s): durable-tail read failed (%s) → seq 1",
-                run_id, exc,
+                run_id,
+                exc,
             )
             start = 1
 
@@ -9567,7 +10206,8 @@ class ExecutionEngine:
             except Exception as _q_exc:  # noqa: BLE001 — bridge is best-effort
                 logger.warning(
                     "_replay_clarify_run(%s): live-queue registration failed: %s",
-                    run_id, _q_exc,
+                    run_id,
+                    _q_exc,
                 )
                 live_queue = None
 
@@ -9645,7 +10285,8 @@ class ExecutionEngine:
         except Exception as exc:  # noqa: BLE001 — cannot derive offset → re-drive from 0
             logger.warning(
                 "resume_run(%s): offset computation failed (%s) → resuming from 0",
-                run_id, exc,
+                run_id,
+                exc,
             )
             return 0
 
@@ -9695,7 +10336,7 @@ class ExecutionEngine:
         generic injector), so invoking it here is harmless. Any non-ownership error
         degrades (a missing/TTL-swept parent must never break a revision).
         """
-        for name in (compiled.context_providers or []):
+        for name in compiled.context_providers or []:
             try:
                 provider = _CAPABILITY_REGISTRY.resolve("context_provider", name)
             except (KeyError, RuntimeError):
@@ -9707,7 +10348,8 @@ class ExecutionEngine:
             except Exception as exc:  # noqa: BLE001 — never break a run on a provider read
                 logger.warning(
                     "_seed_workflow_context: provider %s.load failed (%s) — continuing",
-                    name, exc,
+                    name,
+                    exc,
                 )
 
     async def _compose_context_message(
@@ -9746,23 +10388,29 @@ class ExecutionEngine:
         # gate, Task 3, does not false-match). Behavior identical: the first dispatched
         # agent (index 0) interprets the raw cross-pipeline brief; downstream agents
         # (index > 0) get the stripped clean brief.
-        is_first_agent = (len(ordered_agents) == 0 or index == 0)
+        is_first_agent = len(ordered_agents) == 0 or index == 0
         if not is_first_agent and "=== CONTEXT FROM PREVIOUS PIPELINE" in user_message:
-            clean_brief = user_message.split("\n\n=== CONTEXT FROM PREVIOUS PIPELINE")[0].strip()
+            clean_brief = user_message.split("\n\n=== CONTEXT FROM PREVIOUS PIPELINE")[
+                0
+            ].strip()
             effective_message = clean_brief
         else:
             effective_message = user_message
 
-        parts = [f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="]
+        parts = [
+            f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="
+        ]
 
         # A composed step carries its own authored prompt; when no planner actually ran the
         # "Planning Context" block is a verbatim echo of the brief above, so suppress it.
         # Registry agents declare no step prompt -> unchanged (R-16 parity, cf. :3814).
         _own_prompt = getattr(getattr(ectx, "current_step", None), "prompt", "") or ""
 
-        if (planning_context
-                and not planning_context.get("planner_timed_out")
-                and (planning_context.get("planner_ran", True) or not _own_prompt)):
+        if (
+            planning_context
+            and not planning_context.get("planner_timed_out")
+            and (planning_context.get("planner_ran", True) or not _own_prompt)
+        ):
             intent = planning_context.get("inferred_intent", "")
             constraints = planning_context.get("explicit_constraints", [])
             implicit = planning_context.get("implicit_constraints", [])
@@ -9775,17 +10423,33 @@ class ExecutionEngine:
             if intent:
                 ctx_lines.append(f"\n**Inferred Intent**: {intent}")
             if constraints:
-                ctx_lines.append("\n**Explicit Constraints**:\n" + "\n".join(f"- {c}" for c in constraints))
+                ctx_lines.append(
+                    "\n**Explicit Constraints**:\n"
+                    + "\n".join(f"- {c}" for c in constraints)
+                )
             if implicit:
-                ctx_lines.append("\n**Implicit Constraints**:\n" + "\n".join(f"- {c}" for c in implicit))
+                ctx_lines.append(
+                    "\n**Implicit Constraints**:\n"
+                    + "\n".join(f"- {c}" for c in implicit)
+                )
             if personas:
-                ctx_lines.append("\n**Inferred Personas**:\n" + "\n".join(f"- {p}" for p in personas))
+                ctx_lines.append(
+                    "\n**Inferred Personas**:\n" + "\n".join(f"- {p}" for p in personas)
+                )
             if nfrs:
-                ctx_lines.append("\n**Non-Functional Requirements**:\n" + "\n".join(f"- {n}" for n in nfrs))
+                ctx_lines.append(
+                    "\n**Non-Functional Requirements**:\n"
+                    + "\n".join(f"- {n}" for n in nfrs)
+                )
             if quality:
-                ctx_lines.append("\n**Quality Targets**:\n" + "\n".join(f"- {q}" for q in quality))
+                ctx_lines.append(
+                    "\n**Quality Targets**:\n" + "\n".join(f"- {q}" for q in quality)
+                )
             if domain_insights:
-                ctx_lines.append("\n**Domain Insights**:\n" + "\n".join(f"- {i}" for i in domain_insights))
+                ctx_lines.append(
+                    "\n**Domain Insights**:\n"
+                    + "\n".join(f"- {i}" for i in domain_insights)
+                )
             ctx_lines.append("\n## End Planning Context")
             parts.append("\n".join(ctx_lines))
 
@@ -9819,7 +10483,9 @@ class ExecutionEngine:
                 except PermissionError:
                     raise
                 except Exception as exc:  # noqa: BLE001 — a provider read must not abort the agent
-                    logger.warning("context provider %s.load failed (%s) — skipping", name, exc)
+                    logger.warning(
+                        "context provider %s.load failed (%s) — skipping", name, exc
+                    )
                     continue
                 for block_name, content in (blocks or {}).items():
                     if not content:
@@ -9843,7 +10509,9 @@ class ExecutionEngine:
                     if paren != -1:
                         base = base[:paren]
                     end_name = base.strip()
-                    parts.append(f"=== {block_name} ===\n{content}\n=== END {end_name} ===")
+                    parts.append(
+                        f"=== {block_name} ===\n{content}\n=== END {end_name} ==="
+                    )
 
         # ── Consumed upstream outputs (agnostic routing contract) ────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
@@ -9993,8 +10661,10 @@ class ExecutionEngine:
             task_num_str = ectx.build_task_number
             total_str = ectx.build_task_total
             task_block = ectx.current_task_block or ""
-            body = task_block.strip() if task_block.strip() else (
-                "Execute ONLY this task from the task list above."
+            body = (
+                task_block.strip()
+                if task_block.strip()
+                else ("Execute ONLY this task from the task list above.")
             )
             # The CURRENT TASK block carries the task text. The task_loop strategy
             # threads the compacted prototype skeleton onto ectx.current_prototype_skeleton
@@ -10077,7 +10747,9 @@ class ExecutionEngine:
             except PermissionError:
                 raise
             except Exception as exc:  # noqa: BLE001 — a provider read must not abort the agent
-                logger.warning("input provider %s.load failed (%s) — skipping", name, exc)
+                logger.warning(
+                    "input provider %s.load failed (%s) — skipping", name, exc
+                )
                 continue
             blocks.extend(loaded or [])
         # Consume-once per-turn images (30-03, HI-01): the images drained onto the
@@ -10126,6 +10798,7 @@ class ExecutionEngine:
             return None
         try:
             from agents.execution_engine.od_context import get_example_html
+
             return get_example_html(template_id)
         except Exception as exc:
             logger.debug("Could not load template example for %s: %s", template_id, exc)

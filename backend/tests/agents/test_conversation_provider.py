@@ -124,7 +124,10 @@ def test_empty_transcript_degrades_to_empty() -> None:
 def test_non_chat_events_are_ignored() -> None:
     # A run with only engine events (no chat turns) → dormant {}.
     store = _FakeScopedStore(
-        [_FakeRow("agent_complete", {"agent": "plan"}), _FakeRow("pipeline_complete", {})]
+        [
+            _FakeRow("agent_complete", {"agent": "plan"}),
+            _FakeRow("pipeline_complete", {}),
+        ]
     )
     assert _load(_ctx(store)) == {}
 

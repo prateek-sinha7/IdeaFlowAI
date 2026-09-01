@@ -45,10 +45,10 @@ def test_bare_fenced_array_stripped():
 
 def test_trailing_comma_repaired():
     raw = (
-        '[\n'
+        "[\n"
         '  {"question_text": "Q1", "answer_type": "short_text",},\n'
         '  {"question_text": "Q2", "answer_type": "short_text"},\n'
-        ']'
+        "]"
     )
     result = _parse_llm_json_array(raw)
     assert isinstance(result, list)
@@ -58,10 +58,10 @@ def test_trailing_comma_repaired():
 
 def test_missing_comma_between_objects_repaired():
     raw = (
-        '[\n'
+        "[\n"
         '  {"question_text": "Q1", "answer_type": "short_text"}\n'
         '  {"question_text": "Q2", "answer_type": "short_text"}\n'
-        ']'
+        "]"
     )
     result = _parse_llm_json_array(raw)
     assert isinstance(result, list)
@@ -81,7 +81,7 @@ def test_smart_quotes_normalized():
 def test_truncated_array_returns_complete_objects():
     # Opener + two complete objects, then cut off mid-third object (no closing ]).
     raw = (
-        '[\n'
+        "[\n"
         '  {"question_text": "Q1", "answer_type": "short_text"},\n'
         '  {"question_text": "Q2", "answer_type": "short_text"},\n'
         '  {"question_text": "Q3", "answer_ty'

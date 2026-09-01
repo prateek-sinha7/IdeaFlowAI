@@ -49,11 +49,11 @@ PHASE_RUNNING = "running"
 PHASE_TERMINAL = "terminal"
 
 # The command channels a turn can be dispatched on (the 29-03/29-04 seams + 29-08).
-CHANNEL_ANSWERS = "answers"        # POST /answers  → store.set_questionnaire_responses
-CHANNEL_GATE = "gate"             # POST /gate     → store.set_review_response
-CHANNEL_STEERING = "steering"     # ectx.steering_notes append (29-08 seam)
-CHANNEL_REVISION = "revision"     # POST /revisions → family child run (D-02)
-CHANNEL_CONCIERGE = "concierge"   # free-form → the Concierge escalation (D-04, Phase 33)
+CHANNEL_ANSWERS = "answers"  # POST /answers  → store.set_questionnaire_responses
+CHANNEL_GATE = "gate"  # POST /gate     → store.set_review_response
+CHANNEL_STEERING = "steering"  # ectx.steering_notes append (29-08 seam)
+CHANNEL_REVISION = "revision"  # POST /revisions → family child run (D-02)
+CHANNEL_CONCIERGE = "concierge"  # free-form → the Concierge escalation (D-04, Phase 33)
 
 # The FOUR gate actions (D-04 / POR §6). Generic discriminators — no workflow name.
 GATE_ACTIONS = frozenset({"approve", "reject", "redo", "update_specs"})
@@ -68,7 +68,9 @@ GATE_ACTIONS = frozenset({"approve", "reject", "redo", "update_specs"})
 # ONE canonical definition (INV-12 — mirrors ``NON_TERMINAL_RUN_STATUSES``'s
 # own precedent). The values are unchanged, so ``phase`` resolution is
 # byte-identical for every existing run status.
-from agents.execution_engine.engine import TERMINAL_RUN_STATUSES as _TERMINAL_RUN_STATUSES  # noqa: E402
+from agents.execution_engine.engine import (  # noqa: E402
+    TERMINAL_RUN_STATUSES as _TERMINAL_RUN_STATUSES,
+)
 
 TERMINAL_STATUSES = frozenset(_TERMINAL_RUN_STATUSES)
 

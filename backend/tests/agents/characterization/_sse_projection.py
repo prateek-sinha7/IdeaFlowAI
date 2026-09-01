@@ -153,7 +153,7 @@ def _parse_sse_frame(frame: str) -> dict:
     """
     for line in frame.splitlines():
         if line.startswith("data:"):
-            return json.loads(line[len("data:"):].strip())
+            return json.loads(line[len("data:") :].strip())
     raise AssertionError(f"SSE frame carries no 'data:' line: {frame!r}")
 
 

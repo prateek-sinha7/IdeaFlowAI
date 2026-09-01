@@ -93,7 +93,9 @@ class StateMachine:
         self._persist(run_id, new_state)
         logger.debug(
             "StateMachine: run=%s transition %s -> %s",
-            run_id, current or "(none)", new_state,
+            run_id,
+            current or "(none)",
+            new_state,
         )
         return new_state
 
@@ -121,6 +123,7 @@ class StateMachine:
         except Exception as exc:
             # Non-fatal: in-memory state is still correct for the current process
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
                 "StateMachine._persist DB write failed (non-fatal): %s", exc
             )

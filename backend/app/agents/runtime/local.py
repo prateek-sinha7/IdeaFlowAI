@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+
 try:
     import resource  # Unix-only (Linux/macOS); not available on Windows
 except ImportError:
@@ -59,7 +60,9 @@ class _ChildSandbox:
     parent), so a worker teardown can never delete sibling/parent work.
     """
 
-    def __init__(self, *, parent: RunSandbox, root: Path, user_seg: str, run_seg: str) -> None:
+    def __init__(
+        self, *, parent: RunSandbox, root: Path, user_seg: str, run_seg: str
+    ) -> None:
         self._parent = parent
         self.root = root.resolve()
         self.user_seg = user_seg
@@ -418,7 +421,9 @@ class LocalWorkspace:
             # leave orphaned descendants past the wall-clock cap. subprocess.run only
             # SIGKILLs the direct child, defeating the documented group containment.
             popen_kwargs["preexec_fn"] = _limits
-            popen_kwargs["start_new_session"] = True  # so killpg can kill a forking runaway tree
+            popen_kwargs["start_new_session"] = (
+                True  # so killpg can kill a forking runaway tree
+            )
         proc = subprocess.Popen(
             argv,
             cwd=str(self._root),
@@ -498,8 +503,10 @@ class LocalWorkspace:
         child_root = self._sandbox.path_for(rel)  # raises on escape
         child_root.mkdir(parents=True, exist_ok=True)
         child_sandbox = _ChildSandbox(
-            parent=self._sandbox, root=child_root,
-            user_seg=self._sandbox.user_seg, run_seg=self._sandbox.run_seg,
+            parent=self._sandbox,
+            root=child_root,
+            user_seg=self._sandbox.user_seg,
+            run_seg=self._sandbox.run_seg,
         )
         return LocalWorkspace(  # type: ignore[return-value]
             owner_id=self.owner_id,
@@ -529,8 +536,10 @@ class LocalWorkspace:
         # ``-b <branch>`` creates the per-worker branch at the worktree add.
         self._git("worktree", "add", "-b", branch, str(wt_root))
         wt_sandbox = _ChildSandbox(
-            parent=self._sandbox, root=wt_root,
-            user_seg=self._sandbox.user_seg, run_seg=self._sandbox.run_seg,
+            parent=self._sandbox,
+            root=wt_root,
+            user_seg=self._sandbox.user_seg,
+            run_seg=self._sandbox.run_seg,
         )
         ws = LocalWorkspace(  # type: ignore[return-value]
             owner_id=self.owner_id,

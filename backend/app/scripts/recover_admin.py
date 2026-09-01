@@ -72,6 +72,7 @@ USAGE (inside the backend container — mirrors app/scripts/bootstrap_admin.py)
 
 Exit codes: 0 success, 1 failure.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -143,9 +144,15 @@ def report() -> int:
         print(f"  AUTH_ALLOW_LEGACY_JWT  = {settings.AUTH_ALLOW_LEGACY_JWT}")
         print(f"  BREAK_GLASS_ENABLED    = {settings.BREAK_GLASS_ENABLED}")
         print(f"  ADMIN_MFA_REQUIRED     = {settings.ADMIN_MFA_REQUIRED}")
-        print(f"  COGNITO_USER_POOL_ID   = {settings.COGNITO_USER_POOL_ID or '(unset)'}")
-        print(f"  COGNITO_CLIENT_ID      = {'set' if settings.COGNITO_CLIENT_ID else '(unset)'}")
-        print(f"  COGNITO_CLIENT_SECRET  = {'set' if settings.COGNITO_CLIENT_SECRET else '(unset)'}")
+        print(
+            f"  COGNITO_USER_POOL_ID   = {settings.COGNITO_USER_POOL_ID or '(unset)'}"
+        )
+        print(
+            f"  COGNITO_CLIENT_ID      = {'set' if settings.COGNITO_CLIENT_ID else '(unset)'}"
+        )
+        print(
+            f"  COGNITO_CLIENT_SECRET  = {'set' if settings.COGNITO_CLIENT_SECRET else '(unset)'}"
+        )
 
         print(f"\n=== users ({len(users)}) ===")
         if not users:
@@ -169,7 +176,9 @@ def report() -> int:
 
         count = len(local_admins)
         if count == 1:
-            print(f"  break-glass invariant OK: exactly 1 local admin ({local_admins[0].email})")
+            print(
+                f"  break-glass invariant OK: exactly 1 local admin ({local_admins[0].email})"
+            )
         elif count == 0:
             print(
                 "  break-glass invariant VIOLATED: 0 local admins. No local recovery "
@@ -237,8 +246,10 @@ def _provision_cognito(email: str, password: str) -> str:
     # DEFAULT_TIER regardless of users.tier.
     cognito.admin_add_user_to_group(email, group_for_tier(RECOVERY_TIER))
     cognito.admin_add_user_to_group(email, ADMIN_GROUP)
-    print(f"  set permanent password + groups "
-          f"({group_for_tier(RECOVERY_TIER)}, {ADMIN_GROUP})")
+    print(
+        f"  set permanent password + groups "
+        f"({group_for_tier(RECOVERY_TIER)}, {ADMIN_GROUP})"
+    )
     return sub
 
 

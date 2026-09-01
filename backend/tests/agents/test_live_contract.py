@@ -122,7 +122,9 @@ def _valid_prototype_model_factory(agent_id: str) -> ScriptedFakeChatModel:
         return ScriptedFakeChatModel(
             [
                 _ScriptedTurn(
-                    texts=["## Task 1: Build the full HTML shell\nEverything in one task.\n"],
+                    texts=[
+                        "## Task 1: Build the full HTML shell\nEverything in one task.\n"
+                    ],
                     usage=(40, 30),
                 )
             ]
@@ -136,14 +138,21 @@ def _valid_prototype_model_factory(agent_id: str) -> ScriptedFakeChatModel:
                         (
                             "write_file",
                             json.dumps(
-                                {"file_path": "prototype.html", "content": _VALID_PROTOTYPE_HTML}
+                                {
+                                    "file_path": "prototype.html",
+                                    "content": _VALID_PROTOTYPE_HTML,
+                                }
                             ),
                             "c_wf",
                         ),
                         (
                             "report_task_complete",
                             json.dumps(
-                                {"task_number": 1, "task_title": "Shell", "summary": "built"}
+                                {
+                                    "task_number": 1,
+                                    "task_title": "Shell",
+                                    "summary": "built",
+                                }
                             ),
                             "c_rtc",
                         ),
@@ -289,7 +298,9 @@ class TestBrokenCapturesCaught:
         assert validate_capture(result) == []  # clean first
 
         broken = copy.deepcopy(result)
-        end_idxs = [i for i, e in enumerate(broken.events) if e.get("type") == "phase_end"]
+        end_idxs = [
+            i for i, e in enumerate(broken.events) if e.get("type") == "phase_end"
+        ]
         assert end_idxs, "expected the chat capture to have phase_end events"
         del broken.events[end_idxs[-1]]
 
@@ -307,9 +318,9 @@ class TestBrokenCapturesCaught:
         broken.events.insert(2, {"type": "frobnicate_widget", "data": {}})
 
         failures = validate_capture(broken)
-        assert any("UNKNOWN event type" in f and "frobnicate_widget" in f for f in failures), (
-            failures
-        )
+        assert any(
+            "UNKNOWN event type" in f and "frobnicate_widget" in f for f in failures
+        ), failures
 
     @pytest.mark.asyncio
     async def test_corrupt_prototype_html_is_caught(self) -> None:
@@ -321,9 +332,9 @@ class TestBrokenCapturesCaught:
         result = await _capture_prototype_stub()
         assert result.completed  # the RUN completes; the DELIVERABLE is invalid
         failures = validate_capture(result, require_tokens=False)
-        assert any("static_check" in f for f in failures), (
-            f"a structurally-invalid prototype must be caught, got: {failures}"
-        )
+        assert any(
+            "static_check" in f for f in failures
+        ), f"a structurally-invalid prototype must be caught, got: {failures}"
 
     @pytest.mark.asyncio
     async def test_corrupt_prototype_html_inline_is_caught(self) -> None:
@@ -339,10 +350,10 @@ class TestBrokenCapturesCaught:
         broken = copy.deepcopy(result)
         # Replace the deliverable with HTML that has a dead nav link + no is-active.
         broken.deliverable = (
-            '<!doctype html><html><body>'
+            "<!doctype html><html><body>"
             '<a class="nav-item" href="#/missing">Missing</a>'
             '<section data-page="home">home</section>'
-            '</body></html>'
+            "</body></html>"
         )
         broken.final_output = broken.deliverable
         failures = validate_capture(broken)
@@ -388,11 +399,19 @@ class TestBrokenCapturesCaught:
         broken = copy.deepcopy(result)
         # Inject a pr_created event (test mode must NOT have one).
         broken.events.insert(
-            -1, {"type": "pr_created", "chunk": None, "section": None, "data": {"url": "x", "number": 9}}
+            -1,
+            {
+                "type": "pr_created",
+                "chunk": None,
+                "section": None,
+                "data": {"url": "x", "number": 9},
+            },
         )
         # And smuggle PR keys into the pipeline_output.
         for ev in broken.events:
-            if ev.get("type") == "pipeline_complete" and isinstance(ev.get("data"), dict):
+            if ev.get("type") == "pipeline_complete" and isinstance(
+                ev.get("data"), dict
+            ):
                 ev["data"]["pr_url"] = "x"
                 ev["data"]["pr_number"] = 9
         if isinstance(broken.final_output, dict):
@@ -409,7 +428,9 @@ class TestBrokenCapturesCaught:
         broken = copy.deepcopy(result)
         broken.events = [e for e in broken.events if e.get("type") != "pr_created"]
         for ev in broken.events:
-            if ev.get("type") == "pipeline_complete" and isinstance(ev.get("data"), dict):
+            if ev.get("type") == "pipeline_complete" and isinstance(
+                ev.get("data"), dict
+            ):
                 ev["data"].pop("pr_url", None)
                 ev["data"].pop("pr_number", None)
                 ev["data"].pop("coding_summary", None)
@@ -444,7 +465,9 @@ class TestBrokenCapturesCaught:
     @pytest.mark.asyncio
     async def test_unknown_world_is_caught(self) -> None:
         """An unrecognized world fails fast with a clear message."""
-        bogus = CaptureResult(world="martian", label="x", events=[{"type": "a", "data": {}}])
+        bogus = CaptureResult(
+            world="martian", label="x", events=[{"type": "a", "data": {}}]
+        )
         failures = validate_capture(bogus)
         assert any("unknown capture world" in f for f in failures), failures
 
@@ -453,7 +476,9 @@ class TestBrokenCapturesCaught:
         """A non-errored engine run that never reached pipeline_complete is flagged."""
         result = await _capture_user_stories()
         broken = copy.deepcopy(result)
-        broken.events = [e for e in broken.events if e.get("type") != "pipeline_complete"]
+        broken.events = [
+            e for e in broken.events if e.get("type") != "pipeline_complete"
+        ]
         broken.completed = False
         failures = validate_capture(broken, require_completed=False)
         assert any("missing terminal event" in f for f in failures), failures
@@ -601,9 +626,7 @@ class TestClarifyVocabularyOffline:
         async def _no_llm(*args, **kwargs):
             raise RuntimeError("offline test: no LLM clarify generation")
 
-        monkeypatch.setattr(
-            "app.agents.cached_invoke.cached_invoke", _no_llm
-        )
+        monkeypatch.setattr("app.agents.cached_invoke.cached_invoke", _no_llm)
 
         ctx = ExecutionEngine()._default_planning_context(
             "Build user stories for a web app."

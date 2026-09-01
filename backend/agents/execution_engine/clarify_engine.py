@@ -46,15 +46,51 @@ def _classify_ambiguity(item: str, taxonomy: list[str]) -> str:
     keyword_map = {
         "Functional Scope": ["feature", "scope", "functionality", "what", "capability"],
         "User Roles": ["user", "role", "persona", "actor", "who", "audience"],
-        "Data Model": ["data", "entity", "field", "schema", "model", "database", "store"],
+        "Data Model": [
+            "data",
+            "entity",
+            "field",
+            "schema",
+            "model",
+            "database",
+            "store",
+        ],
         "UX Flow": ["flow", "journey", "screen", "page", "navigation", "ux", "ui"],
-        "Performance": ["performance", "latency", "speed", "throughput", "scale", "load"],
-        "Security": ["security", "auth", "permission", "access", "encrypt", "compliance"],
-        "Integration": ["integration", "api", "external", "third-party", "service", "connect"],
+        "Performance": [
+            "performance",
+            "latency",
+            "speed",
+            "throughput",
+            "scale",
+            "load",
+        ],
+        "Security": [
+            "security",
+            "auth",
+            "permission",
+            "access",
+            "encrypt",
+            "compliance",
+        ],
+        "Integration": [
+            "integration",
+            "api",
+            "external",
+            "third-party",
+            "service",
+            "connect",
+        ],
         "Edge Cases": ["edge", "error", "failure", "exception", "negative", "invalid"],
         "Terminology": ["term", "definition", "meaning", "concept", "glossary"],
         "Acceptance Criteria": ["criteria", "acceptance", "test", "verify", "measure"],
-        "Constraints": ["constraint", "limit", "budget", "timeline", "technology", "stack"],
+        "Constraints": [
+            "constraint",
+            "limit",
+            "budget",
+            "timeline",
+            "technology",
+            "stack",
+        ],
     }
     for category, keywords in keyword_map.items():
         if any(kw in item_lower for kw in keywords):
@@ -86,16 +122,16 @@ def _parse_llm_json_array(raw: str) -> list | None:
     # (a) Strip markdown code fences (```json ... ``` or ``` ... ```).
     if text.startswith("```"):
         # drop the opening fence line
-        text = re.sub(r'^```[a-zA-Z0-9]*\s*\n?', '', text)
+        text = re.sub(r"^```[a-zA-Z0-9]*\s*\n?", "", text)
         # drop a trailing fence
-        text = re.sub(r'\n?```\s*$', '', text).strip()
+        text = re.sub(r"\n?```\s*$", "", text).strip()
 
     # (b) Locate the array opener; if none, give up. A closing ']' may be
     #     missing (truncation) — the balanced-scan in (e) handles that case.
-    lb = text.find('[')
+    lb = text.find("[")
     if lb == -1:
         return None
-    match = re.search(r'\[[\s\S]*\]', text)
+    match = re.search(r"\[[\s\S]*\]", text)
     span = match.group() if match else text[lb:]
 
     # (c) First attempt: parse the extracted span verbatim.
@@ -111,12 +147,14 @@ def _parse_llm_json_array(raw: str) -> list | None:
     #     missing commas between adjacent objects, then re-parse.
     repaired = span
     for bad, good in (
-        ("“", '"'), ("”", '"'),   # curly double quotes
-        ("‘", "'"), ("’", "'"),   # curly single quotes
+        ("“", '"'),
+        ("”", '"'),  # curly double quotes
+        ("‘", "'"),
+        ("’", "'"),  # curly single quotes
     ):
         repaired = repaired.replace(bad, good)
-    repaired = re.sub(r',(\s*[}\]])', r'\1', repaired)   # trailing commas
-    repaired = re.sub(r'}\s*{', '},{', repaired)          # missing comma between objects
+    repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)  # trailing commas
+    repaired = re.sub(r"}\s*{", "},{", repaired)  # missing comma between objects
     if match:
         try:
             parsed = json.loads(repaired)
@@ -129,9 +167,9 @@ def _parse_llm_json_array(raw: str) -> list | None:
     #     scanning brace depth over the array body, then rebuild a closed array.
     body = repaired
     # strip the leading '[' so we scan the object list
-    obr = body.find('[')
+    obr = body.find("[")
     if obr != -1:
-        body = body[obr + 1:]
+        body = body[obr + 1 :]
     objects: list[str] = []
     depth = 0
     start = None
@@ -141,7 +179,7 @@ def _parse_llm_json_array(raw: str) -> list | None:
         if in_string:
             if escape:
                 escape = False
-            elif ch == '\\':
+            elif ch == "\\":
                 escape = True
             elif ch == '"':
                 in_string = False
@@ -149,19 +187,19 @@ def _parse_llm_json_array(raw: str) -> list | None:
         if ch == '"':
             in_string = True
             continue
-        if ch == '{':
+        if ch == "{":
             if depth == 0:
                 start = idx
             depth += 1
-        elif ch == '}':
+        elif ch == "}":
             if depth > 0:
                 depth -= 1
                 if depth == 0 and start is not None:
-                    objects.append(body[start:idx + 1])
+                    objects.append(body[start : idx + 1])
                     start = None
     if objects:
         try:
-            parsed = json.loads('[' + ','.join(objects) + ']')
+            parsed = json.loads("[" + ",".join(objects) + "]")
             if isinstance(parsed, list) and parsed:
                 return parsed
         except Exception:
@@ -245,9 +283,7 @@ class ClarifyEngine:
         # otherwise be caught only at the DB layer (IntegrityError) and silently
         # swallowed, dropping the clarifications row. Fail loud at the seam instead.
         if not owner_id:
-            raise ValueError(
-                "ClarifyEngine.run requires a real owner_id (AUTHZ-03)"
-            )
+            raise ValueError("ClarifyEngine.run requires a real owner_id (AUTHZ-03)")
         self._owner_id = owner_id
         self._workspace_id = workspace_id
         round_num = 0
@@ -416,7 +452,11 @@ class ClarifyEngine:
         if not user_request and not inferred_intent:
             return None
 
-        brief_sample = user_request[:settings.BRIEF_MAX_CHARS] if user_request else inferred_intent[:2000]
+        brief_sample = (
+            user_request[: settings.BRIEF_MAX_CHARS]
+            if user_request
+            else inferred_intent[:2000]
+        )
         topic_label = topic or (user_request_summary or inferred_intent or "")[:60]
 
         # Pipeline-specific question priorities
@@ -445,7 +485,7 @@ class ClarifyEngine:
         }
         pipeline_guidance = pipeline_guidance_map.get(
             pipeline_type,
-            "Focus on scope, audience, objectives, key deliverables, and output format."
+            "Focus on scope, audience, objectives, key deliverables, and output format.",
         )
 
         no_template_extra = ""
@@ -462,9 +502,13 @@ These 4 questions are MANDATORY regardless of what else is in the brief."""
         # Build coverage context for the prompt
         coverage_summary = ""
         if coverage_map:
-            unclear = [k for k, v in coverage_map.items() if v in ("partial", "missing")]
+            unclear = [
+                k for k, v in coverage_map.items() if v in ("partial", "missing")
+            ]
             clear = [k for k, v in coverage_map.items() if v == "clear"]
-            coverage_summary = f"\nCoverage scan: CLEAR={clear}, NEEDS_CLARIFICATION={unclear}"
+            coverage_summary = (
+                f"\nCoverage scan: CLEAR={clear}, NEEDS_CLARIFICATION={unclear}"
+            )
 
         already_answered = ""
         if clarified_topics:
@@ -570,34 +614,48 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
                     continue
                 answer_type = item.get("answer_type", "single_choice")
                 options = item.get("options") or []
-                recommended = item.get("recommended_answer", options[-1] if options else "")
+                recommended = item.get(
+                    "recommended_answer", options[-1] if options else ""
+                )
                 reasoning = item.get("recommended_reasoning", "")
                 # Embed reasoning into recommended_answer for display
-                recommended_display = f"{recommended} — {reasoning}" if reasoning else recommended
+                recommended_display = (
+                    f"{recommended} — {reasoning}" if reasoning else recommended
+                )
 
-                questions.append({
-                    "question_id": f"r{round_num}_q{i + 1}",
-                    "question_text": item["question_text"],
-                    "impact_level": item.get("impact_level", "high" if i < 2 else "medium"),
-                    "answer_type": answer_type,
-                    "options": options,
-                    "recommended_answer": recommended,
-                    "recommended_reasoning": reasoning,
-                    "recommended_display": recommended_display,
-                    "ambiguity_category": item.get("ambiguity_category", "Functional Scope"),
-                })
+                questions.append(
+                    {
+                        "question_id": f"r{round_num}_q{i + 1}",
+                        "question_text": item["question_text"],
+                        "impact_level": item.get(
+                            "impact_level", "high" if i < 2 else "medium"
+                        ),
+                        "answer_type": answer_type,
+                        "options": options,
+                        "recommended_answer": recommended,
+                        "recommended_reasoning": reasoning,
+                        "recommended_display": recommended_display,
+                        "ambiguity_category": item.get(
+                            "ambiguity_category", "Functional Scope"
+                        ),
+                    }
+                )
 
             logger.info(
                 "ClarifyEngine LLM: %d questions for pipeline=%s no_template=%s round=%d",
-                len(questions), pipeline_type, is_no_template, round_num,
+                len(questions),
+                pipeline_type,
+                is_no_template,
+                round_num,
             )
             return questions if questions else None
 
         except Exception as exc:
-            logger.warning("ClarifyEngine LLM generation failed: %s — falling back to static library", exc)
+            logger.warning(
+                "ClarifyEngine LLM generation failed: %s — falling back to static library",
+                exc,
+            )
             return None
-
-
 
     async def _generate_questions(
         self,
@@ -628,7 +686,10 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
             return llm_questions
 
         # ── Fallback: static library (when LLM call fails) ─────────────────
-        logger.info("ClarifyEngine: falling back to static library for pipeline=%s", pipeline_type)
+        logger.info(
+            "ClarifyEngine: falling back to static library for pipeline=%s",
+            pipeline_type,
+        )
 
         inferred_intent = planning_context.get("inferred_intent", "")
         topic = planning_context.get("topic") or ""
@@ -640,19 +701,47 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
         TOPIC_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
             "ppt": (
                 "What is the main topic or subject of this presentation?",
-                ["Product / service overview", "Market research & competitive analysis", "Business strategy & roadmap", "Technical deep-dive", "Sales pitch / proposal", "Training & education"],
+                [
+                    "Product / service overview",
+                    "Market research & competitive analysis",
+                    "Business strategy & roadmap",
+                    "Technical deep-dive",
+                    "Sales pitch / proposal",
+                    "Training & education",
+                ],
             ),
             "user_stories": (
                 "What product or feature are you building user stories for?",
-                ["Web application / SaaS product", "Mobile app (iOS / Android)", "Internal business tool / dashboard", "API / backend service", "E-commerce platform", "Data / analytics platform"],
+                [
+                    "Web application / SaaS product",
+                    "Mobile app (iOS / Android)",
+                    "Internal business tool / dashboard",
+                    "API / backend service",
+                    "E-commerce platform",
+                    "Data / analytics platform",
+                ],
             ),
             "prototype": (
                 "What type of product or interface are you prototyping?",
-                ["Web app / dashboard", "Mobile app", "Landing page / marketing site", "Admin panel / back-office", "E-commerce storefront", "Data visualization / analytics"],
+                [
+                    "Web app / dashboard",
+                    "Mobile app",
+                    "Landing page / marketing site",
+                    "Admin panel / back-office",
+                    "E-commerce storefront",
+                    "Data visualization / analytics",
+                ],
             ),
             "app_builder": (
                 "What type of application are you building?",
-                ["SaaS web application", "Mobile app (React Native / Flutter)", "Internal enterprise tool", "E-commerce platform", "API / microservice", "Data pipeline / analytics platform"],
+                [
+                    "SaaS web application",
+                    "Mobile app (React Native / Flutter)",
+                    "Internal enterprise tool",
+                    "E-commerce platform",
+                    "API / microservice",
+                    "Data pipeline / analytics platform",
+                ],
             ),
         }
 
@@ -671,108 +760,274 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
         }
 
         QUESTION_LIBRARY: dict[str, tuple[str, list[str]]] = {
-            "topic": TOPIC_BY_PIPELINE.get(pipeline_type, (
-                "What is the main topic or subject of this?",
-                ["Product / service feature", "Business process / workflow", "Technical system / architecture", "Market / competitive analysis", "Internal tool / dashboard", "Customer-facing product"],
-            )),
-            "subject": TOPIC_BY_PIPELINE.get(pipeline_type, (
-                "What is the main topic or subject of this?",
-                ["Product / service feature", "Business process / workflow", "Technical system / architecture", "Market / competitive analysis", "Internal tool / dashboard", "Customer-facing product"],
-            )),
+            "topic": TOPIC_BY_PIPELINE.get(
+                pipeline_type,
+                (
+                    "What is the main topic or subject of this?",
+                    [
+                        "Product / service feature",
+                        "Business process / workflow",
+                        "Technical system / architecture",
+                        "Market / competitive analysis",
+                        "Internal tool / dashboard",
+                        "Customer-facing product",
+                    ],
+                ),
+            ),
+            "subject": TOPIC_BY_PIPELINE.get(
+                pipeline_type,
+                (
+                    "What is the main topic or subject of this?",
+                    [
+                        "Product / service feature",
+                        "Business process / workflow",
+                        "Technical system / architecture",
+                        "Market / competitive analysis",
+                        "Internal tool / dashboard",
+                        "Customer-facing product",
+                    ],
+                ),
+            ),
             "target_audience": (
                 "Who is the primary audience for this?",
-                ["Executive / C-Suite", "Technical team / Engineers", "Business stakeholders / Managers", "General public / Consumers", "Sales & Marketing team"],
+                [
+                    "Executive / C-Suite",
+                    "Technical team / Engineers",
+                    "Business stakeholders / Managers",
+                    "General public / Consumers",
+                    "Sales & Marketing team",
+                ],
             ),
             "audience": (
                 "Who is the primary audience for this?",
-                ["Executive / C-Suite", "Technical team / Engineers", "Business stakeholders / Managers", "General public / Consumers", "Sales & Marketing team"],
+                [
+                    "Executive / C-Suite",
+                    "Technical team / Engineers",
+                    "Business stakeholders / Managers",
+                    "General public / Consumers",
+                    "Sales & Marketing team",
+                ],
             ),
-            "style": STYLE_BY_PIPELINE.get(pipeline_type, (
-                "What tone and style should be used?",
-                ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
-            )),
-            "ui_style": STYLE_BY_PIPELINE.get(pipeline_type, (
-                "What visual style and UI type should this follow?",
-                ["Clean / minimal SaaS web app", "Consumer / marketing — spacious, visual", "Data-heavy dashboard — tables, charts", "Dark-mode admin panel", "No preference"],
-            )),
+            "style": STYLE_BY_PIPELINE.get(
+                pipeline_type,
+                (
+                    "What tone and style should be used?",
+                    [
+                        "Professional & formal",
+                        "Casual & conversational",
+                        "Data-driven & analytical",
+                        "Creative & visual",
+                        "Concise & minimal",
+                    ],
+                ),
+            ),
+            "ui_style": STYLE_BY_PIPELINE.get(
+                pipeline_type,
+                (
+                    "What visual style and UI type should this follow?",
+                    [
+                        "Clean / minimal SaaS web app",
+                        "Consumer / marketing — spacious, visual",
+                        "Data-heavy dashboard — tables, charts",
+                        "Dark-mode admin panel",
+                        "No preference",
+                    ],
+                ),
+            ),
             "scope": (
                 "What is the scope of this project?",
-                ["MVP / proof of concept", "Full production feature", "Internal tool only", "Customer-facing product", "Research & exploration"],
+                [
+                    "MVP / proof of concept",
+                    "Full production feature",
+                    "Internal tool only",
+                    "Customer-facing product",
+                    "Research & exploration",
+                ],
             ),
             "priority": (
                 "What should be prioritized in this output?",
-                ["Speed of delivery", "Quality & completeness", "Cost efficiency", "Scalability & future-proofing", "User experience"],
+                [
+                    "Speed of delivery",
+                    "Quality & completeness",
+                    "Cost efficiency",
+                    "Scalability & future-proofing",
+                    "User experience",
+                ],
             ),
             "key_screens": (
                 "What are the key screens or pages the prototype must include?",
-                ["Home / landing page", "Dashboard / main workspace", "Onboarding / sign-up flow", "Detail / item view", "Settings / profile page"],
+                [
+                    "Home / landing page",
+                    "Dashboard / main workspace",
+                    "Onboarding / sign-up flow",
+                    "Detail / item view",
+                    "Settings / profile page",
+                ],
             ),
             "interactions": (
                 "What types of interactions should the prototype demonstrate?",
-                ["Click-through navigation only", "Form inputs and validation", "Data tables with filtering/sorting", "Modals, drawers, and overlays", "Full interactive flows with state changes"],
+                [
+                    "Click-through navigation only",
+                    "Form inputs and validation",
+                    "Data tables with filtering/sorting",
+                    "Modals, drawers, and overlays",
+                    "Full interactive flows with state changes",
+                ],
             ),
             "personas": (
                 "What user roles or personas will use this product?",
-                ["Registered end users", "Admins / back-office staff", "Guest / anonymous users", "API consumers / developers", "Multiple roles with different permissions"],
+                [
+                    "Registered end users",
+                    "Admins / back-office staff",
+                    "Guest / anonymous users",
+                    "API consumers / developers",
+                    "Multiple roles with different permissions",
+                ],
             ),
             "user_journeys": (
                 "What are the main user journeys or workflows to cover?",
-                ["Onboarding / sign-up flow", "Core transactional flow", "Account management / settings", "Search, browse, and filter", "Reporting / analytics / export"],
+                [
+                    "Onboarding / sign-up flow",
+                    "Core transactional flow",
+                    "Account management / settings",
+                    "Search, browse, and filter",
+                    "Reporting / analytics / export",
+                ],
             ),
             "business_rules": (
                 "Are there important business rules, validations, or constraints?",
-                ["Approval workflows or authorisation checks", "Data validation rules", "Pricing / discount / calculation logic", "Status / state-machine transitions", "No specific business rules"],
+                [
+                    "Approval workflows or authorisation checks",
+                    "Data validation rules",
+                    "Pricing / discount / calculation logic",
+                    "Status / state-machine transitions",
+                    "No specific business rules",
+                ],
             ),
             "technology": (
                 "What technology stack should be used?",
-                ["React / Next.js (web)", "React Native / Flutter (mobile)", "Node.js / Python (backend)", "Cloud-native (AWS / Azure / GCP)", "No preference"],
+                [
+                    "React / Next.js (web)",
+                    "React Native / Flutter (mobile)",
+                    "Node.js / Python (backend)",
+                    "Cloud-native (AWS / Azure / GCP)",
+                    "No preference",
+                ],
             ),
             "tone_and_style": (
                 "What tone and style should be used?",
-                ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
+                [
+                    "Professional & formal",
+                    "Casual & conversational",
+                    "Data-driven & analytical",
+                    "Creative & visual",
+                    "Concise & minimal",
+                ],
             ),
             "key_objectives": (
                 "What is the primary goal or objective?",
-                ["Inform & educate", "Persuade & sell", "Report results & metrics", "Propose a solution", "Compare options & recommend"],
+                [
+                    "Inform & educate",
+                    "Persuade & sell",
+                    "Report results & metrics",
+                    "Propose a solution",
+                    "Compare options & recommend",
+                ],
             ),
             "slide_count": (
                 "How many slides should the presentation have?",
-                ["5–8 slides (concise)", "10–12 slides (standard)", "15–20 slides (detailed)", "20+ slides (comprehensive)", "No preference"],
+                [
+                    "5–8 slides (concise)",
+                    "10–12 slides (standard)",
+                    "15–20 slides (detailed)",
+                    "20+ slides (comprehensive)",
+                    "No preference",
+                ],
             ),
             "content_depth": (
                 "How detailed should the content be?",
-                ["High-level summary only", "Moderate detail with supporting points", "Deep-dive with data and evidence", "Executive brief (one key message per slide)", "No preference"],
+                [
+                    "High-level summary only",
+                    "Moderate detail with supporting points",
+                    "Deep-dive with data and evidence",
+                    "Executive brief (one key message per slide)",
+                    "No preference",
+                ],
             ),
             "data_availability": (
                 "Do you have data, charts, or statistics to include?",
-                ["Yes — I have specific data/numbers to include", "Use realistic representative data", "Qualitative insights only", "Both qualitative and quantitative", "No preference"],
+                [
+                    "Yes — I have specific data/numbers to include",
+                    "Use realistic representative data",
+                    "Qualitative insights only",
+                    "Both qualitative and quantitative",
+                    "No preference",
+                ],
             ),
             "visual_style": (
                 "What visual style should follow?",
-                ["Clean and minimal (lots of white space)", "Data-rich (charts, tables, graphs)", "Story-driven (narrative with visuals)", "Brand-aligned", "No preference"],
+                [
+                    "Clean and minimal (lots of white space)",
+                    "Data-rich (charts, tables, graphs)",
+                    "Story-driven (narrative with visuals)",
+                    "Brand-aligned",
+                    "No preference",
+                ],
             ),
             "key_sections": (
                 "What sections should the output include?",
-                ["Executive summary + key findings", "Problem / opportunity + solution", "Data analysis + recommendations", "Roadmap or timeline", "Standard structure — leave it to the AI"],
+                [
+                    "Executive summary + key findings",
+                    "Problem / opportunity + solution",
+                    "Data analysis + recommendations",
+                    "Roadmap or timeline",
+                    "Standard structure — leave it to the AI",
+                ],
             ),
             "data_model": (
                 "What key data entities does the application need?",
-                ["Users / accounts and profiles", "Products / items / catalogue", "Orders / transactions / payments", "Content / documents / media", "Custom domain-specific entities"],
+                [
+                    "Users / accounts and profiles",
+                    "Products / items / catalogue",
+                    "Orders / transactions / payments",
+                    "Content / documents / media",
+                    "Custom domain-specific entities",
+                ],
             ),
             "integrations": (
                 "What external integrations are needed?",
-                ["None / standalone application", "Payment gateway (Stripe, PayPal)", "Authentication provider (Auth0, Google)", "Email / SMS / notification service", "Multiple integrations"],
+                [
+                    "None / standalone application",
+                    "Payment gateway (Stripe, PayPal)",
+                    "Authentication provider (Auth0, Google)",
+                    "Email / SMS / notification service",
+                    "Multiple integrations",
+                ],
             ),
             "compliance_security": (
                 "What security or compliance requirements apply?",
-                ["Standard authentication (email/password)", "SSO / OAuth / enterprise identity", "GDPR / data-privacy compliance", "Industry regulation (HIPAA, PCI-DSS)", "No specific requirements"],
+                [
+                    "Standard authentication (email/password)",
+                    "SSO / OAuth / enterprise identity",
+                    "GDPR / data-privacy compliance",
+                    "Industry regulation (HIPAA, PCI-DSS)",
+                    "No specific requirements",
+                ],
             ),
         }
 
         _TAXONOMY = [
-            "Functional Scope", "User Roles", "Data Model", "UX Flow",
-            "Performance", "Security", "Integration", "Edge Cases",
-            "Terminology", "Acceptance Criteria", "Constraints",
+            "Functional Scope",
+            "User Roles",
+            "Data Model",
+            "UX Flow",
+            "Performance",
+            "Security",
+            "Integration",
+            "Edge Cases",
+            "Terminology",
+            "Acceptance Criteria",
+            "Constraints",
         ]
 
         capped = missing[:5]
@@ -815,17 +1070,19 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
 
             category = _classify_ambiguity(item, _TAXONOMY)
             is_topic = matched_key in ("topic", "subject") if matched_key else False
-            questions.append({
-                "question_id": f"r{round_num}_q{i + 1}",
-                "question_text": question_text,
-                "impact_level": "high" if i < 2 else "medium",
-                "answer_type": "hybrid" if is_topic else "single_choice",
-                "options": options,
-                "recommended_answer": options[-1],
-                "recommended_reasoning": "",
-                "recommended_display": options[-1],
-                "ambiguity_category": category,
-            })
+            questions.append(
+                {
+                    "question_id": f"r{round_num}_q{i + 1}",
+                    "question_text": question_text,
+                    "impact_level": "high" if i < 2 else "medium",
+                    "answer_type": "hybrid" if is_topic else "single_choice",
+                    "options": options,
+                    "recommended_answer": options[-1],
+                    "recommended_reasoning": "",
+                    "recommended_display": options[-1],
+                    "ambiguity_category": category,
+                }
+            )
         return questions
 
     async def _persist_qa(
@@ -839,13 +1096,15 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
         answer_map = {r.get("question_id"): r.get("answer") for r in responses}
         qa_pairs = []
         for q in questions:
-            qa_pairs.append({
-                "question_id": q["question_id"],
-                "question_text": q["question_text"],
-                "impact_level": q.get("impact_level", "medium"),
-                "answer": answer_map.get(q["question_id"]),
-                "round": round_num,
-            })
+            qa_pairs.append(
+                {
+                    "question_id": q["question_id"],
+                    "question_text": q["question_text"],
+                    "impact_level": q.get("impact_level", "medium"),
+                    "answer": answer_map.get(q["question_id"]),
+                    "round": round_num,
+                }
+            )
         graph = ArtifactGraph()
         ref = graph.write_ref(
             run_id=pipeline_run_id,
@@ -861,12 +1120,15 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
         )
         store = ScopedStore(owner_id=self._owner_id, workspace_id=self._workspace_id)
         from sqlalchemy.exc import SQLAlchemyError
+
         try:
             await store.write_ref(ref, force_db_version=True)
         except SQLAlchemyError as exc:
             logger.warning(
                 "clarifications persist failed for run %s round %d (%s) — degraded",
-                pipeline_run_id, round_num, exc,
+                pipeline_run_id,
+                round_num,
+                exc,
             )
 
     def _merge_answers(

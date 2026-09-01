@@ -118,9 +118,9 @@ class TestParseAnalyzerOutputConcrete:
         with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
             result = parse_analyzer_output(raw)
         assert result == ""
-        assert any("Solution Plan" in r.message for r in caplog.records), (
-            "Expected a WARNING mentioning 'Solution Plan' section absence"
-        )
+        assert any(
+            "Solution Plan" in r.message for r in caplog.records
+        ), "Expected a WARNING mentioning 'Solution Plan' section absence"
 
     def test_solution_plan_absent_with_other_h2_sections(
         self, caplog: pytest.LogCaptureFixture
@@ -197,9 +197,9 @@ class TestAgentMdSmoke:
 
     def test_analyzer_agent_md_exists(self) -> None:
         """prototype-revision-analyzer/AGENT.md must exist on disk."""
-        assert _ANALYZER_AGENT_MD.exists(), (
-            f"AGENT.md not found at {_ANALYZER_AGENT_MD}"
-        )
+        assert (
+            _ANALYZER_AGENT_MD.exists()
+        ), f"AGENT.md not found at {_ANALYZER_AGENT_MD}"
 
     def test_analyzer_agent_md_frontmatter_id(self) -> None:
         """prototype-revision-analyzer AGENT.md: id == 'prototype-revision-analyzer'."""
@@ -234,9 +234,9 @@ class TestAgentMdSmoke:
 
     def test_revision_agent_md_exists(self) -> None:
         """prototype-revision-agent/AGENT.md must exist on disk."""
-        assert _REVISION_AGENT_MD.exists(), (
-            f"AGENT.md not found at {_REVISION_AGENT_MD}"
-        )
+        assert (
+            _REVISION_AGENT_MD.exists()
+        ), f"AGENT.md not found at {_REVISION_AGENT_MD}"
 
     def test_revision_agent_order_is_two(self) -> None:
         """prototype-revision-agent AGENT.md: order == 1.
@@ -246,6 +246,6 @@ class TestAgentMdSmoke:
         pipeline and prototype-revision-agent remains at order=1 (INV-3 safe).
         """
         fm = _load_frontmatter(_REVISION_AGENT_MD)
-        assert fm["order"] == 1, (
-            f"Expected order=1 (prototype-revision-agent is first pipeline step), got order={fm['order']!r}"
-        )
+        assert (
+            fm["order"] == 1
+        ), f"Expected order=1 (prototype-revision-agent is first pipeline step), got order={fm['order']!r}"

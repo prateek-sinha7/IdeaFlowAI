@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.capabilities.registry import register
+
 # THE single canonical severity mapping (VALID-03 / 08-01) — IMPORTED, never
 # re-defined here. validators.severity is import-clean of any @register/discover()
 # side-effect, so importing it at module import is safe.
@@ -35,7 +36,7 @@ from agents.capabilities.validators.severity import map_severity
 class Issue:
     """One validator issue: internal P0–P3 severity + message + the source check."""
 
-    severity: str          # internal P0–P3 (mapped to a UI label by map_severity)
+    severity: str  # internal P0–P3 (mapped to a UI label by map_severity)
     message: str
     validator: str = "html_static"
 

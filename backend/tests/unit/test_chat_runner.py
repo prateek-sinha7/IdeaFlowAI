@@ -47,7 +47,9 @@ class _StubRunner:
     sequencer accumulates ``"".join(parts)`` AND emits one ``stream`` per chunk).
     """
 
-    def __init__(self, agent_id: str, text: str, *, raises: BaseException | None = None) -> None:
+    def __init__(
+        self, agent_id: str, text: str, *, raises: BaseException | None = None
+    ) -> None:
         self.agent_id = agent_id
         self._text = text
         self._raises = raises
@@ -111,8 +113,9 @@ def _build_chat_runner(**kwargs) -> tuple[ChatRunner, dict[str, _StubRunner]]:
     return runner, registry
 
 
-async def _collect(runner: ChatRunner, *, message: str, mode: str = "default",
-                   mode_prompt: str = "") -> list[dict]:
+async def _collect(
+    runner: ChatRunner, *, message: str, mode: str = "default", mode_prompt: str = ""
+) -> list[dict]:
     events: list[dict] = []
     async for ev in runner.astream_execute(message, mode=mode, mode_prompt=mode_prompt):
         events.append(ev)
@@ -133,16 +136,25 @@ _ALL_FOUR = ["user_stories", "ppt", "prototype", "ui_design"]
 
 # (discovery sample, expected Output_Selection) — spans every parse branch.
 _PARSE_CASES: list[tuple[str, list[str]]] = [
-    ("Based on our discussion, I'll generate: All deliverables.", _ALL_FOUR),  # all fast-path
-    ("i'll generate: all of them", _ALL_FOUR),                                  # all variant
-    ("let's generate all the things", _ALL_FOUR),                              # "generate all"
-    ("I'll generate: User Stories and a Prototype.", ["user_stories", "prototype"]),  # subset
-    ("We'll make a PowerPoint presentation with slides.", ["ppt"]),           # ppt synonyms
-    ("A ui design / design spec would help.", ["ui_design"]),                 # ui_design
-    ("ppt and prototype and user stories and ui design", _ALL_FOUR),         # all via keywords
-    ("no recognised keyword here at all whatsoever", _ALL_FOUR),             # 'all' substr, no trigger → default
-    ("", _ALL_FOUR),                                                          # empty → default all
-    ("PROTOTYPE in caps", ["prototype"]),                                    # case-insensitive
+    (
+        "Based on our discussion, I'll generate: All deliverables.",
+        _ALL_FOUR,
+    ),  # all fast-path
+    ("i'll generate: all of them", _ALL_FOUR),  # all variant
+    ("let's generate all the things", _ALL_FOUR),  # "generate all"
+    (
+        "I'll generate: User Stories and a Prototype.",
+        ["user_stories", "prototype"],
+    ),  # subset
+    ("We'll make a PowerPoint presentation with slides.", ["ppt"]),  # ppt synonyms
+    ("A ui design / design spec would help.", ["ui_design"]),  # ui_design
+    ("ppt and prototype and user stories and ui design", _ALL_FOUR),  # all via keywords
+    (
+        "no recognised keyword here at all whatsoever",
+        _ALL_FOUR,
+    ),  # 'all' substr, no trigger → default
+    ("", _ALL_FOUR),  # empty → default all
+    ("PROTOTYPE in caps", ["prototype"]),  # case-insensitive
 ]
 
 
@@ -174,10 +186,10 @@ def test_determine_active_phases_frozen() -> None:
         (["user_stories", "prototype", "ui_design"], [3, 5, 6, 7]),
         (["ppt", "prototype", "ui_design"], [4, 5, 6, 7]),
         (_ALL_FOUR, [3, 4, 5, 6, 7]),
-        (["unknown_key"], [7]),                       # unmapped key dropped
-        (["ppt", "ppt"], [4, 4, 7]),                  # legacy did NOT dedupe
-        (["ui_design", "user_stories"], [3, 6, 7]),   # sorted regardless of input order
-        (["prototype", "bogus", "ppt"], [4, 5, 7]),   # bogus dropped, sorted
+        (["unknown_key"], [7]),  # unmapped key dropped
+        (["ppt", "ppt"], [4, 4, 7]),  # legacy did NOT dedupe
+        (["ui_design", "user_stories"], [3, 6, 7]),  # sorted regardless of input order
+        (["prototype", "bogus", "ppt"], [4, 5, 7]),  # bogus dropped, sorted
     ]
     for sel, expected in cases:
         assert new._determine_active_phases(sel) == expected, sel
@@ -191,33 +203,46 @@ def test_compile_final_output_frozen() -> None:
         # ALL produced (JSON phases already parsed in context).
         (
             {
-                "discovery": {"output": "d"}, "requirements": {"output": "r"},
-                "user_stories": {"output": "us"}, "ppt": {"slides": []},
-                "prototype": {"pages": []}, "ui_design": {"output": "ui"},
+                "discovery": {"output": "d"},
+                "requirements": {"output": "r"},
+                "user_stories": {"output": "us"},
+                "ppt": {"slides": []},
+                "prototype": {"pages": []},
+                "ui_design": {"output": "ui"},
                 "ui_preview": {"previews": []},
                 "output_selection": _ALL_FOUR,
             },
             _ALL_FOUR,
             {
-                "auth": None, "realtime": None, "dashboard": None,
-                "discovery": {"output": "d"}, "requirements": {"output": "r"},
-                "user_stories": {"output": "us"}, "ppt": {"slides": []},
-                "prototype": {"pages": []}, "ui_design": {"output": "ui"},
+                "auth": None,
+                "realtime": None,
+                "dashboard": None,
+                "discovery": {"output": "d"},
+                "requirements": {"output": "r"},
+                "user_stories": {"output": "us"},
+                "ppt": {"slides": []},
+                "prototype": {"pages": []},
+                "ui_design": {"output": "ui"},
                 "ui_preview": {"previews": []},
             },
         ),
         # SUBSET — ppt + ui_design skipped → {"status":"skipped"}.
         (
             {
-                "discovery": {"output": "d"}, "requirements": {"output": "r"},
-                "user_stories": {"output": "us"}, "prototype": {"pages": []},
+                "discovery": {"output": "d"},
+                "requirements": {"output": "r"},
+                "user_stories": {"output": "us"},
+                "prototype": {"pages": []},
                 "ui_preview": {"previews": []},
                 "output_selection": ["user_stories", "prototype"],
             },
             ["user_stories", "prototype"],
             {
-                "auth": None, "realtime": None, "dashboard": None,
-                "discovery": {"output": "d"}, "requirements": {"output": "r"},
+                "auth": None,
+                "realtime": None,
+                "dashboard": None,
+                "discovery": {"output": "d"},
+                "requirements": {"output": "r"},
                 "user_stories": {"output": "us"},
                 "ppt": {"status": "skipped", "value": None},
                 "prototype": {"pages": []},
@@ -236,7 +261,9 @@ def test_compile_final_output_frozen() -> None:
             },
             ["ppt"],
             {
-                "auth": None, "realtime": None, "dashboard": None,
+                "auth": None,
+                "realtime": None,
+                "dashboard": None,
                 "discovery": {"output": "d"},
                 "requirements": {"status": "failed", "error": "boom"},
                 "user_stories": {"status": "skipped", "value": None},
@@ -248,10 +275,14 @@ def test_compile_final_output_frozen() -> None:
         ),
         # EMPTY context — always-run sections → None; selectable → skipped.
         (
-            {}, [],
+            {},
+            [],
             {
-                "auth": None, "realtime": None, "dashboard": None,
-                "discovery": None, "requirements": None,
+                "auth": None,
+                "realtime": None,
+                "dashboard": None,
+                "discovery": None,
+                "requirements": None,
                 "user_stories": {"status": "skipped", "value": None},
                 "ppt": {"status": "skipped", "value": None},
                 "prototype": {"status": "skipped", "value": None},
@@ -261,12 +292,19 @@ def test_compile_final_output_frozen() -> None:
         ),
         # Only discovery present (selection = all → nothing 'skipped'; missing → None).
         (
-            {"discovery": {"output": "d"}}, _ALL_FOUR,
+            {"discovery": {"output": "d"}},
+            _ALL_FOUR,
             {
-                "auth": None, "realtime": None, "dashboard": None,
-                "discovery": {"output": "d"}, "requirements": None,
-                "user_stories": None, "ppt": None, "prototype": None,
-                "ui_design": None, "ui_preview": None,
+                "auth": None,
+                "realtime": None,
+                "dashboard": None,
+                "discovery": {"output": "d"},
+                "requirements": None,
+                "user_stories": None,
+                "ppt": None,
+                "prototype": None,
+                "ui_design": None,
+                "ui_preview": None,
             },
         ),
     ]
@@ -275,8 +313,16 @@ def test_compile_final_output_frozen() -> None:
         assert got == expected, (ctx, sel)
         # Always the 10-key set.
         assert set(got.keys()) == {
-            "auth", "realtime", "dashboard", "discovery", "requirements",
-            "user_stories", "ppt", "prototype", "ui_design", "ui_preview",
+            "auth",
+            "realtime",
+            "dashboard",
+            "discovery",
+            "requirements",
+            "user_stories",
+            "ppt",
+            "prototype",
+            "ui_design",
+            "ui_preview",
         }
 
 
@@ -298,10 +344,19 @@ async def test_astream_execute_all_outputs_sequence() -> None:
     # The phase envelope order (ALL-selection → all 7 sections).
     starts = [e["section"] for e in events if e["type"] == "phase_start"]
     ends = [e["section"] for e in events if e["type"] == "phase_end"]
-    assert starts == ends == [
-        "discovery", "requirements", "user_stories", "ppt",
-        "prototype", "ui_design", "ui_preview",
-    ]
+    assert (
+        starts
+        == ends
+        == [
+            "discovery",
+            "requirements",
+            "user_stories",
+            "ppt",
+            "prototype",
+            "ui_design",
+            "ui_preview",
+        ]
+    )
 
     # phase_start payloads: phases 0/1 use display names; 3-7 use the section key.
     by_start = {e["section"]: e["data"] for e in events if e["type"] == "phase_start"}
@@ -312,7 +367,9 @@ async def test_astream_execute_all_outputs_sequence() -> None:
 
     # Exactly two stream events per section (the stub yields two chunks).
     for section in ("discovery", "requirements", "ppt", "ui_preview"):
-        streams = [e for e in events if e["type"] == "stream" and e["section"] == section]
+        streams = [
+            e for e in events if e["type"] == "stream" and e["section"] == section
+        ]
         assert len(streams) == 2, section
         for s in streams:
             assert s["chunk"] and s["data"] is None
@@ -323,14 +380,26 @@ async def test_astream_execute_all_outputs_sequence() -> None:
     assert complete["type"] == "complete" and complete["section"] is None
     data = complete["data"]
     assert set(data.keys()) == {
-        "auth", "realtime", "dashboard", "discovery", "requirements",
-        "user_stories", "ppt", "prototype", "ui_design", "ui_preview",
+        "auth",
+        "realtime",
+        "dashboard",
+        "discovery",
+        "requirements",
+        "user_stories",
+        "ppt",
+        "prototype",
+        "ui_design",
+        "ui_preview",
     }
-    assert data["ppt"] == {"slides": [{"title": "Intro"}]}          # JSON-parsed (phase 4)
-    assert data["prototype"] == {"pages": [{"name": "Home"}]}       # JSON-parsed (phase 5)
-    assert data["ui_preview"] == {"previews": ["user_stories"]}     # JSON-parsed (phase 7)
-    assert data["requirements"] == {"output": "REQUIREMENTS body."}  # non-JSON → wrapped
-    assert data["auth"] is None and data["realtime"] is None and data["dashboard"] is None
+    assert data["ppt"] == {"slides": [{"title": "Intro"}]}  # JSON-parsed (phase 4)
+    assert data["prototype"] == {"pages": [{"name": "Home"}]}  # JSON-parsed (phase 5)
+    assert data["ui_preview"] == {"previews": ["user_stories"]}  # JSON-parsed (phase 7)
+    assert data["requirements"] == {
+        "output": "REQUIREMENTS body."
+    }  # non-JSON → wrapped
+    assert (
+        data["auth"] is None and data["realtime"] is None and data["dashboard"] is None
+    )
 
 
 @pytest.mark.asyncio
@@ -340,7 +409,13 @@ async def test_astream_execute_subset_skips_phases() -> None:
     events = await _collect(runner, message="stories and a prototype")
 
     starts = [e["section"] for e in events if e["type"] == "phase_start"]
-    assert starts == ["discovery", "requirements", "user_stories", "prototype", "ui_preview"]
+    assert starts == [
+        "discovery",
+        "requirements",
+        "user_stories",
+        "prototype",
+        "ui_preview",
+    ]
     assert "ppt" not in starts and "ui_design" not in starts
 
     data = events[-1]["data"]
@@ -390,23 +465,38 @@ async def test_phase_failure_emits_error_and_continues() -> None:
     assert err["section"] == "requirements"
     assert set(err["data"].keys()) == {"error", "code", "recoverable", "phase"}
     assert err["data"]["phase"] == 1
-    assert err["data"]["code"] == "internal_error" and err["data"]["recoverable"] is True
+    assert (
+        err["data"]["code"] == "internal_error" and err["data"]["recoverable"] is True
+    )
 
     # No stream event fired for the failed requirements phase.
-    assert not [e for e in events if e["type"] == "stream" and e["section"] == "requirements"]
+    assert not [
+        e for e in events if e["type"] == "stream" and e["section"] == "requirements"
+    ]
 
     # The error sits strictly between requirements' phase_start and phase_end.
     types_for_req = [
-        e["type"] for e in events
-        if e["section"] == "requirements" or (e["type"] in ("phase_start", "phase_end") and e["section"] == "requirements")
+        e["type"]
+        for e in events
+        if e["section"] == "requirements"
+        or (
+            e["type"] in ("phase_start", "phase_end") and e["section"] == "requirements"
+        )
     ]
     assert types_for_req == ["phase_start", "error", "phase_end"]
 
     # Pipeline CONTINUED: later phases ran; complete records the failure.
     starts = [e["section"] for e in events if e["type"] == "phase_start"]
-    assert starts == ["discovery", "requirements", "user_stories", "prototype", "ui_preview"]
+    assert starts == [
+        "discovery",
+        "requirements",
+        "user_stories",
+        "prototype",
+        "ui_preview",
+    ]
     assert events[-1]["data"]["requirements"] == {
-        "status": "failed", "error": "scripted requirements failure",
+        "status": "failed",
+        "error": "scripted requirements failure",
     }
 
 
@@ -417,7 +507,9 @@ async def test_json_parse_fallback_wraps_non_json() -> None:
     registry: dict[str, _StubRunner] = {}
 
     def _factory(agent_id: str, ctx, **kwargs) -> _StubRunner:
-        text = _DISCOVERY_SUBSET if agent_id == "chat-discovery" else _AGENT_TEXT[agent_id]
+        text = (
+            _DISCOVERY_SUBSET if agent_id == "chat-discovery" else _AGENT_TEXT[agent_id]
+        )
         if agent_id == "chat-prototype":
             text = "this is not json"
         stub = _StubRunner(agent_id, text)

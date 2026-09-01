@@ -72,7 +72,9 @@ def _baseagent_code_tokens(text: str) -> list[int]:
     return hits
 
 
-@pytest.mark.parametrize("py_file", _python_files(), ids=lambda p: str(p.relative_to(BACKEND)))
+@pytest.mark.parametrize(
+    "py_file", _python_files(), ids=lambda p: str(p.relative_to(BACKEND))
+)
 def test_no_baseagent_reference(py_file: Path) -> None:
     """No scanned agent-tree module may reference ``BaseAgent`` as a code token."""
     text = py_file.read_text(encoding="utf-8")
@@ -100,8 +102,15 @@ def test_scanned_paths_exist() -> None:
 def test_legacy_chat_stack_is_deleted() -> None:
     """The legacy free-chat stack files are gone (7b-5 true zero-legacy)."""
     for gone in (
-        "orchestrator.py", "deep_agent.py", "discovery.py", "requirements.py",
-        "user_stories.py", "ppt.py", "prototype.py", "ui_design.py", "preview.py",
+        "orchestrator.py",
+        "deep_agent.py",
+        "discovery.py",
+        "requirements.py",
+        "user_stories.py",
+        "ppt.py",
+        "prototype.py",
+        "ui_design.py",
+        "preview.py",
     ):
         assert not (BACKEND / "app" / "agents" / gone).exists(), gone
 

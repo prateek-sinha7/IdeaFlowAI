@@ -53,7 +53,10 @@ def _agent_info(event: Any) -> tuple[str, str, int]:
         )
     return (
         str(getattr(event, "step", None) or getattr(event, "agent_id", "unknown")),
-        str(getattr(event, "agent_name", None) or getattr(event, "step", "Unknown Agent")),
+        str(
+            getattr(event, "agent_name", None)
+            or getattr(event, "step", "Unknown Agent")
+        ),
         int(getattr(event, "step_index", 0)),
     )
 

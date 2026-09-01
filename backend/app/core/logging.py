@@ -276,7 +276,9 @@ def configure_logging() -> None:
     # TERM=dumb.
     _log_format = _early_settings.LOG_FORMAT.lower()
     if _log_format not in ("json", "pretty"):
-        _log_format = "pretty" if _early_settings.ENV.lower() == "development" else "json"
+        _log_format = (
+            "pretty" if _early_settings.ENV.lower() == "development" else "json"
+        )
 
     _log_handler = logging.StreamHandler(sys.stdout)
     if _log_format == "pretty":

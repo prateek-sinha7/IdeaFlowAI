@@ -92,7 +92,10 @@ class SecurityGate:
         # branch so loosening exec never loosens network/secrets (T-10-03-02).
         net_secret = [
             label
-            for label, wanted in (("network", wants_network), ("secrets", wants_secrets))
+            for label, wanted in (
+                ("network", wants_network),
+                ("secrets", wants_secrets),
+            )
             if wanted
         ]
         if net_secret:
@@ -124,7 +127,9 @@ class SecurityGate:
             trust = getattr(step, "trust", "file") or "file"
             if trust not in _ENGINEER_TRUST:
                 return await self._block_exec(
-                    ctx, step_id, f"exec requires engineer trust (file/builtin); got {trust!r}"
+                    ctx,
+                    step_id,
+                    f"exec requires engineer trust (file/builtin); got {trust!r}",
                 )
 
             # (b) D-01 defense-in-depth: the `approval` gate MUST be declared. A
@@ -133,7 +138,8 @@ class SecurityGate:
             declared_gates = list(getattr(step, "gates", []) or [])
             if "approval" not in declared_gates:
                 return await self._block_exec(
-                    ctx, step_id,
+                    ctx,
+                    step_id,
                     "exec requires the 'approval' gate declared (D-01); none found",
                 )
 
@@ -149,13 +155,17 @@ class SecurityGate:
                 exec_allow = list(getattr(policy, "exec_allow", []) or [])
                 if not exec_allow:
                     return await self._block_exec(
-                        ctx, step_id,
+                        ctx,
+                        step_id,
                         "exec requires a constrained profile (non-empty allow-list); "
                         "the bound workspace has none",
                     )
 
             # All three conditions hold → PASS the exec request.
-            detail = {"granted": "exec", "reason": "file/builtin trust + approval declared + constrained profile"}
+            detail = {
+                "granted": "exec",
+                "reason": "file/builtin trust + approval declared + constrained profile",
+            }
             await write_gate_event(ctx, step_id, "security", GATE_PASS, detail)
             return GateOutcome(outcome=GATE_PASS, detail=detail)
 

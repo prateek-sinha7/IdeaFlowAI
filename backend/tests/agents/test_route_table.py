@@ -84,7 +84,9 @@ def test_parse_href_valued_object_returns_none():
 
 
 def test_parse_slash_leading_value_object_returns_none():
-    assert parse_routes_table("const routes = { home: '/home', about: '/about' };") is None
+    assert (
+        parse_routes_table("const routes = { home: '/home', about: '/about' };") is None
+    )
 
 
 def test_parse_empty_valued_object_returns_none():

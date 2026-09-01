@@ -123,7 +123,9 @@ async def test_sc001_reconcile_reruns_exact_set_over_app_py() -> None:
     ctx = SimpleNamespace(
         runner=runner,
         resume_completed_ordered={_BUILD_AGENT: completed_ordered},
-        deliverable=SimpleNamespace(name=_DELIVERABLE_NAME),  # NON-prototype deliverable
+        deliverable=SimpleNamespace(
+            name=_DELIVERABLE_NAME
+        ),  # NON-prototype deliverable
     )
     step = Step(
         agent_id=_BUILD_AGENT,
@@ -144,8 +146,9 @@ async def test_sc001_reconcile_reruns_exact_set_over_app_py() -> None:
     # The deliverable resolved to the DECLARED app.py — never prototype.html — for the
     # per-task typed persist AND the validation fix-loop (proves the reconcile path is
     # workflow-name-free at the deliverable seam too).
-    assert runner.persist_filenames and all(
-        f == _DELIVERABLE_NAME for f in runner.persist_filenames
+    assert (
+        runner.persist_filenames
+        and all(f == _DELIVERABLE_NAME for f in runner.persist_filenames)
     ), f"per-task persist did not target {_DELIVERABLE_NAME!r}: {runner.persist_filenames}"
     assert runner.fix_filenames and all(
         f == _DELIVERABLE_NAME for f in runner.fix_filenames
@@ -161,7 +164,9 @@ async def test_sc001_reconcile_reruns_exact_set_over_app_py() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sc001_reconcile_orphan_excluded_from_context_and_assembly(tmp_path) -> None:
+async def test_sc001_reconcile_orphan_excluded_from_context_and_assembly(
+    tmp_path,
+) -> None:
     """SC-001 / RESUME-16: the KERNEL reconciler EXCLUDES the deleted-completed task's
     ``app.py`` version from BOTH the next task's on-disk context basis AND the assembled
     deliverable — the cumulative boundary restores the SURVIVING prefix task's version,
@@ -195,9 +200,15 @@ async def test_sc001_reconcile_orphan_excluded_from_context_and_assembly(tmp_pat
     # upstream 'spec' the build step consumes (its content_hash feeds the upstream hash).
     graph = ArtifactGraph()
     graph.write_ref(
-        run_id=run_id, owner_id=owner, workspace_id=ws, kind="task_list",
-        producer_step=_SOURCE_STEP, producer_agent=_SOURCE_STEP, task_id=None,
-        content=_PLAN_EDITED, location=f"artifact_refs/{_SOURCE_STEP}",
+        run_id=run_id,
+        owner_id=owner,
+        workspace_id=ws,
+        kind="task_list",
+        producer_step=_SOURCE_STEP,
+        producer_agent=_SOURCE_STEP,
+        task_id=None,
+        content=_PLAN_EDITED,
+        location=f"artifact_refs/{_SOURCE_STEP}",
     )
     ectx.artifacts = graph
 
@@ -209,10 +220,19 @@ async def test_sc001_reconcile_orphan_excluded_from_context_and_assembly(tmp_pat
         SimpleNamespace(id=_BUILD_AGENT, produces=[], consumes=["task_list"]),
     ]
     runner = KernelServices(
-        engine=engine, ectx=ectx, sandbox=_rs, ordered_agents=ordered,
-        user_message="brief", pipeline_run_id=run_id, pipeline_type="sc001_task_loop",
-        planning_context={}, attached_skills=None, attached_hooks=None,
-        model_id=None, results=[], cancel_event=None,
+        engine=engine,
+        ectx=ectx,
+        sandbox=_rs,
+        ordered_agents=ordered,
+        user_message="brief",
+        pipeline_run_id=run_id,
+        pipeline_type="sc001_task_loop",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
     )
     ectx.runner = runner
 
@@ -233,12 +253,30 @@ async def test_sc001_reconcile_orphan_excluded_from_context_and_assembly(tmp_pat
 
     # Durable app.py versions on the store: Alpha's file (v1) + the DELETED Bravo's
     # file (v2, the global-max that must NOT win).
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location=_DELIVERABLE_NAME, content="after-Alpha", version=1,
-                    producer_agent=_BUILD_AGENT, task_id=key_alpha)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location=_DELIVERABLE_NAME, content="after-Bravo-DELETED", version=2,
-                    producer_agent=_BUILD_AGENT, task_id=key_bravo)
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location=_DELIVERABLE_NAME,
+        content="after-Alpha",
+        version=1,
+        producer_agent=_BUILD_AGENT,
+        task_id=key_alpha,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location=_DELIVERABLE_NAME,
+        content="after-Bravo-DELETED",
+        version=2,
+        producer_agent=_BUILD_AGENT,
+        task_id=key_bravo,
+    )
     session.commit()
 
     # The reconciler computes the boundary from the edited list + the completed cursor
@@ -278,16 +316,22 @@ def test_sc001_reconcile_zero_engine_name_literals() -> None:
     # (a) The workflow uses ONLY already-registered capabilities.
     reg = CapabilityRegistry()
     assert reg.is_registered("strategy", "task_loop"), "task_loop must be registered"
-    assert reg.is_registered("strategy", "single_shot"), "single_shot must be registered"
-    assert reg.is_registered("deliverable", "single_file"), "single_file must be registered"
-    assert reg.is_registered("task_parser", "heading_tasks"), (
-        "heading_tasks must be registered"
-    )
+    assert reg.is_registered(
+        "strategy", "single_shot"
+    ), "single_shot must be registered"
+    assert reg.is_registered(
+        "deliverable", "single_file"
+    ), "single_file must be registered"
+    assert reg.is_registered(
+        "task_parser", "heading_tasks"
+    ), "heading_tasks must be registered"
 
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     )
     engine_pkg = repo_root / "backend" / "agents" / "execution_engine"
@@ -297,15 +341,15 @@ def test_sc001_reconcile_zero_engine_name_literals() -> None:
     # (b1) ZERO synthetic-workflow name-literals anywhere under the engine package —
     # the reconcile keys on generic identity, never the workflow/agent name.
     hits = grep_lines_matching("sc001", engine_pkg)
-    assert hits.returncode != 0 and hits.stdout.strip() == "", (
-        f"the engine package must carry ZERO sc001 name-literals; found:\n{hits.stdout}"
-    )
+    assert (
+        hits.returncode != 0 and hits.stdout.strip() == ""
+    ), f"the engine package must carry ZERO sc001 name-literals; found:\n{hits.stdout}"
 
     # (b2) ZERO pipeline/spec dispatch literals (the standing INV-1 grep).
     lit = grep_files_matching(r"pipeline_type ==|spec\.id ==", engine_pkg, regex=True)
-    assert lit.returncode != 0 and lit.stdout.strip() == "", (
-        f"the engine package must carry ZERO name-dispatch literals; found:\n{lit.stdout}"
-    )
+    assert (
+        lit.returncode != 0 and lit.stdout.strip() == ""
+    ), f"the engine package must carry ZERO name-dispatch literals; found:\n{lit.stdout}"
 
     # The synthetic fixture (manifest + AGENT.md) lives entirely OUTSIDE the engine
     # package — the workflow runs purely on the workflow-agnostic kernel.

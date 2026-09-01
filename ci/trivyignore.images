@@ -1,13 +1,14 @@
 # =============================================================================
-# Trivy CONTAINER IMAGE ignores (deliberately separate from .trivyignore).
+# Trivy CONTAINER IMAGE ignores (deliberately separate from ci/trivyignore).
 # =============================================================================
-# Consumed by .github/workflows/deploy.yml (`build` job):
+# Location: ci/trivyignore.images (moved from the repo root).
+# Consumed by .github/workflows/deploy.yml (`build` job) and _docker.yml:
 #   trivy image --severity HIGH,CRITICAL --exit-code 1 \
-#     --ignore-unfixed --ignorefile .trivyignore.images <repo>@sha256:...
+#     --ignore-unfixed --ignorefile ci/trivyignore.images <repo>@sha256:...
 #
 # WHY A SECOND FILE
 # -----------------
-# .trivyignore holds Terraform MISCONFIGURATION accepts (AVD-AWS-*) consumed by
+# ci/trivyignore holds Terraform MISCONFIGURATION accepts (AVD-AWS-*) consumed by
 # `trivy config` in ci.yml. Image scanning consumes CVE identifiers
 # (CVE-*/GHSA-*), a disjoint namespace with a completely different review
 # cadence: an infrastructure accept is a standing architectural decision, while

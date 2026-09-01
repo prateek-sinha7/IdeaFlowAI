@@ -102,9 +102,9 @@ class TestPrototypePipelineEndpointReturnsRealRegistry:
             "prototype-polisher",
             "prototype-finalizer",
         }
-        assert not (set(ids) & legacy_v1), (
-            f"retired prototype_v1 ids leaked into the endpoint: {set(ids) & legacy_v1}"
-        )
+        assert not (
+            set(ids) & legacy_v1
+        ), f"retired prototype_v1 ids leaked into the endpoint: {set(ids) & legacy_v1}"
 
     def test_prototype_endpoint_gate_values(self, api_client):
         """``gate`` is the new additive field. specify + plan are default-gated
@@ -210,7 +210,9 @@ class TestSkillEndpointAgentIdValidation:
         assert resp.status_code == 400, resp.text
         assert "Unknown agent_id" in resp.text
 
-    def test_real_agent_id_passes_existence_check(self, api_client, tmp_path, monkeypatch):
+    def test_real_agent_id_passes_existence_check(
+        self, api_client, tmp_path, monkeypatch
+    ):
         """A real id (``prototype-specify``) must get PAST the 400 existence
         gate. We point the skills storage at a tmp dir so the write succeeds
         in isolation, then assert the response is not the 400 rejection.
@@ -294,6 +296,7 @@ class TestRealAllowedCustomAgentIds:
         # The handler imports the helper from ``agents.registry`` (NOT the
         # deleted ``app.agents.registry``); this resolves to the live callable.
         import agents.registry as real_registry_mod
+
         assert real_helper is real_registry_mod.allowed_custom_agent_ids
 
         # And it returns the REAL, tight allow-lists (the values the repointed
@@ -302,7 +305,9 @@ class TestRealAllowedCustomAgentIds:
         # ppt → real od-ppt agents ∪ custom pool.
         assert real_helper("ppt") == set(PIPELINE_AGENTS["ppt"]) | custom_pool
         # prototype → real Spec-Kit agents ∪ custom pool.
-        assert real_helper("prototype") == set(PIPELINE_AGENTS["prototype"]) | custom_pool
+        assert (
+            real_helper("prototype") == set(PIPELINE_AGENTS["prototype"]) | custom_pool
+        )
         # custom → OPEN: every non-revision, non-internal pipeline's agents.
         # Cross-pipeline composition is the custom workflow builder's purpose
         # (spec 012), so this branch is deliberately wide. Safe because `custom`

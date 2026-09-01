@@ -59,22 +59,45 @@ class _FakeRunner:
     async def workspace_budget_spent(self):
         return self._workspace_spent or {"subagents": 0, "tokens": 0}
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
+    async def record_subagent_run(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         self._row_seq += 1
         row_id = f"row-{self._row_seq}"
-        self.recorded_rows.append(dict(id=row_id, worker_agent=worker_agent, status=status))
+        self.recorded_rows.append(
+            dict(id=row_id, worker_agent=worker_agent, status=status)
+        )
         return row_id
 
     async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
         pass
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, **kw):
+    async def run_worker(
+        self, step, ctx, *, worker_index, thread_id, agent_id, input, **kw
+    ):
         self.spawned.append(dict(index=worker_index, agent_id=agent_id))
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}
 
 
 def _make_step(agent_id="worker-a", *, mode="parallel", max_parallel=None):
-    fanout = SimpleNamespace(mode=mode, max_parallel=max_parallel, agent="self", count=None, workers=[], merge_agent=None)
+    fanout = SimpleNamespace(
+        mode=mode,
+        max_parallel=max_parallel,
+        agent="self",
+        count=None,
+        workers=[],
+        merge_agent=None,
+    )
     return SimpleNamespace(agent_id=agent_id, fanout=fanout, on_conflict="human_gate")
 
 
@@ -241,8 +264,13 @@ async def test_wall_clock_breach_mid_flight_stops_next_sequential_spawn(monkeypa
     async def _slow(step, ctx, *, worker_index, thread_id, agent_id, input, **kw):
         clock["t"] += 10.0  # worker 0 burns past the 5s deadline mid-flight
         async for ev in _orig(
-            step, ctx, worker_index=worker_index, thread_id=thread_id,
-            agent_id=agent_id, input=input, **kw,
+            step,
+            ctx,
+            worker_index=worker_index,
+            thread_id=thread_id,
+            agent_id=agent_id,
+            input=input,
+            **kw,
         ):
             yield ev
 
@@ -554,9 +582,16 @@ def test_engine_collects_partial_fragments_from_graph():
     engine = ExecutionEngine()
     graph = ArtifactGraph()
     ref = graph.write_ref(
-        run_id="run-x", owner_id="o", workspace_id="ws-1", kind="file_bundle",
-        producer_step="fanout-step", producer_agent="worker-a", task_id="0",
-        content="<html>frag</html>", location="prototype.html", visibility="workspace",
+        run_id="run-x",
+        owner_id="o",
+        workspace_id="ws-1",
+        kind="file_bundle",
+        producer_step="fanout-step",
+        producer_agent="worker-a",
+        task_id="0",
+        content="<html>frag</html>",
+        location="prototype.html",
+        visibility="workspace",
     )
     ectx = _SnapEctx(BudgetManager.from_limits(None), _SnapRunner(), graph=graph)
     fragments = engine._collect_partial_fragments(ectx)
@@ -578,14 +613,28 @@ def test_engine_partial_fragments_only_fragment_kinds():
     engine = ExecutionEngine()
     graph = ArtifactGraph()
     graph.write_ref(
-        run_id="run-x", owner_id="o", workspace_id="ws-1", kind="plan",
-        producer_step="planner", producer_agent="planner-a", task_id=None,
-        content="# plan", location="tasks.md", visibility="workspace",
+        run_id="run-x",
+        owner_id="o",
+        workspace_id="ws-1",
+        kind="plan",
+        producer_step="planner",
+        producer_agent="planner-a",
+        task_id=None,
+        content="# plan",
+        location="tasks.md",
+        visibility="workspace",
     )
     graph.write_ref(
-        run_id="run-x", owner_id="o", workspace_id="ws-1", kind="file_bundle",
-        producer_step="fanout-step", producer_agent="worker-a", task_id="0",
-        content="frag", location="prototype.html", visibility="workspace",
+        run_id="run-x",
+        owner_id="o",
+        workspace_id="ws-1",
+        kind="file_bundle",
+        producer_step="fanout-step",
+        producer_agent="worker-a",
+        task_id="0",
+        content="frag",
+        location="prototype.html",
+        visibility="workspace",
     )
     ectx = _SnapEctx(BudgetManager.from_limits(None), _SnapRunner(), graph=graph)
     fragments = engine._collect_partial_fragments(ectx)
@@ -621,8 +670,13 @@ def _seed_run(session, run_id, owner_id="alice", workspace_id="ws-1"):
     from app.models.workflow import WorkflowRun
 
     row = WorkflowRun(
-        id=run_id, user_id=owner_id, owner_id=owner_id, workspace_id=workspace_id,
-        type="custom", input="go", status="running",
+        id=run_id,
+        user_id=owner_id,
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+        type="custom",
+        input="go",
+        status="running",
     )
     session.add(row)
     session.commit()
@@ -633,10 +687,17 @@ def _seed_run(session, run_id, owner_id="alice", workspace_id="ws-1"):
 async def test_budget_snapshot_persisted_to_workflow_runs_on_completion():
     store, session = _in_memory_store()
     _seed_run(session, "run-done")
-    snap = {"tokens": 100, "cost": None, "subagents": 3, "depth": 1, "wall_clock_seconds": 4.0}
+    snap = {
+        "tokens": 100,
+        "cost": None,
+        "subagents": 3,
+        "depth": 1,
+        "wall_clock_seconds": 4.0,
+    }
     await store.persist_budget_snapshot("run-done", snap)
 
     from app.models.workflow import WorkflowRun
+
     row = session.query(WorkflowRun).filter(WorkflowRun.id == "run-done").first()
     assert row.budget_snapshot_json is not None
     assert row.budget_snapshot_json["subagents"] == 3
@@ -648,10 +709,17 @@ async def test_budget_snapshot_persisted_to_workflow_runs_on_abort():
     # The abort path writes the SAME column with the spend-at-abort figures.
     store, session = _in_memory_store()
     _seed_run(session, "run-abort")
-    snap = {"tokens": 50, "cost": None, "subagents": 8, "depth": 2, "wall_clock_seconds": 1.0}
+    snap = {
+        "tokens": 50,
+        "cost": None,
+        "subagents": 8,
+        "depth": 2,
+        "wall_clock_seconds": 1.0,
+    }
     await store.persist_budget_snapshot("run-abort", snap)
 
     from app.models.workflow import WorkflowRun
+
     row = session.query(WorkflowRun).filter(WorkflowRun.id == "run-abort").first()
     assert row.budget_snapshot_json["subagents"] == 8
     assert row.budget_snapshot_json["depth"] == 2
@@ -664,10 +732,12 @@ async def test_persist_budget_snapshot_cross_owner_is_noop():
     _seed_run(session, "run-alice", owner_id="alice")
 
     from agents.authz import ScopedStore
+
     bob = ScopedStore(owner_id="bob", workspace_id="ws-1", session=session)
     await bob.persist_budget_snapshot("run-alice", {"subagents": 99})
 
     from app.models.workflow import WorkflowRun
+
     row = session.query(WorkflowRun).filter(WorkflowRun.id == "run-alice").first()
     assert row.budget_snapshot_json is None  # untouched — cross-owner no-op
 
@@ -679,18 +749,31 @@ async def test_workspace_budget_spent_aggregate_owner_scoped():
     store, session = _in_memory_store(owner_id="alice", workspace_id="ws-1")
     # Two of alice's subagent_runs in ws-1.
     await store.record_subagent_run(
-        "run-1", parent_step="fan", worker_agent="w", depth=0, isolation="shared_read",
+        "run-1",
+        parent_step="fan",
+        worker_agent="w",
+        depth=0,
+        isolation="shared_read",
         status="complete",
     )
     await store.record_subagent_run(
-        "run-2", parent_step="fan", worker_agent="w", depth=0, isolation="shared_read",
+        "run-2",
+        parent_step="fan",
+        worker_agent="w",
+        depth=0,
+        isolation="shared_read",
         status="complete",
     )
     # Bob's row in the same workspace name — must NOT be counted for alice.
     from agents.authz import ScopedStore
+
     bob = ScopedStore(owner_id="bob", workspace_id="ws-1", session=session)
     await bob.record_subagent_run(
-        "run-3", parent_step="fan", worker_agent="w", depth=0, isolation="shared_read",
+        "run-3",
+        parent_step="fan",
+        worker_agent="w",
+        depth=0,
+        isolation="shared_read",
         status="complete",
     )
 

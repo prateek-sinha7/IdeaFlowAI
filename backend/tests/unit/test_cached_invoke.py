@@ -41,7 +41,9 @@ class _RecordingChatModel(BaseChatModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def __init__(self, *, usage_metadata: dict | None = None, text: str = "ok", **kw: Any) -> None:
+    def __init__(
+        self, *, usage_metadata: dict | None = None, text: str = "ok", **kw: Any
+    ) -> None:
         super().__init__(**kw)
         object.__setattr__(self, "recorded_messages", None)
         object.__setattr__(self, "recorded_kwargs", None)
@@ -64,7 +66,9 @@ class _RecordingChatModel(BaseChatModel):
         msg = AIMessage(content=self._text, usage_metadata=self._usage_metadata)
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
-    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+    async def _agenerate(
+        self, messages, stop=None, run_manager=None, **kwargs
+    ) -> ChatResult:
         return self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
 
@@ -76,20 +80,30 @@ def _make_recording_bedrock(usage_metadata: dict | None = None, text: str = "ok"
     class _RecordingBedrock(ChatBedrockConverse):
         model_config = {"arbitrary_types_allowed": True, "extra": "allow"}
 
-        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        def _generate(
+            self, messages, stop=None, run_manager=None, **kwargs
+        ) -> ChatResult:
             object.__setattr__(self, "recorded_messages", list(messages))
             object.__setattr__(self, "recorded_kwargs", dict(kwargs))
-            meta = usage_metadata if usage_metadata is not None else {
-                "input_tokens": 100,
-                "output_tokens": 20,
-                "total_tokens": 120,
-                "input_token_details": {"cache_read": 80, "cache_creation": 5},
-            }
+            meta = (
+                usage_metadata
+                if usage_metadata is not None
+                else {
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "total_tokens": 120,
+                    "input_token_details": {"cache_read": 80, "cache_creation": 5},
+                }
+            )
             msg = AIMessage(content=text, usage_metadata=meta)
             return ChatResult(generations=[ChatGeneration(message=msg)])
 
-        async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
-            return self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        async def _agenerate(
+            self, messages, stop=None, run_manager=None, **kwargs
+        ) -> ChatResult:
+            return self._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
 
     return _RecordingBedrock(
         model="anthropic.claude-3-haiku-20240307-v1:0",
@@ -115,12 +129,20 @@ async def test_bedrock_call_places_cache_control_on_stable_prefix():
     # The Bedrock cache_control is passed as a per-call kwarg → langchain_aws places
     # the cachePoint on the stable system prefix + the last message. Assert the
     # cache config is correctly placed (the live cache_read>0 is the B.4 check).
-    assert model.recorded_kwargs.get("cache_control") == {"type": "ephemeral", "ttl": "5m"}
+    assert model.recorded_kwargs.get("cache_control") == {
+        "type": "ephemeral",
+        "ttl": "5m",
+    }
 
     # The stable prefix went first as a SystemMessage (the cache-eligible prefix).
     msgs = model.recorded_messages
-    assert isinstance(msgs[0], SystemMessage) and msgs[0].content == "STABLE SYSTEM PREFIX"
-    assert isinstance(msgs[-1], HumanMessage) and msgs[-1].content == "the volatile per-call brief"
+    assert (
+        isinstance(msgs[0], SystemMessage) and msgs[0].content == "STABLE SYSTEM PREFIX"
+    )
+    assert (
+        isinstance(msgs[-1], HumanMessage)
+        and msgs[-1].content == "the volatile per-call brief"
+    )
 
     assert text == "ok"
     # Token counting: usage populated incl. the cache split (ISS-032 shape).
@@ -160,16 +182,22 @@ async def test_non_bedrock_provider_gets_no_cache_control():
 
 @pytest.mark.asyncio
 async def test_usage_sink_receives_token_counts():
-    model = _RecordingChatModel(usage_metadata={"input_tokens": 42, "output_tokens": 9, "total_tokens": 51})
+    model = _RecordingChatModel(
+        usage_metadata={"input_tokens": 42, "output_tokens": 9, "total_tokens": 51}
+    )
     sunk: list[dict] = []
     text, usage = await cached_invoke("brief", model=model, usage_sink=sunk.append)
     assert len(sunk) == 1
-    assert sunk[0] == usage == {
-        "input_tokens": 42,
-        "output_tokens": 9,
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-    }
+    assert (
+        sunk[0]
+        == usage
+        == {
+            "input_tokens": 42,
+            "output_tokens": 9,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        }
+    )
 
 
 @pytest.mark.asyncio
@@ -262,13 +290,27 @@ async def test_classifier_delegates(monkeypatch):
 
     captured: dict[str, Any] = {}
 
-    async def _fake_cached_invoke(messages, *, system=None, model=None, max_tokens=None, usage_sink=None):
+    async def _fake_cached_invoke(
+        messages, *, system=None, model=None, max_tokens=None, usage_sink=None
+    ):
         captured["system"] = system
         captured["messages"] = messages
         captured["model"] = model
         if usage_sink is not None:
-            usage_sink({"input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 0, "cache_write_tokens": 0})
-        return "test", {"input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 0, "cache_write_tokens": 0}
+            usage_sink(
+                {
+                    "input_tokens": 3,
+                    "output_tokens": 1,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                }
+            )
+        return "test", {
+            "input_tokens": 3,
+            "output_tokens": 1,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        }
 
     monkeypatch.setattr(clf, "cached_invoke", _fake_cached_invoke)
     sunk: list[dict] = []
@@ -293,12 +335,26 @@ async def test_compliance_agent_delegates(monkeypatch):
     sentinel_model = object()
     monkeypatch.setattr(comp, "build_model", lambda max_tokens=None: sentinel_model)
 
-    async def _fake_cached_invoke(messages, *, system=None, model=None, max_tokens=None, usage_sink=None):
+    async def _fake_cached_invoke(
+        messages, *, system=None, model=None, max_tokens=None, usage_sink=None
+    ):
         captured["system"] = system
         captured["model"] = model
         if usage_sink is not None:
-            usage_sink({"input_tokens": 5, "output_tokens": 2, "cache_read_tokens": 0, "cache_write_tokens": 0})
-        return json.dumps(report), {"input_tokens": 5, "output_tokens": 2, "cache_read_tokens": 0, "cache_write_tokens": 0}
+            usage_sink(
+                {
+                    "input_tokens": 5,
+                    "output_tokens": 2,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                }
+            )
+        return json.dumps(report), {
+            "input_tokens": 5,
+            "output_tokens": 2,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        }
 
     monkeypatch.setattr(comp, "cached_invoke", _fake_cached_invoke)
     sunk: list[dict] = []

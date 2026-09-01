@@ -126,11 +126,11 @@ jobs:
 
       - name: ruff format --check
         working-directory: backend
-        run: ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: ruff check (linting)
         working-directory: backend
-        run: ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: python -m compileall (syntax check)
         working-directory: backend
@@ -147,7 +147,7 @@ jobs:
           python .github/scripts/check-workflow-gate-contract.py \
             .github/workflows/deploy.yml --verbose
 
-      # gitleaks: secret scanning (see .gitleaks.toml)
+      # gitleaks: secret scanning (see ci/gitleaks.toml + ci/gitleaksignore)
       - name: Install gitleaks
         uses: ./.github/actions/install-checksummed-tool
         with:
@@ -159,7 +159,7 @@ jobs:
           binary-name: gitleaks
 
       - name: gitleaks detect (full history)
-        run: gitleaks detect --redact --no-banner -v --config .gitleaks.toml --source .
+        run: gitleaks detect --redact --no-banner -v --config ci/gitleaks.toml -i ci/gitleaksignore --source .
 
       # Shell syntax checks
       - name: shellcheck (all .sh files)
@@ -263,7 +263,7 @@ jobs:
 
       # Phase 8: Cache Playwright browser (~400 MB, 90s install time)
       - name: Cache Playwright browser
-        uses: actions/cache@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('frontend/package-lock.json') }}
@@ -404,7 +404,7 @@ jobs:
 
       - name: Upload coverage artifact (agents-a)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-agents-a
           path: backend/.coverage.agents-a
@@ -412,7 +412,7 @@ jobs:
 
       - name: Upload JUnit artifact (agents-a)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-agents-a
           path: backend/junit-agents-a.xml
@@ -450,7 +450,7 @@ jobs:
 
       - name: Upload coverage artifact (agents-b)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-agents-b
           path: backend/.coverage.agents-b
@@ -458,7 +458,7 @@ jobs:
 
       - name: Upload JUnit artifact (agents-b)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-agents-b
           path: backend/junit-agents-b.xml
@@ -508,7 +508,7 @@ jobs:
 
       - name: Upload coverage artifact (unit)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-unit
           path: backend/.coverage.unit
@@ -516,7 +516,7 @@ jobs:
 
       - name: Upload coverage artifact (integration)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-integration
           path: backend/.coverage.integration
@@ -524,7 +524,7 @@ jobs:
 
       - name: Upload JUnit artifact (unit)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-unit
           path: backend/junit-unit.xml
@@ -532,7 +532,7 @@ jobs:
 
       - name: Upload JUnit artifact (integration)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-integration
           path: backend/junit-integration.xml
@@ -598,7 +598,7 @@ jobs:
 
       - name: Upload backend coverage HTML
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: backend-coverage-report
           path: backend/htmlcov/
@@ -606,7 +606,7 @@ jobs:
 
       - name: Upload merged JUnit report
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: backend-junit-report
           path: backend/junit-merged.xml
@@ -614,7 +614,7 @@ jobs:
 
       - name: Upload backend coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
+        uses: codecov/codecov-action@968872560f81e7bdde9272853e65f2507c0eca7c # v5.0.0
         with:
           files: ./backend/coverage.xml
           flags: backend
@@ -900,7 +900,7 @@ jobs:
 
       - name: Upload frontend coverage HTML
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: frontend-coverage-report
           path: frontend/coverage/
@@ -908,7 +908,7 @@ jobs:
 
       - name: Upload frontend coverage XML (for SonarCloud)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: frontend-coverage-xml
           path: frontend/coverage/coverage-final.xml
@@ -916,7 +916,7 @@ jobs:
 
       - name: Upload frontend coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
+        uses: codecov/codecov-action@968872560f81e7bdde9272853e65f2507c0eca7c # v5.0.0
         with:
           files: ./frontend/coverage/coverage-final.json
           flags: frontend
@@ -1034,7 +1034,7 @@ jobs:
           done
 
       - name: Upload consolidated coverage artifact
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: sonarcloud-coverage
           path: sonarcloud-coverage/
@@ -1190,7 +1190,7 @@ jobs:
           binary-name: gitleaks
 
       - name: gitleaks detect (full history)
-        run: gitleaks detect --redact --no-banner -v --config .gitleaks.toml --source .
+        run: gitleaks detect --redact --no-banner -v --config ci/gitleaks.toml -i ci/gitleaksignore --source .
 
   # Job 2: IaC scanning (checkov + trivy config)
   security-scan-iac:
@@ -1209,8 +1209,15 @@ jobs:
         with:
           dev-deps: "true"
 
+      # checkov comes from backend/requirements-dev.txt into backend/.venv, so it
+      # is NOT on PATH — it must be invoked through `uv run` like every other
+      # venv-provided tool in this workflow (a bare `checkov` exited 127).
       - name: checkov IaC scan
-        run: checkov -d infra/terraform --config-file .checkov.yaml
+        working-directory: backend
+        run: >-
+          uv run --no-sync --with checkov==3.2.200
+          checkov -d ../infra/terraform
+          --config-file ../ci/checkov.yaml
 
       - name: Install trivy
         uses: ./.github/actions/install-checksummed-tool
@@ -1225,7 +1232,7 @@ jobs:
       - name: trivy config scan
         run: |
           trivy config --exit-code 1 --severity HIGH,CRITICAL \
-            --ignorefile .trivyignore \
+            --ignorefile ci/trivyignore \
             --skip-dirs "**/examples/**" \
             --skip-dirs "**/localstack/**" \
             infra/terraform
@@ -1263,7 +1270,8 @@ jobs:
           name: terraform
           version: v1.11.0
           url: https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_linux_amd64.zip
-          sha256: 32ca9c487ae91d62db5c1f21a0f6d99aac3a53dd2c8c8f6be3fc975f7968d0cd
+          # Verified against https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_SHA256SUMS
+          sha256: 069e531fd4651b9b510adbd7e27dd648b88d66d5f369a2059aadbb4baaead1c1
           archive-format: zip
           binary-name: terraform
 

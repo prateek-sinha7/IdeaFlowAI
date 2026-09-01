@@ -187,8 +187,7 @@ class ScopedStore:
                 id=getattr(ref, "id", None) or str(uuid.uuid4()),
                 run_id=ref.run_id,
                 owner_id=resolved_owner,
-                workspace_id=getattr(ref, "workspace_id", None)
-                or self._workspace_id,
+                workspace_id=getattr(ref, "workspace_id", None) or self._workspace_id,
                 kind=ref.kind,
                 producer_step=ref.producer_step,
                 producer_agent=ref.producer_agent,
@@ -218,17 +217,13 @@ class ScopedStore:
 
         session, owned = self._acquire()
         try:
-            query = session.query(ArtifactRefRow).filter(
-                ArtifactRefRow.id == ref_id
-            )
+            query = session.query(ArtifactRefRow).filter(ArtifactRefRow.id == ref_id)
             return self._scope_with_visibility(query, ArtifactRefRow).first()
         finally:
             if owned:
                 session.close()
 
-    async def list_refs(
-        self, run_id: str, kind: str | None = None
-    ) -> list[Any]:
+    async def list_refs(self, run_id: str, kind: str | None = None) -> list[Any]:
         """Return the run's owner+visibility-scoped ``ArtifactRef`` rows.
 
         Optionally filtered to a single ``kind``. Ordered by ``version`` ascending
@@ -512,7 +507,9 @@ class ScopedStore:
 
         session, owned = self._acquire()
         try:
-            query = session.query(func.max(RunEvent.seq)).filter(RunEvent.run_id == run_id)
+            query = session.query(func.max(RunEvent.seq)).filter(
+                RunEvent.run_id == run_id
+            )
             query = self._scope_owner_ws(query, RunEvent)
             return int(query.scalar() or 0)
         finally:
@@ -555,7 +552,9 @@ class ScopedStore:
         last_rejection: IntegrityError | None = None
         for _ in range(max(1, _max_attempts)):
             try:
-                await self.append_event(run_id, attempt_seq, event_id, type, payload_json)
+                await self.append_event(
+                    run_id, attempt_seq, event_id, type, payload_json
+                )
                 return attempt_seq
             except IntegrityError as rejected:
                 last_rejection = rejected
@@ -727,11 +726,7 @@ class ScopedStore:
 
         session, owned = self._acquire()
         try:
-            row = (
-                session.query(WorkflowRun)
-                .filter(WorkflowRun.id == run_id)
-                .first()
-            )
+            row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
             if row is None:
                 # Offline harness / no FK row — nothing to stamp. The caller's
                 # best-effort wrapper degrades the same way append_event does.
@@ -886,11 +881,7 @@ class ScopedStore:
 
         session, owned = self._acquire()
         try:
-            repo = (
-                session.query(Repository)
-                .filter(Repository.id == repo_id)
-                .first()
-            )
+            repo = session.query(Repository).filter(Repository.id == repo_id).first()
         finally:
             if owned:
                 session.close()
@@ -985,9 +976,7 @@ class ScopedStore:
         session, owned = self._acquire()
         try:
             row = (
-                session.query(McpCredential)
-                .filter(McpCredential.id == cred_id)
-                .first()
+                session.query(McpCredential).filter(McpCredential.id == cred_id).first()
             )
         finally:
             if owned:

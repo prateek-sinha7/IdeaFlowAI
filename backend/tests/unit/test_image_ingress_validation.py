@@ -141,9 +141,7 @@ def test_non_catalog_model_rejected() -> None:
 
 def test_mixed_vision_and_non_catalog_rejected() -> None:
     images = [_small_png()]
-    err = _validate_images(
-        images, effective_model_ids={_VISION_MODEL, "not-a-model"}
-    )
+    err = _validate_images(images, effective_model_ids={_VISION_MODEL, "not-a-model"})
     assert err is not None
 
 

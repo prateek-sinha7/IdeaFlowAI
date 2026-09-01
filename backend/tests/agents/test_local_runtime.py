@@ -231,9 +231,7 @@ def test_exec_deny_beats_allow(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
-def test_exec_scrubbed_env_excludes_host_creds(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_exec_scrubbed_env_excludes_host_creds(tmp_path: Path, monkeypatch) -> None:
     """The child env carries no AWS_*/ANTHROPIC_*/DATABASE_URL/*_TOKEN/*_PROXY keys."""
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "super-secret")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
@@ -263,7 +261,15 @@ def test_exec_scrubbed_env_excludes_host_creds(
     # OS launcher adds AFTER our env is applied — none are host credentials. So we
     # assert the security property directly: no host-cred CLASS key survives, rather
     # than an exact 3-key allow-list (platform-fragile on darwin, like Pitfall 4).
-    cred_markers = ("AWS", "ANTHROPIC", "DATABASE", "TOKEN", "PROXY", "SECRET", "API_KEY")
+    cred_markers = (
+        "AWS",
+        "ANTHROPIC",
+        "DATABASE",
+        "TOKEN",
+        "PROXY",
+        "SECRET",
+        "API_KEY",
+    )
     leaked = [
         k for k in child_env if any(marker in k.upper() for marker in cred_markers)
     ]
@@ -326,9 +332,9 @@ def test_exec_wall_clock_kills_forking_descendants(tmp_path: Path) -> None:
             return True
         return True
 
-    assert not _alive(gc_pid), (
-        f"grandchild {gc_pid} survived the wall-clock kill — process group not killed"
-    )
+    assert not _alive(
+        gc_pid
+    ), f"grandchild {gc_pid} survived the wall-clock kill — process group not killed"
 
 
 @pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
@@ -336,9 +342,7 @@ def test_exec_output_truncated_at_64kb(tmp_path: Path) -> None:
     """Output exceeding 64KB/stream is truncated to 64KB."""
     ws, _ = _exec_workspace(tmp_path)
     # Emit ~200KB to stdout; expect a 64KB-truncated return.
-    out = ws.exec_command(
-        ["python3", "-c", "import sys;sys.stdout.write('x'*200000)"]
-    )
+    out = ws.exec_command(["python3", "-c", "import sys;sys.stdout.write('x'*200000)"])
     assert len(out) == 65536, f"expected 64KB truncation, got {len(out)}"
 
 
@@ -497,7 +501,9 @@ class _FakeRunner:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
-async def test_real_engine_recorder_adapter_audits_every_outcome(tmp_path: Path) -> None:
+async def test_real_engine_recorder_adapter_audits_every_outcome(
+    tmp_path: Path,
+) -> None:
     """The engine's sync→async recorder adapter audits allowed/denied/killed (CR-01).
 
     Wires the REAL ``_make_exec_recorder`` adapter (the host-seam shape) as the

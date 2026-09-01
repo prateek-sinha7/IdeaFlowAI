@@ -81,74 +81,113 @@ logger = logging.getLogger(__name__)
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
-    ("strategy", "fanout_batch"),      # 11-01 / FANOUT-02 (user_allowed=True)
-    ("strategy", "wave_scheduler"),    # 12-01 / WAVE-01 (user_allowed=True)
-    ("strategy", "parallel_group"),    # subagents.mode: parallel (user_allowed=True)
-    ("merge", "copy_disjoint"),        # 11-03 / FANOUT-07 (user_allowed=True)
-    ("merge", "git_3way"),             # 11-03 / FANOUT-07 (user_allowed=True)
-    ("merge", "json"),                 # 11-03 / FANOUT-07 (user_allowed=True)
-    ("merge", "html_fragment"),        # 11-03 / FANOUT-07 (user_allowed=True)
+    ("strategy", "fanout_batch"),  # 11-01 / FANOUT-02 (user_allowed=True)
+    ("strategy", "wave_scheduler"),  # 12-01 / WAVE-01 (user_allowed=True)
+    ("strategy", "parallel_group"),  # subagents.mode: parallel (user_allowed=True)
+    ("merge", "copy_disjoint"),  # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "git_3way"),  # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "json"),  # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "html_fragment"),  # 11-03 / FANOUT-07 (user_allowed=True)
     ("validator", "html_static"),
     ("validator", "html_render"),
-    ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
-    ("validator", "api_prefix"),           # 19-02 / ISS-005 — infra /api/v1 backstop (user_allowed=True)
-    ("validator", "task_done_when"),       # 08-04 / Tier#5
-    ("validator", "design_quality"),       # 08-04 / Tier#6 (warnings-first)
-    ("validator", "code_compile"),         # 10-04 / EXEC-02 — py_compile via the exec handle
-    ("validator", "code_test"),            # 10-04 / EXEC-02 — pytest via the exec handle
-    ("validator", "code_lint"),            # 10-04 / EXEC-02 — ruff check via the exec handle
+    ("validator", "spec_plan_coverage"),  # 08-04 / Tier#4
+    (
+        "validator",
+        "api_prefix",
+    ),  # 19-02 / ISS-005 — infra /api/v1 backstop (user_allowed=True)
+    ("validator", "task_done_when"),  # 08-04 / Tier#5
+    ("validator", "design_quality"),  # 08-04 / Tier#6 (warnings-first)
+    ("validator", "code_compile"),  # 10-04 / EXEC-02 — py_compile via the exec handle
+    ("validator", "code_test"),  # 10-04 / EXEC-02 — pytest via the exec handle
+    ("validator", "code_lint"),  # 10-04 / EXEC-02 — ruff check via the exec handle
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
     ("deliverable", "ppt"),
-    ("deliverable", "repo_diff"),          # 09-04 / REPO-04 — brownfield diff-only resolver
+    ("deliverable", "repo_diff"),  # 09-04 / REPO-04 — brownfield diff-only resolver
     ("context_provider", "opendesign"),
     ("context_provider", "previous_run"),
-    ("input_provider", "run_images"),  # 260707-edw — image-input Wave 1 (user_allowed=True)
+    (
+        "input_provider",
+        "run_images",
+    ),  # 260707-edw — image-input Wave 1 (user_allowed=True)
     ("task_parser", "heading_tasks"),
-    ("task_parser", "json_tasks"),     # 12-01 / WAVE-02 (structured task list)
+    ("task_parser", "json_tasks"),  # 12-01 / WAVE-02 (structured task list)
     ("gate", "human"),
     ("gate", "validation"),
-    ("gate", "approval"),   # 08-02
-    ("gate", "security"),   # 08-02
-    ("tool", "workspace"),             # 08-03 / F2
-    ("tool", "prototype"),             # 08-03 / F2
-    ("tool", "prototype_emit_only"),   # 08-03 / F2
-    ("tool", "planning"),              # 08-03 / F2
-    ("tool", "spawn_subagents"),       # 11-01 / FANOUT-01 (user_allowed=False)
+    ("gate", "approval"),  # 08-02
+    ("gate", "security"),  # 08-02
+    ("tool", "workspace"),  # 08-03 / F2
+    ("tool", "prototype"),  # 08-03 / F2
+    ("tool", "prototype_emit_only"),  # 08-03 / F2
+    ("tool", "planning"),  # 08-03 / F2
+    ("tool", "spawn_subagents"),  # 11-01 / FANOUT-01 (user_allowed=False)
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
-    ("post_step", "api_prefix_audit"),     # 19-02 / ISS-005 — event-free infra audit
+    ("post_step", "api_prefix_audit"),  # 19-02 / ISS-005 — event-free infra audit
     ("model_catalog", "default"),
-    ("runtime", "langchain_deepagents"),   # 08-05 / F5
-    ("prompt", "default"),                 # 08-05 / F1
-    ("skill", "ui"),                       # 08-05 / F3 / SKILL-01
-    ("skill", "disk"),                     # 08-05 / F3 / SKILL-01
-    ("skill", "template"),                 # 08-05 / F3 / SKILL-01
-    ("skill", "repo"),                     # 08-05 / F3 / SKILL-01
-    ("hook", "behavioral"),                # 08-05 / F3 (non-executable sub-type)
-    ("hook", "secret_scan"),               # 08-07 / HOOK-01..04 (executable, blocking)
-    ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
-    ("hook", "audit_logger"),              # KAN-73 (executable, non-blocking, default lifecycle audit)
-    ("runtime_env", "local"),              # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
-    ("repo_index", "tree_sitter"),         # 09-03 / REPO-02 — app-side symbol index (tree-sitter isolated)
-    ("repo_inventory", "default"),         # 09-03 / REPO-01 — kernel-side stdlib inventory
-    ("context_pack", "default"),           # 09-03 / REPO-03 — kernel-side targeted context subset
-    ("context_provider", "repo"),          # 09-03 / REPO-03 — surfaces the ContextPack to agents
-    ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
-    ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
-    ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
-    ("chat", "concierge"),                 # 33 / D-05 (new KIND — free string, no if/elif)
-    ("mcp_server", "github"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
-    ("mcp_server", "gitlab"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
-    ("mcp_server", "jira"),                # 09-05 / MCP-02 — read-scoped (user_allowed=True)
-    ("mcp_server", "slack"),              # 09-05 / MCP-02 — post-scoped (user_allowed=True)
-    ("mcp_server", "filesystem"),          # 09-05 / MCP-02 — powerful (user_allowed=False)
-    ("mcp_server", "postgres"),            # 09-05 / MCP-02 — powerful (user_allowed=False)
-    ("integration_provider", "github"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
-    ("integration_provider", "gitlab"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
-    ("integration_provider", "jira"),      # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
-    ("integration_provider", "slack"),     # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("runtime", "langchain_deepagents"),  # 08-05 / F5
+    ("prompt", "default"),  # 08-05 / F1
+    ("skill", "ui"),  # 08-05 / F3 / SKILL-01
+    ("skill", "disk"),  # 08-05 / F3 / SKILL-01
+    ("skill", "template"),  # 08-05 / F3 / SKILL-01
+    ("skill", "repo"),  # 08-05 / F3 / SKILL-01
+    ("hook", "behavioral"),  # 08-05 / F3 (non-executable sub-type)
+    ("hook", "secret_scan"),  # 08-07 / HOOK-01..04 (executable, blocking)
+    ("hook", "otel_tracing"),  # 08-07 / OBS-02 (executable, non-blocking)
+    (
+        "hook",
+        "audit_logger",
+    ),  # KAN-73 (executable, non-blocking, default lifecycle audit)
+    (
+        "runtime_env",
+        "local",
+    ),  # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
+    (
+        "repo_index",
+        "tree_sitter",
+    ),  # 09-03 / REPO-02 — app-side symbol index (tree-sitter isolated)
+    ("repo_inventory", "default"),  # 09-03 / REPO-01 — kernel-side stdlib inventory
+    (
+        "context_pack",
+        "default",
+    ),  # 09-03 / REPO-03 — kernel-side targeted context subset
+    (
+        "context_provider",
+        "repo",
+    ),  # 09-03 / REPO-03 — surfaces the ContextPack to agents
+    (
+        "context_provider",
+        "uploaded_files",
+    ),  # 30-02 / UPLD-03 — sticky uploaded-doc context
+    ("compaction", "chat_history"),  # 33 / D-08 — bound composed chat history
+    (
+        "context_provider",
+        "conversation",
+    ),  # 33 / D-08 — compacted chat run_events as context
+    ("chat", "concierge"),  # 33 / D-05 (new KIND — free string, no if/elif)
+    ("mcp_server", "github"),  # 09-05 / MCP-02 — read-scoped (user_allowed=True)
+    ("mcp_server", "gitlab"),  # 09-05 / MCP-02 — read-scoped (user_allowed=True)
+    ("mcp_server", "jira"),  # 09-05 / MCP-02 — read-scoped (user_allowed=True)
+    ("mcp_server", "slack"),  # 09-05 / MCP-02 — post-scoped (user_allowed=True)
+    ("mcp_server", "filesystem"),  # 09-05 / MCP-02 — powerful (user_allowed=False)
+    ("mcp_server", "postgres"),  # 09-05 / MCP-02 — powerful (user_allowed=False)
+    (
+        "integration_provider",
+        "github",
+    ),  # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    (
+        "integration_provider",
+        "gitlab",
+    ),  # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    (
+        "integration_provider",
+        "jira",
+    ),  # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    (
+        "integration_provider",
+        "slack",
+    ),  # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
 }
 
 
@@ -274,7 +313,6 @@ def discover() -> None:
         "agents.capabilities.deliverables.streamed_text",
         "agents.capabilities.deliverables.ppt",
         "agents.capabilities.deliverables.repo_diff",  # 09-04 / REPO-04
-
         "agents.capabilities.context_providers.opendesign",
         "agents.capabilities.context_providers.previous_run",
         "agents.capabilities.input_providers.run_images",  # 260707-edw — image-input Wave 1
@@ -352,7 +390,8 @@ def discover() -> None:
             logger.warning(
                 "capability discovery: forward package %s failed to import (%s) — "
                 "its capabilities are unavailable",
-                pkg, exc,
+                pkg,
+                exc,
             )
             continue
 

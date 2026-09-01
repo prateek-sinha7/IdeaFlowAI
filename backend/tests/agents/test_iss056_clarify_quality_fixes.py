@@ -45,7 +45,9 @@ class TestH1ManifestRounds:
 
         discover()
         manifest = load_manifest(workflow_id, _WORKFLOWS_DIR)
-        compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+        compiled = WorkflowCompiler().compile(
+            manifest, CapabilityRegistry(), trust="file"
+        )
         assert compiled.clarify.rounds == 2, (
             f"FIX-ISS056/H1: manifest '{workflow_id}' must declare rounds: 2 "
             f"(got {compiled.clarify.rounds})"
@@ -60,7 +62,9 @@ class TestH1ManifestRounds:
 
         discover()
         manifest = load_manifest(workflow_id, _WORKFLOWS_DIR)
-        compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+        compiled = WorkflowCompiler().compile(
+            manifest, CapabilityRegistry(), trust="file"
+        )
         assert len(compiled.clarify.defaults) == 8, (
             f"FIX-ISS056/H1: '{workflow_id}' must retain 8 clarify defaults "
             f"(got {len(compiled.clarify.defaults)})"
@@ -74,15 +78,19 @@ class TestH1ManifestRounds:
 
         discover()
         unchanged = [
-            "app_builder_revision", "ppt_revision",
-            "prototype_revision", "user_stories_revision",
+            "app_builder_revision",
+            "ppt_revision",
+            "prototype_revision",
+            "user_stories_revision",
         ]
         for workflow_id in unchanged:
             manifest_path = _WORKFLOWS_DIR / workflow_id / "workflow.yaml"
             if not manifest_path.exists():
                 continue  # skip if not present in this repo configuration
             manifest = load_manifest(workflow_id, _WORKFLOWS_DIR)
-            compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+            compiled = WorkflowCompiler().compile(
+                manifest, CapabilityRegistry(), trust="file"
+            )
             assert compiled.clarify.rounds == 1, (
                 f"FIX-ISS056/H1 safety: '{workflow_id}' must remain at rounds == 1 "
                 f"(got {compiled.clarify.rounds})"
@@ -119,9 +127,9 @@ class TestH2AccessibilityGuardrail:
         from agents.loader import load_agent_spec
 
         spec = load_agent_spec(agent_id)
-        assert "accessibility" in spec.guardrails, (
-            f"FIX-ISS056/H2: '{agent_id}' must declare accessibility in its guardrails list"
-        )
+        assert (
+            "accessibility" in spec.guardrails
+        ), f"FIX-ISS056/H2: '{agent_id}' must declare accessibility in its guardrails list"
 
     @pytest.mark.parametrize("agent_id", PROTOTYPE_BUILD_VALIDATE_AGENTS)
     def test_accessibility_content_verbatim_in_prompt(self, agent_id: str) -> None:
@@ -129,7 +137,9 @@ class TestH2AccessibilityGuardrail:
         from agents.factory import _GUARDRAILS_DIR
 
         accessibility_file = _GUARDRAILS_DIR / "accessibility.md"
-        assert accessibility_file.exists(), f"accessibility.md not found at {accessibility_file}"
+        assert (
+            accessibility_file.exists()
+        ), f"accessibility.md not found at {accessibility_file}"
         content = accessibility_file.read_text(encoding="utf-8")
         assert content.strip(), "accessibility.md is empty"
 
@@ -155,9 +165,9 @@ class TestH2AccessibilityGuardrail:
         from agents.loader import load_agent_spec
 
         spec = load_agent_spec("prototype-build")
-        assert "html-prototype" in spec.guardrails, (
-            "FIX-ISS056/H2 safety: html-prototype guardrail must still be declared"
-        )
+        assert (
+            "html-prototype" in spec.guardrails
+        ), "FIX-ISS056/H2 safety: html-prototype guardrail must still be declared"
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +185,9 @@ class TestH3DesignContextOdContext:
         try:
             return load_prototype_context(template_id, ds_id)
         except LookupError:
-            pytest.skip(f"Template '{template_id}' or DS '{ds_id}' not in catalog on this machine")
+            pytest.skip(
+                f"Template '{template_id}' or DS '{ds_id}' not in catalog on this machine"
+            )
 
     def test_main_branch_has_template_name(self) -> None:
         """ISS-056/H3(b): main return branch must include template_name."""
@@ -185,15 +197,27 @@ class TestH3DesignContextOdContext:
         # Stub a minimal template dict to avoid disk I/O
         import unittest.mock as mock
 
-        fake_template = {"name": "Web Prototype", "body": "# stub", "craft_required": []}
+        fake_template = {
+            "name": "Web Prototype",
+            "body": "# stub",
+            "craft_required": [],
+        }
         fake_ds = {"name": "Apple-inspired", "body": "# stub"}
 
-        with mock.patch.object(od_ctx.od_loader, "get_template", return_value=fake_template), \
-             mock.patch.object(od_ctx.od_loader, "get_design_system", return_value=fake_ds), \
-             mock.patch.object(od_ctx.od_loader, "get_craft_rules", return_value={}):
+        with (
+            mock.patch.object(
+                od_ctx.od_loader, "get_template", return_value=fake_template
+            ),
+            mock.patch.object(
+                od_ctx.od_loader, "get_design_system", return_value=fake_ds
+            ),
+            mock.patch.object(od_ctx.od_loader, "get_craft_rules", return_value={}),
+        ):
             result = od_ctx.load_prototype_context("web-prototype", "apple-inspired")
 
-        assert "template_name" in result, "FIX-ISS056/H3: template_name missing from od_context"
+        assert (
+            "template_name" in result
+        ), "FIX-ISS056/H3: template_name missing from od_context"
         assert "ds_name" in result, "FIX-ISS056/H3: ds_name missing from od_context"
         assert result["template_name"] == "Web Prototype"
         assert result["ds_name"] == "Apple-inspired"
@@ -206,8 +230,12 @@ class TestH3DesignContextOdContext:
         od_ctx = importlib.import_module("agents.execution_engine.od_context")
         fake_ds = {"name": "Material Design", "body": "# stub"}
 
-        with mock.patch.object(od_ctx.od_loader, "get_template", return_value=None), \
-             mock.patch.object(od_ctx.od_loader, "get_design_system", return_value=fake_ds):
+        with (
+            mock.patch.object(od_ctx.od_loader, "get_template", return_value=None),
+            mock.patch.object(
+                od_ctx.od_loader, "get_design_system", return_value=fake_ds
+            ),
+        ):
             result = od_ctx.load_prototype_context(None, "material")
 
         assert result.get("no_template") is True
@@ -240,7 +268,9 @@ class TestH3StyleFilter:
             missing=["target_audience", "style", "user_journeys"],
             od_context={"ds_id": "apple-inspired"},
         )
-        assert "style" not in result, "FIX-ISS056/H3(a): style must be pruned when ds_id is set"
+        assert (
+            "style" not in result
+        ), "FIX-ISS056/H3(a): style must be pruned when ds_id is set"
         assert "target_audience" in result
         assert "user_journeys" in result
 
@@ -259,7 +289,9 @@ class TestH3StyleFilter:
             missing=["style", "scope"],
             od_context={"ds_id": None},
         )
-        assert "style" in result, "FIX-ISS056/H3(a) safety: style must remain when no ds_id"
+        assert (
+            "style" in result
+        ), "FIX-ISS056/H3(a) safety: style must remain when no ds_id"
 
     def test_style_kept_when_no_template_mode(self) -> None:
         """Safety boundary: blank-canvas mode must not prune style (KAN-87 intent)."""
@@ -295,7 +327,10 @@ class TestH3SmartPlannerDesignNote:
         prompt = planner._build_prompt(
             brief="Build a dashboard",
             pipeline_type="prototype",
-            design_context={"template_name": "Web Prototype", "ds_name": "Apple-inspired"},
+            design_context={
+                "template_name": "Web Prototype",
+                "ds_name": "Apple-inspired",
+            },
         )
         assert "Design already chosen" in prompt, (
             "FIX-ISS056/H3(b): 'Design already chosen' block must appear in prompt "
@@ -335,6 +370,6 @@ class TestH3SmartPlannerDesignNote:
         from agents.planner.smart_planner import SmartPlanner
 
         sig = inspect.signature(SmartPlanner.plan)
-        assert "design_context" in sig.parameters, (
-            "FIX-ISS056/H3(b): SmartPlanner.plan() must accept design_context parameter"
-        )
+        assert (
+            "design_context" in sig.parameters
+        ), "FIX-ISS056/H3(b): SmartPlanner.plan() must accept design_context parameter"

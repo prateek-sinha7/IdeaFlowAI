@@ -49,7 +49,7 @@ class ExecutionContext:
     """
 
     # ── Run identity (required; populated at construction) ──────────────────────────
-    run_id: str                                       # this run's pipeline_run_id
+    run_id: str  # this run's pipeline_run_id
     # owner_id: the PERSISTED DB principal (AUTHZ-03/D-09). From 05-04 it is
     # ``user_id or f"anon:{session_id}"`` — ALWAYS a real non-None scoped subject (an
     # unauthenticated run gets ``anon:<session_id>``, never None). DO NOT key any on-disk

@@ -121,11 +121,21 @@ def _seed_run(env, *, user_id, owner_id, workspace_id="ws-1", status="running") 
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user_id, owner_id=owner_id, workspace_id=workspace_id,
-            title="t", type="prototype", status=status, input="i",
-            agent_count=1, session_id=user_id, created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                owner_id=owner_id,
+                workspace_id=workspace_id,
+                title="t",
+                type="prototype",
+                status=status,
+                input="i",
+                agent_count=1,
+                session_id=user_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return run_id
     finally:
@@ -165,8 +175,9 @@ class TestOwnership:
     def test_missing_run_is_404(self, env):
         user = _seed_user(env, "u")
         env["state"]["user"] = user
-        resp = _post(env, str(uuid.uuid4()),
-                     [("files", ("a.txt", b"hi", "text/plain"))])
+        resp = _post(
+            env, str(uuid.uuid4()), [("files", ("a.txt", b"hi", "text/plain"))]
+        )
         assert resp.status_code == 404
 
     def test_store_denied_run_is_404_not_403(self, env):
@@ -193,7 +204,9 @@ class TestCaps:
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
         monkeypatch.setattr(env["rf"], "_MAX_FILE_BYTES", 4)
-        resp = _post(env, run_id, [("files", ("big.txt", b"way too big", "text/plain"))])
+        resp = _post(
+            env, run_id, [("files", ("big.txt", b"way too big", "text/plain"))]
+        )
         assert resp.status_code == 413
         assert not (_sandbox(env, user.id, run_id).path_for(".uploads")).exists()
 
@@ -201,8 +214,9 @@ class TestCaps:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
-        resp = _post(env, run_id,
-                     [("files", ("evil.exe", b"MZ", "application/octet-stream"))])
+        resp = _post(
+            env, run_id, [("files", ("evil.exe", b"MZ", "application/octet-stream"))]
+        )
         assert resp.status_code == 415
 
     def test_image_mime_is_415(self, env):
@@ -243,16 +257,21 @@ class TestCaps:
 
 
 class TestSandboxLanding:
-    def test_extractable_doc_lands_raw_plus_sidecar_plus_manifest(self, env, monkeypatch):
+    def test_extractable_doc_lands_raw_plus_sidecar_plus_manifest(
+        self, env, monkeypatch
+    ):
         import json
 
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
         # Monkeypatch the shared extractor so we need no real pdf binary.
-        monkeypatch.setattr(env["rf"], "extract_upload_text",
-                            lambda name, data: "EXTRACTED DOC TEXT")
-        resp = _post(env, run_id, [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))])
+        monkeypatch.setattr(
+            env["rf"], "extract_upload_text", lambda name, data: "EXTRACTED DOC TEXT"
+        )
+        resp = _post(
+            env, run_id, [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))]
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["run_id"] == run_id
@@ -261,8 +280,13 @@ class TestSandboxLanding:
 
         sb = _sandbox(env, user.id, run_id)
         assert sb.path_for(".uploads/report.pdf").read_bytes() == b"%PDF-bytes"
-        assert sb.path_for(".uploads/report.pdf.txt").read_text(encoding="utf-8") == "EXTRACTED DOC TEXT"
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
+        assert (
+            sb.path_for(".uploads/report.pdf.txt").read_text(encoding="utf-8")
+            == "EXTRACTED DOC TEXT"
+        )
+        manifest = json.loads(
+            sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        )
         entry = next(e for e in manifest if e["name"] == "report.pdf")
         assert entry["has_text"] is True
         assert entry["mime"] == "application/pdf"
@@ -273,13 +297,17 @@ class TestSandboxLanding:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
-        resp = _post(env, run_id, [("files", ("notes.txt", b"plain notes", "text/plain"))])
+        resp = _post(
+            env, run_id, [("files", ("notes.txt", b"plain notes", "text/plain"))]
+        )
         assert resp.status_code == 200
         sb = _sandbox(env, user.id, run_id)
         assert sb.path_for(".uploads/notes.txt").read_bytes() == b"plain notes"
         # No extracted sidecar for a non-extractable type.
         assert not sb.path_for(".uploads/notes.txt.txt").exists()
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        )
         entry = next(e for e in manifest if e["name"] == "notes.txt")
         assert entry["has_text"] is False
 
@@ -297,10 +325,14 @@ class TestFilenameCollision:
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
         # Two DISTINCT originals that sanitize to the SAME safe segment.
-        resp = _post(env, run_id, [
-            ("files", ("invoice#1.txt", b"FIRST FILE CONTENTS", "text/plain")),
-            ("files", ("invoice@1.txt", b"SECOND FILE CONTENTS", "text/plain")),
-        ])
+        resp = _post(
+            env,
+            run_id,
+            [
+                ("files", ("invoice#1.txt", b"FIRST FILE CONTENTS", "text/plain")),
+                ("files", ("invoice@1.txt", b"SECOND FILE CONTENTS", "text/plain")),
+            ],
+        )
         assert resp.status_code == 200, resp.text
         names = [f["name"] for f in resp.json()["files"]]
         # Distinct stored names, reported ACTUAL — first keeps bare, second gets -2.
@@ -308,9 +340,16 @@ class TestFilenameCollision:
         assert len(set(names)) == 2
         sb = _sandbox(env, user.id, run_id)
         # BOTH files' bytes survive on disk (no silent clobber).
-        assert sb.path_for(".uploads/invoice_1.txt").read_bytes() == b"FIRST FILE CONTENTS"
-        assert sb.path_for(".uploads/invoice_1-2.txt").read_bytes() == b"SECOND FILE CONTENTS"
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
+        assert (
+            sb.path_for(".uploads/invoice_1.txt").read_bytes() == b"FIRST FILE CONTENTS"
+        )
+        assert (
+            sb.path_for(".uploads/invoice_1-2.txt").read_bytes()
+            == b"SECOND FILE CONTENTS"
+        )
+        manifest = json.loads(
+            sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        )
         assert {e["name"] for e in manifest} == {"invoice_1.txt", "invoice_1-2.txt"}
 
     def test_collision_with_prior_upload_is_disambiguated(self, env):
@@ -322,13 +361,17 @@ class TestFilenameCollision:
         r1 = _post(env, run_id, [("files", ("report.txt", b"ORIGINAL", "text/plain"))])
         assert r1.status_code == 200
         # A later request re-using the same name must not clobber the first upload.
-        r2 = _post(env, run_id, [("files", ("report.txt", b"SECOND UPLOAD", "text/plain"))])
+        r2 = _post(
+            env, run_id, [("files", ("report.txt", b"SECOND UPLOAD", "text/plain"))]
+        )
         assert r2.status_code == 200
         assert r2.json()["files"][0]["name"] == "report-2.txt"
         sb = _sandbox(env, user.id, run_id)
         assert sb.path_for(".uploads/report.txt").read_bytes() == b"ORIGINAL"
         assert sb.path_for(".uploads/report-2.txt").read_bytes() == b"SECOND UPLOAD"
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        )
         assert {e["name"] for e in manifest} == {"report.txt", "report-2.txt"}
 
 
@@ -387,7 +430,9 @@ class TestManifestLockSerialization:
         assert resp.status_code == 200
         sb = _sandbox(env, user.id, run_id)
         assert sb.path_for(".uploads/manifest.lock").exists()
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        )
         assert [e["name"] for e in manifest] == ["a.txt"]
 
 
@@ -405,7 +450,9 @@ class TestStreamingSizeCap:
         env["state"]["user"] = user
         monkeypatch.setattr(env["rf"], "_MAX_FILE_BYTES", 4)
         monkeypatch.setattr(env["rf"], "_UPLOAD_CHUNK", 2)  # force the multi-chunk path
-        resp = _post(env, run_id, [("files", ("big.txt", b"way too big", "text/plain"))])
+        resp = _post(
+            env, run_id, [("files", ("big.txt", b"way too big", "text/plain"))]
+        )
         assert resp.status_code == 413
         assert not (_sandbox(env, user.id, run_id).path_for(".uploads")).exists()
 
@@ -472,7 +519,9 @@ class TestDeliverableExclusion:
         before = serialize_sandbox_deliverable(sb.root)
 
         # Upload documents into .uploads/ — must NOT change the deliverable string.
-        resp = _post(env, run_id, [("files", ("doc.txt", b"upload body", "text/plain"))])
+        resp = _post(
+            env, run_id, [("files", ("doc.txt", b"upload body", "text/plain"))]
+        )
         assert resp.status_code == 200
         after = serialize_sandbox_deliverable(sb.root)
 
@@ -542,15 +591,21 @@ class TestDurableUploadMirror:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)  # workspace_id defaults to "ws-1"
         env["state"]["user"] = user
-        monkeypatch.setattr(env["rf"], "extract_upload_text",
-                            lambda name, data: "EXTRACTED DOC TEXT")
-        resp = _post(env, run_id,
-                     [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))])
+        monkeypatch.setattr(
+            env["rf"], "extract_upload_text", lambda name, data: "EXTRACTED DOC TEXT"
+        )
+        resp = _post(
+            env, run_id, [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))]
+        )
         assert resp.status_code == 200, resp.text
 
         sb = _sandbox(env, user.id, run_id)
-        disk_sidecar = sb.path_for(".uploads/report.pdf.txt").read_text(encoding="utf-8")
-        disk_manifest = sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+        disk_sidecar = sb.path_for(".uploads/report.pdf.txt").read_text(
+            encoding="utf-8"
+        )
+        disk_manifest = sb.path_for(".uploads/manifest.json").read_text(
+            encoding="utf-8"
+        )
 
         rows = _upload_text_rows(env, run_id)
         by_loc = {r.location: r for r in rows}
@@ -559,9 +614,10 @@ class TestDurableUploadMirror:
 
         sidecar = by_loc[".uploads/report.pdf.txt"]
         assert sidecar.content == disk_sidecar == "EXTRACTED DOC TEXT"
-        assert sidecar.content_hash == hashlib.sha256(
-            sidecar.content.encode("utf-8")
-        ).hexdigest()
+        assert (
+            sidecar.content_hash
+            == hashlib.sha256(sidecar.content.encode("utf-8")).hexdigest()
+        )
 
         manifest = by_loc[".uploads/manifest.json"]
         assert manifest.content == disk_manifest  # exact str .encode()'d to disk
@@ -580,15 +636,18 @@ class TestDurableUploadMirror:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
-        resp = _post(env, run_id,
-                     [("files", ("notes.txt", b"plain notes", "text/plain"))])
+        resp = _post(
+            env, run_id, [("files", ("notes.txt", b"plain notes", "text/plain"))]
+        )
         assert resp.status_code == 200
 
         rows = _upload_text_rows(env, run_id)
         locs = {r.location for r in rows}
         assert locs == {".uploads/manifest.json"}  # manifest only, no sidecar
 
-    def test_durable_mirror_best_effort_degrades_on_db_error(self, env, monkeypatch, caplog):
+    def test_durable_mirror_best_effort_degrades_on_db_error(
+        self, env, monkeypatch, caplog
+    ):
         """A ``SQLAlchemyError`` on the durable write degrades best-effort: the
         upload STILL returns 200 with its normal body AND emits a loud warning;
         no exception escapes."""
@@ -601,8 +660,9 @@ class TestDurableUploadMirror:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
-        monkeypatch.setattr(env["rf"], "extract_upload_text",
-                            lambda name, data: "EXTRACTED DOC TEXT")
+        monkeypatch.setattr(
+            env["rf"], "extract_upload_text", lambda name, data: "EXTRACTED DOC TEXT"
+        )
 
         async def _boom(self, ref, *, force_db_version=False):
             raise SQLAlchemyError("db down")
@@ -610,8 +670,11 @@ class TestDurableUploadMirror:
         monkeypatch.setattr(ScopedStore, "write_ref", _boom)
 
         with caplog.at_level(logging.WARNING, logger="app.api.run_files"):
-            resp = _post(env, run_id,
-                         [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))])
+            resp = _post(
+                env,
+                run_id,
+                [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))],
+            )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["run_id"] == run_id
@@ -627,8 +690,7 @@ class TestDurableUploadMirror:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
-        resp = _post(env, run_id,
-                     [("files", ("pic.png", b"\x89PNG", "image/png"))])
+        resp = _post(env, run_id, [("files", ("pic.png", b"\x89PNG", "image/png"))])
         assert resp.status_code == 415
         assert _all_artifact_rows(env, run_id) == []
 
@@ -637,11 +699,13 @@ class TestDurableUploadMirror:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
         env["state"]["user"] = user
-        monkeypatch.setattr(env["rf"], "extract_upload_text",
-                            lambda name, data: "EXTRACTED DOC TEXT")
+        monkeypatch.setattr(
+            env["rf"], "extract_upload_text", lambda name, data: "EXTRACTED DOC TEXT"
+        )
         monkeypatch.setattr(env["rf"], "_MAX_FILE_BYTES", 4)
-        resp = _post(env, run_id,
-                     [("files", ("big.pdf", b"way too big", "application/pdf"))])
+        resp = _post(
+            env, run_id, [("files", ("big.pdf", b"way too big", "application/pdf"))]
+        )
         assert resp.status_code == 413
         assert _all_artifact_rows(env, run_id) == []
 

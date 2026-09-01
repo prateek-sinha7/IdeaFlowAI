@@ -309,8 +309,11 @@ def assert_seq_contiguous(events: list[dict]) -> None:
     and it is asserted from the test modules regardless, documenting the SAFE-03
     contract at the call site.
     """
-    seqs = [e["data"]["seq"] for e in events
-            if isinstance(e.get("data"), dict) and "seq" in e["data"]]
+    seqs = [
+        e["data"]["seq"]
+        for e in events
+        if isinstance(e.get("data"), dict) and "seq" in e["data"]
+    ]
     # Also tolerate a top-level seq, should the engine stamp it there instead.
     if not seqs:
         seqs = [e["seq"] for e in events if "seq" in e]

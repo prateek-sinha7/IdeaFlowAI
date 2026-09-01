@@ -84,8 +84,8 @@ class SingleFileResolver:
         # Keyed on the ORIGINAL's presence — never on a pipeline-type name (INV-1).
         if original:
             streamed = last_streamed.strip()
-            looks_like_html = streamed[:60].lower().lstrip().startswith(
-                ("<!doctype", "<html")
+            looks_like_html = (
+                streamed[:60].lower().lstrip().startswith(("<!doctype", "<html"))
             )
             chosen = streamed if looks_like_html else (original or streamed)
             logger.warning(

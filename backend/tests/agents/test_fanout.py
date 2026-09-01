@@ -40,7 +40,14 @@ class _FakeRunner:
     concurrency observed during a parallel run (the FANOUT-04 cap assertion).
     """
 
-    def __init__(self, *, allowed_workers=None, known_agents=None, worker_delay=0.0, fail_on_index=()):
+    def __init__(
+        self,
+        *,
+        allowed_workers=None,
+        known_agents=None,
+        worker_delay=0.0,
+        fail_on_index=(),
+    ):
         self.run_id = "run-x"
         self.allowed_workers = list(allowed_workers or [])
         # The agents the registry "knows" (self resolution + named resolution).
@@ -59,24 +66,60 @@ class _FakeRunner:
     def agent_exists(self, agent_id: str) -> bool:
         return agent_id in self._known_agents
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
+    async def record_subagent_run(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         self._row_seq += 1
         row_id = f"row-{self._row_seq}"
         self.recorded_rows.append(
-            dict(id=row_id, parent_step=parent_step, worker_agent=worker_agent,
-                 depth=depth, isolation=isolation, status=status)
+            dict(
+                id=row_id,
+                parent_step=parent_step,
+                worker_agent=worker_agent,
+                depth=depth,
+                isolation=isolation,
+                status=status,
+            )
         )
         return row_id
 
     async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
         self.updated_rows.append(dict(id=row_id, status=status, tokens=tokens))
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, total_workers=None, **kw):
+    async def run_worker(
+        self,
+        step,
+        ctx,
+        *,
+        worker_index,
+        thread_id,
+        agent_id,
+        input,
+        total_workers=None,
+        **kw,
+    ):
         # Instrument concurrency: track the live-worker high-water mark.
         self._live += 1
         self._max_live = max(self._max_live, self._live)
-        self.spawned.append(dict(index=worker_index, thread_id=thread_id, agent_id=agent_id,
-                                 input=input, total_workers=total_workers))
+        self.spawned.append(
+            dict(
+                index=worker_index,
+                thread_id=thread_id,
+                agent_id=agent_id,
+                input=input,
+                total_workers=total_workers,
+            )
+        )
         try:
             if self._worker_delay:
                 await asyncio.sleep(self._worker_delay)
@@ -93,7 +136,9 @@ def _make_ctx(runner, *, depth=0, budget=None):
 
 
 def _make_step(agent_id="worker-a", *, mode="parallel", max_parallel=None):
-    fanout = SimpleNamespace(mode=mode, max_parallel=max_parallel, agent="self", count=None, workers=[])
+    fanout = SimpleNamespace(
+        mode=mode, max_parallel=max_parallel, agent="self", count=None, workers=[]
+    )
     return SimpleNamespace(agent_id=agent_id, fanout=fanout)
 
 
@@ -132,7 +177,9 @@ async def test_self_n_spawns_n_workers():
 
 @pytest.mark.asyncio
 async def test_named_worker_in_allowed_workers_resolves():
-    runner = _FakeRunner(allowed_workers=["worker-b"], known_agents={"worker-a", "worker-b"})
+    runner = _FakeRunner(
+        allowed_workers=["worker-b"], known_agents={"worker-a", "worker-b"}
+    )
     ctx = _make_ctx(runner)
     step = _make_step("worker-a")
     requests = [{"agent": "worker-b", "input": "go"}]
@@ -146,7 +193,9 @@ async def test_named_worker_in_allowed_workers_resolves():
 
 @pytest.mark.asyncio
 async def test_disallowed_worker_rejected_before_any_spawn():
-    runner = _FakeRunner(allowed_workers=["worker-b"], known_agents={"worker-a", "worker-b"})
+    runner = _FakeRunner(
+        allowed_workers=["worker-b"], known_agents={"worker-a", "worker-b"}
+    )
     ctx = _make_ctx(runner)
     step = _make_step("worker-a")
     # "worker-c" is not in allowed_workers → rejected pre-spawn.
@@ -188,8 +237,13 @@ async def test_declared_workers_map_heterogeneous_requests():
         known_agents={"worker-a", "worker-b", "worker-c"},
     )
     ctx = _make_ctx(runner)
-    fanout = SimpleNamespace(mode="sequential", max_parallel=None, agent="self",
-                             count=None, workers=["worker-b", "worker-c"])
+    fanout = SimpleNamespace(
+        mode="sequential",
+        max_parallel=None,
+        agent="self",
+        count=None,
+        workers=["worker-b", "worker-c"],
+    )
     step = SimpleNamespace(agent_id="worker-a", fanout=fanout)
     requests = [{"agent": "self", "input": f"t{i}"} for i in range(3)]
 
@@ -197,7 +251,11 @@ async def test_declared_workers_map_heterogeneous_requests():
 
     # Request 0/1 mapped onto the declared workers; request 2 (beyond the list)
     # keeps the step's own agent (self).
-    assert [w["agent_id"] for w in runner.spawned] == ["worker-b", "worker-c", "worker-a"]
+    assert [w["agent_id"] for w in runner.spawned] == [
+        "worker-b",
+        "worker-c",
+        "worker-a",
+    ]
 
 
 @pytest.mark.asyncio
@@ -206,8 +264,13 @@ async def test_declared_workers_still_validated_against_allow_list():
     # explicitly-named request (the mapping does not bypass FANOUT-03).
     runner = _FakeRunner(allowed_workers=[], known_agents={"worker-a", "worker-b"})
     ctx = _make_ctx(runner)
-    fanout = SimpleNamespace(mode="sequential", max_parallel=None, agent="self",
-                             count=None, workers=["worker-b"])
+    fanout = SimpleNamespace(
+        mode="sequential",
+        max_parallel=None,
+        agent="self",
+        count=None,
+        workers=["worker-b"],
+    )
     step = SimpleNamespace(agent_id="worker-a", fanout=fanout)
 
     with pytest.raises(FanoutError):
@@ -219,8 +282,9 @@ async def test_declared_workers_still_validated_against_allow_list():
 async def test_declared_count_clamps_the_fanout_width():
     runner = _FakeRunner(known_agents={"worker-a"})
     ctx = _make_ctx(runner)
-    fanout = SimpleNamespace(mode="sequential", max_parallel=None, agent="self",
-                             count=2, workers=[])
+    fanout = SimpleNamespace(
+        mode="sequential", max_parallel=None, agent="self", count=2, workers=[]
+    )
     step = SimpleNamespace(agent_id="worker-a", fanout=fanout)
     requests = [{"agent": "self", "input": f"t{i}"} for i in range(5)]
 
@@ -246,12 +310,19 @@ async def test_fanout_batch_synthesizes_self_count_when_no_tasks():
 
         async def run_fanout(self, requests, ctx, *, step):
             funnel["requests"] = requests
-            yield {"type": "subagent_result", "data": {"worker": 0, "status": "complete"}}
+            yield {
+                "type": "subagent_result",
+                "data": {"worker": 0, "status": "complete"},
+            }
 
     step = SimpleNamespace(
         agent_id="worker-a",
-        task_source=SimpleNamespace(parser="heading_tasks", source_step="planner", spec_step=None),
-        fanout=SimpleNamespace(mode="parallel", max_parallel=3, agent="self", count=3, workers=[]),
+        task_source=SimpleNamespace(
+            parser="heading_tasks", source_step="planner", spec_step=None
+        ),
+        fanout=SimpleNamespace(
+            mode="parallel", max_parallel=3, agent="self", count=3, workers=[]
+        ),
     )
     ctx = SimpleNamespace(runner=_StratRunner(), depth=0)
 
@@ -418,22 +489,37 @@ async def test_run_worker_passes_wave_width_and_single_shot_view():
     ks = _real_kernel_services()
     captured: dict = {}
 
-    async def _capture_run_agent(step, ctx, *, task_number=None, total_tasks=None,
-                                 task_block=None, skeleton=None,
-                                 invocation_gated=True):
+    async def _capture_run_agent(
+        step,
+        ctx,
+        *,
+        task_number=None,
+        total_tasks=None,
+        task_block=None,
+        skeleton=None,
+        invocation_gated=True,
+    ):
         captured.update(
-            task_number=task_number, total_tasks=total_tasks,
+            task_number=task_number,
+            total_tasks=total_tasks,
             strategy=getattr(step, "strategy", None),
             invocation_gated=invocation_gated,
         )
         yield {"type": "agent_chunk", "data": {}}
 
     ks.run_agent = _capture_run_agent  # type: ignore[assignment]
-    parent_step = SimpleNamespace(agent_id="worker-a", strategy="fanout_batch", tools=None)
+    parent_step = SimpleNamespace(
+        agent_id="worker-a", strategy="fanout_batch", tools=None
+    )
 
     async for _ev in ks.run_worker(
-        parent_step, None, worker_index=2, thread_id="r:s:2",
-        agent_id="worker-b", input="x", total_workers=5,
+        parent_step,
+        None,
+        worker_index=2,
+        thread_id="r:s:2",
+        agent_id="worker-b",
+        input="x",
+        total_workers=5,
     ):
         pass
 
@@ -508,8 +594,14 @@ async def test_derive_fanout_threads_requested_mode_onto_step_view():
             seen["mode"] = step.fanout.mode
             yield {"type": "subagent_spawned", "data": {"worker": 0}}
 
-    declared = SimpleNamespace(mode="parallel", max_parallel=2, agent="self",
-                               count=None, workers=[], merge_agent=None)
+    declared = SimpleNamespace(
+        mode="parallel",
+        max_parallel=2,
+        agent="self",
+        count=None,
+        workers=[],
+        merge_agent=None,
+    )
     step = SimpleNamespace(
         agent_id="a", tools=SimpleNamespace(spawn_subagents=True), fanout=declared
     )
@@ -542,17 +634,25 @@ async def test_nested_fanout_sees_incremented_depth_and_restores():
     ctx = _make_ctx(runner)
     step = _make_step("worker-a", mode="sequential")
 
-    nested: dict = {"worker_ctx_depths": [], "thread_ids": [], "inner_spawn_depth": None}
+    nested: dict = {
+        "worker_ctx_depths": [],
+        "thread_ids": [],
+        "inner_spawn_depth": None,
+    }
     calls = {"n": 0}
 
-    async def _nesting_worker(step_, ctx_, *, worker_index, thread_id, agent_id, input, **kw):
+    async def _nesting_worker(
+        step_, ctx_, *, worker_index, thread_id, agent_id, input, **kw
+    ):
         nested["worker_ctx_depths"].append(ctx_.depth)
         nested["thread_ids"].append(thread_id)
         if calls["n"] == 0:
             calls["n"] += 1
             # The worker itself triggers a NESTED fan-out reusing the SAME ctx
             # (exactly what _derive_fanout does for a spawn_subagents tool result).
-            async for ev in run_fanout([{"agent": "self", "input": "inner"}], ctx_, step=step_):
+            async for ev in run_fanout(
+                [{"agent": "self", "input": "inner"}], ctx_, step=step_
+            ):
                 if ev["type"] == "subagent_spawned":
                     nested["inner_spawn_depth"] = ev["data"]["depth"]
         yield {"type": "agent_chunk", "data": {}}
@@ -600,12 +700,24 @@ async def test_fanout_batch_strategy_funnels_through_run_fanout():
         async def run_fanout(self, requests, ctx, *, step):
             funnel["requests"] = requests
             funnel["reached"] = True
-            yield {"type": "subagent_result", "data": {"worker": 0, "status": "complete"}}
+            yield {
+                "type": "subagent_result",
+                "data": {"worker": 0, "status": "complete"},
+            }
 
-    task_source = SimpleNamespace(parser="heading_tasks", source_step="planner", spec_step=None)
-    step = SimpleNamespace(agent_id="worker-a", task_source=task_source, fanout=SimpleNamespace(
-        mode="parallel", max_parallel=2, agent="self", count=None, workers=[]))
-    ctx = SimpleNamespace(runner=_StratRunner(), deliverable=None, seed_files={}, depth=0)
+    task_source = SimpleNamespace(
+        parser="heading_tasks", source_step="planner", spec_step=None
+    )
+    step = SimpleNamespace(
+        agent_id="worker-a",
+        task_source=task_source,
+        fanout=SimpleNamespace(
+            mode="parallel", max_parallel=2, agent="self", count=None, workers=[]
+        ),
+    )
+    ctx = SimpleNamespace(
+        runner=_StratRunner(), deliverable=None, seed_files={}, depth=0
+    )
 
     events = [ev async for ev in strategy.run(step, ctx)]
 
@@ -689,15 +801,21 @@ async def test_kernel_handle_run_fanout_writes_rows_and_events():
     ks.sandbox = None
     ks.workspace = None
 
-    step = SimpleNamespace(agent_id="worker-a", fanout=SimpleNamespace(
-        mode="parallel", max_parallel=3, agent="self", count=None, workers=[]))
+    step = SimpleNamespace(
+        agent_id="worker-a",
+        fanout=SimpleNamespace(
+            mode="parallel", max_parallel=3, agent="self", count=None, workers=[]
+        ),
+    )
     ctx = SimpleNamespace(runner=ks, depth=0, budget=BudgetManager())
     requests = [{"agent": "self", "input": f"t{i}"} for i in range(3)]
 
     events = [ev async for ev in ks.run_fanout(requests, ctx, step=step)]
 
     # N subagent_runs rows persisted, all flipped terminal.
-    rows = session.query(SubagentRun).filter(SubagentRun.parent_run_id == "run-e2e").all()
+    rows = (
+        session.query(SubagentRun).filter(SubagentRun.parent_run_id == "run-e2e").all()
+    )
     assert len(rows) == 3
     assert all(r.status == "complete" for r in rows)
     assert all(r.worker_agent == "worker-a" for r in rows)
@@ -706,7 +824,9 @@ async def test_kernel_handle_run_fanout_writes_rows_and_events():
     results = [e for e in events if e["type"] == "subagent_result"]
     assert len(results) == 3
     assert all(r["data"]["status"] == "complete" for r in results)
-    assert all("artifact_ref" not in r["data"] for r in results)  # status-only (11-03 defers refs)
+    assert all(
+        "artifact_ref" not in r["data"] for r in results
+    )  # status-only (11-03 defers refs)
 
     session.close()
     Base.metadata.drop_all(bind=engine)
@@ -779,8 +899,12 @@ def test_kernel_services_binds_allowed_workers_and_agent_exists():
 async def test_named_worker_resolves_through_real_kernel_services():
     """run_fanout through the REAL handle: a named allow-listed worker spawns (CR-01)."""
     ks = _real_kernel_services(allowed_workers=["worker-b"])
-    step = SimpleNamespace(agent_id="worker-a", fanout=SimpleNamespace(
-        mode="sequential", max_parallel=None, agent="self", count=None, workers=[]))
+    step = SimpleNamespace(
+        agent_id="worker-a",
+        fanout=SimpleNamespace(
+            mode="sequential", max_parallel=None, agent="self", count=None, workers=[]
+        ),
+    )
     ctx = SimpleNamespace(runner=ks, depth=0, budget=BudgetManager())
     requests = [{"agent": "worker-b", "input": "named"}]
 
@@ -797,10 +921,16 @@ async def test_named_worker_resolves_through_real_kernel_services():
 async def test_named_worker_not_allow_listed_rejected_through_real_kernel_services():
     """run_fanout through the REAL handle: a non-allow-listed worker is rejected pre-spawn."""
     ks = _real_kernel_services(allowed_workers=[])  # nothing allow-listed
-    step = SimpleNamespace(agent_id="worker-a", fanout=SimpleNamespace(
-        mode="sequential", max_parallel=None, agent="self", count=None, workers=[]))
+    step = SimpleNamespace(
+        agent_id="worker-a",
+        fanout=SimpleNamespace(
+            mode="sequential", max_parallel=None, agent="self", count=None, workers=[]
+        ),
+    )
     ctx = SimpleNamespace(runner=ks, depth=0, budget=BudgetManager())
 
     with pytest.raises(FanoutError):
-        async for _ev in ks.run_fanout([{"agent": "worker-b", "input": "x"}], ctx, step=step):
+        async for _ev in ks.run_fanout(
+            [{"agent": "worker-b", "input": "x"}], ctx, step=step
+        ):
             pass

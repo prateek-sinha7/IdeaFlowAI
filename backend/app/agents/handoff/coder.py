@@ -195,7 +195,10 @@ class HandoffCoder:
         for path, contents in relevant_files.items():
             snippet = contents
             if len(snippet) > 12000:
-                snippet = snippet[:12000] + f"\n\n... (truncated, {len(contents)} total bytes)"
+                snippet = (
+                    snippet[:12000]
+                    + f"\n\n... (truncated, {len(contents)} total bytes)"
+                )
             context_lines.append(f"\n=== FILE: {path} ===\n{snippet}")
 
         user_message = "\n".join(context_lines)
@@ -217,7 +220,9 @@ class HandoffCoder:
         # immediately and is never retried.
         plan: dict[str, Any] | None = None
         for attempt in range(1, _MAX_PARSE_ATTEMPTS + 1):
-            message = user_message if attempt == 1 else user_message + _CORRECTIVE_SUFFIX
+            message = (
+                user_message if attempt == 1 else user_message + _CORRECTIVE_SUFFIX
+            )
             runner = DeepAgentRunner(
                 system_prompt=self.system_prompt,
                 tools=[],

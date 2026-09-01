@@ -77,8 +77,14 @@ def check_run(run_id: str, stage: str) -> dict:
     """
     checker = _checker_for(run_id, stage)
     if checker is None:
-        return {"run_id": run_id, "stage": stage, "rows_checked": 0, "rows_ok": 0,
-                "findings": {}, "skipped": "stage declares no deterministic checker"}
+        return {
+            "run_id": run_id,
+            "stage": stage,
+            "rows_checked": 0,
+            "rows_ok": 0,
+            "findings": {},
+            "skipped": "stage declares no deterministic checker",
+        }
     rows = store.read_phase(run_id, "run", stage)
     findings: dict[str, dict] = {}
     rows_checked = 0
@@ -107,11 +113,22 @@ def check_run(run_id: str, stage: str) -> dict:
             # reported `rows_checked: 0` -> "checks 0.0 (n=0)", which reads as
             # a 0% pass rate rather than "there was nothing to check". Seen
             # when all five stages 401'd (run 260731-135513).
-            findings[row_id] = {"ok": False, "issues": ["empty response"], "warnings": [],
-                                 "summary": "no response body", "inventory": {},
-                                 "render": {"ok": False, "available": False, "console_errors": [],
-                                             "page_errors": [], "nav_results": [],
-                                             "coverage_errors": [], "summary": "not rendered — empty response"}}
+            findings[row_id] = {
+                "ok": False,
+                "issues": ["empty response"],
+                "warnings": [],
+                "summary": "no response body",
+                "inventory": {},
+                "render": {
+                    "ok": False,
+                    "available": False,
+                    "console_errors": [],
+                    "page_errors": [],
+                    "nav_results": [],
+                    "coverage_errors": [],
+                    "summary": "not rendered — empty response",
+                },
+            }
             rows_checked += 1
             reasons.append(f"{row_id}: empty response — nothing was produced to check")
             continue
@@ -140,7 +157,9 @@ def check_run(run_id: str, stage: str) -> dict:
             summary = (finding.get("render") or {}).get("summary") or "render failed"
             reasons.append(f"{row_id}: render — {summary}")
         if not static_ok:
-            advisories += [f"{row_id}: {issue}" for issue in (finding.get("issues") or [])]
+            advisories += [
+                f"{row_id}: {issue}" for issue in (finding.get("issues") or [])
+            ]
     result = {
         "run_id": run_id,
         "stage": stage,
@@ -160,12 +179,14 @@ def check_run(run_id: str, stage: str) -> dict:
         # Collapsing them into one number hid which had actually failed.
         "rows_static_ok": rows_static_ok,
         "rows_render_ok": rows_render_ok,
-        "reasons": reasons,          # render failures — these fail the gate
-        "advisories": advisories,    # static lint — reported, never gating
+        "reasons": reasons,  # render failures — these fail the gate
+        "advisories": advisories,  # static lint — reported, never gating
         "findings": findings,
     }
     if not rows_checked and rows_errored:
-        result["skipped"] = f"{rows_errored} row(s) errored during dispatch — nothing to check"
+        result["skipped"] = (
+            f"{rows_errored} row(s) errored during dispatch — nothing to check"
+        )
     return result
 
 
@@ -189,7 +210,9 @@ def _checker_for(run_id: str, stage: str):
     declared = stage_def.get("checks")
     if declared is None:
         deliverable = str(stage_def.get("deliverable") or "").lower()
-        declared = "html_prototype" if deliverable.endswith((".html", ".htm")) else "none"
+        declared = (
+            "html_prototype" if deliverable.endswith((".html", ".htm")) else "none"
+        )
     if declared in ("none", None, False):
         return None
     if declared not in CHECKERS:

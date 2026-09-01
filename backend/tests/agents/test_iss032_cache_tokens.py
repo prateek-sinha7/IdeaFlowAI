@@ -56,9 +56,10 @@ def test_cache_token_counts_defaults_zero(meta: object) -> None:
 
 def test_cache_token_counts_partial_dict_defaults_missing() -> None:
     # Only cache_read present → cache_write (cache_creation) defaults 0, no raise.
-    assert _cache_token_counts(
-        {"input_token_details": {"cache_read": 1234}}
-    ) == (1234, 0)
+    assert _cache_token_counts({"input_token_details": {"cache_read": 1234}}) == (
+        1234,
+        0,
+    )
     # None-valued sub-keys degrade to 0 (int(... or 0)), never raises.
     assert _cache_token_counts(
         {"input_token_details": {"cache_read": None, "cache_creation": None}}
@@ -69,9 +70,7 @@ def test_cache_token_counts_partial_dict_defaults_missing() -> None:
 
 
 def test_usage_event_emits_both_cache_keys_source_pin() -> None:
-    src = pathlib.Path(
-        "app/agents/deep_agent_runner.py"
-    ).read_text(encoding="utf-8")
+    src = pathlib.Path("app/agents/deep_agent_runner.py").read_text(encoding="utf-8")
     # The on_chat_model_end usage-emit dict must carry both cache keys.
     assert '"cache_read_tokens": _cr' in src
     assert '"cache_write_tokens": _cw' in src
@@ -103,9 +102,7 @@ def test_cost_split_is_less_than_all_at_1x_and_exact() -> None:
     # Exact no-double-count value: uncached input at 1x + cache_read at 0.1x +
     # cache_write_5m at 1.25e-6, all ×1.10 regional premium. The uncached input is
     # NOT re-added on top of the total.
-    expected = (
-        uncached * 1e-6 + cache_read * 0.1e-6 + cache_write * 1.25e-6
-    ) * 1.10
+    expected = (uncached * 1e-6 + cache_read * 0.1e-6 + cache_write * 1.25e-6) * 1.10
     assert split == pytest.approx(expected, rel=1e-6)
 
 

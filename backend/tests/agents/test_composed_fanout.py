@@ -146,7 +146,11 @@ class _PartWritingModel(ScriptedFakeChatModel):
             yield ChatGenerationChunk(
                 message=AIMessageChunk(
                     content="Done.",
-                    usage_metadata={"input_tokens": 4, "output_tokens": 2, "total_tokens": 6},
+                    usage_metadata={
+                        "input_tokens": 4,
+                        "output_tokens": 2,
+                        "total_tokens": 6,
+                    },
                     chunk_position="last",
                 )
             )
@@ -160,12 +164,18 @@ class _PartWritingModel(ScriptedFakeChatModel):
                 tool_call_chunks=[
                     {
                         "name": "write_file",
-                        "args": _j.dumps({"file_path": fname, "content": f"part {n}\n"}),
+                        "args": _j.dumps(
+                            {"file_path": fname, "content": f"part {n}\n"}
+                        ),
                         "id": f"c_w_{n}",
                         "index": 0,
                     }
                 ],
-                usage_metadata={"input_tokens": 12, "output_tokens": 6, "total_tokens": 18},
+                usage_metadata={
+                    "input_tokens": 12,
+                    "output_tokens": 6,
+                    "total_tokens": 18,
+                },
                 chunk_position="last",
             )
         )
@@ -258,6 +268,7 @@ async def _drive_composed_fanout(selections: dict) -> tuple[list[dict], dict]:
     from agents.loader import _SPEC_CACHE
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     specs = _load_fixture_specs()  # [producer, worker] (sorted by order)
@@ -303,16 +314,43 @@ async def _drive_composed_fanout(selections: dict) -> tuple[list[dict], dict]:
         return _orig_create_runner(agent_id, ctx, **kw)
 
     from agents.execution_engine.kernel_services import KernelServices
+
     _orig_record = KernelServices.record_subagent_run
 
-    async def _probe_record(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
+    async def _probe_record(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         probe["recorded_workers"].append(
-            dict(parent_step=parent_step, worker_agent=worker_agent, isolation=isolation, status=status, worker_index=worker_index, task_id=task_id)
+            dict(
+                parent_step=parent_step,
+                worker_agent=worker_agent,
+                isolation=isolation,
+                status=status,
+                worker_index=worker_index,
+                task_id=task_id,
+            )
         )
         return await _orig_record(
-            self, parent_step=parent_step, worker_agent=worker_agent, depth=depth,
-            isolation=isolation, status=status, tokens=tokens, cost=cost,
-            worker_index=worker_index, task_id=task_id,
+            self,
+            parent_step=parent_step,
+            worker_agent=worker_agent,
+            depth=depth,
+            isolation=isolation,
+            status=status,
+            tokens=tokens,
+            cost=cost,
+            worker_index=worker_index,
+            task_id=task_id,
         )
 
     for s in specs:
@@ -327,7 +365,9 @@ async def _drive_composed_fanout(selections: dict) -> tuple[list[dict], dict]:
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -348,7 +388,9 @@ async def _drive_composed_fanout(selections: dict) -> tuple[list[dict], dict]:
     sandbox_root: Path | None = None
     try:
         async for ev in engine.execute(
-            agents=list(specs),  # INCLUDES the worker — the run drives it, the base plan does not
+            agents=list(
+                specs
+            ),  # INCLUDES the worker — the run drives it, the base plan does not
             user_message="Fan out three file writers from a composed selection.",
             pipeline_run_id=run_id,
             pipeline_type=_FIXTURE_ID,
@@ -397,25 +439,29 @@ async def test_composed_fanout_spawns_three_workers_and_merges_distinct_files() 
         "the test degraded to the in-plan overlay path, NOT the absent synthesis site. "
         "The [BLOCKING] crux proof requires _steps_by_agent.get(worker) is None."
     )
-    assert base_step_ids == [_PRODUCER_ID], (
-        f"base compile should declare ONLY the producer, saw {base_step_ids}"
-    )
+    assert base_step_ids == [
+        _PRODUCER_ID
+    ], f"base compile should declare ONLY the producer, saw {base_step_ids}"
 
     # (1) 3 workers spawned — 3 subagent_runs rows recorded at the single spawn path.
-    assert len(probe["recorded_workers"]) == _FANOUT_WIDTH, (
-        f"expected {_FANOUT_WIDTH} subagent_runs rows, saw {probe['recorded_workers']}"
-    )
+    assert (
+        len(probe["recorded_workers"]) == _FANOUT_WIDTH
+    ), f"expected {_FANOUT_WIDTH} subagent_runs rows, saw {probe['recorded_workers']}"
     assert all(w["worker_agent"] == _WORKER_ID for w in probe["recorded_workers"])
     # The fan-out was parented on the WORKER step (the absent, composed agent).
-    assert all(w["parent_step"] == _WORKER_ID for w in probe["recorded_workers"]), (
-        f"fan-out not parented on the composed worker step: {probe['recorded_workers']}"
-    )
+    assert all(
+        w["parent_step"] == _WORKER_ID for w in probe["recorded_workers"]
+    ), f"fan-out not parented on the composed worker step: {probe['recorded_workers']}"
 
     # The lifecycle events: a subagent_spawned + subagent_result per worker.
     spawned = [e for e in events if e.get("type") == "subagent_spawned"]
     results = [e for e in events if e.get("type") == "subagent_result"]
-    assert len(spawned) == _FANOUT_WIDTH, f"expected {_FANOUT_WIDTH} subagent_spawned, saw {len(spawned)}"
-    assert len(results) == _FANOUT_WIDTH, f"expected {_FANOUT_WIDTH} subagent_result, saw {len(results)}"
+    assert (
+        len(spawned) == _FANOUT_WIDTH
+    ), f"expected {_FANOUT_WIDTH} subagent_spawned, saw {len(spawned)}"
+    assert (
+        len(results) == _FANOUT_WIDTH
+    ), f"expected {_FANOUT_WIDTH} subagent_result, saw {len(results)}"
 
     statuses = {(r.get("data") or {}).get("status") for r in results}
     assert statuses == {"complete"}, f"a worker did not complete: {statuses}"
@@ -424,26 +470,29 @@ async def test_composed_fanout_spawns_three_workers_and_merges_distinct_files() 
     #     shared_read harness caveat: offline the workers write into the SHARED base;
     #     per-worker isolated writes + a real merge are the LIVE-BEDROCK proof (§6d).
     sandbox_root = probe["sandbox_root"]
-    assert sandbox_root is not None and sandbox_root.is_dir(), "run sandbox missing on disk"
+    assert (
+        sandbox_root is not None and sandbox_root.is_dir()
+    ), "run sandbox missing on disk"
     produced = {
-        p.name for p in sandbox_root.rglob("*.txt")
+        p.name
+        for p in sandbox_root.rglob("*.txt")
         if _PART_RE.fullmatch(p.name) and ".worktrees" not in p.parts
     }
-    assert produced == {"part_1.txt", "part_2.txt", "part_3.txt"}, (
-        f"the 3 composed fan-out workers did not produce 3 distinct merged files: {sorted(produced)}"
-    )
-    assert not any(e.get("type") == "merge_conflict" for e in events), (
-        "copy_disjoint reported a conflict over disjoint files"
-    )
+    assert (
+        produced == {"part_1.txt", "part_2.txt", "part_3.txt"}
+    ), f"the 3 composed fan-out workers did not produce 3 distinct merged files: {sorted(produced)}"
+    assert not any(
+        e.get("type") == "merge_conflict" for e in events
+    ), "copy_disjoint reported a conflict over disjoint files"
 
     # (3) The declared deliverable (serialized_sandbox) resolves from the PRODUCED files.
     complete = [e for e in events if e.get("type") == "pipeline_complete"]
     assert complete, "no pipeline_complete event emitted"
     final_output = complete[-1]["data"]["final_output"]
     assert final_output and final_output.strip(), "final deliverable is empty"
-    assert "(no files written)" not in final_output, (
-        "serialized_sandbox found no deliverable files — the merge did not land"
-    )
+    assert (
+        "(no files written)" not in final_output
+    ), "serialized_sandbox found no deliverable files — the merge did not land"
     for part in ("part_1.txt", "part_2.txt", "part_3.txt"):
         assert f"filename: {part}" in final_output, (
             f"deliverable bundle missing produced file {part} — the declared "
@@ -451,7 +500,9 @@ async def test_composed_fanout_spawns_three_workers_and_merges_distinct_files() 
         )
 
 
-def test_composed_overlay_carries_fanout_at_absent_site_with_benign_hook_delta() -> None:
+def test_composed_overlay_carries_fanout_at_absent_site_with_benign_hook_delta() -> (
+    None
+):
     """The composed worker's trust-compiled step carries strategy==fanout_batch at the
     ABSENT site, plus the INTENDED default-hooks delta (Risk #6 / D3) — asserted directly
     on ``_apply_selections`` (the single seam that feeds the synthesis site)."""
@@ -465,22 +516,24 @@ def test_composed_overlay_carries_fanout_at_absent_site_with_benign_hook_delta()
         base, _COMPOSED_SELECTIONS, [_PRODUCER_ID, _WORKER_ID]
     )
     # The overlay NEVER adds steps to the plan (membership assertion stays valid).
-    assert [s.agent_id for s in plan.steps] == [_PRODUCER_ID], (
-        "the overlay must not add/remove base plan steps"
-    )
+    assert [s.agent_id for s in plan.steps] == [
+        _PRODUCER_ID
+    ], "the overlay must not add/remove base plan steps"
     # The worker's fan-out step lives in the user-step map (the absent-site consult).
     worker_step = user_map.get(_WORKER_ID)
-    assert worker_step is not None, "composed worker step missing from _user_steps_by_agent"
-    assert worker_step.strategy == "fanout_batch", (
-        f"composed worker step did not carry fanout_batch: {worker_step.strategy!r}"
-    )
+    assert (
+        worker_step is not None
+    ), "composed worker step missing from _user_steps_by_agent"
+    assert (
+        worker_step.strategy == "fanout_batch"
+    ), f"composed worker step did not carry fanout_batch: {worker_step.strategy!r}"
     assert worker_step.task_source is not None
     assert worker_step.task_source.source_step == _PRODUCER_ID
     # Benign hook delta (Risk #6): the trust-compiled step carries the compiler's default
     # audit hooks a bare synthesized _Step lacked — INTENDED, not a regression.
-    assert set(worker_step.hooks) >= {"audit_logger", "secret_scan"}, (
-        f"expected the default audit hooks on the trust-compiled step, saw {worker_step.hooks}"
-    )
+    assert (
+        set(worker_step.hooks) >= {"audit_logger", "secret_scan"}
+    ), f"expected the default audit hooks on the trust-compiled step, saw {worker_step.hooks}"
 
 
 def test_composed_fanout_d9_guard_rejects_non_upstream_source_step() -> None:
@@ -526,17 +579,17 @@ def test_composed_fanout_d9_guard_rejects_non_upstream_source_step() -> None:
     _, ghost_map = ExecutionEngine._apply_selections(
         base, _sel("composed-fanout-ghost"), [_PRODUCER_ID, _WORKER_ID]
     )
-    assert ghost_map == {}, (
-        f"an unknown fan-out source_step was NOT rejected by the D9 guard (got {ghost_map})"
-    )
+    assert (
+        ghost_map == {}
+    ), f"an unknown fan-out source_step was NOT rejected by the D9 guard (got {ghost_map})"
 
     # EARLIER (happy) source: producer precedes the worker → compiles clean → fans out.
     _, good_map = ExecutionEngine._apply_selections(
         base, _sel(_PRODUCER_ID), [_PRODUCER_ID, _WORKER_ID]
     )
-    assert good_map.get(_WORKER_ID) is not None, (
-        "the EARLIER-source happy path failed to yield a fan-out step"
-    )
+    assert (
+        good_map.get(_WORKER_ID) is not None
+    ), "the EARLIER-source happy path failed to yield a fan-out step"
     assert good_map[_WORKER_ID].strategy == "fanout_batch"
 
 
@@ -591,7 +644,9 @@ def test_composed_fanout_producer_higher_base_order_still_carries_strategy() -> 
 
 
 @pytest.mark.asyncio
-async def test_composed_fanout_non_upstream_source_degrades_to_no_fanout_at_runtime() -> None:
+async def test_composed_fanout_non_upstream_source_degrades_to_no_fanout_at_runtime() -> (
+    None
+):
     """C2 (runtime): a composed worker whose ``source_step`` is not upstream degrades to
     NO fan-out end-to-end — the worker runs a bare single_shot, 0 workers spawned."""
     bad_selections = {
@@ -607,20 +662,22 @@ async def test_composed_fanout_non_upstream_source_degrades_to_no_fanout_at_runt
     events, probe = await _drive_composed_fanout(bad_selections)
     assert events, "negative composed run produced no events"
     errors = [e for e in events if e.get("type") == "error"]
-    assert not errors, f"negative composed run errored (should degrade, not crash): {errors}"
+    assert (
+        not errors
+    ), f"negative composed run errored (should degrade, not crash): {errors}"
 
     # The degrade is silent + safe: NO fan-out spawned (the worker ran single_shot).
-    assert probe["recorded_workers"] == [], (
-        f"a rejected composed fan-out still spawned workers: {probe['recorded_workers']}"
-    )
-    assert not any(e.get("type") == "subagent_spawned" for e in events), (
-        "a rejected composed fan-out emitted subagent_spawned — the D9 degrade failed"
-    )
+    assert (
+        probe["recorded_workers"] == []
+    ), f"a rejected composed fan-out still spawned workers: {probe['recorded_workers']}"
+    assert not any(
+        e.get("type") == "subagent_spawned" for e in events
+    ), "a rejected composed fan-out emitted subagent_spawned — the D9 degrade failed"
     assert not any(e.get("type") == "subagent_result" for e in events)
     # The run still completes (degrade-to-single_shot, not a crash).
-    assert any(e.get("type") == "pipeline_complete" for e in events), (
-        "the degraded run did not complete"
-    )
+    assert any(
+        e.get("type") == "pipeline_complete" for e in events
+    ), "the degraded run did not complete"
 
 
 def test_composed_fanout_kernel_names_no_workflow() -> None:
@@ -633,7 +690,9 @@ def test_composed_fanout_kernel_names_no_workflow() -> None:
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     )
     engine_pkg = repo_root / "backend" / "agents" / "execution_engine"
@@ -641,9 +700,9 @@ def test_composed_fanout_kernel_names_no_workflow() -> None:
 
     for needle in ("composed_fanout", _PRODUCER_ID, _WORKER_ID):
         hits = grep_files_matching(needle, engine_pkg).stdout.strip()
-        assert hits == "", (
-            f"the kernel names the composed workflow/agent '{needle}' (INV-1 violation) in:\n{hits}"
-        )
+        assert (
+            hits == ""
+        ), f"the kernel names the composed workflow/agent '{needle}' (INV-1 violation) in:\n{hits}"
 
     # The proof artifacts all live OUTSIDE the engine package (zero engine edit to run
     # this COMPOSED fan-out — the overlay was authored generically in an earlier plan).
@@ -654,9 +713,9 @@ def test_composed_fanout_kernel_names_no_workflow() -> None:
     ]
     for rel in proof_artifacts:
         assert (repo_root / rel).is_file(), f"missing proof artifact: {rel}"
-        assert not rel.startswith("backend/agents/execution_engine/"), (
-            f"proof artifact {rel} lives under the engine package"
-        )
+        assert not rel.startswith(
+            "backend/agents/execution_engine/"
+        ), f"proof artifact {rel} lives under the engine package"
 
 
 if __name__ == "__main__":  # pragma: no cover

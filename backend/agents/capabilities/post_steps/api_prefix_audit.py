@@ -84,9 +84,12 @@ class ApiPrefixAuditPostStep:
             if issues:
                 logger.info(
                     "api_prefix_audit: %d infra endpoint(s) missing %s on step %s",
-                    len(issues), "/api/v1", target.step,
+                    len(issues),
+                    "/api/v1",
+                    target.step,
                 )
         except Exception as exc:  # noqa: BLE001 — an audit error must never abort the run
             logger.warning(
-                "api_prefix_audit: validation errored (%s) — continuing", exc,
+                "api_prefix_audit: validation errored (%s) — continuing",
+                exc,
             )

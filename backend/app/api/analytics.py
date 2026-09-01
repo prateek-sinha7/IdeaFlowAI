@@ -179,7 +179,9 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
     pipe: dict[str, dict] = defaultdict(
         lambda: {"count": 0, "total_tokens": 0, "cost": 0.0, "dur_sum": 0.0, "dur_n": 0}
     )
-    models: dict[str, dict] = defaultdict(lambda: {"count": 0, "total_tokens": 0, "cost": 0.0})
+    models: dict[str, dict] = defaultdict(
+        lambda: {"count": 0, "total_tokens": 0, "cost": 0.0}
+    )
 
     for r in runs:
         usage = _parse_token_usage(r.token_usage)
@@ -249,7 +251,9 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
         for t, v in sorted(pipe.items())
     ]
     model_rollups = [
-        ModelRollup(model_id=k, count=v["count"], total_tokens=v["total_tokens"], cost=v["cost"])
+        ModelRollup(
+            model_id=k, count=v["count"], total_tokens=v["total_tokens"], cost=v["cost"]
+        )
         for k, v in sorted(models.items())
     ]
     type_avg_duration_sec = {
@@ -257,7 +261,9 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
     }
 
     return AnalyticsSummary(
-        kpis=Kpis(total=total, completed=completed, failed=failed, success_rate=success_rate),
+        kpis=Kpis(
+            total=total, completed=completed, failed=failed, success_rate=success_rate
+        ),
         daily=[DailyBucket(date=d, **daily[d]) for d in sorted(daily)],
         pipelines=pipelines,
         models=model_rollups,

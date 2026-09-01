@@ -53,13 +53,21 @@ class _FakeUser:
 # A canned ChatRunner event script — the exact StreamMessage-shaped dicts the real
 # ChatRunner yields (one phase's worth). The shim must reproduce these 1:1.
 _SCRIPT: list[dict] = [
-    {"type": "phase_start", "section": "discovery", "chunk": None,
-     "data": {"phase": 0, "name": "Discovery"}},
+    {
+        "type": "phase_start",
+        "section": "discovery",
+        "chunk": None,
+        "data": {"phase": 0, "name": "Discovery"},
+    },
     {"type": "stream", "chunk": "Hello ", "section": "discovery", "data": None},
     {"type": "stream", "chunk": "world", "section": "discovery", "data": None},
     {"type": "phase_end", "section": "discovery", "chunk": None, "data": {"phase": 0}},
-    {"type": "complete", "chunk": None, "section": None,
-     "data": {"discovery": {"output": "Hello world"}}},
+    {
+        "type": "complete",
+        "chunk": None,
+        "section": None,
+        "data": {"discovery": {"output": "Hello world"}},
+    },
 ]
 
 
@@ -73,11 +81,14 @@ class _StubChatRunner:
     def __init__(self, ctx=None, *, user_id=None, run_id=None):
         _StubChatRunner.last_init = {"user_id": user_id, "run_id": run_id}
 
-    async def astream_execute(self, user_message, chat_session_id=None,
-                              mode="default", mode_prompt=""):
+    async def astream_execute(
+        self, user_message, chat_session_id=None, mode="default", mode_prompt=""
+    ):
         _StubChatRunner.last_call = {
-            "user_message": user_message, "chat_session_id": chat_session_id,
-            "mode": mode, "mode_prompt": mode_prompt,
+            "user_message": user_message,
+            "chat_session_id": chat_session_id,
+            "mode": mode,
+            "mode_prompt": mode_prompt,
         }
         for event in _SCRIPT:
             yield event
@@ -168,7 +179,7 @@ def _parse_sse(text: str) -> list[dict]:
     events = []
     for line in text.splitlines():
         if line.startswith("data:"):
-            body = line[len("data:"):].strip()
+            body = line[len("data:") :].strip()
             if body:
                 events.append(json.loads(body))
     return events
@@ -218,7 +229,9 @@ def test_empty_content_rejected(env):
 def test_shim_streams_chatrunner_events_verbatim(env):
     user = _seed_user(env)
     sid = _seed_session(env, user.id)
-    resp = _post(env, user, content="build me an app", chat_session_id=sid, mode="thinking")
+    resp = _post(
+        env, user, content="build me an app", chat_session_id=sid, mode="thinking"
+    )
     assert resp.status_code == 200, resp.text
 
     events = _parse_sse(resp.text)

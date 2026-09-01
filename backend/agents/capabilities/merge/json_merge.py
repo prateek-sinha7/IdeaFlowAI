@@ -66,7 +66,9 @@ class JsonMerge:
         writer = getattr(base, "write", None)
         # key -> (source_name, value) of the first claimant.
         claimed: dict[str, tuple[str, Any]] = {}
-        conflicted: set[str] = set()  # evicted keys are NEVER applied (no silent overwrite)
+        conflicted: set[str] = (
+            set()
+        )  # evicted keys are NEVER applied (no silent overwrite)
 
         ordered = sorted(list(fragments or []), key=lambda f: _name_of(f, ""))
         for fi, frag in enumerate(ordered):
@@ -77,18 +79,22 @@ class JsonMerge:
                 if key in conflicted:
                     continue
                 if key in base_doc and base_doc[key] != value:
-                    result.conflicts.append(self._conflict(
-                        key, [("base", base_doc[key]), (frag_name, value)]
-                    ))
+                    result.conflicts.append(
+                        self._conflict(
+                            key, [("base", base_doc[key]), (frag_name, value)]
+                        )
+                    )
                     conflicted.add(key)
                     claimed.pop(key, None)
                     continue
                 if key in claimed:
                     prev_name, prev_value = claimed[key]
                     if prev_value != value:
-                        result.conflicts.append(self._conflict(
-                            key, [(prev_name, prev_value), (frag_name, value)]
-                        ))
+                        result.conflicts.append(
+                            self._conflict(
+                                key, [(prev_name, prev_value), (frag_name, value)]
+                            )
+                        )
                         conflicted.add(key)
                         claimed.pop(key, None)
                     continue

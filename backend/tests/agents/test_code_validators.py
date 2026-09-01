@@ -132,7 +132,9 @@ def _exec_workspace(tmp_path: Path, *, exec_granted: bool):
         policy = LocalExecutionPolicy(exec=False, network=False, secrets=[])
 
     runtime = LocalSandboxRuntime()
-    sandbox = RunSandbox("anon", "ws-codeval", runs_root=config_module.settings.RUNS_ROOT)
+    sandbox = RunSandbox(
+        "anon", "ws-codeval", runs_root=config_module.settings.RUNS_ROOT
+    )
     recorded: list[dict] = []
     ws = LocalWorkspace(
         owner_id="anon",
@@ -184,7 +186,9 @@ _PYTHON3_OK = _tool_available(["python3", "-c", "print(1)"])
 # ════════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline (see _PYTHON3_OK)")
+@pytest.mark.skipif(
+    not _PYTHON3_OK, reason="python3 not resolvable offline (see _PYTHON3_OK)"
+)
 def test_code_compile_pass_on_fixture(tmp_path):
     ws, _ = _exec_workspace(tmp_path, exec_granted=True)
     _seed_fixture_into(ws, "calc.py", "test_calc.py", "lint_seed.py")
@@ -198,7 +202,9 @@ def test_code_compile_pass_on_fixture(tmp_path):
     assert runner.validation_rows[-1]["validator"] == "code_compile"
 
 
-@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline (see _PYTHON3_OK)")
+@pytest.mark.skipif(
+    not _PYTHON3_OK, reason="python3 not resolvable offline (see _PYTHON3_OK)"
+)
 def test_code_compile_flags_syntax_error(tmp_path):
     ws, _ = _exec_workspace(tmp_path, exec_granted=True)
     _seed_fixture_into(ws, "calc.py")
@@ -340,7 +346,9 @@ def test_exec_manifest_compiles_with_exec_and_required_gates():
     compiled = _compile_exec_manifest()
     # Find the exec-granting step.
     exec_steps = [s for s in compiled.steps if s.tools.exec]
-    assert exec_steps, "the manifest must compile an exec-granted step (tools.exec is True)"
+    assert (
+        exec_steps
+    ), "the manifest must compile an exec-granted step (tools.exec is True)"
     step = exec_steps[0]
     assert step.tools.exec is True
     assert "security" in step.gates and "approval" in step.gates, step.gates

@@ -86,9 +86,13 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
                 code, recoverable = mapped
                 return LLMErrorPayload(_message_for(code), code, recoverable)
             logger.warning("Unmapped Bedrock error code: %s", aws_code)
-            return LLMErrorPayload(_message_for("internal_error"), "internal_error", True)
+            return LLMErrorPayload(
+                _message_for("internal_error"), "internal_error", True
+            )
 
-        if isinstance(exc, (botocore_exc.ConnectTimeoutError, botocore_exc.ReadTimeoutError)):
+        if isinstance(
+            exc, (botocore_exc.ConnectTimeoutError, botocore_exc.ReadTimeoutError)
+        ):
             return LLMErrorPayload(_message_for("timeout"), "timeout", True)
 
         if isinstance(
@@ -99,16 +103,22 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
                 botocore_exc.ConnectionClosedError,
             ),
         ):
-            return LLMErrorPayload(_message_for("connection_error"), "connection_error", True)
+            return LLMErrorPayload(
+                _message_for("connection_error"), "connection_error", True
+            )
 
         # Credentials missing or partial — IAM/IMDS/profile misconfiguration.
         # Not retryable: every subsequent agent in the same pipeline will hit
         # the same wall, and the user can't fix it from the chat UI.
         # `recoverable=False` so the orchestrator short-circuits the pipeline
         # instead of plowing through six identical failures.
-        if isinstance(exc, (botocore_exc.NoCredentialsError, botocore_exc.PartialCredentialsError)):
+        if isinstance(
+            exc, (botocore_exc.NoCredentialsError, botocore_exc.PartialCredentialsError)
+        ):
             return LLMErrorPayload(_message_for("auth_error"), "auth_error", False)
-    except ImportError:  # pragma: no cover — botocore is always installed when Bedrock is in use
+    except (
+        ImportError
+    ):  # pragma: no cover — botocore is always installed when Bedrock is in use
         pass
 
     # ---- Fallback ----------------------------------------------------------

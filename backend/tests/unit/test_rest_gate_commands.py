@@ -69,6 +69,7 @@ def env(monkeypatch):
     # Fresh artifact-store singleton per test (per-process HITL registry) so an
     # armed gate / recorded response never leaks across tests.
     import agents.artifact_store.store as store_mod
+
     store_mod._STORE = None
     store = store_mod.get_artifact_store()
 
@@ -266,7 +267,9 @@ def test_redo_carries_instructions(env):
     _arm_gate(env, gate_key)
     env["state"]["user"] = owner
 
-    resp = _post_gate(env, run_id, gate_key, action="redo", instructions="tighten the nav")
+    resp = _post_gate(
+        env, run_id, gate_key, action="redo", instructions="tighten the nav"
+    )
     assert resp.status_code == 200, resp.text
     rec = _recorded(env, gate_key)
     assert rec["approved"] is False
@@ -368,8 +371,18 @@ def test_unknown_gate_action_is_refused_not_approved(env):
 
 @pytest.mark.parametrize(
     "action",
-    ["Reject", "REJECT", " reject", "reject\n", "rejct",
-     "no", "deny", "Redo", "redo ", "update-specs"],
+    [
+        "Reject",
+        "REJECT",
+        " reject",
+        "reject\n",
+        "rejct",
+        "no",
+        "deny",
+        "Redo",
+        "redo ",
+        "update-specs",
+    ],
 )
 def test_case_and_whitespace_variants_of_reject_never_approve(env, action):
     """The sharpest case: every near-miss of a DENIAL used to APPROVE.
@@ -386,9 +399,10 @@ def test_case_and_whitespace_variants_of_reject_never_approve(env, action):
     env["state"]["user"] = owner
 
     resp = _post_gate(env, run_id, gate_key, action=action)
-    assert resp.status_code in (400, 422), (
-        f"action={action!r} was accepted: {resp.text}"
-    )
+    assert resp.status_code in (
+        400,
+        422,
+    ), f"action={action!r} was accepted: {resp.text}"
     rec = _recorded(env, gate_key)
     assert rec is None, f"action={action!r} wrote {rec}"
     assert _gate_still_armed(env, gate_key), f"action={action!r} resolved the pause"
@@ -454,9 +468,9 @@ def test_gate_handler_gates_set_review_response_on_ownership():
     )
     # The redo action rides the SAME owner-gated boundary — the redo write and
     # every other write are AFTER the ownership predicate.
-    assert 'action == "redo"' in branch, (
-        "resolve_gate no longer handles the redo action discriminator"
-    )
+    assert (
+        'action == "redo"' in branch
+    ), "resolve_gate no longer handles the redo action discriminator"
     last_write_at = branch.rfind("set_review_response(")
     assert guard_at < last_write_at, (
         "the redo/update_specs set_review_response must also be after ownership "

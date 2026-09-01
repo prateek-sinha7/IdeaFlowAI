@@ -90,7 +90,9 @@ class OpenDesignProvider:
         ds_body = od.get("ds_body")
         if "design_system" in injects and ds_body and not is_build_task_2_plus:
             is_deck_conditional = od.get("is_design_system_required")
-            include_ds = True if is_deck_conditional is None else bool(is_deck_conditional)
+            include_ds = (
+                True if is_deck_conditional is None else bool(is_deck_conditional)
+            )
             if include_ds:
                 # NOTE: the preamble is kept on a SINGLE source line (byte-identical to
                 # git fb55699 with spaces after each comma) so the exact-byte parity grep
@@ -137,7 +139,9 @@ class OpenDesignProvider:
                     # ONE authoritative point (od_context.get_example_html, EXAMPLE_MAX_CHARS
                     # = 120_000). Inject the runner-capped string DIRECTLY — no redundant
                     # second clip (which had silently re-truncated real deck templates to 8000).
-                    blocks[f"TEMPLATE EXAMPLE (example.html): {template_id}"] = example_html
+                    blocks[f"TEMPLATE EXAMPLE (example.html): {template_id}"] = (
+                        example_html
+                    )
 
             # (4) Pre-injected template reference files (seed + layouts + checklist) —
             # the L12 tool-gated injection-parts branch:

@@ -118,9 +118,7 @@ def test_user_trust_allows_user_allowed_reference(_clean_registry) -> None:
         name = "safe_strategy"
 
     manifest = _single_step_manifest("safe_strategy")
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="user"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
     assert [s.strategy for s in compiled.steps] == ["safe_strategy"]
 
 
@@ -132,9 +130,7 @@ def test_file_trust_compiles_non_user_allowed_reference(_clean_registry) -> None
         name = "priv_strategy"
 
     manifest = _single_step_manifest("priv_strategy")
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="file"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
     assert [s.strategy for s in compiled.steps] == ["priv_strategy"]
 
 
@@ -161,6 +157,7 @@ def _register_user_allowed_exec_palette() -> None:
     the strategy/gate trust, that fails — isolating the user/db exec/network/secrets
     CompilerError).
     """
+
     @register("strategy", "ua_strategy", user_allowed=True)
     class _UAStrategy:
         name = "ua_strategy"
@@ -179,9 +176,7 @@ def test_file_trust_exec_grant_survives_the_ceiling(_clean_registry) -> None:
     manifest = _grant_step_manifest(
         tools={"exec": True}, gates=["security", "approval"]
     )
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="file"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
     assert compiled.steps[0].tools.exec is True
 
 
@@ -239,7 +234,9 @@ def test_user_trust_secrets_grant_raises_compiler_error(_clean_registry) -> None
     assert "secrets" in str(exc.value)
 
 
-def test_user_trust_spawn_subagents_grant_raises_compiler_error(_clean_registry) -> None:
+def test_user_trust_spawn_subagents_grant_raises_compiler_error(
+    _clean_registry,
+) -> None:
     """WR-01: spawn_subagents is engineer-only — a user/db grant fails LOUD (named)."""
     _register_user_allowed_exec_palette()
     manifest = _grant_step_manifest(
@@ -253,9 +250,7 @@ def test_user_trust_spawn_subagents_grant_raises_compiler_error(_clean_registry)
 def test_file_trust_spawn_subagents_grant_survives_the_ceiling(_clean_registry) -> None:
     """The engineer-authored grant still binds True under file trust (parity)."""
     manifest = _grant_step_manifest(tools={"spawn_subagents": True})
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="file"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
     assert compiled.steps[0].tools.spawn_subagents is True
 
 
@@ -284,9 +279,7 @@ def test_d01_exec_both_gates_present_compiles_clean(_clean_registry) -> None:
     manifest = _grant_step_manifest(
         tools={"exec": True}, gates=["security", "approval"]
     )
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="file"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
     assert compiled.steps[0].tools.exec is True
 
 
@@ -311,7 +304,9 @@ def test_no_grant_parity_holds_across_trust(_clean_registry) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _limits_manifest(limits: dict, *, strategy: str = "single_shot") -> WorkflowManifest:
+def _limits_manifest(
+    limits: dict, *, strategy: str = "single_shot"
+) -> WorkflowManifest:
     """A one-step manifest carrying a workflow-level ``limits:`` block."""
     return WorkflowManifest(
         id="limits-demo",
@@ -329,6 +324,7 @@ def _limits_manifest(limits: dict, *, strategy: str = "single_shot") -> Workflow
 def _register_user_allowed_strategy() -> None:
     """Register a user-allowed strategy so the Limits trust rule (not the strategy
     trust) is what a user/db Limits test exercises."""
+
     @register("strategy", "ua_limits_strategy", user_allowed=True)
     class _UALimitsStrategy:
         name = "ua_limits_strategy"
@@ -354,7 +350,9 @@ def test_file_trust_may_raise_a_limits_cap_above_the_ceiling(_clean_registry) ->
 
 def test_builtin_trust_may_raise_a_limits_cap(_clean_registry) -> None:
     manifest = _limits_manifest({"wall_clock_seconds": 3600})
-    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="builtin")
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="builtin"
+    )
     assert compiled.limits.wall_clock_seconds == 3600
 
 
@@ -390,7 +388,9 @@ def test_user_trust_max_tokens_is_not_a_raise(_clean_registry) -> None:
     # max_tokens has no module-constant ceiling — a user manifest declaring it only
     # constrains itself, so it is NEVER a "raise above the ceiling" rejection.
     _register_user_allowed_strategy()
-    manifest = _limits_manifest({"max_tokens": 1_000_000}, strategy="ua_limits_strategy")
+    manifest = _limits_manifest(
+        {"max_tokens": 1_000_000}, strategy="ua_limits_strategy"
+    )
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
     assert compiled.limits.max_tokens == 1_000_000
 

@@ -80,10 +80,12 @@ def _make_runner(thread: str) -> DeepAgentRunner:
 async def test_no_stream_turn_still_produces_done_output():
     events = await _collect(_make_runner("runner-fallback-done"))
     done = [e for e in events if e.get("type") == "done"]
-    assert done, f"expected a terminal 'done' event; got {[e.get('type') for e in events]}"
-    assert SPEC_TEXT in done[-1]["output"], (
-        f"done.output lost the model content (no-stream turn): {done[-1]['output']!r}"
-    )
+    assert (
+        done
+    ), f"expected a terminal 'done' event; got {[e.get('type') for e in events]}"
+    assert (
+        SPEC_TEXT in done[-1]["output"]
+    ), f"done.output lost the model content (no-stream turn): {done[-1]['output']!r}"
 
 
 @pytest.mark.asyncio

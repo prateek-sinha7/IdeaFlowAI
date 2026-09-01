@@ -124,7 +124,9 @@ class ConversationProvider:
     def _compact(ctx: Any, transcript: list[str]) -> str:
         """Bound the transcript through ``compaction:chat_history`` (kernel->cap, legal)."""
         budget = getattr(ctx, "conversation_budget", None) or _DEFAULT_BUDGET
-        keep_recent = getattr(ctx, "conversation_keep_recent", None) or _DEFAULT_KEEP_RECENT
+        keep_recent = (
+            getattr(ctx, "conversation_keep_recent", None) or _DEFAULT_KEEP_RECENT
+        )
         try:
             from agents.capabilities.registry import CapabilityRegistry, discover
 

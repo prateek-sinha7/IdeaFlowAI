@@ -77,7 +77,9 @@ def db_session():
 # --- seed helpers -----------------------------------------------------------
 
 
-def _seed_run(session, *, run_id: str, owner_id: str, workspace_id: str = "ws-1") -> str:
+def _seed_run(
+    session, *, run_id: str, owner_id: str, workspace_id: str = "ws-1"
+) -> str:
     """Insert a minimal ``workflow_runs`` row owned by ``owner_id``."""
     run = WorkflowRun(
         id=run_id,
@@ -125,9 +127,7 @@ def _seed_artifact(
     return art_id
 
 
-def _seed_workspace(
-    session, *, owner_id: str, workspace_id: str
-) -> str:
+def _seed_workspace(session, *, owner_id: str, workspace_id: str) -> str:
     """Insert a ``workspaces`` row owned by ``owner_id`` with self-id == ``workspace_id``."""
     row = Workspace(
         id=workspace_id,
@@ -273,9 +273,7 @@ async def test_workspace_cross_workspace_run_denied(db_session) -> None:
         owner_id="bob", workspace_id="ws-other", session=db_session
     )
     assert await store_other_ws.get_run("run-b") is None
-    store_right = ScopedStore(
-        owner_id="bob", workspace_id="ws-b", session=db_session
-    )
+    store_right = ScopedStore(owner_id="bob", workspace_id="ws-b", session=db_session)
     assert await store_right.get_run("run-b") is not None  # positive control
 
 

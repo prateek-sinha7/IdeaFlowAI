@@ -113,7 +113,9 @@ def test_template_missing_raises():
     skipped silently rather than raising.
     """
     spec = _Spec(injects=["template"])
-    ctx = AgentContext(user_request="x", od_context={"ds_id": "minimal"})  # no template_body
+    ctx = AgentContext(
+        user_request="x", od_context={"ds_id": "minimal"}
+    )  # no template_body
     with pytest.raises(TemplateMissingError, match="template"):
         _compose_injection(spec, ctx, spec.injects)
 

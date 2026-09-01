@@ -122,9 +122,7 @@ class TestLoginTimingEnumeration:
         _timed_login("known@example.com")
 
         known_times = [_timed_login("known@example.com") for _ in range(3)]
-        unknown_times = [
-            _timed_login("nobody-at-all@example.com") for _ in range(3)
-        ]
+        unknown_times = [_timed_login("nobody-at-all@example.com") for _ in range(3)]
 
         known_avg = sum(known_times) / len(known_times)
         unknown_avg = sum(unknown_times) / len(unknown_times)
@@ -162,8 +160,12 @@ class TestAuthEventPiiRedaction:
 
         email = "repeat-offender@example.com"
         with caplog.at_level("WARNING", logger="app.auth.events"):
-            auth_events.emit(AuthEvent.LOGIN_FAILURE, email=email, reason="unknown_user")
-            auth_events.emit(AuthEvent.LOGIN_FAILURE, email=email, reason="unknown_user")
+            auth_events.emit(
+                AuthEvent.LOGIN_FAILURE, email=email, reason="unknown_user"
+            )
+            auth_events.emit(
+                AuthEvent.LOGIN_FAILURE, email=email, reason="unknown_user"
+            )
         hashes = [json.loads(r.message)["email_hash"] for r in caplog.records]
         assert hashes[0] == hashes[1]
 
@@ -171,7 +173,11 @@ class TestAuthEventPiiRedaction:
         import json
 
         with caplog.at_level("WARNING", logger="app.auth.events"):
-            auth_events.emit(AuthEvent.LOGIN_FAILURE, email="a@example.com", reason="unknown_user")
-            auth_events.emit(AuthEvent.LOGIN_FAILURE, email="b@example.com", reason="unknown_user")
+            auth_events.emit(
+                AuthEvent.LOGIN_FAILURE, email="a@example.com", reason="unknown_user"
+            )
+            auth_events.emit(
+                AuthEvent.LOGIN_FAILURE, email="b@example.com", reason="unknown_user"
+            )
         hashes = [json.loads(r.message)["email_hash"] for r in caplog.records]
         assert hashes[0] != hashes[1]

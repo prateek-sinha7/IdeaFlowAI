@@ -28,16 +28,14 @@ class HookRun(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    hook = Column(String, nullable=False)            # registered hook name
-    event = Column(String, nullable=False)           # lifecycle event the hook fired on
-    outcome = Column(String, nullable=False)         # continue|warn|block
-    detail = Column(JSON, nullable=True)             # hook-specific detail payload
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    hook = Column(String, nullable=False)  # registered hook name
+    event = Column(String, nullable=False)  # lifecycle event the hook fired on
+    outcome = Column(String, nullable=False)  # continue|warn|block
+    detail = Column(JSON, nullable=True)  # hook-specific detail payload
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_hook_runs_run", "run_id"),
-    )
+    __table_args__ = (Index("ix_hook_runs_run", "run_id"),)

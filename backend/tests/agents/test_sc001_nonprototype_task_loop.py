@@ -129,7 +129,11 @@ def _sc001_scripts_for(agent_id: str):
     import json as _j
 
     if agent_id == "sc001-spec":
-        return [_ScriptedTurn(texts=["A tiny Python module with a greet helper."], usage=(10, 6))]
+        return [
+            _ScriptedTurn(
+                texts=["A tiny Python module with a greet helper."], usage=(10, 6)
+            )
+        ]
     if agent_id == "sc001-plan":
         return [_ScriptedTurn(texts=[_TASK_PLAN], usage=(20, 16))]
     if agent_id == "sc001-build":
@@ -140,16 +144,52 @@ def _sc001_scripts_for(agent_id: str):
             _ScriptedTurn(
                 texts=["Building task 1. "],
                 tool_calls=[
-                    ("write_file", _j.dumps({"file_path": _DELIVERABLE_NAME, "content": _APP_PY_TASK1}), "c_w1"),
-                    ("report_task_complete", _j.dumps({"task_number": 1, "task_title": "Create the module skeleton", "summary": "done"}), "c_r1"),
+                    (
+                        "write_file",
+                        _j.dumps(
+                            {"file_path": _DELIVERABLE_NAME, "content": _APP_PY_TASK1}
+                        ),
+                        "c_w1",
+                    ),
+                    (
+                        "report_task_complete",
+                        _j.dumps(
+                            {
+                                "task_number": 1,
+                                "task_title": "Create the module skeleton",
+                                "summary": "done",
+                            }
+                        ),
+                        "c_r1",
+                    ),
                 ],
                 usage=(40, 20),
             ),
             _ScriptedTurn(
                 texts=["Building task 2. "],
                 tool_calls=[
-                    ("edit_file", _j.dumps({"file_path": _DELIVERABLE_NAME, "old_string": _EDIT_OLD, "new_string": _EDIT_NEW}), "c_e2"),
-                    ("report_task_complete", _j.dumps({"task_number": 2, "task_title": "Add the greet helper", "summary": "done"}), "c_r2"),
+                    (
+                        "edit_file",
+                        _j.dumps(
+                            {
+                                "file_path": _DELIVERABLE_NAME,
+                                "old_string": _EDIT_OLD,
+                                "new_string": _EDIT_NEW,
+                            }
+                        ),
+                        "c_e2",
+                    ),
+                    (
+                        "report_task_complete",
+                        _j.dumps(
+                            {
+                                "task_number": 2,
+                                "task_title": "Add the greet helper",
+                                "summary": "done",
+                            }
+                        ),
+                        "c_r2",
+                    ),
                 ],
                 usage=(40, 20),
             ),
@@ -172,6 +212,7 @@ async def _drive_sc001() -> tuple[list[dict], dict]:
     from agents.workflows.manifest import load_manifest
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     specs = _load_fixture_specs()
@@ -243,7 +284,9 @@ async def _drive_sc001() -> tuple[list[dict], dict]:
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -301,25 +344,27 @@ async def test_sc001_nonprototype_task_loop_runs_with_app_py() -> None:
 
     # (1) The deliverable resolved to the app.py the build agent wrote (the
     #     single_file resolver read ctx.deliverable.name == app.py), NOT prototype.html.
-    assert "def greet(name):" in final_output, (
-        f"deliverable is not the built app.py: {final_output!r}"
-    )
-    assert "<!doctype" not in final_output.lower(), "deliverable looks like HTML, not app.py"
+    assert (
+        "def greet(name):" in final_output
+    ), f"deliverable is not the built app.py: {final_output!r}"
+    assert (
+        "<!doctype" not in final_output.lower()
+    ), "deliverable looks like HTML, not app.py"
 
     # (2) The per-task typed dual-write persisted app.py (location == app.py) — never
     #     prototype.html (the empty-dual-write bug CR-05 describes).
     assert probe["persist_locations"], "no per-task dual-write happened"
-    assert all(loc == _DELIVERABLE_NAME for loc in probe["persist_locations"]), (
-        f"dual-write location was not {_DELIVERABLE_NAME!r}: {probe['persist_locations']}"
-    )
+    assert all(
+        loc == _DELIVERABLE_NAME for loc in probe["persist_locations"]
+    ), f"dual-write location was not {_DELIVERABLE_NAME!r}: {probe['persist_locations']}"
 
     # (3) The validation + fix-loop operated on app.py — the engine fix-loop received
     #     filename == app.py for every build task (it would have been prototype.html
     #     before 07-11). One fix-loop invocation per task.
     assert probe["fix_filenames"], "the validation fix-loop never ran"
-    assert all(fn == _DELIVERABLE_NAME for fn in probe["fix_filenames"]), (
-        f"the fix-loop did not operate on {_DELIVERABLE_NAME!r}: {probe['fix_filenames']}"
-    )
+    assert all(
+        fn == _DELIVERABLE_NAME for fn in probe["fix_filenames"]
+    ), f"the fix-loop did not operate on {_DELIVERABLE_NAME!r}: {probe['fix_filenames']}"
 
 
 @pytest.mark.asyncio
@@ -361,7 +406,9 @@ def test_sc001_proof_required_zero_engine_edits() -> None:
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     )
     engine_pkg = "backend/agents/execution_engine/"
@@ -388,7 +435,9 @@ def test_sc001_proof_required_zero_engine_edits() -> None:
     assert "strategy: task_loop" in manifest_text
     assert "strategy: single_file" in manifest_text
     assert "parser: heading_tasks" in manifest_text
-    assert _DELIVERABLE_NAME in manifest_text  # deliverable.name: app.py (not prototype.html)
+    assert (
+        _DELIVERABLE_NAME in manifest_text
+    )  # deliverable.name: app.py (not prototype.html)
 
 
 if __name__ == "__main__":  # pragma: no cover

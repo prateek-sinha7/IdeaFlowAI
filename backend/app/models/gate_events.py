@@ -30,16 +30,16 @@ class GateEvent(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    step = Column(String, nullable=False)            # the step/agent id gated
-    gate = Column(String, nullable=False)            # gate name: human|validation|approval|security
-    outcome = Column(String, nullable=False)         # pass|block|wait_human
-    detail = Column(JSON, nullable=True)             # gate-specific detail payload
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    step = Column(String, nullable=False)  # the step/agent id gated
+    gate = Column(
+        String, nullable=False
+    )  # gate name: human|validation|approval|security
+    outcome = Column(String, nullable=False)  # pass|block|wait_human
+    detail = Column(JSON, nullable=True)  # gate-specific detail payload
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_gate_events_run", "run_id"),
-    )
+    __table_args__ = (Index("ix_gate_events_run", "run_id"),)

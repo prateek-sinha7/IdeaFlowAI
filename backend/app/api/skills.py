@@ -38,5 +38,12 @@ def get_skills_library(
         "skills": [asdict(e) for e in entries],
         "total_count": len(entries),
         "categories": [{"id": "all", "label": "All"}]
-        + [{"id": c, "label": c.replace("_", " ").title(), "icon": _get_icon_for_category(c)} for c in categories],
+        + [
+            {
+                "id": c,
+                "label": c.replace("_", " ").title(),
+                "icon": _get_icon_for_category(c),
+            }
+            for c in categories
+        ],
     }

@@ -97,9 +97,13 @@ def normalize_task_content(task: Task) -> str:
         "b": _normalize_text(_strip_leading_ordinal(getattr(task, "body", "") or "")),
         "targets": sorted(str(x) for x in (getattr(task, "targets", []) or [])),
         "depends_on": sorted(str(x) for x in (getattr(task, "depends_on", []) or [])),
-        "conflict_keys": sorted(str(x) for x in (getattr(task, "conflict_keys", []) or [])),
+        "conflict_keys": sorted(
+            str(x) for x in (getattr(task, "conflict_keys", []) or [])
+        ),
     }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
 
 
 def occurrence_ordinals(tasks: list[Task]) -> list[int]:
@@ -141,9 +145,7 @@ def compute_task_key(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def common_prefix_length(
-    current_keys: list[str], completed_ordered: list[str]
-) -> int:
+def common_prefix_length(current_keys: list[str], completed_ordered: list[str]) -> int:
     """Return the length ``p`` of the longest POSITIONAL common prefix of the lists.
 
     RESUME-16 cumulative reconcile (THE single home of the common-prefix rule, called

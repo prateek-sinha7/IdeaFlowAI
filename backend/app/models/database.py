@@ -45,11 +45,14 @@ if _sqlite:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
+
 # expire_on_commit=False so detached instances (e.g. the User cached on the
 # WebSocket handler across multiple commits) keep their attributes readable
 # without re-fetch. Without this, accessing user.id from a long-lived WS
 # handler after a commit raises DetachedInstanceError.
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, expire_on_commit=False, bind=engine
+)
 
 
 class Base(DeclarativeBase):

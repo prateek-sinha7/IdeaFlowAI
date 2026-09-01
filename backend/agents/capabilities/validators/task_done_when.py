@@ -23,7 +23,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.capabilities.registry import register
-from agents.capabilities.validators.severity import map_severity  # single source (08-01)
+from agents.capabilities.validators.severity import (
+    map_severity,
+)  # single source (08-01)
 
 
 @dataclass

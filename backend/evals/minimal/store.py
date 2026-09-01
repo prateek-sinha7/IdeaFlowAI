@@ -98,12 +98,18 @@ def list_runs() -> list[str]:
     if not RUNS_ROOT.exists():
         return []
     return sorted(
-        (p.name for p in RUNS_ROOT.iterdir() if p.is_dir() and not p.name.startswith(".")),
+        (
+            p.name
+            for p in RUNS_ROOT.iterdir()
+            if p.is_dir() and not p.name.startswith(".")
+        ),
         reverse=True,
     )
 
 
-def clone_run(src_run_id: str, *, label: str, drop: tuple[str, ...] = ("judge.json",)) -> str:
+def clone_run(
+    src_run_id: str, *, label: str, drop: tuple[str, ...] = ("judge.json",)
+) -> str:
     """Copy a finished run into a NEW run id, dropping `drop` (default the
     judge verdicts). Returns the new run id.
 
@@ -135,7 +141,9 @@ def clone_run(src_run_id: str, *, label: str, drop: tuple[str, ...] = ("judge.js
             shutil.copy2(item, dst / item.name)
     # Provenance, so a clone is never mistaken for an independent sample: the
     # two runs share every dispatched token and are NOT n=2.
-    snapshot_config(dst_run_id, {**config, "cloned_from": src_run_id, "clone_label": label})
+    snapshot_config(
+        dst_run_id, {**config, "cloned_from": src_run_id, "clone_label": label}
+    )
     return dst_run_id
 
 
@@ -185,7 +193,10 @@ def log_call(run_id: str, phase: str, record: dict) -> Path:
     Failures are logged too — those are the ones worth reading.
     """
     with calls_path(run_id).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"stage": phase, **record}, ensure_ascii=False, default=str) + "\n")
+        handle.write(
+            json.dumps({"stage": phase, **record}, ensure_ascii=False, default=str)
+            + "\n"
+        )
     return calls_path(run_id)
 
 
@@ -195,13 +206,20 @@ def read_calls(run_id: str, phase: str | None = None) -> list[dict]:
     if not path.exists():
         return []
     records = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
     ]
     return [r for r in records if phase is None or r.get("stage") == phase]
 
 
 def artifact_path(
-    run_id: str, phase: str, filename: str, *, suffix: str = "", bare: bool = False,
+    run_id: str,
+    phase: str,
+    filename: str,
+    *,
+    suffix: str = "",
+    bare: bool = False,
 ) -> Path:
     """`artifacts/<phase>-<filename>` — a real, openable file, not JSON.
 
@@ -217,14 +235,21 @@ def artifact_path(
     """
     name = Path(filename).name
     stem, extension = Path(name).stem, Path(name).suffix or ".md"
-    leaf = f"{stem}{suffix}{extension}" if bare else f"{phase}-{stem}{suffix}{extension}"
+    leaf = (
+        f"{stem}{suffix}{extension}" if bare else f"{phase}-{stem}{suffix}{extension}"
+    )
     path = run_dir(run_id) / "artifacts" / leaf
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def write_artifact(
-    run_id: str, phase: str, filename: str, content: str, *, suffix: str = "",
+    run_id: str,
+    phase: str,
+    filename: str,
+    content: str,
+    *,
+    suffix: str = "",
     bare: bool = False,
 ) -> Path:
     """Write one phase's own output as a real file — `cat` it, don't unpack JSON."""
@@ -251,4 +276,6 @@ def _read_json(path: Path):
 def _write_json(path: Path, payload) -> None:
     """Write one JSON artifact, pretty-printed and newline-terminated."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )

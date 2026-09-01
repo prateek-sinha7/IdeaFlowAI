@@ -150,9 +150,7 @@ def foreign_key_exists(table: str, constraint: str) -> bool:
     """
     if not table_exists(table):
         return False
-    return constraint in {
-        fk.get("name") for fk in _inspector().get_foreign_keys(table)
-    }
+    return constraint in {fk.get("name") for fk in _inspector().get_foreign_keys(table)}
 
 
 # ---------------------------------------------------------------------------

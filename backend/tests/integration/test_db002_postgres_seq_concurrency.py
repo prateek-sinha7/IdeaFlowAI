@@ -102,16 +102,23 @@ def postgres_url():
     failure importing one module must never skip/break the other's fixture).
     """
     if not _docker_available():
-        pytest.skip("docker is not available — skipping PostgreSQL migration/concurrency test.")
+        pytest.skip(
+            "docker is not available — skipping PostgreSQL migration/concurrency test."
+        )
 
     port = _free_port()
     name = f"flowin-db002-pg-{uuid.uuid4().hex[:8]}"
     run = subprocess.run(
         [
-            "docker", "run", "-d",
-            "--name", name,
-            "-p", f"{port}:5432",
-            "-e", "POSTGRES_PASSWORD=postgres",
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-p",
+            f"{port}:5432",
+            "-e",
+            "POSTGRES_PASSWORD=postgres",
             _PG_IMAGE,
         ],
         capture_output=True,
@@ -131,7 +138,11 @@ def postgres_url():
         _wait_for_postgres(raw_dsn, _PG_READY_TIMEOUT_S)
         yield f"postgresql+psycopg://postgres:postgres@127.0.0.1:{port}/postgres"
     finally:
-        subprocess.run(["docker", "rm", "-f", container_id or name], capture_output=True, timeout=60)
+        subprocess.run(
+            ["docker", "rm", "-f", container_id or name],
+            capture_output=True,
+            timeout=60,
+        )
 
 
 def _migrate_to_head(db_url: str) -> None:
@@ -198,7 +209,9 @@ def test_concurrent_seq_allocation_survives_under_real_postgres_locking(postgres
     async def _one_writer(idx: int) -> None:
         session = SessionLocal()
         try:
-            store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id, session=session)
+            store = ScopedStore(
+                owner_id=owner_id, workspace_id=workspace_id, session=session
+            )
             await store.append_event_next_seq(
                 run_id,
                 event_id=f"db002-writer-{idx}-{uuid.uuid4().hex[:6]}",
@@ -229,9 +242,9 @@ def test_concurrent_seq_allocation_survives_under_real_postgres_locking(postgres
             f"PostgreSQL locking — expected 12, got {len(rows)}"
         )
         seqs = [r.seq for r in rows]
-        assert seqs == list(range(1, 13)), (
-            f"seqs must be unique and contiguous under real concurrency, got {seqs}"
-        )
+        assert seqs == list(
+            range(1, 13)
+        ), f"seqs must be unique and contiguous under real concurrency, got {seqs}"
     finally:
         session.close()
         engine.dispose()

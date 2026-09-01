@@ -66,7 +66,11 @@ def app_client(monkeypatch, tmp_path):
     with test_engine.begin() as conn:
         from sqlalchemy import text
 
-        conn.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR PRIMARY KEY)"))
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR PRIMARY KEY)"
+            )
+        )
         conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0002')"))
 
     TestSession = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
@@ -100,7 +104,11 @@ def app_client(monkeypatch, tmp_path):
     app.dependency_overrides.clear()
 
 
-def _register_and_login(client: TestClient, email: str = "alice@example.com", password: str = "hunter2hunter2") -> str:
+def _register_and_login(
+    client: TestClient,
+    email: str = "alice@example.com",
+    password: str = "hunter2hunter2",
+) -> str:
     """Create a fresh user directly in the test DB and return their JWT.
 
     ``/api/auth/register`` is a permanent 403 (self-registration is disabled
@@ -303,7 +311,9 @@ def test_handoff_receive_validates_mode_and_size(app_client):
 
 
 def test_mcp_requires_bearer(app_client):
-    r = app_client.post("/mcp/handoff", json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    r = app_client.post(
+        "/mcp/handoff", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}
+    )
     assert r.status_code == 401
 
 
@@ -426,23 +436,43 @@ def test_apply_edits_rejects_path_traversal_and_missing_files():
             fh.write("hello world")
 
         edits = [
-            {"path": "ok.txt", "operation": "modify", "old_string": "world", "new_string": "earth"},
-            {"path": "ok.txt", "operation": "modify", "old_string": "missing", "new_string": "x"},
+            {
+                "path": "ok.txt",
+                "operation": "modify",
+                "old_string": "world",
+                "new_string": "earth",
+            },
+            {
+                "path": "ok.txt",
+                "operation": "modify",
+                "old_string": "missing",
+                "new_string": "x",
+            },
             {"path": "../escape", "operation": "create", "new_string": "nope"},
             {"path": "newfile.txt", "operation": "create", "new_string": "fresh"},
-            {"path": "doesnt_exist.txt", "operation": "modify", "old_string": "a", "new_string": "b"},
-            {"path": ".git/HEAD", "operation": "modify", "old_string": "x", "new_string": "y"},
+            {
+                "path": "doesnt_exist.txt",
+                "operation": "modify",
+                "old_string": "a",
+                "new_string": "b",
+            },
+            {
+                "path": ".git/HEAD",
+                "operation": "modify",
+                "old_string": "x",
+                "new_string": "y",
+            },
             {"path": "ok.txt", "operation": "delete"},
         ]
         results = _apply_edits(tmp, edits)
         # Index by position so duplicate (path, operation) tuples are distinct.
-        assert results[0]["status"] == "applied"        # world→earth succeeds
-        assert results[1]["status"] == "rejected"        # 'missing' substring isn't present
-        assert results[2]["status"] == "rejected"        # path traversal
-        assert results[3]["status"] == "applied"         # new file create
-        assert results[4]["status"] == "rejected"        # modify non-existent
-        assert results[5]["status"] == "rejected"        # .git path
-        assert results[6]["status"] == "applied"         # delete
+        assert results[0]["status"] == "applied"  # world→earth succeeds
+        assert results[1]["status"] == "rejected"  # 'missing' substring isn't present
+        assert results[2]["status"] == "rejected"  # path traversal
+        assert results[3]["status"] == "applied"  # new file create
+        assert results[4]["status"] == "rejected"  # modify non-existent
+        assert results[5]["status"] == "rejected"  # .git path
+        assert results[6]["status"] == "applied"  # delete
         assert not os.path.exists(target)
         # The earlier modify did happen — verify earth got written before the delete.
         # (We can't read it now because we deleted, but the earlier .read() inside
@@ -453,8 +483,12 @@ def test_apply_edits_rejects_path_traversal_and_missing_files():
 def test_branch_name_is_safe_and_deterministic():
     from app.services.handoff_pipeline import _branch_name
 
-    a = _branch_name("abc12345-1111-2222-3333-444455556666", "Fix the SQL injection bug!")
-    b = _branch_name("abc12345-1111-2222-3333-444455556666", "Fix the SQL injection bug!")
+    a = _branch_name(
+        "abc12345-1111-2222-3333-444455556666", "Fix the SQL injection bug!"
+    )
+    b = _branch_name(
+        "abc12345-1111-2222-3333-444455556666", "Fix the SQL injection bug!"
+    )
     assert a == b
     assert a.startswith("flowin-handoff/abc12345-")
     # No spaces, no chars that git rejects:
@@ -751,7 +785,11 @@ def test_installer_actually_writes_files_when_piped_to_bash(app_client, tmp_path
 
     # Re-running is idempotent (no error, same files).
     res2 = subprocess.run(
-        ["bash", str(installer_path)], env=env, capture_output=True, text=True, timeout=30
+        ["bash", str(installer_path)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert res2.returncode == 0
 

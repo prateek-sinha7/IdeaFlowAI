@@ -212,7 +212,9 @@ async def _build_runner(checkpointer, thread_id: str, run_id: str):
     )
 
 
-async def _phase_run_until_interrupt(thread_id: str, run_id: str, kill_after: bool) -> int:
+async def _phase_run_until_interrupt(
+    thread_id: str, run_id: str, kill_after: bool
+) -> int:
     """Drive the runner until the HITL interrupt persists; print INTERRUPTED.
 
     Returns the process exit code (0 on a clean stop at the interrupt). When
@@ -322,7 +324,10 @@ async def _phase_resume(thread_id: str, run_id: str) -> int:
     ]
 
     if final_next != ():
-        print(f"RESUME_FAILED non-terminal-after-resume next={list(final_next)}", flush=True)
+        print(
+            f"RESUME_FAILED non-terminal-after-resume next={list(final_next)}",
+            flush=True,
+        )
         await close_checkpointer()
         return 3
     if not gated_msgs:
@@ -351,7 +356,9 @@ def _main() -> int:
         help="run-until-interrupt: drive to the HITL gate and persist it. "
         "resume: fresh process, resume the persisted pause to completion.",
     )
-    parser.add_argument("--thread-id", required=True, help="Stable LangGraph thread id.")
+    parser.add_argument(
+        "--thread-id", required=True, help="Stable LangGraph thread id."
+    )
     parser.add_argument(
         "--run-id",
         required=True,

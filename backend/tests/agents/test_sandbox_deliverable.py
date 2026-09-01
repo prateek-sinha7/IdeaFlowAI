@@ -178,9 +178,7 @@ def test_multiple_nested_files_sorted(tmp_path: Path) -> None:
     }
     out = _assert_byte_identical(tmp_path, pairs)
     # Independently assert the exact bytes (path-sorted, ``\n\n``-joined).
-    expected = "\n\n".join(
-        f"```filename: {p}\n{pairs[p]}\n```" for p in sorted(pairs)
-    )
+    expected = "\n\n".join(f"```filename: {p}\n{pairs[p]}\n```" for p in sorted(pairs))
     assert out == expected
     # And pin the FULL golden string as a literal (captured from the real
     # AgentWorkspace.to_final_output oracle pre-deletion) — independent of the
@@ -258,8 +256,7 @@ def test_empty_content_file(tmp_path: Path) -> None:
     # Golden literal: empty.txt → ``...\n\n``` `` (the format's two \n surround the
     # empty content); real.txt follows after the ``\n\n`` block join.
     assert out == (
-        "```filename: empty.txt\n\n```\n\n"
-        "```filename: real.txt\ndata\n\n```"
+        "```filename: empty.txt\n\n```\n\n" "```filename: real.txt\ndata\n\n```"
     )
 
 
@@ -377,11 +374,10 @@ _relpath = st.lists(_seg, min_size=1, max_size=4).map("/".join)
 # workspace only ever stores str). Exclude lone surrogates / NUL which a real
 # UTF-8 filesystem write would reject.
 _content = st.text(
-    alphabet=st.characters(
-        blacklist_categories=("Cs",), blacklist_characters="\x00"
-    ),
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"),
     max_size=120,
 )
+
 
 def _no_file_dir_conflict(pairs: dict[str, str]) -> bool:
     """Reject sets a real filesystem can't hold: one path being a directory
@@ -408,7 +404,9 @@ _pairs = st.dictionaries(keys=_relpath, values=_content, max_size=6).filter(
 
 @settings(max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(pairs=_pairs)
-def test_property_byte_identical_to_workspace(tmp_path: Path, pairs: dict[str, str]) -> None:
+def test_property_byte_identical_to_workspace(
+    tmp_path: Path, pairs: dict[str, str]
+) -> None:
     """Property: serialize_sandbox_deliverable == to_final_output, byte-for-byte.
 
     Spans nested paths, the PLANNER.md exclusion, fence/unicode/blank-line

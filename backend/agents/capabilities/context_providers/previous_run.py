@@ -69,6 +69,7 @@ def _declared_seed_files(ctx: Any) -> tuple[str, ...]:
             return tuple(str(n) for n in from_run)
     return _SEED_FILES
 
+
 # Default editable-artifact filename when the deliverable declares no name. The
 # behavior is parameterized by ``deliverable.name`` — this is only the fallback
 # (matches the legacy ``REVISION_FILE_NAME`` default, byte-identical).
@@ -83,7 +84,8 @@ def _extract_existing_artifact(user_message: str) -> str:
     """Pull the current artifact out of a revision request (returns "" if absent)."""
     m = re.search(
         r"=== EXISTING PROTOTYPE HTML ===\s*([\s\S]*?)\s*=== END EXISTING HTML ===",
-        user_message, re.IGNORECASE,
+        user_message,
+        re.IGNORECASE,
     )
     return m.group(1).strip() if m else ""
 
@@ -92,7 +94,8 @@ def _extract_revision_instruction(user_message: str) -> str | None:
     """Pull the ``=== REVISION REQUEST ===`` instruction (None if the markers absent)."""
     m = re.search(
         r"=== REVISION REQUEST ===\s*([\s\S]*?)\s*=== END REQUEST ===",
-        user_message, re.IGNORECASE,
+        user_message,
+        re.IGNORECASE,
     )
     return m.group(1).strip() if m else None
 
@@ -108,7 +111,9 @@ def _slim_revision_message(user_message: str, artifact_name: str) -> str:
         r"=== EXISTING PROTOTYPE HTML ===[\s\S]*?=== END EXISTING HTML ===",
         f"The current prototype is in the workspace file `{artifact_name}`. "
         "Call read_file to read it before editing.",
-        user_message, count=1, flags=re.IGNORECASE,
+        user_message,
+        count=1,
+        flags=re.IGNORECASE,
     ).strip()
 
 
@@ -180,7 +185,8 @@ class PreviousRunProvider:
                 logger.warning(
                     "previous_run: assert_owns lookup failed for parent %s (%s) — "
                     "FAILING CLOSED: skipping parent-run seed (ownership unconfirmed)",
-                    parent_run_id, authz_exc,
+                    parent_run_id,
+                    authz_exc,
                 )
                 return {}
 
@@ -202,7 +208,8 @@ class PreviousRunProvider:
             except Exception as read_exc:  # noqa: BLE001
                 logger.warning(
                     "previous_run: could not read parent %s (%s) — skipping",
-                    name, read_exc,
+                    name,
+                    read_exc,
                 )
                 continue
             if content and sandbox is not None:
@@ -212,12 +219,14 @@ class PreviousRunProvider:
                 except Exception as write_exc:  # noqa: BLE001 — never break a revision
                     logger.warning(
                         "previous_run: failed writing seeded %s (%s) — skipping",
-                        name, write_exc,
+                        name,
+                        write_exc,
                     )
 
         logger.info(
             "previous_run: seeded parent reference files from run %s: %s",
-            parent_run_id, ", ".join(seeded) or "(none found)",
+            parent_run_id,
+            ", ".join(seeded) or "(none found)",
         )
 
         # ── Seed the parent run's uploads into this run's sandbox ────────────────
@@ -235,9 +244,14 @@ class PreviousRunProvider:
                 manifest_raw = runner.read_parent_file(parent_run_id, _UPLOADS_MANIFEST)
                 if manifest_raw:
                     import json as _json
+
                     sandbox.write(_UPLOADS_MANIFEST, manifest_raw)
-                    entries = _json.loads(manifest_raw) if isinstance(manifest_raw, str) else []
-                    for entry in (entries if isinstance(entries, list) else []):
+                    entries = (
+                        _json.loads(manifest_raw)
+                        if isinstance(manifest_raw, str)
+                        else []
+                    )
+                    for entry in entries if isinstance(entries, list) else []:
                         if not isinstance(entry, dict) or not entry.get("has_text"):
                             continue
                         name = entry.get("name")
@@ -297,21 +311,29 @@ class PreviousRunProvider:
         if not existing:
             parent_run_id = getattr(ctx, "parent_run_id", None)
             deliverable_inner = getattr(ctx, "deliverable", None)
-            artifact_name_inner = getattr(deliverable_inner, "name", None) or _DEFAULT_ARTIFACT_NAME
+            artifact_name_inner = (
+                getattr(deliverable_inner, "name", None) or _DEFAULT_ARTIFACT_NAME
+            )
             if parent_run_id and hasattr(runner, "read_parent_file"):
                 try:
-                    existing = runner.read_parent_file(parent_run_id, artifact_name_inner) or ""
+                    existing = (
+                        runner.read_parent_file(parent_run_id, artifact_name_inner)
+                        or ""
+                    )
                     if existing:
                         logger.info(
                             "previous_run: seeded %s from parent sandbox %s "
                             "(no HTML markers in user_message — Concierge path)",
-                            artifact_name_inner, parent_run_id,
+                            artifact_name_inner,
+                            parent_run_id,
                         )
                 except Exception as read_exc:  # noqa: BLE001
                     logger.debug(
                         "previous_run: could not read %s from parent sandbox %s (%s) — "
                         "agent will work from prompt only",
-                        artifact_name_inner, parent_run_id, read_exc,
+                        artifact_name_inner,
+                        parent_run_id,
+                        read_exc,
                     )
 
         if not existing:
@@ -335,7 +357,8 @@ class PreviousRunProvider:
             except Exception as write_exc:  # noqa: BLE001 — never break a revision
                 logger.warning(
                     "previous_run: failed seeding existing artifact %s (%s)",
-                    artifact_name, write_exc,
+                    artifact_name,
+                    write_exc,
                 )
 
         # Capture the user's revision instruction; slim the message to a pointer.

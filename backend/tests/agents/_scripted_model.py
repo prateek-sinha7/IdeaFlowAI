@@ -54,7 +54,9 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 # ── RUNS_ROOT must be set BEFORE app.core.config / sandbox import it ──────────
-_RUNS_ROOT = os.environ.get("PARITY_RUNS_ROOT") or tempfile.mkdtemp(prefix="harness-runs-")
+_RUNS_ROOT = os.environ.get("PARITY_RUNS_ROOT") or tempfile.mkdtemp(
+    prefix="harness-runs-"
+)
 os.environ["RUNS_ROOT"] = _RUNS_ROOT
 # Force the InMemory checkpointer (no Postgres / no creds needed).
 os.environ.setdefault("ENV", "development")
@@ -113,7 +115,9 @@ class ScriptedNonTransientError(Exception):
     the transient sets, and the type name / message carry no transient substring.
     """
 
-    def __init__(self, message: str = "Invalid request (synthetic non-transient)") -> None:
+    def __init__(
+        self, message: str = "Invalid request (synthetic non-transient)"
+    ) -> None:
         super().__init__(message)
         self.response = {
             "Error": {"Code": "ValidationException", "Message": message},
@@ -184,7 +188,9 @@ class ScriptedFakeChatModel(BaseChatModel):
             if i == last_i:
                 for tidx, (name, json_args, call_id) in enumerate(turn.tool_calls):
                     tcc.append(
-                        tool_call_chunk(name=name, args=json_args, id=call_id, index=tidx)
+                        tool_call_chunk(
+                            name=name, args=json_args, id=call_id, index=tidx
+                        )
                     )
                 if turn.usage is not None:
                     t_in, t_out = turn.usage
@@ -212,8 +218,12 @@ class ScriptedFakeChatModel(BaseChatModel):
     ) -> ChatResult:
         if self._raise_exc is not None:
             raise self._raise_exc
-        chunks = list(self._stream(messages, stop=stop, run_manager=run_manager, **kwargs))
-        text = "".join(c.message.content for c in chunks if isinstance(c.message.content, str))
+        chunks = list(
+            self._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        )
+        text = "".join(
+            c.message.content for c in chunks if isinstance(c.message.content, str)
+        )
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
 
 
@@ -222,7 +232,9 @@ class ScriptedFakeChatModel(BaseChatModel):
 # ===========================================================================
 
 
-def worker_model(text: str = "worker output", usage: tuple[int, int] = (10, 5)) -> "ScriptedFakeChatModel":
+def worker_model(
+    text: str = "worker output", usage: tuple[int, int] = (10, 5)
+) -> "ScriptedFakeChatModel":
     """A minimal single-turn scripted model for a fan-out WORKER (no tool calls).
 
     Each fan-out child runs ONE agent invocation that streams text + usage and calls
@@ -286,7 +298,11 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
                     usage=(40, 30),
                 )
             ]
-        return [_ScriptedTurn(texts=[f"{agent_id} output line one. ", "line two."], usage=(12, 7))]
+        return [
+            _ScriptedTurn(
+                texts=[f"{agent_id} output line one. ", "line two."], usage=(12, 7)
+            )
+        ]
 
     # ── od_ppt / ppt agents (tools=[], text-only). ───────────────────────────
     # The three deck agents (ppt-brief-analyst / ppt-composer /
@@ -337,7 +353,9 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
         )
         return [
             _ScriptedTurn(
-                texts=[f"Validation passed. No P0 issues.\n<artifact>{deck}</artifact>"],
+                texts=[
+                    f"Validation passed. No P0 issues.\n<artifact>{deck}</artifact>"
+                ],
                 usage=(22, 14),
             )
         ]
@@ -382,8 +400,22 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             _ScriptedTurn(
                 texts=["Building the page. "],
                 tool_calls=[
-                    ("write_file", _j.dumps({"file_path": "prototype.html", "content": html}), "c_wf"),
-                    ("report_task_complete", _j.dumps({"task_number": 1, "task_title": "Build shell", "summary": "did it"}), "c_rtc"),
+                    (
+                        "write_file",
+                        _j.dumps({"file_path": "prototype.html", "content": html}),
+                        "c_wf",
+                    ),
+                    (
+                        "report_task_complete",
+                        _j.dumps(
+                            {
+                                "task_number": 1,
+                                "task_title": "Build shell",
+                                "summary": "did it",
+                            }
+                        ),
+                        "c_rtc",
+                    ),
                 ],
                 usage=(50, 20),
             ),
@@ -430,7 +462,9 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
     # it may call no tools (validation pass). Keep it pure text so the prototype
     # pipeline terminates deterministically.
     if agent_id == "prototype-validate":
-        return [_ScriptedTurn(texts=["Validation passed. No P0 issues."], usage=(20, 10))]
+        return [
+            _ScriptedTurn(texts=["Validation passed. No P0 issues."], usage=(20, 10))
+        ]
 
     # ── prototype-revision-analyzer (tools=[], text-only): outputs a ## Solution Plan
     # section so the engine's produces_solution_plan hook can extract it and store it
@@ -470,7 +504,11 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             _ScriptedTurn(
                 texts=[tasks_content],
                 tool_calls=[
-                    ("write_file", _j.dumps({"file_path": "tasks.md", "content": tasks_content}), "c_tasks"),
+                    (
+                        "write_file",
+                        _j.dumps({"file_path": "tasks.md", "content": tasks_content}),
+                        "c_tasks",
+                    ),
                 ],
                 usage=(50, 25),
             ),
@@ -481,7 +519,11 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
     # emits a validation summary. Text-only — no file edits in the scripted harness
     # (the golden just needs to see the agent fire; real edits happen on live Bedrock).
     if agent_id == "prototype-revision-validate":
-        return [_ScriptedTurn(texts=["Validated — 1 page checked, no issues found."], usage=(20, 10))]
+        return [
+            _ScriptedTurn(
+                texts=["Validated — 1 page checked, no issues found."], usage=(20, 10)
+            )
+        ]
 
     # ── prototype-revision-feature-specify (tools=workspace, strategy=single_shot):
     # writes a feature spec file. Uses write_file so the spec is available to the
@@ -500,7 +542,13 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             _ScriptedTurn(
                 texts=["Writing feature specification. "],
                 tool_calls=[
-                    ("write_file", _j.dumps({"file_path": "feature-spec.md", "content": spec_content}), "c_fs"),
+                    (
+                        "write_file",
+                        _j.dumps(
+                            {"file_path": "feature-spec.md", "content": spec_content}
+                        ),
+                        "c_fs",
+                    ),
                 ],
                 usage=(28, 14),
             ),
@@ -510,14 +558,21 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
     # ── Code-gen agents (tools=workspace): write 2 files then a final text. ───
     # NEW world: native write_file(file_path=…, content=…).
     if agent_id in ("app-code-generator", "prototype-revision-agent"):
+
         def mk(p, c):
             return ("write_file", _j.dumps({"file_path": p, "content": c}), f"c_{p}")
+
         if agent_id == "prototype-revision-agent":
             # Revision edits prototype.html in place.
             return [
                 _ScriptedTurn(
                     texts=["Revising. "],
-                    tool_calls=[mk("prototype.html", "<!doctype html><html><body>revised</body></html>")],
+                    tool_calls=[
+                        mk(
+                            "prototype.html",
+                            "<!doctype html><html><body>revised</body></html>",
+                        )
+                    ],
                     usage=(30, 15),
                 ),
                 _ScriptedTurn(texts=["Revision complete."], usage=(8, 4)),
@@ -543,7 +598,9 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
 # ===========================================================================
 
 
-async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> list[dict]:
+async def _drive(
+    pipeline_type: str, world: str = "new", **execute_kwargs
+) -> list[dict]:
     """Run ``ExecutionEngine.execute()`` end-to-end offline and return the
     ordered list of yielded engine event dicts.
 
@@ -582,6 +639,7 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
     # (read-only here). RunSandbox reads ``settings.RUNS_ROOT`` in __init__, so we
     # override the live attribute so the per-run sandbox lands in the temp dir.
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     # ── Disable the auto-clarify gate (the clarifier needs live WS round-trips). ─
@@ -654,7 +712,9 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
     engine = ExecutionEngine()
 
     # ── Neutralise the planner (real LLM call) → default PROCEED context. ─────
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]

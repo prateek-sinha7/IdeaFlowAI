@@ -305,8 +305,12 @@ def test_gate_ignores_comment_and_docstring_mentions(tmp_path: Path) -> None:
     # Module/function docstrings AND the inline ``# SSE_TRANSPORT_ENABLED removed``
     # comment-on-a-code-line are all stripped (AST docstrings + tokenize comments), so
     # a prose-only file yields ZERO hits — exactly why the live tree stays green.
-    assert not py_hits, f"FALSE POSITIVE: Python comment/docstring mentions tripped the gate: {py_hits}"
-    assert not ts_hits, f"FALSE POSITIVE: TS comment mentions tripped the gate: {ts_hits}"
+    assert (
+        not py_hits
+    ), f"FALSE POSITIVE: Python comment/docstring mentions tripped the gate: {py_hits}"
+    assert (
+        not ts_hits
+    ), f"FALSE POSITIVE: TS comment mentions tripped the gate: {ts_hits}"
 
 
 # ===========================================================================
@@ -356,7 +360,12 @@ def test_gate_is_non_vacuous_typescript(tmp_path: Path) -> None:
     )
     code = _ts_code_lines(bad.read_text(encoding="utf-8"))
     hits = {t for t, *_ in _scan_lines("rogue_frontend.ts", code)}
-    for token in ("useWebSocket", "routeWebSocket", "NEXT_PUBLIC_SSE_TRANSPORT", "/ws/chat"):
+    for token in (
+        "useWebSocket",
+        "routeWebSocket",
+        "NEXT_PUBLIC_SSE_TRANSPORT",
+        "/ws/chat",
+    ):
         assert token in hits, (
             f"NON-VACUITY FAILURE: the `{token}` scanner did not flag an injected "
             "frontend regression."

@@ -57,6 +57,7 @@ class _FakeUser:
 @pytest.fixture
 def env(monkeypatch):
     from app.api import run_commands as rc_module
+
     # W4a (44-03): _get_db relocated to app.api.run_engine (INV-12 extract-before
     # -delete); /ws/chat retired in 44-07. Patch the seam at its new home.
     from app.api import run_engine as ws_module
@@ -77,6 +78,7 @@ def env(monkeypatch):
     monkeypatch.setattr(db_module, "SessionLocal", TestingSession)
 
     import agents.artifact_store.store as store_mod
+
     store_mod._STORE = None
     store = store_mod.get_artifact_store()
 
@@ -101,9 +103,11 @@ def _seed_user(env, tag: str) -> _FakeUser:
 
     db = env["Session"]()
     try:
-        u = User(id=str(uuid.uuid4()),
-                 email=f"img30-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-                 password_hash="x")
+        u = User(
+            id=str(uuid.uuid4()),
+            email=f"img30-{tag}-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash="x",
+        )
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -112,18 +116,29 @@ def _seed_user(env, tag: str) -> _FakeUser:
         db.close()
 
 
-def _seed_run(env, user_id: str, *, status: str = "running",
-              workspace_id: str = "ws-1") -> str:
+def _seed_run(
+    env, user_id: str, *, status: str = "running", workspace_id: str = "ws-1"
+) -> str:
     from app.models.workflow import WorkflowRun
 
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user_id, owner_id=user_id, workspace_id=workspace_id,
-            title="t", type="prototype", status=status, input="i",
-            agent_count=1, session_id=user_id, created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                owner_id=user_id,
+                workspace_id=workspace_id,
+                title="t",
+                type="prototype",
+                status=status,
+                input="i",
+                agent_count=1,
+                session_id=user_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return run_id
     finally:
@@ -136,11 +151,18 @@ def _seed_events(env, run_id, rows, *, owner_id, workspace_id="ws-1"):
     db = env["Session"]()
     try:
         for seq, etype, payload in rows:
-            db.add(RunEvent(
-                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner_id,
-                workspace_id=workspace_id, seq=seq, event_id=str(uuid.uuid4()),
-                type=etype, payload_json=payload,
-            ))
+            db.add(
+                RunEvent(
+                    id=str(uuid.uuid4()),
+                    run_id=run_id,
+                    owner_id=owner_id,
+                    workspace_id=workspace_id,
+                    seq=seq,
+                    event_id=str(uuid.uuid4()),
+                    type=etype,
+                    payload_json=payload,
+                )
+            )
         db.commit()
     finally:
         db.close()
@@ -188,9 +210,9 @@ def _compose_blocks_for_images(images: list) -> list:
 
     ectx = ExecutionContext(run_id="r", owner_id="o")
     ectx.compiled_input_providers = ["run_images"]  # the declared capability
-    apply_turn_images(ectx, images)               # router seam → pending_turn_images
-    _drain_turn_images(ectx)                       # engine drain → turn_images_once (one-shot)
-    assert ectx.pending_turn_images == []          # consume-once (pending cleared)
+    apply_turn_images(ectx, images)  # router seam → pending_turn_images
+    _drain_turn_images(ectx)  # engine drain → turn_images_once (one-shot)
+    assert ectx.pending_turn_images == []  # consume-once (pending cleared)
     spec = SimpleNamespace(id="prototype-specify", injects=["images"])
     engine = get_execution_engine()
     return asyncio.get_event_loop().run_until_complete(
@@ -220,8 +242,13 @@ class TestPerTurnImageDelivery:
         run_id = _seed_run(env, owner.id, status="running")
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, text="match this look", images=[_valid_image()],
-                     message_id="m-img")
+        resp = _post(
+            env,
+            run_id,
+            text="match this look",
+            images=[_valid_image()],
+            message_id="m-img",
+        )
         assert resp.status_code == 200, resp.text
         assert resp.json()["channel"] == "steering"  # RUNNING → steering path
         # The turn is durably recorded (the chat_message record, ND-9).
@@ -235,19 +262,24 @@ class TestPerTurnImageDelivery:
         assert not ectx.run_images
         assert ectx.turn_images_once == []
         # … and _compose_input_blocks emitted exactly the RunImagesProvider block shape.
-        assert blocks == [{
-            "type": "image",
-            "source_type": "base64",
-            "mime_type": "image/png",
-            "data": _IMG_B64,
-        }]
+        assert blocks == [
+            {
+                "type": "image",
+                "source_type": "base64",
+                "mime_type": "image/png",
+                "data": _IMG_B64,
+            }
+        ]
 
     def test_non_injecting_agent_gets_no_image_block(self, env):
         """The image only reaches an agent that declared ``injects:[images]`` — a
         non-opted agent's dispatch stays image-free (the F1 leak guard)."""
         import agents.capabilities.input_providers.run_images  # noqa: F401
         from agents.execution_engine.context import ExecutionContext
-        from agents.execution_engine.engine import _drain_turn_images, get_execution_engine
+        from agents.execution_engine.engine import (
+            _drain_turn_images,
+            get_execution_engine,
+        )
 
         from app.api.chat_router import apply_turn_images
 
@@ -295,13 +327,13 @@ class TestPerTurnImageConsumeOnce:
         ectx.compiled_input_providers = ["run_images"]
         spec = self._images_spec()
 
-        apply_turn_images(ectx, [_valid_image()])    # image attached on THIS turn
-        d1 = _dispatch_blocks(ectx, spec)            # gate redo #1
-        d2 = _dispatch_blocks(ectx, spec)            # gate redo #2 — NO new image
+        apply_turn_images(ectx, [_valid_image()])  # image attached on THIS turn
+        d1 = _dispatch_blocks(ectx, spec)  # gate redo #1
+        d2 = _dispatch_blocks(ectx, spec)  # gate redo #2 — NO new image
 
-        assert d1 == [_IMG_BLOCK]      # delivered to the NEXT dispatch …
-        assert d2 == []                # … and NEVER re-delivered (the HI-01 fix)
-        assert not ectx.run_images     # never polluted the sticky run-entry carrier
+        assert d1 == [_IMG_BLOCK]  # delivered to the NEXT dispatch …
+        assert d2 == []  # … and NEVER re-delivered (the HI-01 fix)
+        assert not ectx.run_images  # never polluted the sticky run-entry carrier
 
     def test_run_entry_images_are_sticky_across_dispatches(self, env):
         """Preservation guard: run-entry images (set at :1037) render on EVERY dispatch."""
@@ -309,8 +341,11 @@ class TestPerTurnImageConsumeOnce:
         from agents.execution_engine.context import ExecutionContext
 
         ectx = ExecutionContext(
-            run_id="r", owner_id="o",
-            run_images=[{"mime_type": "image/png", "data": _IMG_B64}],  # set at run entry
+            run_id="r",
+            owner_id="o",
+            run_images=[
+                {"mime_type": "image/png", "data": _IMG_B64}
+            ],  # set at run entry
         )
         ectx.compiled_input_providers = ["run_images"]
         spec = self._images_spec()
@@ -318,7 +353,7 @@ class TestPerTurnImageConsumeOnce:
         d1 = _dispatch_blocks(ectx, spec)
         d2 = _dispatch_blocks(ectx, spec)
         assert d1 == [_IMG_BLOCK]
-        assert d2 == [_IMG_BLOCK]      # sticky — unchanged by the HI-01 fix
+        assert d2 == [_IMG_BLOCK]  # sticky — unchanged by the HI-01 fix
 
     def test_per_turn_and_run_entry_images_coexist_independently(self, env):
         """A per-turn image layered on top of a sticky run-entry image: dispatch #1
@@ -329,11 +364,14 @@ class TestPerTurnImageConsumeOnce:
         from app.api.chat_router import apply_turn_images
 
         entry_block = {
-            "type": "image", "source_type": "base64",
-            "mime_type": "image/png", "data": "ENTRY",
+            "type": "image",
+            "source_type": "base64",
+            "mime_type": "image/png",
+            "data": "ENTRY",
         }
         ectx = ExecutionContext(
-            run_id="r", owner_id="o",
+            run_id="r",
+            owner_id="o",
             run_images=[{"mime_type": "image/png", "data": "ENTRY"}],
         )
         ectx.compiled_input_providers = ["run_images"]
@@ -343,8 +381,11 @@ class TestPerTurnImageConsumeOnce:
         d1 = _dispatch_blocks(ectx, spec)
         d2 = _dispatch_blocks(ectx, spec)
 
-        assert d1 == [entry_block, _IMG_BLOCK]   # sticky run-entry, then one-shot per-turn
-        assert d2 == [entry_block]               # only the sticky one survives
+        assert d1 == [
+            entry_block,
+            _IMG_BLOCK,
+        ]  # sticky run-entry, then one-shot per-turn
+        assert d2 == [entry_block]  # only the sticky one survives
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -384,7 +425,9 @@ class TestPerTurnImageCaps:
 
         # Flag OFF → images are ignored (not validated, not rejected); the turn still
         # persists and routes normally.
-        resp = _post(env, run_id, text="hi", images=[_valid_image()], message_id="m-off")
+        resp = _post(
+            env, run_id, text="hi", images=[_valid_image()], message_id="m-off"
+        )
         assert resp.status_code == 200, resp.text
         assert resp.json()["channel"] == "steering"
 
@@ -398,8 +441,9 @@ class TestNoPersistenceLock:
         run_id = _seed_run(env, owner.id, status="running")
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, text="see this", images=[_valid_image()],
-                     message_id="m-nd10")
+        resp = _post(
+            env, run_id, text="see this", images=[_valid_image()], message_id="m-nd10"
+        )
         assert resp.status_code == 200, resp.text
 
         row = _chat_rows(env, run_id)[0]
@@ -419,6 +463,7 @@ class TestNoPersistenceLock:
         # The base64 image payload must NEVER appear in ANY persisted run_events row —
         # images are payload-transient (no DB / run_events / sandbox retention).
         import json as _json
+
         for ev in _all_events(env, run_id):
             assert _IMG_B64 not in _json.dumps(ev.payload_json or {})
 
@@ -434,7 +479,9 @@ class TestNoPersistenceLock:
         assert r1.json()["persisted"] is True and r2.json()["persisted"] is False
         rows = _chat_rows(env, run_id)
         assert len(rows) == 1  # exactly one durable row
-        assert rows[0].payload_json["attachments"] == [{"kind": "image", "retained": False}]
+        assert rows[0].payload_json["attachments"] == [
+            {"kind": "image", "retained": False}
+        ]
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -479,11 +526,13 @@ class TestLiveEctxRegistry:
     def _fresh_registry(self):
         """Return the run_commands module with a cleared registry (isolate from other tests)."""
         from app.api import run_commands as rc
+
         rc._LIVE_ECTX.clear()
         return rc
 
     def test_register_then_resolve_returns_the_same_ectx(self):
         from agents.execution_engine.context import ExecutionContext
+
         rc = self._fresh_registry()
 
         ectx = ExecutionContext(run_id="run-A", owner_id="o")
@@ -494,6 +543,7 @@ class TestLiveEctxRegistry:
 
     def test_unregister_removes_the_ectx_no_leak(self):
         from agents.execution_engine.context import ExecutionContext
+
         rc = self._fresh_registry()
 
         ectx = ExecutionContext(run_id="run-B", owner_id="o")
@@ -510,6 +560,7 @@ class TestLiveEctxRegistry:
         from agents.execution_engine.context import ExecutionContext
 
         from app.api.chat_router import apply_steering
+
         rc = self._fresh_registry()
 
         ectx1 = ExecutionContext(run_id="run-1", owner_id="o1")
@@ -522,7 +573,9 @@ class TestLiveEctxRegistry:
         assert rc._live_ectx_for_run("run-2") is ectx2
 
         # A note steered at run-1 lands ONLY on run-1's queue — run-2 is untouched.
-        apply_steering(rc._live_ectx_for_run("run-1"), {"text": "for run 1", "sticky": False})
+        apply_steering(
+            rc._live_ectx_for_run("run-1"), {"text": "for run 1", "sticky": False}
+        )
         assert ectx1.steering_notes == [{"text": "for run 1", "sticky": False}]
         assert ectx2.steering_notes == []
 
@@ -593,6 +646,7 @@ class TestSteeringAndImageReachLiveEctx:
         from agents.execution_engine.context import ExecutionContext
 
         from app.api import run_commands as rc
+
         ectx = ExecutionContext(run_id=run_id, owner_id="o")
         rc._LIVE_ECTX.clear()
         rc.register_live_ectx(run_id, ectx)
@@ -604,16 +658,25 @@ class TestSteeringAndImageReachLiveEctx:
         env["state"]["user"] = owner
         rc, ectx = self._register(run_id)
         try:
-            resp = _post(env, run_id, text="Use a dark theme",
-                         images=[_valid_image()], message_id="m-live")
+            resp = _post(
+                env,
+                run_id,
+                text="Use a dark theme",
+                images=[_valid_image()],
+                message_id="m-live",
+            )
             assert resp.status_code == 200, resp.text
             assert resp.json()["channel"] == "steering"
             # The steering note reached the LIVE ectx's consume-once queue (=== USER GUIDANCE ===
             # is rendered from here at the next dispatch).
-            assert ectx.steering_notes == [{"text": "Use a dark theme", "sticky": False}]
+            assert ectx.steering_notes == [
+                {"text": "Use a dark theme", "sticky": False}
+            ]
             # The per-turn image reached the SAME live handle's pending queue (drained onto the
             # one-shot turn_images_once carrier at the next dispatch).
-            assert ectx.pending_turn_images == [{"mime_type": "image/png", "data": _IMG_B64}]
+            assert ectx.pending_turn_images == [
+                {"mime_type": "image/png", "data": _IMG_B64}
+            ]
         finally:
             rc.unregister_live_ectx(run_id)
 
@@ -621,6 +684,7 @@ class TestSteeringAndImageReachLiveEctx:
         """When the run is NOT registered (not live in this process), the endpoint still 200s
         and durably records the turn — apply_steering/apply_turn_images no-op on the None handle."""
         from app.api import run_commands as rc
+
         rc._LIVE_ECTX.clear()  # nothing registered
 
         owner = _seed_user(env, "owner")

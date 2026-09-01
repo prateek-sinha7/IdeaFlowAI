@@ -86,9 +86,11 @@ class CopyDisjointMerge:
                     continue  # already reported — never apply a conflicting path
                 # Overlap vs the base-since-spawn (same path, DIFFERING content).
                 if path in base_files and base_files[path] != content:
-                    result.conflicts.append(self._conflict(
-                        path, [("base", base_files[path]), (frag_name, content)]
-                    ))
+                    result.conflicts.append(
+                        self._conflict(
+                            path, [("base", base_files[path]), (frag_name, content)]
+                        )
+                    )
                     conflicted.add(path)
                     claimed.pop(path, None)
                     continue
@@ -96,9 +98,11 @@ class CopyDisjointMerge:
                 if path in claimed:
                     prev_name, prev_content = claimed[path]
                     if prev_content != content:
-                        result.conflicts.append(self._conflict(
-                            path, [(prev_name, prev_content), (frag_name, content)]
-                        ))
+                        result.conflicts.append(
+                            self._conflict(
+                                path, [(prev_name, prev_content), (frag_name, content)]
+                            )
+                        )
                         conflicted.add(path)
                         claimed.pop(path, None)
                     # Same content as an earlier claimant ⇒ idempotent, already applied.
@@ -119,5 +123,7 @@ class CopyDisjointMerge:
         return {
             "path": path,
             "sources": [name for name, _ in sources],
-            "hunks": {name: (content or "")[:_SNIPPET_CAP] for name, content in sources},
+            "hunks": {
+                name: (content or "")[:_SNIPPET_CAP] for name, content in sources
+            },
         }

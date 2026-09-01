@@ -200,9 +200,10 @@ async def test_aux_tokens_fold_into_pipeline_complete_totals() -> None:
     )
 
     # total_tokens stays the input+output sum AFTER the fold (the aux tokens are in it).
-    assert folded["total_tokens"] == folded["total_input_tokens"] + folded[
-        "total_output_tokens"
-    ]
+    assert (
+        folded["total_tokens"]
+        == folded["total_input_tokens"] + folded["total_output_tokens"]
+    )
     assert folded["total_tokens"] == baseline["total_tokens"] + aux_in + aux_out
 
 

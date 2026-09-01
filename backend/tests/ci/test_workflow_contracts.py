@@ -214,9 +214,7 @@ class WorkflowContract:
                 f"jobs without timeout-minutes: {', '.join(missing_timeout)}"
             )
 
-    def assert_reusable_call_keys_valid(
-        self, workflow: Optional[Dict] = None
-    ) -> None:
+    def assert_reusable_call_keys_valid(self, workflow: Optional[Dict] = None) -> None:
         """
         Assert that every reusable-workflow-call job uses only keys GitHub allows.
 
@@ -357,8 +355,7 @@ class WorkflowContract:
 
         if "gate" not in needs:
             raise AssertionError(
-                f"build job must depend on gate. "
-                f"Current needs: {needs}"
+                f"build job must depend on gate. " f"Current needs: {needs}"
             )
 
     def assert_deploy_needs_gate(self) -> None:
@@ -380,8 +377,7 @@ class WorkflowContract:
 
         if "gate" not in needs:
             raise AssertionError(
-                f"deploy job must depend on gate. "
-                f"Current needs: {needs}"
+                f"deploy job must depend on gate. " f"Current needs: {needs}"
             )
 
     def assert_terraform_job_configured(self) -> None:
@@ -397,13 +393,30 @@ class WorkflowContract:
         Raises:
             AssertionError: If terraform job is misconfigured
         """
+        # Phase 8 split the single `security-scan` job into three parallel
+        # jobs (`security-scan-secrets` / `-iac` / `-terraform`). Collect the
+        # steps from every security-scan* job rather than pinning one job
+        # name, so a future re-split/rename cannot silently make this
+        # contract vacuous (looking up one hardcoded name raised
+        # "job not found" instead of checking the terraform steps at all).
         jobs = self.ci_workflow.get("jobs", {})
-        security_scan = jobs.get("security-scan", {})
+        security_scan_jobs = {
+            name: job
+            for name, job in jobs.items()
+            if name == "security-scan" or name.startswith("security-scan-")
+        }
 
-        if not security_scan:
-            raise ValueError("security-scan job not found in ci.yml")
+        if not security_scan_jobs:
+            raise ValueError(
+                "no security-scan* job found in ci.yml "
+                f"(jobs present: {sorted(jobs)})"
+            )
 
-        steps = security_scan.get("steps", [])
+        steps = [
+            step
+            for job in security_scan_jobs.values()
+            for step in (job.get("steps") or [])
+        ]
         errors = []
 
         # Find terraform-related steps
@@ -457,9 +470,7 @@ class WorkflowContract:
             with_inputs = terraform_install_step.get("with", {}) or {}
             version = str(with_inputs.get("version", ""))
             if "1.11.0" not in version:
-                errors.append(
-                    "Terraform version not pinned to exact version (1.11.0)"
-                )
+                errors.append("Terraform version not pinned to exact version (1.11.0)")
             if not with_inputs.get("sha256"):
                 errors.append(
                     "Terraform install step does not pass a sha256 checksum "
@@ -468,20 +479,19 @@ class WorkflowContract:
         else:
             install_run = terraform_install_step.get("run", "")
             if "terraform_1.11.0" not in install_run and "1.11.0" not in install_run:
-                errors.append(
-                    "Terraform version not pinned to exact version (1.11.0)"
-                )
+                errors.append("Terraform version not pinned to exact version (1.11.0)")
             if "sha256sum -c" not in install_run:
-                errors.append(
-                    "Terraform install step does not verify SHA256 checksum"
-                )
+                errors.append("Terraform install step does not verify SHA256 checksum")
 
         # Check that validate step doesn't call plan/apply/destroy/import/state
         validate_run = terraform_validate_step.get("run", "")
         forbidden_commands = ["plan", "apply", "destroy", "import", "state"]
         for cmd in forbidden_commands:
             # Note: we check for these as terraform subcommands, not in comments
-            if f"terraform {cmd}" in validate_run or f"terraform\n{cmd}" in validate_run:
+            if (
+                f"terraform {cmd}" in validate_run
+                or f"terraform\n{cmd}" in validate_run
+            ):
                 errors.append(
                     f"Terraform validate step appears to call '{cmd}' (forbidden)"
                 )
@@ -491,9 +501,7 @@ class WorkflowContract:
             errors.append("Terraform init step does not use -backend=false")
 
         if errors:
-            raise AssertionError(
-                f"Terraform configuration errors: {'; '.join(errors)}"
-            )
+            raise AssertionError(f"Terraform configuration errors: {'; '.join(errors)}")
 
 
 # Fixtures

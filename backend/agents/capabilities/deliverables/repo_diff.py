@@ -72,7 +72,9 @@ class RepoDiffResolver:
         try:
             unified = workspace.git_diff(base, work) or ""
         except Exception as exc:  # noqa: BLE001 — a diff failure degrades to empty, never aborts
-            logger.warning("repo_diff: workspace.git_diff(%s, %s) failed (%s)", base, work, exc)
+            logger.warning(
+                "repo_diff: workspace.git_diff(%s, %s) failed (%s)", base, work, exc
+            )
             return self._empty(base=base, work=work)
 
         per_file = self._split_per_file(unified)
@@ -83,10 +85,10 @@ class RepoDiffResolver:
             "kind": "repo_diff",
             "base_branch": base,
             "working_branch": work,
-            "tree": tree,                 # list of changed file paths (the file tree)
-            "diffs": per_file,            # {relpath: per-file unified diff text}
-            "diff": unified,              # the full unified diff (per-file blocks joined)
-            "summary": summary,           # {files_changed, lines_added, lines_removed}
+            "tree": tree,  # list of changed file paths (the file tree)
+            "diffs": per_file,  # {relpath: per-file unified diff text}
+            "diff": unified,  # the full unified diff (per-file blocks joined)
+            "summary": summary,  # {files_changed, lines_added, lines_removed}
         }
 
     # ── handle resolution ────────────────────────────────────────────────────
@@ -194,7 +196,9 @@ class RepoDiffResolver:
         }
 
     @staticmethod
-    def _empty(*, base: str = _DEFAULT_BASE, work: str = _DEFAULT_WORK) -> dict[str, Any]:
+    def _empty(
+        *, base: str = _DEFAULT_BASE, work: str = _DEFAULT_WORK
+    ) -> dict[str, Any]:
         return {
             "kind": "repo_diff",
             "base_branch": base,

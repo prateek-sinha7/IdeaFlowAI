@@ -9,6 +9,7 @@ Test structure:
   Category 3 — Edge cases:           boundary and error inputs
   Category 4 — Safety boundary:      plain-paragraph (pre-existing) behaviour unchanged
 """
+
 from __future__ import annotations
 
 import io
@@ -33,9 +34,9 @@ def _make_docx(
 ) -> bytes:
     """Build an in-memory .docx with the requested content."""
     doc = Document()
-    for text in (paragraphs or []):
+    for text in paragraphs or []:
         doc.add_paragraph(text)
-    for table_data in (tables or []):
+    for table_data in tables or []:
         rows, cols = len(table_data), max(len(r) for r in table_data)
         t = doc.add_table(rows=rows, cols=cols)
         for r_idx, row in enumerate(table_data):
@@ -85,9 +86,9 @@ class TestFix191RegressionBaseline:
         doc = Document(io.BytesIO(data))
         # The old one-liner:
         old_result = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-        assert old_result == "", (
-            "Pre-fix simulation: all-table docx must return '' with the old one-liner"
-        )
+        assert (
+            old_result == ""
+        ), "Pre-fix simulation: all-table docx must return '' with the old one-liner"
 
     def test_fix191_header_footer_absent_from_doc_paragraphs(self):
         """Confirm header/footer text does NOT appear in doc.paragraphs."""
@@ -147,7 +148,9 @@ class TestFix191HappyPath:
         Pre-fix this caused a misleading 422 'may be image-based or encrypted'."""
         data = _make_docx(tables=[[["Feature", "Status"], ["Auth", "Done"]]])
         result = _extract_docx(data)
-        assert result.strip() != "", "all-table docx must no longer produce empty string"
+        assert (
+            result.strip() != ""
+        ), "all-table docx must no longer produce empty string"
         assert "Feature" in result
         assert "Auth" in result
 
@@ -165,9 +168,15 @@ class TestFix191HappyPath:
         )
         result = _extract_docx(data)
         assert para_marker in result, "paragraph marker must survive"
-        assert table_marker in result, "table marker must survive (was dropped before fix)"
-        assert header_marker in result, "header marker must survive (was dropped before fix)"
-        assert footer_marker in result, "footer marker must survive (was dropped before fix)"
+        assert (
+            table_marker in result
+        ), "table marker must survive (was dropped before fix)"
+        assert (
+            header_marker in result
+        ), "header marker must survive (was dropped before fix)"
+        assert (
+            footer_marker in result
+        ), "footer marker must survive (was dropped before fix)"
 
     def test_fix191_extract_upload_text_returns_same_as_extract_docx(self):
         """FIX-191: extract_upload_text('test.docx', data) == _extract_docx(data) — single impl (INV-12)."""
@@ -192,7 +201,11 @@ class TestFix191EdgeCases:
         result = _extract_docx(data)
         # "Real | Data" must be present; " | " alone (empty row) must not
         assert "Real | Data" in result
-        lines = [line for line in result.splitlines() if line.strip() == "|" or line.strip() == " | "]
+        lines = [
+            line
+            for line in result.splitlines()
+            if line.strip() == "|" or line.strip() == " | "
+        ]
         assert len(lines) == 0, "empty table rows must be skipped"
 
     def test_fix191_empty_docx_returns_empty_string(self):
@@ -216,7 +229,13 @@ class TestFix191EdgeCases:
         doc.save(buf)
         data = buf.getvalue()
         result = _extract_docx(data)
-        assert "\n" not in result.split("[Table]")[1].split("[/Table]")[0].strip().splitlines()[0]
+        assert (
+            "\n"
+            not in result.split("[Table]")[1]
+            .split("[/Table]")[0]
+            .strip()
+            .splitlines()[0]
+        )
 
     def test_fix191_multiple_tables_all_extracted(self):
         """FIX-191: a docx with multiple tables must extract all of them."""
@@ -257,9 +276,9 @@ class TestFix191SafetyBoundary:
         # Simulate the old one-liner on the same document
         doc = Document(io.BytesIO(data))
         old_result = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-        assert new_result == old_result, (
-            "Plain-paragraph docx must produce byte-identical output before and after fix"
-        )
+        assert (
+            new_result == old_result
+        ), "Plain-paragraph docx must produce byte-identical output before and after fix"
 
     def test_fix191_plain_paragraphs_multi_paragraph(self):
         """FIX-191: multiple plain paragraphs must still be newline-joined."""
@@ -273,8 +292,8 @@ class TestFix191SafetyBoundary:
         """FIX-191: blank paragraphs (whitespace-only) must still be excluded — unchanged."""
         doc = Document()
         doc.add_paragraph("Real text.")
-        doc.add_paragraph("")        # blank — must be filtered
-        doc.add_paragraph("   ")     # whitespace-only — must be filtered
+        doc.add_paragraph("")  # blank — must be filtered
+        doc.add_paragraph("   ")  # whitespace-only — must be filtered
         doc.add_paragraph("More text.")
         buf = io.BytesIO()
         doc.save(buf)
@@ -296,6 +315,6 @@ class TestFix191SafetyBoundary:
         result_direct = _extract_docx(data)
         result_via_dispatch = extract_upload_text("spec.docx", data)
         assert result_direct == result_via_dispatch
-        assert "INV12_TABLE_SENTINEL" in result_via_dispatch, (
-            "INV-12: single impl — run_files.py call site gets the fix via extract_upload_text"
-        )
+        assert (
+            "INV12_TABLE_SENTINEL" in result_via_dispatch
+        ), "INV-12: single impl — run_files.py call site gets the fix via extract_upload_text"

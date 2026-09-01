@@ -113,7 +113,9 @@ async def _drive_cycles(run_id: str, click_at: set[int]):
 
     ectx_box: dict = {}
 
-    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
+    async def _gate(
+        pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs
+    ):
         # `**kwargs` is load-bearing: _run_agent swallows a stub TypeError into an
         # `agent_error` event, so a stale signature yields a silently-ZERO gate count
         # rather than an error (the exact trap that keeps biting this area).
@@ -125,21 +127,23 @@ async def _drive_cycles(run_id: str, click_at: set[int]):
             state["runaway"] = True
             return
         _ectx = ectx_box["ectx"]
-        records.append({
-            "firing": i,
-            # Engine stack depth at the gate — a nested cycle is strictly deeper.
-            "depth": len(inspect.stack()),
-            "revision_attempt": _ectx.revision_attempt,
-            # constraint 9: spec_revision_context was undeclared pre-fix, so a bare
-            # attribute read raises AttributeError on a fresh context.
-            "context_set": bool(getattr(_ectx, "spec_revision_context", "")),
-            "eligible": kwargs.get("update_specs_eligible"),
-            # ISS-052 / FIX-220: the per-firing discriminator that tells the in-pass and
-            # re-opened gates apart on the wire. Recorded here (not in a second harness —
-            # INV-12) and asserted by test_gate_revision_discriminator.py.
-            "revision_cycle": kwargs.get("revision_cycle"),
-            "revision_in_flight": kwargs.get("revision_in_flight"),
-        })
+        records.append(
+            {
+                "firing": i,
+                # Engine stack depth at the gate — a nested cycle is strictly deeper.
+                "depth": len(inspect.stack()),
+                "revision_attempt": _ectx.revision_attempt,
+                # constraint 9: spec_revision_context was undeclared pre-fix, so a bare
+                # attribute read raises AttributeError on a fresh context.
+                "context_set": bool(getattr(_ectx, "spec_revision_context", "")),
+                "eligible": kwargs.get("update_specs_eligible"),
+                # ISS-052 / FIX-220: the per-firing discriminator that tells the in-pass and
+                # re-opened gates apart on the wire. Recorded here (not in a second harness —
+                # INV-12) and asserted by test_gate_revision_discriminator.py.
+                "revision_cycle": kwargs.get("revision_cycle"),
+                "revision_in_flight": kwargs.get("revision_in_flight"),
+            }
+        )
         yield {
             "type": "review_gate_ready",
             "data": {"gate_key": f"{pipeline_run_id}:{agent_id}", "redoable": redoable},
@@ -163,12 +167,14 @@ async def _drive_cycles(run_id: str, click_at: set[int]):
         # logger.warning, never a raise), so the default drives ZERO sub-dispatches and
         # the test fails on a baffling count assertion. index=2 is also what makes
         # ordered[0] / ordered[1] the specify/plan predecessors STRUCTURALLY.
-        events = await _drive_agent(h.engine, ordered[2], ectx, results, ordered, index=2)
+        events = await _drive_agent(
+            h.engine, ordered[2], ectx, results, ordered, index=2
+        )
         thread_ids = list(h.thread_ids)
 
-    assert not state["runaway"], (
-        f"the gate fired more than {_RUNAWAY_LIMIT} times — the revision wiring is looping"
-    )
+    assert not state[
+        "runaway"
+    ], f"the gate fired more than {_RUNAWAY_LIMIT} times — the revision wiring is looping"
     return records, thread_ids, ectx, ordered, events
 
 
@@ -176,7 +182,9 @@ def _assert_sentinel_never_escapes(events: list[dict]) -> None:
     """The shared consumer's terminal ``_update_specs_done`` signal is INTERNAL — it is
     consumed at all three call sites and must never reach the wire."""
     leaked = [e for e in events if e.get("type") == "_update_specs_done"]
-    assert not leaked, f"the internal _update_specs_done sentinel reached the wire: {leaked}"
+    assert (
+        not leaked
+    ), f"the internal _update_specs_done sentinel reached the wire: {leaked}"
 
 
 # ===========================================================================
@@ -204,16 +212,20 @@ async def test_reopened_gate_second_update_specs_runs_a_second_cycle() -> None:
         "expected 1 first-pass dispatch + 3 per revision cycle x 2 cycles = 7; the second "
         f"'Update the Specs' ran no cycle. Got {len(thread_ids)}: {thread_ids}"
     )
-    assert thread_ids[0] == first_pass, (
-        f"expected the first pass on the unsuffixed thread; got {thread_ids}"
-    )
+    assert (
+        thread_ids[0] == first_pass
+    ), f"expected the first pass on the unsuffixed thread; got {thread_ids}"
 
     cycle1, cycle2 = thread_ids[1:4], thread_ids[4:7]
-    assert all(t.endswith(":rev1") for t in cycle1), f"cycle 1 must thread :rev1; got {cycle1}"
-    assert all(t.endswith(":rev2") for t in cycle2), f"cycle 2 must thread :rev2; got {cycle2}"
-    assert len(set(thread_ids)) == 7, (
-        f"no checkpoint thread id may be reused across cycles; got {thread_ids}"
-    )
+    assert all(
+        t.endswith(":rev1") for t in cycle1
+    ), f"cycle 1 must thread :rev1; got {cycle1}"
+    assert all(
+        t.endswith(":rev2") for t in cycle2
+    ), f"cycle 2 must thread :rev2; got {cycle2}"
+    assert (
+        len(set(thread_ids)) == 7
+    ), f"no checkpoint thread id may be reused across cycles; got {thread_ids}"
 
 
 @pytest.mark.asyncio
@@ -225,12 +237,14 @@ async def test_reopened_gate_cycle_keeps_a_flat_stack() -> None:
     cycle 2 strictly deeper — the REDO-GATE F2 reason unbounded human-paced operations
     must not recurse.
     """
-    records, thread_ids, _ectx, _ordered, events = await _drive_cycles("cycles-flat", {0, 2})
+    records, thread_ids, _ectx, _ordered, events = await _drive_cycles(
+        "cycles-flat", {0, 2}
+    )
     _assert_sentinel_never_escapes(events)
 
-    assert len(thread_ids) == 7, (
-        f"the second cycle never ran, so there is no depth to compare; got {thread_ids}"
-    )
+    assert (
+        len(thread_ids) == 7
+    ), f"the second cycle never ran, so there is no depth to compare; got {thread_ids}"
     assert len(records) == 5, (
         "expected 5 gate firings (3 per cycle, sharing the re-opened one); "
         f"got {len(records)}: {[r['firing'] for r in records]}"
@@ -266,23 +280,27 @@ async def test_update_specs_not_offered_while_a_revision_is_in_flight() -> None:
     records, _tids, _ectx, _ordered, events = await _drive_cycles("cycles-fence", {0})
     _assert_sentinel_never_escapes(events)
 
-    assert len(records) == 3, (
-        f"expected 3 gate firings for one cycle; got {[r['firing'] for r in records]}"
-    )
+    assert (
+        len(records) == 3
+    ), f"expected 3 gate firings for one cycle; got {[r['firing'] for r in records]}"
     eligible = [r["eligible"] for r in records]
 
-    assert eligible[0] is True, f"the first-pass analyze gate must offer it; got {eligible}"
+    assert (
+        eligible[0] is True
+    ), f"the first-pass analyze gate must offer it; got {eligible}"
     assert eligible[1] is False, (
         "the analyze re-run INSIDE the revision pass must NOT advertise 'Update the "
         f"Specs' — that is the one route that nests; got {eligible}"
     )
-    assert eligible[2] is True, (
-        f"the re-opened gate must offer it again (the flat sibling route); got {eligible}"
-    )
+    assert (
+        eligible[2] is True
+    ), f"the re-opened gate must offer it again (the flat sibling route); got {eligible}"
 
 
 @pytest.mark.asyncio
-async def test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pass() -> None:
+async def test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pass() -> (
+    None
+):
     """A-safety: a nested pass is SAFE — proven by driving one directly.
 
     Two guarantees: the nested pass mints DISTINCT ``:rev{N}`` ids rather than a second
@@ -301,10 +319,12 @@ async def test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pas
 
     first_pass = f"{run_id}:{ordered[2].id}"
 
-    assert len(thread_ids) == 7, (
-        f"expected 1 first-pass + 3 outer-pass + 3 nested-pass dispatches; got {thread_ids}"
-    )
-    assert thread_ids[0] == first_pass, f"unexpected first-pass thread; got {thread_ids}"
+    assert (
+        len(thread_ids) == 7
+    ), f"expected 1 first-pass + 3 outer-pass + 3 nested-pass dispatches; got {thread_ids}"
+    assert (
+        thread_ids[0] == first_pass
+    ), f"unexpected first-pass thread; got {thread_ids}"
     assert len(set(thread_ids)) == 7, (
         "two revision passes minted the SAME checkpoint thread id, so one is served the "
         f"other's conversation replay (the P23 class); got {thread_ids}"
@@ -313,9 +333,9 @@ async def test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pas
     # Firings: [0] outer, [1] in-pass (clicked -> nests), [2] the nested pass's own
     # in-pass gate, [3] the nested pass's re-open — reached with the OUTER pass still on
     # the stack — [4] the outer pass's re-open.
-    assert len(records) == 5, (
-        f"expected 5 gate firings for the nested drive; got {[r['firing'] for r in records]}"
-    )
+    assert (
+        len(records) == 5
+    ), f"expected 5 gate firings for the nested drive; got {[r['firing'] for r in records]}"
     after_inner = records[3]
 
     assert after_inner["revision_attempt"] == 1, (
@@ -348,24 +368,26 @@ async def test_single_cycle_shape_is_unchanged() -> None:
 
     first_pass = f"{run_id}:{ordered[2].id}"
 
-    assert len(thread_ids) == 4, (
-        f"one cycle is 1 first-pass + 3 sub-dispatches; got {thread_ids}"
-    )
-    assert thread_ids[0] == first_pass, f"unexpected first-pass thread; got {thread_ids}"
+    assert (
+        len(thread_ids) == 4
+    ), f"one cycle is 1 first-pass + 3 sub-dispatches; got {thread_ids}"
+    assert (
+        thread_ids[0] == first_pass
+    ), f"unexpected first-pass thread; got {thread_ids}"
     sub_threads = thread_ids[1:]
-    assert all(t.endswith(":rev1") for t in sub_threads), (
-        f"a single cycle must still thread :rev1 throughout; got {sub_threads}"
-    )
-    assert first_pass not in sub_threads, (
-        f"a revision dispatch reused the first pass's thread id: {sub_threads}"
-    )
+    assert all(
+        t.endswith(":rev1") for t in sub_threads
+    ), f"a single cycle must still thread :rev1 throughout; got {sub_threads}"
+    assert (
+        first_pass not in sub_threads
+    ), f"a revision dispatch reused the first pass's thread id: {sub_threads}"
 
-    assert ectx.revision_attempt == 0, (
-        f"the revision index must clear when the pass returns; got {ectx.revision_attempt}"
-    )
-    assert not ectx.spec_revision_prior_artifact, (
-        "the prior-artifact scratch field must be cleared when the sub-pipeline returns"
-    )
-    assert not getattr(ectx, "spec_revision_context", ""), (
-        "the analysis-report scratch field must be cleared when the sub-pipeline returns"
-    )
+    assert (
+        ectx.revision_attempt == 0
+    ), f"the revision index must clear when the pass returns; got {ectx.revision_attempt}"
+    assert (
+        not ectx.spec_revision_prior_artifact
+    ), "the prior-artifact scratch field must be cleared when the sub-pipeline returns"
+    assert not getattr(
+        ectx, "spec_revision_context", ""
+    ), "the analysis-report scratch field must be cleared when the sub-pipeline returns"

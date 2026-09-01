@@ -202,9 +202,9 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
                     "review_gate_approved — gate events were buffered, not "
                     "streamed (F1 regression)"
                 )
-                assert gate_key not in approved_gate_keys, (
-                    f"duplicate review_gate_ready for already-approved {gate_key}"
-                )
+                assert (
+                    gate_key not in approved_gate_keys
+                ), f"duplicate review_gate_ready for already-approved {gate_key}"
                 # Approve ONLY in response to ready — the exact call the
                 # websocket.py approve_review handler makes. No blind pre-approval.
                 await engine._store.set_review_response(gate_key, approved=True)
@@ -242,12 +242,14 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
     for gate_key in approved_gate_keys:
         agent_id = gate_key.split(":", 1)[1]
         ready_idx = next(
-            i for i, e in enumerate(events)
+            i
+            for i, e in enumerate(events)
             if e.get("type") == "review_gate_ready"
             and (e.get("data") or {}).get("agent_id") == agent_id
         )
         approved_idx = next(
-            i for i, e in enumerate(events)
+            i
+            for i, e in enumerate(events)
             if e.get("type") == "review_gate_approved"
             and (e.get("data") or {}).get("agent_id") == agent_id
         )
@@ -257,9 +259,9 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
         )
 
     # The run RESUMED after approval and finished.
-    assert "pipeline_complete" in types, (
-        f"run never reached pipeline_complete after gate approval; got {types[-5:]}"
-    )
+    assert (
+        "pipeline_complete" in types
+    ), f"run never reached pipeline_complete after gate approval; got {types[-5:]}"
 
 
 @pytest.mark.asyncio
@@ -296,9 +298,11 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
     # KAN-86 added prototype-analyze to the prototype pipeline with
     # `gate: Human_Gate` declared (mirroring specify/plan) — an intentional
     # static-set change, not drift; the pin below tracks it.
-    assert gated_ids == {"prototype-specify", "prototype-plan", "prototype-analyze"}, (
-        f"precondition: the static inline gate set changed: {gated_ids}"
-    )
+    assert gated_ids == {
+        "prototype-specify",
+        "prototype-plan",
+        "prototype-analyze",
+    }, f"precondition: the static inline gate set changed: {gated_ids}"
 
     _orig_create_runner = factory_mod.create_runner
     _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
@@ -396,9 +400,9 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
             f"carried an EMPTY payload: {out!r}"
         )
 
-    assert any(e.get("type") == "pipeline_complete" for e in events), (
-        "default gated run never completed after approvals"
-    )
+    assert any(
+        e.get("type") == "pipeline_complete" for e in events
+    ), "default gated run never completed after approvals"
 
 
 @pytest.mark.asyncio
@@ -517,19 +521,20 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
     types = [e.get("type") for e in events]
 
     # The run terminated as a CANCELLATION, not a completion.
-    assert "pipeline_cancelled" in types, (
-        f"rejection never produced pipeline_cancelled; got {types}"
-    )
-    assert "pipeline_complete" not in types, (
-        "a rejected run must NEVER terminate as pipeline_complete (WR-03)"
-    )
+    assert (
+        "pipeline_cancelled" in types
+    ), f"rejection never produced pipeline_cancelled; got {types}"
+    assert (
+        "pipeline_complete" not in types
+    ), "a rejected run must NEVER terminate as pipeline_complete (WR-03)"
     # Exactly one gate opened — the run stopped at the rejection (no second
     # declared gate, no downstream agents).
     readies = [e for e in events if e.get("type") == "review_gate_ready"]
     assert len(readies) == 1, f"expected one gate before cancellation: {readies}"
     rejected_agent = readies[0]["data"]["agent_id"]
     later_starts = [
-        e for e in events
+        e
+        for e in events
         if e.get("type") == "agent_start"
         and types.index("pipeline_cancelled") < events.index(e)
     ]

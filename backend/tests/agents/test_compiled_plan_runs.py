@@ -160,9 +160,9 @@ async def test_runs_from_compiled_plan(pipeline_type: str) -> None:
         f"the compiled plan membership {sorted(set(compiled_ids))} — the run did "
         f"not source its agents from the CompiledWorkflow"
     )
-    assert len(started) >= len(compiled_ids), (
-        f"{pipeline_type}: fewer agents started than the compiled plan declares"
-    )
+    assert len(started) >= len(
+        compiled_ids
+    ), f"{pipeline_type}: fewer agents started than the compiled plan declares"
 
 
 @pytest.mark.asyncio

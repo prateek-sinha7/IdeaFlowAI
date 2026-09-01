@@ -49,7 +49,9 @@ async def test_adapter_connects_lists_and_invokes_over_stdio() -> None:
     tools = await adapter.get_tools()
 
     by_name = {t.name: t for t in tools}
-    assert {"echo", "add"} <= set(by_name), f"expected stub tools, got {sorted(by_name)}"
+    assert {"echo", "add"} <= set(
+        by_name
+    ), f"expected stub tools, got {sorted(by_name)}"
 
     echo = by_name["echo"]
     assert _text_of(await echo.ainvoke({"text": "hello-mcp"})) == "hello-mcp"
@@ -85,7 +87,9 @@ async def test_bound_mcp_tool_augments_a_deepagents_agent() -> None:
     # We do NOT invoke the model (offline / no creds) — the acceptance is that the
     # MCP tool binds INTO the runtime (augment, never replace): the constructed
     # graph carries the tool by name. No network, no model call.
-    agent = create_deep_agent(tools=list(mcp_tools), model="anthropic:claude-3-5-haiku-latest")
+    agent = create_deep_agent(
+        tools=list(mcp_tools), model="anthropic:claude-3-5-haiku-latest"
+    )
     assert agent is not None
 
     # The bound tool is a LangChain BaseTool (has name + ainvoke) — the exact shape

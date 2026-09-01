@@ -68,7 +68,9 @@ def list_ppt_templates(_: User = Depends(get_current_user)) -> list[dict[str, An
     response_model=PPTTemplateDetail,
     summary="Full PPT template payload incl. SKILL.md body",
 )
-def get_ppt_template(template_id: str, _: User = Depends(get_current_user)) -> dict[str, Any]:
+def get_ppt_template(
+    template_id: str, _: User = Depends(get_current_user)
+) -> dict[str, Any]:
     template = od_loader.get_ppt_template(template_id)
     if template is None:
         raise HTTPException(

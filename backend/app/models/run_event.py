@@ -52,21 +52,27 @@ class RunEvent(Base):
         # constraint must not span owners. The CR-03 race is between the run's OWN engine
         # sink and its OWN chat endpoint (identical owner+workspace) — caught here.
         UniqueConstraint(
-            "run_id", "owner_id", "workspace_id", "event_id",
+            "run_id",
+            "owner_id",
+            "workspace_id",
+            "event_id",
             name="uq_run_events_scope_event",
         ),
         UniqueConstraint(
-            "run_id", "owner_id", "workspace_id", "seq",
+            "run_id",
+            "owner_id",
+            "workspace_id",
+            "seq",
             name="uq_run_events_scope_seq",
         ),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    seq = Column(Integer, nullable=False)            # monotonic per run (05-04 sink)
-    event_id = Column(String, nullable=False)        # uuid — idempotent replay
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    seq = Column(Integer, nullable=False)  # monotonic per run (05-04 sink)
+    event_id = Column(String, nullable=False)  # uuid — idempotent replay
     type = Column(String, nullable=False)
     payload_json = Column(JSON, nullable=False)
     created_at = Column(
@@ -94,16 +100,14 @@ class DeepLinkNonce(Base):
     """
 
     __tablename__ = "deep_link_nonces"
-    __table_args__ = (
-        Index("ix_deep_link_nonces_scope", "owner_id", "workspace_id"),
-    )
+    __table_args__ = (Index("ix_deep_link_nonces_scope", "owner_id", "workspace_id"),)
 
-    nonce = Column(String, primary_key=True)         # single-use lookup key (unique)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=True)     # AUTHZ-01 (scope)
-    run_id = Column(String, nullable=True)           # informational (no FK)
+    nonce = Column(String, primary_key=True)  # single-use lookup key (unique)
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=True)  # AUTHZ-01 (scope)
+    run_id = Column(String, nullable=True)  # informational (no FK)
     target = Column(String, nullable=True)
-    consumed_at = Column(DateTime, nullable=True)    # terminal (single-use)
+    consumed_at = Column(DateTime, nullable=True)  # terminal (single-use)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

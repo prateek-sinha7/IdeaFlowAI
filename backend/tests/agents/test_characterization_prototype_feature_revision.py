@@ -53,9 +53,7 @@ async def test_prototype_feature_revision_event_snapshot() -> None:
 
     seen = {e.get("type") for e in events}
     unknown = seen - _DOCUMENTED_EVENT_TYPES
-    assert not unknown, (
-        f"prototype_feature_revision emitted UNDOCUMENTED event type(s): {sorted(unknown)}"
-    )
+    assert not unknown, f"prototype_feature_revision emitted UNDOCUMENTED event type(s): {sorted(unknown)}"
 
     for ev in events:
         required = _REQUIRED_DATA_KEYS.get(ev.get("type"))
@@ -94,12 +92,14 @@ async def test_prototype_feature_revision_analyzer_is_step_0() -> None:
 
     # Collect all agent_start and agent_complete events for prototype-revision-analyzer.
     analyzer_starts = [
-        e for e in events
+        e
+        for e in events
         if e.get("type") == "agent_start"
         and (e.get("data") or {}).get("agent_id") == "prototype-revision-analyzer"
     ]
     analyzer_completes = [
-        e for e in events
+        e
+        for e in events
         if e.get("type") == "agent_complete"
         and (e.get("data") or {}).get("agent_id") == "prototype-revision-analyzer"
     ]
@@ -118,15 +118,18 @@ async def test_prototype_feature_revision_analyzer_is_step_0() -> None:
 
     # Verify analyzer fires BEFORE the feature-specify agent (step 1).
     analyzer_start_idx = next(
-        i for i, e in enumerate(events)
+        i
+        for i, e in enumerate(events)
         if e.get("type") == "agent_start"
         and (e.get("data") or {}).get("agent_id") == "prototype-revision-analyzer"
     )
     specify_start_idx = next(
         (
-            i for i, e in enumerate(events)
+            i
+            for i, e in enumerate(events)
             if e.get("type") == "agent_start"
-            and (e.get("data") or {}).get("agent_id") == "prototype-revision-feature-specify"
+            and (e.get("data") or {}).get("agent_id")
+            == "prototype-revision-feature-specify"
         ),
         None,
     )
@@ -145,9 +148,11 @@ async def test_prototype_feature_revision_revision_analysis_in_step1_context() -
 
     # Find agent_input events for prototype-revision-feature-specify (step 1).
     specify_inputs = [
-        e for e in events
+        e
+        for e in events
         if e.get("type") == "agent_input"
-        and (e.get("data") or {}).get("agent_id") == "prototype-revision-feature-specify"
+        and (e.get("data") or {}).get("agent_id")
+        == "prototype-revision-feature-specify"
     ]
 
     assert specify_inputs, (

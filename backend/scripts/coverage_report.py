@@ -124,7 +124,9 @@ def emit_coverage_summary(coverage_summary: dict) -> None:
     print("\n" + "=" * 70)
     print("COVERAGE SUMMARY")
     print("=" * 70)
-    print(f"Line Coverage:    {line_percent:6.2f}% ({coverage_summary['lines_covered']}/{coverage_summary['lines_valid']} lines)")
+    print(
+        f"Line Coverage:    {line_percent:6.2f}% ({coverage_summary['lines_covered']}/{coverage_summary['lines_valid']} lines)"
+    )
     print(f"Branch Coverage:  {branch_percent:6.2f}%")
     print(f"Packages:         {coverage_summary['packages_count']}")
     print("=" * 70)

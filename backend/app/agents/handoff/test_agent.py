@@ -130,10 +130,15 @@ class TestAgent:
         for path, contents in test_files.items():
             snippet = contents
             if len(snippet) > 10000:
-                snippet = snippet[:10000] + f"\n\n... (truncated, {len(contents)} total bytes)"
+                snippet = (
+                    snippet[:10000]
+                    + f"\n\n... (truncated, {len(contents)} total bytes)"
+                )
             parts.append(f"\n=== TEST FILE: {path} ===\n{snippet}")
         if not test_files:
-            parts.append("\n=== NO TEST FILES PROVIDED ===\nReport this as the dominant missing-coverage item.")
+            parts.append(
+                "\n=== NO TEST FILES PROVIDED ===\nReport this as the dominant missing-coverage item."
+            )
 
         # ISS-033: route the direct ainvoke through the ONE shared cached-invoke helper
         # — the stable system prompt is the cache-eligible prefix and the tokens are

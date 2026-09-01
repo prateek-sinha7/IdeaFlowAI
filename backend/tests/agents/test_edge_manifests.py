@@ -1,10 +1,10 @@
 """Edge-case manifest tests (D-05).
 
-  - reverse_engineer compiles to a CompiledWorkflow with empty steps (the
-    empty-plan stub; agents TBD).
-  - chat loads + compiles (7 agents) AND is marked engine-non-dispatchable: it is
-    in agents.registry._INTERNAL_PIPELINES, so allowed_custom_agent_ids returns ∅
-    — the ExecutionEngine never dispatches it (ChatRunner-driven).
+- reverse_engineer compiles to a CompiledWorkflow with empty steps (the
+  empty-plan stub; agents TBD).
+- chat loads + compiles (7 agents) AND is marked engine-non-dispatchable: it is
+  in agents.registry._INTERNAL_PIPELINES, so allowed_custom_agent_ids returns ∅
+  — the ExecutionEngine never dispatches it (ChatRunner-driven).
 """
 
 from __future__ import annotations

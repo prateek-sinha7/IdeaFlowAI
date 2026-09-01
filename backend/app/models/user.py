@@ -54,7 +54,9 @@ class User(Base):
     cognito_sub = Column(String, nullable=True)
     # "cognito" | "local" (break-glass). Drives the login-endpoint branch and
     # which credential-verification path applies.
-    auth_provider = Column(String, nullable=False, default="local", server_default="local")
+    auth_provider = Column(
+        String, nullable=False, default="local", server_default="local"
+    )
     # Generalizes password_changed_at: any JWT/Cognito-token whose `iat` is
     # before max(password_changed_at, tokens_valid_from) is rejected. A role
     # or tier change stamps this to force re-authentication with fresh groups.
@@ -84,7 +86,9 @@ class User(Base):
     # timezone=True (0035) -- see password_changed_at above; kept consistent
     # with the other users.* timestamp columns.
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
     updated_at = Column(
         DateTime(timezone=True),

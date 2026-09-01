@@ -57,7 +57,12 @@ def _manifest_ids() -> set[str]:
 
 
 def _manifest(pipeline_id: str) -> dict:
-    return yaml.safe_load((_WORKFLOWS / pipeline_id / "workflow.yaml").read_text(encoding="utf-8")) or {}
+    return (
+        yaml.safe_load(
+            (_WORKFLOWS / pipeline_id / "workflow.yaml").read_text(encoding="utf-8")
+        )
+        or {}
+    )
 
 
 # Pipelines entitled without a manifest, by deliberate exception.
@@ -93,15 +98,19 @@ class TestEntitlementsMatchDisk:
         """An entitled pipeline with no manifest passes the 403 gate and then dies
         at ``compile_for_run`` with FileNotFoundError — a 500 where the user was
         promised access."""
-        assert pipeline in _manifest_ids(), (
-            f"{pipeline!r} is entitled but has no agents/workflows/{pipeline}/workflow.yaml"
-        )
+        assert (
+            pipeline in _manifest_ids()
+        ), f"{pipeline!r} is entitled but has no agents/workflows/{pipeline}/workflow.yaml"
 
     @pytest.mark.parametrize(
         "pipeline",
-        sorted(p for p in _manifest_ids() if (_WORKFLOWS / p / "workflow.yaml").is_file()),
+        sorted(
+            p for p in _manifest_ids() if (_WORKFLOWS / p / "workflow.yaml").is_file()
+        ),
     )
-    def test_user_launchable_manifest_is_entitled_somewhere(self, pipeline: str) -> None:
+    def test_user_launchable_manifest_is_entitled_somewhere(
+        self, pipeline: str
+    ) -> None:
         """A launchable, non-beta manifest that no tier grants is offered in the UI
         and 403s for every user, including the top tier — where the message is the
         terminal "not available on your current plan" with no upgrade to offer.

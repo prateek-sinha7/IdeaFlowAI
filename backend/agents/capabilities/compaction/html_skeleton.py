@@ -64,7 +64,18 @@ class HtmlSkeletonCompaction:
             token_lines = []
             for line in root_content.split("\n"):
                 line = line.strip()
-                if any(tok in line for tok in ["--bg:", "--fg:", "--accent:", "--surface:", "--border:", "--muted:", "--font-"]):
+                if any(
+                    tok in line
+                    for tok in [
+                        "--bg:",
+                        "--fg:",
+                        "--accent:",
+                        "--surface:",
+                        "--border:",
+                        "--muted:",
+                        "--font-",
+                    ]
+                ):
                     token_lines.append(f"  {line}")
             if token_lines:
                 lines.append(":root tokens (current):\n" + "\n".join(token_lines[:12]))
@@ -78,13 +89,14 @@ class HtmlSkeletonCompaction:
         # 3. Scan all <section data-page> elements — filled vs empty
         sections = _re.findall(
             r'<section[^>]+data-page=["\']([^"\']+)["\'][^>]*>([\s\S]*?)(?=<section|</body>)',
-            html, _re.IGNORECASE
+            html,
+            _re.IGNORECASE,
         )
         filled = []
         empty = []
         for page_id, content in sections:
             # A section is "filled" if it has more than just whitespace/comments
-            stripped = _re.sub(r'<!--.*?-->', '', content, flags=_re.DOTALL).strip()
+            stripped = _re.sub(r"<!--.*?-->", "", content, flags=_re.DOTALL).strip()
             if len(stripped) > 100:
                 filled.append(page_id)
             else:
@@ -96,12 +108,22 @@ class HtmlSkeletonCompaction:
             lines.append(f"Pages still empty ({len(empty)}): {', '.join(empty)}")
 
         # 4. Chrome summary (topnav/sidebar presence)
-        has_sidebar = bool(_re.search(r'<aside|data-od-id=["\']sidebar', html, _re.IGNORECASE))
-        has_topnav = bool(_re.search(r'class=["\'][^"\']*topnav|data-od-id=["\']topnav', html, _re.IGNORECASE))
+        has_sidebar = bool(
+            _re.search(r'<aside|data-od-id=["\']sidebar', html, _re.IGNORECASE)
+        )
+        has_topnav = bool(
+            _re.search(
+                r'class=["\'][^"\']*topnav|data-od-id=["\']topnav', html, _re.IGNORECASE
+            )
+        )
         chrome_type = "sidebar" if has_sidebar else ("topnav" if has_topnav else "none")
-        lines.append(f"Chrome: {chrome_type} (copy chrome from any filled page — do NOT rewrite it)")
+        lines.append(
+            f"Chrome: {chrome_type} (copy chrome from any filled page — do NOT rewrite it)"
+        )
 
         # 5. Total HTML size for reference
-        lines.append(f"Total HTML so far: {len(html):,} chars across {len(filled) + len(empty)} sections")
+        lines.append(
+            f"Total HTML so far: {len(html):,} chars across {len(filled) + len(empty)} sections"
+        )
 
         return "\n".join(lines)

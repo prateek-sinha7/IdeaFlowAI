@@ -237,11 +237,13 @@ def retrieve_planning_context(pipeline_run_id: str) -> str:
         JSON string of the Planning_Context, or an error message if not found.
     """
     # Phase 2: returns a placeholder — Phase 3 reads from ArtifactStore
-    return json.dumps({
-        "error": "Planning context not found in Phase 2 in-memory store",
-        "pipeline_run_id": pipeline_run_id,
-        "_note": "Phase 3 will read from DB-backed ArtifactStore",
-    })
+    return json.dumps(
+        {
+            "error": "Planning context not found in Phase 2 in-memory store",
+            "pipeline_run_id": pipeline_run_id,
+            "_note": "Phase 3 will read from DB-backed ArtifactStore",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

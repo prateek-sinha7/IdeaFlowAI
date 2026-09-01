@@ -30,6 +30,7 @@ from agents.factory import AgentContext, _compose_system_prompt
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_spec(
     prompt_body: str = "## Agent prompt body",
     guardrails: list[str] | None = None,
@@ -60,8 +61,8 @@ def _make_ctx(
 # 1. Skills injection
 # ---------------------------------------------------------------------------
 
-class TestSkillsInjection:
 
+class TestSkillsInjection:
     def test_attached_skill_body_is_not_injected(self):
         """spec 011 R-03: attached-skill bodies are no longer concatenated into the
         system prompt. Run-attached skills are STAGED to <sandbox>/skills/<id>/SKILL.md
@@ -70,40 +71,50 @@ class TestSkillsInjection:
         loads a body on demand with ``read_file``. So the body must be ABSENT from the
         composed prompt, while the agent's own prompt body is still present."""
         spec = _make_spec(prompt_body="## My Agent\nDo the thing.")
-        ctx = _make_ctx(attached_skills=[{
-            "id": "ecc-python-patterns",
-            "name": "Python Patterns",
-            "content": "## Python Patterns Skill\nAlways use type hints.",
-            "source": "ECC",
-        }])
+        ctx = _make_ctx(
+            attached_skills=[
+                {
+                    "id": "ecc-python-patterns",
+                    "name": "Python Patterns",
+                    "content": "## Python Patterns Skill\nAlways use type hints.",
+                    "source": "ECC",
+                }
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
-        assert "## Python Patterns Skill" not in result, (
-            "Attached skill body must NOT be injected into the system prompt (spec 011 R-03)"
-        )
+        assert (
+            "## Python Patterns Skill" not in result
+        ), "Attached skill body must NOT be injected into the system prompt (spec 011 R-03)"
         assert "## My Agent" in result
 
     def test_skill_content_not_present_in_prompt(self):
         """spec 011 R-03: attached-skill content is staged/advertised, never concatenated
         into the composed prompt — so it must be absent here."""
-        skill_content = "## Deep Research Skill\nSearch before answering.\nCite sources."
+        skill_content = (
+            "## Deep Research Skill\nSearch before answering.\nCite sources."
+        )
         spec = _make_spec()
         ctx = _make_ctx(attached_skills=[{"content": skill_content}])
 
         result = _compose_system_prompt(spec, ctx)
 
-        assert skill_content not in result, "Attached skill content must not be in system prompt"
+        assert (
+            skill_content not in result
+        ), "Attached skill content must not be in system prompt"
 
     def test_multiple_skills_none_injected(self):
         """spec 011 R-03: no attached skill's body reaches the prompt, no matter how many
         are attached — they are all staged to disk and advertised instead."""
         spec = _make_spec()
-        ctx = _make_ctx(attached_skills=[
-            {"content": "## Skill A\nContent A"},
-            {"content": "## Skill B\nContent B"},
-            {"content": "## Skill C\nContent C"},
-        ])
+        ctx = _make_ctx(
+            attached_skills=[
+                {"content": "## Skill A\nContent A"},
+                {"content": "## Skill B\nContent B"},
+                {"content": "## Skill C\nContent C"},
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
@@ -116,10 +127,12 @@ class TestSkillsInjection:
         a skill dict missing 'content' must still not crash the composer — and neither
         skill's body appears (they are staged/advertised, not injected)."""
         spec = _make_spec(prompt_body="## Agent")
-        ctx = _make_ctx(attached_skills=[
-            {"id": "broken-skill", "name": "Broken"},  # no 'content' key
-            {"content": "## Good Skill\nWorks fine."},
-        ])
+        ctx = _make_ctx(
+            attached_skills=[
+                {"id": "broken-skill", "name": "Broken"},  # no 'content' key
+                {"content": "## Good Skill\nWorks fine."},
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
@@ -154,12 +167,16 @@ class TestSkillsInjection:
             "Use markdown headers for sections.\n"
         )
         spec = _make_spec()
-        ctx = _make_ctx(attached_skills=[{
-            "id": "custom-user-skill",
-            "name": "My Custom Skill",
-            "content": custom_content,
-            "source": "custom",
-        }])
+        ctx = _make_ctx(
+            attached_skills=[
+                {
+                    "id": "custom-user-skill",
+                    "name": "My Custom Skill",
+                    "content": custom_content,
+                    "source": "custom",
+                }
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
@@ -171,24 +188,28 @@ class TestSkillsInjection:
 # 2. Hooks injection (the main bug fix)
 # ---------------------------------------------------------------------------
 
-class TestHooksInjection:
 
+class TestHooksInjection:
     def test_hook_metadata_converted_to_behavioral_guideline(self):
         """Hooks must be converted to a behavioral guidelines block — not silently dropped."""
         spec = _make_spec()
-        ctx = _make_ctx(attached_hooks=[{
-            "id": "ecc-post-quality-gate",
-            "name": "Quality Gate",
-            "event": "PostToolUse",
-            "trigger": "After Edit / Write / MultiEdit",
-            "description": "Quality Gate: After Edit / Write / MultiEdit",
-        }])
+        ctx = _make_ctx(
+            attached_hooks=[
+                {
+                    "id": "ecc-post-quality-gate",
+                    "name": "Quality Gate",
+                    "event": "PostToolUse",
+                    "trigger": "After Edit / Write / MultiEdit",
+                    "description": "Quality Gate: After Edit / Write / MultiEdit",
+                }
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
-        assert "Quality Gate" in result, (
-            "Hook name must appear in system prompt — hooks were silently dropped before the fix"
-        )
+        assert (
+            "Quality Gate" in result
+        ), "Hook name must appear in system prompt — hooks were silently dropped before the fix"
         assert "Active Behavioral Hooks" in result or "Quality Gate" in result
 
     def test_hook_with_no_content_field_still_injected(self):
@@ -216,11 +237,28 @@ class TestHooksInjection:
     def test_multiple_hooks_all_injected(self):
         """All attached hooks must appear in the system prompt."""
         spec = _make_spec()
-        ctx = _make_ctx(attached_hooks=[
-            {"name": "Quality Gate", "event": "PostToolUse", "trigger": "After edit", "description": "Quality Gate: After edit"},
-            {"name": "Config Protection", "event": "PreToolUse", "trigger": "Before write", "description": "Config Protection: Before write"},
-            {"name": "Session Loader", "event": "SessionStart", "trigger": "On start", "description": "Session Loader: On start"},
-        ])
+        ctx = _make_ctx(
+            attached_hooks=[
+                {
+                    "name": "Quality Gate",
+                    "event": "PostToolUse",
+                    "trigger": "After edit",
+                    "description": "Quality Gate: After edit",
+                },
+                {
+                    "name": "Config Protection",
+                    "event": "PreToolUse",
+                    "trigger": "Before write",
+                    "description": "Config Protection: Before write",
+                },
+                {
+                    "name": "Session Loader",
+                    "event": "SessionStart",
+                    "trigger": "On start",
+                    "description": "Session Loader: On start",
+                },
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
@@ -231,18 +269,22 @@ class TestHooksInjection:
     def test_hooks_section_header_present(self):
         """The hooks block must have a clear header so agents know to apply them."""
         spec = _make_spec()
-        ctx = _make_ctx(attached_hooks=[{
-            "name": "Design Quality Check",
-            "event": "PostToolUse",
-            "trigger": "After Edit on frontend files",
-            "description": "Design Quality Check: After Edit on frontend files",
-        }])
+        ctx = _make_ctx(
+            attached_hooks=[
+                {
+                    "name": "Design Quality Check",
+                    "event": "PostToolUse",
+                    "trigger": "After Edit on frontend files",
+                    "description": "Design Quality Check: After Edit on frontend files",
+                }
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
-        assert "Behavioral Hooks" in result or "behavioral" in result.lower(), (
-            "Hooks block must have a header indicating these are behavioral guidelines"
-        )
+        assert (
+            "Behavioral Hooks" in result or "behavioral" in result.lower()
+        ), "Hooks block must have a header indicating these are behavioral guidelines"
 
     def test_empty_hooks_produces_no_hooks_section(self):
         """With no hooks, no hooks section should appear."""
@@ -257,12 +299,16 @@ class TestHooksInjection:
     def test_hooks_appear_before_prompt_body(self):
         """Hooks must appear before the agent's own prompt body."""
         spec = _make_spec(prompt_body="## My Agent\nDo the thing.")
-        ctx = _make_ctx(attached_hooks=[{
-            "name": "Quality Gate",
-            "event": "PostToolUse",
-            "trigger": "After edit",
-            "description": "Quality Gate: After edit",
-        }])
+        ctx = _make_ctx(
+            attached_hooks=[
+                {
+                    "name": "Quality Gate",
+                    "event": "PostToolUse",
+                    "trigger": "After edit",
+                    "description": "Quality Gate: After edit",
+                }
+            ]
+        )
 
         result = _compose_system_prompt(spec, ctx)
 
@@ -275,8 +321,8 @@ class TestHooksInjection:
 # 3. Ordering: guardrails → skills → hooks → prompt body
 # ---------------------------------------------------------------------------
 
-class TestInjectionOrdering:
 
+class TestInjectionOrdering:
     def test_ordering_guardrails_skills_hooks_prompt(self):
         """Injection order must be: guardrails → skills → hooks → prompt body. The
         attached-skill body slot no longer exists (spec 011 R-03) — the surviving
@@ -288,7 +334,14 @@ class TestInjectionOrdering:
         )
         ctx = _make_ctx(
             disk_skill="## DISK SKILL CONTENT",
-            attached_hooks=[{"name": "HOOK NAME", "event": "Stop", "trigger": "t", "description": "HOOK NAME: t"}],
+            attached_hooks=[
+                {
+                    "name": "HOOK NAME",
+                    "event": "Stop",
+                    "trigger": "t",
+                    "description": "HOOK NAME: t",
+                }
+            ],
         )
 
         guardrail_content = "## Guardrail: html-prototype\n\nsome guardrail rules"  # noqa: F841
@@ -319,7 +372,14 @@ class TestInjectionOrdering:
         spec = _make_spec(prompt_body="## Agent")
         ctx = _make_ctx(
             disk_skill="## Python Patterns\nUse type hints.",
-            attached_hooks=[{"name": "Quality Gate", "event": "PostToolUse", "trigger": "t", "description": "Quality Gate: t"}],
+            attached_hooks=[
+                {
+                    "name": "Quality Gate",
+                    "event": "PostToolUse",
+                    "trigger": "t",
+                    "description": "Quality Gate: t",
+                }
+            ],
         )
 
         result = _compose_system_prompt(spec, ctx)
@@ -332,6 +392,7 @@ class TestInjectionOrdering:
 # ---------------------------------------------------------------------------
 # 4. WebSocket payload serialization (frontend → backend contract)
 # ---------------------------------------------------------------------------
+
 
 class TestWebSocketPayloadContract:
     """
@@ -352,9 +413,9 @@ class TestWebSocketPayloadContract:
         }
         # Backend reads it as:
         content = attached_skill.get("content", "")
-        assert content == "## Python Patterns\nUse type hints.", (
-            "Skill payload must have 'content' field with SKILL.md text"
-        )
+        assert (
+            content == "## Python Patterns\nUse type hints."
+        ), "Skill payload must have 'content' field with SKILL.md text"
 
     def test_hook_payload_has_description_field(self):
         """The WebSocket payload for a hook must include 'description'."""
@@ -368,11 +429,14 @@ class TestWebSocketPayloadContract:
         }
         # Backend reads name + description to build guideline
         assert attached_hook.get("name") == "Quality Gate"
-        assert attached_hook.get("description") == "Quality Gate: After Edit / Write / MultiEdit"
-        # Critically: no 'content' field — backend must handle this
-        assert "content" not in attached_hook, (
-            "Hook payload must NOT have 'content' — backend synthesizes it from metadata"
+        assert (
+            attached_hook.get("description")
+            == "Quality Gate: After Edit / Write / MultiEdit"
         )
+        # Critically: no 'content' field — backend must handle this
+        assert (
+            "content" not in attached_hook
+        ), "Hook payload must NOT have 'content' — backend synthesizes it from metadata"
 
     def test_backend_hook_injection_from_metadata_only(self):
         """Backend must inject hook guidelines using only name/event/description — no content field."""
@@ -390,17 +454,17 @@ class TestWebSocketPayloadContract:
 
         result = _compose_system_prompt(spec, ctx)
 
-        assert "Quality Gate" in result, (
-            "Backend must inject hook guidelines from metadata even without 'content' field"
-        )
+        assert (
+            "Quality Gate" in result
+        ), "Backend must inject hook guidelines from metadata even without 'content' field"
 
 
 # ---------------------------------------------------------------------------
 # 5. Integration: full pipeline context simulation
 # ---------------------------------------------------------------------------
 
-class TestFullPipelineContext:
 
+class TestFullPipelineContext:
     def test_user_stories_pipeline_with_skill_and_hook(self):
         """Simulate a user_stories pipeline run with one attached skill and one hook.
 
@@ -415,23 +479,27 @@ class TestFullPipelineContext:
             )
         )
         ctx = _make_ctx(
-            attached_skills=[{
-                "id": "ecc-deep-research",
-                "name": "Deep Research",
-                "content": (
-                    "## Deep Research Skill\n\n"
-                    "Before answering, search for relevant information.\n"
-                    "Cite all sources with [1], [2] notation."
-                ),
-                "source": "ECC",
-            }],
-            attached_hooks=[{
-                "id": "ecc-session-start",
-                "name": "Session Context Loader",
-                "event": "SessionStart",
-                "trigger": "Every new agent session",
-                "description": "Session Context Loader: Loads previous session state on new session start.",
-            }],
+            attached_skills=[
+                {
+                    "id": "ecc-deep-research",
+                    "name": "Deep Research",
+                    "content": (
+                        "## Deep Research Skill\n\n"
+                        "Before answering, search for relevant information.\n"
+                        "Cite all sources with [1], [2] notation."
+                    ),
+                    "source": "ECC",
+                }
+            ],
+            attached_hooks=[
+                {
+                    "id": "ecc-session-start",
+                    "name": "Session Context Loader",
+                    "event": "SessionStart",
+                    "trigger": "Every new agent session",
+                    "description": "Session Context Loader: Loads previous session state on new session start.",
+                }
+            ],
         )
 
         result = _compose_system_prompt(spec, ctx)
@@ -454,16 +522,18 @@ class TestFullPipelineContext:
             prompt_body="You are the SPA Composer. Build the HTML prototype."
         )
         ctx = _make_ctx(
-            attached_hooks=[{
-                "id": "ecc-post-design-quality",
-                "name": "Design Quality Check",
-                "event": "PostToolUse",
-                "trigger": "After Edit / Write on frontend files",
-                "description": (
-                    "Design Quality Check: Warns when frontend edits drift toward "
-                    "generic template-looking UI. Keeps visual output distinctive."
-                ),
-            }]
+            attached_hooks=[
+                {
+                    "id": "ecc-post-design-quality",
+                    "name": "Design Quality Check",
+                    "event": "PostToolUse",
+                    "trigger": "After Edit / Write on frontend files",
+                    "description": (
+                        "Design Quality Check: Warns when frontend edits drift toward "
+                        "generic template-looking UI. Keeps visual output distinctive."
+                    ),
+                }
+            ]
         )
 
         result = _compose_system_prompt(spec, ctx)
@@ -473,7 +543,9 @@ class TestFullPipelineContext:
 
     def test_no_skills_no_hooks_clean_prompt(self):
         """With nothing attached, the system prompt is exactly the agent's prompt body."""
-        prompt_body = "You are the Epic Architect. Create epics from the domain analysis."
+        prompt_body = (
+            "You are the Epic Architect. Create epics from the domain analysis."
+        )
         spec = _make_spec(prompt_body=prompt_body)
         ctx = _make_ctx()
 
@@ -489,8 +561,8 @@ class TestFullPipelineContext:
 # 6. D6 protection: attached-skill staging and disk_skill injection are independent
 # ---------------------------------------------------------------------------
 
-class TestAttachedSkillAndDiskSkillAreIndependent:
 
+class TestAttachedSkillAndDiskSkillAreIndependent:
     def test_attached_skill_body_absent_while_disk_skill_present(self):
         """D6: an attached (run) skill's body must be ABSENT from the composed prompt
         even when a ``disk_skill`` is set on the same context — proving the two paths
@@ -500,21 +572,23 @@ class TestAttachedSkillAndDiskSkillAreIndependent:
         SKILL.md) keeps its own, unrelated eager injection (spec 011 §5 / D6)."""
         spec = _make_spec(prompt_body="## Agent")
         ctx = _make_ctx(
-            attached_skills=[{
-                "id": "ecc-python-patterns",
-                "name": "Python Patterns",
-                "content": "## ATTACHED SKILL BODY\nShould not appear.",
-                "source": "ECC",
-            }],
+            attached_skills=[
+                {
+                    "id": "ecc-python-patterns",
+                    "name": "Python Patterns",
+                    "content": "## ATTACHED SKILL BODY\nShould not appear.",
+                    "source": "ECC",
+                }
+            ],
             disk_skill="DISK SKILL BODY\n\nAlways answer in exactly one sentence.",
         )
 
         result = _compose_system_prompt(spec, ctx)
 
-        assert "## ATTACHED SKILL BODY" not in result, (
-            "Attached-skill body must not be injected, even alongside a disk_skill"
-        )
-        assert "DISK SKILL BODY" in result, (
-            "disk_skill must still be eagerly injected regardless of attached_skills"
-        )
+        assert (
+            "## ATTACHED SKILL BODY" not in result
+        ), "Attached-skill body must not be injected, even alongside a disk_skill"
+        assert (
+            "DISK SKILL BODY" in result
+        ), "disk_skill must still be eagerly injected regardless of attached_skills"
         assert "## Agent" in result

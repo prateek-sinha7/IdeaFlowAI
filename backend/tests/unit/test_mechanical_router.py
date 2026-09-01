@@ -51,7 +51,10 @@ class TestPhaseDerivation:
     def test_open_gate_wins_over_status(self):
         # A paused run's raw status is the generic waiting_for_user; the open gate is the
         # driving signal that separates clarify from gate (never the pipeline name).
-        assert RunState(status="running", open_gate="review", gate_key="r:a").phase == "gate_paused"
+        assert (
+            RunState(status="running", open_gate="review", gate_key="r:a").phase
+            == "gate_paused"
+        )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -62,14 +65,20 @@ class TestClarifyRouting:
         # SAFETY: plain text during clarify (no structured responses from the form)
         # routes to Concierge instead of auto-submitting as a freeform answer.
         # This prevents users typing a question from accidentally answering the form.
-        d = route_chat_turn(RunState(status="waiting_for_user", open_gate="questionnaire"),
-                            ChatTurn(text="use dark mode"))
+        d = route_chat_turn(
+            RunState(status="waiting_for_user", open_gate="questionnaire"),
+            ChatTurn(text="use dark mode"),
+        )
         assert d.channel == "concierge"
         assert d.instruction == "use dark mode"
 
     def test_structured_responses_ride_verbatim(self):
-        turn = ChatTurn(responses=[{"question_id": "q1", "answer": "A"}], skip_clarification=True)
-        d = route_chat_turn(RunState(status="waiting_for_user", open_gate="questionnaire"), turn)
+        turn = ChatTurn(
+            responses=[{"question_id": "q1", "answer": "A"}], skip_clarification=True
+        )
+        d = route_chat_turn(
+            RunState(status="waiting_for_user", open_gate="questionnaire"), turn
+        )
         assert d.channel == CHANNEL_ANSWERS
         assert d.responses == [{"question_id": "q1", "answer": "A"}]
         assert d.skip_clarification is True
@@ -80,7 +89,9 @@ class TestClarifyRouting:
 # ════════════════════════════════════════════════════════════════════════════
 class TestGateRouting:
     def _rs(self):
-        return RunState(status="waiting_for_user", open_gate="review", gate_key="run-1:agent")
+        return RunState(
+            status="waiting_for_user", open_gate="review", gate_key="run-1:agent"
+        )
 
     def test_default_action_routes_to_concierge_not_auto_approve(self):
         d = route_chat_turn(self._rs(), ChatTurn())
@@ -91,18 +102,23 @@ class TestGateRouting:
 
     def test_reject_and_redo_and_approve(self):
         for action in ("approve", "reject", "redo"):
-            d = route_chat_turn(self._rs(), ChatTurn(action=action, text="do it differently"))
+            d = route_chat_turn(
+                self._rs(), ChatTurn(action=action, text="do it differently")
+            )
             assert d.channel == CHANNEL_GATE
             assert d.action == action
 
     def test_redo_carries_instructions(self):
-        d = route_chat_turn(self._rs(), ChatTurn(action="redo", text="tighten the header"))
+        d = route_chat_turn(
+            self._rs(), ChatTurn(action="redo", text="tighten the header")
+        )
         assert d.action == "redo"
         assert d.instructions == "tighten the header"
 
     def test_update_specs_routes_to_kan101_with_report(self):
-        d = route_chat_turn(self._rs(),
-                            ChatTurn(action="update_specs", analysis_report="REPORT-BODY"))
+        d = route_chat_turn(
+            self._rs(), ChatTurn(action="update_specs", analysis_report="REPORT-BODY")
+        )
         assert d.channel == CHANNEL_GATE
         assert d.action == "update_specs"
         assert d.instructions == "REPORT-BODY"
@@ -125,7 +141,9 @@ class TestSteeringRouting:
         assert d.note == {"text": "prefer teal", "sticky": False}
 
     def test_sticky_note_marked_sticky(self):
-        d = route_chat_turn(RunState(status="running"), ChatTurn(text="brand.md", sticky=True))
+        d = route_chat_turn(
+            RunState(status="running"), ChatTurn(text="brand.md", sticky=True)
+        )
         assert d.note["sticky"] is True
 
     def test_apply_steering_appends_to_ectx_seam(self):
@@ -164,20 +182,27 @@ class TestTurnImageSeam:
                 self.pending_turn_images = []
 
         ectx = _Ectx()
-        apply_turn_images(ectx, [
-            {"mimeType": "image/jpeg", "data": "BBBB"},  # alias key normalized
-            {"mime_type": "image/png"},                   # missing data → dropped
-            {"data": "CCCC"},                             # missing mime → dropped
-            "not-a-dict",                                 # non-dict → dropped
-        ])
+        apply_turn_images(
+            ectx,
+            [
+                {"mimeType": "image/jpeg", "data": "BBBB"},  # alias key normalized
+                {"mime_type": "image/png"},  # missing data → dropped
+                {"data": "CCCC"},  # missing mime → dropped
+                "not-a-dict",  # non-dict → dropped
+            ],
+        )
         assert ectx.pending_turn_images == [{"mime_type": "image/jpeg", "data": "BBBB"}]
 
     def test_apply_turn_images_noop_without_seam(self):
         class _Bare:
             pass
 
-        apply_turn_images(_Bare(), [{"mime_type": "image/png", "data": "AAAA"}])  # no raise
-        apply_turn_images(None, [{"mime_type": "image/png", "data": "AAAA"}])     # no raise
+        apply_turn_images(
+            _Bare(), [{"mime_type": "image/png", "data": "AAAA"}]
+        )  # no raise
+        apply_turn_images(
+            None, [{"mime_type": "image/png", "data": "AAAA"}]
+        )  # no raise
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -185,8 +210,12 @@ class TestTurnImageSeam:
 # ════════════════════════════════════════════════════════════════════════════
 class TestTerminalRouting:
     def test_terminal_freetext_is_revision(self):
-        d = route_chat_turn(RunState(status="completed"),
-                            ChatTurn(text="make the CTA bigger", target_artifact_type="prototype_output"))
+        d = route_chat_turn(
+            RunState(status="completed"),
+            ChatTurn(
+                text="make the CTA bigger", target_artifact_type="prototype_output"
+            ),
+        )
         assert d.channel == CHANNEL_REVISION
         assert d.instruction == "make the CTA bigger"
         assert d.target_artifact_type == "prototype_output"
@@ -210,7 +239,11 @@ class TestDeriveOpenGate:
     def test_dangling_review_gate_is_open(self):
         events = [
             {"seq": 1, "type": "agent_start", "payload_json": {}},
-            {"seq": 2, "type": "review_gate_ready", "payload_json": {"gate_key": "run-1:specify"}},
+            {
+                "seq": 2,
+                "type": "review_gate_ready",
+                "payload_json": {"gate_key": "run-1:specify"},
+            },
         ]
         kind, key = derive_open_gate(events)
         assert kind == "review"
@@ -218,7 +251,11 @@ class TestDeriveOpenGate:
 
     def test_resolved_review_gate_is_closed(self):
         events = [
-            {"seq": 1, "type": "review_gate_ready", "payload_json": {"gate_key": "run-1:a"}},
+            {
+                "seq": 1,
+                "type": "review_gate_ready",
+                "payload_json": {"gate_key": "run-1:a"},
+            },
             {"seq": 2, "type": "review_gate_approved", "payload_json": {}},
         ]
         assert derive_open_gate(events) == (None, None)
@@ -238,7 +275,11 @@ class TestDeriveOpenGate:
         events = [
             {"seq": 1, "type": "questionnaire_ready", "payload_json": {}},
             {"seq": 2, "type": "questionnaire_complete", "payload_json": {}},
-            {"seq": 3, "type": "review_gate_ready", "payload_json": {"gate_key": "run-1:plan"}},
+            {
+                "seq": 3,
+                "type": "review_gate_ready",
+                "payload_json": {"gate_key": "run-1:plan"},
+            },
         ]
         assert derive_open_gate(events) == ("review", "run-1:plan")
 

@@ -73,16 +73,14 @@ class TestSkillsCatalogHygiene:
         violations = audit()
         retired_keys = {"compatible_agents", "source", "sourceLabel"}
         retired_violations = [
-            v for v in violations
+            v
+            for v in violations
             if v.kind == "frontmatter"
             and any(f"'{key}'" in v.detail for key in retired_keys)
         ]
         assert not retired_violations, (
             f"{len(retired_violations)} skill(s) still have retired frontmatter keys:\n"
-            + "\n".join(
-                f"  {v.skill_id}: {v.detail}"
-                for v in retired_violations
-            )
+            + "\n".join(f"  {v.skill_id}: {v.detail}" for v in retired_violations)
         )
 
     def test_descriptions_non_empty_and_under_200_chars(self) -> None:
@@ -94,9 +92,13 @@ class TestSkillsCatalogHygiene:
         bad_descriptions = []
         for entry in entries:
             if not entry.description:
-                bad_descriptions.append((entry.id, len(entry.description or ""), "empty"))
+                bad_descriptions.append(
+                    (entry.id, len(entry.description or ""), "empty")
+                )
             elif len(entry.description) > 200:
-                bad_descriptions.append((entry.id, len(entry.description), "exceeds limit"))
+                bad_descriptions.append(
+                    (entry.id, len(entry.description), "exceeds limit")
+                )
 
         assert not bad_descriptions, (
             f"{len(bad_descriptions)} skill(s) have invalid descriptions:\n"
@@ -134,8 +136,5 @@ class TestSkillsCatalogHygiene:
         provenance_violations = [v for v in violations if v.kind == "provenance"]
         assert not provenance_violations, (
             f"{len(provenance_violations)} provenance violation(s):\n"
-            + "\n".join(
-                f"  {v.skill_id}: {v.detail}"
-                for v in provenance_violations
-            )
+            + "\n".join(f"  {v.skill_id}: {v.detail}" for v in provenance_violations)
         )

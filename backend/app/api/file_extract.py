@@ -44,6 +44,7 @@ class ExtractResponse(BaseModel):
 def _extract_pdf(data: bytes) -> str:
     try:
         from pypdf import PdfReader
+
         reader = PdfReader(io.BytesIO(data))
         parts = []
         for page in reader.pages:
@@ -59,6 +60,7 @@ def _extract_pdf(data: bytes) -> str:
 def _extract_docx(data: bytes) -> str:
     try:
         from docx import Document
+
         doc = Document(io.BytesIO(data))
         parts: list[str] = []
 
@@ -87,7 +89,10 @@ def _extract_docx(data: bytes) -> str:
         # .paragraphs collection identical to the document body.  Often carries doc
         # title, confidentiality banners, or version/date info that agents need.
         for section in doc.sections:
-            for label, sec_part in (("Header", section.header), ("Footer", section.footer)):
+            for label, sec_part in (
+                ("Header", section.header),
+                ("Footer", section.footer),
+            ):
                 text = "\n".join(p.text for p in sec_part.paragraphs if p.text.strip())
                 if text:
                     parts.append(f"[{label}]\n{text}\n[/{label}]")
@@ -101,6 +106,7 @@ def _extract_docx(data: bytes) -> str:
 def _extract_pptx(data: bytes) -> str:
     try:
         from pptx import Presentation
+
         prs = Presentation(io.BytesIO(data))
         parts = []
         for slide_num, slide in enumerate(prs.slides, 1):
@@ -174,7 +180,10 @@ async def extract_text(
 
     logger.info(
         "File extracted: user=%s filename=%s ext=%s chars=%d",
-        current_user.id, filename, ext, len(text),
+        current_user.id,
+        filename,
+        ext,
+        len(text),
     )
 
     truncated = len(text) > _MAX_TEXT_CHARS

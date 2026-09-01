@@ -64,7 +64,9 @@ def _stop_grace_period_seconds() -> float:
     """docker's hard SIGKILL ceiling for the backend service."""
     text = DOCKER_COMPOSE.read_text(encoding="utf-8")
     match = re.search(r"stop_grace_period:\s*(\d+(?:\.\d+)?)s", text)
-    assert match, "docker-compose.yml no longer declares stop_grace_period for the backend."
+    assert (
+        match
+    ), "docker-compose.yml no longer declares stop_grace_period for the backend."
     return float(match.group(1))
 
 
@@ -75,7 +77,7 @@ def _stop_grace_period_seconds() -> float:
 # restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
 # app mirrors only the shape under test — a lifespan whose shutdown half records that
 # it ran, and the same sse_starlette.EventSourceResponse run_stream.py:421 uses.
-_PROBE_APP_SOURCE = '''
+_PROBE_APP_SOURCE = """
 import asyncio, json, os, time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -115,7 +117,7 @@ async def stream():
             await asyncio.sleep(0.5)
 
     return EventSourceResponse(gen(), ping=15)
-'''
+"""
 
 
 def _free_port() -> int:
@@ -177,13 +179,23 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
 
     proc = subprocess.Popen(
         [
-            sys.executable, "-m", "uvicorn", "reachability_probe_app:app",
-            "--host", "127.0.0.1", "--port", str(port),
-            "--timeout-graceful-shutdown", str(int(graceful)),
-            "--log-level", "error",
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "reachability_probe_app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--timeout-graceful-shutdown",
+            str(int(graceful)),
+            "--log-level",
+            "error",
         ],
-        cwd=str(tmp_path), env=env,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=str(tmp_path),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     stream_sock = None
     try:
@@ -211,7 +223,9 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
             proc.kill()
             proc.wait(timeout=10)
 
-    events = [line for line in marker.read_text(encoding="utf-8").splitlines() if line.strip()]
+    events = [
+        line for line in marker.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     joined = "\n".join(events)
     assert "startup_complete" in joined, f"probe never started: {joined}"
     assert "lifespan_shutdown_entered" in joined, (
@@ -219,9 +233,9 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
         f"Concierge drain, pump teardown and close_checkpointer() are all unreachable. "
         f"Markers: {joined}"
     )
-    assert "shutdown_body_completed" in joined, (
-        f"the lifespan shutdown body was entered but did not run to completion: {joined}"
-    )
+    assert (
+        "shutdown_body_completed" in joined
+    ), f"the lifespan shutdown body was entered but did not run to completion: {joined}"
     assert elapsed < graceful + 20.0
 
 
@@ -229,7 +243,9 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
 # 2. The production launch flag must not silently regress
 # ════════════════════════════════════════════════════════════════════════════
 def test_docker_entrypoint_still_passes_timeout_graceful_shutdown():
-    assert "--timeout-graceful-shutdown" in DOCKER_ENTRYPOINT.read_text(encoding="utf-8")
+    assert "--timeout-graceful-shutdown" in DOCKER_ENTRYPOINT.read_text(
+        encoding="utf-8"
+    )
     assert _uvicorn_graceful_window_seconds() > 0
 
 
@@ -304,10 +320,13 @@ def test_development_defaults_shutdown_stop_runs_on(monkeypatch):
     assert dev.SHUTDOWN_STOP_RUNS is True
 
 
-@pytest.mark.parametrize("env_name,explicit,expected", [
-    ("development", "false", False),
-    ("production", "true", True),
-])
+@pytest.mark.parametrize(
+    "env_name,explicit,expected",
+    [
+        ("development", "false", False),
+        ("production", "true", True),
+    ],
+)
 def test_explicit_shutdown_stop_runs_always_wins(env_name, explicit, expected):
     """The env-differentiated default must never override an operator's explicit value."""
     from app.core.config import Settings
@@ -335,7 +354,9 @@ def test_close_checkpointer_is_awaited_exactly_once_on_the_shutdown_path():
     that is already closed (``get_checkpointer()`` raises after close).
     """
     main_src = (BACKEND_DIR / "app" / "main.py").read_text(encoding="utf-8")
-    shutdown_src = (BACKEND_DIR / "app" / "api" / "run_shutdown.py").read_text(encoding="utf-8")
+    shutdown_src = (BACKEND_DIR / "app" / "api" / "run_shutdown.py").read_text(
+        encoding="utf-8"
+    )
 
     main_calls = main_src.count("await close_checkpointer()")
     shutdown_calls = shutdown_src.count("await close_checkpointer()")

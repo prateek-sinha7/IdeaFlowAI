@@ -97,9 +97,21 @@ def _seed_run(db, *, run_id="run-1", owner_id="owner", workspace_id="ws-1"):
     db.commit()
 
 
-def _seed_ref(db, *, ref_id, run_id, kind, version, content, derived_from=None,
-              owner_id="owner", workspace_id="ws-1", producer_step="step",
-              producer_agent="agent", task_id=None):
+def _seed_ref(
+    db,
+    *,
+    ref_id,
+    run_id,
+    kind,
+    version,
+    content,
+    derived_from=None,
+    owner_id="owner",
+    workspace_id="ws-1",
+    producer_step="step",
+    producer_agent="agent",
+    task_id=None,
+):
     db.add(
         ArtifactRef(
             id=ref_id,
@@ -132,13 +144,29 @@ class TestLineageTree:
     def test_artifacts_returns_walkable_tree(self, api, db_session):
         client, _ = api
         _seed_run(db_session)
-        _seed_ref(db_session, ref_id="A", run_id="run-1", kind="spec",
-                  version=1, content="SPEC", producer_step="specify",
-                  producer_agent="prototype-specify", task_id="t1")
-        _seed_ref(db_session, ref_id="B", run_id="run-1", kind="design",
-                  version=1, content="DESIGN", derived_from="A",
-                  producer_step="plan", producer_agent="prototype-plan",
-                  task_id="t2")
+        _seed_ref(
+            db_session,
+            ref_id="A",
+            run_id="run-1",
+            kind="spec",
+            version=1,
+            content="SPEC",
+            producer_step="specify",
+            producer_agent="prototype-specify",
+            task_id="t1",
+        )
+        _seed_ref(
+            db_session,
+            ref_id="B",
+            run_id="run-1",
+            kind="design",
+            version=1,
+            content="DESIGN",
+            derived_from="A",
+            producer_step="plan",
+            producer_agent="prototype-plan",
+            task_id="t2",
+        )
 
         resp = client.get("/api/runs/run-1/artifacts")
         assert resp.status_code == 200, resp.text
@@ -167,18 +195,23 @@ class TestLineageTree:
     def test_content_excluded_by_default_present_with_include(self, api, db_session):
         client, _ = api
         _seed_run(db_session)
-        _seed_ref(db_session, ref_id="A", run_id="run-1", kind="spec",
-                  version=1, content="SECRET SPEC BODY")
+        _seed_ref(
+            db_session,
+            ref_id="A",
+            run_id="run-1",
+            kind="spec",
+            version=1,
+            content="SECRET SPEC BODY",
+        )
 
         # Default: content absent.
         default = client.get("/api/runs/run-1/artifacts").json()["artifacts"][0]
         assert "content" not in default, "inline content leaked by default (D-10)"
 
         # ?include=content: content present for the same owner.
-        with_content = (
-            client.get("/api/runs/run-1/artifacts?include=content")
-            .json()["artifacts"][0]
-        )
+        with_content = client.get("/api/runs/run-1/artifacts?include=content").json()[
+            "artifacts"
+        ][0]
         assert with_content["content"] == "SECRET SPEC BODY"
 
     def test_empty_run_returns_empty_tree(self, api, db_session):
@@ -198,8 +231,14 @@ class TestCrossOwnerDenied:
     def test_artifacts_cross_owner_is_404(self, api, db_session):
         client, state = api
         _seed_run(db_session, owner_id="owner", workspace_id="ws-1")
-        _seed_ref(db_session, ref_id="A", run_id="run-1", kind="spec",
-                  version=1, content="SPEC")
+        _seed_ref(
+            db_session,
+            ref_id="A",
+            run_id="run-1",
+            kind="spec",
+            version=1,
+            content="SPEC",
+        )
 
         state["user"] = _FakeUser(id="attacker")
         resp = client.get("/api/runs/run-1/artifacts")
@@ -220,12 +259,26 @@ class TestKindFilter:
     def _seed_three_kinds(self, db):
         # A(spec) ← B(design, derived_from=A); C(clarifications) standalone.
         _seed_run(db)
-        _seed_ref(db, ref_id="A", run_id="run-1", kind="spec",
-                  version=1, content="SPEC")
-        _seed_ref(db, ref_id="B", run_id="run-1", kind="design",
-                  version=1, content="DESIGN", derived_from="A")
-        _seed_ref(db, ref_id="C", run_id="run-1", kind="clarifications",
-                  version=1, content="Q&A ROUNDS")
+        _seed_ref(
+            db, ref_id="A", run_id="run-1", kind="spec", version=1, content="SPEC"
+        )
+        _seed_ref(
+            db,
+            ref_id="B",
+            run_id="run-1",
+            kind="design",
+            version=1,
+            content="DESIGN",
+            derived_from="A",
+        )
+        _seed_ref(
+            db,
+            ref_id="C",
+            run_id="run-1",
+            kind="clarifications",
+            version=1,
+            content="Q&A ROUNDS",
+        )
 
     def test_kind_filters_and_filtered_child_surfaces_as_root(self, api, db_session):
         client, _ = api
@@ -243,10 +296,9 @@ class TestKindFilter:
         client, _ = api
         self._seed_three_kinds(db_session)
 
-        node = (
-            client.get("/api/runs/run-1/artifacts?kind=clarifications&include=content")
-            .json()["artifacts"][0]
-        )
+        node = client.get(
+            "/api/runs/run-1/artifacts?kind=clarifications&include=content"
+        ).json()["artifacts"][0]
         assert node["kind"] == "clarifications"
         assert node["content"] == "Q&A ROUNDS"
 

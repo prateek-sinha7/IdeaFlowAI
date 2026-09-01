@@ -38,6 +38,7 @@ def _write_agent(prompts_dir: Path, agent_id: str, **kwargs) -> Path:
 def _discover_agent_ids() -> list[str]:
     """Return all agent IDs discoverable in the real agents/prompts/ directory."""
     import agents.loader as _loader
+
     prompts_dir = _loader._PROMPTS_DIR
     ids = []
     for entry in sorted(prompts_dir.iterdir()):
@@ -112,6 +113,7 @@ class TestLoadAgentSpecValid:
 
     def test_all_supported_pipeline_types(self, tmp_agent_dir):
         from agents.loader import SUPPORTED_PIPELINE_TYPES
+
         for i, pt in enumerate(sorted(SUPPORTED_PIPELINE_TYPES), start=1):
             agent_id = f"agent-{pt.replace('_', '-')}"
             _write_agent(tmp_agent_dir, agent_id, pipeline_type=pt, order=i)
@@ -563,11 +565,14 @@ class TestSchemaValidationAllAgents:
     def test_all_agents_load_without_error(self):
         """Every AGENT.md in agents/prompts/ must parse without raising."""
         agent_ids = self._discover_agent_ids()
-        assert agent_ids, "No agent directories found in agents/prompts/ — check the path"
+        assert (
+            agent_ids
+        ), "No agent directories found in agents/prompts/ — check the path"
 
         for agent_id in agent_ids:
             # Use a fresh load (bypass cache) by temporarily clearing it
             import agents.loader as _loader
+
             _loader._SPEC_CACHE.pop(agent_id, None)
             spec = load_agent_spec(agent_id)
             assert spec is not None, f"load_agent_spec returned None for {agent_id!r}"
@@ -583,12 +588,18 @@ class TestSchemaValidationAllAgents:
             assert spec.id, f"Agent {agent_id!r}: spec.id is empty"
             assert spec.name, f"Agent {agent_id!r}: spec.name is empty"
             assert spec.role, f"Agent {agent_id!r}: spec.role is empty"
-            assert spec.pipeline_type, f"Agent {agent_id!r}: spec.pipeline_type is empty"
-            assert spec.order >= 1, f"Agent {agent_id!r}: spec.order must be >= 1, got {spec.order}"
-            assert 1 <= spec.max_tokens <= 32768, (
-                f"Agent {agent_id!r}: spec.max_tokens={spec.max_tokens} out of range 1–32768"
-            )
-            assert spec.prompt_body.strip(), f"Agent {agent_id!r}: spec.prompt_body is blank"
+            assert (
+                spec.pipeline_type
+            ), f"Agent {agent_id!r}: spec.pipeline_type is empty"
+            assert (
+                spec.order >= 1
+            ), f"Agent {agent_id!r}: spec.order must be >= 1, got {spec.order}"
+            assert (
+                1 <= spec.max_tokens <= 32768
+            ), f"Agent {agent_id!r}: spec.max_tokens={spec.max_tokens} out of range 1–32768"
+            assert (
+                spec.prompt_body.strip()
+            ), f"Agent {agent_id!r}: spec.prompt_body is blank"
             # description is always non-empty (explicit value, or the role fallback).
             assert spec.description, f"Agent {agent_id!r}: spec.description is empty"
 
@@ -630,9 +641,9 @@ class TestSchemaValidationAllAgents:
 
         for agent_id in agent_ids:
             spec = load_agent_spec(agent_id)
-            assert spec.id == agent_id, (
-                f"spec.id={spec.id!r} does not match directory name {agent_id!r}"
-            )
+            assert (
+                spec.id == agent_id
+            ), f"spec.id={spec.id!r} does not match directory name {agent_id!r}"
 
     def test_all_agents_have_supported_pipeline_type(self):
         """Every agent's pipeline_type must be one of SUPPORTED_PIPELINE_TYPES.
@@ -677,7 +688,9 @@ class TestArchivedPromptsAreInvisible:
     starts failing, do not "fix" it by updating the expectation — fix the scan.
     """
 
-    def _archive(self, prompts_dir: Path, agent_id: str, number: int, body: str) -> Path:
+    def _archive(
+        self, prompts_dir: Path, agent_id: str, number: int, body: str
+    ) -> Path:
         path = prompts_dir / agent_id / f"AGENT.v{number}.md"
         path.write_text(body, encoding="utf-8")
         return path
@@ -711,7 +724,9 @@ class TestArchivedPromptsAreInvisible:
     def test_an_archive_alone_is_not_an_agent(self, tmp_agent_dir):
         """A folder holding only archives has no live prompt and must not register."""
         (tmp_agent_dir / "orphan-agent").mkdir(parents=True, exist_ok=True)
-        self._archive(tmp_agent_dir, "orphan-agent", 1, "body with no AGENT.md beside it")
+        self._archive(
+            tmp_agent_dir, "orphan-agent", 1, "body with no AGENT.md beside it"
+        )
 
         assert list_agent_ids("user_stories") == []
 
@@ -730,11 +745,14 @@ class TestArchivedPromptsAreInvisible:
         archive.write_text("a temporary archive body", encoding="utf-8")
         try:
             rebuilt = {
-                name: list_agent_ids(name) for name in expected if name in ("prototype",)
+                name: list_agent_ids(name)
+                for name in expected
+                if name in ("prototype",)
             }
             assert rebuilt["prototype"] == expected["prototype"]
         finally:
             archive.unlink()
+
     def test_all_agents_declare_an_explicit_icon(self):
         """TEST-008 / ISS-068 C2: every AGENT.md must DECLARE an explicit ``icon:``.
 
@@ -764,7 +782,9 @@ class TestArchivedPromptsAreInvisible:
 
         missing: list[str] = []
         for agent_id in agent_ids:
-            raw = (_loader._PROMPTS_DIR / agent_id / "AGENT.md").read_text(encoding="utf-8")
+            raw = (_loader._PROMPTS_DIR / agent_id / "AGENT.md").read_text(
+                encoding="utf-8"
+            )
             declared = frontmatter.loads(raw).metadata.get("icon")
             if not isinstance(declared, str) or not declared.strip():
                 missing.append(agent_id)
@@ -789,7 +809,9 @@ class TestLoadAgentSpecPipelineTypeList:
     Requirements: 6.1, 6.5
     """
 
-    def _write_raw(self, prompts_dir: Path, agent_id: str, pipeline_type_yaml: str) -> None:
+    def _write_raw(
+        self, prompts_dir: Path, agent_id: str, pipeline_type_yaml: str
+    ) -> None:
         """Write an AGENT.md with an arbitrary pipeline_type YAML snippet."""
         content = (
             "---\n"
@@ -807,7 +829,9 @@ class TestLoadAgentSpecPipelineTypeList:
         )
         create_agent_file(prompts_dir, agent_id, content)
 
-    def _write_raw_multiline(self, prompts_dir: Path, agent_id: str, pipeline_type_block: str) -> None:
+    def _write_raw_multiline(
+        self, prompts_dir: Path, agent_id: str, pipeline_type_block: str
+    ) -> None:
         """Write an AGENT.md with a multiline pipeline_type YAML block."""
         content = (
             "---\n"
@@ -919,7 +943,9 @@ class TestListAgentIdsWithListPipelineType:
 
     def test_agent_with_list_appears_in_both_buckets(self, tmp_agent_dir):
         """An agent with ``pipeline_type: [user_stories, ppt]`` appears in both buckets."""
-        self._write_list_agent(tmp_agent_dir, "multi-pt-agent", ["user_stories", "ppt"], order=1)
+        self._write_list_agent(
+            tmp_agent_dir, "multi-pt-agent", ["user_stories", "ppt"], order=1
+        )
 
         us_ids = list_agent_ids("user_stories")
         ppt_ids = list_agent_ids("ppt")
@@ -929,7 +955,9 @@ class TestListAgentIdsWithListPipelineType:
 
     def test_agent_with_list_absent_from_unrelated_bucket(self, tmp_agent_dir):
         """The same agent must NOT appear in an unrelated bucket (``prototype``)."""
-        self._write_list_agent(tmp_agent_dir, "multi-pt-agent", ["user_stories", "ppt"], order=1)
+        self._write_list_agent(
+            tmp_agent_dir, "multi-pt-agent", ["user_stories", "ppt"], order=1
+        )
 
         prototype_ids = list_agent_ids("prototype")
 
@@ -938,8 +966,12 @@ class TestListAgentIdsWithListPipelineType:
     def test_duplicate_order_within_list_pipeline_bucket_raises(self, tmp_agent_dir):
         """Two agents both listing ``prototype_revision`` and sharing order=2 must raise
         AgentSpecError that names the offending pipeline bucket."""
-        self._write_list_agent(tmp_agent_dir, "rev-agent-a", ["prototype_revision"], order=2)
-        self._write_list_agent(tmp_agent_dir, "rev-agent-b", ["prototype_revision"], order=2)
+        self._write_list_agent(
+            tmp_agent_dir, "rev-agent-a", ["prototype_revision"], order=2
+        )
+        self._write_list_agent(
+            tmp_agent_dir, "rev-agent-b", ["prototype_revision"], order=2
+        )
 
         with pytest.raises(AgentSpecError) as exc_info:
             list_agent_ids("prototype_revision")
@@ -949,7 +981,9 @@ class TestListAgentIdsWithListPipelineType:
     def test_string_and_list_agents_coexist_in_bucket(self, tmp_agent_dir):
         """A string-typed agent and a list-typed agent that share a bucket both appear."""
         self._write_str_agent(tmp_agent_dir, "str-us-agent", "user_stories", order=1)
-        self._write_list_agent(tmp_agent_dir, "list-us-agent", ["user_stories", "ppt"], order=2)
+        self._write_list_agent(
+            tmp_agent_dir, "list-us-agent", ["user_stories", "ppt"], order=2
+        )
 
         us_ids = list_agent_ids("user_stories")
 
@@ -979,7 +1013,9 @@ class TestOrderUniquenessProperty:
     **Validates: Requirements 6.4, 6.5**
     """
 
-    @pytest.mark.parametrize("pipeline_type", sorted(loader_module.SUPPORTED_PIPELINE_TYPES))
+    @pytest.mark.parametrize(
+        "pipeline_type", sorted(loader_module.SUPPORTED_PIPELINE_TYPES)
+    )
     def test_no_two_agents_share_order_in_any_pipeline(self, pipeline_type: str):
         """Property 3 (real filesystem): list_agent_ids must not raise AgentSpecError
         for any supported pipeline type — meaning no duplicate orders exist on disk.
@@ -997,9 +1033,9 @@ class TestOrderUniquenessProperty:
         # are globally unique per pipeline — the sort is deterministic).
         # We cannot check the order values directly here (list_agent_ids only
         # returns ids), but a successful call already proves uniqueness.
-        assert isinstance(ids, list), (
-            f"list_agent_ids('{pipeline_type}') returned {type(ids).__name__}, expected list"
-        )
+        assert isinstance(
+            ids, list
+        ), f"list_agent_ids('{pipeline_type}') returned {type(ids).__name__}, expected list"
 
     def test_list_pipeline_type_duplicate_order_raises(self, tmp_agent_dir):
         """Property 3 (tmp dir, list pipeline_type form): two agents that BOTH declare
@@ -1053,10 +1089,10 @@ class TestOrderUniquenessProperty:
         error_msg = str(exc_info.value)
         # The error must name the conflicting pipeline type so the author knows
         # which bucket has the collision.
-        assert "shared_pipeline" in error_msg, (
-            f"AgentSpecError should mention 'shared_pipeline' but got: {error_msg!r}"
-        )
+        assert (
+            "shared_pipeline" in error_msg
+        ), f"AgentSpecError should mention 'shared_pipeline' but got: {error_msg!r}"
         # The error must also mention the shared order value.
-        assert "2" in error_msg, (
-            f"AgentSpecError should mention order value '2' but got: {error_msg!r}"
-        )
+        assert (
+            "2" in error_msg
+        ), f"AgentSpecError should mention order value '2' but got: {error_msg!r}"

@@ -75,6 +75,7 @@ def _reload_with(monkeypatch, env_value: str | None, prod_exists: bool):
         return original_exists(self)
 
     import app.services.pptx_export as pptx_export
+
     with patch.object(Path, "exists", _exists):
         importlib.reload(pptx_export)
     return pptx_export
@@ -159,9 +160,7 @@ class TestDevFallback:
             "the test environment is misconfigured"
         )
         expected_dev = (
-            Path(module_file).parent.parent.parent.parent
-            / "frontend"
-            / "node_modules"
+            Path(module_file).parent.parent.parent.parent / "frontend" / "node_modules"
         )
         assert pptx_export.NODE_MODULES_DIR == expected_dev, (
             f"Expected dev fallback {expected_dev}, "

@@ -164,7 +164,9 @@ def _jsonrpc_response(req_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
 
 
-def _jsonrpc_error(req_id: Any, code: int, message: str, data: Any | None = None) -> dict[str, Any]:
+def _jsonrpc_error(
+    req_id: Any, code: int, message: str, data: Any | None = None
+) -> dict[str, Any]:
     err: dict[str, Any] = {"code": code, "message": message}
     if data is not None:
         err["data"] = data
@@ -209,7 +211,9 @@ def _handle_tools_call(
     if not repo_url:
         return _jsonrpc_error(req_id, -32602, "`repo_url` is required")
     if mode not in _ALLOWED_MODES:
-        return _jsonrpc_error(req_id, -32602, f"`mode` must be one of {sorted(_ALLOWED_MODES)}")
+        return _jsonrpc_error(
+            req_id, -32602, f"`mode` must be one of {sorted(_ALLOWED_MODES)}"
+        )
     if len(transcript.encode("utf-8")) > settings.HANDOFF_MAX_TRANSCRIPT_BYTES:
         return _jsonrpc_error(
             req_id,
@@ -323,5 +327,7 @@ async def mcp_handoff_get(
     """
     return JSONResponse(
         status_code=405,
-        content={"error": "GET streaming not supported by flowin-handoff MCP; use POST."},
+        content={
+            "error": "GET streaming not supported by flowin-handoff MCP; use POST."
+        },
     )

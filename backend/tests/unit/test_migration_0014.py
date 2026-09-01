@@ -139,8 +139,7 @@ class TestMigration0014:
         with engine.connect() as conn:
             row = conn.execute(
                 text(
-                    "SELECT owner_id, workspace_id FROM workflow_runs "
-                    "WHERE id = :id"
+                    "SELECT owner_id, workspace_id FROM workflow_runs " "WHERE id = :id"
                 ),
                 {"id": run_id},
             ).fetchone()
@@ -150,10 +149,7 @@ class TestMigration0014:
             assert workspace_id, "backfill left workspace_id null"
             # a matching workspaces row exists, scoped to the same owner
             ws = conn.execute(
-                text(
-                    "SELECT owner_id, workspace_id FROM workspaces "
-                    "WHERE id = :id"
-                ),
+                text("SELECT owner_id, workspace_id FROM workspaces " "WHERE id = :id"),
                 {"id": workspace_id},
             ).fetchone()
             assert ws is not None, "backfill did not create a workspaces row"
@@ -161,9 +157,7 @@ class TestMigration0014:
             assert ws[1] == workspace_id  # workspace_id == its own id
         engine.dispose()
 
-    def test_downgrade_reverses_cleanly_to_0013(
-        self, fresh_db_url: str
-    ) -> None:
+    def test_downgrade_reverses_cleanly_to_0013(self, fresh_db_url: str) -> None:
         cfg = _make_config(fresh_db_url)
         command.upgrade(cfg, "0013")
         _seed_existing_run(fresh_db_url)

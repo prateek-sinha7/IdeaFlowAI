@@ -55,13 +55,13 @@ class AgentSpec:
     """
 
     # ── Required ──────────────────────────────────────────────────────────
-    id: str                    # kebab-case, matches directory name
-    name: str                  # Human-readable display name
-    role: str                  # Short role description for UI
+    id: str  # kebab-case, matches directory name
+    name: str  # Human-readable display name
+    role: str  # Short role description for UI
     pipeline_type: str | list[str]  # One of SUPPORTED_PIPELINE_TYPES, or a list of them
-    order: int                 # Execution order within pipeline (ascending)
-    max_tokens: int            # Output token limit (1–32768)
-    prompt_body: str           # Raw markdown text after YAML closing ---
+    order: int  # Execution order within pipeline (ascending)
+    max_tokens: int  # Output token limit (1–32768)
+    prompt_body: str  # Raw markdown text after YAML closing ---
 
     # ── Optional with defaults ────────────────────────────────────────────
     tools: list[str] = field(default_factory=list)
@@ -77,10 +77,16 @@ class AgentSpec:
     # ── Phase 1 extensions — Typed Produces/Consumes contract model ───────
     # All optional with empty-list/None defaults for backward compatibility.
     # Existing AGENT.md files without these fields load unchanged.
-    produces: list[str] = field(default_factory=list)   # Artifact_Types this agent produces
-    consumes: list[str] = field(default_factory=list)   # Artifact_Types this agent requires
-    gate: str | None = None                              # Human_Gate | Validation_Gate | None
-    injects: list[str] = field(default_factory=list)    # subset of [template, design_system, craft]
+    produces: list[str] = field(
+        default_factory=list
+    )  # Artifact_Types this agent produces
+    consumes: list[str] = field(
+        default_factory=list
+    )  # Artifact_Types this agent requires
+    gate: str | None = None  # Human_Gate | Validation_Gate | None
+    injects: list[str] = field(
+        default_factory=list
+    )  # subset of [template, design_system, craft]
 
     # ── Phase 6 extension — optional model id (D-09; MODEL-01) ───────────
     # Optional AGENT.md `model` id; absent → None. Backs tier 3 (agent-default)
@@ -147,13 +153,9 @@ def load_agent_spec(agent_id: str) -> AgentSpec:
 
     # ── Existence checks ──────────────────────────────────────────────────
     if not agent_dir.exists():
-        raise FileNotFoundError(
-            f"Agent directory not found: {agent_dir}"
-        )
+        raise FileNotFoundError(f"Agent directory not found: {agent_dir}")
     if not agent_file.exists():
-        raise FileNotFoundError(
-            f"AGENT.md not found: {agent_file}"
-        )
+        raise FileNotFoundError(f"AGENT.md not found: {agent_file}")
 
     # ── Read file ─────────────────────────────────────────────────────────
     try:
@@ -314,9 +316,7 @@ def _build_spec(
     # ── order ─────────────────────────────────────────────────────────────
     raw_order = metadata.get("order")
     if raw_order is None:
-        raise AgentSpecError(
-            f"Missing required field 'order' in {file_path_str}"
-        )
+        raise AgentSpecError(f"Missing required field 'order' in {file_path_str}")
     if not isinstance(raw_order, int) or isinstance(raw_order, bool):
         raise AgentSpecError(
             f"Invalid field 'order' in {file_path_str}: "
@@ -332,9 +332,7 @@ def _build_spec(
     # ── max_tokens ────────────────────────────────────────────────────────
     raw_max_tokens = metadata.get("max_tokens")
     if raw_max_tokens is None:
-        raise AgentSpecError(
-            f"Missing required field 'max_tokens' in {file_path_str}"
-        )
+        raise AgentSpecError(f"Missing required field 'max_tokens' in {file_path_str}")
     if not isinstance(raw_max_tokens, int) or isinstance(raw_max_tokens, bool):
         raise AgentSpecError(
             f"Invalid field 'max_tokens' in {file_path_str}: "
@@ -357,8 +355,12 @@ def _build_spec(
 
     # ── Optional fields with defaults ────────────────────────────────────
     tools = _optional_list_of_str(metadata, "tools", file_path_str, default=[])
-    guardrails = _optional_list_of_str(metadata, "guardrails", file_path_str, default=[])
-    context_from = _optional_list_of_str(metadata, "context_from", file_path_str, default=[])
+    guardrails = _optional_list_of_str(
+        metadata, "guardrails", file_path_str, default=[]
+    )
+    context_from = _optional_list_of_str(
+        metadata, "context_from", file_path_str, default=[]
+    )
 
     raw_icon = metadata.get("icon", "🤖")
     if not isinstance(raw_icon, str):
@@ -479,9 +481,7 @@ def _parse_pipeline_type(metadata: dict, file_path: str) -> str | list[str]:
     value = metadata.get("pipeline_type")
 
     if value is None:
-        raise AgentSpecError(
-            f"Missing required field 'pipeline_type' in {file_path}"
-        )
+        raise AgentSpecError(f"Missing required field 'pipeline_type' in {file_path}")
 
     if isinstance(value, bool):
         # bool is a subclass of int in Python — catch it explicitly so the
@@ -529,9 +529,7 @@ def _require_nonempty_str(metadata: dict, field: str, file_path: str) -> str:
     """Extract a required non-empty string field from frontmatter metadata."""
     value = metadata.get(field)
     if value is None:
-        raise AgentSpecError(
-            f"Missing required field '{field}' in {file_path}"
-        )
+        raise AgentSpecError(f"Missing required field '{field}' in {file_path}")
     if not isinstance(value, str):
         raise AgentSpecError(
             f"Invalid field '{field}' in {file_path}: "

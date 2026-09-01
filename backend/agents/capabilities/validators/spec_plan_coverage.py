@@ -23,7 +23,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.capabilities.registry import register
-from agents.capabilities.validators.severity import map_severity  # single source (08-01)
+from agents.capabilities.validators.severity import (
+    map_severity,
+)  # single source (08-01)
 
 
 @dataclass
@@ -66,7 +68,9 @@ class SpecPlanCoverageValidator:
         """Flag spec requirements with no matching plan task (internal P1)."""
         meta = getattr(target, "task_meta", None) or {}
         spec_text = str(meta.get("spec_text", "") or "")
-        plan_text = str(meta.get("plan_text", "") or getattr(target, "content", "") or "")
+        plan_text = str(
+            meta.get("plan_text", "") or getattr(target, "content", "") or ""
+        )
 
         issues: list[Issue] = []
         spec_topics = _topics(spec_text)

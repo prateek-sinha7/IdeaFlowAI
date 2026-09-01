@@ -23,6 +23,7 @@ import re
 from typing import Any
 
 from agents.capabilities.registry import register
+
 # Severity is mapped (via the shared _record helper) through the SINGLE canonical
 # map_severity (08-01, validators.severity) — design_quality never defines its own.
 from app.agents.validators.html_static import Issue, _record
@@ -61,26 +62,32 @@ class DesignQualityValidator:
         # Placeholder / lorem text — unfinished content (P3 LOW advisory).
         for m in _PLACEHOLDER_RE.finditer(content):
             issues.append(
-                Issue(severity="P3",
-                      message=f"placeholder text present: '{m.group(0)}'",
-                      validator="design_quality")
+                Issue(
+                    severity="P3",
+                    message=f"placeholder text present: '{m.group(0)}'",
+                    validator="design_quality",
+                )
             )
 
         # Accessibility: <img> without alt (P2 MEDIUM advisory).
         for img in _IMG_RE.findall(content):
             if not _ALT_RE.search(img):
                 issues.append(
-                    Issue(severity="P2",
-                          message="accessibility: <img> missing alt attribute",
-                          validator="design_quality")
+                    Issue(
+                        severity="P2",
+                        message="accessibility: <img> missing alt attribute",
+                        validator="design_quality",
+                    )
                 )
 
         # Accessibility: a document with markup but no <title> (P2 MEDIUM advisory).
         if "<html" in content.lower() and not _TITLE_RE.search(content):
             issues.append(
-                Issue(severity="P2",
-                      message="accessibility: document has no <title>",
-                      validator="design_quality")
+                Issue(
+                    severity="P2",
+                    message="accessibility: document has no <title>",
+                    validator="design_quality",
+                )
             )
 
         # INVARIANT (VALID-05): design_quality is warnings-first — never P0/P1.

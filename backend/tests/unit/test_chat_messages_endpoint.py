@@ -61,6 +61,7 @@ def env(monkeypatch):
     monkeypatch.setattr(db_module, "SessionLocal", TestingSession)
 
     import agents.artifact_store.store as store_mod
+
     store_mod._STORE = None
     store = store_mod.get_artifact_store()
 
@@ -91,9 +92,11 @@ def _seed_user(env, tag: str) -> _FakeUser:
 
     db = env["Session"]()
     try:
-        u = User(id=str(uuid.uuid4()),
-                 email=f"chat09-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-                 password_hash="x")
+        u = User(
+            id=str(uuid.uuid4()),
+            email=f"chat09-{tag}-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash="x",
+        )
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -102,8 +105,9 @@ def _seed_user(env, tag: str) -> _FakeUser:
         db.close()
 
 
-def _seed_run(env, user_id: str, *, status: str = "running",
-              workspace_id: str = "ws-1") -> str:
+def _seed_run(
+    env, user_id: str, *, status: str = "running", workspace_id: str = "ws-1"
+) -> str:
     """A scoped run (owner_id + workspace_id set — the engine's set_run_scope has run),
     so the Layer-2 default-deny ``get_run`` resolves it and its events are readable."""
     from app.models.workflow import WorkflowRun
@@ -111,11 +115,21 @@ def _seed_run(env, user_id: str, *, status: str = "running",
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user_id, owner_id=user_id, workspace_id=workspace_id,
-            title="t", type="prototype", status=status, input="i",
-            agent_count=1, session_id=user_id, created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                owner_id=user_id,
+                workspace_id=workspace_id,
+                title="t",
+                type="prototype",
+                status=status,
+                input="i",
+                agent_count=1,
+                session_id=user_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return run_id
     finally:
@@ -128,11 +142,18 @@ def _seed_events(env, run_id, rows, *, owner_id, workspace_id="ws-1"):
     db = env["Session"]()
     try:
         for seq, etype, payload in rows:
-            db.add(RunEvent(
-                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner_id,
-                workspace_id=workspace_id, seq=seq, event_id=str(uuid.uuid4()),
-                type=etype, payload_json=payload,
-            ))
+            db.add(
+                RunEvent(
+                    id=str(uuid.uuid4()),
+                    run_id=run_id,
+                    owner_id=owner_id,
+                    workspace_id=workspace_id,
+                    seq=seq,
+                    event_id=str(uuid.uuid4()),
+                    type=etype,
+                    payload_json=payload,
+                )
+            )
         db.commit()
     finally:
         db.close()
@@ -181,8 +202,12 @@ class TestPersist:
     def test_seq_is_next_after_existing_events(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id)
-        _seed_events(env, run_id, [(1, "agent_start", {}), (2, "agent_chunk", {})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "agent_start", {}), (2, "agent_chunk", {})],
+            owner_id=owner.id,
+        )
         env["state"]["user"] = owner
 
         resp = _post(env, run_id, text="hi", message_id="m-2")
@@ -206,8 +231,13 @@ class TestPersist:
         run_id = _seed_run(env, owner.id)
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, text="see pic", message_id="m-att",
-                     attachments=[{"kind": "image", "data": "BIGBASE64"}])
+        resp = _post(
+            env,
+            run_id,
+            text="see pic",
+            message_id="m-att",
+            attachments=[{"kind": "image", "data": "BIGBASE64"}],
+        )
         assert resp.status_code == 200
         stored = _chat_rows(env, run_id)[0].payload_json["attachments"]
         # RECONCILED on the 2026-08-13 `dev` merge (was an exact-dict equality). dev's
@@ -219,8 +249,8 @@ class TestPersist:
         assert len(stored) == 1
         assert stored[0]["kind"] == "image"
         assert stored[0]["retained"] is False
-        assert "data" not in stored[0]                     # the bytes NEVER persist
-        assert "BIGBASE64" not in json.dumps(stored)       # nor anywhere else in the row
+        assert "data" not in stored[0]  # the bytes NEVER persist
+        assert "BIGBASE64" not in json.dumps(stored)  # nor anywhere else in the row
 
     def test_cross_owner_is_404(self, env):
         owner = _seed_user(env, "owner")
@@ -283,15 +313,21 @@ class TestRouting:
         resp = _post(env, run_id, text="dark mode please", message_id="m-c")
         assert resp.status_code == 200, resp.text
         assert resp.headers["content-type"].startswith("text/event-stream")
-        terminals = [f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"]
+        terminals = [
+            f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"
+        ]
         assert len(terminals) == 1
 
     def test_gate_paused_plain_text_routes_to_concierge(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
@@ -301,20 +337,27 @@ class TestRouting:
         resp = _post(env, run_id, message_id="m-g1")
         assert resp.status_code == 200, resp.text
         assert resp.headers["content-type"].startswith("text/event-stream")
-        terminals = [f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"]
+        terminals = [
+            f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"
+        ]
         assert len(terminals) == 1
 
     def test_gate_update_specs_routes_to_kan101(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-analyze"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, action="update_specs", analysis_report="RPT",
-                     message_id="m-us")
+        resp = _post(
+            env, run_id, action="update_specs", analysis_report="RPT", message_id="m-us"
+        )
         assert resp.json()["channel"] == "gate"
         recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
         assert recorded[0]["action"] == "update_specs"
@@ -324,12 +367,18 @@ class TestRouting:
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, action="redo", text="tighten header", message_id="m-r")
+        resp = _post(
+            env, run_id, action="redo", text="tighten header", message_id="m-r"
+        )
         assert resp.json()["channel"] == "gate"
         recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
         assert recorded[0]["action"] == "redo"
@@ -341,8 +390,12 @@ class TestRouting:
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="running")
         gate_key = f"{run_id}:skipped-agent"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         # NOT armed — KAN-94 ground truth says no genuine pause.
         env["state"]["user"] = owner
 
@@ -354,8 +407,12 @@ class TestRouting:
     def test_running_routes_to_steering(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="running")
-        _seed_events(env, run_id, [(1, "agent_start", {}), (2, "agent_chunk", {})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "agent_start", {}), (2, "agent_chunk", {})],
+            owner_id=owner.id,
+        )
         env["state"]["user"] = owner
 
         resp = _post(env, run_id, text="prefer teal", message_id="m-s")
@@ -415,7 +472,7 @@ def _parse_sse_frames(text: str) -> list[dict]:
     frames: list[dict] = []
     for line in text.splitlines():
         if line.startswith("data:"):
-            payload = line[len("data:"):].strip()
+            payload = line[len("data:") :].strip()
             if payload:
                 frames.append(json.loads(payload))
     return frames
@@ -470,7 +527,9 @@ class _StreamingConcierge:
 
 
 class TestConciergeStreaming:
-    def test_fresh_concierge_post_streams_chunks_then_terminal_reply(self, env, monkeypatch):
+    def test_fresh_concierge_post_streams_chunks_then_terminal_reply(
+        self, env, monkeypatch
+    ):
         """A fresh-Concierge POST responds text/event-stream: ordered chat_reply_chunk
         frames, then ONE terminal chat_reply carrying the full text + held proposals.
         The durable chat_reply row + the held proposal row persist regardless."""
@@ -483,8 +542,9 @@ class TestConciergeStreaming:
         run_id = _seed_run(env, owner.id, status="completed")
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, text="what's the status?", concierge=True,
-                     message_id="s1")
+        resp = _post(
+            env, run_id, text="what's the status?", concierge=True, message_id="s1"
+        )
         assert resp.status_code == 200, resp.text
         # BE-2: the fresh-Concierge branch now streams the POST body.
         assert resp.headers["content-type"].startswith("text/event-stream")
@@ -504,7 +564,9 @@ class TestConciergeStreaming:
         # (merging the streamed bubble) instead of the bare message_id — which equals
         # the user turn's id and would OVERWRITE the user's bubble (BUG-018 regression).
         assert terminals[0]["data"]["event_id"] == "chat-reply:s1"
-        assert terminals[0]["data"]["proposals"], "held proposals ride the terminal frame"
+        assert terminals[0]["data"][
+            "proposals"
+        ], "held proposals ride the terminal frame"
         assert terminals[0]["data"]["proposals"][0]["held"] is True
 
         # DURABLE side-effects landed regardless of client consumption: the single
@@ -532,8 +594,14 @@ class TestConciergeStreaming:
         env["state"]["user"] = owner
 
         # POST WITH chain_hints → the ctx carries them.
-        r1 = _post(env, run_id, text="what can I do next?", concierge=True,
-                   chain_hints=[{"id": "ppt", "label": "Presentation"}], message_id="h1")
+        r1 = _post(
+            env,
+            run_id,
+            text="what can I do next?",
+            concierge=True,
+            chain_hints=[{"id": "ppt", "label": "Presentation"}],
+            message_id="h1",
+        )
         assert r1.status_code == 200, r1.text
         # POST WITHOUT chain_hints → the ctx carries the [] default.
         r2 = _post(env, run_id, text="and now?", concierge=True, message_id="h2")
@@ -546,8 +614,12 @@ class TestConciergeStreaming:
         UNCHANGED JSON contract with content-type application/json (no streaming)."""
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="running")
-        _seed_events(env, run_id, [(1, "agent_start", {}), (2, "agent_chunk", {})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "agent_start", {}), (2, "agent_chunk", {})],
+            owner_id=owner.id,
+        )
         env["state"]["user"] = owner
 
         resp = _post(env, run_id, text="prefer teal", message_id="m-plain")
@@ -560,14 +632,18 @@ class TestConciergeStreaming:
 # ISS-092 — the Concierge's own model spend becomes a durable, readable number
 # ════════════════════════════════════════════════════════════════════════════
 _USAGE = {
-    "input_tokens": 1200, "output_tokens": 340,
-    "cache_read_tokens": 900, "cache_write_tokens": 100,
+    "input_tokens": 1200,
+    "output_tokens": 340,
+    "cache_read_tokens": 900,
+    "cache_write_tokens": 100,
     "model_id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
 }
 
 
 class TestChatUsageAccounting:
-    def test_chat_usage_row_records_observed_tokens_once_per_message_id(self, env, monkeypatch):
+    def test_chat_usage_row_records_observed_tokens_once_per_message_id(
+        self, env, monkeypatch
+    ):
         """One durable ``chat_usage`` row per answered turn, idempotent on message_id.
 
         ``append_event_next_seq`` is keyed on ``event_id`` (``chat-usage:{message_id}``),
@@ -583,11 +659,15 @@ class TestChatUsageAccounting:
         run_id = _seed_run(env, owner.id, status="completed")
         env["state"]["user"] = owner
 
-        r1 = _post(env, run_id, text="what did it cost?", concierge=True, message_id="u1")
+        r1 = _post(
+            env, run_id, text="what did it cost?", concierge=True, message_id="u1"
+        )
         assert r1.status_code == 200, r1.text
 
         rows = _events_of_type(env, run_id, "chat_usage")
-        assert len(rows) == 1, "one answered turn must record exactly one chat_usage row"
+        assert (
+            len(rows) == 1
+        ), "one answered turn must record exactly one chat_usage row"
         payload = rows[0].payload_json
         assert rows[0].event_id == "chat-usage:u1"
         assert payload["message_id"] == "u1"
@@ -602,9 +682,13 @@ class TestChatUsageAccounting:
         assert rows[0].owner_id == owner.id and rows[0].workspace_id == "ws-1"
 
         # A replayed POST with the SAME message_id must not add a second row.
-        r2 = _post(env, run_id, text="what did it cost?", concierge=True, message_id="u1")
+        r2 = _post(
+            env, run_id, text="what did it cost?", concierge=True, message_id="u1"
+        )
         assert r2.status_code == 200, r2.text
-        assert len(_events_of_type(env, run_id, "chat_usage")) == 1, "replay double-counted"
+        assert (
+            len(_events_of_type(env, run_id, "chat_usage")) == 1
+        ), "replay double-counted"
 
     def test_chat_usage_never_mutates_workflow_run_token_usage(self, env, monkeypatch):
         """Chat spend is a SEPARATE line — it never touches the run's headline cost.
@@ -627,21 +711,36 @@ class TestChatUsageAccounting:
 
         db = env["Session"]()
         try:
-            before = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first().token_usage
+            before = (
+                db.query(WorkflowRun)
+                .filter(WorkflowRun.id == run_id)
+                .first()
+                .token_usage
+            )
         finally:
             db.close()
 
-        assert _post(env, run_id, text="hi", concierge=True, message_id="u2").status_code == 200
+        assert (
+            _post(env, run_id, text="hi", concierge=True, message_id="u2").status_code
+            == 200
+        )
         # The row proves the turn WAS counted — so an unchanged headline is a decision,
         # not an accident of the spend never being observed.
         assert len(_events_of_type(env, run_id, "chat_usage")) == 1
 
         db = env["Session"]()
         try:
-            after = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first().token_usage
+            after = (
+                db.query(WorkflowRun)
+                .filter(WorkflowRun.id == run_id)
+                .first()
+                .token_usage
+            )
         finally:
             db.close()
-        assert after == before, "chat spend must NOT be folded into the run's headline cost"
+        assert (
+            after == before
+        ), "chat spend must NOT be folded into the run's headline cost"
 
     def test_no_chat_usage_row_when_spend_was_not_observed(self, env, monkeypatch):
         """A converse that reports no usage writes NO row — unmeasured is never invented.
@@ -659,7 +758,10 @@ class TestChatUsageAccounting:
         run_id = _seed_run(env, owner.id, status="completed")
         env["state"]["user"] = owner
 
-        assert _post(env, run_id, text="hi", concierge=True, message_id="u3").status_code == 200
+        assert (
+            _post(env, run_id, text="hi", concierge=True, message_id="u3").status_code
+            == 200
+        )
         # The reply still landed — counting never gates the product.
         assert len(_events_of_type(env, run_id, "chat_reply")) == 1
         assert _events_of_type(env, run_id, "chat_usage") == []

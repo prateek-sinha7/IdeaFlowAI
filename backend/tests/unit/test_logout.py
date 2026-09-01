@@ -28,6 +28,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.auth import router as auth_router
 from app.core.security import decode_access_token
 from app.models.database import Base, get_db
+
 # Ensure RevokedToken's table is registered with Base.metadata before
 # create_all is called.
 from app.models.revoked_token import RevokedToken  # noqa: F401
@@ -74,7 +75,9 @@ def client():
     engine.dispose()
 
 
-def _register(client, email: str = "alice@example.com", password: str = "password123") -> dict:
+def _register(
+    client, email: str = "alice@example.com", password: str = "password123"
+) -> dict:
     """Create a local ("break-glass"-shaped) user directly in the test DB, then
     log in and return the parsed AuthResponse JSON.
 
@@ -100,7 +103,9 @@ def _register(client, email: str = "alice@example.com", password: str = "passwor
     return _login(client, email=email, password=password)
 
 
-def _login(client, email: str = "alice@example.com", password: str = "password123") -> dict:
+def _login(
+    client, email: str = "alice@example.com", password: str = "password123"
+) -> dict:
     """Log in an existing user and return the parsed JSON response."""
     resp = client.post(
         "/api/auth/login",
@@ -281,7 +286,9 @@ class TestLogoutPersistsCorrectRow:
         get_db_override = client.app.dependency_overrides[get_db]
         db = next(get_db_override())
         try:
-            row = db.query(RevokedToken).filter(RevokedToken.jti == expected_jti).first()
+            row = (
+                db.query(RevokedToken).filter(RevokedToken.jti == expected_jti).first()
+            )
             assert row is not None, "Logout did not create a revoked_tokens row"
             stored = row.expires_at
             if stored.tzinfo is None:

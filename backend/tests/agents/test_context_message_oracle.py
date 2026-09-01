@@ -111,9 +111,9 @@ def test_oracle_planning_agents_get_no_example_html() -> None:
     """Planning agents (tools=[]) get NO example.html — the `_is_builder` gate (both refs)."""
     for ac in ("prototype-specify", "prototype-plan"):
         msg = build_oracle_message(ac, task="")
-        assert "=== TEMPLATE EXAMPLE (example.html):" not in msg, (
-            f"{ac} must NOT receive the example.html block (acd1636 _is_builder gate)"
-        )
+        assert (
+            "=== TEMPLATE EXAMPLE (example.html):" not in msg
+        ), f"{ac} must NOT receive the example.html block (acd1636 _is_builder gate)"
         # Planning agents are not builders -> no injection parts and no TEMPLATE COMPLIANCE.
         assert "=== TEMPLATE SEED" not in msg
         assert "=== TEMPLATE COMPLIANCE ===" not in msg
@@ -124,7 +124,11 @@ def test_oracle_planning_agents_get_no_example_html() -> None:
 
 def test_oracle_classes_exported() -> None:
     """The oracle exposes the three captured agent classes."""
-    assert set(AGENT_CLASSES) == {"prototype-specify", "prototype-plan", "prototype-build"}
+    assert set(AGENT_CLASSES) == {
+        "prototype-specify",
+        "prototype-plan",
+        "prototype-build",
+    }
 
 
 # ===========================================================================
@@ -219,7 +223,9 @@ async def test_routed_build_prompt_equals_oracle_byte_for_byte() -> None:
     # from the routed message itself — they are workflow-agnostic, unchanged by Phase 7,
     # and not part of the cluster-C contract under test).
     planning_block = _slice_between(
-        routed[0], "## Planning Context (Deep Planner Analysis)", "## End Planning Context"
+        routed[0],
+        "## Planning Context (Deep Planner Analysis)",
+        "## End Planning Context",
     )
     consumed_block = _extract_consumed_block(routed[0])
 
@@ -264,10 +270,14 @@ async def test_routed_build_task_2_equals_oracle_byte_for_byte() -> None:
         routed[1], "=== CURRENT PROTOTYPE (skeleton", "=== END CURRENT PROTOTYPE ==="
     )
     inner_skeleton = skel_block[
-        skel_block.index("===\n") + 4 : skel_block.rindex("\n=== END CURRENT PROTOTYPE ===")
+        skel_block.index("===\n") + 4 : skel_block.rindex(
+            "\n=== END CURRENT PROTOTYPE ==="
+        )
     ]
     planning_block = _slice_between(
-        routed[1], "## Planning Context (Deep Planner Analysis)", "## End Planning Context"
+        routed[1],
+        "## Planning Context (Deep Planner Analysis)",
+        "## End Planning Context",
     )
     consumed_block = _extract_consumed_block(routed[1])
 

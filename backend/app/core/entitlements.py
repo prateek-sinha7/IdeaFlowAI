@@ -7,34 +7,47 @@ Tier = Literal["basic", "pro", "enterprise", "hexaware"]
 # Pipelines each tier can execute (including revision variants)
 TIER_PIPELINES: dict[str, set[str]] = {
     "basic": {
-        "user_stories", "user_stories_revision",
-        "ppt", "ppt_revision",
+        "user_stories",
+        "user_stories_revision",
+        "ppt",
+        "ppt_revision",
     },
     # KAN-161 / ISS-055: scoped tier for deployments that need prototype +
     # user_stories only (e.g. Hexaware internal tooling). Deliberately excludes
     # the ppt and app_builder families.
     "hexaware": {
-        "user_stories", "user_stories_revision",
-        "prototype", "prototype_revision",
-        "prototype_large_revision",    # tiered large-revision manifest
+        "user_stories",
+        "user_stories_revision",
+        "prototype",
+        "prototype_revision",
+        "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
     },
     "pro": {
-        "user_stories", "user_stories_revision",
-        "ppt", "ppt_revision",
-        "prototype", "prototype_revision",
-        "prototype_large_revision",    # tiered large-revision manifest
+        "user_stories",
+        "user_stories_revision",
+        "ppt",
+        "ppt_revision",
+        "prototype",
+        "prototype_revision",
+        "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
-        "app_builder", "app_builder_revision",
+        "app_builder",
+        "app_builder_revision",
     },
     "enterprise": {
-        "user_stories", "user_stories_revision",
-        "ppt", "ppt_revision",
-        "prototype", "prototype_revision",
-        "prototype_large_revision",    # tiered large-revision manifest
+        "user_stories",
+        "user_stories_revision",
+        "ppt",
+        "ppt_revision",
+        "prototype",
+        "prototype_revision",
+        "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
-        "app_builder", "app_builder_revision",
-        "custom", "custom_revision",
+        "app_builder",
+        "app_builder_revision",
+        "custom",
+        "custom_revision",
         # UI meta-grouping, never dispatched: the "Platform workflows" card makes
         # the user pick a concrete sub-pipeline first. It has no manifest, so a
         # direct launch would 404 at compile — but the frontend gates the card on
@@ -68,7 +81,10 @@ def can_run_pipeline(user_tier: str, pipeline_type: str) -> tuple[bool, str]:
     next_tier = UPGRADE_PATH.get(user_tier)
     if next_tier:
         next_label = TIER_LABELS[next_tier]
-        return False, f"This pipeline requires {next_label} or higher. Upgrade your plan to unlock it."
+        return (
+            False,
+            f"This pipeline requires {next_label} or higher. Upgrade your plan to unlock it.",
+        )
     return False, "This pipeline is not available on your current plan."
 
 

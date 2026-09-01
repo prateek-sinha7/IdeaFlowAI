@@ -53,7 +53,12 @@ def resolve_templates_dir(cli_dir: str | None) -> Path:
         return Path(od_root) / "design-templates"
     # Default: repo-root/skills/opendesign/design-templates. This file lives at
     # backend/scripts/, so the repo root is two levels up.
-    return Path(__file__).resolve().parents[2] / "skills" / "opendesign" / "design-templates"
+    return (
+        Path(__file__).resolve().parents[2]
+        / "skills"
+        / "opendesign"
+        / "design-templates"
+    )
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -99,7 +104,9 @@ def list_template_ids(templates_dir: Path, only: str | None) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate OpenDesign template thumbnails.")
+    parser = argparse.ArgumentParser(
+        description="Generate OpenDesign template thumbnails."
+    )
     parser.add_argument("--dir", dest="dir", default=None)
     parser.add_argument("--only", dest="only", default=None)
     parser.add_argument("--force", dest="force", action="store_true")
@@ -107,7 +114,9 @@ def main() -> int:
 
     templates_dir = resolve_templates_dir(args.dir)
     if not templates_dir.is_dir():
-        print(f"! design-templates directory not found: {templates_dir} — skipping thumbnails")
+        print(
+            f"! design-templates directory not found: {templates_dir} — skipping thumbnails"
+        )
         return 0  # best-effort: never fail the build
 
     try:
@@ -126,7 +135,9 @@ def main() -> int:
         with sync_playwright() as p:
             browser = launch_browser(p)
             if browser is None:
-                print("! Could not launch a Chromium browser — skipping (gallery falls back to iframes)")
+                print(
+                    "! Could not launch a Chromium browser — skipping (gallery falls back to iframes)"
+                )
                 return 0
 
             for tid in ids:
@@ -141,7 +152,9 @@ def main() -> int:
                 url = f"http://127.0.0.1:{port}/{tid}/example.html"
                 context = None
                 try:
-                    context = browser.new_context(viewport=VIEWPORT, device_scale_factor=1)
+                    context = browser.new_context(
+                        viewport=VIEWPORT, device_scale_factor=1
+                    )
                     page = context.new_page()
                     page.goto(url, wait_until="load", timeout=NAV_TIMEOUT_MS)
                     page.wait_for_timeout(SETTLE_MS)

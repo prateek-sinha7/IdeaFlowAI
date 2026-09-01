@@ -51,7 +51,9 @@ class _FakeUser:
         self.preferred_model = None
 
 
-def _token_usage(cost: float, inp: int, out: int, cache_read: int = 0, cache_write: int = 0) -> str:
+def _token_usage(
+    cost: float, inp: int, out: int, cache_read: int = 0, cache_write: int = 0
+) -> str:
     """The exact blob run_commands.py:1277-1291 persists (the ONLY writer)."""
     return json.dumps(
         {
@@ -224,11 +226,17 @@ def test_recompute(env):
     # Two runs INSIDE the 7d window.
     _seed_run(env, a.id, token_usage=_token_usage(1.00, 200, 100), created_at=now)
     _seed_run(
-        env, a.id, token_usage=_token_usage(2.00, 300, 150), created_at=now - timedelta(days=3)
+        env,
+        a.id,
+        token_usage=_token_usage(2.00, 300, 150),
+        created_at=now - timedelta(days=3),
     )
     # One run OUTSIDE the 7d window (must be excluded).
     _seed_run(
-        env, a.id, token_usage=_token_usage(50.0, 9000, 9000), created_at=now - timedelta(days=20)
+        env,
+        a.id,
+        token_usage=_token_usage(50.0, 9000, 9000),
+        created_at=now - timedelta(days=20),
     )
 
     env["state"]["user"] = a
@@ -281,8 +289,18 @@ def test_range(env):
     now = datetime.now(timezone.utc)
 
     _seed_run(env, a.id, created_at=now, token_usage=_token_usage(0.1, 10, 5))
-    _seed_run(env, a.id, created_at=now - timedelta(days=2), token_usage=_token_usage(0.1, 10, 5))
-    _seed_run(env, a.id, created_at=now - timedelta(days=45), token_usage=_token_usage(0.1, 10, 5))
+    _seed_run(
+        env,
+        a.id,
+        created_at=now - timedelta(days=2),
+        token_usage=_token_usage(0.1, 10, 5),
+    )
+    _seed_run(
+        env,
+        a.id,
+        created_at=now - timedelta(days=45),
+        token_usage=_token_usage(0.1, 10, 5),
+    )
 
     env["state"]["user"] = a
 
@@ -319,7 +337,12 @@ def test_range(env):
 
 
 def _token_usage_metered(
-    cost: float, cost_full: float, inp: int, out: int, cache_read: int = 0, cache_write: int = 0
+    cost: float,
+    cost_full: float,
+    inp: int,
+    out: int,
+    cache_read: int = 0,
+    cache_write: int = 0,
 ) -> str:
     """A post-ISS-034 blob — the legacy ``_token_usage`` shape plus the counterfactual."""
     blob = json.loads(_token_usage(cost, inp, out, cache_read, cache_write))

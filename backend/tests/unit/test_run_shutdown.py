@@ -109,7 +109,9 @@ class TestShutdownDrainsPumpTasks:
         _PUMP_TASKS at all, so a stuck pump would run forever, still holding
         whatever DB/connection resources it referenced when the checkpointer pool
         below it was closed."""
-        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05)
+        monkeypatch.setattr(
+            run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05
+        )
 
         async def _stuck_forever() -> None:
             await asyncio.Event().wait()  # never completes on its own
@@ -169,7 +171,9 @@ class TestShutdownStopsRunsWhenEnabled:
         point of turning it on locally (an od_prototype build survives a restart today
         and bills 5-21M Bedrock tokens finishing itself)."""
         monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_STOP_RUNS", True)
-        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05)
+        monkeypatch.setattr(
+            run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05
+        )
 
         cooperative_event = asyncio.Event()
 
@@ -191,7 +195,9 @@ class TestShutdownStopsRunsWhenEnabled:
         assert summary["errors"] == []
 
     @pytest.mark.asyncio
-    async def test_disabled_stop_runs_leaves_the_run_for_boot_restore(self, monkeypatch):
+    async def test_disabled_stop_runs_leaves_the_run_for_boot_restore(
+        self, monkeypatch
+    ):
         """The production branch: the driver is untouched and the run stays in the set the
         next boot re-adopts. This is what keeps the Phase 45-50 resume tier working."""
         monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_STOP_RUNS", False)
@@ -229,7 +235,9 @@ class TestPerRunStopEscalation:
         force-cancelled — and the row is then reconciled to a TERMINAL status, because a
         non-terminal row is re-adopted by the next boot's ``restore_non_terminal_runs``
         and driven to completion at the owner's expense."""
-        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05)
+        monkeypatch.setattr(
+            run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05
+        )
         reconciled: list[str] = []
 
         async def _spy_reconcile(run_id: str) -> None:
@@ -262,7 +270,9 @@ class TestPerRunStopEscalation:
         ``pipeline_cancelled``) must reach ``done()`` un-cancelled — a destructive kill
         here would race the terminal off the wire, which is the defect Phase 16-02
         removed."""
-        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 1.0)
+        monkeypatch.setattr(
+            run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 1.0
+        )
 
         async def _spy_reconcile(run_id: str) -> None:
             return None

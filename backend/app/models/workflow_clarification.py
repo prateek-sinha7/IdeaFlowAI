@@ -19,10 +19,10 @@ class WorkflowClarification(Base):
     workflow_run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
     question_id = Column(String, nullable=False)
     question_text = Column(Text, nullable=False)
-    impact_level = Column(String, nullable=False)            # "high" | "medium" | "low"
-    answer_type = Column(String, nullable=False)             # "free_text" | "single_choice" | ...
-    options = Column(Text, nullable=True)                    # JSON array of strings
-    answer = Column(Text, nullable=True)                     # user's answer (NULL until answered)
+    impact_level = Column(String, nullable=False)  # "high" | "medium" | "low"
+    answer_type = Column(String, nullable=False)  # "free_text" | "single_choice" | ...
+    options = Column(Text, nullable=True)  # JSON array of strings
+    answer = Column(Text, nullable=True)  # user's answer (NULL until answered)
     recommended_answer = Column(Text, nullable=True)
     round = Column(Integer, nullable=False, default=1, server_default="1")  # 1, 2, or 3
     created_at = Column(

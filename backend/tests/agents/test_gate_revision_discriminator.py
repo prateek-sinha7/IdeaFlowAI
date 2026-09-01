@@ -60,9 +60,9 @@ async def _first_ready(engine, **gate_kwargs) -> dict:
         event = await agen.__anext__()
     finally:
         await agen.aclose()
-    assert event.get("type") == "review_gate_ready", (
-        f"the gate's first emission is no longer review_gate_ready; got {event}"
-    )
+    assert (
+        event.get("type") == "review_gate_ready"
+    ), f"the gate's first emission is no longer review_gate_ready; got {event}"
     return event["data"]
 
 
@@ -85,9 +85,9 @@ async def test_each_gate_firing_carries_a_distinct_revision_stamp() -> None:
 
     records, _tids, _ectx, _ordered, _events = await _drive_cycles("iss052-stamp", {0})
 
-    assert len(records) == 3, (
-        f"expected 3 gate firings for one cycle; got {[r['firing'] for r in records]}"
-    )
+    assert (
+        len(records) == 3
+    ), f"expected 3 gate firings for one cycle; got {[r['firing'] for r in records]}"
     stamps = _stamps(records)
 
     assert stamps == [(0, False), (1, True), (1, False)], (
@@ -115,16 +115,18 @@ async def test_a_second_cycle_advances_the_published_cycle_index() -> None:
     """
     from tests.agents.test_spec_revision_cycles import _drive_cycles
 
-    records, _tids, _ectx, _ordered, _events = await _drive_cycles("iss052-second", {0, 2})
-
-    assert len(records) == 5, (
-        f"expected 5 gate firings for two cycles; got {[r['firing'] for r in records]}"
+    records, _tids, _ectx, _ordered, _events = await _drive_cycles(
+        "iss052-second", {0, 2}
     )
+
+    assert (
+        len(records) == 5
+    ), f"expected 5 gate firings for two cycles; got {[r['firing'] for r in records]}"
     cycles = [r[_CYCLE] for r in records]
 
-    assert cycles == [0, 1, 1, 2, 2], (
-        f"the cycle index must advance 0 -> 1 -> 2 across two sibling cycles; got {cycles}"
-    )
+    assert (
+        cycles == [0, 1, 1, 2, 2]
+    ), f"the cycle index must advance 0 -> 1 -> 2 across two sibling cycles; got {cycles}"
     assert [r[_IN_FLIGHT] for r in records] == [False, True, False, True, False], (
         "the in-flight flag must be True at exactly the two in-pass gates; got "
         f"{[r[_IN_FLIGHT] for r in records]}"
@@ -158,12 +160,12 @@ async def test_real_gate_stamps_the_discriminator_on_review_gate_ready() -> None
         revision_in_flight=True,
     )
 
-    assert data.get(_CYCLE) == 2, (
-        f"review_gate_ready did not carry the revision cycle; got {sorted(data)}"
-    )
-    assert data.get(_IN_FLIGHT) is True, (
-        f"review_gate_ready did not carry the in-flight flag; got {sorted(data)}"
-    )
+    assert (
+        data.get(_CYCLE) == 2
+    ), f"review_gate_ready did not carry the revision cycle; got {sorted(data)}"
+    assert (
+        data.get(_IN_FLIGHT) is True
+    ), f"review_gate_ready did not carry the in-flight flag; got {sorted(data)}"
 
 
 @pytest.mark.asyncio
@@ -186,9 +188,9 @@ async def test_gate_defaults_the_discriminator_for_the_declared_path() -> None:
     )
 
     assert data.get(_CYCLE) == 0, f"expected a 0 default; got {data.get(_CYCLE)!r}"
-    assert data.get(_IN_FLIGHT) is False, (
-        f"expected a False default; got {data.get(_IN_FLIGHT)!r}"
-    )
+    assert (
+        data.get(_IN_FLIGHT) is False
+    ), f"expected a False default; got {data.get(_IN_FLIGHT)!r}"
     # Same default-bearing path the redoable fence rides — pinned together so a future
     # signature change cannot silently make one of them default-true.
     assert data.get("redoable") is False
@@ -208,12 +210,12 @@ def test_discriminator_introduces_no_agent_id_literal() -> None:
     stamp_lines = [ln for ln in lines if _CYCLE in ln or _IN_FLIGHT in ln]
     assert stamp_lines, "the revision discriminator never appears in engine.py"
     for ln in stamp_lines:
-        assert "prototype-" not in ln, (
-            f"discriminator line names a workflow/agent literal (SC-001 leak): {ln!r}"
-        )
-        assert "pipeline_type" not in ln, (
-            f"discriminator line branches on pipeline_type (SC-001 leak): {ln!r}"
-        )
+        assert (
+            "prototype-" not in ln
+        ), f"discriminator line names a workflow/agent literal (SC-001 leak): {ln!r}"
+        assert (
+            "pipeline_type" not in ln
+        ), f"discriminator line branches on pipeline_type (SC-001 leak): {ln!r}"
 
 
 def test_discriminator_keys_are_in_volatile_strip_set() -> None:

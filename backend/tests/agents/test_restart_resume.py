@@ -64,10 +64,32 @@ _TASK_PLAN = (
     + _json.dumps(
         {
             "tasks": [
-                {"id": "t1", "title": "Write A", "body": "Write the file part_a.txt with the content 'a'.", "targets": ["part_a.txt"]},
-                {"id": "t2", "title": "Write B", "body": "Write the file part_b.txt with the content 'b'.", "targets": ["part_b.txt"]},
-                {"id": "t3", "title": "Write C", "body": "Write the file part_c.txt with the content 'c'.", "targets": ["part_c.txt"], "depends_on": ["t1"]},
-                {"id": "t4", "title": "Write D", "body": "Write the file part_d.txt with the content 'd'.", "targets": ["part_d.txt"], "depends_on": ["t2"]},
+                {
+                    "id": "t1",
+                    "title": "Write A",
+                    "body": "Write the file part_a.txt with the content 'a'.",
+                    "targets": ["part_a.txt"],
+                },
+                {
+                    "id": "t2",
+                    "title": "Write B",
+                    "body": "Write the file part_b.txt with the content 'b'.",
+                    "targets": ["part_b.txt"],
+                },
+                {
+                    "id": "t3",
+                    "title": "Write C",
+                    "body": "Write the file part_c.txt with the content 'c'.",
+                    "targets": ["part_c.txt"],
+                    "depends_on": ["t1"],
+                },
+                {
+                    "id": "t4",
+                    "title": "Write D",
+                    "body": "Write the file part_d.txt with the content 'd'.",
+                    "targets": ["part_d.txt"],
+                    "depends_on": ["t2"],
+                },
             ]
         },
         indent=2,
@@ -85,10 +107,30 @@ _SINGLE_WAVE_PLAN = (
     + _json.dumps(
         {
             "tasks": [
-                {"id": "t1", "title": "Write A", "body": "Write the file part_a.txt with the content 'a'.", "targets": ["part_a.txt"]},
-                {"id": "t2", "title": "Write B", "body": "Write the file part_b.txt with the content 'b'.", "targets": ["part_b.txt"]},
-                {"id": "t3", "title": "Write C", "body": "Write the file part_c.txt with the content 'c'.", "targets": ["part_c.txt"]},
-                {"id": "t4", "title": "Write D", "body": "Write the file part_d.txt with the content 'd'.", "targets": ["part_d.txt"]},
+                {
+                    "id": "t1",
+                    "title": "Write A",
+                    "body": "Write the file part_a.txt with the content 'a'.",
+                    "targets": ["part_a.txt"],
+                },
+                {
+                    "id": "t2",
+                    "title": "Write B",
+                    "body": "Write the file part_b.txt with the content 'b'.",
+                    "targets": ["part_b.txt"],
+                },
+                {
+                    "id": "t3",
+                    "title": "Write C",
+                    "body": "Write the file part_c.txt with the content 'c'.",
+                    "targets": ["part_c.txt"],
+                },
+                {
+                    "id": "t4",
+                    "title": "Write D",
+                    "body": "Write the file part_d.txt with the content 'd'.",
+                    "targets": ["part_d.txt"],
+                },
             ]
         },
         indent=2,
@@ -105,13 +147,17 @@ class _PartWritingModel(ScriptedFakeChatModel):
     test can assert wave-0 workers (a/b) are NOT re-invoked by instance B.
     """
 
-    def __init__(self, turns, *, is_worker=False, fail_on=None, call_log=None, **kwargs: Any) -> None:
+    def __init__(
+        self, turns, *, is_worker=False, fail_on=None, call_log=None, **kwargs: Any
+    ) -> None:
         super().__init__(turns, **kwargs)
         object.__setattr__(self, "_is_worker", is_worker)
         object.__setattr__(self, "_fail_on", set(fail_on or ()))
         object.__setattr__(self, "_call_log", call_log if call_log is not None else {})
 
-    def _stream(self, messages, stop=None, run_manager=None, **kwargs) -> Iterator[ChatGenerationChunk]:
+    def _stream(
+        self, messages, stop=None, run_manager=None, **kwargs
+    ) -> Iterator[ChatGenerationChunk]:
         if not self._is_worker:
             yield from super()._stream(messages, stop, run_manager, **kwargs)
             return
@@ -126,14 +172,20 @@ class _PartWritingModel(ScriptedFakeChatModel):
             # Count the call for THIS letter (the wave worker for part_<letter>.txt).
             self._call_log[letter] = self._call_log.get(letter, 0) + 1
             if letter in self._fail_on:
-                raise RuntimeError(f"scripted interrupt on part_{letter}.txt (instance A crash)")
+                raise RuntimeError(
+                    f"scripted interrupt on part_{letter}.txt (instance A crash)"
+                )
         already_wrote = bool(self._call_index)
         object.__setattr__(self, "_call_index", self._call_index + 1)
         if not matches or already_wrote:
             yield ChatGenerationChunk(
                 message=AIMessageChunk(
                     content="Done.",
-                    usage_metadata={"input_tokens": 4, "output_tokens": 2, "total_tokens": 6},
+                    usage_metadata={
+                        "input_tokens": 4,
+                        "output_tokens": 2,
+                        "total_tokens": 6,
+                    },
                     chunk_position="last",
                 )
             )
@@ -143,12 +195,21 @@ class _PartWritingModel(ScriptedFakeChatModel):
         yield ChatGenerationChunk(
             message=AIMessageChunk(
                 content=f"Writing {fname}. ",
-                tool_call_chunks=[{
-                    "name": "write_file",
-                    "args": _json.dumps({"file_path": fname, "content": f"{letter}\n"}),
-                    "id": f"c_w_{letter}", "index": 0,
-                }],
-                usage_metadata={"input_tokens": 12, "output_tokens": 6, "total_tokens": 18},
+                tool_call_chunks=[
+                    {
+                        "name": "write_file",
+                        "args": _json.dumps(
+                            {"file_path": fname, "content": f"{letter}\n"}
+                        ),
+                        "id": f"c_w_{letter}",
+                        "index": 0,
+                    }
+                ],
+                usage_metadata={
+                    "input_tokens": 12,
+                    "output_tokens": 6,
+                    "total_tokens": 18,
+                },
                 chunk_position="last",
             )
         )
@@ -166,9 +227,13 @@ def _load_fixture_specs():
         md = post.metadata
         specs.append(
             AgentSpec(
-                id=md["id"], name=md["name"], role=md["role"],
-                pipeline_type=md["pipeline_type"], order=int(md["order"]),
-                max_tokens=int(md["max_tokens"]), prompt_body=post.content,
+                id=md["id"],
+                name=md["name"],
+                role=md["role"],
+                pipeline_type=md["pipeline_type"],
+                order=int(md["order"]),
+                max_tokens=int(md["max_tokens"]),
+                prompt_body=post.content,
                 tools=list(md.get("tools", []) or []),
                 guardrails=list(md.get("guardrails", []) or []),
                 context_from=list(md.get("context_from", []) or []),
@@ -193,7 +258,17 @@ class _ResumeHarness:
     wave_runs/subagent_runs/run_events persist across the simulated restart (Open Q3).
     """
 
-    def __init__(self, session, call_log, fail_on, *, db_engine=None, raise_on_fanout_call=None, plan=_TASK_PLAN, clarify_mode="off"):
+    def __init__(
+        self,
+        session,
+        call_log,
+        fail_on,
+        *,
+        db_engine=None,
+        raise_on_fanout_call=None,
+        plan=_TASK_PLAN,
+        clarify_mode="off",
+    ):
         self.session = session
         self.call_log = call_log
         self.fail_on = fail_on
@@ -290,6 +365,7 @@ class _ResumeHarness:
         _raise_on = self.raise_on_fanout_call
 
         if _raise_on is not None:
+
             async def _wrapped_fanout(self_ks, *a, **k):
                 _fanout_calls["n"] += 1
                 if _fanout_calls["n"] == _raise_on:
@@ -300,9 +376,11 @@ class _ResumeHarness:
                     yield ev
 
             _KS.run_fanout = _wrapped_fanout
+
             def _restore_fanout():
                 setattr(_KS, "run_fanout", _orig_fanout)  # noqa: B010
         else:
+
             def _restore_fanout():
                 pass
 
@@ -315,12 +393,14 @@ class _ResumeHarness:
         _orig_session_local = _db_mod.SessionLocal
         if self.db_engine is not None:
             _shared_maker = sessionmaker(
-                bind=self.db_engine, autocommit=False, autoflush=False,
+                bind=self.db_engine,
+                autocommit=False,
+                autoflush=False,
                 expire_on_commit=False,
             )
             _db_mod.SessionLocal = _shared_maker
-            self._restore_session_local = (
-                lambda: setattr(_db_mod, "SessionLocal", _orig_session_local)
+            self._restore_session_local = lambda: setattr(
+                _db_mod, "SessionLocal", _orig_session_local
             )
         else:
             self._restore_session_local = lambda: None
@@ -333,7 +413,8 @@ class _ResumeHarness:
             lambda: setattr(registry_mod, "get_pipeline_agents", _orig_gpa),
             lambda: setattr(factory_mod, "create_runner", _orig_cr),
             (lambda: setattr(engine_mod, "create_runner", _orig_engine_cr))
-            if _orig_engine_cr is not None else (lambda: None),
+            if _orig_engine_cr is not None
+            else (lambda: None),
             lambda: setattr(engine_mod, "ScopedStore", _orig_ss),
         ]
         return self
@@ -350,7 +431,9 @@ class _ResumeHarness:
 
         engine = ExecutionEngine()
 
-        async def _fake_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kw):
+        async def _fake_planner(
+            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kw
+        ):
             return engine._default_planning_context(user_message), "PROCEED"
 
         engine._run_planner = _fake_planner  # type: ignore[assignment]
@@ -381,7 +464,13 @@ def _make_session():
 
 
 def _seed_workflow_run(
-    session, run_id, *, owner, status, type_="sample_wave", input_="brief",
+    session,
+    run_id,
+    *,
+    owner,
+    status,
+    type_="sample_wave",
+    input_="brief",
     workspace_id=None,
 ):
     """Insert the workflow_runs row resume_run + the classifier read.
@@ -396,8 +485,13 @@ def _seed_workflow_run(
 
     session.add(
         WorkflowRun(
-            id=run_id, user_id=owner, owner_id=owner, workspace_id=workspace_id,
-            status=status, type=type_, input=input_,
+            id=run_id,
+            user_id=owner,
+            owner_id=owner,
+            workspace_id=workspace_id,
+            status=status,
+            type=type_,
+            input=input_,
         )
     )
     session.commit()
@@ -463,12 +557,12 @@ async def test_midwave_resume_does_not_reinvoke_completed_workers():
         .filter(WaveRun.run_id == run_id, WaveRun.wave_index == 0)
         .first()
     )
-    assert wave0 is not None and wave0.status == "completed", (
-        "instance A must have completed wave 0 before the mid-wave crash"
-    )
-    assert call_log.get("a", 0) >= 1 and call_log.get("b", 0) >= 1, (
-        f"wave-0 workers should have run on instance A: {call_log}"
-    )
+    assert (
+        wave0 is not None and wave0.status == "completed"
+    ), "instance A must have completed wave 0 before the mid-wave crash"
+    assert (
+        call_log.get("a", 0) >= 1 and call_log.get("b", 0) >= 1
+    ), f"wave-0 workers should have run on instance A: {call_log}"
     a_calls_a = call_log.get("a", 0)
     a_calls_b = call_log.get("b", 0)
 
@@ -478,27 +572,31 @@ async def test_midwave_resume_does_not_reinvoke_completed_workers():
         await engine_b.resume_run(run_id)
 
     # The wave-0 workers (a/b) were NOT re-invoked by instance B (mid-wave skip).
-    assert call_log.get("a", 0) == a_calls_a, (
-        f"part_a worker was re-invoked on resume (mid-wave skip failed): {call_log}"
-    )
-    assert call_log.get("b", 0) == a_calls_b, (
-        f"part_b worker was re-invoked on resume (mid-wave skip failed): {call_log}"
-    )
+    assert (
+        call_log.get("a", 0) == a_calls_a
+    ), f"part_a worker was re-invoked on resume (mid-wave skip failed): {call_log}"
+    assert (
+        call_log.get("b", 0) == a_calls_b
+    ), f"part_b worker was re-invoked on resume (mid-wave skip failed): {call_log}"
     # Wave 1 workers (c/d) ran on resume and produced their files.
-    assert call_log.get("c", 0) >= 1 and call_log.get("d", 0) >= 1, (
-        f"wave-1 workers did not run on resume: {call_log}"
-    )
+    assert (
+        call_log.get("c", 0) >= 1 and call_log.get("d", 0) >= 1
+    ), f"wave-1 workers did not run on resume: {call_log}"
 
     from app.agents.sandbox import RunSandbox
 
     root = RunSandbox(owner, run_id).root
     produced = {
-        p.name for p in root.rglob("*.txt")
+        p.name
+        for p in root.rglob("*.txt")
         if _PART_RE.fullmatch(p.name) and ".worktrees" not in p.parts
     }
-    assert produced == {"part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"}, (
-        f"resume did not complete every wave file: {sorted(produced)}"
-    )
+    assert produced == {
+        "part_a.txt",
+        "part_b.txt",
+        "part_c.txt",
+        "part_d.txt",
+    }, f"resume did not complete every wave file: {sorted(produced)}"
     session.close()
 
 
@@ -608,9 +706,9 @@ async def test_midwave_resume_reruns_whole_inflight_wave_no_parallel_dropout():
 
     # Wave 0 (completed) must be SKIPPED (not re-fanned-out).
     wave0_fanouts = [tids for (widx, tids) in runner.fanned_out if widx == 0]
-    assert not wave0_fanouts, (
-        f"completed wave 0 should be skipped wholesale, but was re-run: {wave0_fanouts}"
-    )
+    assert (
+        not wave0_fanouts
+    ), f"completed wave 0 should be skipped wholesale, but was re-run: {wave0_fanouts}"
     # Wave 1 (in-flight) must be re-run WHOLE — BOTH t3 and t4, not a dispatch-order prefix.
     wave1_fanouts = [tids for (widx, tids) in runner.fanned_out if widx == 1]
     assert wave1_fanouts, (
@@ -732,9 +830,9 @@ async def test_cross_step_does_not_skip_second_steps_waves():
     )
     # Both step2 waves (0 and 1) must have been dispatched.
     step2_wave_indices = {r[1] for r in step2_recorded}
-    assert step2_wave_indices == {0, 1}, (
-        f"step2 did not dispatch all its own waves (CR-04 cross-step skip): {step2_wave_indices}"
-    )
+    assert (
+        step2_wave_indices == {0, 1}
+    ), f"step2 did not dispatch all its own waves (CR-04 cross-step skip): {step2_wave_indices}"
 
 
 # ===========================================================================
@@ -809,9 +907,9 @@ async def test_stale_running_wave_row_is_flipped_terminal_on_resume():
         "the stale pre-crash running wave_runs row was NOT flipped terminal (WR-01). "
         f"updates={runner.updated}"
     )
-    assert flipped[0][1] == "superseded", (
-        f"stale row should be flipped to 'superseded', got {flipped[0][1]}"
-    )
+    assert (
+        flipped[0][1] == "superseded"
+    ), f"stale row should be flipped to 'superseded', got {flipped[0][1]}"
 
 
 # ===========================================================================
@@ -851,8 +949,11 @@ async def test_resumed_events_seq_continues_past_durable_tail():
     N = 5
     for seq in range(1, N + 1):
         await pre_store.append_event(
-            run_id, seq=seq, event_id=f"pre-{seq}",
-            type=f"agent_chunk_{seq}", payload_json={"seq": seq},
+            run_id,
+            seq=seq,
+            event_id=f"pre-{seq}",
+            type=f"agent_chunk_{seq}",
+            payload_json={"seq": seq},
         )
     session.commit()
 
@@ -880,9 +981,9 @@ async def test_resumed_events_seq_continues_past_durable_tail():
         f"got seqs {[r.seq for r in resumed]} (pre-fix itertools.count(1) collides)"
     )
     # min resumed seq is exactly N+1 (strictly contiguous from the tail).
-    assert min(r.seq for r in resumed) == N + 1, (
-        f"first resumed seq must be {N + 1} (max(seq)+1), got {min(r.seq for r in resumed)}"
-    )
+    assert (
+        min(r.seq for r in resumed) == N + 1
+    ), f"first resumed seq must be {N + 1} (max(seq)+1), got {min(r.seq for r in resumed)}"
 
     # A reconnect-style read with after_seq=N returns the resumed tail (non-empty) — the
     # exact RESUME-03 contract a reconnecting FE (lastSeqRef=N) relies on.
@@ -916,7 +1017,9 @@ async def test_waiting_for_user_run_is_rearmed_not_driven():
 
     # branch (a): the waiting_for_user run is re-armed on its resume event, NOT
     # auto-driven through resume_run.
-    assert resume_called["n"] == 0, "waiting_for_user must NOT be auto-resumed (branch a)"
+    assert (
+        resume_called["n"] == 0
+    ), "waiting_for_user must NOT be auto-resumed (branch a)"
     from app.models.workflow import WorkflowRun
 
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
@@ -946,11 +1049,15 @@ async def test_stateless_run_keeps_wr05_failed_path():
         engine.resume_run = _spy_resume  # type: ignore[assignment]
         await engine.restore_non_terminal_runs()
 
-    assert resume_called["n"] == 0, "a stateless run must NOT be auto-resumed (branch c)"
+    assert (
+        resume_called["n"] == 0
+    ), "a stateless run must NOT be auto-resumed (branch c)"
     from app.models.workflow import WorkflowRun
 
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert row.status == "failed", "stateless run must hit the WR-05 abandoned→failed path"
+    assert (
+        row.status == "failed"
+    ), "stateless run must hit the WR-05 abandoned→failed path"
     assert "WR-05" in (row.error or ""), f"WR-05 message missing: {row.error!r}"
     session.close()
 
@@ -971,7 +1078,10 @@ async def _seed_open_review_gate(session, run_id, owner, workspace_id, gate_key)
 
     pre_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
     await pre_store.append_event(
-        run_id, seq=1, event_id="rg-1", type="review_gate_ready",
+        run_id,
+        seq=1,
+        event_id="rg-1",
+        type="review_gate_ready",
         payload_json={"gate_key": gate_key},
     )
     session.commit()
@@ -1019,24 +1129,25 @@ async def test_waiting_for_user_with_open_review_gate_is_rearmed_and_driver_spaw
 
         await engine.restore_non_terminal_runs()
         import asyncio as _asyncio
+
         await _asyncio.sleep(0)  # let the scheduled driver task run to completion
 
         # The store review event was ARMED (created + not set) before the row was left
         # waiting_for_user — the arm-then-classify ordering (never a phantom-live row).
-        assert engine._store.review_event_pending(gate_key), (
-            "branch (a) must arm the review event before leaving waiting_for_user"
-        )
+        assert engine._store.review_event_pending(
+            gate_key
+        ), "branch (a) must arm the review event before leaving waiting_for_user"
         # The DISTINCT re-arm driver was spawned exactly once with the run_id.
-        assert spawned["n"] == 1 and spawned["run_id"] == run_id, (
-            f"the re-arm driver must be spawned once with the run_id: {spawned}"
-        )
+        assert (
+            spawned["n"] == 1 and spawned["run_id"] == run_id
+        ), f"the re-arm driver must be spawned once with the run_id: {spawned}"
 
     from app.models.workflow import WorkflowRun
 
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert row.status == "waiting_for_user", (
-        "a re-armed run's status stays waiting_for_user (KAN-88 assertion)"
-    )
+    assert (
+        row.status == "waiting_for_user"
+    ), "a re-armed run's status stays waiting_for_user (KAN-88 assertion)"
     session.close()
 
 
@@ -1073,9 +1184,9 @@ async def test_waiting_for_user_rearm_arm_failure_falls_back_to_wr05_fail(monkey
     from app.models.workflow import WorkflowRun
 
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert row.status == "failed", (
-        "an arm failure must fail-safe to the WR-05 fail path (never a phantom-live row)"
-    )
+    assert (
+        row.status == "failed"
+    ), "an arm failure must fail-safe to the WR-05 fail path (never a phantom-live row)"
     assert "WR-05-clarify" in (row.error or ""), f"WR-05-clarify missing: {row.error!r}"
     session.close()
 
@@ -1088,7 +1199,10 @@ async def test_waiting_for_user_uncompilable_type_keeps_wr05_fail():
     session, db_engine = _make_session()
     run_id = f"uc-{uuid.uuid4().hex[:8]}"
     _seed_workflow_run(
-        session, run_id, owner="uc-user", status="waiting_for_user",
+        session,
+        run_id,
+        owner="uc-user",
+        status="waiting_for_user",
         type_="__nonexistent_pipeline__",
     )
 
@@ -1106,9 +1220,9 @@ async def test_waiting_for_user_uncompilable_type_keeps_wr05_fail():
     from app.models.workflow import WorkflowRun
 
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert row.status == "failed", (
-        "an uncompilable waiting_for_user run keeps the WR-05-clarify fail"
-    )
+    assert (
+        row.status == "failed"
+    ), "an uncompilable waiting_for_user run keeps the WR-05-clarify fail"
     assert "WR-05-clarify" in (row.error or ""), f"WR-05-clarify missing: {row.error!r}"
     session.close()
 
@@ -1174,22 +1288,36 @@ async def _build_open_review_gate_fixture(
         content = f"<output of {produced_id}>"
         await pre_store.write_ref(
             ArtifactRef(
-                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
-                kind="summary", producer_step=produced_id, producer_agent=produced_id,
-                task_id=None, content=content, content_hash=_pb_hash(content),
-                location=f"artifact_refs/{produced_id}", version=1,
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner,
+                workspace_id=ws,
+                kind="summary",
+                producer_step=produced_id,
+                producer_agent=produced_id,
+                task_id=None,
+                content=content,
+                content_hash=_pb_hash(content),
+                location=f"artifact_refs/{produced_id}",
+                version=1,
             )
         )
         if lifecycle != "none":
             _seq += 1
             _ltype = "agent_complete" if lifecycle == "complete" else "agent_start"
             await pre_store.append_event(
-                run_id, seq=_seq, event_id=f"og-{_ltype}-{produced_id}", type=_ltype,
+                run_id,
+                seq=_seq,
+                event_id=f"og-{_ltype}-{produced_id}",
+                type=_ltype,
                 payload_json={"agent_id": produced_id},
             )
     if seed_gate:
         await pre_store.append_event(
-            run_id, seq=_seq + 1, event_id="og-rg", type="review_gate_ready",
+            run_id,
+            seq=_seq + 1,
+            event_id="og-rg",
+            type="review_gate_ready",
             payload_json={"gate_key": f"{run_id}:{gated_id}"},
         )
     session.commit()
@@ -1235,7 +1363,9 @@ async def test_open_gate_override_is_noop_without_review_gate():
     idx = await ExecutionEngine()._first_incomplete_step(tmp, ordered_agents, compiled)
     # agent[0] + gated agent produced AND persisted agent_complete; agent[2] did NOT
     # → first incomplete is index 2.
-    assert idx == 2, f"no open gate ⇒ the normal produced-disjunct offset (2); got {idx}"
+    assert (
+        idx == 2
+    ), f"no open gate ⇒ the normal produced-disjunct offset (2); got {idx}"
     session.close()
 
 
@@ -1299,7 +1429,9 @@ class _FakeGateRunner:
         return "gate-event-id"
 
 
-def _seed_gate_reentry_ectx(run_id, spec, *, content="PERSISTED GATED OUTPUT", runner=None):
+def _seed_gate_reentry_ectx(
+    run_id, spec, *, content="PERSISTED GATED OUTPUT", runner=None
+):
     """Return an ectx armed for a gate re-entry: one durable ``summary`` ref for the
     gated agent + the ``gate_reentry`` sentinel + ``gate_agent_ids`` so ``_should_gate``
     fires. ``scoped_store`` left None ⇒ ``_dual_write_artifact`` writes the in-memory
@@ -1308,20 +1440,29 @@ def _seed_gate_reentry_ectx(run_id, spec, *, content="PERSISTED GATED OUTPUT", r
 
     ectx = _make_ectx(run_id, gate_agent_ids=[spec.id])
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="summary",
-        producer_step=spec.id, producer_agent=spec.id, task_id=None,
-        content=content, location=f"artifact_refs/{spec.id}",
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="summary",
+        producer_step=spec.id,
+        producer_agent=spec.id,
+        task_id=None,
+        content=content,
+        location=f"artifact_refs/{spec.id}",
     )
     ectx.runner = runner
     ectx.gate_reentry = {
-        "agent_id": spec.id, "artifact_kind": "summary",
+        "agent_id": spec.id,
+        "artifact_kind": "summary",
         "gate_key": f"{run_id}:{spec.id}",
     }
     return ectx
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("action", ["approve", "reject", "edit", "redo", "update_specs"])
+@pytest.mark.parametrize(
+    "action", ["approve", "reject", "edit", "redo", "update_specs"]
+)
 async def test_gate_reentry_all_five_actions_post_restart(action):
     """RESUME-17 SC-3: on a post-restart gate re-entry the model call is SKIPPED, the
     output is reconstructed from the persisted ref (WR-02), and ALL FIVE gate actions
@@ -1338,25 +1479,40 @@ async def test_gate_reentry_all_five_actions_post_restart(action):
     # domain-analyst: text-only, artifact kind "summary" (update_specs-eligible).
     spec = load_agent_spec("domain-analyst")
     scripts = {
-        "approve":      [[]],
-        "reject":       [[{"type": "_gate_rejected"}]],
-        "edit":         [[{"type": "_gate_edited", "edited_content": "EDITED OUTPUT"}]],
-        "redo":         [[{"type": "_gate_redo", "instructions": "redo it"}], []],
-        "update_specs": [[{"type": "_gate_update_specs", "analysis_report": "revise"}], []],
+        "approve": [[]],
+        "reject": [[{"type": "_gate_rejected"}]],
+        "edit": [[{"type": "_gate_edited", "edited_content": "EDITED OUTPUT"}]],
+        "redo": [[{"type": "_gate_redo", "instructions": "redo it"}], []],
+        "update_specs": [
+            [{"type": "_gate_update_specs", "analysis_report": "revise"}],
+            [],
+        ],
     }[action]
     captured_outputs: list[str] = []
     gate_n = {"n": 0}
 
-    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
-                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
+    async def _gate(
+        pipeline_run_id,
+        agent_id,
+        agent_name,
+        output,
+        redoable=False,
+        update_specs_eligible=False,
+        artifact_kind=None,
+        cancel_event=None,
+        **kwargs,
+    ):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
         captured_outputs.append(output)
-        yield {"type": "review_gate_ready", "data": {
-            "gate_key": f"{pipeline_run_id}:{agent_id}",
-            "redoable": redoable, "update_specs_eligible": update_specs_eligible,
-        }}
+        yield {
+            "type": "review_gate_ready",
+            "data": {
+                "gate_key": f"{pipeline_run_id}:{agent_id}",
+                "redoable": redoable,
+                "update_specs_eligible": update_specs_eligible,
+            },
+        }
         for ev in scripts[i]:
             yield ev
 
@@ -1366,47 +1522,62 @@ async def test_gate_reentry_all_five_actions_post_restart(action):
         sub_fired["n"] += 1
         yield {"type": "_revision_analyze_output", "output": "revised analysis"}
 
-    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("redo output. "))) as h:
+    with _EngineHarness(
+        lambda aid, idx: ScriptedFakeChatModel(_text_turn("redo output. "))
+    ) as h:
         h.engine._run_review_gate = _gate  # type: ignore[assignment]
         h.engine._run_spec_revision_sub_pipeline = _fake_subpipeline  # type: ignore[assignment]
         run_id = f"re-{action}"
         ectx = _seed_gate_reentry_ectx(run_id, spec)
         seeded_ref_id = ectx.artifacts.tree(run_id)[0].id
-        results: list[dict] = [{"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}]
+        results: list[dict] = [
+            {"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}
+        ]
         events = await _drive_agent(h.engine, spec, ectx, results, [spec])
 
     # The sentinel is CONSUMED (consume-once) and the gate reviewed the RECONSTRUCTED
     # persisted output — never a re-generated one (WR-02, model-skip).
-    assert getattr(ectx, "gate_reentry", None) is None, "the gate_reentry sentinel was not consumed"
-    assert captured_outputs and captured_outputs[0] == "PERSISTED GATED OUTPUT", (
-        f"the gate must review the persisted max-version output (WR-02); got {captured_outputs!r}"
-    )
+    assert (
+        getattr(ectx, "gate_reentry", None) is None
+    ), "the gate_reentry sentinel was not consumed"
+    assert (
+        captured_outputs and captured_outputs[0] == "PERSISTED GATED OUTPUT"
+    ), f"the gate must review the persisted max-version output (WR-02); got {captured_outputs!r}"
 
     if action == "approve":
         assert not any(e["type"] == "pipeline_cancelled" for e in events)
         assert gate_n["n"] == 1
         assert results[-1]["output"] == "PERSISTED GATED OUTPUT"
     elif action == "reject":
-        assert any(e["type"] == "pipeline_cancelled" for e in events), "reject must cancel"
+        assert any(
+            e["type"] == "pipeline_cancelled" for e in events
+        ), "reject must cancel"
     elif action == "edit":
         refs = [
-            r for r in ectx.artifacts.tree(run_id)
+            r
+            for r in ectx.artifacts.tree(run_id)
             if r.producer_agent == spec.id and r.content == "EDITED OUTPUT"
         ]
         assert refs, "edit must dual-write a new versioned ref"
-        assert refs[-1].derived_from == seeded_ref_id, (
-            "the edit's derived_from must point at the superseded persisted version (lineage)"
-        )
+        assert (
+            refs[-1].derived_from == seeded_ref_id
+        ), "the edit's derived_from must point at the superseded persisted version (lineage)"
     elif action == "redo":
         assert gate_n["n"] == 2, "redo must re-open the gate after the fresh re-run"
         redo_threads = [t for t in h.thread_ids if t and ":redo" in t]
-        assert redo_threads, f"redo must thread a fresh :redo{{N}} checkpoint: {h.thread_ids}"
+        assert (
+            redo_threads
+        ), f"redo must thread a fresh :redo{{N}} checkpoint: {h.thread_ids}"
     elif action == "update_specs":
-        assert sub_fired["n"] == 1, "update_specs must FIRE the spec-revision sub-pipeline"
-        assert gate_n["n"] == 2, "update_specs must re-open the gate with the new output"
-        assert captured_outputs[1] == "revised analysis", (
-            "the re-opened gate must review the sub-pipeline's new analysis output"
-        )
+        assert (
+            sub_fired["n"] == 1
+        ), "update_specs must FIRE the spec-revision sub-pipeline"
+        assert (
+            gate_n["n"] == 2
+        ), "update_specs must re-open the gate with the new output"
+        assert (
+            captured_outputs[1] == "revised analysis"
+        ), "the re-opened gate must review the sub-pipeline's new analysis output"
 
 
 @pytest.mark.asyncio
@@ -1426,36 +1597,54 @@ async def test_gate_reentry_redo_numbering_continues_past_pre_restart_redos():
     spec = load_agent_spec("domain-analyst")
     gate_n = {"n": 0}
 
-    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
-                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
+    async def _gate(
+        pipeline_run_id,
+        agent_id,
+        agent_name,
+        output,
+        redoable=False,
+        update_specs_eligible=False,
+        artifact_kind=None,
+        cancel_event=None,
+        **kwargs,
+    ):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
-        yield {"type": "review_gate_ready", "data": {
-            "gate_key": f"{pipeline_run_id}:{agent_id}", "redoable": redoable,
-        }}
+        yield {
+            "type": "review_gate_ready",
+            "data": {
+                "gate_key": f"{pipeline_run_id}:{agent_id}",
+                "redoable": redoable,
+            },
+        }
         # First firing (the re-entry) requests a redo; the re-run's gate approves.
         if i == 0:
             yield {"type": "_gate_redo", "instructions": ""}
 
     # Two durable pre-restart redo audit rows for this agent.
-    runner = _FakeGateRunner(rows=[
-        _FakeGateEventRow(spec.id, "human", "redo"),
-        _FakeGateEventRow(spec.id, "human", "redo"),
-    ])
+    runner = _FakeGateRunner(
+        rows=[
+            _FakeGateEventRow(spec.id, "human", "redo"),
+            _FakeGateEventRow(spec.id, "human", "redo"),
+        ]
+    )
 
-    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("redo output. "))) as h:
+    with _EngineHarness(
+        lambda aid, idx: ScriptedFakeChatModel(_text_turn("redo output. "))
+    ) as h:
         h.engine._run_review_gate = _gate  # type: ignore[assignment]
         run_id = "redo-num-run"
         ectx = _seed_gate_reentry_ectx(run_id, spec, runner=runner)
-        results: list[dict] = [{"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}]
+        results: list[dict] = [
+            {"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}
+        ]
         await _drive_agent(h.engine, spec, ectx, results, [spec])
 
     # Seed = max(2 durable redo rows, 1 version − 1) = 2 → the redo threads :redo3.
     redo_threads = [t for t in h.thread_ids if t and ":redo" in t]
-    assert redo_threads == [f"{run_id}:{spec.id}:redo3"], (
-        f"post-restart redo must continue past the 2 pre-restart redos (:redo3); got {redo_threads}"
-    )
+    assert (
+        redo_threads == [f"{run_id}:{spec.id}:redo3"]
+    ), f"post-restart redo must continue past the 2 pre-restart redos (:redo3); got {redo_threads}"
 
 
 @pytest.mark.asyncio
@@ -1474,14 +1663,26 @@ async def test_gate_reentry_update_specs_writes_audit_row_a2():
     spec = load_agent_spec("domain-analyst")
     gate_n = {"n": 0}
 
-    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
-                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
+    async def _gate(
+        pipeline_run_id,
+        agent_id,
+        agent_name,
+        output,
+        redoable=False,
+        update_specs_eligible=False,
+        artifact_kind=None,
+        cancel_event=None,
+        **kwargs,
+    ):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
-        yield {"type": "review_gate_ready", "data": {
-            "gate_key": f"{pipeline_run_id}:{agent_id}", "redoable": redoable,
-        }}
+        yield {
+            "type": "review_gate_ready",
+            "data": {
+                "gate_key": f"{pipeline_run_id}:{agent_id}",
+                "redoable": redoable,
+            },
+        }
         if i == 0:
             yield {"type": "_gate_update_specs", "analysis_report": "revise the specs"}
 
@@ -1495,13 +1696,15 @@ async def test_gate_reentry_update_specs_writes_audit_row_a2():
         h.engine._run_spec_revision_sub_pipeline = _fake_subpipeline  # type: ignore[assignment]
         run_id = "us-audit-run"
         ectx = _seed_gate_reentry_ectx(run_id, spec, runner=runner)
-        results: list[dict] = [{"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}]
+        results: list[dict] = [
+            {"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}
+        ]
         await _drive_agent(h.engine, spec, ectx, results, [spec])
 
     us_rows = [r for r in runner.recorded if r[2] == "update_specs"]
-    assert us_rows and us_rows[0][0] == spec.id and us_rows[0][1] == "human", (
-        f"update_specs must write a best-effort audit row (step, human, update_specs); got {runner.recorded}"
-    )
+    assert (
+        us_rows and us_rows[0][0] == spec.id and us_rows[0][1] == "human"
+    ), f"update_specs must write a best-effort audit row (step, human, update_specs); got {runner.recorded}"
 
 
 # ===========================================================================
@@ -1573,7 +1776,10 @@ async def _build_partial_build_fixture(session, *, seed_task_ids):
     # and the task_loop branch these two tests exist to exercise is never reached
     # (TEST-013).
     await pre_store.append_event(
-        run_id, seq=1, event_id="pb-ac-plan", type="agent_complete",
+        run_id,
+        seq=1,
+        event_id="pb-ac-plan",
+        type="agent_complete",
         payload_json={"agent_id": "prototype-plan"},
     )
     for tid in seed_task_ids:
@@ -1726,8 +1932,19 @@ async def _build_rematerialize_ctx(session, tmp_path, *, owner="rm-user", ws="ws
     return ectx, sandbox, ectx.scoped_store, run_id
 
 
-async def _seed_ref(store, *, run_id, owner, ws, kind, location, content, version,
-                    producer_agent="prototype-build", task_id=None):
+async def _seed_ref(
+    store,
+    *,
+    run_id,
+    owner,
+    ws,
+    kind,
+    location,
+    content,
+    version,
+    producer_agent="prototype-build",
+    task_id=None,
+):
     from agents.artifacts.graph import ArtifactRef
 
     await store.write_ref(
@@ -1766,21 +1983,69 @@ async def test_rematerialize_restores_durable_files_to_disk(tmp_path):
     )
 
     # Declared deliverable (html_file) + a sibling (file_bundle).
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="<html>declared</html>", version=1)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="nested/part_b.md", content="# sibling B", version=1)
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="<html>declared</html>",
+        version=1,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="nested/part_b.md",
+        content="# sibling B",
+        version=1,
+    )
     # Two versions of the SAME location — only the latest content must be written.
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="notes.txt", content="v1 stale", version=1)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="notes.txt", content="v2 latest", version=2)
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="notes.txt",
+        content="v1 stale",
+        version=1,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="notes.txt",
+        content="v2 latest",
+        version=2,
+    )
     # .uploads/ (Phase-47 fence) + a non-file kind (spec) — neither may reach disk.
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location=".uploads/doc.txt", content="uploaded", version=1)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="spec",
-                    location="spec.md", content="graph-only spec", version=1,
-                    producer_agent="prototype-specify")
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location=".uploads/doc.txt",
+        content="uploaded",
+        version=1,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="spec",
+        location="spec.md",
+        content="graph-only spec",
+        version=1,
+        producer_agent="prototype-specify",
+    )
     session.commit()
 
     engine = ExecutionEngine()
@@ -1818,12 +2083,30 @@ async def test_midwave_merge_reentry_rematerializes_fragments(tmp_path):
 
     # Two workers' fragments persisted BEFORE the merge (write_fragment_artifact
     # uses kind="file_bundle", task_id=str(worker_index)).
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="part_a.txt", content="fragment-a", version=1,
-                    producer_agent="wave-worker", task_id="0")
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="part_b.txt", content="fragment-b", version=1,
-                    producer_agent="wave-worker", task_id="1")
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="part_a.txt",
+        content="fragment-a",
+        version=1,
+        producer_agent="wave-worker",
+        task_id="0",
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="part_b.txt",
+        content="fragment-b",
+        version=1,
+        producer_agent="wave-worker",
+        task_id="1",
+    )
     # The wave_runs row is still `running` — the merge never ran (the discriminator).
     _row_id = await store.record_wave_run(
         run_id, step="build", wave_index=0, task_ids=["t1", "t2"], status="running"
@@ -1871,21 +2154,67 @@ async def test_task_loop_reconcile_boundary_version(tmp_path):
     # All at ONE location ("prototype.html"), produced by the build agent. The boundary
     # task B has TWO versions (fix-loop re-persist) → restore its MAX (v4). C is the
     # post-boundary task whose version (v5) would win under global-max.
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="after-A", version=1, task_id=keyA)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="after-B-run", version=2, task_id=keyB)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="after-C-DELETED", version=3, task_id=keyC)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="after-B-FIXED", version=4, task_id=keyB)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="after-C-DELETED-FIXED", version=5, task_id=keyC)
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="after-A",
+        version=1,
+        task_id=keyA,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="after-B-run",
+        version=2,
+        task_id=keyB,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="after-C-DELETED",
+        version=3,
+        task_id=keyC,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="after-B-FIXED",
+        version=4,
+        task_id=keyB,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="after-C-DELETED-FIXED",
+        version=5,
+        task_id=keyC,
+    )
     session.commit()
 
     engine = ExecutionEngine()
     await engine._rematerialize_artifacts_to_disk(
-        ectx, sandbox,
+        ectx,
+        sandbox,
         boundary_by_agent={
             "prototype-build": {"restore_nothing": False, "boundary_task_id": keyB}
         },
@@ -1919,15 +2248,34 @@ async def test_task_loop_reconcile_first_task_clean_basis(tmp_path):
 
     # Prior completed versions exist on the durable store — global-max would restore
     # "after-B". The p==0 restore-nothing signal must materialize NONE of them.
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="after-A", version=1, task_id=keyA)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="after-B", version=2, task_id=keyB)
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="after-A",
+        version=1,
+        task_id=keyA,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="after-B",
+        version=2,
+        task_id=keyB,
+    )
     session.commit()
 
     engine = ExecutionEngine()
     await engine._rematerialize_artifacts_to_disk(
-        ectx, sandbox,
+        ectx,
+        sandbox,
         boundary_by_agent={
             "prototype-build": {"restore_nothing": True, "boundary_task_id": None}
         },
@@ -1969,38 +2317,71 @@ async def test_wave_reconcile_orphan_excluded(tmp_path):
         session, tmp_path, owner=owner, ws=ws
     )
 
-    key_live = task_identity.compute_task_key("u", "alpha", 0)    # in the current list
-    key_orphan = task_identity.compute_task_key("u", "bravo", 0)  # deleted from the list
+    key_live = task_identity.compute_task_key("u", "alpha", 0)  # in the current list
+    key_orphan = task_identity.compute_task_key(
+        "u", "bravo", 0
+    )  # deleted from the list
 
     # Two workers' fragments persisted BEFORE the merge (write_fragment_artifact:
     # kind="file_bundle", producer_step=<wave step agent>, task_id=str(worker_index)).
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="part_a.txt", content="fragment-a", version=1,
-                    producer_agent="build-wave", task_id="0")
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="part_b.txt", content="fragment-b-ORPHAN", version=1,
-                    producer_agent="build-wave", task_id="1")
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="part_a.txt",
+        content="fragment-a",
+        version=1,
+        producer_agent="build-wave",
+        task_id="0",
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="part_b.txt",
+        content="fragment-b-ORPHAN",
+        version=1,
+        producer_agent="build-wave",
+        task_id="1",
+    )
     # subagent_runs give the worker_index → key join: worker 0 → live key (present),
     # worker 1 → orphan key (absent from the current list = confidently orphaned).
     await store.record_subagent_run(
-        run_id, parent_step="build-wave", worker_agent="w", depth=1,
-        isolation="shared_read", status="complete", worker_index=0, task_id=key_live,
+        run_id,
+        parent_step="build-wave",
+        worker_agent="w",
+        depth=1,
+        isolation="shared_read",
+        status="complete",
+        worker_index=0,
+        task_id=key_live,
     )
     await store.record_subagent_run(
-        run_id, parent_step="build-wave", worker_agent="w", depth=1,
-        isolation="shared_read", status="complete", worker_index=1, task_id=key_orphan,
+        run_id,
+        parent_step="build-wave",
+        worker_agent="w",
+        depth=1,
+        isolation="shared_read",
+        status="complete",
+        worker_index=1,
+        task_id=key_orphan,
     )
     session.commit()
 
     engine = ExecutionEngine()
     await engine._rematerialize_artifacts_to_disk(
-        ectx, sandbox,
+        ectx,
+        sandbox,
         wave_allow_by_step={"build-wave": {key_live}},  # only the live key survives
     )
 
-    assert sandbox.read("part_a.txt") == "fragment-a", (
-        "the in-list (mappable + present) fragment must be restored to disk"
-    )
+    assert (
+        sandbox.read("part_a.txt") == "fragment-a"
+    ), "the in-list (mappable + present) fragment must be restored to disk"
     assert sandbox.read("part_b.txt") is None, (
         "the confidently-orphaned fragment (mappable but ABSENT from the current list) "
         "must NOT reach disk → excluded from merge + assembly with zero merge edits"
@@ -2029,19 +2410,35 @@ async def test_wave_reconcile_unmappable_kept(tmp_path):
 
     # A fragment whose worker_index (2) has NO subagent_run to map it → a key: the join
     # is UNRESOLVABLE. Under the three-way rule this is fail-safe RESTORED (kept).
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
-                    location="legacy.txt", content="fragment-legacy", version=1,
-                    producer_agent="build-wave", task_id="2")
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="file_bundle",
+        location="legacy.txt",
+        content="fragment-legacy",
+        version=1,
+        producer_agent="build-wave",
+        task_id="2",
+    )
     # A live worker exists (index 0 → key_live) but NONE maps worker_index 2.
     await store.record_subagent_run(
-        run_id, parent_step="build-wave", worker_agent="w", depth=1,
-        isolation="shared_read", status="complete", worker_index=0, task_id=key_live,
+        run_id,
+        parent_step="build-wave",
+        worker_agent="w",
+        depth=1,
+        isolation="shared_read",
+        status="complete",
+        worker_index=0,
+        task_id=key_live,
     )
     session.commit()
 
     engine = ExecutionEngine()
     await engine._rematerialize_artifacts_to_disk(
-        ectx, sandbox,
+        ectx,
+        sandbox,
         wave_allow_by_step={"build-wave": {key_live}},
     )
 
@@ -2354,9 +2751,9 @@ async def test_wave_scheduler_skips_completed_workers_on_resume_cursor():
     # The wave_runs row's task_ids stay AUTHOR ids (they feed the wave events; only the
     # request/subagent_runs task_id becomes the key) — the completed worker is excluded.
     assert runner.recorded, "no wave_run was recorded for the in-flight wave"
-    assert set(runner.recorded[0][2]) == {"ta", "tc"}, (
-        f"the wave_runs task_ids must exclude the completed worker; got {runner.recorded[0][2]}"
-    )
+    assert (
+        set(runner.recorded[0][2]) == {"ta", "tc"}
+    ), f"the wave_runs task_ids must exclude the completed worker; got {runner.recorded[0][2]}"
 
 
 @pytest.mark.asyncio
@@ -2400,21 +2797,54 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
 
     # task_loop step "build": task-key k1 persisted TWICE (fix-loop re-persist, same key)
     # + k2 once → distinct done {k1,k2}. A third task-key never persisted.
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="t1-v1", version=1,
-                    producer_agent="build", task_id=k1)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="t1-v2", version=2,
-                    producer_agent="build", task_id=k1)
-    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
-                    location="prototype.html", content="t2-v1", version=3,
-                    producer_agent="build", task_id=k2)
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="t1-v1",
+        version=1,
+        producer_agent="build",
+        task_id=k1,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="t1-v2",
+        version=2,
+        producer_agent="build",
+        task_id=k1,
+    )
+    await _seed_ref(
+        store,
+        run_id=run_id,
+        owner=owner,
+        ws=ws,
+        kind="html_file",
+        location="prototype.html",
+        content="t2-v1",
+        version=3,
+        producer_agent="build",
+        task_id=k2,
+    )
 
     # wave step "wave": worker kA+kC complete, kB still running → completed {kA,kC}.
     for tid, status in ((kA, "complete"), (kB, "running"), (kC, "complete")):
         await store.record_subagent_run(
-            run_id, parent_step="wave", worker_agent="w", depth=1,
-            isolation="shared_read", status=status, worker_index=0, task_id=tid,
+            run_id,
+            parent_step="wave",
+            worker_agent="w",
+            depth=1,
+            isolation="shared_read",
+            status=status,
+            worker_index=0,
+            task_id=tid,
         )
     session.commit()
 
@@ -2487,9 +2917,15 @@ async def test_upstream_context_hash_single_home_stable(tmp_path):
     graph = ArtifactGraph()
     # An upstream 'plan' ref the 'build' step consumes → its content_hash feeds the digest.
     graph.write_ref(
-        run_id=run_id, owner_id=owner, workspace_id=ws, kind="task_list",
-        producer_step="plan", producer_agent="plan", task_id=None,
-        content="## Task 1: do it", location="artifact_refs/plan",
+        run_id=run_id,
+        owner_id=owner,
+        workspace_id=ws,
+        kind="task_list",
+        producer_step="plan",
+        producer_agent="plan",
+        task_id=None,
+        content="## Task 1: do it",
+        location="artifact_refs/plan",
     )
 
     ectx = ExecutionContext(
@@ -2506,10 +2942,19 @@ async def test_upstream_context_hash_single_home_stable(tmp_path):
         SimpleNamespace(id="build", produces=[], consumes=["task_list"]),
     ]
     runner = KernelServices(
-        engine=engine, ectx=ectx, sandbox=sandbox, ordered_agents=ordered,
-        user_message="brief", pipeline_run_id=run_id, pipeline_type="prototype",
-        planning_context={}, attached_skills=None, attached_hooks=None,
-        model_id=None, results=[], cancel_event=None,
+        engine=engine,
+        ectx=ectx,
+        sandbox=sandbox,
+        ordered_agents=ordered,
+        user_message="brief",
+        pipeline_run_id=run_id,
+        pipeline_type="prototype",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
     )
     ectx.runner = runner
     step = Step(agent_id="build", strategy="task_loop")
@@ -2517,7 +2962,9 @@ async def test_upstream_context_hash_single_home_stable(tmp_path):
     # (a) engine helper: a stable 64-char hex, non-empty upstream folded in.
     h1 = engine._compute_upstream_context_hash(step, ectx)
     h2 = engine._compute_upstream_context_hash(step, ectx)
-    assert re.fullmatch(r"[0-9a-f]{64}", h1 or ""), f"expected 64-hex digest, got {h1!r}"
+    assert re.fullmatch(
+        r"[0-9a-f]{64}", h1 or ""
+    ), f"expected 64-hex digest, got {h1!r}"
     assert h1 == h2, "the upstream-context-hash must be deterministic across calls"
 
     # (b) the runner handle delegates to the SAME digest.
@@ -2565,14 +3012,26 @@ async def test_update_specs_reconcile_composes(tmp_path):
     # The build step consumes BOTH the task_list (from 'plan') and the spec (from
     # 'specify'); update_specs rotates the SPEC content, which feeds the build upstream.
     graph.write_ref(
-        run_id=run_id, owner_id=owner, workspace_id=ws, kind="task_list",
-        producer_step="plan", producer_agent="plan", task_id=None,
-        content=_BUILD_PLAN, location="artifact_refs/plan",
+        run_id=run_id,
+        owner_id=owner,
+        workspace_id=ws,
+        kind="task_list",
+        producer_step="plan",
+        producer_agent="plan",
+        task_id=None,
+        content=_BUILD_PLAN,
+        location="artifact_refs/plan",
     )
     graph.write_ref(
-        run_id=run_id, owner_id=owner, workspace_id=ws, kind="spec",
-        producer_step="specify", producer_agent="specify", task_id=None,
-        content="Spec v1: a plain dashboard.", location="artifact_refs/specify",
+        run_id=run_id,
+        owner_id=owner,
+        workspace_id=ws,
+        kind="spec",
+        producer_step="specify",
+        producer_agent="specify",
+        task_id=None,
+        content="Spec v1: a plain dashboard.",
+        location="artifact_refs/specify",
     )
 
     ectx = ExecutionContext(
@@ -2588,10 +3047,19 @@ async def test_update_specs_reconcile_composes(tmp_path):
         SimpleNamespace(id="build", produces=[], consumes=["task_list", "spec"]),
     ]
     runner = KernelServices(
-        engine=engine, ectx=ectx, sandbox=sandbox, ordered_agents=ordered,
-        user_message="brief", pipeline_run_id=run_id, pipeline_type="prototype",
-        planning_context={}, attached_skills=None, attached_hooks=None,
-        model_id=None, results=[], cancel_event=None,
+        engine=engine,
+        ectx=ectx,
+        sandbox=sandbox,
+        ordered_agents=ordered,
+        user_message="brief",
+        pipeline_run_id=run_id,
+        pipeline_type="prototype",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
     )
     ectx.runner = runner
     step = Step(agent_id="build", strategy="task_loop")
@@ -2613,8 +3081,13 @@ async def test_update_specs_reconcile_composes(tmp_path):
 
     # update_specs mints a NEW spec version (Phase 27) — a different content_hash.
     graph.write_ref(
-        run_id=run_id, owner_id=owner, workspace_id=ws, kind="spec",
-        producer_step="specify", producer_agent="specify", task_id=None,
+        run_id=run_id,
+        owner_id=owner,
+        workspace_id=ws,
+        kind="spec",
+        producer_step="specify",
+        producer_agent="specify",
+        task_id=None,
         content="Spec v2: a dashboard WITH a reports tab and dark mode.",
         location="artifact_refs/specify",
     )
@@ -2640,7 +3113,9 @@ async def test_update_specs_reconcile_composes(tmp_path):
     # (b) the wave-style per-key set-membership skip is likewise empty: no current key
     #     is in the completed set → nothing skipped, all dispatch.
     _skipped = [k for k in current_v2 if k in set(completed_v1)]
-    assert _skipped == [], f"no current task may be skipped after rotation; got {_skipped}"
+    assert (
+        _skipped == []
+    ), f"no current task may be skipped after rotation; got {_skipped}"
 
 
 # ===========================================================================
@@ -2683,8 +3158,11 @@ async def test_resumed_run_is_wired_live_ectx_and_milestone_cards():
     N = 5
     for seq in range(1, N + 1):
         await pre_store.append_event(
-            run_id, seq=seq, event_id=f"pre-{seq}",
-            type=f"agent_chunk_{seq}", payload_json={"seq": seq},
+            run_id,
+            seq=seq,
+            event_id=f"pre-{seq}",
+            type=f"agent_chunk_{seq}",
+            payload_json={"seq": seq},
         )
     session.commit()
 
@@ -2761,13 +3239,13 @@ async def test_resumed_run_is_wired_live_ectx_and_milestone_cards():
     pre_ids = {f"pre-{s}" for s in range(1, N + 1)}
     resumed = [r for r in all_rows if r.event_id not in pre_ids]
     assert resumed, "resume_run persisted no resumed events"
-    assert all(r.seq > N for r in resumed), (
-        f"every resumed row must carry seq > {N}; got {[r.seq for r in resumed]}"
-    )
+    assert all(
+        r.seq > N for r in resumed
+    ), f"every resumed row must carry seq > {N}; got {[r.seq for r in resumed]}"
     resumed_seqs = [r.seq for r in resumed]
-    assert len(resumed_seqs) == len(set(resumed_seqs)), (
-        f"resumed seqs must be unique (no card/base collision); got {resumed_seqs}"
-    )
+    assert len(resumed_seqs) == len(
+        set(resumed_seqs)
+    ), f"resumed seqs must be unique (no card/base collision); got {resumed_seqs}"
     card_rows = [r for r in resumed if r.type == "chat_reply"]
     assert card_rows, "the milestone chat_reply row must be durably persisted"
 
@@ -2813,16 +3291,36 @@ async def test_redrain_steering_notes_no_loss():
     # agent_input rows at seq 1 and 3 → last_input_seq = 3. Two undrained chat_message
     # rows AFTER it (seq 4, 5) + a drained one BEFORE it (seq 2) + an empty-text row
     # (seq 6, skipped).
-    await _seed_run_event(store, run_id=run_id, seq=1, type_="agent_input", payload={"x": 1})
-    await _seed_run_event(store, run_id=run_id, seq=2, type_="chat_message",
-                          payload={"text": "drained-note"})
-    await _seed_run_event(store, run_id=run_id, seq=3, type_="agent_input", payload={"x": 2})
-    await _seed_run_event(store, run_id=run_id, seq=4, type_="chat_message",
-                          payload={"text": "undrained-A"})
-    await _seed_run_event(store, run_id=run_id, seq=5, type_="chat_message",
-                          payload={"text": "undrained-B"})
-    await _seed_run_event(store, run_id=run_id, seq=6, type_="chat_message",
-                          payload={"text": ""})
+    await _seed_run_event(
+        store, run_id=run_id, seq=1, type_="agent_input", payload={"x": 1}
+    )
+    await _seed_run_event(
+        store,
+        run_id=run_id,
+        seq=2,
+        type_="chat_message",
+        payload={"text": "drained-note"},
+    )
+    await _seed_run_event(
+        store, run_id=run_id, seq=3, type_="agent_input", payload={"x": 2}
+    )
+    await _seed_run_event(
+        store,
+        run_id=run_id,
+        seq=4,
+        type_="chat_message",
+        payload={"text": "undrained-A"},
+    )
+    await _seed_run_event(
+        store,
+        run_id=run_id,
+        seq=5,
+        type_="chat_message",
+        payload={"text": "undrained-B"},
+    )
+    await _seed_run_event(
+        store, run_id=run_id, seq=6, type_="chat_message", payload={"text": ""}
+    )
     session.commit()
 
     ectx = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal=owner)
@@ -2837,9 +3335,9 @@ async def test_redrain_steering_notes_no_loss():
         f"no-loss: both undrained notes (seq > last_input_seq) must re-queue in order; "
         f"got {texts}"
     )
-    assert all(n.get("sticky") is False for n in ectx.steering_notes), (
-        "re-queued notes are one-shot (sticky False) — the durable row lacks the flag"
-    )
+    assert all(
+        n.get("sticky") is False for n in ectx.steering_notes
+    ), "re-queued notes are one-shot (sticky False) — the durable row lacks the flag"
     session.close()
 
 
@@ -2862,9 +3360,16 @@ async def test_redrain_steering_notes_no_duplicate():
 
     # A steering note at seq 2, then an agent_input at seq 5 CONSUMED it → last_input_seq
     # = 5. The note (seq 2 < 5) is drained; nothing undrained remains.
-    await _seed_run_event(store, run_id=run_id, seq=2, type_="chat_message",
-                          payload={"text": "already-drained"})
-    await _seed_run_event(store, run_id=run_id, seq=5, type_="agent_input", payload={"x": 1})
+    await _seed_run_event(
+        store,
+        run_id=run_id,
+        seq=2,
+        type_="chat_message",
+        payload={"text": "already-drained"},
+    )
+    await _seed_run_event(
+        store, run_id=run_id, seq=5, type_="agent_input", payload={"x": 1}
+    )
     session.commit()
 
     ectx = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal=owner)
@@ -2906,9 +3411,14 @@ async def _seed_open_questionnaire_gate(
 
     pre_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
     await pre_store.append_event(
-        run_id, seq=1, event_id="qr-1", type="questionnaire_ready",
+        run_id,
+        seq=1,
+        event_id="qr-1",
+        type="questionnaire_ready",
         payload_json={
-            "pipeline_run_id": run_id, "questions": questions, "round": round_num,
+            "pipeline_run_id": run_id,
+            "questions": questions,
+            "round": round_num,
         },
     )
     session.commit()
@@ -2933,12 +3443,19 @@ async def test_clarify_parked_run_replays_durable_questions_and_proceeds():
     _seed_workflow_run(
         session, run_id, owner=owner, status="waiting_for_user", workspace_id=ws
     )
-    questions = [{
-        "question_id": "r1_q1", "question_text": "Replayed?",
-        "options": ["yes", "no"], "answer_type": "single_choice",
-        "impact_level": "high", "ambiguity_category": "Functional Scope",
-    }]
-    await _seed_open_questionnaire_gate(session, run_id, owner, ws, questions, round_num=1)
+    questions = [
+        {
+            "question_id": "r1_q1",
+            "question_text": "Replayed?",
+            "options": ["yes", "no"],
+            "answer_type": "single_choice",
+            "impact_level": "high",
+            "ambiguity_category": "Functional Scope",
+        }
+    ]
+    await _seed_open_questionnaire_gate(
+        session, run_id, owner, ws, questions, round_num=1
+    )
 
     # Spy _generate_questions: the OPEN round must be REPLAYED, never re-generated.
     gen_calls = {"n": 0}
@@ -2978,9 +3495,9 @@ async def test_clarify_parked_run_replays_durable_questions_and_proceeds():
         try:
             await engine.restore_non_terminal_runs()
             driver_task = tasks.get(run_id)
-            assert driver_task is not None, (
-                "branch (a) must spawn + register the clarify re-arm driver"
-            )
+            assert (
+                driver_task is not None
+            ), "branch (a) must spawn + register the clarify re-arm driver"
             q = queues[run_id]
 
             # Drain until the driver REPLAYS questionnaire_ready then parks at the wait.
@@ -2993,18 +3510,18 @@ async def test_clarify_parked_run_replays_durable_questions_and_proceeds():
                     replayed = ev
                     break
             assert replayed is not None, "the driver must re-emit questionnaire_ready"
-            assert replayed["data"]["questions"] == questions, (
-                "questions must be REPLAYED verbatim from the durable payload"
-            )
-            assert gen_calls["n"] == 0, (
-                "the open round must be REPLAYED, never LLM-re-generated"
-            )
+            assert (
+                replayed["data"]["questions"] == questions
+            ), "questions must be REPLAYED verbatim from the durable payload"
+            assert (
+                gen_calls["n"] == 0
+            ), "the open round must be REPLAYED, never LLM-re-generated"
 
             # Status stays waiting_for_user while parked (KAN-88 twin assertion).
             row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-            assert row.status == "waiting_for_user", (
-                "a re-armed clarify run stays waiting_for_user until answered"
-            )
+            assert (
+                row.status == "waiting_for_user"
+            ), "a re-armed clarify run stays waiting_for_user until answered"
 
             # Answers ride the UNCHANGED store seam POST /answers wraps → run proceeds.
             await engine._store.set_questionnaire_responses(
@@ -3026,10 +3543,12 @@ async def test_clarify_parked_run_replays_durable_questions_and_proceeds():
         finally:
             _ce.ClarifyEngine._generate_questions = _orig_gen
 
-    assert saw_complete, "answers must resolve the gate (questionnaire_complete emitted)"
-    assert saw_pipeline_start, (
-        "after answers the run must proceed into the normal dispatch (pipeline_start)"
-    )
+    assert (
+        saw_complete
+    ), "answers must resolve the gate (questionnaire_complete emitted)"
+    assert (
+        saw_pipeline_start
+    ), "after answers the run must proceed into the normal dispatch (pipeline_start)"
     assert gen_calls["n"] == 0, "no LLM re-gen of the answered round at any point"
     session.close()
 
@@ -3063,11 +3582,13 @@ async def test_clarify_run_without_replay_generates_normally():
         replay_questions=None,
         replay_round=None,
     )
-    assert gen["n"] == 1, "round 1 must generate normally when no replay params are passed"
+    assert (
+        gen["n"] == 1
+    ), "round 1 must generate normally when no replay params are passed"
     assert result["execution_gate"] == "PROCEED"
-    assert not any(e.get("type") == "questionnaire_ready" for e in sent), (
-        "no questions ⇒ no questionnaire_ready emitted (dormant replay branch)"
-    )
+    assert not any(
+        e.get("type") == "questionnaire_ready" for e in sent
+    ), "no questions ⇒ no questionnaire_ready emitted (dormant replay branch)"
 
 
 # ===========================================================================
@@ -3145,9 +3666,9 @@ async def test_failed_run_resumes_skips_completed_tasks(monkeypatch):
 
     a_calls_a = call_log.get("a", 0)
     a_calls_b = call_log.get("b", 0)
-    assert a_calls_a >= 1 and a_calls_b >= 1, (
-        f"wave-0 workers must have run on instance A before the crash: {call_log}"
-    )
+    assert (
+        a_calls_a >= 1 and a_calls_b >= 1
+    ), f"wave-0 workers must have run on instance A before the crash: {call_log}"
 
     # The interrupt landed the run TERMINAL-FAILED (the Phase-50 premise: a user resumes
     # a run that reached the ``failed`` terminal, not a still-non-terminal restart).
@@ -3169,34 +3690,38 @@ async def test_failed_run_resumes_skips_completed_tasks(monkeypatch):
     assert call_log.get("a", 0) == a_calls_a, f"part_a re-invoked on resume: {call_log}"
     assert call_log.get("b", 0) == a_calls_b, f"part_b re-invoked on resume: {call_log}"
     # wave-1 workers ran on resume (the incomplete wave was re-entered).
-    assert call_log.get("c", 0) >= 1 and call_log.get("d", 0) >= 1, (
-        f"wave-1 workers did not run on resume: {call_log}"
-    )
+    assert (
+        call_log.get("c", 0) >= 1 and call_log.get("d", 0) >= 1
+    ), f"wave-1 workers did not run on resume: {call_log}"
 
     # (b) the deliverable completes — all four files exist on the recovered sandbox.
     from app.agents.sandbox import RunSandbox
 
     root = RunSandbox(owner, run_id).root
     produced = {
-        p.name for p in root.rglob("*.txt")
+        p.name
+        for p in root.rglob("*.txt")
         if _PART_RE.fullmatch(p.name) and ".worktrees" not in p.parts
     }
-    assert produced == {"part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"}, (
-        f"user resume did not complete every wave file: {sorted(produced)}"
-    )
+    assert produced == {
+        "part_a.txt",
+        "part_b.txt",
+        "part_c.txt",
+        "part_d.txt",
+    }, f"user resume did not complete every wave file: {sorted(produced)}"
 
     # (c) terminal status reconciled from the durable tail to ``completed``.
     session.expire_all()
     row2 = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert row2.status == "completed", (
-        f"user resume must reconcile the terminal status to completed: {row2.status!r}"
-    )
+    assert (
+        row2.status == "completed"
+    ), f"user resume must reconcile the terminal status to completed: {row2.status!r}"
 
     # (d) family coherence — SAME run id, parent link untouched, NO new WorkflowRun row.
     assert row2.parent_run_id is None
-    assert session.query(WorkflowRun).count() == runs_before, (
-        "user resume must NOT mint a new WorkflowRun row (Pitfall 5)"
-    )
+    assert (
+        session.query(WorkflowRun).count() == runs_before
+    ), "user resume must NOT mint a new WorkflowRun row (Pitfall 5)"
     session.close()
 
 
@@ -3210,9 +3735,7 @@ async def test_failed_run_with_open_gate_resumes_into_gate(monkeypatch):
     run_id = f"ug-{uuid.uuid4().hex[:8]}"
     owner = "ug-user"
     ws = "ws-ug"
-    _seed_workflow_run(
-        session, run_id, owner=owner, status="failed", workspace_id=ws
-    )
+    _seed_workflow_run(session, run_id, owner=owner, status="failed", workspace_id=ws)
     gate_key = f"{run_id}:sample-wave-plan"
     await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
 
@@ -3236,11 +3759,23 @@ async def test_failed_run_with_open_gate_resumes_into_gate(monkeypatch):
         # Spy the gate seam: record which agent re-entered the gate, then REJECT so the run
         # stops AT the gate (the deterministic offline stand-in for "parks awaiting the
         # human" — it must NOT complete the deliverable past the gate).
-        async def _spy_gate(*, pipeline_run_id, agent_id, agent_name, output, redoable,
-                            update_specs_eligible, artifact_kind, cancel_event, **kw):
+        async def _spy_gate(
+            *,
+            pipeline_run_id,
+            agent_id,
+            agent_name,
+            output,
+            redoable,
+            update_specs_eligible,
+            artifact_kind,
+            cancel_event,
+            **kw,
+        ):
             gate_spy["agent_ids"].append(agent_id)
-            yield {"type": "review_gate_ready",
-                   "data": {"gate_key": f"{pipeline_run_id}:{agent_id}"}}
+            yield {
+                "type": "review_gate_ready",
+                "data": {"gate_key": f"{pipeline_run_id}:{agent_id}"},
+            }
             yield {"type": "_gate_rejected"}
 
         engine_b._run_review_gate = _spy_gate  # type: ignore[assignment]
@@ -3251,16 +3786,16 @@ async def test_failed_run_with_open_gate_resumes_into_gate(monkeypatch):
     # The resume RE-ENTERED the gate for the gated agent (49 classifier composed) — the
     # gated agent's model was skipped (gate-reentry mode reconstructs output; never a
     # ``create_runner`` for that step) and the wave never ran.
-    assert gate_spy["agent_ids"] == ["sample-wave-plan"], (
-        f"resume must re-enter the gate for the gated agent: {gate_spy}"
-    )
+    assert gate_spy["agent_ids"] == [
+        "sample-wave-plan"
+    ], f"resume must re-enter the gate for the gated agent: {gate_spy}"
 
     session.expire_all()
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
     # Rejected AT the gate → cancelled; the run did NOT complete past the gate.
-    assert row.status == "cancelled", (
-        f"a run parked/stopped at the re-entered gate must not complete past it: {row.status!r}"
-    )
+    assert (
+        row.status == "cancelled"
+    ), f"a run parked/stopped at the re-entered gate must not complete past it: {row.status!r}"
     # Family coherence — no new WorkflowRun row minted by the resume.
     assert session.query(WorkflowRun).count() == runs_before
     session.close()
@@ -3306,8 +3841,12 @@ async def test_resume_run_prototype_reaches_offset_not_bail():
     owner = "odp-user"
     ws = "ws-odp"
     _seed_workflow_run(
-        session, run_id, owner=owner, status="waiting_for_user",
-        type_="prototype", workspace_id=ws,
+        session,
+        run_id,
+        owner=owner,
+        status="waiting_for_user",
+        type_="prototype",
+        workspace_id=ws,
     )
     gate_key = f"{run_id}:prototype-specify"
     await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
@@ -3324,9 +3863,9 @@ async def test_resume_run_prototype_reaches_offset_not_bail():
         # check. The alias is gone (registry._OD_ALIAS_BASE is empty) and persisted
         # rows were migrated to the base label, so the divergence cannot recur — a
         # run's own type now always yields its own roster. Assert that directly.
-        assert len(_reg.get_pipeline_agents("prototype")) == 5, (
-            "precondition: the prototype roster must be non-empty (5 agents)"
-        )
+        assert (
+            len(_reg.get_pipeline_agents("prototype")) == 5
+        ), "precondition: the prototype roster must be non-empty (5 agents)"
         assert _reg.get_pipeline_agents("od_prototype") == [], (
             "the retired label must resolve to nothing rather than silently "
             "inheriting prototype's roster"
@@ -3363,15 +3902,26 @@ async def test_replay_clarify_run_prototype_reaches_offset_not_bail():
     owner = "odc-user"
     ws = "ws-odc"
     _seed_workflow_run(
-        session, run_id, owner=owner, status="waiting_for_user",
-        type_="prototype", workspace_id=ws,
+        session,
+        run_id,
+        owner=owner,
+        status="waiting_for_user",
+        type_="prototype",
+        workspace_id=ws,
     )
-    questions = [{
-        "question_id": "r1_q1", "question_text": "Scope?",
-        "options": ["a", "b"], "answer_type": "single_choice",
-        "impact_level": "high", "ambiguity_category": "Functional Scope",
-    }]
-    await _seed_open_questionnaire_gate(session, run_id, owner, ws, questions, round_num=1)
+    questions = [
+        {
+            "question_id": "r1_q1",
+            "question_text": "Scope?",
+            "options": ["a", "b"],
+            "answer_type": "single_choice",
+            "impact_level": "high",
+            "ambiguity_category": "Functional Scope",
+        }
+    ]
+    await _seed_open_questionnaire_gate(
+        session, run_id, owner, ws, questions, round_num=1
+    )
 
     with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
         engine = h.make_engine()
@@ -3383,9 +3933,9 @@ async def test_replay_clarify_run_prototype_reaches_offset_not_bail():
         # check. The alias is gone (registry._OD_ALIAS_BASE is empty) and persisted
         # rows were migrated to the base label, so the divergence cannot recur — a
         # run's own type now always yields its own roster. Assert that directly.
-        assert len(_reg.get_pipeline_agents("prototype")) == 5, (
-            "precondition: the prototype roster must be non-empty (5 agents)"
-        )
+        assert (
+            len(_reg.get_pipeline_agents("prototype")) == 5
+        ), "precondition: the prototype roster must be non-empty (5 agents)"
         assert _reg.get_pipeline_agents("od_prototype") == [], (
             "the retired label must resolve to nothing rather than silently "
             "inheriting prototype's roster"
@@ -3477,8 +4027,12 @@ async def test_offset0_gate_resume_does_not_replan_or_reclarify(monkeypatch):
         # CLARIFY_REQUIRED, so pre-fix (``skip_planner`` False at offset 0) the run
         # diverts into the auto-clarifier and re-parks at a NEW questionnaire.
         async def _clarify_required_planner(
-            user_message, pipeline_run_id, model_id, cancel_event,
-            ptype="custom", **kw,
+            user_message,
+            pipeline_run_id,
+            model_id,
+            cancel_event,
+            ptype="custom",
+            **kw,
         ):
             planner_calls["n"] += 1
             return engine_b._default_planning_context(user_message), "CLARIFY_REQUIRED"
@@ -3495,15 +4049,24 @@ async def test_offset0_gate_resume_does_not_replan_or_reclarify(monkeypatch):
                 self._usage_sink = None
 
             async def run(
-                self, pipeline_run_id, planning_context, ws_send, *,
-                owner_id=None, workspace_id=None, max_rounds=1,
-                replay_questions=None, replay_round=None,
+                self,
+                pipeline_run_id,
+                planning_context,
+                ws_send,
+                *,
+                owner_id=None,
+                workspace_id=None,
+                max_rounds=1,
+                replay_questions=None,
+                replay_round=None,
             ):
                 clarify_runs["n"] += 1
-                await ws_send({
-                    "type": "questionnaire_ready",
-                    "data": {"pipeline_run_id": pipeline_run_id, "round": 1},
-                })
+                await ws_send(
+                    {
+                        "type": "questionnaire_ready",
+                        "data": {"pipeline_run_id": pipeline_run_id, "round": 1},
+                    }
+                )
                 return planning_context
 
         monkeypatch.setattr(_clar_mod, "ClarifyEngine", _FakeClarify)
@@ -3511,11 +4074,23 @@ async def test_offset0_gate_resume_does_not_replan_or_reclarify(monkeypatch):
         # Spy the gate seam: record which agent re-entered the gate, then REJECT so the
         # run stops AT the gate (the deterministic stand-in for "parks awaiting the
         # human"). Same shape as the :3110 gate spy.
-        async def _spy_gate(*, pipeline_run_id, agent_id, agent_name, output, redoable,
-                            update_specs_eligible, artifact_kind, cancel_event, **kw):
+        async def _spy_gate(
+            *,
+            pipeline_run_id,
+            agent_id,
+            agent_name,
+            output,
+            redoable,
+            update_specs_eligible,
+            artifact_kind,
+            cancel_event,
+            **kw,
+        ):
             gate_spy["agent_ids"].append(agent_id)
-            yield {"type": "review_gate_ready",
-                   "data": {"gate_key": f"{pipeline_run_id}:{agent_id}"}}
+            yield {
+                "type": "review_gate_ready",
+                "data": {"gate_key": f"{pipeline_run_id}:{agent_id}"},
+            }
             yield {"type": "_gate_rejected"}
 
         engine_b._run_review_gate = _spy_gate  # type: ignore[assignment]
@@ -3561,29 +4136,77 @@ def test_apply_terminal_output_columns_populates_all_columns():
 
     # A user_stories-shaped durable tail: two of the real pipeline agents + a clean terminal.
     events = [
-        ("agent_start", {"agent_id": "domain-analyst", "name": "Domain Analyst", "role": "Analyst", "icon": "🧠"}),
+        (
+            "agent_start",
+            {
+                "agent_id": "domain-analyst",
+                "name": "Domain Analyst",
+                "role": "Analyst",
+                "icon": "🧠",
+            },
+        ),
         ("agent_chunk", {"chunk": "domain analysis body"}),
-        ("agent_complete", {"duration": 1.5, "input_tokens": 100, "output_tokens": 50,
-                             "total_tokens": 150, "cache_read_tokens": 10, "cache_write_tokens": 5}),
-        ("agent_start", {"agent_id": "backlog-compiler", "name": "Backlog Compiler", "role": "Compiler", "icon": "📋"}),
+        (
+            "agent_complete",
+            {
+                "duration": 1.5,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "total_tokens": 150,
+                "cache_read_tokens": 10,
+                "cache_write_tokens": 5,
+            },
+        ),
+        (
+            "agent_start",
+            {
+                "agent_id": "backlog-compiler",
+                "name": "Backlog Compiler",
+                "role": "Compiler",
+                "icon": "📋",
+            },
+        ),
         ("agent_chunk", {"chunk": "# Backlog\n- story 1"}),
-        ("agent_complete", {"duration": 2.0, "input_tokens": 200, "output_tokens": 80,
-                             "total_tokens": 280, "cache_read_tokens": 0, "cache_write_tokens": 0}),
-        ("pipeline_complete", {"final_output": "# Backlog\n- story 1\n- story 2",
-                               "deliverable_mimetype": "text/markdown",
-                               "deliverable_filename": "backlog.md"}),
+        (
+            "agent_complete",
+            {
+                "duration": 2.0,
+                "input_tokens": 200,
+                "output_tokens": 80,
+                "total_tokens": 280,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+            },
+        ),
+        (
+            "pipeline_complete",
+            {
+                "final_output": "# Backlog\n- story 1\n- story 2",
+                "deliverable_mimetype": "text/markdown",
+                "deliverable_filename": "backlog.md",
+            },
+        ),
     ]
     wr = WorkflowRun(
-        id="bugr03-helper", user_id="o", owner_id="o",
-        status="completed", type="user_stories", input="brief",
+        id="bugr03-helper",
+        user_id="o",
+        owner_id="o",
+        status="completed",
+        type="user_stories",
+        input="brief",
     )
-    _apply_terminal_output_columns(wr, events, model_id="claude-x", duration_seconds=3.5)
+    _apply_terminal_output_columns(
+        wr, events, model_id="claude-x", duration_seconds=3.5
+    )
 
-    assert wr.output == "# Backlog\n- story 1\n- story 2", "final_output → output column"
+    assert (
+        wr.output == "# Backlog\n- story 1\n- story 2"
+    ), "final_output → output column"
     agents = _json.loads(wr.agent_outputs)
-    assert [a["agent_id"] for a in agents] == ["domain-analyst", "backlog-compiler"], (
-        f"agent_outputs must carry every completed agent: {agents}"
-    )
+    assert [a["agent_id"] for a in agents] == [
+        "domain-analyst",
+        "backlog-compiler",
+    ], f"agent_outputs must carry every completed agent: {agents}"
     assert agents[0]["output"] == "domain analysis body"
     tu = _json.loads(wr.token_usage)
     assert tu["total_input_tokens"] == 300 and tu["total_output_tokens"] == 130
@@ -3608,12 +4231,25 @@ def test_apply_terminal_output_columns_captures_per_agent_model_id():
     events = [
         ("agent_start", {"agent_id": "prototype-build", "name": "Build Agent"}),
         ("agent_chunk", {"chunk": "built it"}),
-        ("agent_complete", {"duration": 1.0, "input_tokens": 10, "output_tokens": 5,
-                             "total_tokens": 15,
-                             "model_id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"}),
+        (
+            "agent_complete",
+            {
+                "duration": 1.0,
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "total_tokens": 15,
+                "model_id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            },
+        ),
     ]
-    wr = WorkflowRun(id="issue963-helper", user_id="o", owner_id="o",
-                      status="completed", type="prototype", input="brief")
+    wr = WorkflowRun(
+        id="issue963-helper",
+        user_id="o",
+        owner_id="o",
+        status="completed",
+        type="prototype",
+        input="brief",
+    )
     _apply_terminal_output_columns(wr, events, model_id=None, duration_seconds=1.0)
 
     agents = _json.loads(wr.agent_outputs)
@@ -3635,8 +4271,13 @@ def test_summary_safe_agent_keys_exposes_model_id():
         # KAN-120, the case ``resume_supersedes`` exists for: attempt 1 was cancelled,
         # a LATER attempt (run_resuming + pipeline_start) ran to completion.
         (
-            [("pipeline_start", 1), ("pipeline_cancelled", 2), ("run_resuming", 3),
-             ("pipeline_start", 4), ("pipeline_complete", 5)],
+            [
+                ("pipeline_start", 1),
+                ("pipeline_cancelled", 2),
+                ("run_resuming", 3),
+                ("pipeline_start", 4),
+                ("pipeline_complete", 5),
+            ],
             "completed",
         ),
         # FIX-229 / ISS-078: the user REJECTED at a re-entered gate. The cancellation and
@@ -3644,14 +4285,24 @@ def test_summary_safe_agent_keys_exposes_model_id():
         # dispatch loop falls through to the run's single pipeline_complete emitter — so
         # the rejection stands. Pre-fix this reconciled to "completed": a silent status lie.
         (
-            [("run_resuming", 1), ("pipeline_start", 2), ("review_gate_ready", 3),
-             ("pipeline_cancelled", 4), ("pipeline_complete", 5)],
+            [
+                ("run_resuming", 1),
+                ("pipeline_start", 2),
+                ("review_gate_ready", 3),
+                ("pipeline_cancelled", 4),
+                ("pipeline_complete", 5),
+            ],
             "cancelled",
         ),
         # A rejection on a LATER attempt than a completion is still a rejection.
         (
-            [("pipeline_start", 1), ("pipeline_complete", 2), ("run_resuming", 3),
-             ("pipeline_start", 4), ("pipeline_cancelled", 5)],
+            [
+                ("pipeline_start", 1),
+                ("pipeline_complete", 2),
+                ("run_resuming", 3),
+                ("pipeline_start", 4),
+                ("pipeline_cancelled", 5),
+            ],
             "cancelled",
         ),
     ],
@@ -3678,7 +4329,11 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
     store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
     for type_, seq in tail:
         await store.append_event(
-            run_id, seq=seq, event_id=f"rc-{seq}", type=type_, payload_json={},
+            run_id,
+            seq=seq,
+            event_id=f"rc-{seq}",
+            type=type_,
+            payload_json={},
         )
     session.commit()
 
@@ -3688,9 +4343,9 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
 
     session.expire_all()
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert row.status == expected, (
-        f"tail {[t for t, _ in tail]} must reconcile to {expected!r}; got {row.status!r}"
-    )
+    assert (
+        row.status == expected
+    ), f"tail {[t for t, _ in tail]} must reconcile to {expected!r}; got {row.status!r}"
     session.close()
 
 
@@ -3722,8 +4377,11 @@ async def test_user_resume_persists_output_columns(monkeypatch):
         engine_a = h.make_engine()
         try:
             async for _ev in engine_a._execute_impl(
-                agents=list(h.specs), user_message="Run the wave workflow.",
-                pipeline_run_id=run_id, pipeline_type=_FIXTURE_ID, user_id=owner,
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
                 gate_agent_ids=[],
             ):
                 pass
@@ -3744,12 +4402,14 @@ async def test_user_resume_persists_output_columns(monkeypatch):
 
     session.expire_all()
     row2 = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-    assert row2.status == "completed", f"status must reconcile to completed: {row2.status!r}"
+    assert (
+        row2.status == "completed"
+    ), f"status must reconcile to completed: {row2.status!r}"
     # BUG-R03 — the terminal ``output`` column is now POPULATED on resume-completion (the
     # durable pipeline_complete.final_output), where pre-fix the resume tier wrote none.
-    assert row2.output, (
-        "BUG-R03: resume-completion must persist the output column (empty pre-fix)"
-    )
+    assert (
+        row2.output
+    ), "BUG-R03: resume-completion must persist the output column (empty pre-fix)"
     for part in ("part_a.txt", "part_c.txt"):
         assert part in row2.output, f"output must carry the resumed deliverable: {part}"
     session.close()
@@ -3775,8 +4435,11 @@ async def test_restart_resume_fires_output_persist_hook(monkeypatch):
         engine_a = h.make_engine()
         try:
             async for _ev in engine_a._execute_impl(
-                agents=list(h.specs), user_message="Run the wave workflow.",
-                pipeline_run_id=run_id, pipeline_type=_FIXTURE_ID, user_id=owner,
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
                 gate_agent_ids=[],
             ):
                 pass
@@ -3835,14 +4498,23 @@ async def test_stop_at_clarify_yields_pipeline_cancelled(monkeypatch):
             self._usage_sink = None
 
         async def run(
-            self, pipeline_run_id, planning_context, ws_send, *,
-            owner_id=None, workspace_id=None, max_rounds=1,
-            replay_questions=None, replay_round=None,
+            self,
+            pipeline_run_id,
+            planning_context,
+            ws_send,
+            *,
+            owner_id=None,
+            workspace_id=None,
+            max_rounds=1,
+            replay_questions=None,
+            replay_round=None,
         ):
-            await ws_send({
-                "type": "questionnaire_ready",
-                "data": {"pipeline_run_id": pipeline_run_id, "round": 1},
-            })
+            await ws_send(
+                {
+                    "type": "questionnaire_ready",
+                    "data": {"pipeline_run_id": pipeline_run_id, "round": 1},
+                }
+            )
             await asyncio.Event().wait()  # PARK — never resolves (no answers submitted)
             return planning_context  # pragma: no cover
 
@@ -3896,7 +4568,9 @@ async def test_stop_at_clarify_yields_pipeline_cancelled(monkeypatch):
         await asyncio.wait_for(_drive(), timeout=8)
         await agen.aclose()
 
-    assert saw_cancelled, "Stop at clarify must yield the existing pipeline_cancelled terminal"
+    assert (
+        saw_cancelled
+    ), "Stop at clarify must yield the existing pipeline_cancelled terminal"
     session.close()
 
 
@@ -3925,31 +4599,41 @@ def _rehydrate_planner_json(explicit_constraints=None) -> str:
     """The durable planner row. ``explicit_constraints`` is overridable so the
     malformed-shape test can inject the raw, unvalidated LLM JSON the planner really
     persists (a non-list, or a list holding non-strings)."""
-    return _json.dumps({
-        "inferred_intent": _REHYDRATE_INTENT,
-        "has_topic": True,
-        "topic": "claims intake",
-        "explicit_constraints": [] if explicit_constraints is None else explicit_constraints,
-        "implicit_constraints": ["IMPLICIT-SENTINEL: must stay auditable"],
-        "missing_information": ["deployment target"],
-        "execution_strategy": "sequential",
-        "execution_gate": "CLARIFY_REQUIRED",
-        "inferred_personas": [],
-        "inferred_nfrs": [],
-        "quality_targets": [],
-        "domain_insights": [],
-        "planner_timed_out": False,
-    })
+    return _json.dumps(
+        {
+            "inferred_intent": _REHYDRATE_INTENT,
+            "has_topic": True,
+            "topic": "claims intake",
+            "explicit_constraints": []
+            if explicit_constraints is None
+            else explicit_constraints,
+            "implicit_constraints": ["IMPLICIT-SENTINEL: must stay auditable"],
+            "missing_information": ["deployment target"],
+            "execution_strategy": "sequential",
+            "execution_gate": "CLARIFY_REQUIRED",
+            "inferred_personas": [],
+            "inferred_nfrs": [],
+            "quality_targets": [],
+            "domain_insights": [],
+            "planner_timed_out": False,
+        }
+    )
 
 
-def _rehydrate_clarifications_json(round_num: int, qid: str, question: str, answer) -> str:
-    return _json.dumps([{
-        "question_id": qid,
-        "question_text": question,
-        "impact_level": "high",
-        "answer": answer,
-        "round": round_num,
-    }])
+def _rehydrate_clarifications_json(
+    round_num: int, qid: str, question: str, answer
+) -> str:
+    return _json.dumps(
+        [
+            {
+                "question_id": qid,
+                "question_text": question,
+                "impact_level": "high",
+                "answer": answer,
+                "round": round_num,
+            }
+        ]
+    )
 
 
 @pytest.mark.asyncio
@@ -3966,19 +4650,37 @@ async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
     ectx = _make_ectx(run_id)
 
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
-        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
-        content=_rehydrate_planner_json(), location="artifact_refs/planning_context",
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="planning_context",
+        producer_step="planner",
+        producer_agent=PLANNER_AGENT_ID,
+        task_id=None,
+        content=_rehydrate_planner_json(),
+        location="artifact_refs/planning_context",
     )
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
-        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
-        content=_rehydrate_clarifications_json(1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER),
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="clarifications",
+        producer_step="clarify_round_1",
+        producer_agent="clarify-agent",
+        task_id=None,
+        content=_rehydrate_clarifications_json(
+            1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+        ),
         location="artifact_refs/clarifications",
     )
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
-        producer_step="clarify_round_2", producer_agent="clarify-agent", task_id=None,
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="clarifications",
+        producer_step="clarify_round_2",
+        producer_agent="clarify-agent",
+        task_id=None,
         content=_rehydrate_clarifications_json(
             2, "r2_q1", "Which auth model?", "ROUND2-SENTINEL"
         ),
@@ -3988,19 +4690,19 @@ async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
     engine = ExecutionEngine()
     rebuilt = engine._rehydrate_planning_context(ectx, user_message)
 
-    assert rebuilt["inferred_intent"] == _REHYDRATE_INTENT, (
-        "the rehydrated intent must be the PLANNER's, not the user_message[:200] stub"
-    )
+    assert (
+        rebuilt["inferred_intent"] == _REHYDRATE_INTENT
+    ), "the rehydrated intent must be the PLANNER's, not the user_message[:200] stub"
     assert rebuilt["inferred_intent"] != user_message[:200]
     assert "IMPLICIT-SENTINEL: must stay auditable" in rebuilt["implicit_constraints"]
 
     constraints = rebuilt["explicit_constraints"]
-    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in constraints, (
-        f"round 1's answered clarification must be merged back: {constraints}"
-    )
-    assert "Which auth model? → ROUND2-SENTINEL" in constraints, (
-        f"round 2's answered clarification must be merged back: {constraints}"
-    )
+    assert (
+        f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in constraints
+    ), f"round 1's answered clarification must be merged back: {constraints}"
+    assert (
+        "Which auth model? → ROUND2-SENTINEL" in constraints
+    ), f"round 2's answered clarification must be merged back: {constraints}"
     # A resumed run is mid-build — a stale CLARIFY_REQUIRED must not leak to a consumer.
     assert rebuilt["execution_gate"] == "PROCEED"
 
@@ -4011,12 +4713,17 @@ async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
     # The reconstruction is observable where it matters — the composed prompt.
     spec = load_agent_spec("domain-analyst")
     composed = await engine._compose_context_message(
-        spec, 0, [spec], user_message, rebuilt, ectx,
+        spec,
+        0,
+        [spec],
+        user_message,
+        rebuilt,
+        ectx,
     )
     assert "**Explicit Constraints**" in composed
-    assert _REHYDRATE_ANSWER in composed, (
-        "the merged clarification answers must reach the dispatched prompt"
-    )
+    assert (
+        _REHYDRATE_ANSWER in composed
+    ), "the merged clarification answers must reach the dispatched prompt"
     assert _REHYDRATE_INTENT in composed
 
 
@@ -4041,7 +4748,11 @@ async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
     # must displace (`user_message[:200]`) is a real, assertable string in the prompt.
     user_message = "Run the wave workflow."
     _seed_workflow_run(
-        session, run_id, owner=owner, status="failed", workspace_id=ws,
+        session,
+        run_id,
+        owner=owner,
+        status="failed",
+        workspace_id=ws,
         input_=user_message,
     )
 
@@ -4050,27 +4761,51 @@ async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
     # (a gate re-entry would skip the model call, and with it the compose under test).
     pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
     await pre_store.append_event(
-        run_id, seq=1, event_id="rh-1", type="agent_start",
+        run_id,
+        seq=1,
+        event_id="rh-1",
+        type="agent_start",
         payload_json={"agent_id": "sample-wave-plan"},
     )
 
     planner_json = _rehydrate_planner_json()
-    await pre_store.write_ref(ArtifactRef(
-        id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
-        kind="planning_context", producer_step="planner", producer_agent=PLANNER_AGENT_ID,
-        task_id=None, content=planner_json, content_hash=_pb_hash(planner_json),
-        location="artifact_refs/planning_context", version=1, visibility="workspace",
-    ))
+    await pre_store.write_ref(
+        ArtifactRef(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            owner_id=owner,
+            workspace_id=ws,
+            kind="planning_context",
+            producer_step="planner",
+            producer_agent=PLANNER_AGENT_ID,
+            task_id=None,
+            content=planner_json,
+            content_hash=_pb_hash(planner_json),
+            location="artifact_refs/planning_context",
+            version=1,
+            visibility="workspace",
+        )
+    )
     clar_json = _rehydrate_clarifications_json(
         1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
     )
-    await pre_store.write_ref(ArtifactRef(
-        id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
-        kind="clarifications", producer_step="clarify_round_1",
-        producer_agent="clarify-agent", task_id=None, content=clar_json,
-        content_hash=_pb_hash(clar_json), location="artifact_refs/clarifications",
-        version=1, visibility="workspace",
-    ))
+    await pre_store.write_ref(
+        ArtifactRef(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            owner_id=owner,
+            workspace_id=ws,
+            kind="clarifications",
+            producer_step="clarify_round_1",
+            producer_agent="clarify-agent",
+            task_id=None,
+            content=clar_json,
+            content_hash=_pb_hash(clar_json),
+            location="artifact_refs/clarifications",
+            version=1,
+            visibility="workspace",
+        )
+    )
     session.commit()
 
     composed: list[str] = []
@@ -4100,9 +4835,9 @@ async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
         "D2: a resumed dispatch must carry the planner's real inferred_intent, not the "
         f"user_message[:200] stub; got:\n{first[:1500]}"
     )
-    assert f"**Inferred Intent**: {user_message[:200]}" not in first, (
-        "the truncated stub intent must be gone from the resumed dispatch"
-    )
+    assert (
+        f"**Inferred Intent**: {user_message[:200]}" not in first
+    ), "the truncated stub intent must be gone from the resumed dispatch"
     session.close()
 
 
@@ -4116,15 +4851,17 @@ async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
 @pytest.mark.parametrize(
     "bad_constraints,expected_kept",
     [
-        ([{"c": "a dict, not a string"}], []),          # set() -> unhashable type: 'dict'
-        (5, []),                                         # set() -> int is not iterable
-        ("a bare string", []),                           # a str is iterable -> silent charwise set
+        ([{"c": "a dict, not a string"}], []),  # set() -> unhashable type: 'dict'
+        (5, []),  # set() -> int is not iterable
+        ("a bare string", []),  # a str is iterable -> silent charwise set
         (["keep me", 7, None, "and me"], ["keep me", "and me"]),
     ],
     ids=["list-of-dicts", "scalar-int", "bare-string", "mixed-list"],
 )
 @pytest.mark.asyncio
-async def test_rehydrate_survives_malformed_planner_constraints(bad_constraints, expected_kept):
+async def test_rehydrate_survives_malformed_planner_constraints(
+    bad_constraints, expected_kept
+):
     """C1: the planner row is raw, unvalidated LLM JSON, so `explicit_constraints`
     can be a non-list or hold non-strings. The idempotency `set()` and the summary
     log's `len()` sit outside the merge guard, so before the normalisation these
@@ -4139,14 +4876,24 @@ async def test_rehydrate_survives_malformed_planner_constraints(bad_constraints,
     run_id = "rehydrate-malformed-planner"
     ectx = _make_ectx(run_id)
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
-        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="planning_context",
+        producer_step="planner",
+        producer_agent=PLANNER_AGENT_ID,
+        task_id=None,
         content=_rehydrate_planner_json(bad_constraints),
         location="artifact_refs/planning_context",
     )
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
-        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="clarifications",
+        producer_step="clarify_round_1",
+        producer_agent="clarify-agent",
+        task_id=None,
         content=_rehydrate_clarifications_json(
             1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
         ),
@@ -4154,23 +4901,31 @@ async def test_rehydrate_survives_malformed_planner_constraints(bad_constraints,
     )
 
     # Must not raise — this is the whole point.
-    rebuilt = ExecutionEngine()._rehydrate_planning_context(ectx, "Build the workbench.")
+    rebuilt = ExecutionEngine()._rehydrate_planning_context(
+        ectx, "Build the workbench."
+    )
 
     # Degrading on the malformed field must NOT cost us the rest of the row...
     assert rebuilt["inferred_intent"] == _REHYDRATE_INTENT
     # ...nor the clarification merge, which is D2's actual payload.
-    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in rebuilt["explicit_constraints"]
+    assert (
+        f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}"
+        in rebuilt["explicit_constraints"]
+    )
     # Well-formed members survive; malformed ones are dropped, never coerced.
     for kept in expected_kept:
         assert kept in rebuilt["explicit_constraints"]
     assert all(isinstance(c, str) for c in rebuilt["explicit_constraints"])
-    assert not any(isinstance(c, (dict, int, type(None))) for c in rebuilt["explicit_constraints"])
+    assert not any(
+        isinstance(c, (dict, int, type(None))) for c in rebuilt["explicit_constraints"]
+    )
     # Exact-count, not just membership. Without the normalisation a bare string is
     # ITERABLE, so `set()`/`list()` explode it charwise and every character becomes its
     # own "constraint" — all of them str, so the isinstance assertions above would pass
     # on a badly corrupted context. The count is what actually discriminates.
     assert rebuilt["explicit_constraints"] == [
-        *expected_kept, f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}"
+        *expected_kept,
+        f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}",
     ], (
         "the rebuilt constraints must be exactly the well-formed survivors plus the "
         f"merged answer, with nothing coerced or exploded: {rebuilt['explicit_constraints']}"
@@ -4199,13 +4954,24 @@ async def test_rehydrate_merge_survives_monkeypatched_clarify_engine():
     run_id = "rehydrate-patched-clarify"
     ectx = _make_ectx(run_id)
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
-        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
-        content=_rehydrate_planner_json(), location="artifact_refs/planning_context",
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="planning_context",
+        producer_step="planner",
+        producer_agent=PLANNER_AGENT_ID,
+        task_id=None,
+        content=_rehydrate_planner_json(),
+        location="artifact_refs/planning_context",
     )
     ectx.artifacts.write_ref(
-        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
-        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        run_id=run_id,
+        owner_id="anon",
+        workspace_id="ws",
+        kind="clarifications",
+        producer_step="clarify_round_1",
+        producer_agent="clarify-agent",
+        task_id=None,
         content=_rehydrate_clarifications_json(
             1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
         ),
@@ -4215,11 +4981,16 @@ async def test_rehydrate_merge_survives_monkeypatched_clarify_engine():
     original = _clar_mod.ClarifyEngine
     _clar_mod.ClarifyEngine = _FakeClarifyNoMerge  # exactly what the resume tests do
     try:
-        rebuilt = ExecutionEngine()._rehydrate_planning_context(ectx, "Build the workbench.")
+        rebuilt = ExecutionEngine()._rehydrate_planning_context(
+            ectx, "Build the workbench."
+        )
     finally:
         _clar_mod.ClarifyEngine = original
 
-    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in rebuilt["explicit_constraints"], (
+    assert (
+        f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}"
+        in rebuilt["explicit_constraints"]
+    ), (
         "the rehydrator must use the IMPORT-TIME ClarifyEngine bind — a late binding "
         "would pick up the monkeypatched fake and silently drop every answer"
     )
@@ -4258,7 +5029,10 @@ async def test_rehydrate_merge_survives_monkeypatched_clarify_engine():
 _ISS091_TERMINAL = "pipeline_cancelled"
 # Events that prove a downstream step actually executed after the terminal.
 _ISS091_POST_TERMINAL_WORK = {
-    "agent_start", "wave_started", "subagent_spawned", "merge_started",
+    "agent_start",
+    "wave_started",
+    "subagent_spawned",
+    "merge_started",
 }
 
 
@@ -4320,11 +5094,11 @@ async def test_inline_gate_rejection_stops_the_pipeline():
         "a rejected run must NOT report completion — the dispatch loop fell through "
         f"to the Step-5 terminal block: {types}"
     )
-    tail = types[types.index(_ISS091_TERMINAL) + 1:]
+    tail = types[types.index(_ISS091_TERMINAL) + 1 :]
     ran_anyway = sorted({t for t in tail if t in _ISS091_POST_TERMINAL_WORK})
-    assert not ran_anyway, (
-        f"work executed AFTER the run was cancelled: {ran_anyway} (full tail: {tail})"
-    )
+    assert (
+        not ran_anyway
+    ), f"work executed AFTER the run was cancelled: {ran_anyway} (full tail: {tail})"
     session.close()
 
 
@@ -4349,9 +5123,9 @@ async def test_gate_rejection_writes_no_wave_or_subagent_rows():
 
     session.expire_all()
     waves = session.query(WaveRun).filter(WaveRun.run_id == run_id).all()
-    workers = session.query(SubagentRun).filter(
-        SubagentRun.parent_run_id == run_id
-    ).all()
+    workers = (
+        session.query(SubagentRun).filter(SubagentRun.parent_run_id == run_id).all()
+    )
 
     assert waves == [], (
         "a rejected run dispatched waves it must never have started: "
@@ -4403,16 +5177,14 @@ async def test_rejected_run_resumes_and_still_produces_its_deliverable():
         await engine_b.resume_run(run_id)
 
     root = _Path(_settings.RUNS_ROOT)
-    produced = sorted(
-        p.name for p in root.rglob("part_*.txt") if run_id in str(p)
-    )
+    produced = sorted(p.name for p in root.rglob("part_*.txt") if run_id in str(p))
     assert produced == ["part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"], (
         "the resumed run produced nothing — the rejection poisoned the durable "
         f"wave record and every wave was skipped as already-done. Produced: {produced}"
     )
-    assert call_log, (
-        "the resumed run invoked no worker model at all — the waves were skipped"
-    )
+    assert (
+        call_log
+    ), "the resumed run invoked no worker model at all — the waves were skipped"
     session.close()
 
 
@@ -4465,16 +5237,16 @@ async def test_declared_gate_rejection_still_cancels_the_run():
             events.append(event)
 
     types = [e.get("type") for e in events]
-    assert "review_gate_ready" in types, (
-        f"precondition failed — the declared human gate never opened: {types}"
-    )
+    assert (
+        "review_gate_ready" in types
+    ), f"precondition failed — the declared human gate never opened: {types}"
     assert types[-1] == _ISS091_TERMINAL, (
         f"WR-03 regressed: a declared-gate rejection must end the run on "
         f"{_ISS091_TERMINAL}; it ended on {types[-1]!r}"
     )
-    assert "pipeline_complete" not in types, (
-        f"WR-03 regressed: a declared-gate rejection reported completion: {types}"
-    )
+    assert (
+        "pipeline_complete" not in types
+    ), f"WR-03 regressed: a declared-gate rejection reported completion: {types}"
     session.close()
 
 
@@ -4584,9 +5356,10 @@ async def test_fanout_workers_do_not_arm_the_inline_review_gate():
     types = [e.get("type") for e in events]
     session.expire_all()
     stuck = [
-        w for w in session.query(SubagentRun).filter(
-            SubagentRun.parent_run_id == run_id
-        ).all()
+        w
+        for w in session.query(SubagentRun)
+        .filter(SubagentRun.parent_run_id == run_id)
+        .all()
         if w.status == "running"
     ]
 
@@ -4595,16 +5368,16 @@ async def test_fanout_workers_do_not_arm_the_inline_review_gate():
         f"{len(gate_entries)} gate arm(s) on {sorted(set(gate_entries))}, "
         f"{types.count('review_gate_ready')} review_gate_ready frame(s) on the wire"
     )
-    assert gate_entries == [], (
-        f"a fan-out worker invocation armed the inline review gate: {gate_entries}"
-    )
+    assert (
+        gate_entries == []
+    ), f"a fan-out worker invocation armed the inline review gate: {gate_entries}"
     assert not stuck, (
         "workers left orphaned in subagent_runs: "
         f"{[(w.worker_agent, w.worker_index, w.status) for w in stuck]}"
     )
-    assert "pipeline_complete" in types, (
-        f"the gated fan-out run did not complete: {types[-6:]}"
-    )
+    assert (
+        "pipeline_complete" in types
+    ), f"the gated fan-out run did not complete: {types[-6:]}"
     session.close()
 
 
@@ -4642,7 +5415,7 @@ async def test_selecting_a_non_fanout_agent_still_opens_its_inline_gate():
 
         await asyncio.wait_for(_drive(), timeout=_ISS097_TIMEOUT_S)
 
-    assert gate_entries == ["sample-wave-plan"], (
-        f"non-fan-out inline gating changed: {gate_entries}"
-    )
+    assert gate_entries == [
+        "sample-wave-plan"
+    ], f"non-fan-out inline gating changed: {gate_entries}"
     session.close()

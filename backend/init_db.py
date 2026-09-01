@@ -2,6 +2,7 @@
 One-shot script to initialise dev.db by running all Alembic migrations
 programmatically — no CLI needed.
 """
+
 import os
 import sys
 

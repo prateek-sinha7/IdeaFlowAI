@@ -64,7 +64,7 @@ def _extract_task_block(task_source: str, task_num: int) -> str:
         return ""
     start = m.start()
     # End at the next top-level "## " heading (the next task or any ## section).
-    nxt = re.search(r"^##\s+", task_source[m.end():], re.MULTILINE)
+    nxt = re.search(r"^##\s+", task_source[m.end() :], re.MULTILINE)
     end = m.end() + nxt.start() if nxt else len(task_source)
     return task_source[start:end].strip()
 

@@ -72,9 +72,7 @@ def test_run_images_preserves_order_for_multiple() -> None:
     )
     assert [b["data"] for b in blocks] == ["AA", "BB", "CC"]
     assert [b["mime_type"] for b in blocks] == ["image/png", "image/jpeg", "image/webp"]
-    assert all(
-        b["type"] == "image" and b["source_type"] == "base64" for b in blocks
-    )
+    assert all(b["type"] == "image" and b["source_type"] == "base64" for b in blocks)
 
 
 def test_run_images_capability_never_reads_current_spec_injects() -> None:

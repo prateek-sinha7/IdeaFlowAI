@@ -30,10 +30,7 @@ from agents.workflows.manifest import (
 from agents.workflows.plan import CompiledWorkflow, Step
 
 _COMPILER_SRC = (
-    Path(__file__).resolve().parents[2]
-    / "agents"
-    / "workflows"
-    / "compiler.py"
+    Path(__file__).resolve().parents[2] / "agents" / "workflows" / "compiler.py"
 )
 
 
@@ -110,9 +107,7 @@ def test_empty_plan() -> None:
 
 def test_clarify_rounds_round_trips() -> None:
     """A manifest declaring clarify.rounds materializes onto compiled.clarify.rounds."""
-    manifest = _manifest(
-        clarify={"mode": "auto", "defaults": [], "rounds": 2}
-    )
+    manifest = _manifest(clarify={"mode": "auto", "defaults": [], "rounds": 2})
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
     assert compiled.clarify.rounds == 2
 
@@ -142,7 +137,10 @@ def test_clarify_rounds_round_trips() -> None:
             },
             "bogus_parser",
         ),
-        ({"steps": [{"agent": "a", "compaction": "bogus_compaction"}]}, "bogus_compaction"),
+        (
+            {"steps": [{"agent": "a", "compaction": "bogus_compaction"}]},
+            "bogus_compaction",
+        ),
         ({"context_providers": ["bogus_provider"]}, "bogus_provider"),
         ({"deliverable": {"strategy": "bogus_deliverable"}}, "bogus_deliverable"),
     ],
@@ -227,9 +225,7 @@ def test_rejects_task_source_level_dsl_key() -> None:
 def test_no_name_branch() -> None:
     src_lines = _COMPILER_SRC.read_text(encoding="utf-8").splitlines()
     # Strip comment-only lines so a docstring/comment mention is not a false hit.
-    code = "\n".join(
-        line for line in src_lines if not line.lstrip().startswith("#")
-    )
+    code = "\n".join(line for line in src_lines if not line.lstrip().startswith("#"))
     assert "if pipeline_type" not in code
     for literal in ('== "prototype"', '== "ppt"', '== "user_stories"', '== "chat"'):
         assert literal not in code
@@ -356,13 +352,21 @@ def test_injects_absent_is_empty_list_parity() -> None:
     [
         # security gate (engineer-only — couples privileged exec/network/secrets)
         (
-            {"steps": [{"agent": "a", "strategy": "single_shot", "gates": ["security"]}]},
+            {
+                "steps": [
+                    {"agent": "a", "strategy": "single_shot", "gates": ["security"]}
+                ]
+            },
             "gate",
             "security",
         ),
         # approval gate (engineer-only)
         (
-            {"steps": [{"agent": "a", "strategy": "single_shot", "gates": ["approval"]}]},
+            {
+                "steps": [
+                    {"agent": "a", "strategy": "single_shot", "gates": ["approval"]}
+                ]
+            },
             "gate",
             "approval",
         ),
@@ -557,9 +561,7 @@ def test_sample_fanout_manifest_compiles() -> None:
     triggers the guard).
     """
     manifest = load_manifest("sample_fanout", _WORKFLOWS_DIR)
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="file"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
     worker = next(s for s in compiled.steps if s.strategy == "fanout_batch")
     assert worker.task_source.source_step == "sample-fanout-plan"
 
@@ -567,7 +569,5 @@ def test_sample_fanout_manifest_compiles() -> None:
 def test_sample_wave_manifest_compiles() -> None:
     """Regression: sample_wave compiles (wave_scheduler → guard vacuously passes)."""
     manifest = load_manifest("sample_wave", _WORKFLOWS_DIR)
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="file"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
     assert any(s.strategy == "wave_scheduler" for s in compiled.steps)

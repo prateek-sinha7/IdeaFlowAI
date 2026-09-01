@@ -113,7 +113,8 @@ class UploadedFilesProvider:
             entries,
             read_text=lambda name: getattr(
                 latest.get(f"{_UPLOADS_PREFIX}{name}.txt"), "content", ""
-            ) or "",
+            )
+            or "",
         )
 
     def _compose(self, entries: list, *, read_text) -> dict[str, str]:
@@ -136,7 +137,9 @@ class UploadedFilesProvider:
             sections.append(f"### {name}\n{text}")
         if not sections:
             return {}
-        return {"uploaded_files_context": "## Uploaded Files\n\n" + "\n\n".join(sections)}
+        return {
+            "uploaded_files_context": "## Uploaded Files\n\n" + "\n\n".join(sections)
+        }
 
     # ── durable reads (degrade-not-crash — a broken store read never breaks the agent) ──
     @staticmethod
@@ -163,7 +166,9 @@ class UploadedFilesProvider:
             if not isinstance(location, str) or not location:
                 continue
             prev = latest.get(location)
-            if prev is None or getattr(row, "version", 0) >= getattr(prev, "version", 0):
+            if prev is None or getattr(row, "version", 0) >= getattr(
+                prev, "version", 0
+            ):
                 latest[location] = row
         return latest
 
@@ -189,7 +194,9 @@ class UploadedFilesProvider:
         try:
             raw = sandbox.read(_MANIFEST_REL)
         except Exception as exc:  # noqa: BLE001 — a read error must not break the agent
-            logger.warning("uploaded_files: manifest read failed (%s) — no context", exc)
+            logger.warning(
+                "uploaded_files: manifest read failed (%s) — no context", exc
+            )
             return []
         if not raw:
             return []

@@ -145,9 +145,7 @@ class DeliverableContext:
                 if p.is_file():
                     self._content = p.read_text(encoding="utf-8")
                     return self._content
-        except (
-            OSError
-        ) as exc:  # noqa: BLE001 — a read failure degrades to empty content
+        except OSError as exc:  # noqa: BLE001 — a read failure degrades to empty content
             logger.debug("DeliverableContext.content read failed (%s)", exc)
         return self._content or ""
 
@@ -315,9 +313,7 @@ class KernelServices:
                 from app.agents.render_check import render_check
 
                 _rres0 = await render_check(_orig_path)
-            except (
-                Exception
-            ) as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
+            except Exception as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
                 logger.warning(
                     "revision baseline render_check raised (%s) — treating as "
                     "unavailable (no console baseline)",
@@ -396,9 +392,7 @@ class KernelServices:
                 attempt=attempt,
                 issues=issues,
             )
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — audit write must never abort a validator
+        except Exception as exc:  # noqa: BLE001 — audit write must never abort a validator
             logger.warning(
                 "record_validation_result(step=%s validator=%s) failed: %s",
                 step,
@@ -452,7 +446,7 @@ class KernelServices:
             return
         try:
             data = dict(detail) if detail else {}
-                # ISS-082 — the frame's ONLY identity. This is the one event pushed straight
+            # ISS-082 — the frame's ONLY identity. This is the one event pushed straight
             # onto the live queue instead of being yielded, so it never reaches execute()'s
             # seq/event_id stamping chokepoint and carries no ``seq`` and has no run_events
             # row. Without an id every consumer's dedup is a no-op for it by design
@@ -462,8 +456,7 @@ class KernelServices:
             # stream — a golden event-multiset change (INV-3) that _VOLATILE_STRIP_KEYS
             # strips seq/event_id from but cannot strip a whole row away.
             data.setdefault("event_id", str(_uuid4()))
-            queue.put_nowait({"type": "hook_run", "data": data}
-            )
+            queue.put_nowait({"type": "hook_run", "data": data})
         except Exception:  # noqa: BLE001 — emit must never abort a hook
             pass
 
@@ -644,9 +637,7 @@ class KernelServices:
             return []
         try:
             return await store.read_wave_runs(self.run_id)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — a resume read must never abort the run
+        except Exception as exc:  # noqa: BLE001 — a resume read must never abort the run
             logger.warning("read_wave_runs failed: %s", exc)
             return []
 
@@ -664,9 +655,7 @@ class KernelServices:
             return []
         try:
             return await store.read_subagent_runs(self.run_id)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — a resume read must never abort the run
+        except Exception as exc:  # noqa: BLE001 — a resume read must never abort the run
             logger.warning("read_subagent_runs failed: %s", exc)
             return []
 
@@ -689,9 +678,7 @@ class KernelServices:
             return await store.workspace_budget_spent(
                 getattr(self._ectx, "workspace_id", None)
             )
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — a ceiling read must never abort the run
+        except Exception as exc:  # noqa: BLE001 — a ceiling read must never abort the run
             logger.warning("workspace_budget_spent read failed: %s", exc)
             return {"subagents": 0, "tokens": 0}
 
@@ -716,9 +703,7 @@ class KernelServices:
         }
         try:
             await store.persist_budget_snapshot(self.run_id, payload)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — snapshot persist must NEVER abort the run
+        except Exception as exc:  # noqa: BLE001 — snapshot persist must NEVER abort the run
             logger.warning("persist_budget_snapshot failed: %s", exc)
 
     # ── Isolated-workspace alloc/reclaim handle (Phase 11 / FANOUT-05) ─────────
@@ -849,9 +834,7 @@ class KernelServices:
                 task_id=str(worker_index),
                 visibility="workspace",
             )
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — fragment persist must never abort the merge
+        except Exception as exc:  # noqa: BLE001 — fragment persist must never abort the merge
             logger.warning(
                 "write_fragment_artifact(step=%s worker=%s idx=%s) failed: %s",
                 producer_step,
@@ -908,9 +891,7 @@ class KernelServices:
                 location=f"merge_conflict/{producer_step}.json",
                 visibility="private",  # owner-scoped: a conflict is not workspace-shared
             )
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — audit must never abort the conflict flow
+        except Exception as exc:  # noqa: BLE001 — audit must never abort the conflict flow
             logger.warning(
                 "write_merge_conflict_artifact(step=%s) failed: %s", producer_step, exc
             )

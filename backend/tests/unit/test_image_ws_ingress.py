@@ -69,9 +69,7 @@ def ws_env(monkeypatch):
 
     _RecordingEngine.invoked = False
     _RecordingEngine.last_kwargs = None
-    monkeypatch.setattr(
-        engine_mod, "get_execution_engine", lambda: _RecordingEngine()
-    )
+    monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RecordingEngine())
 
     yield ws_module, TestingSession
 
@@ -129,7 +127,12 @@ def rest_env(ws_env, monkeypatch):
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
     client = TestClient(app)
-    return {"client": client, "state": state, "Session": TestingSession, "rc": rc_module}
+    return {
+        "client": client,
+        "state": state,
+        "Session": TestingSession,
+        "rc": rc_module,
+    }
 
 
 def _rest_user(rest_env) -> _FakeUser:
@@ -149,7 +152,8 @@ def _rest_run_count(rest_env) -> int:
 def _post_launch(rest_env, user, **body):
     rest_env["state"]["user"] = user
     return rest_env["client"].post(
-        "/api/runs", json={"message": "build a backlog", "pipeline_type": "user_stories", **body}
+        "/api/runs",
+        json={"message": "build a backlog", "pipeline_type": "user_stories", **body},
     )
 
 
@@ -229,8 +233,11 @@ async def test_rest_d3_no_base64_in_run_input(rest_env):
     rest_env["state"]["user"] = user
     resp = rest_env["client"].post(
         "/api/runs",
-        json={"message": brief, "pipeline_type": "user_stories",
-              "images": _valid_images()},
+        json={
+            "message": brief,
+            "pipeline_type": "user_stories",
+            "images": _valid_images(),
+        },
     )
     assert resp.status_code == 200, resp.text
     run = _latest_run(rest_env["Session"])

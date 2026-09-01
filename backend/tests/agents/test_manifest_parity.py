@@ -94,18 +94,20 @@ _MANIFEST_BACKED_IDS = sorted(
 # route_chat_turn / CHANNEL_REVISION) and CR-02 in engine._handle_revision
 # rejects any planner: run target pre-dispatch. app_builder_revision still
 # declares planner: run (not chat-lane dispatched).
-_RUN_REVISION_DISPATCHED = frozenset({
-    "ppt_revision",
-    "prototype_revision",
-    "user_stories_revision",
-    # Authored with the composed-workflow builder; declares planner: skip like
-    # its siblings but was never added here. Sibling trap: keep in lockstep with
-    # tests/agents/test_id_alias_resolver.py::_RUN_REVISION_DISPATCHED.
-    "custom_revision",
-    # Flipped to planner: skip — it was authored as `run` and so could never be
-    # revision-dispatched (CR-02 refused it; the run died with 0 events).
-    "app_builder_revision",
-})
+_RUN_REVISION_DISPATCHED = frozenset(
+    {
+        "ppt_revision",
+        "prototype_revision",
+        "user_stories_revision",
+        # Authored with the composed-workflow builder; declares planner: skip like
+        # its siblings but was never added here. Sibling trap: keep in lockstep with
+        # tests/agents/test_id_alias_resolver.py::_RUN_REVISION_DISPATCHED.
+        "custom_revision",
+        # Flipped to planner: skip — it was authored as `run` and so could never be
+        # revision-dispatched (CR-02 refused it; the run died with 0 events).
+        "app_builder_revision",
+    }
+)
 
 # sample_subagents_parallel is a separate, non-revision planner-skip case: a
 # deliberately tiny local workflow where running the deep planner would cost
@@ -138,13 +140,76 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
 # exists purely to catch UNINTENTIONAL manifest drift; when a manifest's
 # clarify.defaults is deliberately changed, update this copy to match.
 _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
-    "ppt":           ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
-    "prototype":     ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
-    "user_stories":  ["target_audience", "scope", "priority", "technology", "personas", "user_journeys", "business_rules", "compliance_security"],
-    "app_builder":   ["technology", "scope", "target_audience", "security", "user_journeys", "data_model", "integrations", "performance"],
-    "mulesoft_to_springboot": ["scope", "technology", "timeline", "priority", "integration_patterns", "target_infrastructure", "data_migration", "compliance_security"],
-    "dotnet_to_azure":        ["scope", "technology", "timeline", "priority", "azure_services", "data_migration", "integration_patterns", "compliance_security"],
-    "custom":        ["target_audience", "key_objectives", "scope", "priority", "output_format", "constraints", "domain", "assumptions"],
+    "ppt": [
+        "target_audience",
+        "tone_and_style",
+        "key_objectives",
+        "slide_count",
+        "content_depth",
+        "data_availability",
+        "visual_style",
+        "key_sections",
+    ],
+    "prototype": [
+        "target_audience",
+        "scope",
+        "priority",
+        "style",
+        "user_journeys",
+        "key_screens",
+        "interactions",
+        "personas",
+    ],
+    "user_stories": [
+        "target_audience",
+        "scope",
+        "priority",
+        "technology",
+        "personas",
+        "user_journeys",
+        "business_rules",
+        "compliance_security",
+    ],
+    "app_builder": [
+        "technology",
+        "scope",
+        "target_audience",
+        "security",
+        "user_journeys",
+        "data_model",
+        "integrations",
+        "performance",
+    ],
+    "mulesoft_to_springboot": [
+        "scope",
+        "technology",
+        "timeline",
+        "priority",
+        "integration_patterns",
+        "target_infrastructure",
+        "data_migration",
+        "compliance_security",
+    ],
+    "dotnet_to_azure": [
+        "scope",
+        "technology",
+        "timeline",
+        "priority",
+        "azure_services",
+        "data_migration",
+        "integration_patterns",
+        "compliance_security",
+    ],
+    "custom": [
+        "target_audience",
+        "key_objectives",
+        "scope",
+        "priority",
+        "output_format",
+        "constraints",
+        "domain",
+        "assumptions",
+    ],
     # clarify.mode: skip — a composed spec-012 shape test takes its topic
     # straight from the run input and asks nothing (ADR-0005 made it visible).
     "sample_subagents_parallel": [],

@@ -61,12 +61,46 @@ _IGNORED_DIR_NAMES = {
     ".vscode",
 }
 _BINARY_EXTS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip",
-    ".tar", ".gz", ".bz2", ".xz", ".woff", ".woff2", ".ttf", ".otf",
-    ".mp3", ".mp4", ".mov", ".pptx", ".docx", ".xlsx", ".bin", ".so",
-    ".dylib", ".dll", ".exe", ".class", ".jar",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".pdf",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".mp3",
+    ".mp4",
+    ".mov",
+    ".pptx",
+    ".docx",
+    ".xlsx",
+    ".bin",
+    ".so",
+    ".dylib",
+    ".dll",
+    ".exe",
+    ".class",
+    ".jar",
 }
-_TEST_PATH_HINTS = ("/test", "/tests", "/__tests__", "/spec", ".test.", ".spec.", "test_", "_test.")
+_TEST_PATH_HINTS = (
+    "/test",
+    "/tests",
+    "/__tests__",
+    "/spec",
+    ".test.",
+    ".spec.",
+    "test_",
+    "_test.",
+)
 
 
 def _branch_name(handoff_id: str, task: str) -> str:
@@ -129,7 +163,19 @@ def _select_relevant_files(task: str, paths: list[str]) -> list[str]:
     A README is always included if present (provides project context).
     """
     tokens = {t.lower() for t in _IDENT_RE.findall(task) if len(t) >= 3}
-    tokens -= {"the", "and", "for", "with", "from", "this", "that", "task", "fix", "add", "remove"}
+    tokens -= {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "this",
+        "that",
+        "task",
+        "fix",
+        "add",
+        "remove",
+    }
 
     scored: list[tuple[int, int, str]] = []
     for p in paths:
@@ -200,13 +246,27 @@ def _apply_edits(workspace: str, edits: list[dict[str, Any]]) -> list[dict[str, 
         try:
             target = _safe_workspace_join(workspace, path)
         except ValueError as exc:
-            results.append({"path": path, "operation": op, "status": "rejected", "reason": str(exc)})
+            results.append(
+                {
+                    "path": path,
+                    "operation": op,
+                    "status": "rejected",
+                    "reason": str(exc),
+                }
+            )
             continue
 
         try:
             if op == "create":
                 if os.path.exists(target):
-                    results.append({"path": path, "operation": op, "status": "rejected", "reason": "file exists"})
+                    results.append(
+                        {
+                            "path": path,
+                            "operation": op,
+                            "status": "rejected",
+                            "reason": "file exists",
+                        }
+                    )
                     continue
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with open(target, "w", encoding="utf-8") as fh:
@@ -214,12 +274,26 @@ def _apply_edits(workspace: str, edits: list[dict[str, Any]]) -> list[dict[str, 
                 results.append({"path": path, "operation": op, "status": "applied"})
             elif op == "modify":
                 if not os.path.exists(target):
-                    results.append({"path": path, "operation": op, "status": "rejected", "reason": "file missing"})
+                    results.append(
+                        {
+                            "path": path,
+                            "operation": op,
+                            "status": "rejected",
+                            "reason": "file missing",
+                        }
+                    )
                     continue
                 with open(target, "r", encoding="utf-8") as fh:
                     contents = fh.read()
                 if old and contents.count(old) != 1:
-                    results.append({"path": path, "operation": op, "status": "rejected", "reason": f"old_string match count = {contents.count(old)} (expected 1)"})
+                    results.append(
+                        {
+                            "path": path,
+                            "operation": op,
+                            "status": "rejected",
+                            "reason": f"old_string match count = {contents.count(old)} (expected 1)",
+                        }
+                    )
                     continue
                 if old:
                     contents = contents.replace(old, new, 1)
@@ -230,14 +304,35 @@ def _apply_edits(workspace: str, edits: list[dict[str, Any]]) -> list[dict[str, 
                 results.append({"path": path, "operation": op, "status": "applied"})
             elif op == "delete":
                 if not os.path.exists(target):
-                    results.append({"path": path, "operation": op, "status": "rejected", "reason": "file missing"})
+                    results.append(
+                        {
+                            "path": path,
+                            "operation": op,
+                            "status": "rejected",
+                            "reason": "file missing",
+                        }
+                    )
                     continue
                 os.remove(target)
                 results.append({"path": path, "operation": op, "status": "applied"})
             else:
-                results.append({"path": path, "operation": op, "status": "rejected", "reason": f"unknown operation {op!r}"})
+                results.append(
+                    {
+                        "path": path,
+                        "operation": op,
+                        "status": "rejected",
+                        "reason": f"unknown operation {op!r}",
+                    }
+                )
         except OSError as exc:
-            results.append({"path": path, "operation": op, "status": "rejected", "reason": f"OSError: {exc}"})
+            results.append(
+                {
+                    "path": path,
+                    "operation": op,
+                    "status": "rejected",
+                    "reason": f"OSError: {exc}",
+                }
+            )
     return results
 
 
@@ -253,14 +348,20 @@ def _build_pr_body(
     """Markdown body for the GitHub PR. No secrets, length-capped at call site."""
     lines = ["## Summary", "", f"_Task:_ {task}", ""]
     if coding_summary:
-        lines.append(f"**What changed**: {coding_summary.get('summary', '').strip() or '(no summary)'}")
+        lines.append(
+            f"**What changed**: {coding_summary.get('summary', '').strip() or '(no summary)'}"
+        )
         rationale = (coding_summary.get("rationale") or "").strip()
         if rationale:
             lines += ["", "**Why**:", rationale]
     if edit_results:
         applied = [r for r in edit_results if r.get("status") == "applied"]
         rejected = [r for r in edit_results if r.get("status") != "applied"]
-        lines += ["", f"**Files edited**: {len(applied)} applied" + (f", {len(rejected)} rejected" if rejected else "")]
+        lines += [
+            "",
+            f"**Files edited**: {len(applied)} applied"
+            + (f", {len(rejected)} rejected" if rejected else ""),
+        ]
         for r in applied:
             lines.append(f"- `{r['path']}` ({r['operation']})")
         for r in rejected:
@@ -283,7 +384,9 @@ def _build_pr_body(
         if quality:
             lines.append("\n**Test-quality issues:**")
             for q in quality[:10]:
-                lines.append(f"- ({q.get('severity', '?')}) {q.get('issue', '')} — {q.get('path', '')}")
+                lines.append(
+                    f"- ({q.get('severity', '?')}) {q.get('issue', '')} — {q.get('path', '')}"
+                )
     if compliance_report:
         lines += [
             "",
@@ -373,21 +476,34 @@ async def run_handoff_pipeline(
             yield _event("handoff_error", data={"message": f"Invalid repo URL: {exc}"})
             raise
 
-        yield _event("phase_start", section="setup", data={"task": task_description, "repo": f"{target.owner}/{target.repo}"})
+        yield _event(
+            "phase_start",
+            section="setup",
+            data={"task": task_description, "repo": f"{target.owner}/{target.repo}"},
+        )
         try:
             meta = await gh.get_repo_metadata(target, pat)
         except RuntimeError as exc:
-            yield _event("handoff_error", data={"message": f"GitHub metadata fetch failed: {exc}"})
+            yield _event(
+                "handoff_error",
+                data={"message": f"GitHub metadata fetch failed: {exc}"},
+            )
             raise
         default_branch = meta["default_branch"]
         base_branch = source_branch or default_branch
         pipeline_output["base_branch"] = base_branch
         pipeline_output["default_branch"] = default_branch
-        yield _event("phase_end", section="setup", data={"default_branch": default_branch, "base_branch": base_branch})
+        yield _event(
+            "phase_end",
+            section="setup",
+            data={"default_branch": default_branch, "base_branch": base_branch},
+        )
 
         # --- Clone ---
         yield _event("phase_start", section="clone", data={"branch": base_branch})
-        clone_res = await asyncio.to_thread(gh.clone, target, pat, workspace_root, base_branch)
+        clone_res = await asyncio.to_thread(
+            gh.clone, target, pat, workspace_root, base_branch
+        )
         if clone_res.returncode != 0:
             yield _event(
                 "handoff_error",
@@ -414,7 +530,13 @@ async def run_handoff_pipeline(
 
         # --- Coding step (only if mode is "coding") ---
         if mode == "coding":
-            yield _event("agent_thinking", data={"agent_id": "coding_agent", "thinking": "Reading relevant files and planning the change..."})
+            yield _event(
+                "agent_thinking",
+                data={
+                    "agent_id": "coding_agent",
+                    "thinking": "Reading relevant files and planning the change...",
+                },
+            )
             relevant_paths = _select_relevant_files(task_description, paths)
             relevant_files = {p: _read_text_file(workspace, p) for p in relevant_paths}
             coding_agent = CodingAgent()
@@ -426,7 +548,9 @@ async def run_handoff_pipeline(
                     transcript_excerpt=transcript_excerpt,
                 )
             except Exception as exc:
-                yield _event("agent_error", data={"agent_id": "coding_agent", "error": str(exc)})
+                yield _event(
+                    "agent_error", data={"agent_id": "coding_agent", "error": str(exc)}
+                )
                 raise
             # Trim each edit's old/new strings before shipping to the frontend.
             # 16 KiB per side is enough to render a meaningful diff for the
@@ -437,7 +561,12 @@ async def run_handoff_pipeline(
                 s = s or ""
                 if len(s.encode("utf-8")) <= _MAX_EDIT_SIDE_BYTES:
                     return s
-                return s.encode("utf-8")[:_MAX_EDIT_SIDE_BYTES].decode("utf-8", errors="replace") + "\n\n… (truncated for preview)"
+                return (
+                    s.encode("utf-8")[:_MAX_EDIT_SIDE_BYTES].decode(
+                        "utf-8", errors="replace"
+                    )
+                    + "\n\n… (truncated for preview)"
+                )
 
             preview_edits = [
                 {
@@ -475,7 +604,9 @@ async def run_handoff_pipeline(
             }
             edit_results = _apply_edits(workspace, coding_summary.get("edits", []))
             pipeline_output["edit_results"] = edit_results
-            yield _event("phase_end", section="apply_edits", data={"results": edit_results})
+            yield _event(
+                "phase_end", section="apply_edits", data={"results": edit_results}
+            )
 
             for r in edit_results:
                 if r.get("status") == "applied" and r.get("operation") != "delete":
@@ -484,7 +615,10 @@ async def run_handoff_pipeline(
                         edited_file_contents[r["path"]] = contents
 
         # --- Test analysis ---
-        yield _event("agent_thinking", data={"agent_id": "test_agent", "thinking": "Analysing test coverage..."})
+        yield _event(
+            "agent_thinking",
+            data={"agent_id": "test_agent", "thinking": "Analysing test coverage..."},
+        )
         test_paths = _select_test_files(_walk_repo(workspace))
         test_files = {p: _read_text_file(workspace, p) for p in test_paths}
         if edited_file_contents:
@@ -500,13 +634,23 @@ async def run_handoff_pipeline(
                 coding_summary=coding_summary,
             )
         except Exception as exc:
-            yield _event("agent_error", data={"agent_id": "test_agent", "error": str(exc)})
+            yield _event(
+                "agent_error", data={"agent_id": "test_agent", "error": str(exc)}
+            )
             raise
-        yield _event("agent_complete", data={"agent_id": "test_agent", "report": test_report})
+        yield _event(
+            "agent_complete", data={"agent_id": "test_agent", "report": test_report}
+        )
         pipeline_output["test_report"] = test_report
 
         # --- Compliance ---
-        yield _event("agent_thinking", data={"agent_id": "compliance_agent", "thinking": "Reviewing for security and best practices..."})
+        yield _event(
+            "agent_thinking",
+            data={
+                "agent_id": "compliance_agent",
+                "thinking": "Reviewing for security and best practices...",
+            },
+        )
         if not edited_file_contents and coding_summary is None:
             review_files = test_files
         else:
@@ -521,9 +665,14 @@ async def run_handoff_pipeline(
                 test_report=test_report,
             )
         except Exception as exc:
-            yield _event("agent_error", data={"agent_id": "compliance_agent", "error": str(exc)})
+            yield _event(
+                "agent_error", data={"agent_id": "compliance_agent", "error": str(exc)}
+            )
             raise
-        yield _event("agent_complete", data={"agent_id": "compliance_agent", "report": compliance_report})
+        yield _event(
+            "agent_complete",
+            data={"agent_id": "compliance_agent", "report": compliance_report},
+        )
         pipeline_output["compliance_report"] = compliance_report
 
         # --- Commit + push (only if we actually changed something) ---
@@ -533,27 +682,52 @@ async def run_handoff_pipeline(
             yield _event("phase_start", section="commit", data={"branch": branch})
             cb = await asyncio.to_thread(gh.checkout_new_branch, workspace, branch)
             if cb.returncode != 0:
-                yield _event("handoff_error", data={"message": "branch checkout failed", "stderr": cb.stderr[:500]})
+                yield _event(
+                    "handoff_error",
+                    data={
+                        "message": "branch checkout failed",
+                        "stderr": cb.stderr[:500],
+                    },
+                )
                 raise RuntimeError(f"branch checkout failed: {cb.stderr[:300]}")
             sa = await asyncio.to_thread(gh.stage_all, workspace)
             if sa.returncode != 0:
-                yield _event("handoff_error", data={"message": "git add failed", "stderr": sa.stderr[:500]})
+                yield _event(
+                    "handoff_error",
+                    data={"message": "git add failed", "stderr": sa.stderr[:500]},
+                )
                 raise RuntimeError(f"git add failed: {sa.stderr[:300]}")
             commit_msg = (coding_summary or {}).get("summary") or task_description[:72]
-            commit_msg = commit_msg.strip().replace("\n", " ")[:200] or "VelocityAI handoff change"
+            commit_msg = (
+                commit_msg.strip().replace("\n", " ")[:200]
+                or "VelocityAI handoff change"
+            )
             cm = await asyncio.to_thread(gh.commit, workspace, commit_msg)
             if cm.returncode != 0:
                 # Possible cause: no changes vs base. Treat as soft failure.
-                yield _event("phase_end", section="commit", data={"committed": False, "stderr": cm.stderr[:300]})
+                yield _event(
+                    "phase_end",
+                    section="commit",
+                    data={"committed": False, "stderr": cm.stderr[:300]},
+                )
             else:
-                yield _event("phase_end", section="commit", data={"committed": True, "message": commit_msg})
+                yield _event(
+                    "phase_end",
+                    section="commit",
+                    data={"committed": True, "message": commit_msg},
+                )
                 yield _event("phase_start", section="push", data={"branch": branch})
                 pu = await asyncio.to_thread(gh.push, target, pat, workspace, branch)
                 if pu.returncode != 0:
-                    yield _event("handoff_error", data={"message": "git push failed", "stderr": pu.stderr[:500]})
+                    yield _event(
+                        "handoff_error",
+                        data={"message": "git push failed", "stderr": pu.stderr[:500]},
+                    )
                     raise RuntimeError(f"git push failed: {pu.stderr[:300]}")
                 gh.wipe_credentialed_remote(workspace)
-                yield _event("phase_end", section="push", data={"pushed": True, "branch": branch})
+                yield _event(
+                    "phase_end", section="push", data={"pushed": True, "branch": branch}
+                )
 
                 pr_body = _build_pr_body(
                     task=task_description,
@@ -565,7 +739,11 @@ async def run_handoff_pipeline(
                     issuer_email=issuer_email,
                 )
                 pr_title = commit_msg
-                yield _event("phase_start", section="open_pr", data={"head": branch, "base": base_branch})
+                yield _event(
+                    "phase_start",
+                    section="open_pr",
+                    data={"head": branch, "base": base_branch},
+                )
                 try:
                     pr_info = await gh.create_pull_request(
                         target=target,
@@ -576,9 +754,14 @@ async def run_handoff_pipeline(
                         body=pr_body,
                     )
                 except RuntimeError as exc:
-                    yield _event("handoff_error", data={"message": f"PR creation failed: {exc}"})
+                    yield _event(
+                        "handoff_error", data={"message": f"PR creation failed: {exc}"}
+                    )
                     raise
-                yield _event("pr_created", data={"url": pr_info["url"], "number": pr_info["number"]})
+                yield _event(
+                    "pr_created",
+                    data={"url": pr_info["url"], "number": pr_info["number"]},
+                )
                 pipeline_output["pr_url"] = pr_info["url"]
                 pipeline_output["pr_number"] = pr_info["number"]
         else:

@@ -59,7 +59,7 @@ def _normalize(model_id: str) -> str:
         changed = False
         for prefix in _PREFIXES:
             if key.startswith(prefix):
-                key = key[len(prefix):]
+                key = key[len(prefix) :]
                 changed = True
     return _SUFFIX_RE.sub("", key)
 

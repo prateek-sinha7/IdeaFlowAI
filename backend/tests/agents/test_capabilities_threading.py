@@ -23,7 +23,11 @@ from typing import Any
 
 import pytest
 
-from tests.agents._scripted_model import _RUNS_ROOT, ScriptedFakeChatModel, _ScriptedTurn
+from tests.agents._scripted_model import (
+    _RUNS_ROOT,
+    ScriptedFakeChatModel,
+    _ScriptedTurn,
+)
 
 # A tool-less, single-agent-satisfiable pipeline (same choice as test_chunk_sanitizer.py).
 _AGENT_ID = "domain-analyst"
@@ -40,6 +44,7 @@ async def _drive_and_capture_capabilities(capabilities: dict) -> dict:
     from agents.registry import get_pipeline_agents
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     specs = get_pipeline_agents(_PIPELINE_TYPE)
@@ -61,7 +66,9 @@ async def _drive_and_capture_capabilities(capabilities: dict) -> dict:
 
     def _patched_create_runner(aid, ctx, **kw):
         captured["capabilities"] = ctx.capabilities
-        ctx.model = ScriptedFakeChatModel([_ScriptedTurn(texts=["done"], usage=(10, 5))])
+        ctx.model = ScriptedFakeChatModel(
+            [_ScriptedTurn(texts=["done"], usage=(10, 5))]
+        )
         return _orig_create_runner(aid, ctx, **kw)
 
     factory_mod.create_runner = _patched_create_runner
@@ -69,8 +76,9 @@ async def _drive_and_capture_capabilities(capabilities: dict) -> dict:
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event,
-                                 ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]

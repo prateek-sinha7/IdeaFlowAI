@@ -95,31 +95,39 @@ class ModelResolver:
         agent_model = getattr(spec, "model", None)
         # The two higher-precedence tiers, computed first so we can tell whether
         # tier 3 is actually the SELECTED tier before validating it (WR-01).
-        override = self._overrides.get(getattr(spec, "id", None))           # 1 override
+        override = self._overrides.get(getattr(spec, "id", None))  # 1 override
         step_model = step.model.model if step is not None and step.model else None  # 2
 
         resolved = (
             override
             or step_model
-            or agent_model                                                  # 3 AgentSpec.model
-            or (self._workflow_model.model if self._workflow_model else None)   # 4 workflow.model
-            or self._session_model_id                                       # 5a session model_id
-            or self._haiku_default                                          # 5b global Haiku
+            or agent_model  # 3 AgentSpec.model
+            or (
+                self._workflow_model.model if self._workflow_model else None
+            )  # 4 workflow.model
+            or self._session_model_id  # 5a session model_id
+            or self._haiku_default  # 5b global Haiku
         )
 
         # Log effective model resolution so operators can verify tier-3 AGENT.md
         # overrides (e.g. prototype-revision-analyzer using Sonnet 5) are active.
         _tier = (
-            "tier-1/override" if override
-            else "tier-2/step.model" if step_model
-            else "tier-3/agent.md" if agent_model
-            else "tier-4/workflow" if (self._workflow_model and self._workflow_model.model)
+            "tier-1/override"
+            if override
+            else "tier-2/step.model"
+            if step_model
+            else "tier-3/agent.md"
+            if agent_model
+            else "tier-4/workflow"
+            if (self._workflow_model and self._workflow_model.model)
             else "tier-5/session"
         )
         agent_id = getattr(spec, "id", "?")
         logger.info(
             "model_resolver: agent=%r  resolved=%r  tier=%s",
-            agent_id, resolved, _tier,
+            agent_id,
+            resolved,
+            _tier,
         )
         # CR-01 defense-in-depth: catalog-validate tier-2 ``step.model`` when it is
         # the SELECTED tier. ``step.model`` originates from a user-composed
@@ -177,7 +185,7 @@ class ModelResolver:
             return []
         chain: list[str] = []
         # For each strictly-cheaper cost class, pick the first catalog id in that class.
-        for cost_class in _COST_CLASS_ORDER[start + 1:]:
+        for cost_class in _COST_CLASS_ORDER[start + 1 :]:
             pick = self._first_id_in_class(cost_class)
             if pick is not None:
                 chain.append(pick)
@@ -231,13 +239,13 @@ _TRANSIENT_STATUS: frozenset[int] = frozenset({429, 500, 503, 529})
 # Type-name / message substrings (langchain-aws / langchain-anthropic may wrap the
 # underlying exception; match defensively on the stringified form too).
 _TRANSIENT_SUBSTRINGS: tuple[str, ...] = (
-    "throttl",            # ThrottlingException / "Throttling"
+    "throttl",  # ThrottlingException / "Throttling"
     "too many requests",
-    "ratelimit",          # anthropic.RateLimitError
+    "ratelimit",  # anthropic.RateLimitError
     "rate limit",
     "serviceunavailable",
     "service unavailable",
-    "overloaded",         # anthropic 529 overloaded_error
+    "overloaded",  # anthropic 529 overloaded_error
     "modeltimeout",
     "servicequotaexceeded",
 )

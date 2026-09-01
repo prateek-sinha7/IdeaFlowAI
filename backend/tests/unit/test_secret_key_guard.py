@@ -65,7 +65,10 @@ class TestSecretKeyValidator:
         with pytest.raises(Exception) as exc_info:
             _build_settings(monkeypatch, ENV="production", SECRET_KEY=_SHIPPED_DEFAULT)
         assert "SECRET_KEY" in str(exc_info.value)
-        assert "production" in str(exc_info.value).lower() or "default" in str(exc_info.value).lower()
+        assert (
+            "production" in str(exc_info.value).lower()
+            or "default" in str(exc_info.value).lower()
+        )
 
     def test_default_key_in_staging_aborts_boot(self, monkeypatch):
         """Staging is non-dev too — same rule."""
@@ -86,7 +89,9 @@ class TestSecretKeyValidator:
         for env in ("development", "production", "ci"):
             with pytest.raises(Exception) as exc_info:
                 _build_settings(monkeypatch, ENV=env, SECRET_KEY="")
-            assert "empty" in str(exc_info.value).lower() or "SECRET_KEY" in str(exc_info.value)
+            assert "empty" in str(exc_info.value).lower() or "SECRET_KEY" in str(
+                exc_info.value
+            )
 
     def test_short_key_in_production_aborts_boot(self, monkeypatch):
         """Below-floor keys in non-dev environments are a fail."""

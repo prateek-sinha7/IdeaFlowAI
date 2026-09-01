@@ -80,19 +80,23 @@ class TestApplyMfaPreferenceSendsCompleteState:
         """
         fake = _client_with_factors(cognito.TOTP_FACTOR)
         with patch.object(cognito, "_client", return_value=fake):
-            factors = cognito.apply_mfa_preference(ACCESS_TOKEN, EMAIL, email_enabled=True)
+            factors = cognito.apply_mfa_preference(
+                ACCESS_TOKEN, EMAIL, email_enabled=True
+            )
 
         kwargs = fake.set_user_mfa_preference.call_args.kwargs
-        assert kwargs["SoftwareTokenMfaSettings"]["Enabled"] is True, (
-            "the existing TOTP device must be explicitly re-asserted, not omitted"
-        )
+        assert (
+            kwargs["SoftwareTokenMfaSettings"]["Enabled"] is True
+        ), "the existing TOTP device must be explicitly re-asserted, not omitted"
         assert kwargs["EmailMfaSettings"]["Enabled"] is True
         assert set(factors) == {cognito.TOTP_FACTOR, cognito.EMAIL_FACTOR}
 
     def test_disabling_email_preserves_an_existing_totp_device(self, cognito_settings):
         fake = _client_with_factors(cognito.TOTP_FACTOR, cognito.EMAIL_FACTOR)
         with patch.object(cognito, "_client", return_value=fake):
-            factors = cognito.apply_mfa_preference(ACCESS_TOKEN, EMAIL, email_enabled=False)
+            factors = cognito.apply_mfa_preference(
+                ACCESS_TOKEN, EMAIL, email_enabled=False
+            )
 
         kwargs = fake.set_user_mfa_preference.call_args.kwargs
         assert kwargs["SoftwareTokenMfaSettings"]["Enabled"] is True
@@ -103,7 +107,9 @@ class TestApplyMfaPreferenceSendsCompleteState:
         """The mirror case — the TOTP enrolment path must not strip email codes."""
         fake = _client_with_factors(cognito.EMAIL_FACTOR)
         with patch.object(cognito, "_client", return_value=fake):
-            factors = cognito.apply_mfa_preference(ACCESS_TOKEN, EMAIL, totp_enabled=True)
+            factors = cognito.apply_mfa_preference(
+                ACCESS_TOKEN, EMAIL, totp_enabled=True
+            )
 
         kwargs = fake.set_user_mfa_preference.call_args.kwargs
         assert kwargs["EmailMfaSettings"]["Enabled"] is True
@@ -138,7 +144,9 @@ class TestApplyMfaPreferenceNamesOnePreference:
         assert kwargs["EmailMfaSettings"]["PreferredMfa"] is True
         assert kwargs["SoftwareTokenMfaSettings"]["PreferredMfa"] is False
 
-    def test_exactly_one_factor_is_preferred_when_both_are_active(self, cognito_settings):
+    def test_exactly_one_factor_is_preferred_when_both_are_active(
+        self, cognito_settings
+    ):
         """Cognito rejects more than one preferred factor, and zero preferred
         among several active ones produces the SELECT_MFA_TYPE detour."""
         fake = _client_with_factors(cognito.TOTP_FACTOR)
@@ -155,7 +163,9 @@ class TestApplyMfaPreferenceNamesOnePreference:
     def test_no_factor_is_preferred_once_all_are_off(self, cognito_settings):
         fake = _client_with_factors(cognito.EMAIL_FACTOR)
         with patch.object(cognito, "_client", return_value=fake):
-            factors = cognito.apply_mfa_preference(ACCESS_TOKEN, EMAIL, email_enabled=False)
+            factors = cognito.apply_mfa_preference(
+                ACCESS_TOKEN, EMAIL, email_enabled=False
+            )
 
         kwargs = fake.set_user_mfa_preference.call_args.kwargs
         assert kwargs["EmailMfaSettings"]["PreferredMfa"] is False
@@ -171,7 +181,9 @@ class TestFactorInspection:
         standardised on email codes.
         """
         for factor in (cognito.TOTP_FACTOR, cognito.EMAIL_FACTOR):
-            with patch.object(cognito, "_client", return_value=_client_with_factors(factor)):
+            with patch.object(
+                cognito, "_client", return_value=_client_with_factors(factor)
+            ):
                 assert cognito.has_any_confirmed_mfa(EMAIL) is True
 
     def test_has_any_confirmed_mfa_is_false_with_no_factors(self, cognito_settings):
@@ -230,7 +242,9 @@ class TestLoginChallengeMapping:
             "an invalid code"
         )
 
-    def test_totp_still_uses_the_software_token_key(self, cognito_settings, monkeypatch):
+    def test_totp_still_uses_the_software_token_key(
+        self, cognito_settings, monkeypatch
+    ):
         captured = self._respond(monkeypatch, "SOFTWARE_TOKEN_MFA", mfa_code="654321")
         assert captured["responses"]["SOFTWARE_TOKEN_MFA_CODE"] == "654321"
         assert "EMAIL_OTP_CODE" not in captured["responses"]
@@ -251,9 +265,13 @@ class TestLoginChallengeMapping:
         assert exc.value.status_code == 400
         assert "mfa_code" in str(exc.value.detail)
 
-    def test_select_mfa_type_rejects_an_unknown_factor(self, cognito_settings, monkeypatch):
+    def test_select_mfa_type_rejects_an_unknown_factor(
+        self, cognito_settings, monkeypatch
+    ):
         with pytest.raises(HTTPException) as exc:
-            self._respond(monkeypatch, "SELECT_MFA_TYPE", selected_factor="CARRIER_PIGEON")
+            self._respond(
+                monkeypatch, "SELECT_MFA_TYPE", selected_factor="CARRIER_PIGEON"
+            )
         assert exc.value.status_code == 400
 
     def test_mfa_setup_reports_501_rather_than_sending_a_doomed_response(
@@ -345,7 +363,9 @@ class TestSelfServiceResetIsRefusedUnderEmailMfa:
         assert exc.value.status_code == 409
         assert "administrator" in str(exc.value.detail).lower()
 
-    def test_confirm_forgot_password_refuses_with_409(self, cognito_settings, monkeypatch):
+    def test_confirm_forgot_password_refuses_with_409(
+        self, cognito_settings, monkeypatch
+    ):
         monkeypatch.setattr(settings, "AUTH_EMAIL_MFA_ENABLED", True)
         from app.api.auth import ConfirmForgotPasswordRequest, confirm_forgot_password
 
@@ -394,7 +414,9 @@ class TestEmailMfaEnrolmentGuards:
             enable_email_mfa(credentials=credentials, auth=(local_user, {}))
         assert exc.value.status_code == 501
 
-    def test_admin_cannot_disable_their_only_factor(self, cognito_settings, monkeypatch):
+    def test_admin_cannot_disable_their_only_factor(
+        self, cognito_settings, monkeypatch
+    ):
         """Otherwise an admin locks themselves out of every /api/admin/* route in
         one click, and fixing it needs a different admin."""
         monkeypatch.setattr(settings, "AUTH_EMAIL_MFA_ENABLED", True)
@@ -411,7 +433,9 @@ class TestEmailMfaEnrolmentGuards:
         assert exc.value.status_code == 409
         assert "authenticator" in str(exc.value.detail).lower()
 
-    def test_admin_with_a_totp_device_may_disable_email(self, cognito_settings, monkeypatch):
+    def test_admin_with_a_totp_device_may_disable_email(
+        self, cognito_settings, monkeypatch
+    ):
         monkeypatch.setattr(settings, "AUTH_EMAIL_MFA_ENABLED", True)
         monkeypatch.setattr(settings, "ADMIN_MFA_REQUIRED", True)
         monkeypatch.setattr(cognito, "has_confirmed_totp", lambda email: True)

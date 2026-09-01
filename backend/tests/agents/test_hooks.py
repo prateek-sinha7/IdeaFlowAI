@@ -292,9 +292,7 @@ async def test_engine_fire_hooks_before_write_blocks_secret():
     step = _Step("build", tools=_Perms(read_files=True), hooks=["secret_scan"])
 
     secret = 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"'
-    outcome = await engine._fire_hooks(
-        "before_write", step, ectx, reg, payload=secret
-    )
+    outcome = await engine._fire_hooks("before_write", step, ectx, reg, payload=secret)
     assert outcome == HOOK_BLOCK
     assert any(r["outcome"] == HOOK_BLOCK for r in runner.hook_runs)
 
@@ -343,9 +341,7 @@ async def test_engine_fire_hooks_scanner_unbound_when_read_files_off():
     )
 
     secret = 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"'
-    outcome = await engine._fire_hooks(
-        "before_write", step, ectx, reg, payload=secret
-    )
+    outcome = await engine._fire_hooks("before_write", step, ectx, reg, payload=secret)
     assert outcome == HOOK_CONTINUE
     # The unbound scanner never fired → no secret_scan row (no block either).
     secret_rows = [r for r in runner.hook_runs if r["hook"] == "secret_scan"]
@@ -374,9 +370,7 @@ async def test_engine_fire_hooks_legacy_step_declaring_no_hooks_fires_nothing():
 
     secret = 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"'
     for event_name in ("before_step", "before_write"):
-        outcome = await engine._fire_hooks(
-            event_name, step, ectx, reg, payload=secret
-        )
+        outcome = await engine._fire_hooks(event_name, step, ectx, reg, payload=secret)
         assert outcome == HOOK_CONTINUE
     # NOTHING fired: no hook_runs rows at all (no secret_scan, no otel_tracing).
     assert runner.hook_runs == []
@@ -396,8 +390,13 @@ class _RecordingScopedStore:
 
     async def record_hook_run(self, run_id, hook, event, outcome, detail=None):
         self.hook_runs.append(
-            {"run_id": run_id, "hook": hook, "event": event,
-             "outcome": outcome, "detail": detail}
+            {
+                "run_id": run_id,
+                "hook": hook,
+                "event": event,
+                "outcome": outcome,
+                "detail": detail,
+            }
         )
         return f"hook-row-{len(self.hook_runs)}"
 
@@ -453,8 +452,11 @@ async def test_wired_before_write_blocks_secret_via_kernel_services_seam():
     outcome = await runner.fire_hooks("before_write", step, payload=secret)
 
     assert outcome == HOOK_BLOCK
-    block_rows = [r for r in store.hook_runs
-                  if r["hook"] == "secret_scan" and r["outcome"] == HOOK_BLOCK]
+    block_rows = [
+        r
+        for r in store.hook_runs
+        if r["hook"] == "secret_scan" and r["outcome"] == HOOK_BLOCK
+    ]
     assert len(block_rows) == 1
     assert block_rows[0]["event"] == "before_write"
 
@@ -680,7 +682,9 @@ async def test_otel_tracing_exports_one_span_with_attrs_via_in_memory_exporter(
 
     exporter = InMemorySpanExporter()  # HOLD the ref — read finished spans off it.
     # Inject via the hook's OWN factory (mandatory — NOT a global provider).
-    monkeypatch.setattr(otel, "_build_span_processor", lambda: SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(
+        otel, "_build_span_processor", lambda: SimpleSpanProcessor(exporter)
+    )
     # Reset the cached tracer so _get_tracer() rebuilds through the patched factory.
     monkeypatch.setattr(otel, "_TRACER", None)
 

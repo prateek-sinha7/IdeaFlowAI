@@ -51,9 +51,7 @@ def test_brief_cap_tracks_settings_constant() -> None:
 def test_brief_at_exact_cap_is_accepted() -> None:
     """A brief at exactly settings.BRIEF_MAX_CHARS length constructs OK."""
     boundary_brief = "x" * settings.BRIEF_MAX_CHARS
-    req = RunRequest(
-        template_id="t", design_system_id="d", brief=boundary_brief
-    )
+    req = RunRequest(template_id="t", design_system_id="d", brief=boundary_brief)
     assert len(req.brief) == settings.BRIEF_MAX_CHARS
 
 

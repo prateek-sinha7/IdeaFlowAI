@@ -110,41 +110,98 @@ def _t(seconds: int) -> datetime:
     return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)
 
 
-def _seed_gate_event(db, *, id, run_id, owner_id, workspace_id="ws-1", step="specify",
-                     gate="validation", outcome="pass", detail=None, at=0):
+def _seed_gate_event(
+    db,
+    *,
+    id,
+    run_id,
+    owner_id,
+    workspace_id="ws-1",
+    step="specify",
+    gate="validation",
+    outcome="pass",
+    detail=None,
+    at=0,
+):
     db.add(
         GateEvent(
-            id=id, run_id=run_id, owner_id=owner_id, workspace_id=workspace_id,
-            step=step, gate=gate, outcome=outcome, detail=detail, created_at=_t(at),
+            id=id,
+            run_id=run_id,
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            step=step,
+            gate=gate,
+            outcome=outcome,
+            detail=detail,
+            created_at=_t(at),
         )
     )
     db.commit()
 
 
-def _seed_validation_result(db, *, id, run_id, owner_id, workspace_id="ws-1",
-                            step="build", validator="static_check", severity="HIGH",
-                            attempt=0, issues=None, at=0):
+def _seed_validation_result(
+    db,
+    *,
+    id,
+    run_id,
+    owner_id,
+    workspace_id="ws-1",
+    step="build",
+    validator="static_check",
+    severity="HIGH",
+    attempt=0,
+    issues=None,
+    at=0,
+):
     db.add(
         ValidationResult(
-            id=id, run_id=run_id, owner_id=owner_id, workspace_id=workspace_id,
-            step=step, validator=validator, severity=severity, attempt=attempt,
-            issues=issues if issues is not None else [], created_at=_t(at),
+            id=id,
+            run_id=run_id,
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            step=step,
+            validator=validator,
+            severity=severity,
+            attempt=attempt,
+            issues=issues if issues is not None else [],
+            created_at=_t(at),
         )
     )
     db.commit()
 
 
-def _seed_exec_run(db, *, id, run_id, owner_id, workspace_id="ws-1", step="build",
-                   argv_json=None, outcome="allowed", exit_code=0, duration_ms=42,
-                   policy_snapshot_json=None, output_digest="sha256:deadbeef…(truncated)",
-                   at=0):
+def _seed_exec_run(
+    db,
+    *,
+    id,
+    run_id,
+    owner_id,
+    workspace_id="ws-1",
+    step="build",
+    argv_json=None,
+    outcome="allowed",
+    exit_code=0,
+    duration_ms=42,
+    policy_snapshot_json=None,
+    output_digest="sha256:deadbeef…(truncated)",
+    at=0,
+):
     db.add(
         ExecRun(
-            id=id, run_id=run_id, owner_id=owner_id, workspace_id=workspace_id,
-            step=step, argv_json=argv_json if argv_json is not None else ["echo", "hi"],
-            outcome=outcome, exit_code=exit_code, duration_ms=duration_ms,
-            policy_snapshot_json=policy_snapshot_json if policy_snapshot_json is not None else {"exec": True},
-            output_digest=output_digest, created_at=_t(at),
+            id=id,
+            run_id=run_id,
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            step=step,
+            argv_json=argv_json if argv_json is not None else ["echo", "hi"],
+            outcome=outcome,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
+            policy_snapshot_json=policy_snapshot_json
+            if policy_snapshot_json is not None
+            else {"exec": True},
+            output_digest=output_digest,
+            created_at=_t(at),
         )
     )
     db.commit()
@@ -152,10 +209,27 @@ def _seed_exec_run(db, *, id, run_id, owner_id, workspace_id="ws-1", step="build
 
 # Endpoint path suffix ↔ response-envelope key ↔ pinned projection columns.
 _GATE_COLS = {"id", "run_id", "step", "gate", "outcome", "detail", "created_at"}
-_VALIDATION_COLS = {"id", "run_id", "step", "validator", "severity", "attempt", "issues", "created_at"}
+_VALIDATION_COLS = {
+    "id",
+    "run_id",
+    "step",
+    "validator",
+    "severity",
+    "attempt",
+    "issues",
+    "created_at",
+}
 _EXEC_COLS = {
-    "id", "run_id", "step", "argv_json", "outcome", "exit_code",
-    "duration_ms", "policy_snapshot_json", "output_digest", "created_at",
+    "id",
+    "run_id",
+    "step",
+    "argv_json",
+    "outcome",
+    "exit_code",
+    "duration_ms",
+    "policy_snapshot_json",
+    "output_digest",
+    "created_at",
 }
 
 
@@ -169,10 +243,26 @@ class TestOwnerRows:
         client, _ = api
         _seed_run(db_session, run_id="run-A", owner_id="owner-A")
         # Insert out of order; endpoint must return created_at ascending.
-        _seed_gate_event(db_session, id="g2", run_id="run-A", owner_id="owner-A",
-                         gate="security", outcome="block", detail={"why": "net"}, at=20)
-        _seed_gate_event(db_session, id="g1", run_id="run-A", owner_id="owner-A",
-                         gate="validation", outcome="pass", detail=None, at=10)
+        _seed_gate_event(
+            db_session,
+            id="g2",
+            run_id="run-A",
+            owner_id="owner-A",
+            gate="security",
+            outcome="block",
+            detail={"why": "net"},
+            at=20,
+        )
+        _seed_gate_event(
+            db_session,
+            id="g1",
+            run_id="run-A",
+            owner_id="owner-A",
+            gate="validation",
+            outcome="pass",
+            detail=None,
+            at=10,
+        )
 
         resp = client.get("/api/runs/run-A/gate-events")
         assert resp.status_code == 200, resp.text
@@ -185,18 +275,36 @@ class TestOwnerRows:
     def test_validation_results_owner_rows_ordered_and_projected(self, api, db_session):
         client, _ = api
         _seed_run(db_session, run_id="run-A", owner_id="owner-A")
-        _seed_validation_result(db_session, id="v2", run_id="run-A", owner_id="owner-A",
-                                validator="render_check", severity="LOW", attempt=1,
-                                issues=[{"msg": "warn"}], at=20)
-        _seed_validation_result(db_session, id="v1", run_id="run-A", owner_id="owner-A",
-                                validator="static_check", severity="HIGH", attempt=0,
-                                issues=[], at=10)
+        _seed_validation_result(
+            db_session,
+            id="v2",
+            run_id="run-A",
+            owner_id="owner-A",
+            validator="render_check",
+            severity="LOW",
+            attempt=1,
+            issues=[{"msg": "warn"}],
+            at=20,
+        )
+        _seed_validation_result(
+            db_session,
+            id="v1",
+            run_id="run-A",
+            owner_id="owner-A",
+            validator="static_check",
+            severity="HIGH",
+            attempt=0,
+            issues=[],
+            at=10,
+        )
 
         resp = client.get("/api/runs/run-A/validation-results")
         assert resp.status_code == 200, resp.text
         rows = resp.json()["validation_results"]
         assert [r["id"] for r in rows] == ["v1", "v2"], "not ordered created_at asc"
-        assert set(rows[0].keys()) == _VALIDATION_COLS, "projection drift on validation-results"
+        assert (
+            set(rows[0].keys()) == _VALIDATION_COLS
+        ), "projection drift on validation-results"
         assert rows[1]["validator"] == "render_check"
         assert rows[1]["attempt"] == 1
         assert rows[1]["issues"] == [{"msg": "warn"}]
@@ -204,10 +312,26 @@ class TestOwnerRows:
     def test_exec_runs_owner_rows_ordered_and_projected(self, api, db_session):
         client, _ = api
         _seed_run(db_session, run_id="run-A", owner_id="owner-A")
-        _seed_exec_run(db_session, id="e2", run_id="run-A", owner_id="owner-A",
-                       outcome="denied", exit_code=None, duration_ms=None, at=20)
-        _seed_exec_run(db_session, id="e1", run_id="run-A", owner_id="owner-A",
-                       outcome="allowed", exit_code=0, duration_ms=42, at=10)
+        _seed_exec_run(
+            db_session,
+            id="e2",
+            run_id="run-A",
+            owner_id="owner-A",
+            outcome="denied",
+            exit_code=None,
+            duration_ms=None,
+            at=20,
+        )
+        _seed_exec_run(
+            db_session,
+            id="e1",
+            run_id="run-A",
+            owner_id="owner-A",
+            outcome="allowed",
+            exit_code=0,
+            duration_ms=42,
+            at=10,
+        )
 
         resp = client.get("/api/runs/run-A/exec-runs")
         assert resp.status_code == 200, resp.text
@@ -221,7 +345,12 @@ class TestOwnerRows:
         client, _ = api
         _seed_run(db_session, run_id="run-A", owner_id="owner-A")
         assert client.get("/api/runs/run-A/gate-events").json()["gate_events"] == []
-        assert client.get("/api/runs/run-A/validation-results").json()["validation_results"] == []
+        assert (
+            client.get("/api/runs/run-A/validation-results").json()[
+                "validation_results"
+            ]
+            == []
+        )
         assert client.get("/api/runs/run-A/exec-runs").json()["exec_runs"] == []
 
 
@@ -231,16 +360,31 @@ class TestOwnerRows:
 
 
 class TestExecDigestOnly:
-    def test_exec_runs_exposes_only_truncated_digest_never_raw_output(self, api, db_session):
+    def test_exec_runs_exposes_only_truncated_digest_never_raw_output(
+        self, api, db_session
+    ):
         client, _ = api
         _seed_run(db_session, run_id="run-A", owner_id="owner-A")
-        _seed_exec_run(db_session, id="e1", run_id="run-A", owner_id="owner-A",
-                       output_digest="sha256:cafe…(truncated)", at=10)
+        _seed_exec_run(
+            db_session,
+            id="e1",
+            run_id="run-A",
+            owner_id="owner-A",
+            output_digest="sha256:cafe…(truncated)",
+            at=10,
+        )
 
         row = client.get("/api/runs/run-A/exec-runs").json()["exec_runs"][0]
         assert row["output_digest"] == "sha256:cafe…(truncated)"
         # No raw-output field of any name may appear in the projection.
-        for leaked in ("output", "stdout", "stderr", "raw_output", "output_raw", "child_output"):
+        for leaked in (
+            "output",
+            "stdout",
+            "stderr",
+            "raw_output",
+            "output_raw",
+            "child_output",
+        ):
             assert leaked not in row, f"exec-runs leaked a raw-output field: {leaked}"
         assert set(row.keys()) == _EXEC_COLS
 
@@ -260,22 +404,31 @@ class TestCrossOwnerDenied:
 
     @pytest.mark.parametrize(
         "suffix,key",
-        [("gate-events", "gate_events"),
-         ("validation-results", "validation_results"),
-         ("exec-runs", "exec_runs")],
+        [
+            ("gate-events", "gate_events"),
+            ("validation-results", "validation_results"),
+            ("exec-runs", "exec_runs"),
+        ],
     )
-    def test_cross_owner_is_404_never_403_never_rows(self, api, db_session, suffix, key):
+    def test_cross_owner_is_404_never_403_never_rows(
+        self, api, db_session, suffix, key
+    ):
         client, state = api
         self._seed_two_owners(db_session)
 
         # A authed, requesting B's run → 404 (never 403, never 200 with B's rows).
         state["user"] = _FakeUser(id="owner-A")
         resp = client.get(f"/api/runs/run-B/{suffix}")
-        assert resp.status_code == 404, f"IDOR: A read B's {suffix} (got {resp.status_code})"
-        assert resp.status_code != 403, "IDOR must resolve to 404, not 403 (existence leak)"
+        assert (
+            resp.status_code == 404
+        ), f"IDOR: A read B's {suffix} (got {resp.status_code})"
+        assert (
+            resp.status_code != 403
+        ), "IDOR must resolve to 404, not 403 (existence leak)"
 
     @pytest.mark.parametrize(
-        "suffix", ["gate-events", "validation-results", "exec-runs"],
+        "suffix",
+        ["gate-events", "validation-results", "exec-runs"],
     )
     def test_missing_run_is_404(self, api, db_session, suffix):
         client, _ = api
@@ -284,16 +437,20 @@ class TestCrossOwnerDenied:
 
     @pytest.mark.parametrize(
         "suffix,key",
-        [("gate-events", "gate_events"),
-         ("validation-results", "validation_results"),
-         ("exec-runs", "exec_runs")],
+        [
+            ("gate-events", "gate_events"),
+            ("validation-results", "validation_results"),
+            ("exec-runs", "exec_runs"),
+        ],
     )
     def test_owner_sees_only_own_rows_not_foreign(self, api, db_session, suffix, key):
         # Two runs: A's (own) and B's (foreign). A must see ONLY A's row.
         client, state = api
         _seed_run(db_session, run_id="run-A", owner_id="owner-A")
         _seed_gate_event(db_session, id="gA", run_id="run-A", owner_id="owner-A", at=1)
-        _seed_validation_result(db_session, id="vA", run_id="run-A", owner_id="owner-A", at=1)
+        _seed_validation_result(
+            db_session, id="vA", run_id="run-A", owner_id="owner-A", at=1
+        )
         _seed_exec_run(db_session, id="eA", run_id="run-A", owner_id="owner-A", at=1)
         self._seed_two_owners(db_session)
 
@@ -301,7 +458,9 @@ class TestCrossOwnerDenied:
         rows = client.get(f"/api/runs/run-A/{suffix}").json()[key]
         assert len(rows) == 1
         assert rows[0]["run_id"] == "run-A"
-        assert not any(r["run_id"] == "run-B" for r in rows), "foreign owner rows leaked"
+        assert not any(
+            r["run_id"] == "run-B" for r in rows
+        ), "foreign owner rows leaked"
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +470,8 @@ class TestCrossOwnerDenied:
 
 class TestAuthRequired:
     @pytest.mark.parametrize(
-        "suffix", ["gate-events", "validation-results", "exec-runs"],
+        "suffix",
+        ["gate-events", "validation-results", "exec-runs"],
     )
     def test_unauthenticated_is_rejected(self, db_session, suffix):
         # Build an app whose get_current_user raises 401 (simulating no valid

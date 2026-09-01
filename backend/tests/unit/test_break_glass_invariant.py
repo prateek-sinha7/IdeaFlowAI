@@ -10,6 +10,7 @@ Offline by design — no AWS calls. The local/legacy credential path is pure
 local logic (bcrypt + HS256 + a DB lookup), so it is fully testable without a
 Cognito pool.
 """
+
 import uuid
 
 import pytest
@@ -31,7 +32,9 @@ from app.models.user import User
 
 @pytest.fixture
 def db():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(bind=engine)
     session = sessionmaker(bind=engine)()
     try:
@@ -40,7 +43,9 @@ def db():
         session.close()
 
 
-def _add_user(db, *, is_admin: bool, auth_provider: str, email: str | None = None) -> User:
+def _add_user(
+    db, *, is_admin: bool, auth_provider: str, email: str | None = None
+) -> User:
     user = User(
         id=str(uuid.uuid4()),
         email=email or f"{uuid.uuid4().hex[:8]}@example.com",
@@ -108,7 +113,9 @@ class TestResolvePrincipalEnforcement:
         assert resolved is not None
         assert resolved.id == admin.id
 
-    def test_non_admin_local_user_is_unaffected_by_the_invariant(self, db, break_glass_on):
+    def test_non_admin_local_user_is_unaffected_by_the_invariant(
+        self, db, break_glass_on
+    ):
         """The gate targets the PRIVILEGED local path only.
 
         A non-admin local user (e.g. a pre-migration account during the

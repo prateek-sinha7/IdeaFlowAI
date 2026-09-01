@@ -54,9 +54,9 @@ def test_all_four_declare_the_previous_run_provider() -> None:
     """Sanity: all four workflows DO declare ``previous_run`` (the proxy's input)."""
     for wf in _PREVIOUS_RUN_WORKFLOWS:
         compiled = compile_for_run(wf)
-        assert "previous_run" in (compiled.context_providers or []), (
-            f"{wf} is expected to declare the previous_run context provider"
-        )
+        assert "previous_run" in (
+            compiled.context_providers or []
+        ), f"{wf} is expected to declare the previous_run context provider"
 
 
 def test_only_prototype_revision_is_an_in_place_revision() -> None:
@@ -68,9 +68,9 @@ def test_only_prototype_revision_is_an_in_place_revision() -> None:
     ``prototype.html.is_file()`` guard.
     """
     compiled = compile_for_run("prototype_revision")
-    assert compiled.deliverable.revises_existing is True, (
-        "prototype_revision must declare deliverable.revises_existing: true"
-    )
+    assert (
+        compiled.deliverable.revises_existing is True
+    ), "prototype_revision must declare deliverable.revises_existing: true"
 
     for wf in _PREVIOUS_RUN_WORKFLOWS:
         if wf == "prototype_revision":
@@ -108,7 +108,9 @@ def test_revision_intent_is_independent_of_provider_presence() -> None:
 class _Ctx:
     """Minimal ctx the provider reads off (dynamic-attr surface only)."""
 
-    def __init__(self, *, is_revision_workflow, parent_run_id, scoped_store=None, runner=None):
+    def __init__(
+        self, *, is_revision_workflow, parent_run_id, scoped_store=None, runner=None
+    ):
         self.is_revision_workflow = is_revision_workflow
         self.parent_run_id = parent_run_id
         self.scoped_store = scoped_store
@@ -154,8 +156,8 @@ async def test_forward_build_with_stray_parent_run_id_does_not_seed() -> None:
     store = _RecordingStore()
     runner = _RecordingRunner()
     ctx = _Ctx(
-        is_revision_workflow=False,       # forward build — NOT a declared revision
-        parent_run_id="parent-123",       # stray parent id on the payload
+        is_revision_workflow=False,  # forward build — NOT a declared revision
+        parent_run_id="parent-123",  # stray parent id on the payload
         scoped_store=store,
         runner=runner,
     )
@@ -174,7 +176,7 @@ async def test_declared_revision_with_parent_seeds_after_assert_owns() -> None:
     store = _RecordingStore()
     runner = _RecordingRunner()
     ctx = _Ctx(
-        is_revision_workflow=True,        # declared in-place revision
+        is_revision_workflow=True,  # declared in-place revision
         parent_run_id="parent-123",
         scoped_store=store,
         runner=runner,
@@ -195,7 +197,7 @@ async def test_declared_revision_without_parent_does_not_seed() -> None:
     runner = _RecordingRunner()
     ctx = _Ctx(
         is_revision_workflow=True,
-        parent_run_id=None,               # no recorded parent
+        parent_run_id=None,  # no recorded parent
         scoped_store=store,
         runner=runner,
     )

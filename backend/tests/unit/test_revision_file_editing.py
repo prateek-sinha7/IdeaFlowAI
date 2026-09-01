@@ -57,10 +57,10 @@ class TestRevisionSeedHelpers:
         # Parameterized by deliverable.name (no hardcoded const).
         artifact_name = "prototype.html"
         slim = _slim_revision_message(_MSG, artifact_name)
-        assert "<!doctype" not in slim                 # large HTML payload removed
-        assert artifact_name in slim                   # pointer to the workspace file
+        assert "<!doctype" not in slim  # large HTML payload removed
+        assert artifact_name in slim  # pointer to the workspace file
         assert "make the New Claim button work" in slim  # instruction preserved
-        assert "REVISION REQUEST" in slim              # title-extraction marker preserved
+        assert "REVISION REQUEST" in slim  # title-extraction marker preserved
 
     def test_slim_pointer_uses_the_declared_filename(self):
         slim = _slim_revision_message(_MSG, "deck.html")

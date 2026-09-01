@@ -101,9 +101,13 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
     # SECOND try, so a CancelledError raised inside converse() at :1347 skips it.
     try:
         _concierge_tasks = set(_CONCIERGE_STREAM_TASKS)
-        done, pending_tasks = await asyncio.wait(
-            _concierge_tasks, timeout=settings.SHUTDOWN_CONCIERGE_DRAIN_SECONDS
-        ) if _concierge_tasks else (set(), set())
+        done, pending_tasks = (
+            await asyncio.wait(
+                _concierge_tasks, timeout=settings.SHUTDOWN_CONCIERGE_DRAIN_SECONDS
+            )
+            if _concierge_tasks
+            else (set(), set())
+        )
         summary["concierge_persisted"] = len(done)
         summary["concierge_lost"] = len(pending_tasks)
         if pending_tasks:
@@ -124,7 +128,9 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
             # pool closes underneath them.
             for t in pending_tasks:
                 t.cancel()
-            await asyncio.wait(pending_tasks, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS)
+            await asyncio.wait(
+                pending_tasks, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS
+            )
     except Exception as exc:  # noqa: BLE001
         summary["errors"].append(f"concierge_drain: {exc}")
         logger.warning("shutdown: concierge drain failed: %s", exc)

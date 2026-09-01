@@ -25,7 +25,9 @@ class RunLog:
         # driven sandbox-less by several suites). Tracing is best-effort, so a
         # missing root disables the log rather than failing the run — the same
         # contract as the try/except in `write`.
-        self._path = Path(sandbox_root) / ".logs" / "run-logs.jsonl" if sandbox_root else None
+        self._path = (
+            Path(sandbox_root) / ".logs" / "run-logs.jsonl" if sandbox_root else None
+        )
 
     def write(self, event: str, **fields: object) -> None:
         """Append one JSON object line. Never raises."""

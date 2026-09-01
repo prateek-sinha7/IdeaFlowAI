@@ -134,8 +134,7 @@ class TestBuildModeParity:
         assert "uncaught exception: ReferenceError: foo" in selected
         assert (
             "dead nav link: '#/orders' activated NOTHING (no <section data-page> "
-            "became active — blank page)"
-            in selected
+            "became active — blank page)" in selected
         )
         # The live nav must NOT appear.
         assert all("#/home" not in line for line in selected)
@@ -165,7 +164,9 @@ class TestBuildModeParity:
         # Round-4 honesty: a dead nav that activated a REAL-but-WRONG section is
         # worded as a mis-route (activated 'x' but expected 'y'), NOT a blank page.
         sres = _static([])
-        rres = _render(nav=[_wrong_nav("#/x", activated="settings", expected="dashboard")])
+        rres = _render(
+            nav=[_wrong_nav("#/x", activated="settings", expected="dashboard")]
+        )
         selected = _select_issues_to_fix(sres, rres, None, None)
         assert selected == [
             "dead nav link: '#/x' activated 'settings' but expected 'dashboard'"
@@ -245,8 +246,7 @@ class TestRevisionModeSelection:
         # … but the RENDER-break dead-nav line is included regardless of baseline.
         assert (
             "dead nav link: '#/orders' activated NOTHING (no <section data-page> "
-            "became active — blank page)"
-            in selected
+            "became active — blank page)" in selected
         )
 
     def test_page_error_always_selected_regardless_of_baseline(self):
@@ -309,8 +309,7 @@ class TestRevisionModeSelection:
         assert "uncaught exception: TypeError: boom" in selected
         assert (
             "dead nav link: '#/broken' activated NOTHING (no <section data-page> "
-            "became active — blank page)"
-            in selected
+            "became active — blank page)" in selected
         )
         # Order: static regressions, then console, then page errors, then dead nav.
         assert selected == [

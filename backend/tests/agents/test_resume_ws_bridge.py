@@ -36,8 +36,7 @@ from tests.agents.test_restart_resume import (  # noqa: E402
 )
 
 _ENGINE_SRC = (
-    Path(__file__).resolve().parents[2]
-    / "agents" / "execution_engine" / "engine.py"
+    Path(__file__).resolve().parents[2] / "agents" / "execution_engine" / "engine.py"
 )
 
 
@@ -96,9 +95,9 @@ async def test_resume_run_pushes_resumed_tail_onto_registered_live_queue():
 
     assert drained, "no resumed events were pushed onto the live queue"
     types = [e["type"] for e in drained]
-    assert "pipeline_complete" in types, (
-        f"the resumed tail must include the terminal pipeline_complete; got {types}"
-    )
+    assert (
+        "pipeline_complete" in types
+    ), f"the resumed tail must include the terminal pipeline_complete; got {types}"
     # Every queued event matches the run_pipeline queue contract: a dict with
     # type + data, the data carrying the stamped seq/event_id (the same payload
     # the durable sink persisted — replay/live dedupe by event_id stays valid).
@@ -142,20 +141,20 @@ async def test_restore_registers_resume_driver_task_via_bridge():
 
         engine._is_resumable_in_flight = _resumable  # type: ignore[assignment]
         engine.resume_run = _quick_resume  # type: ignore[assignment]
-        engine._resume_register_task = (
-            lambda rid, task: registered_tasks.__setitem__(rid, task)
+        engine._resume_register_task = lambda rid, task: registered_tasks.__setitem__(
+            rid, task
         )
 
         await engine.restore_non_terminal_runs()
         # Let the spawned driver task run to completion.
         await asyncio.wait_for(resume_driven.wait(), timeout=5)
 
-    assert run_id in registered_tasks, (
-        "restore_non_terminal_runs did not register the resume driver task"
-    )
-    assert isinstance(registered_tasks[run_id], asyncio.Task), (
-        "the registered object must be the asyncio.Task driving resume_run"
-    )
+    assert (
+        run_id in registered_tasks
+    ), "restore_non_terminal_runs did not register the resume driver task"
+    assert isinstance(
+        registered_tasks[run_id], asyncio.Task
+    ), "the registered object must be the asyncio.Task driving resume_run"
     session.close()
 
 

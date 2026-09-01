@@ -100,7 +100,12 @@ def test_dispatch_payload_bare_str_when_empty() -> None:
 
 
 def test_dispatch_payload_text_first_list_when_blocks() -> None:
-    block = {"type": "image", "source_type": "base64", "mime_type": "image/png", "data": "AA"}
+    block = {
+        "type": "image",
+        "source_type": "base64",
+        "mime_type": "image/png",
+        "data": "AA",
+    }
     out = _dispatch_payload("cm", [block])
     assert isinstance(out, list)
     assert out[0] == {"type": "text", "text": "cm"}
@@ -121,7 +126,9 @@ def _chunk_text(events: list[dict]) -> str:
 
 
 @pytest.mark.asyncio
-async def test_runner_streams_list_content_without_raising(tmp_path, monkeypatch) -> None:
+async def test_runner_streams_list_content_without_raising(
+    tmp_path, monkeypatch
+) -> None:
     from agents.factory import AgentContext, create_runner
     from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn
 
@@ -129,7 +136,9 @@ async def test_runner_streams_list_content_without_raising(tmp_path, monkeypatch
 
     # LIST content (text-first + an image block) flows through
     # HumanMessage(content=<list>) into the deepagents dispatch without raising.
-    fake = ScriptedFakeChatModel([_ScriptedTurn(texts=["hello ", "world."], usage=(5, 3))])
+    fake = ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["hello ", "world."], usage=(5, 3))]
+    )
     ctx = AgentContext(
         user_request="x", model=fake, user_id="u-img", run_id="run-img-list"
     )
@@ -138,7 +147,12 @@ async def test_runner_streams_list_content_without_raising(tmp_path, monkeypatch
         runner,
         [
             {"type": "text", "text": "hi"},
-            {"type": "image", "source_type": "base64", "mime_type": "image/png", "data": "AA"},
+            {
+                "type": "image",
+                "source_type": "base64",
+                "mime_type": "image/png",
+                "data": "AA",
+            },
         ],
     )
     assert _chunk_text(events) == "hello world."
@@ -152,7 +166,9 @@ async def test_runner_streams_str_content_identically(tmp_path, monkeypatch) -> 
 
     monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
 
-    fake = ScriptedFakeChatModel([_ScriptedTurn(texts=["hello ", "world."], usage=(5, 3))])
+    fake = ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["hello ", "world."], usage=(5, 3))]
+    )
     ctx = AgentContext(
         user_request="x", model=fake, user_id="u-img", run_id="run-img-str"
     )

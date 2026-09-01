@@ -238,9 +238,7 @@ def list_workflows(
         except Exception:
             manifest = None
         step_specs = [
-            spec_by_id[s.agent_id]
-            for s in compiled.steps
-            if s.agent_id in spec_by_id
+            spec_by_id[s.agent_id] for s in compiled.steps if s.agent_id in spec_by_id
         ]
         steps = [
             WorkflowStepSummary(
@@ -261,7 +259,8 @@ def list_workflows(
         out.append(
             WorkflowSummary(
                 id=workflow_id,
-                name=(manifest.name if manifest else None) or _display_name(workflow_id),
+                name=(manifest.name if manifest else None)
+                or _display_name(workflow_id),
                 description=(
                     (manifest.description if manifest else None)
                     or _describe(workflow_id, step_specs)

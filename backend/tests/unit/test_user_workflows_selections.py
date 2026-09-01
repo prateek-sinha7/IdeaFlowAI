@@ -228,7 +228,9 @@ def test_launch_rejects_tampered_ceiling_limits():
 def test_launch_accepts_clean_selections():
     """A clean persisted map passes launch re-validation (None == no error)."""
     clean = {_AGENT_A: {"validators": [_USER_VALIDATOR], "retry": {"max_attempts": 2}}}
-    assert _revalidate_selections_trust_user("custom", [_AGENT_A, _AGENT_B], clean) is None
+    assert (
+        _revalidate_selections_trust_user("custom", [_AGENT_A, _AGENT_B], clean) is None
+    )
 
 
 def test_launch_empty_selections_is_noop_parity():
@@ -319,7 +321,9 @@ def test_emp01_retry_activates_under_injected_transient_fault(monkeypatch):
     ctx = _FakeCtx()
 
     async def _drive():
-        return [ev async for ev in engine._dispatch_step_with_retry(step, ctx, strategy)]
+        return [
+            ev async for ev in engine._dispatch_step_with_retry(step, ctx, strategy)
+        ]
 
     # asyncio.run, not get_event_loop().run_until_complete: since 3.10
     # get_event_loop() only returns a loop if one is already set for this
@@ -328,9 +332,9 @@ def test_emp01_retry_activates_under_injected_transient_fault(monkeypatch):
     # test pass alone and fail under -n auto purely on ordering.
     events = asyncio.run(_drive())
     types = [e["type"] for e in events]
-    assert "step_retry" in types          # retry ACTIVATED (would be absent if dormant)
-    assert "step_completed" in types       # recovered after the transient fault
-    assert strategy.calls == 2             # exactly one retry then success
+    assert "step_retry" in types  # retry ACTIVATED (would be absent if dormant)
+    assert "step_completed" in types  # recovered after the transient fault
+    assert strategy.calls == 2  # exactly one retry then success
 
 
 # ---------------------------------------------------------------------------
@@ -383,8 +387,11 @@ def test_model_resolver_rejects_disallowed_step_model():
     from agents.model_policy import ModelResolver
     from agents.workflows.plan import ModelPolicy, Step
 
-    step = Step(agent_id=_AGENT_A, strategy="single_shot",
-                model=ModelPolicy(model=_DISALLOWED_MODEL))
+    step = Step(
+        agent_id=_AGENT_A,
+        strategy="single_shot",
+        model=ModelPolicy(model=_DISALLOWED_MODEL),
+    )
 
     class _Spec:
         id = _AGENT_A
@@ -407,8 +414,9 @@ def test_save_accepts_bare_numeric_retry(api):
     client, _ = api
     for retry_value in (2, "3"):
         selections = {_AGENT_A: {"retry": retry_value}}
-        r = client.post("/api/user-workflows",
-                        json=_save_body(selections, name=f"wf-{retry_value}"))
+        r = client.post(
+            "/api/user-workflows", json=_save_body(selections, name=f"wf-{retry_value}")
+        )
         assert r.status_code == 201, r.text
 
 
@@ -423,7 +431,9 @@ def test_bare_retry_coerces_and_reaches_compiled_step():
     from agents.execution_engine.engine import ExecutionEngine, compile_for_run
 
     selections = {_AGENT_A: {"retry": 4}}
-    overlaid, _ = ExecutionEngine._apply_selections(compile_for_run("custom"), selections)
+    overlaid, _ = ExecutionEngine._apply_selections(
+        compile_for_run("custom"), selections
+    )
     step = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
     assert step.retry is not None and step.retry.max_attempts == 4
 
@@ -513,9 +523,7 @@ def test_fanout_selection_trust_compiles_under_user():
         }
     }
     manifest = synthesize_manifest("custom", [_AGENT_A, _AGENT_B], selections)
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="user"
-    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
     worker = next(s for s in compiled.steps if s.agent_id == _AGENT_B)
     assert worker.strategy == "fanout_batch"
     assert worker.task_source is not None
@@ -623,7 +631,9 @@ def test_apply_selections_absent_agent_carried_in_user_step_map():
     # producer→worker order, which the synth manifest now preserves so the D9 upstream
     # guard sees the producer as EARLIER regardless of base-manifest `order`.
     overlaid, user_map = ExecutionEngine._apply_selections(
-        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_AGENT_A, _ABSENT_AGENT]
+        base,
+        _fanout_sel(_ABSENT_AGENT, _AGENT_A),
+        run_agent_ids=[_AGENT_A, _ABSENT_AGENT],
     )
     # The absent agent is NOT injected into the plan steps (membership assertion safe)…
     assert [s.agent_id for s in overlaid.steps] == base_ids
@@ -646,7 +656,9 @@ def test_apply_selections_absent_step_carries_default_hooks_benign_delta():
     base = compile_for_run("custom")
     # Producer first, then the absent worker (a valid composed producer→worker order).
     _, user_map = ExecutionEngine._apply_selections(
-        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_AGENT_A, _ABSENT_AGENT]
+        base,
+        _fanout_sel(_ABSENT_AGENT, _AGENT_A),
+        run_agent_ids=[_AGENT_A, _ABSENT_AGENT],
     )
     hooks = list(getattr(user_map[_ABSENT_AGENT], "hooks", []) or [])
     assert "audit_logger" in hooks

@@ -78,36 +78,72 @@ def _make_stub_run_agent(fail_ids: set[str]):
     every other agent appends a result + yields ``agent_complete``."""
 
     async def _stub(
-        self, spec, index, ordered_agents, user_message, sandbox,
-        pipeline_run_id, pipeline_type, planning_context, attached_skills,
-        attached_hooks, model_id, results, cancel_event, ectx,
+        self,
+        spec,
+        index,
+        ordered_agents,
+        user_message,
+        sandbox,
+        pipeline_run_id,
+        pipeline_type,
+        planning_context,
+        attached_skills,
+        attached_hooks,
+        model_id,
+        results,
+        cancel_event,
+        ectx,
         # ``**_kw`` absorbs additive keyword-only params (ISS-097 added
         # ``invocation_gated``) so this double never pins a stale arity.
         **_kw,
     ):
         yield {
             "type": "agent_start",
-            "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
-                     "icon": spec.icon, "index": index, "total": len(ordered_agents)},
+            "data": {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "role": spec.role,
+                "icon": spec.icon,
+                "index": index,
+                "total": len(ordered_agents),
+            },
         }
         if spec.id in fail_ids:
             yield {
                 "type": "agent_error",
-                "data": {"agent_id": spec.id, "error": "simulated hard failure",
-                         "recoverable": True},
+                "data": {
+                    "agent_id": spec.id,
+                    "error": "simulated hard failure",
+                    "recoverable": True,
+                },
             }
             return
-        results.append({
-            "agent_id": spec.id, "name": spec.name, "role": spec.role,
-            "icon": spec.icon, "output": f"{spec.id} output", "duration": 0.01,
-            "input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
-        })
+        results.append(
+            {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "role": spec.role,
+                "icon": spec.icon,
+                "output": f"{spec.id} output",
+                "duration": 0.01,
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2,
+            }
+        )
         yield {
             "type": "agent_complete",
-            "data": {"agent_id": spec.id, "name": spec.name, "duration": 0.01,
-                     "output_length": len(f"{spec.id} output"), "index": index,
-                     "total": len(ordered_agents), "input_tokens": 1,
-                     "output_tokens": 1, "total_tokens": 2},
+            "data": {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "duration": 0.01,
+                "output_length": len(f"{spec.id} output"),
+                "index": index,
+                "total": len(ordered_agents),
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2,
+            },
         }
 
     return _stub
@@ -155,9 +191,9 @@ async def test_all_agents_failed_emits_pipeline_failed_not_complete(
 
     failed = _events_of(events, "pipeline_failed")
     assert len(failed) == 1, f"expected exactly one pipeline_failed, got {events}"
-    assert _events_of(events, "pipeline_complete") == [], (
-        "a totally-failed run must NEVER emit pipeline_complete (F3)"
-    )
+    assert (
+        _events_of(events, "pipeline_complete") == []
+    ), "a totally-failed run must NEVER emit pipeline_complete (F3)"
 
     data = failed[0]["data"]
     assert data["agents_completed"] == 0
@@ -188,9 +224,9 @@ async def test_partial_failure_emits_degraded_pipeline_complete(
 
     events, engine, run_id = await _drive_engine(monkeypatch, fail_ids={failed_id})
 
-    assert _events_of(events, "pipeline_failed") == [], (
-        "a partially-failed run completes (degraded) — it is not a total collapse"
-    )
+    assert (
+        _events_of(events, "pipeline_failed") == []
+    ), "a partially-failed run completes (degraded) — it is not a total collapse"
     complete = _events_of(events, "pipeline_complete")
     assert len(complete) == 1
 
@@ -238,37 +274,72 @@ def _make_timeout_shaped_stub(timeout_ids: set[str]):
     ``agent_complete`` — exactly the engine's agent-timeout interleaving."""
 
     async def _stub(
-        self, spec, index, ordered_agents, user_message, sandbox,
-        pipeline_run_id, pipeline_type, planning_context, attached_skills,
-        attached_hooks, model_id, results, cancel_event, ectx,
+        self,
+        spec,
+        index,
+        ordered_agents,
+        user_message,
+        sandbox,
+        pipeline_run_id,
+        pipeline_type,
+        planning_context,
+        attached_skills,
+        attached_hooks,
+        model_id,
+        results,
+        cancel_event,
+        ectx,
         # ``**_kw`` absorbs additive keyword-only params (ISS-097 added
         # ``invocation_gated``) so this double never pins a stale arity.
         **_kw,
     ):
         yield {
             "type": "agent_start",
-            "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
-                     "icon": spec.icon, "index": index, "total": len(ordered_agents)},
+            "data": {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "role": spec.role,
+                "icon": spec.icon,
+                "index": index,
+                "total": len(ordered_agents),
+            },
         }
         if spec.id in timeout_ids:
             yield {
                 "type": "agent_error",
-                "data": {"agent_id": spec.id,
-                         "error": "Agent timed out after 600s — using best available output",
-                         "recoverable": True},
+                "data": {
+                    "agent_id": spec.id,
+                    "error": "Agent timed out after 600s — using best available output",
+                    "recoverable": True,
+                },
             }
             # …and CONTINUES (timeout degrade path): partial output is used.
-        results.append({
-            "agent_id": spec.id, "name": spec.name, "role": spec.role,
-            "icon": spec.icon, "output": f"{spec.id} output", "duration": 0.01,
-            "input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
-        })
+        results.append(
+            {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "role": spec.role,
+                "icon": spec.icon,
+                "output": f"{spec.id} output",
+                "duration": 0.01,
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2,
+            }
+        )
         yield {
             "type": "agent_complete",
-            "data": {"agent_id": spec.id, "name": spec.name, "duration": 0.01,
-                     "output_length": len(f"{spec.id} output"), "index": index,
-                     "total": len(ordered_agents), "input_tokens": 1,
-                     "output_tokens": 1, "total_tokens": 2},
+            "data": {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "duration": 0.01,
+                "output_length": len(f"{spec.id} output"),
+                "index": index,
+                "total": len(ordered_agents),
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2,
+            },
         }
 
     return _stub
@@ -306,12 +377,12 @@ async def test_recovered_timeout_agent_is_not_listed_as_failed(
     data = complete[0]["data"]
     # Both agents completed — the recovered timeout is NOT a failure.
     assert data["agents_completed"] == 2
-    assert "status" not in data, (
-        f"recovered timeout flipped the run to degraded: {data!r}"
-    )
-    assert "agents_failed" not in data, (
-        f"an agent appears in BOTH agents_completed and agents_failed: {data!r}"
-    )
+    assert (
+        "status" not in data
+    ), f"recovered timeout flipped the run to degraded: {data!r}"
+    assert (
+        "agents_failed" not in data
+    ), f"an agent appears in BOTH agents_completed and agents_failed: {data!r}"
     assert engine._state_machine.get_state(run_id) == "completed"
 
 
@@ -326,40 +397,78 @@ async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_fa
 
     def _mixed_stub():
         async def _stub(
-            self, spec, index, ordered_agents, user_message, sandbox,
-            pipeline_run_id, pipeline_type, planning_context, attached_skills,
-            attached_hooks, model_id, results, cancel_event, ectx,
+            self,
+            spec,
+            index,
+            ordered_agents,
+            user_message,
+            sandbox,
+            pipeline_run_id,
+            pipeline_type,
+            planning_context,
+            attached_skills,
+            attached_hooks,
+            model_id,
+            results,
+            cancel_event,
+            ectx,
             **_kw,  # additive keyword-only params (ISS-097: invocation_gated)
         ):
             yield {
                 "type": "agent_start",
-                "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
-                         "icon": spec.icon, "index": index,
-                         "total": len(ordered_agents)},
+                "data": {
+                    "agent_id": spec.id,
+                    "name": spec.name,
+                    "role": spec.role,
+                    "icon": spec.icon,
+                    "index": index,
+                    "total": len(ordered_agents),
+                },
             }
             if spec.id == failed_id:
                 yield {
                     "type": "agent_error",
-                    "data": {"agent_id": spec.id, "error": "hard failure",
-                             "recoverable": True},
+                    "data": {
+                        "agent_id": spec.id,
+                        "error": "hard failure",
+                        "recoverable": True,
+                    },
                 }
                 return  # hard fail — no result, no agent_complete
             yield {
                 "type": "agent_error",
-                "data": {"agent_id": spec.id, "error": "timed out",
-                         "recoverable": True},
+                "data": {
+                    "agent_id": spec.id,
+                    "error": "timed out",
+                    "recoverable": True,
+                },
             }
-            results.append({
-                "agent_id": spec.id, "name": spec.name, "role": spec.role,
-                "icon": spec.icon, "output": "partial", "duration": 0.01,
-                "input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
-            })
+            results.append(
+                {
+                    "agent_id": spec.id,
+                    "name": spec.name,
+                    "role": spec.role,
+                    "icon": spec.icon,
+                    "output": "partial",
+                    "duration": 0.01,
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                }
+            )
             yield {
                 "type": "agent_complete",
-                "data": {"agent_id": spec.id, "name": spec.name, "duration": 0.01,
-                         "output_length": 7, "index": index,
-                         "total": len(ordered_agents), "input_tokens": 1,
-                         "output_tokens": 1, "total_tokens": 2},
+                "data": {
+                    "agent_id": spec.id,
+                    "name": spec.name,
+                    "duration": 0.01,
+                    "output_length": 7,
+                    "index": index,
+                    "total": len(ordered_agents),
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                },
             }
 
         return _stub
@@ -380,8 +489,7 @@ async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_fa
 
     data = _events_of(events, "pipeline_complete")[0]["data"]
     assert data["status"] == "degraded"
-    assert data["agents_failed"] == [failed_id], (
-        "agents_failed must list ONLY the agent that never completed"
-    )
+    assert data["agents_failed"] == [
+        failed_id
+    ], "agents_failed must list ONLY the agent that never completed"
     assert data["agents_completed"] == 1
-

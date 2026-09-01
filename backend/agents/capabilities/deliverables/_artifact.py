@@ -32,7 +32,9 @@ def unwrap_artifact(text: str) -> str:
     Lifted verbatim from ``engine.py::_unwrap_artifact`` (INV-12).
     """
     if text and "<artifact" in text:
-        m = re.search(r"<artifact[^>]*>\s*([\s\S]*?)\s*</artifact>", text, re.IGNORECASE)
+        m = re.search(
+            r"<artifact[^>]*>\s*([\s\S]*?)\s*</artifact>", text, re.IGNORECASE
+        )
         if m:
             return m.group(1).strip()
     return text
@@ -65,7 +67,7 @@ def strip_pre_slide_body_text(html: str) -> str:
     # Only act when we have a body tag and at least one slide indicator.
     body_lower = html.lower()
     has_body = "<body" in body_lower
-    has_slide = ('<section class="slide"' in html or '<div class="stage"' in html)
+    has_slide = '<section class="slide"' in html or '<div class="stage"' in html
     if not has_body or not has_slide:
         return html
 
@@ -87,20 +89,48 @@ def strip_pre_slide_body_text(html: str) -> str:
     # appear immediately after <body> in templates that use custom wrapper elements.
     after_body = html[body_end:]
 
-    stage_m = re.search(r'<div[^>]*class=["\'][^"\']*\bstage\b', after_body, re.IGNORECASE)
-    slide_m = re.search(r'<section[^>]*class=["\'][^"\']*\bslide\b', after_body, re.IGNORECASE)
+    stage_m = re.search(
+        r'<div[^>]*class=["\'][^"\']*\bstage\b', after_body, re.IGNORECASE
+    )
+    slide_m = re.search(
+        r'<section[^>]*class=["\'][^"\']*\bslide\b', after_body, re.IGNORECASE
+    )
     # Also treat common deck-wrapper divs as valid slide anchors so we don't
     # strip the deck container itself (Broadside / templates using <div id="deck">).
     deck_id_m = re.search(r'<div[^>]*\bid=["\']deck["\']', after_body, re.IGNORECASE)
-    deck_cls_m = re.search(r'<div[^>]*class=["\'][^"\']*\b(?:deck|slides|presentation)\b', after_body, re.IGNORECASE)
+    deck_cls_m = re.search(
+        r'<div[^>]*class=["\'][^"\']*\b(?:deck|slides|presentation)\b',
+        after_body,
+        re.IGNORECASE,
+    )
     # Additional anchors for templates using <main>, <article>, or custom wrappers
     # like <div id="presentation">, <div class="slides-container">, etc.
-    main_m = re.search(r'<(?:main|article)[^>]*>', after_body, re.IGNORECASE)
-    presentation_id_m = re.search(r'<div[^>]*\bid=["\'](?:presentation|slides|deck-container)["\']', after_body, re.IGNORECASE)
-    slides_container_m = re.search(r'<div[^>]*class=["\'][^"\']*\b(?:slides-container|deck-container|slide-wrapper)\b', after_body, re.IGNORECASE)
+    main_m = re.search(r"<(?:main|article)[^>]*>", after_body, re.IGNORECASE)
+    presentation_id_m = re.search(
+        r'<div[^>]*\bid=["\'](?:presentation|slides|deck-container)["\']',
+        after_body,
+        re.IGNORECASE,
+    )
+    slides_container_m = re.search(
+        r'<div[^>]*class=["\'][^"\']*\b(?:slides-container|deck-container|slide-wrapper)\b',
+        after_body,
+        re.IGNORECASE,
+    )
 
     # Take whichever valid slide/deck anchor comes first.
-    candidates = [m.start() for m in (stage_m, slide_m, deck_id_m, deck_cls_m, main_m, presentation_id_m, slides_container_m) if m is not None]
+    candidates = [
+        m.start()
+        for m in (
+            stage_m,
+            slide_m,
+            deck_id_m,
+            deck_cls_m,
+            main_m,
+            presentation_id_m,
+            slides_container_m,
+        )
+        if m is not None
+    ]
     if not candidates:
         return html
     first_slide_offset = min(candidates)
@@ -167,7 +197,9 @@ def sanitize_carousel_deck_html(html: str) -> str:
 
     # Detect a horizontal carousel: a translateX(...vw) transform driving the stage,
     # plus the .stage/.slide structure it relies on. Whitespace-robust.
-    has_translate_vw = re.search(r"translateX\s*\(\s*[^)]*vw", html, re.IGNORECASE) is not None
+    has_translate_vw = (
+        re.search(r"translateX\s*\(\s*[^)]*vw", html, re.IGNORECASE) is not None
+    )
     has_stage_slide = (".stage" in html) and (".slide" in html)
     if not (has_translate_vw and has_stage_slide):
         return html
@@ -204,5 +236,9 @@ def sanitize_carousel_deck_html(html: str) -> str:
     if html != original:
         # Tidy up runs of blank lines left where rules were removed (cosmetic only).
         html = re.sub(r"[ \t]*\n([ \t]*\n){2,}", "\n\n", html)
-        logger.info("Sanitized carousel deck: removed slide-hiding CSS (%d → %d chars)", len(original), len(html))
+        logger.info(
+            "Sanitized carousel deck: removed slide-hiding CSS (%d → %d chars)",
+            len(original),
+            len(html),
+        )
     return html

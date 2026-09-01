@@ -207,8 +207,8 @@ class TestStripFabricatedToolXml:
 
 _POLLUTED_CHUNKS = [
     "## Epics\nProse kept.\n",
-    "<function_calls>\n<invoke name=\"write_file\">\n"
-    "<parameter name=\"path\">epics.md</parameter>\n</invoke>\n</function_calls>\n",
+    '<function_calls>\n<invoke name="write_file">\n'
+    '<parameter name="path">epics.md</parameter>\n</invoke>\n</function_calls>\n',
     "Tail kept.\n",
 ]
 _EXPECTED_SANITIZED = "## Epics\nProse kept.\n\nTail kept.\n"
@@ -301,17 +301,17 @@ async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_out
 
     # precondition: the scripted fixture's RAW chunk texts actually carry the
     # fabricated span (else this test would prove nothing about stripping).
-    assert any("<function_calls>" in t for t in _POLLUTED_CHUNKS), (
-        "precondition: the scripted fixture must carry the fabricated span"
-    )
+    assert any(
+        "<function_calls>" in t for t in _POLLUTED_CHUNKS
+    ), "precondition: the scripted fixture must carry the fabricated span"
 
     # The UI chunk stream is ALSO sanitized (ISS-004 / 19-03 chunk-straddle
     # sanitizer, engine.py ``_ChunkStreamSanitizer``) — no agent_chunk event
     # for the tool-less polluted agent leaks the fabricated span.
     polluted_chunks = [
-        e for e in events
-        if e.get("type") == "agent_chunk"
-        and e["data"]["agent_id"] == polluted_agent_id
+        e
+        for e in events
+        if e.get("type") == "agent_chunk" and e["data"]["agent_id"] == polluted_agent_id
     ]
     assert polluted_chunks, "precondition: chunks were streamed for the polluted agent"
     assert not any("<function_calls>" in e["data"]["chunk"] for e in polluted_chunks), (
@@ -322,7 +322,8 @@ async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_out
 
     # The AUTHORITATIVE output (agent_complete.output_length) is sanitized.
     complete = next(
-        e for e in events
+        e
+        for e in events
         if e.get("type") == "agent_complete"
         and e["data"]["agent_id"] == polluted_agent_id
     )
