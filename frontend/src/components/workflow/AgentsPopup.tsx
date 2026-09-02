@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
-  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2, Cpu,
+  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2,
   FileText, Edit3, RotateCcw,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";

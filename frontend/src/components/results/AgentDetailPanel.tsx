@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
-  Clock, Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
+  Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
   Layers, Zap, FileCode, BookText, GitBranch, ArrowDown, CheckCircle2 as CheckBadge,
   Sparkles,
 } from "lucide-react";

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { WifiOff, RefreshCw, Loader2 } from "lucide-react";
+import { WifiOff, RefreshCw } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
 import { HomeLaunchGrid } from "@/components/catalog/HomeLaunchGrid";

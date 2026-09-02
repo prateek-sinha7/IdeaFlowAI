@@ -172,6 +172,12 @@ export function ChatAttachments({ onChange, onFileContentsChange, reopenedAttach
             }
           >
             {att.kind === "image" ? (
+              // The source is an inline base64 `data:` URI held in memory for a
+              // pending attachment, not a URL. next/image cannot optimize a data
+              // URI (it would need `unoptimized`, which makes it a plain <img>
+              // with extra overhead) and there is no network fetch to optimize
+              // here: this is a 16x16 thumbnail of bytes the client already has.
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={`data:${att.mimeType ?? "image/png"};base64,${att.data}`}
                 alt={att.name}

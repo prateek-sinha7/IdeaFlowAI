@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -254,9 +255,12 @@ export function AppHeader({
     <header className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 bg-surface-near-black border-b border-white/10 z-40 relative">
       {/* Left — Hexaware Logo + VelocityAI wordmark */}
       <div className="flex items-center gap-2 sm:gap-2.5">
-        <img
+        <Image
           src="/hexaware-logo.png"
           alt="Hexaware"
+          width={32}
+          height={32}
+          priority
           className="h-8 w-8 rounded-[6px] flex-shrink-0"
         />
         <span className="text-sm sm:text-base font-semibold text-white tracking-tight font-sans">

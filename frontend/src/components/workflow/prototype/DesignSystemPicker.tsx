@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, Check, X, Plus, Pencil, Trash2, Upload } from "lucide-react";
 import { getDesignSystem, type DesignSystemListItem } from "@/lib/prototype-api";
 import { getToken } from "@/lib/api";

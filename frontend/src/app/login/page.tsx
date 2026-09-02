@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, FormEvent } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { Mail, Lock } from "lucide-react";
@@ -165,9 +166,12 @@ function LoginForm() {
       >
         {/* Hexaware logo + VelocityAI wordmark */}
         <div className="flex items-center gap-2.5">
-          <img
+          <Image
             src="/hexaware-logo.png"
             alt="Hexaware"
+            width={40}
+            height={40}
+            priority
             className="h-10 w-10 rounded-[8px] flex-shrink-0"
           />
           <span className="text-base font-semibold tracking-tight text-white font-sans">

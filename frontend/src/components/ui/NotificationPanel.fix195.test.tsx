@@ -19,7 +19,7 @@
 
 import React from "react";
 import { renderWithProviders, screen, fireEvent } from "@/test/renderWithProviders";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 

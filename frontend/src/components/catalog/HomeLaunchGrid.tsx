@@ -18,7 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lock, AlertCircle, Plus, Info, X, Construction } from "lucide-react";
+import { ArrowRight, Lock, AlertCircle, Info, Construction } from "lucide-react";
 import { getWorkflowIcon } from "@/lib/workflowIcons";
 import type { WorkflowType } from "@/types/index";
 import type { WorkflowRun } from "@/types/index";

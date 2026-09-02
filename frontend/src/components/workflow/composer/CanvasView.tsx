@@ -234,7 +234,6 @@ export function CanvasView({
   useEffect(() => {
     if (resetLayoutSignal === undefined || resetLayoutSignal === 0) return;
     setDragOverrides({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetLayoutSignal]);
 
   // Each root card's TRUE vertical center (NODE_Y + its own rendered height /

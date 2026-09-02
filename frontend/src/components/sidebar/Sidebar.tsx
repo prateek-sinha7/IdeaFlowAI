@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "motion/react";
 import {
   Plus,
@@ -19,7 +19,6 @@ import {
   Clock,
 } from "lucide-react";
 import type { ChatSession, WorkflowRun, WorkflowStatus, WorkflowType } from "@/types/index";
-import { getToken, getChats } from "@/lib/api";
 // KAN-116 (Bug 3): safety net for titles stored in DB with === markers.
 import { parseRunInput } from "@/lib/runInput";
 
@@ -90,13 +89,11 @@ const STATUS_COLOR: Record<WorkflowStatus, string> = {
  * Shows recent workflow runs as the primary history, with a "New Project" CTA.
  */
 export function Sidebar({
-  activeChatId,
-  onSelectChat,
-  onNewChat,
-  onDeleteChat,
+  // activeChatId / onSelectChat / onNewChat / onDeleteChat / chatTitleUpdate stay
+  // on SidebarProps (callers still pass them) but this workflow-first sidebar no
+  // longer renders the chat-session list, so they are not destructured here.
   onLogout,
   onCollapse,
-  chatTitleUpdate,
   onOpenWorkflow,
   recentRuns = [],
   onSelectRun,

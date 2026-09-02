@@ -121,7 +121,7 @@ export function CustomTemplateModal({ onConfirm, onClose }: CustomTemplateModalP
           // ignore
         }
       }
-    } catch (err) {
+    } catch (_err) {
       setUrlError("Network error — could not reach the server.");
     } finally {
       setUrlLoading(false);

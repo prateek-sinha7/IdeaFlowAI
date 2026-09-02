@@ -9,7 +9,7 @@
  */
 
 import React from "react";
-import { screen, fireEvent, act } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, rerenderWithProviders } from "@/test/renderWithProviders";
 

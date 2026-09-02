@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, XCircle, X, ArrowRight } from "lucide-react";
 import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
