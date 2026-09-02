@@ -74,7 +74,9 @@ def test_catalog_lists_five_fully_fielded_entries() -> None:
 def test_ids_get_and_is_allowed() -> None:
     catalog = ModelCatalog()
     assert set(catalog.ids()) == _EXPECTED_IDS
-    assert len(catalog.ids()) == 9  # GEO-01: eu.anthropic.claude-sonnet-5 added; no duplicates
+    assert (
+        len(catalog.ids()) == 9
+    )  # GEO-01: eu.anthropic.claude-sonnet-5 added; no duplicates
 
     for model_id in _EXPECTED_IDS:
         assert catalog.is_allowed(model_id) is True

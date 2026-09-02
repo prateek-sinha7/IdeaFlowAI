@@ -131,6 +131,7 @@ def _normalize_geo_prefix(model_id: str, *, _region_override: str | None = None)
         # is only called from resolve(), which only runs at request time.
         try:
             from app.core.config import settings as _settings  # noqa: PLC0415
+
             region = _settings.AWS_REGION or ""
         except Exception:  # noqa: BLE001
             return model_id  # config unavailable — pass through
@@ -152,10 +153,12 @@ def _normalize_geo_prefix(model_id: str, *, _region_override: str | None = None)
         return model_id
 
     # Swap the prefix.
-    normalized = correct_prefix + model_id[len(current_prefix):]
+    normalized = correct_prefix + model_id[len(current_prefix) :]
     logger.debug(
         "model_resolver: geo-prefix swapped %r → %r (AWS_REGION=%r)",
-        model_id, normalized, region,
+        model_id,
+        normalized,
+        region,
     )
     return normalized
 
