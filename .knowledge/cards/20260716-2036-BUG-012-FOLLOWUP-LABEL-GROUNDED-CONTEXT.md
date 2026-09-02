@@ -4,7 +4,7 @@ type: bug
 kind: event
 title: BUG-012 follow-up — non-terminal reopen shows the stale "USER_STORIES" type
   label
-status: open
+status: resolved
 applies_to:
   phases: []
   modules:

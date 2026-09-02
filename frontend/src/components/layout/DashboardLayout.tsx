@@ -1705,17 +1705,42 @@ export function DashboardLayout({
   // re-creating this callback) and Back confirms before discarding it. Kept
   // here, in the one handler all five page mounts already route through,
   // rather than as a per-page `confirm()` in five separate onClicks.
+  // ISS-622: use in-app dialog state instead of window.confirm (which was
+  // re-introduced by a prior fix and banned by S-19-17).
   const hasUnsavedWork = useRef(false);
   const handleUnsavedChange = useCallback((dirty: boolean) => {
     hasUnsavedWork.current = dirty;
   }, []);
 
+  // ISS-622: in-app "unsaved changes" confirmation — replaces window.confirm.
+  // When hasUnsavedWork is true, Back sets this to true (showing the dialog)
+  // rather than navigating immediately. The two dialog buttons call
+  // commitBackNav (proceed) or cancelBackNav (stay). This defers the navigation
+  // without blocking the main thread and without a native browser dialog.
+  const [confirmingBackNav, setConfirmingBackNav] = useState(false);
+
+  const commitBackNav = useCallback(() => {
+    setConfirmingBackNav(false);
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      setMainView("home");
+      router.push(routes.home());
+    }
+  }, [onResetPipeline, isPipelineRunning, router]);
+
+  const cancelBackNav = useCallback(() => {
+    setConfirmingBackNav(false);
+  }, []);
+
   const handleBackNav = useCallback(() => {
-    if (
-      hasUnsavedWork.current &&
-      typeof window !== "undefined" &&
-      !window.confirm("You have unsaved changes. Leave anyway? Your work will be lost.")
-    ) {
+    if (hasUnsavedWork.current) {
+      // Show the in-app confirmation dialog instead of window.confirm.
+      setConfirmingBackNav(true);
       return;
     }
     setQuestionnaireQuestions([]);
@@ -2214,7 +2239,9 @@ export function DashboardLayout({
   }, [isPipelineRunning, onResetPipeline, effectiveReviseType, router, recentRuns, contentSourceRunId, submittedBrief]);
 
   const activeReviseHandler =
-    (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
+    // ISS-252: ppt_v2 is a deck run (spec 017) — it produces the same HTML
+    // deliverable as ppt and must resolve to handleRevisePpt, not undefined.
+    (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_v2" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
     (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
       || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
@@ -2400,8 +2427,12 @@ export function DashboardLayout({
   // which is stale on history-reopened runs (it stays "user_stories" by default
   // until a wizard runs, while effectiveReviseType correctly reflects
   // contentSourceRunType e.g. "ppt" or "od_prototype").
+  // ISS-252: ppt_v2 is a deck run (spec 017) — its deliverable lives in the ppt
+  // content slot (page.tsx routes ppt_v2 output to setPptContent). Without this
+  // the lane's DeliverableCard fell through to userStoryContent, naming the deck
+  // "deliverable" instead of the correct ppt-derived filename.
   const laneActiveContent =
-    effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision"
+    effectiveReviseType === "ppt" || effectiveReviseType === "ppt_v2" || effectiveReviseType === "ppt_revision"
       ? pptContent
       : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
         || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
@@ -3222,6 +3253,51 @@ export function DashboardLayout({
           }
         }}
       />
+
+      {/* ISS-622: in-app "unsaved changes" confirmation dialog — replaces window.confirm
+          in handleBackNav so the product has no native browser dialogs outside of
+          file-download affordances (S-19-17). Shown only when the user clicks Back
+          while hasUnsavedWork is true. */}
+      {confirmingBackNav && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-changes-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={cancelBackNav}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-[var(--radius-card)] bg-surface-card border border-line-border shadow-[var(--elevation-modal)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="unsaved-changes-title"
+              className="mb-2 font-semibold text-ink-900 text-[15px]"
+            >
+              Leave without saving?
+            </h2>
+            <p className="mb-5 text-sm text-ink-500">
+              You have unsaved changes. Leaving now will discard them.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelBackNav}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-ink-700 border border-line-border bg-surface-warm hover:bg-surface-paper transition-colors"
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                onClick={commitBackNav}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Leave anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

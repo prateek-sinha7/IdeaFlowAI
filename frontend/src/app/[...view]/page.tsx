@@ -1738,6 +1738,19 @@ export default function DashboardPage({
               setLastCancelledRunId(cancelledId);
               detachRunRef.current?.(cancelledId);
             }
+            // ISS-143: refresh recentRuns so AppHeader's "N Running" pill clears
+            // immediately after a cancel. The pill derives from recentRuns filtered
+            // by LIVE_STATUSES — the cancelled run's status changes to "cancelled"
+            // in the DB on the backend's cancel path, but no earlier call site
+            // refreshes the list (unlike pipeline_complete, which always refetches).
+            // Mirror the pipeline_failed pattern above. getToken() is safe here
+            // because the user just interacted (cancel requires authentication).
+            const cancelToken = getToken();
+            if (cancelToken) {
+              getWorkflows(cancelToken, { limit: 50 })
+                .then(({ runs }) => setRecentRuns(runs))
+                .catch(() => {});
+            }
           }
         }
       }
