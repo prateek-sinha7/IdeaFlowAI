@@ -19,20 +19,20 @@
 | ISS-133 | ESCALATED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
 | ISS-144 | CLOSED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
 | ISS-154 | TESTED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-161 | ANALYZED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-398 | ANALYZED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-418 | ANALYZED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-422 | ANALYZED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-435 | ANALYZED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-436 | ANALYZED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-437 | ANALYZED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
-| ISS-180 | ANALYZED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
-| ISS-181 | ANALYZED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
-| ISS-263 | ANALYZED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
-| ISS-381 | ANALYZED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
-| BUG-015-016 | ANALYZED | B4 | 5 | `backend/app/api/run_stream.py` | C | full | **sonnet** (SSE transport surface) |
-| ISS-105 | ANALYZED | B4 | 5 | `backend/app/api/run_stream.py` | C | full | **sonnet** (SSE transport surface) |
-| ISS-137 | ANALYZED | B4 | 5 | `backend/app/api/run_stream.py` | C | full | **sonnet** (SSE transport surface) |
+| ISS-161 | ESCALATED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
+| ISS-398 | ESCALATED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
+| ISS-418 | CLOSED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
+| ISS-422 | ESCALATED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
+| ISS-435 | CLOSED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
+| ISS-436 | CLOSED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
+| ISS-437 | CLOSED | B2 | 2 | `backend/app/api/run_commands.py` | A′ (ISS-398 sibling of ISS-292; ISS-422 sibling of ISS-312; ISS-435-437 sibling of ISS-316) + B (stale-state + silent-discard) + C | full; one read | **sonnet** (17 cards, load-bearing API file) |
+| ISS-180 | ESCALATED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
+| ISS-181 | ESCALATED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
+| ISS-263 | ESCALATED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
+| ISS-381 | ESCALATED | B3 | 5 | `backend/app/api/user_workflows.py` | A′ (ISS-263 sibling of ISS-225) + C | mixed | **sonnet** |
+| BUG-015-016 | CLOSED (BUG-016 already-fixed; BUG-015 escalated to frontend) | B4 | 5 | `backend/app/api/run_stream.py` | C | full | **sonnet** (SSE transport surface) |
+| ISS-105 | ESCALATED | B4 | 5 | `backend/app/api/run_stream.py` | C | full | **sonnet** (SSE transport surface) |
+| ISS-137 | CLOSED (already-fixed by design — FIX-245 intentional) | B4 | 5 | `backend/app/api/run_stream.py` | C | full | **sonnet** (SSE transport surface) |
 
 Notes:
 - B2 `run_commands.py` is the **second-heaviest batch** (17 cards in one file). It is

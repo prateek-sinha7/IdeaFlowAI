@@ -814,8 +814,22 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         # (no pipeline_complete in its tail) left the run reporting "cancelled"
         # forever. The FIX-229 attempt-boundary guard is unchanged, so a
         # pipeline_failed in the SAME attempt as the cancellation still loses to it.
-        terminal_seqs = complete_seqs + [e.seq for e in events
-                                         if e.type == "pipeline_failed"]
+        #
+        # ISS-435: a later attempt that ends DEGRADED (a pipeline_complete whose
+        # status=="degraded") must also supersede an earlier cancellation. Degraded
+        # completions were excluded from complete_seqs (intentionally — they are NOT
+        # clean completions) but were never added to terminal_seqs. Including them
+        # here means a cancelled→resumed→degraded run is correctly reported
+        # "degraded" instead of permanently stuck "cancelled". The attempt-boundary
+        # guard below is the same for all three outcome types.
+        degraded_complete_seqs = [e.seq for e in completes
+                                   if isinstance(e.payload_json, dict)
+                                   and e.payload_json.get("status") == "degraded"]
+        terminal_seqs = (
+            complete_seqs
+            + degraded_complete_seqs
+            + [e.seq for e in events if e.type == "pipeline_failed"]
+        )
         resume_supersedes = (
             cancelled
             and terminal_seqs
@@ -826,12 +840,38 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         )
         if cancelled and not resume_supersedes:
             new_status = "cancelled"
-        elif degraded:
-            new_status = "degraded"
-        elif completes and not failed:
-            new_status = "completed"
         else:
-            new_status = "failed"
+            # ISS-436/ISS-437: scope the degraded and failed flags to the LAST
+            # reattempt boundary so that a run resumed after an earlier degraded
+            # or failed attempt does not inherit the old flag when its latest
+            # attempt succeeded or otherwise terminated differently.
+            # The last reattempt boundary seq is the highest run_resuming /
+            # pipeline_start seq; events before that boundary belong to a prior
+            # attempt and must not poison the current attempt's outcome.
+            last_reattempt_seq = max(reattempt_seqs) if reattempt_seqs else 0
+            # Only pipeline_complete and pipeline_failed events AT OR AFTER the
+            # last reattempt boundary are from the current attempt.
+            current_attempt_completes = [
+                e for e in completes if e.seq >= last_reattempt_seq
+            ]
+            degraded_current = any(
+                isinstance(e.payload_json, dict)
+                and e.payload_json.get("status") == "degraded"
+                for e in current_attempt_completes
+            )
+            failed_current = any(
+                e.type == "pipeline_failed" and e.seq >= last_reattempt_seq
+                for e in events
+            )
+            # Use the scoped flags for the status ladder, but keep the unscoped
+            # variables for backwards-compat with the _persist_resume_output_columns
+            # call below (which needs the full event tail).
+            if degraded_current:
+                new_status = "degraded"
+            elif current_attempt_completes and not failed_current:
+                new_status = "completed"
+            else:
+                new_status = "failed"
         # BUG-R03: feed the SAME durable tail to the shared output-column mapping so a
         # USER-resumed completion persists output/agent_outputs/token_usage/duration/
         # deliverable_* — the columns _drive_launch_to_queue writes on the launch path,
@@ -3007,6 +3047,10 @@ def _apply_terminal_output_columns(
     final_output = ""
     deliverable_mimetype: str | None = None
     deliverable_filename: str | None = None
+    # ISS-418: pipeline_complete-level token totals (include aux spend — see below).
+    _pc_total_input: int | None = None
+    _pc_total_output: int | None = None
+    _pc_total_tokens: int | None = None
     for utype, data in events:
         if not isinstance(data, dict):
             data = {}
@@ -3070,6 +3114,18 @@ def _apply_terminal_output_columns(
             final_output = data.get("final_output", "")
             deliverable_mimetype = data.get("deliverable_mimetype")
             deliverable_filename = data.get("deliverable_filename")
+            # ISS-418: the engine folds aux-token spend (SmartPlanner, clarify
+            # one-shot, validation fix-loop sub-agent) into the pipeline_complete
+            # event's own total_input_tokens / total_output_tokens fields via
+            # aux_token_usage (engine.py:3712-3757). Those tokens NEVER appear in
+            # any agent_complete event, so re-summing agent_outputs_collector below
+            # structurally undercounts every run that used those code paths.
+            # Capture the event-level totals here; they will override the
+            # agent_outputs_collector re-sum when they are higher (which they
+            # always are when aux spend exists — never lower by construction).
+            _pc_total_input = data.get("total_input_tokens")
+            _pc_total_output = data.get("total_output_tokens")
+            _pc_total_tokens = data.get("total_tokens")
     if final_output:
         wr.output = final_output
     if deliverable_mimetype is not None:
@@ -3085,6 +3141,18 @@ def _apply_terminal_output_columns(
     total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
     total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)
     total_cache_write = sum(a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector)
+    # ISS-418: prefer the pipeline_complete event's own totals when they are larger
+    # (aux tokens are already folded in there by the engine). The event-level totals
+    # are absent on durable tails from before the engine emitted them — fall back to
+    # the agent_outputs re-sum in that case (legacy behaviour, safe degrade).
+    try:
+        _pc_in = int(_pc_total_input or 0)
+        _pc_out = int(_pc_total_output or 0)
+        if _pc_in + _pc_out > total_input + total_output:
+            total_input = _pc_in
+            total_output = _pc_out
+    except (TypeError, ValueError):
+        pass  # bad/missing event fields — keep agent_outputs re-sum
     if total_input + total_output > 0:
         wr.token_usage = json.dumps({
             "total_input_tokens": total_input,
