@@ -51,14 +51,20 @@ export function DesignSystemDetailModal({
     return () => { cancelled = true; };
   }, [system.id]);
 
-  // For systems without components.html, generate a Blob URL from DESIGN.md
+  // For systems without components.html, generate a Blob URL from DESIGN.md.
+  // `detail.body` is hoisted to a local rather than optional-chained inside the
+  // dependency array: the compiler infers the dependency from the unguarded
+  // `detail.body` read in the body, which does not match a `detail?.body`
+  // array entry, and the array cannot use `detail.body` directly because
+  // `detail` is legitimately null/undefined while the fetch is in flight.
+  const detailBody = detail?.body;
   const generatedPreviewUrl = useMemo(() => {
     if (system.has_preview) return null; // use the real endpoint instead
-    if (!detail?.body) return null;
-    const html = generateDesignSystemPreviewHtml(detail.body);
+    if (!detailBody) return null;
+    const html = generateDesignSystemPreviewHtml(detailBody);
     const blob = new Blob([html], { type: "text/html" });
     return URL.createObjectURL(blob);
-  }, [system.has_preview, detail?.body]);
+  }, [system.has_preview, detailBody]);
 
   // Revoke blob URL on unmount or when it changes
   useEffect(() => {

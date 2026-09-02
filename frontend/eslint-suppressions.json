@@ -80,11 +80,6 @@
       "count": 4
     }
   },
-  "src/components/chat/runtime/useMeasuredVirtualWindow.ts": {
-    "react-hooks/refs": {
-      "count": 7
-    }
-  },
   "src/components/handoff/HandoffWorkflow.tsx": {
     "react-hooks/set-state-in-effect": {
       "count": 2
@@ -246,9 +241,6 @@
     "react-hooks/exhaustive-deps": {
       "count": 2
     },
-    "react-hooks/refs": {
-      "count": 1
-    },
     "react-hooks/set-state-in-effect": {
       "count": 2
     }
@@ -306,9 +298,6 @@
     }
   },
   "src/components/workflow/prototype/DesignSystemDetailModal.tsx": {
-    "react-hooks/preserve-manual-memoization": {
-      "count": 1
-    },
     "react-hooks/set-state-in-effect": {
       "count": 1
     }
