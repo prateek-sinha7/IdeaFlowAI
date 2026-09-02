@@ -52,6 +52,25 @@ describe('routes - round-trip tests', () => {
       const parsed = parseViewPath(['register', 'anything']);
       expect(parsed).not.toEqual({ screen: 'register' });
     });
+
+    // ISS-350: the same missing-depth-guard shape as ISS-238 on the `analytics`
+    // branch. `/analytics/<sub-path>` used to resolve to { screen: 'analytics' }
+    // because `head === 'analytics'` had no `segments.length === 1` guard.
+    // Unlike register (no initialMainViewFor case → dashboard render), analytics
+    // DOES have an initialMainViewFor case, so the symptom was "real Analytics
+    // page renders under a bogus URL" — a URL/content mismatch per ADR-0018.
+    it('ISS-350: /analytics/<sub-path> is not the analytics screen', () => {
+      const parsed = parseViewPath(['analytics', 'anything']);
+      expect(parsed).not.toEqual({ screen: 'analytics' });
+      // Falls through to unknown -> notFound()
+      expect(parsed).toEqual({ screen: 'unknown' });
+    });
+
+    // Exact /analytics still resolves correctly (depth guard must not over-tighten)
+    it('ISS-350: exact /analytics still resolves to the analytics screen', () => {
+      const parsed = parseViewPath(['analytics']);
+      expect(parsed).toEqual({ screen: 'analytics' });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────

@@ -178,6 +178,7 @@ function LoginForm() {
         setMfaCode={setMfaCode}
         selectedFactor={selectedFactor}
         setSelectedFactor={setSelectedFactor}
+        onClearError={() => setError("")}
         onSubmit={handleChallengeSubmit}
         onCancel={() => {
           setChallenge(null);
@@ -300,17 +301,22 @@ function LoginForm() {
               </div>
 
               <div>
+                {/* ISS-602: was the one remaining hand-rolled type="password" input
+                    (no reveal toggle). The input-focus wrapper and leading Lock icon
+                    are kept; PasswordInput is used as the input itself so the
+                    reveal toggle is structural. The wrapper carries the border/focus
+                    ring; PasswordInput's own inner `relative` sits inside it with
+                    `overflow-visible` so the toggle button is not clipped. */}
                 <label htmlFor="password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">Password</label>
                 <div className="input-focus relative rounded-[var(--radius-button)] border border-line-control bg-surface-card transition-colors">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
-                  <input
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400 z-10 pointer-events-none" />
+                  <PasswordInput
                     id="password"
-                    type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
-                    className="w-full rounded-[var(--radius-button)] bg-transparent pl-10 pr-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
+                    className="w-full rounded-[var(--radius-button)] bg-transparent pl-10 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
                     placeholder="••••••••"
                   />
                 </div>
@@ -390,6 +396,7 @@ function ChallengeForm({
   setMfaCode,
   selectedFactor,
   setSelectedFactor,
+  onClearError,
   onSubmit,
   onCancel,
 }: {
@@ -404,6 +411,10 @@ function ChallengeForm({
   setMfaCode: (v: string) => void;
   selectedFactor: string;
   setSelectedFactor: (v: string) => void;
+  /** ISS-342: clears the stale validation error banner when the user edits
+   *  any field in the challenge form. Passed down from LoginForm so this
+   *  presentational component does not need to own the error setter. */
+  onClearError: () => void;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }) {
@@ -462,7 +473,7 @@ function ChallengeForm({
                   <PasswordInput
                     id="new-password"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
+                    onChange={(e) => { setNewPassword(e.target.value); onClearError(); }}
                     required
                     autoComplete="new-password"
                     minLength={12}
@@ -474,10 +485,15 @@ function ChallengeForm({
                   <label htmlFor="confirm-new-password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
                     Confirm password
                   </label>
+                  {/* ISS-342: each onChange clears the stale error banner so a
+                      "Passwords do not match" message does not linger after the
+                      user corrects the mismatch (same fix shape as ISS-244 in
+                      AccountSettings.tsx). All four field onChange handlers are
+                      patched — only `setError("")` is added, no other logic change. */}
                   <PasswordInput
                     id="confirm-new-password"
                     value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    onChange={(e) => { setConfirmNewPassword(e.target.value); onClearError(); }}
                     required
                     autoComplete="new-password"
                     className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
@@ -503,7 +519,7 @@ function ChallengeForm({
                         name="mfa-factor"
                         value={choice.value}
                         checked={selectedFactor === choice.value}
-                        onChange={(e) => setSelectedFactor(e.target.value)}
+                        onChange={(e) => { setSelectedFactor(e.target.value); onClearError(); }}
                         className="h-4 w-4 accent-brand"
                       />
                       {choice.label}
@@ -522,7 +538,7 @@ function ChallengeForm({
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   value={mfaCode}
-                  onChange={(e) => setMfaCode(e.target.value)}
+                  onChange={(e) => { setMfaCode(e.target.value); onClearError(); }}
                   required
                   className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none tracking-widest"
                   placeholder="123456"

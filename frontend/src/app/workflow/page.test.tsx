@@ -34,10 +34,7 @@ vi.mock("@/components/workflow/WorkflowView", () => ({
 import WorkflowPage from "./page";
 
 describe("WorkflowPage (ISS-492)", () => {
-  // `it.fails` is vitest's xfail(strict=True) — it must fail now (ISS-492
-  // unfixed) and flip to a loud failure once page.tsx wires the callbacks,
-  // so the marker can be removed.
-  it.fails("ISS-492 — passes a real onStartPipeline callback and pipelineState into WorkflowView", async () => {
+  it("passes a real onStartPipeline callback and pipelineState into WorkflowView", async () => {
     render(<WorkflowPage />);
     await screen.findByTestId("workflow-view-stub");
 

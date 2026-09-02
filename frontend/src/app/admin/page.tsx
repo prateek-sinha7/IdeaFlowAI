@@ -130,7 +130,7 @@ export default function AdminPage() {
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; email: string } | null>(null);
 
   // Create user form
   const [newEmail, setNewEmail] = useState("");
@@ -401,8 +401,12 @@ export default function AdminPage() {
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2.5">
                         <div className="h-7 w-7 rounded-full bg-brand-fill flex items-center justify-center flex-shrink-0">
+                          {/* ISS-405: user.email[0] throws TypeError when email is an empty
+                              string (e.g. persisted via a direct API POST that bypasses the
+                              client's presence check). Guard with || '?' so the avatar still
+                              renders rather than crashing the whole /admin table. */}
                           <span className="text-[10px] font-bold text-brand">
-                            {user.email[0].toUpperCase()}
+                            {(user.email || "?")[0].toUpperCase()}
                           </span>
                         </div>
                         <div>
@@ -452,7 +456,7 @@ export default function AdminPage() {
                     <td className="px-5 py-3.5 text-right">
                       {!user.is_admin && (
                         <button
-                          onClick={() => setDeleteConfirm(user.id)}
+                          onClick={() => setDeleteConfirm({ id: user.id, email: user.email })}
                           aria-label={`Delete ${user.email}`}
                           className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors ml-auto"
                         >
@@ -555,12 +559,16 @@ export default function AdminPage() {
                 <Trash2 className="h-5 w-5 text-status-failed" />
               </div>
               <h3 className="text-[14px] font-semibold text-ink-900 mb-1 font-sans">Delete user?</h3>
+              {/* ISS-415: show the email so the admin can confirm they are
+                  deleting the right account. deleteConfirm now carries {id, email}
+                  instead of just the id string. */}
+              <p className="text-[11px] font-medium text-ink-700 mb-1 truncate px-2">{deleteConfirm.email || "(no email)"}</p>
               <p className="text-[12px] text-ink-500 mb-5">This will permanently delete the user and all their data. This cannot be undone.</p>
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={() => setDeleteConfirm(null)} className="flex-1">
                   Cancel
                 </Button>
-                <button onClick={() => handleDeleteUser(deleteConfirm)}
+                <button onClick={() => handleDeleteUser(deleteConfirm.id)}
                   className="flex-1 py-2.5 rounded-[var(--radius-button)] bg-status-failed text-white text-[12.5px] font-semibold font-sans hover:opacity-90 transition-opacity">
                   Delete
                 </button>

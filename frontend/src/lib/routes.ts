@@ -465,7 +465,14 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     return { screen: 'unknown' };
   }
 
-  if (head === 'analytics') {
+  // ISS-350: the same missing-depth-guard shape as ISS-238/register — matches
+  // `segments[0] === 'analytics'` alone, so `/analytics/<sub-path>` resolved
+  // to the real Analytics screen instead of the `unknown` -> notFound() gate.
+  // Unlike register (which had no initialMainViewFor case), analytics DOES have
+  // one, so the symptom is "renders the real page under a bogus URL" rather
+  // than "renders the dashboard" — still a URL/content mismatch per ADR-0018.
+  // Fix: add segments.length === 1 guard, same shape as register/create/workflows.
+  if (head === 'analytics' && segments.length === 1) {
     return { screen: 'analytics' };
   }
 

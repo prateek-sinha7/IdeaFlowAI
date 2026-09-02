@@ -12,7 +12,7 @@ memory. Updated by the closer after every domain run.
 | 5 | frontend·preview | 7 | DONE | ISS-433,ISS-596,ISS-251,ISS-388,ISS-389,ISS-599,ISS-609 (7 closed: FIX-446–450; ISS-388/389 already fixed by FIX-358) | 0 | 0 | [20260901-1545-domain-05-frontend-preview.md](reports/20260901-1545-domain-05-frontend-preview.md) |
 | 6 | frontend·components | 10 | DONE | ISS-409,ISS-481,ISS-600,ISS-117,ISS-387 closed (FIX-451–455); ISS-073,ISS-114,ISS-216 already-fixed | 0 | ISS-112 (no FE data source), ISS-434 (needs PipelineRunState.deliverableMimetype + useWorkflow.ts) | [20260901-1630-domain-06-frontend-components.md](reports/20260901-1630-domain-06-frontend-components.md) |
 | 7 | frontend·library | 11 | DONE | ISS-330,ISS-336,ISS-605 closed (FIX-456–458); ISS-318,ISS-335,ISS-441,ISS-591 already-fixed | 0 | BUG-073(escalated-prior), ISS-392(escalated-prior), ISS-378(domain-12) | [20260901-1900-domain-07-frontend-library.md](reports/20260901-1900-domain-07-frontend-library.md) |
-| 8 | frontend·routes | 13 | NOT STARTED | – | – | – | – |
+| 8 | frontend·routes | 13 | DONE | ISS-342,ISS-602,ISS-492,ISS-350,ISS-624,ISS-376,ISS-405,ISS-415 closed (FIX-459–465); ISS-352,ISS-407,ISS-442 already-fixed | 0 | ISS-195 (inferred-wrong-root/already-fixed), ISS-579 (cross-domain: WorkflowView.tsx) | [20260901-2100-domain-08-frontend-routes.md](reports/20260901-2100-domain-08-frontend-routes.md) |
 | 9 | frontend·history | 13 | NOT STARTED | – | – | – | – |
 | 10 | frontend·composer | 14 | NOT STARTED | – | – | – | – |
 | 11 | frontend·hooks | 16 | NOT STARTED | – | – | – | – |
@@ -24,7 +24,9 @@ memory. Updated by the closer after every domain run.
 
 Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED · PARTIAL.
 
-- Run 2026-09-01T19:00:00Z: **Domain 7 (frontend·library) DONE** — 3 FIXED (ISS-330/336/605 → FIX-456/457/458), 4 ALREADY_FIXED (ISS-318/335/441/591), 3 ESCALATED (BUG-073/ISS-392 prior escalation unchanged; ISS-378 → domain 12). tsc clean (0 errors), vitest 10/10 green. Dedup regenerated: 171 → 150 units. See `reports/20260901-1900-domain-07-frontend-library.md`.
+- Run 2026-09-01T21:00:00Z: **Domain 8 (frontend·routes) DONE** — 8 FIXED (ISS-342/602/492/350/624/376/405/415 → FIX-459–465), 3 ALREADY_FIXED (ISS-352/407/442), 2 ESCALATED (ISS-195 inferred-wrong-root; ISS-579 cross-domain WorkflowView.tsx). tsc clean (0 errors), vitest 77/77 green. Dedup regenerated: 163 → 144 units. See `reports/20260901-2100-domain-08-frontend-routes.md`.
+
+ — 3 FIXED (ISS-330/336/605 → FIX-456/457/458), 4 ALREADY_FIXED (ISS-318/335/441/591), 3 ESCALATED (BUG-073/ISS-392 prior escalation unchanged; ISS-378 → domain 12). tsc clean (0 errors), vitest 10/10 green. Dedup regenerated: 171 → 150 units. See `reports/20260901-1900-domain-07-frontend-library.md`.
 
 ## Global notes
 - Model policy: PLAN.md tiered table. Haiku default; Sonnet for analyze(non-trivial),

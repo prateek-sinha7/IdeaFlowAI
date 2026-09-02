@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { WifiOff, RefreshCw, Loader2 } from "lucide-react";
@@ -2769,7 +2769,16 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <LibraryPage />
+              {/* ISS-624: LibraryPage calls useSearchParams() which requires a
+                  Suspense boundary in the Next.js App Router. Without it a hard
+                  refresh of /library?tab=hooks (or ?tab=skills) produces an empty
+                  body because the component suspends at the SSR/static phase.
+                  The fallback is intentionally null — the mounted/auth gate in
+                  page.tsx already ensures nothing renders until the client is
+                  ready, so there is no visible flash. */}
+              <Suspense fallback={null}>
+                <LibraryPage />
+              </Suspense>
             </motion.div>
           )}
 
