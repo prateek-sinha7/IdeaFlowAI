@@ -14,7 +14,7 @@ memory. Updated by the closer after every domain run.
 | 7 | frontend·library | 11 | DONE | ISS-330,ISS-336,ISS-605 closed (FIX-456–458); ISS-318,ISS-335,ISS-441,ISS-591 already-fixed | 0 | BUG-073(escalated-prior), ISS-392(escalated-prior), ISS-378(domain-12) | [20260901-1900-domain-07-frontend-library.md](reports/20260901-1900-domain-07-frontend-library.md) |
 | 8 | frontend·routes | 13 | DONE | ISS-342,ISS-602,ISS-492,ISS-350,ISS-624,ISS-376,ISS-405,ISS-415 closed (FIX-459–465); ISS-352,ISS-407,ISS-442 already-fixed | 0 | ISS-195 (inferred-wrong-root/already-fixed), ISS-579 (cross-domain: WorkflowView.tsx) | [20260901-2100-domain-08-frontend-routes.md](reports/20260901-2100-domain-08-frontend-routes.md) |
 | 9 | frontend·history | 13 | DONE | ISS-198,ISS-207,ISS-208,ISS-209,ISS-213,ISS-414 closed (FIX-466–467); ISS-219 partial | 0 | ISS-325 (test premise broke), ISS-629 (spec contradiction) | [20260902-1100-domain-09-frontend-history.md](reports/20260902-1100-domain-09-frontend-history.md) |
-| 10 | frontend·composer | 14 | NOT STARTED | – | – | – | – |
+| 10 | frontend·composer | 14 | DONE | ISS-333,ISS-353,ISS-431,ISS-382,ISS-489,ISS-178 closed (FIX-468–473); ISS-340,ISS-192 already-fixed | 0 | ISS-183 (design decision), ISS-223 (ADR-0027 ruling), ISS-334/410/604 (page.tsx domain 8), ISS-393 (AgentsPopup domain 7) | [20260902-1200-domain-10-frontend-composer.md](reports/20260902-1200-domain-10-frontend-composer.md) |
 | 11 | frontend·hooks | 16 | NOT STARTED | – | – | – | – |
 | 12 | frontend·workflow | 22 | NOT STARTED | – | – | – | – |
 | 13 | frontend·layout | 23 | NOT STARTED | – | – | – | – |
@@ -23,6 +23,8 @@ memory. Updated by the closer after every domain run.
 | T | triage (no fix site) | 21 | NOT STARTED | – | – | – | – |
 
 Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED · PARTIAL.
+
+- Run 2026-09-02T12:00:00Z: **Domain 10 (frontend·composer) DONE** — 6 FIXED (ISS-333/353/431/382/489/178 → FIX-468–473), 2 ALREADY_FIXED (ISS-340/192 confirmed pre-fixed), 6 ESCALATED (ISS-183 design decision; ISS-223 ADR-0027 backend ruling; ISS-334/410 page.tsx domain 8; ISS-393 AgentsPopup domain 7; ISS-604 CanvasView/page.tsx domain 8/12). tsc clean (0 errors), vitest 83/83 green. Dedup regenerated: 139 → 136 units. See `reports/20260902-1200-domain-10-frontend-composer.md`.
 
 - Run 2026-09-02T11:00:00Z: **Domain 9 (frontend·history) DONE** — 6 FIXED (ISS-198/207/208/209/213 → FIX-466; ISS-414 → FIX-467), 1 PARTIAL (ISS-219 chip units remain), 2 ESCALATED (ISS-325 test premise broke; ISS-629 spec contradiction), 4 NO CHANGE (secondary globs: ISS-077/113/145/412). tsc clean (0 errors), vitest 13/13 green. Dedup regenerated: 144 → 139 units. See `reports/20260902-1100-domain-09-frontend-history.md`.
 

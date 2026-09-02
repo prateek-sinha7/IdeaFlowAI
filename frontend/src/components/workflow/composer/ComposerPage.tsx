@@ -226,6 +226,13 @@ export function ComposerPage({
   const [justSaved, setJustSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  // ISS-353 — synchronous mutex for Save. `saving` (React state) gates the
+  // button's `disabled` prop, but React state updates are async: a second
+  // rapid click can land BEFORE `setSaving(true)` re-renders the button, so
+  // two concurrent `handleSave` invocations both reach `saveUserWorkflow` on
+  // an as-yet-unsaved workflow — creating two rows. A ref flip is synchronous
+  // and is checked at the top of the handler, same shape as ISS-245's fix.
+  const isSavingRef = useRef(false);
   const [addOpen, setAddOpen] = useState(false);
   // What-to-build instruction for Run once — lives in the canvas's Brief node
   // (CanvasView renders it as a selectable node with its own rail box) rather
@@ -669,6 +676,13 @@ export function ComposerPage({
   // ── Save-to-catalogue (owner-scoped, via the shared saveUserWorkflow dispatch) ──
   const handleSave = useCallback(
     async (wfName: string, wfDescription: string) => {
+      // ISS-353 — synchronous re-entrancy guard. React state (`saving`) updates
+      // asynchronously, so a second rapid click before the first re-render sees
+      // the disabled button can invoke this handler a second time. The ref is set
+      // synchronously at entry and cleared in `finally`, so concurrent invocations
+      // observe the lock immediately and return before any network call fires.
+      if (isSavingRef.current) return;
+      isSavingRef.current = true;
       setSaveError(null);
       setJustSaved(false);
       // A DETACHED step has no incoming connection: nothing in the workflow
@@ -796,6 +810,7 @@ export function ComposerPage({
       } catch (e) {
         setSaveError((e as Error)?.message ?? "Failed to save workflow.");
       } finally {
+        isSavingRef.current = false;
         setSaving(false);
       }
     },
@@ -827,8 +842,13 @@ export function ComposerPage({
     if (!onRun) return;
     const trimmed = instruction.trim();
     if (!trimmed) return;
-    // KAN-91: compose attached-file content into the message at send time —
-    // the EXACT same block format/behavior as IdeaInputPage.handleRun (the
+    // ISS-333 — a brand-new "Compose a custom workflow" canvas starts with
+    // pipelineAgents=[], and handleRunOnce had no guard on this, so clicking
+    // "Run once" before adding any agent dispatched onRun with an empty roster
+    // — the backend fell back to the full 9-agent custom pool. Same guard
+    // IdeaInputPage.handleRun already applies at its own call site.
+    if (pipelineAgents.length === 0) return;
+    // KAN-91: compose attached-file content into the message at send time —    // the EXACT same block format/behavior as IdeaInputPage.handleRun (the
     // textarea itself stays clean; the extracted text only appears here).
     const brief = `${trimmed}${briefAttachments.fileBlocks}`;
     // Resolve the dispatch type and deliverable override from the chosen agent set.
@@ -1082,10 +1102,14 @@ export function ComposerPage({
           type="button"
           onClick={() => {
             if (briefText.trim().length < 3) {
-              // Not enough of a brief yet — focus it wherever the user
-              // already is, rather than always jumping to Canvas: Simple
-              // has its own Brief card now, so switching away from it would
-              // fight the view the user is actually looking at.
+              // ISS-431 — the brief guard was silently focus-only, identical
+              // to ISS-315's empty-name save guard before FIX-375. Replicate
+              // FIX-375's pattern: report through the saveError banner so the
+              // author gets visible feedback, not just a regained focus they
+              // might not notice. The banner is cleared at the next save or
+              // run attempt (setSaveError(null) at handleSave head, or on
+              // the next handleRunOnce call that clears it first).
+              setSaveError("Add a brief of at least 3 characters before running.");
               if (view === "simple") {
                 briefTextareaRef.current?.focus();
               } else {
@@ -1093,18 +1117,26 @@ export function ComposerPage({
               }
               return;
             }
+            // ISS-333 — guard against running with no agents; clear any prior error.
+            if (pipelineAgents.length === 0) {
+              setSaveError("Add at least one agent before running.");
+              return;
+            }
+            setSaveError(null);
             handleRunOnce(briefText);
           }}
           disabled={!onRun}
           title={
             !onRun
               ? "Run wiring lands in 41-06"
-              : briefText.trim().length < 3
-                ? "Add a brief first"
-                : undefined
+              : pipelineAgents.length === 0
+                ? "Add at least one agent first"
+                : briefText.trim().length < 3
+                  ? "Add a brief first"
+                  : undefined
           }
           className={`inline-flex items-center gap-1.5 rounded-[10px] border border-line-control bg-surface-card px-3.5 py-2.5 font-sans text-[12.5px] font-semibold text-ink-700 transition-colors enabled:hover:border-line-faint enabled:hover:bg-surface-warm enabled:active:scale-[0.97] disabled:opacity-40 ${
-            briefText.trim().length < 3 ? "opacity-60" : ""
+            pipelineAgents.length === 0 || briefText.trim().length < 3 ? "opacity-60" : ""
           }`}
         >
           <Play className="h-3.5 w-3.5" />

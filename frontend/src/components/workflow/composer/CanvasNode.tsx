@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
-import { getRole, getAgentInitials, type StepSelection } from "../AgentsPopup";
+import { getRole, getAgentInitials, hasToolOverride, type StepSelection } from "../AgentsPopup";
 import type { AgentDef, WorkflowType } from "@/types/index";
 import type { CapabilityModelEntry } from "@/lib/api";
 import { userWorkflowsApi, type UserWorkflowSummary } from "@/store/api/userWorkflows";
@@ -487,6 +487,12 @@ export function CanvasNode({
   const gateOn = (selection?.gates ?? []).some((g) => g !== "validation");
   const retry = selection?.retry ?? 0;
   const retryOn = retry > 0;
+  // ISS-382 — the chip row showed Validator/Gate/Retry but had no Tools chip,
+  // so a node whose tool grants were restricted (e.g. write_files=false) gave
+  // no at-a-glance signal until the author re-opened the config rail's Tools
+  // tab specifically. `hasToolOverride` (exported from AgentsPopup alongside
+  // effectiveToolGrants) returns true whenever any grant deviates from default.
+  const toolsOn = hasToolOverride(selection);
   // Route badge (spec 014 / R-02/R-03) — surfaced only when this step's own
   // gates list carries "conditional" (the compiler REQUIRES a non-empty
   // route.outcomes whenever that gate is declared, and rejects it the other
@@ -760,7 +766,7 @@ export function CanvasNode({
           {shortModel(selection?.model, modelOptions)}
         </div>
 
-        {/* override chips — Validator (brand) · Gate (amber) · Retry (brand) */}
+        {/* override chips — Validator (brand) · Gate (amber) · Retry (brand) · Tools (amber when restricted) */}
         <div className="mt-2.5 flex gap-1.5">
           <span
             className={`rounded-[6px] border px-1.5 py-1 font-sans text-[9.5px] font-semibold ${
@@ -798,6 +804,21 @@ export function CanvasNode({
             }`}
           >
             {retryOn ? `Retry ·${retry}` : "Retry"}
+          </span>
+          {/* ISS-382 — Tools chip: active (amber) when any tool grant deviates
+              from the default (write_files=true, read_files=true). This is the
+              same at-a-glance signal Validator/Gate/Retry already provide for
+              their respective overrides — without it a restricted node card was
+              visually indistinguishable from an unrestricted one. */}
+          <span
+            title={toolsOn ? "Tool grants are restricted — open Config to view" : undefined}
+            className={`rounded-[6px] border px-1.5 py-1 font-sans text-[9.5px] font-semibold ${
+              toolsOn
+                ? "border-status-amber-border bg-status-amber-fill text-status-amber"
+                : "border-line-faint-row bg-surface-white text-ink-300"
+            }`}
+          >
+            Tools
           </span>
         </div>
 

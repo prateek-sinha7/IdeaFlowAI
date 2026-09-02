@@ -1,8 +1,9 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, Info, Plus, Search, X } from "lucide-react";
 import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import { SkillMarkdown } from "@/components/ui/SkillMarkdown";
 import type { AgentDef } from "@/types/index";
 import type { SkillDef } from "@/store/api/skills";
@@ -125,6 +126,15 @@ export function AgentSkillsPicker({
 
   const selectedCount = selectedSkillIds.size;
   const [detailSkill, setDetailSkill] = useState<SkillDef | null>(null);
+
+  // ISS-489 — the skill-detail popup declared role="dialog" aria-modal="true"
+  // but had no Escape handler, so the only way to close it was the backdrop
+  // click or the Close button. Same missing-handler class as ISS-326
+  // (WorkflowDialog), fixed by FIX-388 with the shared useEscapeToClose hook.
+  // `enabled` is true only while the dialog is actually open — a hidden dialog
+  // must not swallow Escape from whatever is actually on screen.
+  const closeDetailSkill = useCallback(() => setDetailSkill(null), []);
+  useEscapeToClose(closeDetailSkill, detailSkill !== null);
 
   return (
     <div ref={rootRef} data-testid={`agent-skills-picker-${agent.id}`}>

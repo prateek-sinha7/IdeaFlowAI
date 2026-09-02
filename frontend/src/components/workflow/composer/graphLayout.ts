@@ -135,6 +135,37 @@ export function computeRootLayout(
     }
   }
 
+  // ISS-178 — Add declared `depends_on` as a third edge source.
+  //
+  // Canvas-authored workflows keep array order aligned with the chain so
+  // `depends_on` and adjacency agree. API-authored or hand-written YAML steps
+  // can have a `depends_on` that names a predecessor NOT adjacent in the array
+  // and NOT a route outcome target — the only structural edge is the explicit
+  // declaration. Without this pass such a step received no incoming edge,
+  // ranked at column 0 next to `start`, and rendered in the wrong column.
+  //
+  // ADR-0004: a declared `depends_on` OVERRIDES the inferred DAG where the two
+  // disagree, so these edges carry the same weight as chain/route edges.
+  //
+  // Normalise the `agent:instance` form to the node id graphLayout uses
+  // (custom-agent steps use instance_id as their AgentDef.id, which is also
+  // what agentsToManifestSteps writes into depends_on entries via CUSTOM_AGENT_PREFIX).
+  // Built-in ids are already bare strings matching AgentDef.id directly.
+  for (const agent of pipelineAgents) {
+    if (!agent.depends_on?.length) continue;
+    for (const depId of agent.depends_on) {
+      if (!depId) continue;
+      const from = depId;
+      const to = agent.id;
+      // Skip self-loops and edges already established by the chain/route passes.
+      if (from === to) continue;
+      if (!allNodeIds.has(from) || !allNodeIds.has(to)) continue;
+      if (inEdges.get(to)?.has(from)) continue; // already present
+      outEdges.get(from)?.add(to);
+      inEdges.get(to)?.add(from);
+    }
+  }
+
   // Compute topological rank for each node (longest-path from start).
   // Nodes in the same graph depth get the same column.
   const rank = new Map<string, number>();

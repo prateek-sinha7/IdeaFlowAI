@@ -458,6 +458,12 @@ function manifestStepToAgent(
   // reopen fix, this was previously missing, silently dropping the route on
   // save→reopen.
   agent.route = step.route ? { ...step.route } : undefined;
+  // ISS-178 — carry `depends_on` from the manifest step onto the AgentDef so
+  // graphLayout.ts can use it as a third edge source. Steps authored via the
+  // API or a hand-written workflow.yaml declare their real predecessors here;
+  // without propagating it, computeRootLayout had no way to see the edge and
+  // ranked these steps at column 0.
+  agent.depends_on = step.depends_on?.length ? [...step.depends_on] : undefined;
   if (step.subagents) {
     agent.strategy = step.subagents.mode;
     agent.maxParallel = step.subagents.max_parallel;

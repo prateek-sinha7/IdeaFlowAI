@@ -694,6 +694,13 @@ export interface AgentDef {
   /** Per-node tool grants (R-01 tools block). Absent means the compiler's
    *  least-privilege defaults apply. */
   tools?: AgentToolGrants;
+  /** Declared upstream dependencies — mirrors `ManifestStep.depends_on`.
+   *  Populated by `manifestStepsToAgents` when a step's manifest entry
+   *  declares explicit `depends_on` entries not derivable from array adjacency
+   *  or route outcomes (e.g. API-authored workflows). Used by `computeRootLayout`
+   *  (graphLayout.ts) as a third edge source so these steps rank at the correct
+   *  column instead of defaulting to column 0 (ISS-178). */
+  depends_on?: string[];
   /** Conditional-gate branch spec (spec 014 / R-02), mirrors `RouteSpec` from
    *  `backend/agents/workflows/plan.py` field-for-field. */
   route?: {
