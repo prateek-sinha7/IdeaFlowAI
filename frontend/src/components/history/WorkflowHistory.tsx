@@ -180,7 +180,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // duration — all derived from fields already on each row (no fetch).
   const [sortKey, setSortKey] = useState<HistorySortKey>("recent");
   const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking" | "audit">("preview");
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // ISS-414 (replicate FIX-372): store the whole run row so DeleteModal can
+  // name the run being deleted — same shape as `renameRow` / `deleteRow` in
+  // SavedWorkflowsPage.tsx. Previously tracked only the id, leaving the dialog
+  // body fully generic and indistinguishable across near-duplicate titles.
+  const [deleteRow, setDeleteRow] = useState<WorkflowRun | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   // Revision Families (B2 / D3): which family roots are expanded in the list,
@@ -189,9 +193,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // KAN-84: revision moved from thin right-panel bar to left-panel next-steps
   const [reviseOpen, setReviseOpen] = useState(false);
   const [revisionText, setRevisionText] = useState("");
-  const revisionRef = useRef<HTMLTextAreaElement>(null);
+  // ISS-198: IntersectionObserver sentinel — fires handleLoadMore when the
+  // bottom of the list scrolls into view, wiring the already-implemented
+  // handleLoadMore that was dead code (no trigger existed).
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  // Focus revision textarea when opened
+  const revisionRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (reviseOpen && revisionRef.current) revisionRef.current.focus();
   }, [reviseOpen]);
@@ -302,6 +309,23 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       .finally(() => setLoadingMore(false));
   }, [runs.length, totalRuns, loadingMore]);
 
+  // ISS-198: wire the already-implemented handleLoadMore to an
+  // IntersectionObserver on the sentinel div at the bottom of the list.
+  // `handleLoadMore` guards itself (`runs.length >= totalRuns || loadingMore`),
+  // so the observer just needs to call it whenever the sentinel is visible.
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) handleLoadMore();
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [handleLoadMore]);
+
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
     // KAN-96: if this run is the currently-active pipeline, navigate to the
     // live execution view rather than opening the static history detail.
@@ -406,23 +430,29 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const handleDeleteClick = useCallback((runId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setOpenMenuId(null);
-    setDeleteConfirmId(runId);
-  }, []);
+    // ISS-414 (replicate FIX-372): store the whole run row — the id alone
+    // gave the dialog nothing to display. Find the run from the loaded array.
+    const run = runs.find((r) => r.id === runId) ?? null;
+    setDeleteRow(run ?? { id: runId } as WorkflowRun);
+  }, [runs]);
 
   const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteConfirmId) return;
+    if (!deleteRow) return;
     const token = getToken();
     if (!token) return;
     setDeleteError(null);
     try {
-      await deleteWorkflow(token, deleteConfirmId);
-      setRuns((prev) => prev.filter((r) => r.id !== deleteConfirmId));
-      if (selectedRun?.id === deleteConfirmId) { setSelectedRun(null); setSelectedOutput(null); }
-      setDeleteConfirmId(null);
+      await deleteWorkflow(token, deleteRow.id);
+      setRuns((prev) => prev.filter((r) => r.id !== deleteRow.id));
+      // ISS-209: keep totalRuns in sync after a delete so handleLoadMore's
+      // offset bookkeeping remains correct once a Load More trigger exists.
+      setTotalRuns((prev) => Math.max(0, prev - 1));
+      if (selectedRun?.id === deleteRow.id) { setSelectedRun(null); setSelectedOutput(null); }
+      setDeleteRow(null);
     } catch {
       setDeleteError("Failed to delete run. Please try again.");
     }
-  }, [deleteConfirmId, selectedRun]);
+  }, [deleteRow, selectedRun]);
 
   // Revision Families (B2): the per-run filter predicate, extracted so the
   // grouped list can match a family if ANY member matches (UI-SPEC Surface 1).
@@ -951,7 +981,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
         {/* Delete modal */}
         <AnimatePresence>
-          {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteConfirmId(null); setDeleteError(null); }} error={deleteError} />}
+          {deleteRow && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteRow(null); setDeleteError(null); }} error={deleteError} runName={deleteRow.title ?? undefined} />}
         </AnimatePresence>
       </div>
     );
@@ -970,13 +1000,22 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // family grouping (fields already on each row — no fetch, no backend change).
   const sections = bucketAndSortFamilies(visibleFamilies, sortKey);
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
-  const typeCounts: Record<string, number> = { all: families.length };
+  // ISS-198 + ISS-213: the "All" chip now shows the true total (totalRuns) from
+  // the server response, matching the header. Per-type chips still reflect the
+  // loaded families (family card counts, not raw run counts) — this is option 2
+  // from ISS-219: chips are in "family card" units, the header/All chip is in
+  // "total runs" units. The tension is documented in ISS-219; a future change
+  // can tighten the per-type counts once the backend grows per-bucket aggregates.
+  const typeCounts: Record<string, number> = { all: totalRuns };
   families.forEach((g) => {
     // Count the FAMILY once under its filter bucket (one of the 4 frameworks,
     // or "custom" for every non-framework type — see filterBucketFor).
     const base = filterBucketFor(g.root.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
+  // ISS-207/208/213: flag when the loaded window is smaller than the true total
+  // so search, sort and chip counts render an honest "partial scope" notice.
+  const isPartiallyLoaded = runs.length < totalRuns;
 
   return (
     <div className="h-full flex flex-col bg-surface-paper">
@@ -991,7 +1030,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           </button>
           <div className="flex-1">
             <h1 className="text-[18px] font-normal italic text-ink-900 leading-tight font-serif">Run History</h1>
-            <p className="text-[11px] text-ink-400 mt-0.5">{runs.length} runs</p>
+            <p className="text-[11px] text-ink-400 mt-0.5">{totalRuns} runs</p>
           </div>
           <button
             type="button"
@@ -1034,6 +1073,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             className="w-full pl-9 pr-4 py-2 text-[12px] bg-surface-warm border border-line-border rounded-lg focus:outline-none focus:border-line-control transition-colors placeholder:text-ink-400"
           />
         </div>
+        {/* ISS-207/208/213: partial-scope notice — search, sort, and filter chips
+            operate only on the loaded window when more runs exist on the server.
+            Scroll to load more; the IntersectionObserver appends pages automatically. */}
+        {isPartiallyLoaded && (
+          <p className="mt-1.5 text-[10px] text-ink-400 leading-snug">
+            Showing {runs.length} of {totalRuns} runs — scroll down to load more
+          </p>
+        )}
 
         {/* 40-06: type-filter chips + Sort tabs on ONE row (mock History: chips
             left flex-1, the Sort segmented control right) — over the live/seeded
@@ -1226,13 +1273,25 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 </div>
               </section>
             ))}
+            {/* ISS-198: Load More sentinel — the IntersectionObserver fires
+                handleLoadMore whenever this div scrolls into view. Hidden once
+                all runs are loaded (runs.length >= totalRuns). */}
+            {runs.length < totalRuns && (
+              <div ref={loadMoreRef} className="flex items-center justify-center py-4">
+                {loadingMore ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-ink-300" aria-label="Loading more runs" />
+                ) : (
+                  <span className="text-[10px] text-ink-400">Load more</span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Delete modal */}
       <AnimatePresence>
-        {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteConfirmId(null); setDeleteError(null); }} error={deleteError} />}
+        {deleteRow && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteRow(null); setDeleteError(null); }} error={deleteError} runName={deleteRow.title ?? undefined} />}
       </AnimatePresence>
 
       {/* Close menu on outside click */}
@@ -1243,7 +1302,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   );
 }
 
-function DeleteModal({ onConfirm, onCancel, error }: { onConfirm: () => void; onCancel: () => void; error?: string | null }) {
+function DeleteModal({ onConfirm, onCancel, error, runName }: { onConfirm: () => void; onCancel: () => void; error?: string | null; runName?: string }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   // a11y: focus the primary action on open + Escape closes the dialog.
   useEffect(() => {
@@ -1281,7 +1340,11 @@ function DeleteModal({ onConfirm, onCancel, error }: { onConfirm: () => void; on
           </div>
         </div>
         <p className="text-[12px] text-ink-500 leading-relaxed mb-5">
-          The workflow run and all its output will be permanently deleted.
+          {/* ISS-414 (replicate FIX-372): name the run so the user can confirm
+              they chose the right one before an irreversible delete. */}
+          {runName
+            ? <>&ldquo;{runName}&rdquo; and all its output will be permanently deleted.</>
+            : "The workflow run and all its output will be permanently deleted."}
         </p>
         {error && (
           <p className="text-[11px] text-status-failed mb-3 px-1">{error}</p>

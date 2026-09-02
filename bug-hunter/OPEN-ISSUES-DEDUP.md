@@ -10,7 +10,7 @@ Generated from the card store — regenerate rather than editing rows by hand:
 python3 bug-hunter/tools/dedup.py
 ```
 
-**163 open cards → 144 units of work** (34 families + 110 singletons), schedulable as **25 work batches** — see [Work batches](#work-batches--how-to-actually-run-this) for the execution view. **241 closed** — see [Closed](#-closed--fix-landed).
+**157 open cards → 139 units of work** (33 families + 106 singletons), schedulable as **25 work batches** — see [Work batches](#work-batches--how-to-actually-run-this) for the execution view. **247 closed** — see [Closed](#-closed--fix-landed).
 
 A merge is proposed only where cards share a **fix site**, not merely a symptom
 class. Two Escape-key bugs in unrelated components are one class and two diffs —
@@ -18,16 +18,16 @@ merging those would close a family while a member is still broken.
 
 | tier | what it means | families | cards |
 |---|---|---|---|
-| A′ | root **already fixed**, siblings still open — replicate the landed diff | 19 | 30 |
+| A′ | root **already fixed**, siblings still open — replicate the landed diff | 18 | 29 |
 | A | declared family, root and siblings both open — one line trip | 2 | 5 |
-| B | same file **and** same defect class — proposed, needs review | 13 | 18 |
-| C | no kin found — stays its own row | — | 110 |
+| B | same file **and** same defect class — proposed, needs review | 13 | 17 |
+| C | no kin found — stays its own row | — | 106 |
 
 ---
 
 ## ✅ Closed — fix landed
 
-241 defect card(s) now `status: resolved`. Kept here so this one file
+247 defect card(s) now `status: resolved`. Kept here so this one file
 shows every card's real status: the `→ FIX-NNN` column is the landed fix that
 closed it, and *origin* is the root it was a sibling of (where it came from).
 Generated from card frontmatter — a card drops out of the open backlog below and
@@ -60,6 +60,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-191](../.knowledge/cards/20260828-1330-ISS-191.md) | [FIX-323](../.knowledge/cards/20260828-1629-FIX-323.md) | — | login/page.tsx has no guard checking an existing valid auth_token before render, so a signed-in use… |
 | [ISS-193](../.knowledge/cards/20260828-1554-ISS-193.md) | [FIX-323](../.knowledge/cards/20260828-1629-FIX-323.md) | — | register/page.tsx redirects to /login with no getToken() check, so it inherits ISS-191's missing gu… |
 | [ISS-196](../.knowledge/cards/20260828-1555-ISS-196.md) | [FIX-325](../.knowledge/cards/20260828-1645-FIX-325.md), [FIX-352](../.knowledge/cards/20260828-2346-FIX-352.md) | — | Save as copy on the ppt built-in POSTs manifest:null because ComposerPage never seeds runConfig fro… |
+| [ISS-198](../.knowledge/cards/20260828-1400-ISS-198.md) | [FIX-144](../.knowledge/cards/20260730-1252-FIX-144.md), [FIX-466](../.knowledge/cards/20260902-1100-FIX-466.md) | — | Run History renders the capped runs.length (50) instead of the totalRuns it already holds; handleLo… |
 | [ISS-199](../.knowledge/cards/20260828-1600-ISS-199.md) | [FIX-316](../.knowledge/cards/20260827-0054-FIX-316.md), [FIX-318](../.knowledge/cards/20260827-0055-FIX-318.md), [FIX-327](../.knowledge/cards/20260828-1845-FIX-327.md) | — | Files tab hero sets pptContent from fullRun.output (last-streamed agent text) instead of reading th… |
 | [ISS-200](../.knowledge/cards/20260828-1605-ISS-200.md) | [FIX-324](../.knowledge/cards/20260828-1641-FIX-324.md), [FIX-340](../.knowledge/cards/20260828-2230-FIX-340.md) | — | signedIn carries no prior-token check and the preload guard gates only on status, so a token swap w… |
 | [ISS-201](../.knowledge/cards/20260828-1607-ISS-201.md) | [FIX-324](../.knowledge/cards/20260828-1641-FIX-324.md) | — | The same useState(() => readCache(...)) fallback paints the prior account's cached cards on every a… |
@@ -68,8 +69,12 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-204](../.knowledge/cards/20260828-1611-ISS-204.md) | [FIX-325](../.knowledge/cards/20260828-1645-FIX-325.md) | — | needsFullManifest(pipelineAgents) never checks runConfig, so ANY composer save with zero customized… |
 | [ISS-205](../.knowledge/cards/20260828-1612-ISS-205.md) | [FIX-325](../.knowledge/cards/20260828-1645-FIX-325.md) | — | unmodifiedBuiltin (ComposerPage.tsx:841-845) only compares agent-id lists, so reordering/adding an … |
 | [ISS-206](../.knowledge/cards/20260828-1609-ISS-206.md) | [FIX-325](../.knowledge/cards/20260828-1645-FIX-325.md) | — | Save omits `manifest` from the POST because needsFullManifest ignores runConfig; runConfig itself n… |
+| [ISS-207](../.knowledge/cards/20260828-1617-ISS-207.md) | [FIX-466](../.knowledge/cards/20260902-1100-FIX-466.md) | — | matchesFilter (~L430) runs client-side over runs/families, which never exceeds the fetched 50 — a s… |
+| [ISS-208](../.knowledge/cards/20260828-1617-ISS-208.md) | [FIX-466](../.knowledge/cards/20260902-1100-FIX-466.md) | — | bucketAndSortFamilies (~L950) sorts visibleFamilies, itself derived from the capped runs array — Lo… |
+| [ISS-209](../.knowledge/cards/20260828-1617-ISS-209.md) | [FIX-466](../.knowledge/cards/20260902-1100-FIX-466.md), [FIX-467](../.knowledge/cards/20260902-1100-FIX-467.md) | — | handleDeleteConfirm (~L408-421) calls setRuns to drop the deleted row but never setTotalRuns, leavi… |
 | [ISS-211](../.knowledge/cards/20260828-1429-ISS-211.md) | [FIX-326](../.knowledge/cards/20260828-1656-FIX-326.md) | — | exportAuditCSV/JSON (auditExporter.ts:83-99) serialize the same rows[] state ISS-202 shows is fabri… |
 | [ISS-212](../.knowledge/cards/20260828-1428-ISS-212.md) | [FIX-326](../.knowledge/cards/20260828-1656-FIX-326.md) | — | AuditTab's fetch/merge effect keys only on workflowRunId (line 451), never isRunning, so ISS-202's … |
+| [ISS-213](../.knowledge/cards/20260828-1618-ISS-213.md) | [FIX-466](../.knowledge/cards/20260902-1100-FIX-466.md) | — | typeCounts (~L952-958) tallies every filter chip from the same capped families array; a type with z… |
 | [ISS-214](../.knowledge/cards/20260828-1633-ISS-214.md) | [FIX-327](../.knowledge/cards/20260828-1845-FIX-327.md), [FIX-449](../.knowledge/cards/20260901-1530-FIX-449.md) | — | WorkflowHistory.tsx:542 isPpt omits ppt_v2 (no renderType-style normalization), so its own Files ta… |
 | [ISS-215](../.knowledge/cards/20260828-1633-ISS-215.md) | [FIX-327](../.knowledge/cards/20260828-1845-FIX-327.md), [FIX-449](../.knowledge/cards/20260901-1530-FIX-449.md) | — | FilesTab.tsx:436-440 feeds parentRun.type (raw, unnormalized) into deriveDeliverableFiles, so a ppt… |
 | [ISS-216](../.knowledge/cards/20260828-1643-ISS-216.md) | [FIX-324](../.knowledge/cards/20260828-1641-FIX-324.md), [FIX-408](../.knowledge/cards/20260829-0447-FIX-408.md) | — | The only six `tsc --noEmit` errors in frontend/ outside .next/ are in these two files: five arity e… |
@@ -95,7 +100,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-245](../.knowledge/cards/20260828-1631-ISS-245.md) | [FIX-345](../.knowledge/cards/20260828-2250-FIX-345.md) | — | Login button disabled={isLoading} relies on a React state commit that has not landed by the time sy… |
 | [ISS-246](../.knowledge/cards/20260828-1657-ISS-246.md) | [FIX-348](../.knowledge/cards/20260828-2321-FIX-348.md) | — | LaunchWizard never forwards onRunConfigChange/onCapabilitiesChange for built-in launches, so Canvas… |
 | [ISS-247](../.knowledge/cards/20260828-1637-ISS-247.md) | [FIX-346](../.knowledge/cards/20260828-2314-FIX-346.md), [FIX-377](../.knowledge/cards/20260829-0158-FIX-377.md) | — | ReviewGatesSection writes gateAgentIds (sent as run-launch gate_agent_ids); CanvasConfigRail Gate c… |
-| [ISS-250](../.knowledge/cards/20260828-1645-ISS-250.md) | [FIX-347](../.knowledge/cards/20260828-2318-FIX-347.md), [FIX-464](../.knowledge/cards/20260901-2100-FIX-464.md) | — | CreateRoute defaults raw=null/"" to LaunchWizard mode prototype in place with no router.replace, so… |
+| [ISS-250](../.knowledge/cards/20260828-1645-ISS-250.md) | [FIX-347](../.knowledge/cards/20260828-2318-FIX-347.md) | — | CreateRoute defaults raw=null/"" to LaunchWizard mode prototype in place with no router.replace, so… |
 | [ISS-251](../.knowledge/cards/20260828-1846-ISS-251.md) | [FIX-327](../.knowledge/cards/20260828-1845-FIX-327.md), [FIX-449](../.knowledge/cards/20260901-1530-FIX-449.md) | — | PreviewPanel.tsx:844-910 duplicates the declared-name + listing + extension-keyed sibling rule now … |
 | [ISS-254](../.knowledge/cards/20260828-1810-ISS-254.md) | [FIX-337](../.knowledge/cards/20260828-2210-FIX-337.md) | [ISS-225](../.knowledge/cards/20260828-1541-ISS-225.md) | INFERRED sibling of ISS-225: the same unseeded selectionsRef hits ex_A1_loop, ex_A2_branch, ex_A3_d… |
 | [ISS-256](../.knowledge/cards/20260828-1816-ISS-256.md) | [FIX-332](../.knowledge/cards/20260828-1915-FIX-332.md) | — | ApiError's constructor (api.ts:77-79) reimplements authedJson's JSON.stringify(detail) fallback ind… |
@@ -122,13 +127,13 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-292](../.knowledge/cards/20260828-1918-ISS-292.md) | [FIX-361](../.knowledge/cards/20260829-0029-FIX-361.md), [FIX-382](../.knowledge/cards/20260829-0223-FIX-382.md), [FIX-439](../.knowledge/cards/20260831-1959-FIX-439.md) | — | GET/PUT /api/settings/preferences apply no tier filter to available_models or preferred_model; Acco… |
 | [ISS-293](../.knowledge/cards/20260828-1924-ISS-293.md) | [FIX-364](../.knowledge/cards/20260829-0041-FIX-364.md), [FIX-423](../.knowledge/cards/20260831-1650-FIX-423.md) | — | ConstitutionRequest.content max_length=1_048_576 (settings.py:355), textarea has no maxLength; 4000… |
 | [ISS-294](../.knowledge/cards/20260828-1725-ISS-294.md) | [FIX-328](../.knowledge/cards/20260828-2014-FIX-328.md) | — | reopenedRunIdFor (page.tsx:182-196) returns only parsed.runId for run-version, dropping parsed.vers… |
-| [ISS-295](../.knowledge/cards/20260828-1726-ISS-295.md) | [FIX-366](../.knowledge/cards/20260828-2254-FIX-366.md), [FIX-465](../.knowledge/cards/20260901-2100-FIX-465.md) | — | Create-User form gates "Create User" only on non-empty Email/Password (no format regex), and POST /… |
+| [ISS-295](../.knowledge/cards/20260828-1726-ISS-295.md) | [FIX-366](../.knowledge/cards/20260828-2254-FIX-366.md) | — | Create-User form gates "Create User" only on non-empty Email/Password (no format regex), and POST /… |
 | [ISS-296](../.knowledge/cards/20260828-1724-ISS-296.md) | [FIX-328](../.knowledge/cards/20260828-2014-FIX-328.md), [FIX-334](../.knowledge/cards/20260828-2149-FIX-334.md), [FIX-417](../.knowledge/cards/20260831-0110-FIX-417.md) | — | handleSelectVersion (PreviewPanel.tsx:549-564) only calls setViewingVersion, never router.push — ro… |
 | [ISS-298](../.knowledge/cards/20260828-1729-ISS-298.md) | [FIX-369](../.knowledge/cards/20260829-0114-FIX-369.md) | — | error===quota branch in preview-fullscreen/page.tsx useEffect returns before the sessionStorage.__a… |
 | [ISS-299](../.knowledge/cards/20260828-1730-ISS-299.md) | [FIX-351](../.knowledge/cards/20260828-2347-FIX-351.md), [FIX-368](../.knowledge/cards/20260829-0106-FIX-368.md) | — | canvas seeds an empty manifest from a workflowId with no existence check, so a bad id renders a wor… |
 | [ISS-300](../.knowledge/cards/20260828-1726-ISS-300.md) | [FIX-328](../.knowledge/cards/20260828-2014-FIX-328.md), [FIX-334](../.knowledge/cards/20260828-2149-FIX-334.md) | — | PreviewPanel passes raw userStoryContent/pptContent/prototypeContent, not effUserStoryContent etc, … |
 | [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) | [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md) | — | HandoffWorkflow.tsx:216 renders "Handoff not found" whenever loadError is set, with no branch for a… |
-| [ISS-302](../.knowledge/cards/20260828-1734-ISS-302.md) | [FIX-372](../.knowledge/cards/20260829-0141-FIX-372.md) | — | Delete dialog on /workflows only tracks deleteConfirmId, never the row name, so heading/body text i… |
+| [ISS-302](../.knowledge/cards/20260828-1734-ISS-302.md) | [FIX-372](../.knowledge/cards/20260829-0141-FIX-372.md), [FIX-467](../.knowledge/cards/20260902-1100-FIX-467.md) | — | Delete dialog on /workflows only tracks deleteConfirmId, never the row name, so heading/body text i… |
 | [ISS-303](../.knowledge/cards/20260828-1935-ISS-303.md) | [FIX-371](../.knowledge/cards/20260829-0131-FIX-371.md) | — | LibraryPage.tsx:520-526 cold-mount URL-seed effect has no BETA_WORKFLOWS check, unlike the card onC… |
 | [ISS-304](../.knowledge/cards/20260828-1600-ISS-304.md) | [FIX-373](../.knowledge/cards/20260829-0143-FIX-373.md) | — | pipeline_complete.total_tokens (17931) disagrees with the sum of its own agent_complete events (104… |
 | [ISS-306](../.knowledge/cards/20260828-1745-ISS-306.md) | [FIX-377](../.knowledge/cards/20260829-0158-FIX-377.md) | — | Fresh /create/ex_A4_human_gate load: Pick Language step carries gates:[before-human,conditional] se… |
@@ -195,6 +200,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-409](../.knowledge/cards/20260828-2148-ISS-409.md) | [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md) | [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) | INFERRED sibling of ISS-301: IntegrationsCard.tsx:90's empty catch leaves patStatus/keys at their u… |
 | [ISS-411](../.knowledge/cards/20260828-2147-ISS-411.md) | [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md) | [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) | INFERRED sibling of ISS-301: loadError\|\|!session (HandoffWorkflow.tsx:216) fires on a failed post… |
 | [ISS-413](../.knowledge/cards/20260828-2357-ISS-413.md) | [FIX-354](../.knowledge/cards/20260828-2357-FIX-354.md), [FIX-406](../.knowledge/cards/20260829-0431-FIX-406.md) | — | run_events.created_at exists on the row but get_run_events returns only seq/event_id/type/payload_j… |
+| [ISS-414](../.knowledge/cards/20260828-2202-ISS-414.md) | [FIX-372](../.knowledge/cards/20260829-0141-FIX-372.md), [FIX-467](../.knowledge/cards/20260902-1100-FIX-467.md) | [ISS-302](../.knowledge/cards/20260828-1734-ISS-302.md) | WorkflowHistory DeleteModal (L1237) takes no name prop; deleteConfirmId (L179) stores only the run … |
 | [ISS-415](../.knowledge/cards/20260828-2202-ISS-415.md) | [FIX-372](../.knowledge/cards/20260829-0141-FIX-372.md), [FIX-465](../.knowledge/cards/20260901-2100-FIX-465.md) | [ISS-302](../.knowledge/cards/20260828-1734-ISS-302.md) | admin/page.tsx deleteConfirm (L126) stores only user.id (L441); dialog (L525-556) has no user email… |
 | [ISS-416](../.knowledge/cards/20260828-2210-ISS-416.md) | [FIX-371](../.knowledge/cards/20260829-0131-FIX-371.md) | — | LibraryPage.tsx:598-604 skills branch of the same cold-mount effect has no isBeta check; unreproduc… |
 | [ISS-430](../.knowledge/cards/20260829-0029-ISS-430.md) | [FIX-361](../.knowledge/cards/20260829-0029-FIX-361.md), [FIX-421](../.knowledge/cards/20260831-FIX-421.md) | — | Deferred half of ISS-292: get_preferences now projects AVAILABLE_MODELS with an allowed flag per ti… |
@@ -307,7 +313,6 @@ change applied at the sibling's line. Send them straight to **fix**.
 | [ISS-274](../.knowledge/cards/20260828-1854-ISS-274.md) | [FIX-350](../.knowledge/cards/20260828-2340-FIX-350.md) | [ISS-378](../.knowledge/cards/20260828-2006-ISS-378.md) | ConfigLeversFlat (AgentsPopup.tsx:1700-1771) also renders only Model/Validator/Gate/Retry, no Tools row — sam… |
 | [ISS-290](../.knowledge/cards/20260828-1720-ISS-290.md) | [FIX-360](../.knowledge/cards/20260829-0024-FIX-360.md) | [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md) | INFERRED sibling of ISS-290: same stale HOOK.md ids feed an exact .includes(agent.id) filter with no universa… |
 | [ISS-292](../.knowledge/cards/20260828-1918-ISS-292.md) | [FIX-361](../.knowledge/cards/20260829-0029-FIX-361.md), [FIX-382](../.knowledge/cards/20260829-0223-FIX-382.md), [FIX-439](../.knowledge/cards/20260831-1959-FIX-439.md) | [ISS-398](../.knowledge/cards/20260828-2106-ISS-398.md) | _validate_model_overrides (run_engine.py:547-607) allow-lists model_id against ModelCatalog.ids() only, no ti… |
-| [ISS-302](../.knowledge/cards/20260828-1734-ISS-302.md) | [FIX-372](../.knowledge/cards/20260829-0141-FIX-372.md) | [ISS-414](../.knowledge/cards/20260828-2202-ISS-414.md) | WorkflowHistory DeleteModal (L1237) takes no name prop; deleteConfirmId (L179) stores only the run id — same … |
 | [ISS-304](../.knowledge/cards/20260828-1600-ISS-304.md) | [FIX-373](../.knowledge/cards/20260829-0143-FIX-373.md) | [ISS-417](../.knowledge/cards/20260828-2230-ISS-417.md) | INFERRED sibling of ISS-304: TokenUsageSummary.tsx:19-28, mounted in the Steps tab, destructures the same cor… |
 | [ISS-320](../.knowledge/cards/20260828-1802-ISS-320.md) | [FIX-385](../.knowledge/cards/20260829-0241-FIX-385.md), [FIX-386](../.knowledge/cards/20260831-1020-FIX-386.md), [FIX-442](../.knowledge/cards/20260901-FIX-442.md), [FIX-452](../.knowledge/cards/20260901-1600-FIX-452.md) | [ISS-480](../.knowledge/cards/20260828-2320-ISS-480.md) | deleteSkill (SkillManager.tsx:99-114) wired to onClick:221 fires DELETE with zero confirm, same gap as ISS-320 |
 
@@ -352,12 +357,12 @@ one diff before merging, and split them back out if they do not.
 |---|---|---|---|
 | `frontend/src/components/layout/DashboardLayout.tsx` | stale-state | [BUG-006-007-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1520-BUG-006-007-GROUNDED-CONTEXT.md), [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md), [BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2036-BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT.md), [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md), [BUG-014-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2156-BUG-014-GROUNDED-CONTEXT.md), [ISS-347](../.knowledge/cards/20260828-2058-ISS-347.md) | BUG-006: lane type chip read workflowType not effectiveReviseType, missing a third stale-label cons… |
 | `frontend/src/components/preview/PreviewPanel.tsx` | stale-state | [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md), [BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2036-BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT.md), [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md) | BUG-008: reopened deliverables render empty since hasGenericDeliverable gates on stale workflowType… |
-| `frontend/src/components/history/WorkflowHistory.tsx` | stale-state | [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md), [ISS-209](../.knowledge/cards/20260828-1617-ISS-209.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md) | Vitest baseline is stale by ~10x: measured 147 failed/894 passed vs a documented '~8 known reds'; s… |
 | `frontend/src/components/layout/DashboardLayout.tsx` | confirm-dialog | [ISS-371](../.knowledge/cards/20260828-2140-ISS-371.md), [ISS-372](../.knowledge/cards/20260828-2141-ISS-372.md), [ISS-622](../.knowledge/cards/20260831-0115-ISS-622.md) | IdeaInputPage.tsx:1577 wires onClick={onBack} to the same ungated handleBackNav (DashboardLayout.ts… |
 | `frontend/src/hooks/useWorkflow.ts` | stale-state | [ISS-438](../.knowledge/cards/20260829-0056-ISS-438.md), [ISS-439](../.knowledge/cards/20260829-0057-ISS-439.md), [ISS-440](../.knowledge/cards/20260829-0058-ISS-440.md) | RunChatLane.tsx:579 derives errored from the same stale pipelineState.agents[].status==="error" as … |
 | `.planning/SSE-QA-BUG-LOG.md` | stale-state | [BUG-006-007-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1520-BUG-006-007-GROUNDED-CONTEXT.md), [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md) | BUG-006: lane type chip read workflowType not effectiveReviseType, missing a third stale-label cons… |
 | `frontend/e2e/tests/ts-t.history.spec.ts` | stale-state | [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md), [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md) | BUG-008: reopened deliverables render empty since hasGenericDeliverable gates on stale workflowType… |
 | `frontend/src/app/[...view]/contentSourceRunScope.source.test.ts` | stale-state | [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md), [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md) | Reopened od_ppt/od_prototype runs render blank because PreviewPanel's detectedType short-circuits o… |
+| `frontend/src/components/history/WorkflowHistory.tsx` | stale-state | [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md) | Vitest baseline is stale by ~10x: measured 147 failed/894 passed vs a documented '~8 known reds'; s… |
 | `frontend/src/components/layout/AppHeader.tsx` | stale-state | [BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2036-BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT.md), [ISS-143](../.knowledge/cards/20260813-0205-ISS-143.md) | The BUG-006/012 binding was gated on !isPipelineRunning, so a non-terminal reopen still showed the … |
 | `frontend/src/components/library/LibraryPage.tsx` | silent-discard | [BUG-073](../.knowledge/cards/20260829-1508-BUG-073.md), [BUG-095](../.knowledge/cards/20260829-1508-BUG-095.md) | Agent config overrides in library detail have no server sink; changes silently discarded on reload. |
 | `frontend/src/components/settings/AccountSettings.tsx` | confirm-dialog | [ISS-372](../.knowledge/cards/20260828-2141-ISS-372.md), [ISS-622](../.knowledge/cards/20260831-0115-ISS-622.md) | AccountSettings.tsx:209 wires onClick={onBack} to the same ungated handleBackNav, discarding typed … |
@@ -372,9 +377,9 @@ line can trip on each. Batch them onto one worker; keep the rows separate.
 
 | class | cards |
 |---|---|
-| stale-state | 24: [BUG-006-007-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1520-BUG-006-007-GROUNDED-CONTEXT.md), [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md), [BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2036-BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT.md), [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md), [BUG-014-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2156-BUG-014-GROUNDED-CONTEXT.md), [BUG-021-GROUNDED-CONTEXT](../.knowledge/cards/20260717-2113-BUG-021-GROUNDED-CONTEXT.md), [ISS-076](../.knowledge/cards/20260812-0212-ISS-076.md), [ISS-079](../.knowledge/cards/20260812-0236-ISS-079.md), [ISS-096](../.knowledge/cards/20260812-1120-ISS-096.md), [ISS-104](../.knowledge/cards/20260812-1312-ISS-104.md), [ISS-143](../.knowledge/cards/20260813-0205-ISS-143.md), [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md), [ISS-180](../.knowledge/cards/20260825-2115-ISS-180.md), [ISS-209](../.knowledge/cards/20260828-1617-ISS-209.md), [ISS-347](../.knowledge/cards/20260828-2058-ISS-347.md), [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md), [ISS-438](../.knowledge/cards/20260829-0056-ISS-438.md), [ISS-439](../.knowledge/cards/20260829-0057-ISS-439.md), [ISS-440](../.knowledge/cards/20260829-0058-ISS-440.md), [ISS-630](../.knowledge/cards/20260831-0115-ISS-630.md), [ISS-632](../.knowledge/cards/20260831-0115-ISS-632.md), [ISS-638](../.knowledge/cards/20260831-0115-ISS-638.md), [ISS-642](../.knowledge/cards/20260831-1842-ISS-642.md) |
+| stale-state | 23: [BUG-006-007-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1520-BUG-006-007-GROUNDED-CONTEXT.md), [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md), [BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2036-BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT.md), [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md), [BUG-014-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2156-BUG-014-GROUNDED-CONTEXT.md), [BUG-021-GROUNDED-CONTEXT](../.knowledge/cards/20260717-2113-BUG-021-GROUNDED-CONTEXT.md), [ISS-076](../.knowledge/cards/20260812-0212-ISS-076.md), [ISS-079](../.knowledge/cards/20260812-0236-ISS-079.md), [ISS-096](../.knowledge/cards/20260812-1120-ISS-096.md), [ISS-104](../.knowledge/cards/20260812-1312-ISS-104.md), [ISS-143](../.knowledge/cards/20260813-0205-ISS-143.md), [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md), [ISS-180](../.knowledge/cards/20260825-2115-ISS-180.md), [ISS-347](../.knowledge/cards/20260828-2058-ISS-347.md), [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md), [ISS-438](../.knowledge/cards/20260829-0056-ISS-438.md), [ISS-439](../.knowledge/cards/20260829-0057-ISS-439.md), [ISS-440](../.knowledge/cards/20260829-0058-ISS-440.md), [ISS-630](../.knowledge/cards/20260831-0115-ISS-630.md), [ISS-632](../.knowledge/cards/20260831-0115-ISS-632.md), [ISS-638](../.knowledge/cards/20260831-0115-ISS-638.md), [ISS-642](../.knowledge/cards/20260831-1842-ISS-642.md) |
 | silent-discard | 7: [BUG-036](../.knowledge/cards/20260829-1508-BUG-036.md), [BUG-073](../.knowledge/cards/20260829-1508-BUG-073.md), [BUG-095](../.knowledge/cards/20260829-1508-BUG-095.md), [BUG-106](../.knowledge/cards/20260829-1508-BUG-106.md), [BUG-CWF-002-custom-workflow](../.knowledge/cards/20260803-BUG-CWF-002-custom-workflow.md), [ISS-263](../.knowledge/cards/20260828-1811-ISS-263.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md) |
-| confirm-dialog | 5: [ISS-371](../.knowledge/cards/20260828-2140-ISS-371.md), [ISS-372](../.knowledge/cards/20260828-2141-ISS-372.md), [ISS-414](../.knowledge/cards/20260828-2202-ISS-414.md), [ISS-480](../.knowledge/cards/20260828-2320-ISS-480.md), [ISS-622](../.knowledge/cards/20260831-0115-ISS-622.md) |
+| confirm-dialog | 4: [ISS-371](../.knowledge/cards/20260828-2140-ISS-371.md), [ISS-372](../.knowledge/cards/20260828-2141-ISS-372.md), [ISS-480](../.knowledge/cards/20260828-2320-ISS-480.md), [ISS-622](../.knowledge/cards/20260831-0115-ISS-622.md) |
 | keyboard-a11y | 4: [BUG-104](../.knowledge/cards/20260829-1508-BUG-104.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md), [ISS-489](../.knowledge/cards/20260829-0150-ISS-489.md), [ISS-491](../.knowledge/cards/20260829-0149-ISS-491.md) |
 | route-depth | 2: [ISS-348](../.knowledge/cards/20260828-2102-ISS-348.md), [ISS-349](../.knowledge/cards/20260828-2102-ISS-349.md) |
 | double-submit | 1: [ISS-352](../.knowledge/cards/20260828-2101-ISS-352.md) |
@@ -409,12 +414,12 @@ no possibility of collision. Rounds run one after another.**
 | round | batches | cards |
 |---|---|---|
 | 1 | 10 — all concurrent | 69 |
-| 2 | 4 — all concurrent | 42 |
+| 2 | 4 — all concurrent | 36 |
 | 3 | 6 — all concurrent | 31 |
 | 4 | 4 — all concurrent | 17 |
 | 5 | 1 — all concurrent | 4 |
 
-**20 multi-card batches** carry 158 of the 163 cards.
+**20 multi-card batches** carry 152 of the 157 cards.
 
 ### Domains — each block is one coherent area of the app
 
@@ -427,7 +432,7 @@ no possibility of collision. Rounds run one after another.**
 | [backend · other](#backend--other) | 17 | 3 | 1 |
 | [frontend · hooks](#frontend--hooks) | 16 | 2 | 2 |
 | [frontend · composer](#frontend--composer) | 14 | 2 | 3 |
-| [frontend · history](#frontend--history) | 13 | 1 | 2 |
+| [frontend · history](#frontend--history) | 7 | 1 | 2 |
 | [frontend · routes](#frontend--routes) | 5 | 1 | 3 |
 | [backend · unplaced](#backend--unplaced) | 3 | 1 | 1 |
 | [frontend · components](#frontend--components) | 2 | 1 | 4 |
@@ -508,11 +513,11 @@ cannot be collision-checked and must be triaged before it is scheduled.
 
 #### frontend · history
 
-13 cards across 1 batch(es).
+7 cards across 1 batch(es).
 
 | round | fix site | cards | members |
 |---|---|---|---|
-| 2 | `frontend/src/components/history/WorkflowHistory.tsx` | 13 | [ISS-077](../.knowledge/cards/20260812-0212-ISS-077.md), [ISS-113](../.knowledge/cards/20260812-1444-ISS-113.md), [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md), [ISS-198](../.knowledge/cards/20260828-1400-ISS-198.md), [ISS-207](../.knowledge/cards/20260828-1617-ISS-207.md), [ISS-208](../.knowledge/cards/20260828-1617-ISS-208.md), [ISS-209](../.knowledge/cards/20260828-1617-ISS-209.md), [ISS-213](../.knowledge/cards/20260828-1618-ISS-213.md), [ISS-219](../.knowledge/cards/20260828-1706-ISS-219.md), [ISS-325](../.knowledge/cards/20260828-2014-ISS-325.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md), [ISS-414](../.knowledge/cards/20260828-2202-ISS-414.md), [ISS-629](../.knowledge/cards/20260831-0115-ISS-629.md) |
+| 2 | `frontend/src/components/history/WorkflowHistory.tsx` | 7 | [ISS-077](../.knowledge/cards/20260812-0212-ISS-077.md), [ISS-113](../.knowledge/cards/20260812-1444-ISS-113.md), [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md), [ISS-219](../.knowledge/cards/20260828-1706-ISS-219.md), [ISS-325](../.knowledge/cards/20260828-2014-ISS-325.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md), [ISS-629](../.knowledge/cards/20260831-0115-ISS-629.md) |
 
 #### frontend · routes
 
@@ -572,7 +577,7 @@ cannot be collision-checked and must be triaged before it is scheduled.
 
 ## Tier C — no kin found
 
-110 cards with no declared sibling and no same-file/same-class neighbour.
+106 cards with no declared sibling and no same-file/same-class neighbour.
 Each is its own unit of work.
 
 | card | fix site | summary |
@@ -645,10 +650,6 @@ Each is its own unit of work.
 | [ISS-187](../.knowledge/cards/20260826-1547-ISS-187.md) | `backend/app/core/entitlements.py`, `frontend/src/lib/entitlements.ts` | All 7 spec-014 ex_A* gate fixtures declare user_launchable: true and sit in the enterprise tier on both sides, so QA fi… |
 | [ISS-189](../.knowledge/cards/20260828-1457-ISS-189.md) | `frontend/src/components/workflow/LaunchWizard.tsx` | Investment Banking Pitch Book template shows "Pick a design system" pill with no picker UI; PPT mode never sets selecte… |
 | [ISS-192](../.knowledge/cards/20260828-1345-ISS-192.md) | `frontend/src/components/workflow/composer/ComposerPage.tsx` | needsFullManifest(pipelineAgents) is false for an unmodified built-in copy, so ComposerPage.tsx:628-629 sends no manife… |
-| [ISS-198](../.knowledge/cards/20260828-1400-ISS-198.md) | `frontend/src/components/history/WorkflowHistory.tsx` | Run History renders the capped runs.length (50) instead of the totalRuns it already holds; handleLoadMore never fires, … |
-| [ISS-207](../.knowledge/cards/20260828-1617-ISS-207.md) | `frontend/src/components/history/WorkflowHistory.tsx` | matchesFilter (~L430) runs client-side over runs/families, which never exceeds the fetched 50 — a search for an older r… |
-| [ISS-208](../.knowledge/cards/20260828-1617-ISS-208.md) | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx` | bucketAndSortFamilies (~L950) sorts visibleFamilies, itself derived from the capped runs array — Longest/Tokens sort si… |
-| [ISS-213](../.knowledge/cards/20260828-1618-ISS-213.md) | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx` | typeCounts (~L952-958) tallies every filter chip from the same capped families array; a type with zero hits in the load… |
 | [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md) | `frontend/src/app/[...view]/page.tsx`, `frontend/src/app/handoff/settings/page.tsx`, `frontend/src/app/login/page.tsx`, `frontend/src/components/workflow/LaunchWizard.tsx` | Measured: React never hydrates on a transferSize:0 back_forward replay, so page.tsx:3701's mount-once gate is not the c… |
 | [ISS-219](../.knowledge/cards/20260828-1706-ISS-219.md) | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx`, `tests/integration/e2e/suites/06_run_history/test_run_history.py`, `tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py`, `tests/integration/screens/06-run-history.feature.md` | qa-admin holds 275 runs but only 232 family cards, so "All chip == header" (S-06-04) and "rows == chip" (S-06-05) canno… |
 | [ISS-223](../.knowledge/cards/20260828-1735-ISS-223.md) | `backend/agents/capabilities/deliverables/ppt.py`, `backend/agents/workflows/compiler.py`, `backend/app/api/user_workflows.py`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | `deliverable/ppt` is registered without user_allowed, so `_validated_manifest` compiles at trust="db" and 422s any save… |
