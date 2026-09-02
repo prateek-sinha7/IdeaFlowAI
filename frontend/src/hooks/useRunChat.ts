@@ -740,7 +740,7 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       if (isTerminalRun) {
         setMessages((prev) =>
           prev.map((m) =>
-            m.cardKind === "gate" && !m.resolved ? { ...m, resolved: true } : m
+            (m.cardKind === "gate" || m.cardKind === "clarify") && !m.resolved ? { ...m, resolved: true } : m
           )
         );
       }

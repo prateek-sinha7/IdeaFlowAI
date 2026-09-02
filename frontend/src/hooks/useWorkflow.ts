@@ -513,6 +513,15 @@ export function handlePipelineMessage(
           // the ConstructionBlock keeps showing the full task list while catching up.
           protoTotalTasks: isContinuation ? (prev.protoTotalTasks ?? 0) : 0,
           protoPlannedTasks: isContinuation ? prev.protoPlannedTasks : undefined,
+          // ISS-108: preserve answered clarify rounds on a continuation; reset on a
+          // genuinely fresh run so the prior Q&A never leaks into the new run.
+          // Mirrors the protoCompletedTasks pattern on the same predicate.
+          clarifications: isContinuation ? (prev.clarifications ?? []) : [],
+          // ISS-110: preserve hookRuns on a continuation; reset on a fresh run so
+          // the prior run's audit log never leaks. hookRuns is in
+          // ACCUMULATING_FRAME_TYPES, so the dedup gate already covers it — only
+          // the per-run boundary was missing.
+          hookRuns: isContinuation ? (prev.hookRuns ?? []) : [],
           // KAN-120: clear terminal markers so a resumed run does not stay in
           // the "terminal" state (cancelled/failed) after pipeline_start fires.
           // Without this, pipeline_complete resolves isRunning→false but
