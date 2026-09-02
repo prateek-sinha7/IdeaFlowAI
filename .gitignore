@@ -146,3 +146,11 @@ runs/**
 
 # integration-suite resume progress (interrupted-run bookkeeping)
 tests/integration/e2e/.pytest-resume
+
+# Bug-fix workflow session scratch output (vitest/tsc run logs at project root)
+/vitest*.txt
+/vitest*.json
+/tsc_output.txt
+/verify_tsc*.txt
+/verify_vitest*.txt
+/dedup_output.txt
