@@ -80,12 +80,52 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": ["error", ...HARDCODED_URL_RULES],
     },
   },
-  // Ratchet react-hooks rules from warn to error over time (Phase 4).
-  // Pre-existing pattern in codebase: `exhaustive-deps`, `set-state-in-effect`,
-  // `static-components`, `preserve-manual-memoization` were downgraded to warn.
-  // Strategy: ratchet to error per directory as violations are fixed (not all at once).
-  // This prevents a cascade of new errors while still enforcing the rules going forward.
-  // Timeline: Phase 4 (initial ratchet to error for new code), Phase 4.5+ (per-directory).
+  // `_`-prefixed identifiers are the codebase's existing "deliberately unused"
+  // convention (`_token`, `_range`, `_runId`, `_payload`, `_callback`, ...), but
+  // the convention was never declared to the rule, so every one of them was
+  // reported. Declaring it here is not a relaxation — an unused binding that is
+  // NOT `_`-prefixed still fails.
+  //
+  // Severity is `error`, not `warn`. `npm run lint` is `--max-warnings 0`, so a
+  // warning already fails the build — but a WARNING cannot be recorded in
+  // `eslint-suppressions.json` (ESLint's ledger tracks errors only). Leaving
+  // this at `warn` therefore meant "fails CI, but is untrackable and
+  // unattributable". Promoting it to `error` is strictly stronger: the debt
+  // becomes per-file/per-count visible in the ledger and prunable as it is
+  // burned down, and genuinely new unused code fails immediately.
+  {
+    name: "flowin/unused-vars-underscore-convention",
+    files: ["**/*.{ts,tsx,js,jsx,mjs,cjs}"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+  // react-hooks rules are enforced at `error` REPO-WIDE. The pre-existing
+  // violations are NOT handled by downgrading these rules (that would stop
+  // gating new code); they are held in `eslint-suppressions.json` — ESLint's
+  // native bulk-suppression ledger (`eslint --suppress-all`, ESLint >= 9.24).
+  //
+  // Why a suppressions file rather than the per-directory `warn`/`error`
+  // ratchet this comment used to describe: the directory ratchet requires
+  // editing this config on every burn-down step and silently permits NEW
+  // violations in any directory not yet promoted. The suppressions ledger
+  // inverts that — every rule is at full strength everywhere immediately, and
+  // only the specific, enumerated, git-tracked pre-existing violations are
+  // excused. CI runs `--prune-suppressions`, so a fixed violation cannot be
+  // silently re-introduced and a stale entry cannot linger.
+  //
+  // Burn-down: fix violations, then `npx eslint --prune-suppressions` to shrink
+  // the ledger. These rules are the React Compiler's correctness gate
+  // (eslint-plugin-react-hooks v7), so clearing them is the precondition for
+  // enabling automatic memoization — hence they stay at `error`, never `warn`.
   {
     name: "flowin/react-hooks-overrides",
     files: ["src/**/*.{ts,tsx,js,jsx}"],

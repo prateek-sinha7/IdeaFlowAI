@@ -916,9 +916,34 @@ jobs:
         working-directory: frontend
         run: npm run typecheck
 
+      # `npm run lint` is `eslint --max-warnings 0`. The 135 pre-existing
+      # react-hooks violations are held in frontend/eslint-suppressions.json
+      # (ESLint's native bulk-suppression ledger), so the rules stay at `error`
+      # repo-wide and any NEW violation fails here.
       - name: Lint
         working-directory: frontend
         run: npm run lint
+
+      # Ratchet guard: `--prune-suppressions` exits non-zero when the ledger
+      # contains entries whose violations no longer exist. That makes the debt
+      # strictly one-directional — once a violation is fixed, its ledger entry
+      # MUST be dropped in the same PR (`npm run lint:prune`), so a fixed
+      # violation cannot be silently re-introduced later under an existing
+      # allowance. Without this, the ledger would rot into a permanent blanket
+      # exemption, which is exactly the failure mode it exists to prevent.
+      - name: Lint suppressions ledger is not stale
+        working-directory: frontend
+        run: |
+          npx eslint --prune-suppressions || {
+            echo "::error::eslint-suppressions.json is stale — violations it still excuses are already fixed."
+            echo "Run 'npm run lint:prune' in frontend/ and commit the updated eslint-suppressions.json."
+            exit 1
+          }
+          git diff --exit-code eslint-suppressions.json || {
+            echo "::error::eslint-suppressions.json is stale (pruning changed it)."
+            echo "Run 'npm run lint:prune' in frontend/ and commit the updated eslint-suppressions.json."
+            exit 1
+          }
 
       - name: Test (single-pass with coverage)
         working-directory: frontend
