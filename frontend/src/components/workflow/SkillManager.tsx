@@ -97,6 +97,13 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
 
   // Delete skill
   const deleteSkill = useCallback(async () => {
+    // ISS-480: same unguarded-destroy pattern as ISS-320 (Constitution "Clear").
+    // An irreversible DELETE /api/agents/skills/{id} fired on click with no
+    // confirmation — replicate FIX-385's window.confirm guard (the pattern
+    // DashboardLayout already uses for unsaved-changes navigation guards).
+    if (!window.confirm(
+      "Delete this agent's saved skill? This permanently removes the SKILL.md that is prepended to every run."
+    )) return;
     if (!agentId) return;
     const token = getToken();
     if (!token) return;

@@ -10,6 +10,8 @@
  *     attached, so removing one of two must leave the OTHER file's marker intact.
  *   - ISS-579 (sibling): the same stale `ideaInput` is forwarded verbatim as the
  *     run brief by `handleRun` once `onStartPipeline` is wired.
+ *   - ISS-603 (fixture): third test case fixed — typed brief + stubbed library
+ *     so the Run button is not disabled when the attachment is removed.
  */
 import { describe, it, expect, vi } from "vitest";
 import { renderWithProviders, screen } from "@/test/renderWithProviders";
@@ -23,6 +25,16 @@ vi.mock("@/hooks/useSpeechRecognition", () => ({
     startListening: vi.fn(),
     stopListening: vi.fn(),
     isSupported: false,
+  }),
+}));
+
+// ISS-603: stub useAgentLibrary so pipelineAgents is non-empty (avoids the
+// post-ISS-328 guard that disables the Run button when there are no agents).
+// Hoisted by vitest to the top of the module regardless of where it appears.
+vi.mock("@/hooks/useAgentLibrary", () => ({
+  useAgentLibrary: () => ({
+    allAgents: [{ id: "stub-agent", name: "Stub", pipeline_type: "user_stories", order: 0, description: "", role: "", estimated_duration: 0, has_skill: false, gate: null, skills: [] }],
+    libraryAgents: [{ id: "stub-agent", name: "Stub", pipeline_type: "user_stories", order: 0, description: "", role: "", estimated_duration: 0, has_skill: false, gate: null, skills: [] }],
   }),
 }));
 
@@ -78,13 +90,23 @@ describe("WorkflowView — attachment remove leaves stale marker (BUG-20260828-0
     expect(textarea.value).toContain("[Attached: zz-hunt-b.txt]");
   });
 
-  it.fails("ISS-579 — a run launched after removing an attachment does not forward its stale marker as the brief", async () => {
+  it("ISS-579 — a run launched after removing an attachment does not forward its stale marker as the brief", async () => {
+    // ISS-603: the original fixture was broken in two ways:
+    //   1. No brief text was typed, so after removing the attachment the textarea
+    //      was "" and handleRun's `if (!ideaInput.trim()) return` short-circuited.
+    //   2. useAgentLibrary was unstubbed, so pipelineAgents.length === 0 and the
+    //      "Run workflow" button was disabled by the post-ISS-328 guard.
+    // Fix (from ISS-603's "What a correct fixture looks like"):
+    //   type real brief text FIRST (so a run is legitimately allowed once the
+    //   attachment is removed), then attach + remove, then click Run.
+    // useAgentLibrary is stubbed at the top of this file (vi.mock hoisted) so the
+    // Run button is enabled for all three tests in this suite.
     const user = userEvent.setup();
     const onStartPipeline = vi.fn();
     const { container } = renderWithProviders(
       <WorkflowView
         pipelineType="user_stories"
-        userMessage=""
+        userMessage="My actual brief text"
         onClose={vi.fn()}
         onStartPipeline={onStartPipeline}
       />

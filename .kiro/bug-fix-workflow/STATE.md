@@ -16,13 +16,15 @@ memory. Updated by the closer after every domain run.
 | 9 | frontend·history | 13 | DONE | ISS-198,ISS-207,ISS-208,ISS-209,ISS-213,ISS-414 closed (FIX-466–467); ISS-219 partial | 0 | ISS-325 (test premise broke), ISS-629 (spec contradiction) | [20260902-1100-domain-09-frontend-history.md](reports/20260902-1100-domain-09-frontend-history.md) |
 | 10 | frontend·composer | 14 | DONE | ISS-333,ISS-353,ISS-431,ISS-382,ISS-489,ISS-178 closed (FIX-468–473); ISS-340,ISS-192 already-fixed | 0 | ISS-183 (design decision), ISS-223 (ADR-0027 ruling), ISS-334/410/604 (page.tsx domain 8), ISS-393 (AgentsPopup domain 7) | [20260902-1200-domain-10-frontend-composer.md](reports/20260902-1200-domain-10-frontend-composer.md) |
 | 11 | frontend·hooks | 16 | DONE | ISS-108,ISS-110,ISS-141 closed (FIX-474–475); ISS-417,ISS-438,ISS-439,ISS-440 already-fixed | 0 | ISS-109,ISS-115,ISS-116,ISS-142,BUG-014-B,BUG-018,BUG-021,ISS-111,FIX-BUGFIX-SPEC-REVISION (9 escalated) | [20260902-1300-domain-11-frontend-hooks.md](reports/20260902-1300-domain-11-frontend-hooks.md) |
-| 12 | frontend·workflow | 22 | NOT STARTED | – | – | – | – |
+| 12 | frontend·workflow | 22 | DONE | ISS-399,ISS-491,ISS-420,ISS-421,ISS-480,ISS-603,ISS-423,ISS-384,ISS-429,BUG-048 (FIX-476–479); ISS-228/284/361/364/365/366/368 already-fixed | 0 | ISS-197(bfcache design),ISS-189(DS picker design),ISS-377(schema decision),ISS-362(gate sync design) | [20260902-1400-domain-12-frontend-workflow.md](reports/20260902-1400-domain-12-frontend-workflow.md) |
 | 13 | frontend·layout | 23 | NOT STARTED | – | – | – | – |
 | 14 | backend·api | 29 | PAUSED (15/29 moved: 1 CLOSED, 3 FIXED, 7 TESTED, 4 ESCALATED; 14 still ANALYZED) | 1 | 0 | 4 | 20260831T180611Z-all.md |
 | 15 | backend·other | 31 | DONE (all 31 cards resolved: CLOSED 18, ESCALATED 13) | 18 | 0 | 13 | 20260831-173432-all.md |
 | T | triage (no fix site) | 21 | NOT STARTED | – | – | – | – |
 
 Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED · PARTIAL.
+
+- Run 2026-09-02T14:00:00Z: **Domain 12 (frontend·workflow) DONE** — 10 FIXED (ISS-399/491 → FIX-476; ISS-420/421 → FIX-477; ISS-480 → FIX-478; ISS-603/423/384/429/BUG-048 → FIX-479), 7 ALREADY_FIXED (ISS-228/284/361/364/365/366/368 confirmed by FIX-338/346/348/349), 4 ESCALATED (ISS-197 bfcache design; ISS-189 DS picker design; ISS-377 schema decision; ISS-362 gate sync design). tsc clean (0 source errors), vitest 50+/50+ green (LaunchWizard/AgentsPopup/AgentLibrary/ReviewGatesSection/IdeaInputPage suites). Dedup regenerated: 131 → 121 units. See `reports/20260902-1400-domain-12-frontend-workflow.md`.
 
 - Run 2026-09-02T13:00:00Z: **Domain 11 (frontend·hooks) DONE** — 3 FIXED (ISS-108/110 → FIX-475; ISS-141 → FIX-474), 4 ALREADY_FIXED (ISS-417/438/439/440 confirmed by FIX-373/FIX-379), 9 ESCALATED (ISS-109/115/116/142 design decisions; BUG-014-B/ISS-142 cross-domain SSE; BUG-018/BUG-021 cross-domain api.ts/page.tsx; ISS-111 design decision; FIX-BUGFIX-SPEC-REVISION backend engine). tsc clean (0 errors), vitest 86/86 green. Dedup regenerated: 136 → 131 units. See `reports/20260902-1300-domain-11-frontend-hooks.md`.
 

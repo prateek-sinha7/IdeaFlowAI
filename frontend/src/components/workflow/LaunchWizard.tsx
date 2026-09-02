@@ -20,7 +20,7 @@ import { buildLoginRedirect } from "@/lib/authRedirect";
 import { routes } from "@/lib/routes";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { canRunPipeline, getUpgradeTier, TIER_LABELS, type Tier } from "@/lib/entitlements";
-import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -428,6 +428,24 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           },
         });
         setPlanAgents(agentsFromManifest(detail, pipeline).agents);
+        // ISS-429 (Mechanism A): on a plain /create/ppt or /create/prototype load
+        // (no override active), liveSelections was always initialised to {} and
+        // only handleSelectionsChange from the override/draft branches ever wrote
+        // it — so a manifest-declared before-human gate never reached the
+        // ReviewGatesSection's seed. FIX-377 fixed IdeaInputPage.tsx via the
+        // selections prop on ReviewGatesSection; this is the matching fix for
+        // LaunchWizard: extract the manifest's declared selections and seed the
+        // live map ONLY when no override is active (the override branch below
+        // overwrites it anyway), preserving display-only semantics (INV-3 —
+        // `selectionsRef` is not touched here, so an untouched run still omits
+        // `selections` from the launch payload).
+        const planProj = agentsFromManifest(detail, pipeline);
+        setPlanAgents(planProj.agents);
+        if (!detail.has_override || !detail.is_overridden) {
+          if (planProj.selections && Object.keys(planProj.selections).length > 0) {
+            setLiveSelections(planProj.selections);
+          }
+        }
         if (!detail.has_override || !detail.override_id) return;
         setOverrideInfo({ id: detail.override_id, enabled: !!detail.is_overridden });
         // `detail` already carries the override's steps whenever it is enabled,
@@ -669,7 +687,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const content = (ev.target?.result as string) ?? "";
-          setAttachedFileContents((p) => [...p, { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) }]);
+          // ISS-423: replicate FIX-374 — the binary branch already appended a
+          // visible truncation note; the text branch silently sliced with no
+          // indication. Use the same shared truncateAttachmentText helper so
+          // both branches are consistent (one guard, no forked logic).
+          setAttachedFileContents((p) => [...p, { name: f.name, content: truncateAttachmentText(content) }]);
         };
         reader.readAsText(f);
       } else if (isBinaryFile) {
@@ -877,8 +899,13 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-400">
               {isChaining ? cfg.chainingEyebrow : cfg.eyebrow}
             </p>
+            {/* ISS-384: savedName restored into state at line 313 was only ever
+                passed to the closed AgentsPopup modal — the header always rendered
+                cfg.title, so a saved workflow's launch panel was visually
+                indistinguishable from a brand-new one. Render the saved name when
+                present, with cfg.title as the fallback for a plain new-workflow open. */}
             <h1 className="font-serif text-[15px] font-normal italic text-ink-900">
-              {isChaining ? cfg.chainingTitle : cfg.title}
+              {savedName ?? (isChaining ? cfg.chainingTitle : cfg.title)}
             </h1>
           </div>
         </div>

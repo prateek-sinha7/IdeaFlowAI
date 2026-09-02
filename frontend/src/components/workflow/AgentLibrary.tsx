@@ -83,7 +83,18 @@ export function AgentLibrary({
   const { allAgents: ALL_AGENTS } = useAgentLibrary();
   const workflows = useAppSelector((state) => state.global.workflows);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState(currentPipelineType || "all");
+  // ISS-420 / ISS-421: `currentPipelineType` can be a sub-pipeline type that
+  // CATEGORIES_FALLBACK does not know (e.g. "migration"), causing `activeCategory`
+  // to default to an unrecognised value — no tab highlights and the panel opens on
+  // "No agents found" because nothing in CATEGORIES_FALLBACK matches it. Validate
+  // against the static fallback list before accepting it as a default; unrecognised
+  // values fall back to "all". "all" and "custom" are always valid.
+  const KNOWN_CATEGORY_IDS = new Set(CATEGORIES_FALLBACK.map(c => c.id));
+  const [activeCategory, setActiveCategory] = useState(
+    currentPipelineType && KNOWN_CATEGORY_IDS.has(currentPipelineType)
+      ? currentPipelineType
+      : "all",
+  );
 
   // Build CATEGORIES dynamically from workflows, using short_name when available
   const CATEGORIES = [

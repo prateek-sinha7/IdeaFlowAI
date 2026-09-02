@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, Lock, GripVertical, Info,
@@ -590,7 +591,17 @@ export function AgentCapabilitiesModal({
   const capabilities = getCapabilities(agent);
   const pipelineLabel = PIPELINE_LABEL[getPrimaryPipelineType(agent.pipeline_type)] ?? getPrimaryPipelineType(agent.pipeline_type);
 
-  const suggestedHooks = HOOKS.filter(h => h.compatible_agents.includes(agent.id)).slice(0, 3);
+  // ISS-491: AgentCapabilitiesModal declared role="dialog" / aria-modal="true" with
+  // no Escape handler — the same gap FIX-388 closed for WorkflowDialog. The shared
+  // hook already exists (useEscapeToClose); two lines and it is fixed.
+  useEscapeToClose(onClose);
+
+  // ISS-399: AgentSkillsPicker uses `!s.compatible_agents?.length || ...includes()`
+  // as the "compatible with everything" fallback (R-33). The hooks filter had no
+  // equivalent — a hook whose compatible_agents list was emptied of stale ids by
+  // FIX-360 would never suggest for any real agent. Add the same fallback so an
+  // empty list means "compatible with all" rather than "matches nothing".
+  const suggestedHooks = HOOKS.filter(h => !h.compatible_agents?.length || h.compatible_agents.includes(agent.id)).slice(0, 3);
 
   const isHookAttached = (id: string) => attachedHooks.some(h => h.id === id);
 
