@@ -65,7 +65,6 @@ def client():
 
 
 @pytest.mark.issue("ISS-257")
-@pytest.mark.xfail(reason="ISS-257 unfixed", strict=True)
 def test_a_too_short_password_is_never_echoed_back_in_the_422_body(client):
     """ISS-257 — a rejected password must not round-trip in the 422 response."""
     rejected_password = "short7!"  # 7 chars, below RegisterRequest's min_length=8
