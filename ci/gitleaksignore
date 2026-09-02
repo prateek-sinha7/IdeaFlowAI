@@ -27,9 +27,15 @@
 #
 # Each entry below was manually triaged (see ci/gitleaks.toml for the pointer):
 #
-#   - generic-api-key on identity.py:133 and identity.py:159 — false
-#     positive. Matches `verify_exp=not allow_expired` (a boolean kwarg),
-#     not a secret.
+#   NOTE: the identity.py `verify_exp=not allow_expired` false positive used
+#   to be triaged here as two line-pinned fingerprints (identity.py:133 and
+#   identity.py:159). Line-pinning a suppression to a false positive whose
+#   line number moves on every unrelated edit is fragile by construction —
+#   it silently re-broke CI once already (the second entry drifted to line
+#   161). It is now an exact-substring entry in ci/gitleaks.toml's
+#   `[allowlist].regexes`, which matches the finding's own text regardless
+#   of which line it lands on. See that file for the full rationale.
+#
 #   - generic-api-key on infra/terraform/velocityai-alb/README.md:14 — false
 #     positive. Matches the prose "Secrets: none created or read by this
 #     layer."
@@ -51,7 +57,5 @@
 # findings above were independently confirmed dead before being listed here.
 infra/terraform/velocityai-alb/README.md:generic-api-key:14
 infra/terraform/foundation/README.md:generic-api-key:13
-backend/app/core/identity.py:generic-api-key:133
-backend/app/core/identity.py:generic-api-key:159
 backend/evals/minimal/OPUS-AUTOMATIC/FINDINGS.md:aws-access-token:167
 .vscode/settings.json:jwt:5

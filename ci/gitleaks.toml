@@ -70,17 +70,34 @@ paths = [
 # fakes (AWS docs keys; Stripe-style sample keys used in API tutorials embedded
 # in frontend/src/data/skills.ts). Recognize them as examples wherever they
 # appear so a sample never trips the gate. Keep these SPECIFIC, never broad.
+#
+# `verify_exp=not allow_expired` is NOT an example credential — it is the
+# literal source text of a real, shipping boolean kwarg call in
+# backend/app/core/identity.py (`decode_access_token(token, verify_exp=not
+# allow_expired)` / `verify_cognito_access_token(token, verify_exp=not
+# allow_expired)`). `generic-api-key` matches it as an assignment-shaped value
+# near the keyword "token". This used to be triaged via two LINE-PINNED
+# fingerprints in ci/gitleaksignore (identity.py:133 and :159); every
+# unrelated edit above those lines shifted them and silently re-broke the
+# suppression (observed: the second entry drifted to line 161 and failed CI
+# again without the underlying finding changing at all). An exact-substring
+# regex match on the finding's own text is immune to line drift and no
+# broader than a fingerprint — same specificity, without the maintenance tax.
 regexes = [
   '''AKIAIOSFODNN7EXAMPLE''',
   '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
   '''sk_live_abc123''',
+  '''verify_exp=not allow_expired''',
 ]
 
 # NOTE: gitleaks' [allowlist] table has no `fingerprints` key (only `paths`,
-# `regexes`, `commits`, `stopwords` — see gitleaks/config/allowlist.go). Six
-# specific historical findings (4 false positives + 2 confirmed-expired dead
-# secrets) are triaged individually by exact finding fingerprint instead, via
-# `ci/gitleaksignore`, passed with `-i ci/gitleaksignore`. (gitleaks only
-# auto-loads an ignore file named `.gitleaksignore` from the --source root, so
-# the flag is REQUIRED now that it lives in ci/.) See that file for the full
-# rationale per finding.
+# `regexes`, `commits`, `stopwords` — see gitleaks/config/allowlist.go). Four
+# specific historical findings (2 remaining false positives + 2
+# confirmed-expired dead secrets) are triaged individually by exact finding
+# fingerprint instead, via `ci/gitleaksignore`, passed with
+# `-i ci/gitleaksignore`. (gitleaks only auto-loads an ignore file named
+# `.gitleaksignore` from the --source root, so the flag is REQUIRED now that
+# it lives in ci/.) See that file for the full rationale per finding. The two
+# `identity.py` `verify_exp=not allow_expired` findings were migrated OUT of
+# that line-pinned list and into the `regexes` allowlist above — see the
+# comment there for why.

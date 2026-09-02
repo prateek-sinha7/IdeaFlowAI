@@ -770,6 +770,12 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
+          # A disposable database name, never `postgres` — the default admin
+          # database. test_bootstrap_admin_postgres.py's _resolve_test_database_url
+          # guard refuses to run against any database whose name doesn't
+          # contain "test" (it drops tables), so the connection URL below must
+          # match this name exactly.
+          POSTGRES_DB: bootstrap_admin_test
         ports:
           - 5432:5432
         options: >-
@@ -795,7 +801,7 @@ jobs:
           # container via `docker run` rather than reading this env var — this
           # only feeds the ENV_VAR-gated suites (test_bootstrap_admin_postgres.py)
           # that expect an already-running instance.
-          BOOTSTRAP_ADMIN_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          BOOTSTRAP_ADMIN_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/bootstrap_admin_test
         run: |
           uv run --no-sync pytest tests/ -v -m requires_postgres
 
@@ -826,6 +832,12 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
+          # Disposable database name — this job runs real Alembic migrations
+          # (seed → upgrade → verify) against it, never the default `postgres`
+          # admin database. Mirrors the naming convention the
+          # test_bootstrap_admin_postgres.py disposability guard enforces on
+          # the sibling `backend-postgres` job, for the same reason.
+          POSTGRES_DB: populated_migration_test
         ports:
           - 5432:5432
         options: >-
@@ -866,7 +878,7 @@ jobs:
           # Connection target from CI service configuration ONLY.
           # Test MUST skip with explicit unavailability indication if this env
           # var is not provided or if service is unreachable.
-          POPULATED_MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          POPULATED_MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/populated_migration_test
         run: |
           uv run --no-sync pytest tests/ -v -m requires_postgres_populated_migration
 
