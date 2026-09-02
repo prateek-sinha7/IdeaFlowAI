@@ -140,6 +140,7 @@ resource "aws_s3_bucket_versioning" "logs" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
+  # checkov:skip=CKV_AWS_145:AWS's own ELB access-log docs state SSE-S3 (AES256) is the ONLY supported server-side encryption option for this bucket — SSE-KMS causes ELB log delivery to fail with an access-denied error (https://docs.aws.amazon.com/elasticloadbalancing/latest/application/enable-access-logging.html, "Requirements" + "Troubleshooting" sections). A CMK here would break log delivery, not harden it. Reviewed and accepted.
   bucket = aws_s3_bucket.logs.id
 
   rule {
@@ -164,6 +165,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 
     noncurrent_version_expiration {
       noncurrent_days = var.log_retention_days
+    }
+
+    # CKV_AWS_300: the ELB log-delivery service never performs multipart
+    # uploads to this bucket (access/connection logs are small, single-PUT
+    # compressed files), so this is defense-in-depth rather than a fix for an
+    # active gap — it caps storage cost from any FUTURE multipart uploader
+    # (a manual upload, a different integration) that starts one and never
+    # completes it, rather than leaving abandoned parts to accrue indefinitely.
+    abort_incomplete_multipart_upload {
+      days_after_initiation = var.log_retention_days
     }
   }
 }
