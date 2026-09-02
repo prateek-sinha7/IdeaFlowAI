@@ -12,7 +12,7 @@ guardrails:
 icon: "✅"
 id: prototype-validate
 max_tokens: 32768
-model: us.anthropic.claude-sonnet-5
+model: eu.anthropic.claude-sonnet-5
 name: Validation Agent
 order: 5
 pipeline_type:
