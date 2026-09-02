@@ -113,6 +113,89 @@ function flattenDescendants(agent: AgentDef): AgentDef[] {
  * shared `SelectionsMap`. `+` insert and remove call the SAME add/remove path
  * as the Simple view — both bind to the same shared data model.
  */
+
+// The four small components below back the workflow-settings section (Spec
+// 012 R-07/R-37). Module-scope (not defined inside CanvasView's body): each
+// closes over no local state — every input is a prop — so defining any of
+// them per-render just recreates an identical component every render
+// (react-hooks/static-components).
+function Toggle({
+  on,
+  label,
+  disabled = false,
+  onToggle,
+}: {
+  on: boolean;
+  label: string;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onToggle}
+      className={`relative h-5 w-[34px] flex-none rounded-full transition-colors disabled:opacity-40 ${
+        on ? "bg-brand" : "bg-line-faint"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface-white shadow-sm transition-all ${
+          on ? "left-[16px]" : "left-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+function InfoHint({ children }: { children: ReactNode }) {
+  return (
+    <span className="group relative inline-flex flex-none">
+      <Info className="h-3.5 w-3.5 cursor-help text-ink-300 hover:text-ink-500" />
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 w-[260px] max-w-[80vw] rounded-[8px] border border-line-control bg-surface-card px-2.5 py-2 font-sans text-[11px] normal-case tracking-normal leading-relaxed text-ink-700 opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+      >
+        {children}
+      </span>
+    </span>
+  );
+}
+
+// Same styled hover-tooltip box as InfoHint above, reused for a disabled
+// add/insert button's cap reason instead of a plain native `title=`.
+function CapTip({ reason, children }: { reason?: string; children: ReactNode }) {
+  return (
+    <span className="group relative inline-flex">
+      {children}
+      {reason && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute left-1/2 top-full z-20 mt-1.5 w-[190px] -translate-x-1/2 rounded-[8px] border border-line-control bg-surface-card px-2.5 py-2 text-center font-sans text-[11px] normal-case tracking-normal leading-relaxed text-ink-700 opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+        >
+          {reason}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function OnOffHint({ on, off }: { on: string; off: string }) {
+  return (
+    <InfoHint>
+      <div>
+        <span className="font-semibold text-ink-900">ON</span> — {on}
+      </div>
+      <div className="mt-1">
+        <span className="font-semibold text-ink-900">OFF</span> — {off}
+      </div>
+    </InfoHint>
+  );
+}
+
 export function CanvasView({
   pipelineAgents,
   selections,
@@ -735,73 +818,6 @@ export function CanvasView({
   //    clarify/internet). These apply to the whole run, not a single node, so
   //    they live under the Brief instruction (the workflow-level selection),
   //    not the per-node rail. ─────────────────────────────────────────────
-  const Toggle = ({
-    on,
-    label,
-    disabled = false,
-    onToggle,
-  }: {
-    on: boolean;
-    label: string;
-    disabled?: boolean;
-    onToggle: () => void;
-  }) => (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onToggle}
-      className={`relative h-5 w-[34px] flex-none rounded-full transition-colors disabled:opacity-40 ${
-        on ? "bg-brand" : "bg-line-faint"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface-white shadow-sm transition-all ${
-          on ? "left-[16px]" : "left-0.5"
-        }`}
-      />
-    </button>
-  );
-
-  const InfoHint = ({ children }: { children: ReactNode }) => (
-    <span className="group relative inline-flex flex-none">
-      <Info className="h-3.5 w-3.5 cursor-help text-ink-300 hover:text-ink-500" />
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 w-[260px] max-w-[80vw] rounded-[8px] border border-line-control bg-surface-card px-2.5 py-2 font-sans text-[11px] normal-case tracking-normal leading-relaxed text-ink-700 opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
-      >
-        {children}
-      </span>
-    </span>
-  );
-  // Same styled hover-tooltip box as InfoHint above, reused for a disabled
-  // add/insert button's cap reason instead of a plain native `title=`.
-  const CapTip = ({ reason, children }: { reason?: string; children: ReactNode }) => (
-    <span className="group relative inline-flex">
-      {children}
-      {reason && (
-        <span
-          role="tooltip"
-          className="pointer-events-none absolute left-1/2 top-full z-20 mt-1.5 w-[190px] -translate-x-1/2 rounded-[8px] border border-line-control bg-surface-card px-2.5 py-2 text-center font-sans text-[11px] normal-case tracking-normal leading-relaxed text-ink-700 opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
-        >
-          {reason}
-        </span>
-      )}
-    </span>
-  );
-  const OnOffHint = ({ on, off }: { on: string; off: string }) => (
-    <InfoHint>
-      <div>
-        <span className="font-semibold text-ink-900">ON</span> — {on}
-      </div>
-      <div className="mt-1">
-        <span className="font-semibold text-ink-900">OFF</span> — {off}
-      </div>
-    </InfoHint>
-  );
-
   const deliverableStrategy = runConfig?.deliverable?.strategy ?? "streamed_text";
   const deliverableName = runConfig?.deliverable?.name ?? "output.md";
   const plannerOn = (runConfig?.planner ?? "skip") === "run";

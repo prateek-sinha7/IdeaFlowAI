@@ -146,9 +146,6 @@
     },
     "react-hooks/set-state-in-effect": {
       "count": 2
-    },
-    "react-hooks/static-components": {
-      "count": 1
     }
   },
   "src/components/preview/PPTPreview.tsx": {
@@ -281,11 +278,6 @@
       "count": 2
     }
   },
-  "src/components/workflow/composer/CanvasConfigRail.tsx": {
-    "react-hooks/static-components": {
-      "count": 9
-    }
-  },
   "src/components/workflow/composer/CanvasView.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
@@ -295,9 +287,6 @@
     },
     "react-hooks/set-state-in-effect": {
       "count": 4
-    },
-    "react-hooks/static-components": {
-      "count": 8
     }
   },
   "src/components/workflow/composer/ComposerPage.tsx": {
