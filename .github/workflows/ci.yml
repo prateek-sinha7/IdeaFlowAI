@@ -563,15 +563,31 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: coverage-*
+          # NOTE: this `path:` is an action input, not a `run:` step — it
+          # resolves relative to GITHUB_WORKSPACE (repo root), NOT relative to
+          # this job's `defaults.run.working-directory: backend`. So this
+          # lands at <repo-root>/backend/coverage-artifacts, which is exactly
+          # `coverage-artifacts` from the following `run:` step's cwd (backend/).
           path: backend/coverage-artifacts
           merge-multiple: false
 
       - name: Extract coverage files from artifacts
         run: |
           set -euo pipefail
-          # Move .coverage.* files from subdirectories to current dir
-          find backend/coverage-artifacts -name ".coverage.*" -exec mv {} backend/ \;
-          ls -la backend/.coverage.* 2>/dev/null || echo "No .coverage files found"
+          # Move .coverage.* files from subdirectories to current dir.
+          # `download-artifact`'s `path:` input resolves relative to the repo
+          # root (GITHUB_WORKSPACE) — `defaults.run.working-directory: backend`
+          # only applies to `run:` steps, not to action inputs — so the
+          # download above landed at backend/coverage-artifacts on disk. This
+          # `run:` step's cwd IS backend/, so the correct relative path from
+          # here is just `coverage-artifacts` (not `backend/coverage-artifacts`,
+          # which resolved to the nonexistent backend/backend/coverage-artifacts).
+          # `mkdir -p` guards the case where 0 artifacts matched the pattern:
+          # download-artifact then never creates the directory, and `find` on
+          # a missing directory would otherwise abort the step under `set -e`.
+          mkdir -p coverage-artifacts
+          find coverage-artifacts -name ".coverage.*" -exec mv {} . \;
+          ls -la .coverage.* 2>/dev/null || echo "No .coverage files found"
 
       - name: Download all JUnit artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -827,16 +843,18 @@ jobs:
         timeout-minutes: 2
         run: |
           set -euo pipefail
-          deadline=$(($(date +%s) + 120))
+          start=$(date +%s)
+          deadline=$((start + 120))
+          now=$start
           until PGPASSWORD=postgres pg_isready -h localhost -p 5432 -U postgres > /dev/null 2>&1; do
             now=$(date +%s)
-            if [ $now -ge $deadline ]; then
+            if [ "$now" -ge "$deadline" ]; then
               echo "ERROR: PostgreSQL service not reachable within 120 seconds (provisioning failure)"
               exit 2
             fi
             sleep 2
           done
-          echo "PostgreSQL ready after $(($deadline - $now + 120))s"
+          echo "PostgreSQL ready after $((now - start))s"
 
       - name: Setup backend
         uses: ./.github/actions/setup-backend
