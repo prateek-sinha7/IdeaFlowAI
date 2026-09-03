@@ -1,6 +1,27 @@
 # SonarCloud Integration — Changes Summary
 
-This document summarizes all changes made to implement SonarCloud integration into your CI/CD pipeline.
+> ## ⚠️ HISTORICAL RECORD — describes the ORIGINAL integration, which did not work
+>
+> This document describes the SonarCloud integration **as first written**. That
+> version delivered **zero coverage to SonarCloud while reporting success on every
+> job**, so several of the changes described below have since been removed or
+> replaced. It is kept because the rationale is useful context, not because it
+> describes the current pipeline.
+>
+> For the current design, read [README.md](./README.md) (correction notice) and
+> [02-INTEGRATION-GUIDE.md](./02-INTEGRATION-GUIDE.md) (corrected flow diagram).
+> `.github/workflows/ci.yml` and `sonar-project.properties` are authoritative.
+>
+> What has changed since, in brief:
+>
+> | Described below | Current reality |
+> |---|---|
+> | Frontend exports Cobertura XML via vitest's `"xml"` reporter | `"xml"` is not a valid coverage reporter — it crashed `npm run test` *after* all tests passed. Frontend emits **LCOV** (`coverage/lcov.info`). |
+> | New `prepare-sonarcloud` job consolidates coverage | **Job deleted.** Both of its file lookups always failed and it exited 0 anyway. Each report is now downloaded straight to the path the properties file names. |
+> | `sonar.coverageReportPaths` names both reports | Wrong property (Generic Test Data schema only). Now `sonar.python.coverage.reportPaths` + `sonar.javascript.lcov.reportPaths`. |
+> | `sonar.sources=.` | Narrowed to `backend/app`, `backend/agents`, `frontend/src`, with `sonar.tests` declared. |
+> | Quality gate: ≥85% overall coverage | Unreachable. Now ≥80% on **new code** (Clean as You Code) + ratchet floors in `vitest.config.ts`. |
+> | `sonarcloud-analysis` needs `prepare-sonarcloud` | `needs: [test-results, frontend]`, and passes `-Dsonar.qualitygate.wait=true`. |
 
 ## Overview
 
@@ -20,39 +41,50 @@ After:   Tests → Coverage → SonarCloud Analysis → Quality Gate Check → P
 #### Change 1a: Frontend Coverage XML Export
 **Location:** Frontend job, coverage upload section
 
-**What changed:**
-- Added new step: **"Upload frontend coverage XML (for SonarCloud)"**
-- This uploads the Cobertura XML coverage report separately so SonarScanner can consume it
+**What changed (ORIGINAL — since replaced):**
+- Added a step **"Upload frontend coverage XML (for SonarCloud)"** uploading
+  `coverage/coverage-final.xml` as the `frontend-coverage-xml` artifact.
 
-**Why:**
-- SonarCloud needs structured coverage data in XML format
-- Vitest already generates this via the "xml" reporter; we just needed to capture it
+**Why it was wrong:** vitest never wrote that file. The `"xml"` entry added to
+the reporter list is not a valid `@vitest/coverage-v8` reporter; it resolved to
+istanbul's `xml` reporter, which failed to load its own `xml` module and made
+`npm run test` exit **1 after all 1,111 tests had already passed**. The artifact
+upload therefore had no source file.
 
-#### Change 1b: New Job — `prepare-sonarcloud`
-**Location:** After `test-results` and `frontend` jobs, before `security-scan`
+**Current:** the step is **"Upload frontend coverage LCOV (for SonarCloud)"**,
+uploading `coverage/lcov.info` as `frontend-coverage-lcov` with
+`if-no-files-found: error`. Sonar consumes LCOV natively for JS/TS, so no XML was
+ever needed. A preceding step rewrites `SF:` paths to be repo-root-relative.
 
-**What does it do:**
-1. Downloads backend coverage XML from `test-results` job
-2. Downloads frontend coverage XML from `frontend` job
-3. Consolidates both into a `sonarcloud-coverage/` directory
-4. Uploads consolidated coverage as an artifact for SonarScanner
+#### Change 1b: New Job — `prepare-sonarcloud`  ❌ REMOVED
+**Location (original):** After `test-results` and `frontend` jobs
 
-**Why:**
-- Backend and frontend coverage need to be in one place for SonarScanner
-- Consolidation is simpler than passing multiple paths
-- Artifact staging allows troubleshooting if coverage is missing
+**What it did:** downloaded the backend and frontend coverage artifacts, copied
+them into a `sonarcloud-coverage/` directory, and uploaded that as one artifact.
 
-**Dependencies:** `needs: [test-results, frontend]`
+**Why it was removed:** it could not work, and it hid its own failure. It
+downloaded `backend-coverage-report` (which contains only `htmlcov/`, never
+`coverage.xml`) and looked for `coverage-final.xml` in the frontend artifact
+(never produced — see 1a). Both `if [ -f ... ]` guards always took the `else`
+branch, printed `⚠ WARNING` to stderr, and the job **still exited 0**. So
+SonarCloud received no coverage at all while every job reported green.
+
+**Current:** no consolidation job exists. `test-results` uploads
+`backend-coverage-xml` (`backend/coverage.xml`) and `frontend` uploads
+`frontend-coverage-lcov`; `sonarcloud-analysis` downloads each directly to the
+path `sonar-project.properties` already names, and **hard-fails** if either
+report is missing or empty.
 
 #### Change 1c: New Job — `sonarcloud-analysis`
-**Location:** After `prepare-sonarcloud` job
+**Location:** After the `test-results` and `frontend` jobs
 
 **What does it do:**
-1. Downloads consolidated coverage artifacts
-2. Installs SonarScanner CLI (checksum-verified binary)
-3. Runs SonarScanner to analyze code + coverage
-4. Publishes results to SonarCloud
-5. SonarCloud automatically posts PR check and comment
+1. Downloads the two coverage artifacts to their expected paths
+2. Fails immediately if either report is missing or empty
+3. Installs SonarScanner CLI (checksum-verified binary)
+4. Runs SonarScanner with `-Dsonar.qualitygate.wait=true`, so the step's status
+   reflects the **gate verdict**, not merely a successful upload
+5. SonarCloud posts its own PR check and comment
 
 **Why:**
 - This is the core integration: connects your code to SonarCloud
@@ -61,31 +93,47 @@ After:   Tests → Coverage → SonarCloud Analysis → Quality Gate Check → P
 
 **Configuration (see Job Parameters below)**
 
-**Dependencies:** `needs: [prepare-sonarcloud]`
+**Dependencies:** `needs: [test-results, frontend]`
+
+> This job is deliberately **not** part of `ci-required` (SonarCloud is an
+> external service). The **SonarCloud quality gate must therefore be its own
+> required status check** in the repository ruleset, alongside `ci-required`, or a
+> failing gate will not block a merge.
 
 ---
 
 ### 2. `frontend/vitest.config.ts` (Frontend Test Configuration)
 
-**What changed:**
-- Enhanced the `coverage.reporter` array to explicitly include `"xml"` and `"json-summary"`
-- Added comments explaining XML export for SonarCloud
+**What changed (ORIGINAL — since corrected):** the `coverage.reporter` array was
+given an `"xml"` entry, described as "Cobertura format for SonarCloud":
 
-**Before:**
-```typescript
-reporter: ["text", "text-summary", "html", "json", "xml", "lcov"],
-```
-
-**After:**
 ```typescript
 reporter: ["text", "text-summary", "html", "json", "json-summary", "xml", "lcov"],
-// XML = Cobertura format for SonarCloud
-// json-summary = concise coverage summary for CI logs
 ```
 
-**Result:**
-- `npm run test` now outputs `coverage/coverage-final.xml` (Cobertura format)
-- SonarScanner can parse this alongside backend coverage
+**Why it was wrong:** `"xml"` is not a valid `@vitest/coverage-v8` reporter. The
+list is passed through to istanbul-reports, whose `xml` reporter fails to load
+its own `xml` module under this toolchain. The failure mode was nasty precisely
+because it is not a test failure — all 133 files / 1,111 tests passed, the console
+printed a full green summary, and *then* `npm run test` exited 1 while writing
+reports. No `coverage-final.xml` was ever produced. (`"cobertura"` is the correct
+name if XML is ever genuinely needed.)
+
+**Current:**
+```typescript
+reporter: ["text", "text-summary", "html", "json", "json-summary", "lcov"],
+```
+
+- `npm run test` exits 0 and writes `coverage/lcov.info`
+- Sonar reads that via `sonar.javascript.lcov.reportPaths` — LCOV is the native
+  JS/TS coverage format for Sonar, so the XML was never required
+
+**Also changed — thresholds.** They were `80` across the board, which never fired
+because the broken reporter crashed the run first. Measured coverage is
+statements 46.4% / branches 44.2% / functions 45.5% / lines 48.3%, so the
+thresholds are now ratchet **floors** at that baseline (46/44/45/48). The 80%
+standard moved to SonarCloud's new-code condition, which holds new work to the
+real bar without failing every PR on pre-existing legacy code.
 
 ---
 
@@ -196,24 +244,30 @@ SONAR_CHECKSUM="<computed-hash>"
        └──────────┬───────────┘
                   │
                   ▼
-          ┌──────────────────┐
-          │  test-results    │
-          │  (merge coverage)│
-          └─────────┬────────┘
-                    │
-        ┌───────────┴───────────┐
-        │                       │
-        ▼                       ▼
-┌───────────────────┐  ┌────────────────────┐
-│prepare-sonarcloud │  │                    │
-│(consolidate cov)  │  │ (all other jobs    │
-└────────┬──────────┘  │  continue in       │
-         │             │  parallel)         │
-         ▼             │                    │
-┌──────────────────────┐                    │
-│sonarcloud-analysis   │◄───────────────────┘
-│(SonarScanner + QG)   │
-└────────┬─────────────┘
+          ┌───────────────────────────┐
+          │  test-results             │
+          │  combine → report 80%     │
+          │  → xml → normalise paths  │
+          │  artifact:                │
+          │    backend-coverage-xml   │
+          └─────────┬─────────────────┘
+                    │        ┌────────────────────────────┐
+                    │        │ frontend                   │
+                    │        │ vitest → lcov.info         │
+                    │        │ → normalise SF: paths      │
+                    │        │ artifact:                  │
+                    │        │   frontend-coverage-lcov   │
+                    │        └───────────┬────────────────┘
+                    │                    │
+                    └────────┬───────────┘
+                             ▼
+                 ┌──────────────────────────┐
+                 │ sonarcloud-analysis      │
+                 │ needs: [test-results,    │
+                 │         frontend]        │
+                 │ verify reports non-empty │
+                 │ scanner + qualitygate.wait│
+                 └────────┬─────────────────┘
          │
          ▼
     ┌─────────────┐
@@ -274,10 +328,12 @@ These parameters control SonarScanner behavior:
 | `sonar.organization` | `velocityai` | SonarCloud organization key |
 | `sonar.projectKey` | `velocityai` | SonarCloud project identifier |
 | `sonar.projectName` | `VelocityAI` | Human-readable project name |
-| `sonar.sources` | `.` | Analyze entire repo |
+| `sonar.sources` | `backend/app,backend/agents,frontend/src` | Production source only. Was `.` (the whole repo), which analysed Terraform, shell, docs, `.planning/` and every test file as production code — inflating every coverage and duplication denominator. |
+| `sonar.tests` / `sonar.test.inclusions` | `backend/tests`, `frontend/e2e`, `src/**/*.test.*` | Test code is *declared*, not excluded, so Sonar applies test-aware rules and attributes coverage correctly. |
 | `sonar.exclusions` | `node_modules/**,__pycache__/**,...` | Exclude vendor/generated code |
 | `sonar.coverage.exclusions` | `**/tests/**,**/*_test.py,...` | Exclude test files from coverage |
-| `sonar.coverageReportPaths` | `sonarcloud-coverage/coverage-backend.xml,sonarcloud-coverage/coverage-frontend.xml` | Where to find coverage reports |
+| `sonar.python.coverage.reportPaths` | `backend/coverage.xml` | Cobertura from `coverage xml`. Replaces the original `sonar.coverageReportPaths`, which accepts **only** Sonar's Generic Test Data schema and so parsed neither report. |
+| `sonar.javascript.lcov.reportPaths` | `frontend/coverage/lcov.info` | LCOV from vitest's v8 provider — the native JS/TS coverage format for Sonar. |
 | `SONAR_TOKEN` (env) | `${{ secrets.SONAR_TOKEN }}` | Authentication token |
 | `SONAR_HOST_URL` (env) | `https://sonarcloud.io` | SonarCloud endpoint |
 
@@ -291,7 +347,7 @@ Set in SonarCloud UI (`Project Settings → Quality Gates`):
 
 | Metric | Threshold | Rationale |
 |--------|-----------|-----------|
-| Overall Coverage | ≥ 85% | Comprehensive testing; reasonable exclusions allowed |
+| Coverage on **New Code** | ≥ 80% | Clean as You Code. Replaces the original "≥85% **overall**", which was unreachable — backend measures ~80% and frontend ~46%, so an overall gate fails every PR regardless of what it changed. Overall regression is instead prevented by ratchet floors in `frontend/vitest.config.ts` and `coverage report --fail-under=80` on merged backend coverage. |
 | Blocker Issues | = 0 | No critical security/correctness issues |
 | Critical Issues | ≤ 5 | Some non-critical issues allowed; reviewable before merge |
 | Code Smells | ≤ 30 | Maintainability gate; prevents pure code rot |
@@ -312,7 +368,7 @@ Set in SonarCloud UI (`Project Settings → Quality Gates`):
    cd frontend
    npm ci
    npm run test
-   ls -la coverage/coverage-final.xml  # Should exist
+   ls -la coverage/lcov.info  # Should exist (NOT coverage-final.xml)
    ```
 
 2. **Review vitest config:**
@@ -325,7 +381,7 @@ Set in SonarCloud UI (`Project Settings → Quality Gates`):
 
 1. **Push to feature branch or open PR**
 2. **Monitor GitHub Actions:**
-   - `prepare-sonarcloud` job should complete successfully
+   - `test-results` and `frontend` should complete and publish their coverage artifacts
    - `sonarcloud-analysis` job should show "SonarScanner analysis completed"
 3. **Check PR for SonarCloud check:**
    - After ~1 minute, check for "SonarCloud Quality Gate" check
@@ -373,8 +429,8 @@ Set in SonarCloud UI (`Project Settings → Quality Gates`):
 **Q: Will SonarCloud analysis block my PR?**  
 A: Yes, if the quality gate fails. You'll see a red "SonarCloud Quality Gate: FAILED ✗" check. You can review why it failed (coverage too low, too many code smells, etc.) and adjust code or thresholds.
 
-**Q: What's the difference between `prepare-sonarcloud` and `sonarcloud-analysis` jobs?**  
-A: `prepare-sonarcloud` consolidates coverage files; `sonarcloud-analysis` runs the actual analysis. Splitting them makes logs clearer and helps troubleshoot coverage issues separately from analysis issues.
+**Q: What happened to the `prepare-sonarcloud` job?**  
+A: It was removed. It existed to copy two coverage files into one directory, and it could not work — it looked for `coverage.xml` inside an HTML-only artifact and for a `coverage-final.xml` vitest never wrote, warned on both, and exited 0. `sonarcloud-analysis` now downloads each report directly to the path `sonar-project.properties` names and hard-fails if either is missing or empty, which is both simpler and no longer able to fail silently.
 
 **Q: Can I run SonarScanner locally?**  
 A: Yes! Install SonarScanner, then run: `sonar-scanner -Dproject.settings=sonar-project.properties`. See `sonar-project.properties` for configuration.

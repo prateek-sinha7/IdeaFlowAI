@@ -4,6 +4,42 @@ Welcome to the SonarCloud integration documentation! This folder contains everyt
 
 ---
 
+## ⚠️ Correction notice — the coverage pipeline described below is OUT OF DATE
+
+Files `00-` through `04-` in this folder document a coverage flow that **never
+actually delivered coverage to SonarCloud**, plus a `prepare-sonarcloud` job that
+**no longer exists**. Treat the current `.github/workflows/ci.yml` and
+`sonar-project.properties` as authoritative; treat the per-file instructions here
+as historical for anything touching coverage paths or job names.
+
+What was wrong, and what replaced it:
+
+| Documented (broken) | Actual, current |
+|---|---|
+| Frontend emits Cobertura XML via vitest's `"xml"` reporter | `"xml"` is not a valid coverage reporter — it crashed `npm run test` *after* all tests passed. Frontend now emits **LCOV** (`frontend/coverage/lcov.info`). |
+| `prepare-sonarcloud` job consolidates both reports into `sonarcloud-coverage/` | **Job removed.** `sonarcloud-analysis` downloads each report straight to the path the properties file names. |
+| Backend XML comes from the `backend-coverage-report` artifact | That artifact only ever contained `htmlcov/`. `coverage.xml` is now published as its own `backend-coverage-xml` artifact. |
+| `sonar.coverageReportPaths` points at both files | Wrong property — it accepts only Sonar's *Generic Test Data* schema. Now `sonar.python.coverage.reportPaths` + `sonar.javascript.lcov.reportPaths`. |
+| Quality gate: ≥ 85% **overall** coverage | Unreachable (frontend measures ~46%). Now **≥ 80% on new code** (Clean as You Code), with ratchet floors in `frontend/vitest.config.ts`. |
+
+Current flow:
+
+```
+pytest shards ─→ test-results ──→ artifact: backend-coverage-xml  (backend/coverage.xml)
+frontend      ─────────────────→ artifact: frontend-coverage-lcov (frontend/coverage/lcov.info)
+                                          │
+                                          ▼
+                                  sonarcloud-analysis
+                                  (fails if either report is missing/empty;
+                                   -Dsonar.qualitygate.wait=true)
+```
+
+Note that `sonarcloud-analysis` is deliberately **not** part of `ci-required`, so
+the **SonarCloud quality gate must be its own required status check** in the
+repository ruleset. Scanner success alone does not mean the gate passed.
+
+---
+
 ## 📖 Documentation Files
 
 ### Quick Start & Overview

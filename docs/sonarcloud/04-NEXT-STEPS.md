@@ -155,11 +155,12 @@ open https://sonarcloud.io/dashboard?id=velocityai
 ### Q: What if the setup fails?
 **A:** See `docs/SONARCLOUD_INTEGRATION.md` → "Troubleshooting" section. Most issues are:
 - SONAR_TOKEN not set → Check GitHub Organization Secrets
-- Coverage not found → Check `prepare-sonarcloud` job artifacts
+- Coverage not found → Read the "Verify coverage reports are present and non-empty" step in `sonarcloud-analysis`; the artifacts are `backend-coverage-xml` (from `test-results`) and `frontend-coverage-lcov` (from `frontend`)
+- Coverage shows 0% but the scanner passed → a path that does not resolve from the repo root is dropped **silently**; see 02-INTEGRATION-GUIDE.md
 - Check doesn't appear → Wait 2+ minutes and refresh
 
 ### Q: Can I undo this?
-**A:** Yes. Comment out the `prepare-sonarcloud` and `sonarcloud-analysis` jobs in `.github/workflows/ci.yml`. The changes don't affect existing functionality.
+**A:** Yes. Comment out the `sonarcloud-analysis` job in `.github/workflows/ci.yml` and remove the SonarCloud quality gate from the repository ruleset's required checks. (There is no `prepare-sonarcloud` job — it was removed.) Note that the coverage artifacts themselves are still worth keeping: `backend-coverage-xml` and `frontend-coverage-lcov` are produced by the test jobs regardless.
 
 ### Q: Do I need to do anything locally?
 **A:** No. The integration runs entirely in CI. The only local change is vitest now exports XML coverage (automatic).
@@ -211,9 +212,14 @@ After initial setup, consider:
    - Get real-time feedback while coding
 
 2. **Tighter Quality Gates** (~10 min)
-   - Start with 85% coverage
-   - Gradually increase as code improves
-   - Add custom rules as needed
+   - Set conditions on **new code**, not overall — start at ≥80% coverage on new
+     code. Do **not** set an ≥85% *overall* coverage condition: measured coverage
+     is ~80% backend and ~46% frontend, so an overall gate fails every PR
+     regardless of what it changed.
+   - Overall regression is already prevented elsewhere: ratchet floors in
+     `frontend/vitest.config.ts` and `coverage report --fail-under=80` on merged
+     backend coverage.
+   - Raise the frontend floors as legacy areas gain tests; add custom rules as needed
 
 3. **Team Dashboard** (~20 min)
    - Create custom SonarCloud dashboard
@@ -243,7 +249,7 @@ Look for error messages
 
 **3. Common Issues:**
 - ❌ SONAR_TOKEN not found → GitHub Organization Secret not set
-- ❌ Coverage files missing → Check prepare-sonarcloud artifacts
+- ❌ Coverage files missing → Check the `backend-coverage-xml` / `frontend-coverage-lcov` artifacts
 - ❌ Check doesn't appear → Wait 2+ min, check SonarCloud dashboard
 - ❌ Quality gate always fails → Too strict? See Phase 6 in checklist
 

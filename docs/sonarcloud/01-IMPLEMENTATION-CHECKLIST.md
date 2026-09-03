@@ -102,15 +102,26 @@ This checklist guides you through completing the SonarCloud integration. The CI 
   ```bash
   ls -la coverage/
   ```
-  - [ ] `coverage.xml` exists (Cobertura format)
-  - [ ] `coverage-final.json` exists (v8 format)
-  - [ ] `coverage.html/` directory exists
+  - [ ] `lcov.info` exists — **this is the file SonarCloud reads for JS/TS**
+  - [ ] `coverage-final.json` exists (v8 format, used by Codecov)
+  - [ ] `index.html` exists (browsable report)
+  - [ ] There is **no** `coverage.xml` / `coverage-final.xml`, and there should
+        not be. Sonar consumes LCOV for JavaScript/TypeScript. The `"xml"`
+        entry that used to be in `vitest.config.ts`'s reporter list was not a
+        valid coverage reporter: it failed to load its own module and made
+        `npm run test` exit 1 *after* every test had already passed.
 
-- [ ] **Validate XML format:**
+- [ ] **Validate the LCOV format:**
   ```bash
-  head -1 coverage/coverage.xml
-  # Should output: <?xml version="1.0" ?>
+  head -2 coverage/lcov.info
+  # Should output a TN: line followed by SF:<path>
   ```
+
+- [ ] **Check the coverage thresholds are the ratchet floors, not 80:**
+  `frontend/vitest.config.ts` holds floors at the measured baseline
+  (statements 46 / branches 44 / functions 45 / lines 48). An 80% *overall*
+  frontend gate is unreachable today and is deliberately not set here — the
+  80% standard is enforced by SonarCloud on **new code** instead.
 
 ### Steps (CI Verification - after first PR)
 - [ ] **Trigger CI workflow:**
@@ -121,14 +132,27 @@ This checklist guides you through completing the SonarCloud integration. The CI 
   - [ ] Go to your PR → **Checks** → **CI** workflow
   - [ ] Click the `frontend` job
   - [ ] Scroll down to **Artifacts** section
-  - [ ] Verify `frontend-coverage-xml` artifact is listed and downloadable
+  - [ ] Verify the `frontend-coverage-lcov` artifact is listed and downloadable
+        (it is uploaded with `if-no-files-found: error`, so a missing report
+        fails the job rather than passing quietly)
 
 ---
 
-## Phase 5: Test Coverage Consolidation Job (Task 4)
+## Phase 5: Coverage artifacts reach the scanner
+
+> **This phase replaces the old "Test Coverage Consolidation Job (Task 4)".**
+> There is no longer a `prepare-sonarcloud` job — it was **deleted**, because it
+> could not work. It downloaded the `backend-coverage-report` artifact (which
+> contained only `htmlcov/`, never `coverage.xml`) and looked for
+> `coverage-final.xml` in the frontend artifact (which vitest never wrote). Both
+> of its `if [ -f ... ]` guards therefore always took the `else` branch, printed
+> a warning to stderr, and the job still exited 0 — so SonarCloud received **zero
+> coverage while every job reported success**.
+>
+> Each report is now uploaded by the job that produces it and downloaded
+> directly to the path `sonar-project.properties` names. Nothing is consolidated.
 
 ### Prerequisites
-- [ ] CI workflow has the `prepare-sonarcloud` job (should be in `.github/workflows/ci.yml`)
 - [ ] Test jobs are passing (backend pytest and frontend vitest)
 
 ### Steps (After first PR with changes)
@@ -136,21 +160,25 @@ This checklist guides you through completing the SonarCloud integration. The CI 
   - [ ] Push to a feature branch or open a PR
   - [ ] Wait for all test jobs to complete
 
-- [ ] **Verify prepare-sonarcloud job:**
-  - [ ] Go to **Actions** tab in your repo
-  - [ ] Click the workflow run
-  - [ ] Find the `prepare-sonarcloud` job in the job list
-  - [ ] Verify it shows **Status: ✓ Success** (green checkmark)
+- [ ] **Verify the two coverage artifacts exist:**
+  - [ ] `backend-coverage-xml` — produced by the `test-results` job, contains
+        `backend/coverage.xml` (Cobertura, from `coverage xml` after
+        `coverage combine` merges all four pytest shards)
+  - [ ] `frontend-coverage-lcov` — produced by the `frontend` job, contains
+        `frontend/coverage/lcov.info`
+  - [ ] Both upload with `if-no-files-found: error`
 
-- [ ] **Verify coverage artifacts downloaded:**
-  - [ ] In the `prepare-sonarcloud` job logs, look for:
-    - [ ] `✓ Copied coverage-backend.xml`
-    - [ ] `✓ Copied coverage-frontend.xml` (or similar)
-
-- [ ] **Verify consolidated artifact uploaded:**
-  - [ ] Scroll to **Artifacts** section
-  - [ ] Verify `sonarcloud-coverage` artifact is listed
-  - [ ] Download and verify it contains both XML files
+- [ ] **Verify the path normalisation steps ran:**
+  Sonar runs from the repo root, so both reports are rewritten to repo-relative
+  paths first. Neither is optional — an unresolvable path makes Sonar report 0%
+  for that file *without* failing.
+  - [ ] `frontend` job → **"Normalise LCOV paths for SonarCloud"**: rewrites
+        `SF:src/...` to `SF:frontend/src/...`
+  - [ ] `test-results` job → **"Normalise coverage.xml source paths for
+        SonarCloud"**: rewrites `<source>app</source>` to
+        `<source>backend/app</source>`. `backend/pyproject.toml` sets
+        `relative_files = true` so these roots are relative in the first place
+        rather than absolute `/home/runner/work/...` paths from the shard runner.
 
 ---
 
@@ -158,7 +186,8 @@ This checklist guides you through completing the SonarCloud integration. The CI 
 
 ### Prerequisites
 - [ ] SONAR_TOKEN is stored in GitHub Organization Secret
-- [ ] prepare-sonarcloud job completes successfully
+- [ ] The `test-results` and `frontend` jobs complete successfully
+      (`sonarcloud-analysis` declares `needs: [test-results, frontend]`)
 - [ ] CI workflow has the `sonarcloud-analysis` job
 
 ### Steps (First Run - Expect Initial Analysis)
@@ -304,19 +333,27 @@ This checklist guides you through completing the SonarCloud integration. The CI 
 Ensure CI jobs are correctly ordered and don't run unnecessarily.
 
 ### Steps
-- [ ] **Verify prepare-sonarcloud waits for test jobs:**
-  - [ ] In `.github/workflows/ci.yml`, find `prepare-sonarcloud` job
+- [ ] **Verify sonarcloud-analysis waits for both report producers:**
+  - [ ] In `.github/workflows/ci.yml`, find the `sonarcloud-analysis` job
   - [ ] Verify it has: `needs: [test-results, frontend]`
-  - [ ] This ensures coverage artifacts are ready before consolidation
+  - [ ] There is no `prepare-sonarcloud` job to depend on — it was removed
+        (see Phase 5)
 
-- [ ] **Verify sonarcloud-analysis waits for consolidation:**
-  - [ ] In `.github/workflows/ci.yml`, find `sonarcloud-analysis` job
-  - [ ] Verify it has: `needs: [prepare-sonarcloud]`
-  - [ ] This ensures coverage is ready before analysis
+- [ ] **Verify the scanner blocks on the gate verdict:**
+  - [ ] The "Run SonarScanner analysis" step passes
+        `-Dsonar.qualitygate.wait=true`
+  - [ ] Without it the step reports success for *"the report uploaded"*, which
+        is a different fact from *"the quality gate passed"*
 
-- [ ] **Verify PR checks don't block each other:**
-  - [ ] CI workflow should not have `sonarcloud-analysis` as a required check
-  - [ ] If it is, enable "Allow merging without required status checks" or adjust settings
+- [ ] **Understand which checks gate a merge — this part is easy to get wrong:**
+  - [ ] `sonarcloud-analysis` is **deliberately excluded** from `ci-required`,
+        because SonarCloud is an external service and `ci-required` should not
+        depend on its availability
+  - [ ] Therefore the **SonarCloud quality gate must be its own required status
+        check** in the repository ruleset, listed *alongside* `ci-required`
+  - [ ] Until that ruleset entry exists, a failing quality gate does **not**
+        block a merge, regardless of `sonar.qualitygate.wait`
+  - [ ] Confirm both are required: `ci-required` **and** the SonarCloud check
 
 ---
 
@@ -367,9 +404,11 @@ Ensure CI jobs are correctly ordered and don't run unnecessarily.
    - [ ] Click job → scroll through logs
    - [ ] Look for error messages (network, auth, file not found)
 2. Verify coverage files exist:
-   - [ ] Check `prepare-sonarcloud` job
-   - [ ] Download `sonarcloud-coverage` artifact
-   - [ ] Verify it contains `coverage-backend.xml` and `coverage-frontend.xml`
+   - [ ] In the `sonarcloud-analysis` job, read the **"Verify coverage reports
+         are present and non-empty"** step — it hard-fails and names the missing
+         file, so this is usually the fastest answer
+   - [ ] Download the `backend-coverage-xml` artifact (from `test-results`) and
+         the `frontend-coverage-lcov` artifact (from `frontend`)
 3. Manually verify credentials:
    - [ ] Is SONAR_TOKEN correct? (regenerate if uncertain)
    - [ ] Is organization key correct? (`velocityai` or your org name)
@@ -389,21 +428,37 @@ Ensure CI jobs are correctly ordered and don't run unnecessarily.
    - [ ] If PR is from a feature branch to main, this is correct
    - [ ] If PR is to a different branch, gate may not apply
 
-### Issue: Frontend coverage shows 0% or is missing
+### Issue: Coverage shows 0% for a language, but the scanner succeeded
+
+This is the single most likely SonarCloud failure in this repo, and it is
+**silent**: an unresolvable path is not an error to Sonar. It drops the entry,
+reports the file as uncovered, and the scanner still exits 0.
 
 **Solution:**
-1. Verify frontend coverage XML is generated:
-   - [ ] Run `npm run test` locally in `frontend/` directory
-   - [ ] Check `coverage/coverage.xml` file exists
-   - [ ] Is it valid XML? (starts with `<?xml`)
-2. Verify artifact is uploaded in CI:
-   - [ ] Check `frontend` job logs
-   - [ ] Look for "Upload frontend coverage XML" step
-   - [ ] Verify artifact `frontend-coverage-xml` is listed
-3. Verify artifact is downloaded in consolidation:
-   - [ ] Check `prepare-sonarcloud` job logs
-   - [ ] Look for error about downloading `frontend-coverage-xml`
-   - [ ] If not found, check artifact name matches in CI job
+1. Confirm the report reached the scanner at all:
+   - [ ] `sonarcloud-analysis` → "Verify coverage reports are present and
+         non-empty" (fails loudly if either is missing/empty)
+2. Confirm the scanner is reading the right **property** per language.
+   In `sonar-project.properties`:
+   - [ ] `sonar.python.coverage.reportPaths=backend/coverage.xml`
+   - [ ] `sonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info`
+   - [ ] There must be **no** `sonar.coverageReportPaths` entry. That property
+         accepts only Sonar's own *Generic Test Data* XML schema — not
+         Coverage.py's Cobertura output and not istanbul's. Pointing both
+         reports at it (the previous configuration) parsed neither and produced
+         0% for both languages.
+3. Confirm **paths resolve from the repo root**, which is where the scanner runs:
+   - [ ] Frontend: `grep -m1 '^SF:' frontend/coverage/lcov.info` must show
+         `SF:frontend/src/...` — not `SF:src/...`
+   - [ ] Backend: `grep -o '<source>[^<]*</source>' backend/coverage.xml` must
+         show `backend/app` and `backend/agents` — not bare `app`/`agents`, and
+         not an absolute `/home/runner/work/...` path
+   - [ ] Both are produced by the two "Normalise ... paths for SonarCloud" steps.
+         To check by hand, join each Cobertura `<source>` with a
+         `<class filename="...">` and confirm the file exists.
+4. Frontend only — confirm the report is generated locally:
+   - [ ] `npm run test` in `frontend/`, then check `coverage/lcov.info` exists
+   - [ ] There is intentionally no `coverage.xml`; Sonar reads LCOV for JS/TS
 
 ---
 

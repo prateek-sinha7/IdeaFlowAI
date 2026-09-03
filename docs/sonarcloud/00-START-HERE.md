@@ -1,6 +1,12 @@
 # SonarCloud Integration — Quick Start
 
-**Status:** ✅ Implementation Complete (Awaiting Manual Configuration)
+> ⚠️ **Parts of this file are out of date.** The `prepare-sonarcloud` job it
+> describes has been removed, and the frontend Cobertura-XML step it describes
+> never worked (coverage reached SonarCloud as 0% while every job reported
+> success). See the **Correction notice** in [README.md](./README.md) for the
+> current coverage flow before following any step here.
+
+**Status:** ⚠️ Coverage plumbing repaired; SonarCloud UI configuration still manual
 
 This directory contains complete documentation and implementation for SonarCloud integration into your CI/CD pipeline.
 
@@ -77,13 +83,21 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 ## What Was Already Done (Code Changes)
 
 ### ✅ CI Workflow Updated (`.github/workflows/ci.yml`)
-- ✅ Frontend job now exports coverage as XML (Cobertura format)
-- ✅ New `prepare-sonarcloud` job consolidates backend + frontend coverage
-- ✅ New `sonarcloud-analysis` job runs SonarScanner and posts PR checks
+- ✅ Frontend job exports coverage as **LCOV** (`coverage/lcov.info`) — the native
+  JS/TS coverage format for Sonar. (Originally Cobertura XML; that never worked.)
+- ✅ `test-results` publishes `backend/coverage.xml` as the `backend-coverage-xml`
+  artifact after `coverage combine` merges all four pytest shards
+- ✅ Both reports are rewritten to repo-root-relative paths before upload
+- ✅ `sonarcloud-analysis` downloads both directly, hard-fails if either is
+  missing/empty, and runs the scanner with `-Dsonar.qualitygate.wait=true`
+- ❌ There is **no** `prepare-sonarcloud` consolidation job — it was removed
 
 ### ✅ Configuration Files Created
-- ✅ `sonar-project.properties` — SonarCloud configuration reference
-- ✅ Frontend vitest config enhanced for XML export
+- ✅ `sonar-project.properties` — SonarCloud configuration reference, using the
+  language-specific `sonar.python.coverage.reportPaths` and
+  `sonar.javascript.lcov.reportPaths` properties
+- ✅ Frontend vitest config emits LCOV, with coverage thresholds set as ratchet
+  floors at the measured baseline (46/44/45/48) rather than an unreachable 80
 - ✅ Helper script for SonarScanner checksum verification
 
 ### ✅ Documentation Created
@@ -134,7 +148,9 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 2. Review CI logs: GitHub Actions → workflow → `sonarcloud-analysis` job
 3. Common issues:
    - SONAR_TOKEN not found → Verify GitHub Organization Secret
-   - Coverage files missing → Check `prepare-sonarcloud` job artifacts
+   - Coverage files missing → Read the "Verify coverage reports are present and
+     non-empty" step in `sonarcloud-analysis`; artifacts are
+     `backend-coverage-xml` and `frontend-coverage-lcov`
    - Analysis doesn't appear → Wait 1-2 minutes for SonarCloud to process
 
 ### If PR Check Never Appears
@@ -170,27 +186,32 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 Developer Push
        ↓
 GitHub Actions Triggers
-       ├─ pytest (backend)
-       ├─ vitest (frontend) ← now exports XML coverage
+       ├─ pytest shards (backend)
+       ├─ vitest (frontend) → coverage/lcov.info
        └─ (other jobs in parallel)
        ↓
-test-results job (merge backend coverage)
-       ↓
-prepare-sonarcloud job ← NEW
-├─ Download backend/coverage.xml
-├─ Download frontend/coverage.xml
-└─ Consolidate → sonarcloud-coverage/
-       ↓
-sonarcloud-analysis job ← NEW
-├─ Install SonarScanner
-├─ Run analysis (code + coverage)
-└─ Publish to SonarCloud
+test-results job
+├─ coverage combine (4 shards) → report --fail-under=80 → coverage xml
+└─ normalise <source> roots → artifact: backend-coverage-xml
+       ↓                       frontend job
+       │                       └─ normalise SF: paths
+       │                          → artifact: frontend-coverage-lcov
+       └───────────┬───────────────────────┘
+                   ↓
+sonarcloud-analysis job    needs: [test-results, frontend]
+├─ Download both reports to the paths sonar-project.properties names
+├─ HARD-FAIL if either is missing or empty
+├─ Install SonarScanner (checksum-verified)
+└─ Run analysis with -Dsonar.qualitygate.wait=true
        ↓
 SonarCloud Processes
-├─ Evaluate quality gate
-└─ Post PR check + comment
+├─ Evaluate quality gate (conditions on NEW code)
+└─ Post its own PR check + comment
        ↓
 PR Check (Pass ✓ or Fail ✗)
+   ⚠ blocks the merge only if the SonarCloud quality gate is listed as a
+     REQUIRED status check in the repository ruleset — sonarcloud-analysis is
+     deliberately not part of ci-required
 ```
 
 ---
@@ -202,12 +223,17 @@ PR Check (Pass ✓ or Fail ✗)
 - Project Key: `velocityai`
 - Project Name: `VelocityAI`
 
-**Quality Gate Thresholds (Moderate Baseline, set in SonarCloud UI):**
-- Coverage: ≥ 85%
-- Blocker Issues: = 0
-- Critical Issues: ≤ 5
-- Code Smells: ≤ 30
-- Duplications: ≤ 3%
+**Quality Gate Thresholds — conditions on NEW code (set in SonarCloud UI):**
+- Coverage on New Code: ≥ 80%
+- Duplicated Lines on New Code: ≤ 3%
+- New Blocker / Critical Issues: = 0
+- Maintainability / Reliability / Security Rating on New Code: A
+
+> Do **not** set an "overall coverage ≥ 85%" condition. Measured coverage is ~80%
+> backend and ~46% frontend, so an overall gate fails every PR regardless of what
+> it changed. Overall regression is prevented separately: ratchet floors in
+> `frontend/vitest.config.ts` and `coverage report --fail-under=80` on merged
+> backend coverage.
 
 **SonarScanner Parameters (in CI workflow):**
 - See `sonarcloud-analysis` job in `.github/workflows/ci.yml`

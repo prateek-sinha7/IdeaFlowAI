@@ -37,7 +37,12 @@ on:
         value: ${{ jobs.build.outputs.image-ref }}
 
 env:
+  # Keep in lockstep with ci.yml's workflow-level TRIVY_VERSION/TRIVY_SHA256 and
+  # deploy.yml's copies of the same pair. Workflow-level `env:` cannot be shared
+  # across workflow FILES, so a version bump is a three-file change; all three
+  # sites carry a comment pointing at the others.
   TRIVY_VERSION: "0.69.3"
+  TRIVY_SHA256: "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
   GRYPE_VERSION: "0.75.0"
 
 jobs:
@@ -65,8 +70,14 @@ jobs:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}
           platforms: linux/amd64
-          provenance: mode=max
-          sbom: true
+          # Attestations require an exporter that can carry them (registry/oci).
+          # On the PR path this build uses `outputs: type=docker` (below) so the
+          # image lands in the local daemon for scanning, and buildkit rejects
+          # provenance/SBOM attestations for the docker exporter — asking for
+          # them anyway fails the build. Gate both on `push`, which is exactly
+          # the condition under which the registry exporter is in use.
+          provenance: ${{ inputs.push && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.push }}
           push: ${{ inputs.push }}
           # If pushing, include registry; if not, use docker.io as temporary ref
           tags: |
@@ -89,10 +100,27 @@ jobs:
 
       # ── Phase 7: Image Scanning ────────────────────────────────────────
 
-      - name: Install Trivy
-        uses: aquasecurity/trivy-action@master
+      # Installed the same way ci.yml's security-scan-iac job installs it: a
+      # checksum-verified release binary via this repo's own composite action.
+      #
+      # This replaces `uses: aquasecurity/trivy-action@master`, which was wrong
+      # twice over. (1) A MUTABLE ref — and mutable refs on this exact action are
+      # not hypothetical: CVE-2026-33634 / GHSA-69fq-xp46-6x23 was attackers
+      # force-pushing malicious commits onto aquasecurity/trivy-action's existing
+      # version tags, which is the whole reason this repo installs scanners as
+      # verified binaries (docs/CICD-DESIGN-DECISIONS.md#action-pinning-and-cve-2026-33634).
+      # (2) trivy-action is a SCANNER, not an installer: invoked with only
+      # `trivy-version` and no scan inputs it runs its own default scan rather
+      # than leaving a `trivy` binary on PATH for the next step to call.
+      - name: Install Trivy (checksum-verified)
+        uses: ./.github/actions/install-checksummed-tool
         with:
-          trivy-version: ${{ env.TRIVY_VERSION }}
+          name: trivy
+          version: "v${{ env.TRIVY_VERSION }}"
+          url: https://github.com/aquasecurity/trivy/releases/download/v${{ env.TRIVY_VERSION }}/trivy_${{ env.TRIVY_VERSION }}_Linux-64bit.tar.gz
+          sha256: ${{ env.TRIVY_SHA256 }}
+          archive-format: tar.gz
+          binary-name: trivy
 
       - name: Scan image with Trivy (blocking on HIGH,CRITICAL)
         run: |
@@ -112,8 +140,16 @@ jobs:
           
           echo "✓ Trivy scan passed (no HIGH/CRITICAL vulns)"
 
-      - name: Upload Trivy SARIF to GitHub Security
+      # Best-effort, and deliberately not a gate. The code-scanning upload needs
+      # `security-events: write`, which is not always available to this workflow:
+      # a nested reusable-workflow call cannot escalate past its caller's grant
+      # (ci.yml's `container-scan` job grants it, but when ci.yml itself runs as
+      # deploy.yml's `gate` it only holds `contents: read`), and fork PRs never
+      # get it. The BLOCKING signal is the Trivy exit code in the step above, so a
+      # 403 here must surface as a warning, not as a failed image scan.
+      - name: Upload Trivy SARIF to GitHub Security (best-effort)
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@ccf74c947955fd1cf117aef6a0e4e66191ef6f61 # v3.25.4
         with:
           sarif_file: trivy-${{ inputs.component }}.sarif
@@ -138,12 +174,26 @@ jobs:
           
           echo "Scanning image with Grype: ${{ env.IMAGE_REF }}"
           
+          # EXIT_CODE must be initialised. This script runs under `set -u`, and
+          # `|| EXIT_CODE=$?` only assigns on FAILURE — so on the success path
+          # (grype exits 0) the variable was never set, and the `[[ $EXIT_CODE ...]]`
+          # test below aborted the step with "EXIT_CODE: unbound variable".
+          # A clean scan therefore failed the job, and only a clean scan did.
+          EXIT_CODE=0
+          # --only-fixed matches Trivy's --ignore-unfixed above, so the two
+          # engines enforce the SAME policy: block on HIGH+ that this pipeline
+          # can actually action by rebuilding or bumping a dependency. Without
+          # it, Grype also failed on vulnerabilities with no upstream fix, which
+          # no change to this repo could ever clear — a gate nobody can pass is
+          # a gate that gets disabled, and ci/trivyignore.images explicitly
+          # reserves waivers for genuinely-unfixable findings only.
           grype "${{ env.IMAGE_REF }}" \
+            --only-fixed \
             --fail-on high \
             --output json \
             > grype-results-${{ inputs.component }}.json || EXIT_CODE=$?
           
-          if [[ $EXIT_CODE -ne 0 ]]; then
+          if [[ "$EXIT_CODE" -ne 0 ]]; then
             echo "❌ Grype scan failed (found HIGH or higher severity vulnerabilities)"
             cat grype-results-${{ inputs.component }}.json
             exit 1

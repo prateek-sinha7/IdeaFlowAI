@@ -2939,7 +2939,7 @@ class ExecutionEngine:
                 # post-step check runs, so ``ectx.current_step`` is always None here.
                 if getattr(step, "produces_solution_plan", False):
                     try:
-                        from app.agents.revision_analyzer import parse_analyzer_output  # noqa: PLC0415
+                        from app.core.parsing import parse_analyzer_output  # noqa: PLC0415
 
                         _raw = ectx.last_streamed or ""
                         ectx.analyzer_solution = parse_analyzer_output(_raw)

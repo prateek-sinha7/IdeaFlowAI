@@ -27,6 +27,27 @@ markers = [
 # Coverage configuration for pytest-cov
 [tool.coverage.run]
 source = ["app", "agents"]
+# Store and report RELATIVE file paths instead of absolute ones.
+#
+# Two reasons, both load-bearing in CI:
+#
+# 1. `coverage combine` in the test-results job merges .coverage.* files
+#    produced on FOUR DIFFERENT runners. With absolute paths, combining only
+#    works because GitHub-hosted runners happen to use an identical workspace
+#    path — a coincidence, not a guarantee.
+# 2. `coverage xml` was emitting
+#    `<source>/home/runner/work/velocityai/velocityai/backend/app</source>`
+#    with bare `filename="main.py"` attributes, so SonarCloud had to join an
+#    absolute path from the SHARD runner against files checked out on the
+#    SONAR runner. When that join fails, Sonar reports 0% coverage and the
+#    scanner still exits 0 — a silent wrong answer, which is the failure mode
+#    this whole coverage chain already had once.
+#
+# With relative_files, `filename` becomes repo-relative-to-`backend/` (e.g.
+# `app/main.py`). ci.yml's test-results job then rewrites the `<source>` root to
+# `backend` so the paths resolve from the scanner's base directory (the repo
+# root) — see the "Normalise coverage.xml source paths" step there.
+relative_files = true
 omit = [
     "*/tests/*",
     "*/test_*.py",

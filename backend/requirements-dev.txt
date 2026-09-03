@@ -5,8 +5,15 @@
 -r requirements-prod.txt
 
 # Testing framework
-pytest==8.3.4
-pytest-asyncio==0.24.0
+#
+# pytest 8.3.4 carried PYSEC-2026-1845; 9.0.3 is the fix. That bump forces two
+# companions forward as a set, so all three move together:
+#   - pytest-asyncio 0.24.0 declares `pytest>=8.2,<9` and would hard-conflict.
+#     1.4.0 declares `pytest>=8.4,<10`. It still honours the
+#     `asyncio_default_fixture_loop_scope` setting in pyproject.toml.
+#   - pytest-cov 5.0.0 predates pytest 9; 7.1.0 is the current line.
+pytest==9.0.3
+pytest-asyncio==1.4.0
 hypothesis==6.122.3
 
 # HTTP testing client
@@ -27,5 +34,21 @@ pyright==1.1.384
 vulture==2.14
 import-linter==2.1
 
-# Testing coverage analysis
-pytest-cov==5.0.0
+# Testing coverage analysis — see the pytest note above; 5.0.0 predates pytest 9.
+pytest-cov==7.1.0
+
+# Security scanning — SAST + dependency CVE audit.
+#
+# ci.yml's `backend` job has been invoking BOTH of these via
+# `uv run --no-sync bandit ...` / `uv run --no-sync pip-audit ...` without
+# either package ever being installed into backend/.venv, so both steps could
+# only ever exit 127 (command not found). requirements-dev.txt is the source
+# of truth for that venv (backend/uv.lock is gitignored and never present on
+# the runner — see .github/actions/setup-backend/action.yml), so declaring
+# them here is what actually makes those steps run.
+#
+# The [toml] extra is what lets `bandit -c pyproject.toml` read
+# [tool.bandit] from backend/pyproject.toml, which is exactly how ci.yml
+# invokes it.
+bandit[toml]==1.9.4
+pip-audit==2.10.1

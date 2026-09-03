@@ -983,7 +983,14 @@ jobs:
         run: |
           set -euo pipefail
           
-          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}"
+          # `needs.build.outputs.*`, NOT `steps.digests.outputs.*`. The `digests`
+          # step lives in the BUILD job; there is no such step in this job, so
+          # that expression resolved to the empty string and produced a
+          # digest-less reference ("…/repo@") — cosign cannot verify that, so
+          # this signature gate could never have passed. Every other digest
+          # consumer in this job already reads needs.build.outputs (see the
+          # remote-payload and SSM-record steps).
+          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ needs.build.outputs.backend_digest }}"
           
           echo "Verifying signature for: $BACKEND_IMAGE"
           cosign verify "$BACKEND_IMAGE" \
@@ -998,7 +1005,9 @@ jobs:
         run: |
           set -euo pipefail
           
-          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}"
+          # See the note on BACKEND_IMAGE above: needs.build.outputs, not
+          # steps.digests (which does not exist in this job).
+          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ needs.build.outputs.frontend_digest }}"
           
           echo "Verifying signature for: $FRONTEND_IMAGE"
           cosign verify "$FRONTEND_IMAGE" \

@@ -109,7 +109,7 @@ jobs:
   # Cost: ~1 min billable. If this job fails, everything else is skipped.
   # ---------------------------------------------------------------------------
   fast-checks:
-    name: Fast checks (format / lint / compile / migrate / gitleaks / shell)
+    name: Fast checks (actionlint / format / lint / compile / migrate / gitleaks / shell)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -118,6 +118,39 @@ jobs:
         with:
           fetch-depth: 0  # Full history for gitleaks
           persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+
+      # actionlint: static analysis of the workflow files THEMSELVES. Runs
+      # first, before any dependency install, because a workflow-level error is
+      # not something the rest of this job can meaningfully report on.
+      #
+      # Why this exists: tests/ci/test_workflow_contracts.py parses these files
+      # with yaml.safe_load and asserts *semantic* properties (gate is a
+      # transitive dep of deploy, every job has a timeout, no AWS secrets reach
+      # the gate). All 14 of those tests passed while ci.yml called
+      # `_docker.yml` — a `workflow_call` WORKFLOW — from `steps[].uses:`, which
+      # is only valid for ACTIONS. GitHub rejects such a file at startup, so no
+      # job in this workflow was created at all. A YAML parser cannot see that;
+      # it is valid YAML. actionlint knows the Actions schema and does.
+      - name: Install actionlint
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: actionlint
+          version: v1.7.12
+          url: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          # Verified against the release's own checksums file:
+          # https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
+          sha256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          archive-format: tar.gz
+          binary-name: actionlint
+
+      # `-shellcheck=` / `-pyflakes=` disable actionlint's OPTIONAL delegation
+      # to those tools for embedded `run:` scripts. Shell scripts are already
+      # covered by the dedicated shellcheck steps below and the `shellcheck`
+      # job, and leaving the integration on would double-report the same
+      # findings under a different tool's name. Workflow-schema checking —
+      # the reason this step exists — is unaffected.
+      - name: actionlint (workflow schema + expression checks)
+        run: actionlint -color -shellcheck= -pyflakes= ./.github/workflows/*.yml
 
       - name: Setup backend (uv + venv)
         uses: ./.github/actions/setup-backend
@@ -391,13 +424,33 @@ jobs:
         with:
           frozen: "true"
 
+      # WHY --cov-fail-under=0 ON EVERY SHARD (all four pytest steps in the three
+      # shard jobs use it; do not "restore" the 80 here).
+      #
+      # A shard runs a SUBSET of the tests but measures coverage over the WHOLE
+      # of app/ + agents/. Demanding 80% from a partial run is arithmetically
+      # impossible, not a quality bar: measured locally, the smallest shard
+      # (tests/integration) reaches 24.14%. Every shard would fail on coverage
+      # alone, regardless of whether a single test failed — and since
+      # `ci-required` now depends on `test-results`, which asserts each shard
+      # succeeded, that would have wedged the merge gate permanently red for a
+      # structurally wrong reason.
+      #
+      # The 80% floor is not dropped, it is enforced ONCE where it is meaningful:
+      # `coverage report --fail-under=80` in the `test-results` job, after
+      # `coverage combine` has merged all four shards.
+      #
+      # The explicit `=0` matters: backend/pyproject.toml sets
+      # [tool.coverage.report] fail_under = 80, which pytest-cov picks up on its
+      # own. Merely deleting the flag would leave the same gate in place via
+      # config, so it has to be actively overridden per shard.
       - name: pytest (agents — shard A with coverage)
         run: uv run --no-sync pytest tests/agents/test_allowed_step_keys.py tests/agents/test_api_prefix_validator.py tests/agents/test_artifact_fallback_and_roster.py tests/agents/test_artifact_graph.py tests/agents/test_artifacts.py tests/agents/test_attach_replay_matrix.py tests/agents/test_audit_endpoints.py tests/agents/test_banned_patterns.py tests/agents/test_bedrock_cache_and_thinking.py tests/agents/test_budget.py tests/agents/test_cancel_stops_resumed_run.py tests/agents/test_capabilities_threading.py tests/agents/test_capability_resolution.py tests/agents/test_characterization_app_builder.py tests/agents/test_characterization_ppt.py tests/agents/test_characterization_prototype.py tests/agents/test_characterization_prototype_revision.py tests/agents/test_characterization_prototype_feature_revision.py tests/agents/test_characterization_prototype_large_revision.py tests/agents/test_chat_event_neutrality.py tests/agents/test_chat_history_compaction.py tests/agents/test_chunk_sanitizer.py tests/agents/test_clarify_llm_live.py tests/agents/test_code_validators.py tests/agents/test_compiled_plan_runs.py tests/agents/test_compiler.py tests/agents/test_compiler_subagents.py tests/agents/test_compiler_trust.py tests/agents/test_composed_fanout.py tests/agents/test_composer_skills_delivery.py tests/agents/test_concierge_capability.py tests/agents/test_constitution_prod.py tests/agents/test_context_message_oracle.py tests/agents/test_context_pack.py tests/agents/test_context_providers.py tests/agents/test_conversation_provider.py tests/agents/test_create_runner.py tests/agents/test_custom_agent_prompt.py tests/agents/test_declared_gate_streaming.py tests/agents/test_deep_agent_runner_hitl_live.py tests/agents/test_deliverable_resolvers.py tests/agents/test_edge_manifests.py tests/agents/test_engine_runner_error_arm.py tests/agents/test_exec_runs.py tests/agents/test_execution_context.py tests/agents/test_fanout.py tests/agents/test_fanout_cancel.py tests/agents/test_fanout_tool.py tests/agents/test_gate_revision_discriminator.py tests/agents/test_gate_stub_signature_drift.py tests/agents/test_gates.py tests/agents/test_guardrails.py tests/agents/test_heading_tasks_parser.py tests/agents/test_hooks.py tests/agents/test_id_alias_resolver.py tests/agents/test_image_input_wiring.py tests/agents/test_input_providers_run_images.py tests/agents/test_integration_providers.py tests/agents/test_integration_scopes.py tests/agents/test_internet_tool_provider.py tests/agents/test_isolation.py tests/agents/test_iss032_cache_tokens.py tests/agents/test_iss033_aux_token_fold_offline.py tests/agents/test_iss033a_fixloop_token_fold_offline.py tests/agents/test_iss034_cost_full.py tests/agents/test_iss056_clarify_quality_fixes.py tests/agents/test_json_tasks.py tests/agents/test_live_contract.py tests/agents/test_live_harness.py tests/agents/test_loader.py tests/agents/test_local_runtime.py tests/agents/test_manifest.py tests/agents/test_manifest_coverage.py tests/agents/test_manifest_parity.py tests/agents/test_mcp_catalog.py tests/agents/test_mcp_client.py -v \
           --cov=app \
           --cov=agents \
           --cov-report=term-missing:skip-covered \
           --cov-report= \
-          --cov-fail-under=80 \
+          --cov-fail-under=0 \
           --junitxml=junit-agents-a.xml
         env:
           COVERAGE_FILE: .coverage.agents-a
@@ -443,7 +496,7 @@ jobs:
           --cov=agents \
           --cov-report=term-missing:skip-covered \
           --cov-report= \
-          --cov-fail-under=80 \
+          --cov-fail-under=0 \
           --junitxml=junit-agents-b.xml
         env:
           COVERAGE_FILE: .coverage.agents-b
@@ -490,7 +543,7 @@ jobs:
           --cov=agents \
           --cov-report=term-missing:skip-covered \
           --cov-report= \
-          --cov-fail-under=80 \
+          --cov-fail-under=0 \
           --junitxml=junit-unit.xml
         env:
           COVERAGE_FILE: .coverage.unit
@@ -501,7 +554,7 @@ jobs:
           --cov=agents \
           --cov-report=term-missing:skip-covered \
           --cov-report= \
-          --cov-fail-under=80 \
+          --cov-fail-under=0 \
           --junitxml=junit-integration.xml
         env:
           COVERAGE_FILE: .coverage.integration
@@ -549,10 +602,44 @@ jobs:
         working-directory: backend
     if: always()
     steps:
+      # `if: always()` above exists so this job still runs (and can collect
+      # artifacts) when a shard fails. That also means it must decide for itself
+      # whether the shards passed — `needs:` alone does not do that under
+      # `always()`. This assertion runs FIRST so a failed shard produces a
+      # named, actionable error here instead of surfacing four steps later as
+      # "coverage combine: No data to combine".
+      #
+      # This matters beyond a nicer message: `ci-required` now depends on this
+      # job (previously it depended on NO backend test job at all), so this
+      # check is the mechanism by which a backend pytest failure blocks a merge.
+      # Ordered after Checkout, not before it: this job sets
+      # `defaults.run.working-directory: backend`, so any `run:` step that
+      # executes before the repo exists on disk fails on a missing cwd rather
+      # than on what it is actually checking.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+
+      - name: Assert every backend test shard succeeded
+        env:
+          SHARD_RESULTS: >-
+            ${{ needs.pytest-agents-a.result }}
+            ${{ needs.pytest-agents-b.result }}
+            ${{ needs.pytest-unit-and-integration.result }}
+        run: |
+          set -euo pipefail
+          names=(pytest-agents-a pytest-agents-b pytest-unit-and-integration)
+          read -r -a results <<< "$SHARD_RESULTS"
+          status=0
+          for i in "${!names[@]}"; do
+            echo "${names[$i]}=${results[$i]}"
+            if [[ "${results[$i]}" != "success" ]]; then
+              echo "::error::Backend test shard ${names[$i]} did not succeed (result=${results[$i]})."
+              status=1
+            fi
+          done
+          exit "$status"
 
       - name: Setup backend
         uses: ./.github/actions/setup-backend
@@ -607,6 +694,64 @@ jobs:
           uv run --no-sync coverage json
           uv run --no-sync coverage xml
 
+      # Make coverage.xml's source roots resolvable from the REPO ROOT, which is
+      # where SonarScanner runs.
+      #
+      # Cobertura XML locates a file by joining a `<sources><source>` prefix with
+      # a `<class filename="...">` attribute. coverage.py emits bare filenames
+      # (`filename="main.py"`), so the `<source>` roots do all the work.
+      #
+      # backend/pyproject.toml sets `relative_files = true`, which already
+      # removed the absolute `/home/runner/work/...` roots that previously made
+      # this resolvable only because every GitHub-hosted runner happens to share
+      # one workspace path. What it leaves is `<source>app</source>` /
+      # `<source>agents</source>` — relative to `backend/`, not to the repo root,
+      # so Sonar would still resolve nothing and still report 0% while exiting 0.
+      # This step closes that last gap by prefixing each root with `backend/`.
+      #
+      # Written in Python rather than sed because it must be idempotent and must
+      # FAIL LOUDLY on anything unexpected (absolute paths, zero roots) instead
+      # of silently passing a report Sonar cannot read.
+      - name: Normalise coverage.xml source paths for SonarCloud
+        run: |
+          uv run --no-sync python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path = pathlib.Path("coverage.xml")
+          xml = path.read_text(encoding="utf-8")
+
+          roots: list[str] = []
+
+          def _prefix(match: re.Match[str]) -> str:
+              value = match.group(1)
+              roots.append(value)
+              # Idempotent: a root already scoped to backend/ is left alone.
+              if value == "backend" or value.startswith("backend/"):
+                  return match.group(0)
+              return f"<source>backend/{value}</source>"
+
+          rewritten = re.sub(r"<source>([^<]*)</source>", _prefix, xml)
+
+          if not roots:
+              sys.exit("::error::coverage.xml contains no <source> roots — cannot map paths for Sonar.")
+
+          absolute = [r for r in roots if r.startswith("/") or re.match(r"^[A-Za-z]:", r)]
+          if absolute:
+              sys.exit(
+                  "::error::coverage.xml still contains ABSOLUTE source roots "
+                  f"{absolute}. Expected relative roots — check that "
+                  "[tool.coverage.run] relative_files = true is still set in "
+                  "backend/pyproject.toml."
+              )
+
+          path.write_text(rewritten, encoding="utf-8")
+          print(f"Source roots rewritten to repo-relative: {sorted(set(roots))}")
+          PY
+          echo "--- coverage.xml source roots ---"
+          grep -o '<source>[^<]*</source>' coverage.xml
+
       - name: Display coverage summary
         run: |
           echo "=== COVERAGE SUMMARY ==="
@@ -619,6 +764,31 @@ jobs:
           name: backend-coverage-report
           path: backend/htmlcov/
           retention-days: 1  # Phase 8: Reduced from 30 to 1 day (PR-scoped data)
+
+      # The machine-readable Cobertura report — this is the file SonarCloud and
+      # Codecov actually consume. `coverage xml` (above) has always written it,
+      # but nothing uploaded it: the only backend coverage artifact was
+      # `backend-coverage-report`, which contains htmlcov/ and nothing else. The
+      # old prepare-sonarcloud job then looked for `coverage-backend/coverage.xml`
+      # inside that HTML-only artifact, never found it, warned, and exited 0 —
+      # which is why backend coverage has been absent from Sonar.
+      #
+      # `if: success()` (not `always()`), paired with `if-no-files-found: error`:
+      # the pair means "if we got here, the report MUST exist". Under `always()`
+      # the two fight each other — a failed shard would skip report generation
+      # and then this upload would raise a second, misleading error about a
+      # missing file. The only consumer is sonarcloud-analysis, which is itself
+      # skipped when this job fails, so there is nothing to preserve on the
+      # failure path (htmlcov/ above still uploads under `always()` for
+      # debugging).
+      - name: Upload backend coverage XML (for SonarCloud)
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage-xml
+          path: backend/coverage.xml
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Upload merged JUnit report
         if: always()
@@ -724,21 +894,51 @@ jobs:
       - name: migration guard (retro-edit + duplicate-ID + single-head)
         run: uv run --no-sync python scripts/migration_guard.py --verify
 
-      # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
-      # findings are triaged. pip-audit checks requirements.txt against the
-      # PyPI advisory database for known CVEs.
+      # pip-audit resolves requirements.txt against the PyPI/OSV advisory
+      # databases. BLOCKING: a new vulnerable dependency fails the PR.
+      #
+      # History, because it explains the one suppression below. This step was
+      # written as blocking but pip-audit was never listed in
+      # requirements-dev.txt, so it could only ever exit 127 — and nobody saw
+      # even that, because the invalid `_docker.yml` step reference elsewhere in
+      # this file made the whole workflow fail at startup. Installing the tool
+      # made it run for the first time and surfaced 60 advisories across 11
+      # packages. Those have now been fixed by upgrading, not suppressed:
+      # starlette 0.41.3->1.3.1 (with fastapi 0.115.6->0.141.1 to lift its
+      # starlette<0.42 cap), pypdf 5.1.0->6.16.1 (41 advisories, all of them),
+      # python-jose 3.3.0->3.5.0, langchain 1.3.4->1.3.9, langchain-core
+      # 1.4.0->1.4.6, langchain-anthropic 1.4.3->1.4.6,
+      # langgraph-checkpoint-postgres 3.1.0->3.1.1, langsmith 0.8.5->0.8.18,
+      # mcp 1.27.2->1.28.1, python-dotenv 1.0.1->1.2.2, websockets 14.1->15.0.1,
+      # pytest 8.3.4->9.0.3 (+ pytest-asyncio 1.4.0, pytest-cov 7.1.0).
+      #
+      # --ignore-vuln PYSEC-2026-1325 (ecdsa 0.19.2) is the ONLY suppression,
+      # and it is not a deferral — there is NO fix version. The ecdsa
+      # maintainers treat side-channel resistance as out of scope for a
+      # pure-Python implementation, so no upgrade will ever clear it. It arrives
+      # transitively via python-jose, which depends on it unconditionally.
+      #
+      # It is safe to ignore HERE on a verified basis, not an assumed one: both
+      # JWT verification call sites pass an explicit non-EC algorithm
+      # allow-list — app/core/security.py uses `algorithms=["HS256"]` and
+      # app/core/cognito.py uses `algorithms=["RS256"]` — so no EC key is ever
+      # parsed and the vulnerable code path is unreachable. If either
+      # allow-list ever gains an ES* algorithm, this suppression becomes
+      # invalid and must be removed. See the note in requirements-prod.txt.
+      #
+      # TODO(migrate-off-python-jose): replacing python-jose with PyJWT drops
+      # the ecdsa dependency entirely and lets this suppression go away. PyJWT
+      # is already in the tree transitively.
       - name: pip-audit (blocking)
-        run: uv run --no-sync pip-audit -r requirements.txt
+        run: |
+          uv run --no-sync pip-audit -r requirements.txt \
+            --ignore-vuln PYSEC-2026-1325
 
-      # Phase 7: Scan Docker image on PR (no push, just build+scan)
-      - name: Scan backend Docker image
-        uses: ./.github/workflows/_docker.yml
-        with:
-          component: backend
-          build-context: ./backend
-          dockerfile-path: ./backend/Dockerfile
-          image-tag: pr-${{ github.run_number }}
-          push: false
+      # NOTE: the backend container image build+scan is NOT a step here. It
+      # lives in the `container-scan` job below, because `_docker.yml` is a
+      # reusable WORKFLOW (`on: workflow_call`) and can only be invoked from a
+      # job's `uses:` key — never from `steps[].uses:`, which resolves only
+      # ACTIONS (a directory containing action.yml). See that job's header.
 
   # ---------------------------------------------------------------------------
   # Backend Postgres integration — task.md DB-002/DB-001. The `backend` job
@@ -949,9 +1149,64 @@ jobs:
         working-directory: frontend
         run: npm run test
 
+      # Rewrite LCOV source paths to be REPO-root-relative.
+      #
+      # vitest writes `SF:src/app/layout.tsx` — relative to its own root
+      # (frontend/). SonarScanner runs from the repo root, so it would look for
+      # `<repo>/src/app/layout.tsx`, find nothing, and silently attribute zero
+      # coverage to every frontend file while still exiting 0. That is the same
+      # class of quiet failure this whole coverage chain just had, so it is
+      # normalised here rather than left to a path coincidence.
+      #
+      # Also normalises backslashes: developers on Windows produce `SF:src\app\...`,
+      # and a committed/attached report from such a run would not resolve either.
+      - name: Normalise LCOV paths for SonarCloud
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          test -s coverage/lcov.info
+          before="$(grep -c '^SF:' coverage/lcov.info)"
+          sed -i -e 's|\\|/|g' -e 's|^SF:frontend/|SF:|' -e 's|^SF:|SF:frontend/|' coverage/lcov.info
+          after="$(grep -c '^SF:frontend/' coverage/lcov.info)"
+          echo "Rewrote ${after}/${before} SF: entries to repo-relative paths."
+          [[ "$before" -eq "$after" ]]
+          head -2 coverage/lcov.info
+
+      # The Chromium binary MUST be installed on THIS runner. The `test-debt`
+      # job also installs it, but that is a different job on a different
+      # ephemeral VM — `~/.cache/ms-playwright` does not travel between jobs, and
+      # `npm ci` does not fetch browsers (the playwright wheel/package ships no
+      # browser binary). So `npm run e2e` below was relying on a filesystem state
+      # that only ever existed in another job. The cache key matches
+      # `test-debt`'s so the two jobs share one download.
+      - name: Cache Playwright browser
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: playwright-
+
+      - name: Install Playwright browser (chromium)
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
       - name: E2E tests (Playwright mocked)
         working-directory: frontend
         run: npm run e2e
+
+      # Traces/screenshots/video for the failing spec only (playwright.config.ts
+      # sets trace: on-first-retry, screenshot/video: *-on-failure). Without this
+      # a red E2E step leaves nothing to debug from.
+      - name: Upload Playwright report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            frontend/e2e/.report/
+            frontend/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload frontend coverage HTML
         if: always()
@@ -961,13 +1216,28 @@ jobs:
           path: frontend/coverage/
           retention-days: 1  # Phase 8: Reduced from 30 to 1 day (PR-scoped data)
 
-      - name: Upload frontend coverage XML (for SonarCloud)
-        if: always()
+      # LCOV, not XML. This artifact previously pointed at
+      # `frontend/coverage/coverage-final.xml`, which vitest never wrote: the
+      # `xml` entry in vitest.config.ts's reporter list is not a valid
+      # @vitest/coverage-v8 reporter, so it resolved to istanbul's `xml`
+      # reporter, failed to load its `xml` module, and took `npm run test` down
+      # with it AFTER every test had already passed. Sonar consumes LCOV for
+      # JS/TS natively (sonar.javascript.lcov.reportPaths), so there was never a
+      # reason to produce XML here in the first place.
+      #
+      # `if-no-files-found: error` on purpose: a silently-absent coverage report
+      # is the exact failure this whole chain just had, and the sonarcloud
+      # analysis job depends on this artifact existing.
+      # `if: success()` for the same reason as the backend XML upload — see the
+      # note on that step in the test-results job.
+      - name: Upload frontend coverage LCOV (for SonarCloud)
+        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: frontend-coverage-xml
-          path: frontend/coverage/coverage-final.xml
+          name: frontend-coverage-lcov
+          path: frontend/coverage/lcov.info
           retention-days: 1
+          if-no-files-found: error
 
       - name: Upload frontend coverage to Codecov
         if: always()
@@ -986,115 +1256,133 @@ jobs:
         working-directory: frontend
         run: npm ls --omit=dev > /dev/null
 
-      # Phase 7: Scan Docker image on PR (no push, just build+scan)
-      - name: Scan frontend Docker image
-        uses: ./.github/workflows/_docker.yml
-        with:
-          component: frontend
-          build-context: ./frontend
-          dockerfile-path: ./frontend/Dockerfile
-          image-tag: pr-${{ github.run_number }}
-          push: false
+      # NOTE: the frontend container image build+scan is NOT a step here — see
+      # the `container-scan` job below and the matching note in the `backend`
+      # job for why a `workflow_call` workflow cannot be a step.
 
-      # TODO(flip-to-high: 2026-09-01): Tighten to --audit-level=high once
-      # initial critical findings are triaged. Starting at critical-only to
-      # avoid a flood of newly-blocking findings that would delay PR merges.
-      - name: npm audit (critical vulnerabilities blocking)
+      # Blocks on ANY critical, and ratchets HIGH against a recorded baseline.
+      #
+      # This replaces a plain `npm audit --audit-level=critical`, which passed
+      # while the tree carried 9 HIGH advisories (postcss, sharp, undici,
+      # @babel/core, brace-expansion, browserslist). Those are now fixed by
+      # upgrading — next 16.2.4 -> 16.3.4 cleared the postcss/sharp chains and
+      # `npm audit fix` cleared the rest.
+      #
+      # Why a baseline instead of `--audit-level=high`: exactly 2 HIGH advisories
+      # remain and NEITHER has an upstream fix. Both are `image-size` (DoS via
+      # infinite loops in its ICNS/JXL/HEIF parsers), reached through
+      # `pptxgenjs`, and the advisory's vulnerable range for image-size is `*` —
+      # every published version. npm's proposed remedy is pptxgenjs@1.1.5, a
+      # semver-MAJOR downgrade from 3.12.0 that would break the live
+      # `exportToPptx` path in src/components/chat/ArtifactCard.tsx. npm audit
+      # has no per-advisory allowlist, so a count baseline is the mechanism
+      # available.
+      #
+      # This is a RATCHET, not a waiver — it fails in BOTH directions. A new
+      # HIGH fails the build; and if the count DROPS, that also fails, forcing
+      # MAX_HIGH down so a future regression cannot hide inside a stale
+      # allowance. Same posture as the eslint `--prune-suppressions` guard above
+      # and the test-count baselines in the test-debt job.
+      - name: npm audit (critical blocking; high ratcheted to baseline)
         working-directory: frontend
-        run: npm audit --audit-level=critical
+        env:
+          # Number of HIGH advisories with NO available upstream fix. Both are
+          # image-size via pptxgenjs — see the note above. Lower this the moment
+          # upstream ships a fix (the step tells you when).
+          MAX_HIGH: "2"
+        run: |
+          set -euo pipefail
+          # npm audit exits non-zero whenever anything is found, so its status
+          # carries no information beyond "not clean" — the counts below are the
+          # actual signal.
+          report="$(npm audit --json || true)"
+
+          crit="$(jq -r '.metadata.vulnerabilities.critical' <<< "$report")"
+          high="$(jq -r '.metadata.vulnerabilities.high' <<< "$report")"
+          echo "critical=${crit}  high=${high}  (baseline allows high=${MAX_HIGH})"
+          jq -r '
+            .vulnerabilities // {} | to_entries[]
+            | select(.value.severity == "high" or .value.severity == "critical")
+            | "  \(.key)  severity=\(.value.severity)  range=\(.value.range)  fix=\(.value.fixAvailable | tostring)"
+          ' <<< "$report"
+
+          status=0
+          if [[ "$crit" -gt 0 ]]; then
+            echo "::error::npm audit found ${crit} CRITICAL advisories. No critical is tolerated."
+            status=1
+          fi
+          if [[ "$high" -gt "$MAX_HIGH" ]]; then
+            echo "::error::npm audit found ${high} HIGH advisories; baseline allows ${MAX_HIGH}. Fix the new one, or justify and raise MAX_HIGH in ci.yml."
+            status=1
+          fi
+          if [[ "$high" -lt "$MAX_HIGH" ]]; then
+            echo "::error::npm audit found only ${high} HIGH advisories but MAX_HIGH is ${MAX_HIGH} — upstream shipped a fix. Lower MAX_HIGH to ${high} in ci.yml so the allowance cannot mask a future regression."
+            status=1
+          fi
+          exit "$status"
 
   # ---------------------------------------------------------------------------
-  # Coverage Consolidation for SonarCloud (Task 4)
+  # Container image build + scan (backend, frontend).
   #
-  # This job downloads backend + frontend coverage artifacts from test-results
-  # and frontend jobs, respectively, and prepares them in a consolidated
-  # directory for SonarScanner to consume in the sonarcloud-analysis job.
+  # WHY THIS IS A JOB AND NOT A STEP. `_docker.yml` declares `on:
+  # workflow_call`, which makes it a REUSABLE WORKFLOW. A reusable workflow can
+  # only be invoked from a job's `uses:` key. It was previously invoked from
+  # `steps[].uses:` inside the `backend` and `frontend` jobs; `steps[].uses:`
+  # resolves only ACTIONS (a path containing action.yml, a `owner/repo@ref`, or
+  # a `docker://` image). Pointing it at a workflow FILE makes the whole
+  # workflow invalid, and an invalid workflow file is a STARTUP failure: no job
+  # is created, so every check in this file — including `ci-required` — silently
+  # never ran. The new `actionlint` step in `fast-checks` is what catches this
+  # class of error going forward; the 14 yaml.safe_load-based contract tests in
+  # tests/ci/test_workflow_contracts.py all passed while it was broken.
   #
-  # Coverage Flow:
-  #   - Backend: pytest jobs → test-results (merge) → coverage.xml
-  #   - Frontend: vitest → coverage/ (includes coverage.xml from v8 provider)
-  #   - Consolidation: download both → prepare for SonarScanner
+  # `timeout-minutes` is deliberately absent: GitHub rejects it (and `runs-on`,
+  # `steps`, `env`, ...) on a reusable-workflow-call job — that is the exact
+  # startup failure deploy.yml's `gate` job hit once. The time budget lives on
+  # `_docker.yml`'s own `build` job (30 min). tests/ci/test_workflow_contracts.py
+  # ::assert_timeout_present enforces both halves of this rule.
+  #
+  # This job IS part of `ci-required`. Both scanners are scoped to actionable
+  # findings — Trivy runs `--ignore-unfixed` and Grype `--only-fixed` — so the
+  # gate blocks on HIGH/CRITICAL that a base-image rebuild or dependency bump can
+  # clear, not on unfixable noise. ci/trivyignore.images is the documented
+  # (currently empty) waiver path, and it requires a per-CVE reason and expiry.
+  #
+  # FIRST-RUN CAVEAT: because the step-level invocation this replaces was a
+  # startup failure, this scan has never actually executed against these two
+  # Dockerfiles. If it fails on the first run, the most likely cause is the base
+  # image, not the application: both Dockerfiles build on `node:20-bookworm-slim`,
+  # and Node 20 went end-of-life in March 2026, so it no longer receives security
+  # patches. The remedy is to move to Node 24 LTS (tracked as Phase 4 hardening
+  # alongside .github/actions/setup-frontend's `node-version: "20"`), NOT to add
+  # blanket entries to the ignorefile.
   # ---------------------------------------------------------------------------
-  prepare-sonarcloud:
-    name: Prepare coverage for SonarCloud
-    runs-on: ubuntu-latest
-    needs: [test-results, frontend, ruff-vulture]  # Phase 8: Added ruff-vulture dependency
-    if: always()  # Run even if test-results or frontend jobs fail, so we can analyze partial coverage
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0  # Full repo history needed for SonarScanner to compute delta/new code
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Download backend coverage artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: backend-coverage-report
-          path: coverage-backend/
-
-      - name: Download frontend coverage XML artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: frontend-coverage-xml
-          path: coverage-frontend/
-
-      - name: Verify coverage files exist and are valid XML
-        run: |
-          set -euo pipefail
-          echo "=== Backend Coverage Files ==="
-          ls -lh coverage-backend/ || echo "No backend coverage files found"
-          find coverage-backend -name "*.xml" -exec file {} \;
-          echo ""
-          echo "=== Frontend Coverage Files ==="
-          ls -lh coverage-frontend/ || echo "No frontend coverage files found"
-          find coverage-frontend -name "*.xml" -exec file {} \;
-
-      - name: Create sonarcloud-coverage directory
-        run: mkdir -p sonarcloud-coverage
-
-      - name: Consolidate coverage files for SonarCloud
-        run: |
-          set -euo pipefail
-          echo "Copying backend coverage..."
-          if [ -f coverage-backend/coverage.xml ]; then
-            cp coverage-backend/coverage.xml sonarcloud-coverage/coverage-backend.xml
-            echo "✓ Copied coverage-backend.xml"
-          else
-            echo "⚠ WARNING: Backend coverage.xml not found" >&2
-          fi
-          
-          echo "Copying frontend coverage..."
-          if [ -f coverage-frontend/coverage-final.xml ]; then
-            cp coverage-frontend/coverage-final.xml sonarcloud-coverage/coverage-frontend.xml
-            echo "✓ Copied coverage-frontend.xml (from coverage-final.xml)"
-          else
-            echo "⚠ WARNING: Frontend coverage.xml not found" >&2
-          fi
-          
-          echo ""
-          echo "=== Consolidated Coverage Directory ==="
-          ls -lh sonarcloud-coverage/
-
-      - name: Validate consolidated coverage XML files
-        run: |
-          set -euo pipefail
-          for file in sonarcloud-coverage/*.xml; do
-            if [ -f "$file" ]; then
-              echo "Validating: $file"
-              head -1 "$file" | grep -q "<?xml" || echo "⚠ WARNING: $file does not start with XML declaration"
-              wc -l "$file"
-            fi
-          done
-
-      - name: Upload consolidated coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: sonarcloud-coverage
-          path: sonarcloud-coverage/
-          retention-days: 1
-          if-no-files-found: warn
+  container-scan:
+    name: Container image (build + scan)
+    needs: [fast-checks]
+    # `security-events: write` is what lets _docker.yml publish its Trivy SARIF
+    # to the code-scanning API. It is granted here rather than at workflow level
+    # so the other 14 jobs keep the least-privilege `contents: read` default.
+    # It is NOT always effective: when ci.yml is itself called as deploy.yml's
+    # `gate` (which grants only `contents: read`), a nested call cannot escalate
+    # beyond the caller's grant. _docker.yml therefore treats the SARIF upload
+    # as best-effort and keeps the BLOCKING signal on Trivy's exit code.
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      # One component's vulnerabilities say nothing about the other's — report
+      # both in a single run instead of hiding the second behind the first.
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    uses: ./.github/workflows/_docker.yml
+    with:
+      component: ${{ matrix.component }}
+      build-context: ./${{ matrix.component }}
+      dockerfile-path: ./${{ matrix.component }}/Dockerfile
+      image-tag: pr-${{ github.run_number }}
+      push: false
 
   # ---------------------------------------------------------------------------
   # SonarCloud Analysis Job (Task 5)
@@ -1103,13 +1391,25 @@ jobs:
   # results to SonarCloud, and enforces quality gates. SonarCloud automatically
   # decorates PRs with check status and comments.
   #
-  # Dependencies: prepare-sonarcloud (provides consolidated coverage artifacts)
+  # Dependencies: test-results (backend coverage.xml), frontend (lcov.info).
   # Environment: SONAR_TOKEN (GitHub Organization Secret), SONAR_HOST_URL
+  #
+  # There is deliberately NO separate coverage-consolidation job. The previous
+  # `prepare-sonarcloud` job existed to copy two files into a
+  # `sonarcloud-coverage/` directory, and it could not work: it downloaded the
+  # `backend-coverage-report` artifact (which contained only htmlcov/, never
+  # coverage.xml) and looked for `coverage-final.xml` in the frontend artifact
+  # (which vitest never produced). Both `if [ -f ... ]` guards therefore always
+  # took the `else` branch, warned to stderr, and the job still exited 0 — so
+  # SonarCloud has been receiving ZERO coverage while reporting success. The two
+  # downloads below replace it: each artifact lands directly at the path
+  # sonar-project.properties already names, so there is nothing left to
+  # consolidate and no silent-warning branch to hide a break.
   # ---------------------------------------------------------------------------
   sonarcloud-analysis:
     name: SonarCloud analysis
     runs-on: ubuntu-latest
-    needs: [prepare-sonarcloud]
+    needs: [test-results, frontend]
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'  # Phase 9: Guard fork PRs from accessing secrets
     timeout-minutes: 20
     steps:
@@ -1119,16 +1419,40 @@ jobs:
           fetch-depth: 0  # Full repo history needed for SonarScanner to compute delta/new code
           persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Download consolidated coverage artifacts
+      # Cobertura XML from `coverage xml` in the test-results job. Lands at
+      # backend/coverage.xml == sonar.python.coverage.reportPaths.
+      - name: Download backend coverage XML
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: sonarcloud-coverage
-          path: sonarcloud-coverage/
+          name: backend-coverage-xml
+          path: backend/
 
-      - name: Verify coverage artifacts exist
+      # LCOV from vitest's v8 provider. Lands at frontend/coverage/lcov.info ==
+      # sonar.javascript.lcov.reportPaths.
+      - name: Download frontend coverage LCOV
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: frontend-coverage-lcov
+          path: frontend/coverage/
+
+      # Hard failure, not a warning. A missing/empty report here means Sonar
+      # would compute 0% coverage and — depending on the gate — either pass
+      # vacuously or fail for the wrong reason. Neither is a usable signal, and
+      # the old consolidation job's `⚠ WARNING ... >&2; exit 0` behaviour is
+      # precisely how this went unnoticed.
+      - name: Verify coverage reports are present and non-empty
         run: |
-          echo "=== Coverage Artifacts ==="
-          ls -lh sonarcloud-coverage/ || echo "No coverage artifacts found"
+          set -euo pipefail
+          status=0
+          for report in backend/coverage.xml frontend/coverage/lcov.info; do
+            if [[ ! -s "$report" ]]; then
+              echo "::error::Coverage report missing or empty: ${report}"
+              status=1
+            else
+              echo "OK: ${report} ($(wc -c < "$report") bytes)"
+            fi
+          done
+          exit "$status"
 
       - name: Install SonarScanner CLI (checksum-verified binary)
         run: |
@@ -1176,6 +1500,21 @@ jobs:
       # updated. Only `sonar.log.level`, which has no equivalent entry in the
       # properties file (deliberately: it's noisy and belongs at the
       # invocation, not committed config), stays as a -D flag.
+      # `sonar.qualitygate.wait=true` makes the scanner block on the server's
+      # quality-gate verdict and exit non-zero when it fails. Without it this
+      # step reports success for "the scanner uploaded a report", which is a
+      # different fact from "the quality gate passed" — the distinction matters
+      # because this job's status is what a human reads in the Checks list.
+      #
+      # It stays a -D flag rather than a properties-file entry for the same
+      # reason as sonar.log.level (see the F-08 note above): it is a property of
+      # THIS invocation. A local `sonar-scanner` run by a developer should not
+      # inherit a blocking wait from committed config.
+      #
+      # This does NOT by itself gate merges: `ci-required` deliberately excludes
+      # this job (SonarCloud is an external service), so the SonarCloud quality
+      # gate must ALSO be listed as its own required status check in the
+      # repository ruleset. See docs/GITHUB_CICD_SETUP.md.
       - name: Run SonarScanner analysis
         env:
           SONAR_HOST_URL: https://sonarcloud.io
@@ -1183,7 +1522,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          /opt/sonar-scanner/bin/sonar-scanner -Dsonar.log.level=INFO
+          /opt/sonar-scanner/bin/sonar-scanner \
+            -Dsonar.log.level=INFO \
+            -Dsonar.qualitygate.wait=true
 
       - name: Display SonarCloud analysis results
         if: always()
@@ -1207,7 +1548,8 @@ jobs:
           3. Troubleshooting:
              - If check doesn't appear: verify SONAR_TOKEN is set in GitHub Organization Secrets
              - If analysis is incomplete: check this job's logs for errors
-             - For coverage issues: verify coverage artifacts were downloaded in prepare-sonarcloud job
+             - For coverage issues: check the "Verify coverage reports" step in this job
+               (backend/coverage.xml comes from test-results, frontend/coverage/lcov.info from frontend)
           
           ================================
           EOF
@@ -1393,11 +1735,18 @@ jobs:
   # `if: success()` would skip it, and a SKIPPED required check does not
   # block a merge the way a FAILED one does.
   #
-  # `needs` intentionally excludes sonarcloud-analysis and prepare-sonarcloud:
-  # SonarCloud posts its own PR check ("SonarCloud Code Analysis") directly,
-  # which is added to the ruleset as a second, independent required check.
-  # Folding it in here would make this job depend on Sonar's availability,
-  # which is an external service outside this repo's control.
+  # `needs` intentionally excludes sonarcloud-analysis: SonarCloud posts its own
+  # PR check ("SonarCloud Code Analysis") directly, which MUST be added to the
+  # ruleset as a second, independent required check — this job does not cover it.
+  # Folding it in here would make this job depend on Sonar's availability, which
+  # is an external service outside this repo's control.
+  #
+  # Everything else that gates a merge belongs in `needs` below. Two entries were
+  # missing (`test-results` and `backend-postgres-populated-migration`), which
+  # meant this "authoritative" gate could report success on a commit whose
+  # backend test suite had failed outright. `actionlint` in `fast-checks` cannot
+  # catch that class of gap — a job simply absent from a `needs:` list is valid
+  # Actions syntax — so it is guarded by review and by the comments below.
   # ---------------------------------------------------------------------------
   ci-required:
     name: ci-required
@@ -1407,11 +1756,30 @@ jobs:
     needs:
       - fast-checks  # Phase 8: First check, gates all else
       - backend  # Python checks
-      - backend-postgres  # Backend integration
+      # Backend pytest. Depends on `test-results` rather than on the three shard
+      # jobs directly, which covers both facts in one edge: `test-results`
+      # asserts each shard's `result == success` in its first step, AND it is the
+      # job that enforces the 80% MERGED coverage floor. Before this line, the
+      # authoritative merge gate depended on NO backend test job whatsoever —
+      # every pytest shard could fail and `ci-required` still went green.
+      - test-results
+      - backend-postgres  # Backend integration (requires_postgres suite)
+      # Migration chain applied to a POPULATED database (seed at 0014 → upgrade
+      # to head → verify). Also previously absent from this list, so a migration
+      # that corrupts existing rows could not block a merge.
+      - backend-postgres-populated-migration
       - frontend  # Next.js checks
       - security-scan-secrets  # Phase 8: Security scan (gitleaks)
       - security-scan-iac  # Phase 8: Security scan (checkov/trivy)
       - security-scan-terraform  # Phase 8: Security scan (terraform validate)
+      # Container image build + Trivy/Grype scan for both components. Now a
+      # merge requirement: both engines run --ignore-unfixed / --only-fixed, so
+      # they block only on HIGH/CRITICAL that a rebuild or dependency bump can
+      # actually clear, and ci/trivyignore.images is the documented (currently
+      # empty) exception path for anything genuinely unfixable.
+      - container-scan
+      # NOT listed (deliberate): sonarcloud-analysis is an external service and
+      # posts its own required check — see this job's header.
     steps:
       - name: Assert every upstream job succeeded
         env:

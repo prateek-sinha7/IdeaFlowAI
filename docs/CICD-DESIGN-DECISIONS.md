@@ -405,9 +405,15 @@ coverage xml  # generates coverage.xml from combined data
 
 **F-11: Coverage doesn't reach SonarCloud**
 
-*Problem:* The `prepare-sonarcloud` job tried to download the artifact named `backend-coverage-report`, which was empty or didn't exist, because the coverage merge had failed (F-10).
+*Problem:* The `prepare-sonarcloud` job tried to download the artifact named `backend-coverage-report` and read `coverage.xml` out of it. That artifact only ever contained `htmlcov/`, so the file was never there. On the frontend side it looked for `coverage-final.xml`, which vitest never wrote (the `"xml"` entry in the vitest reporter list is not a valid coverage reporter). Both `if [ -f ... ]` guards took the `else` branch, printed `⚠ WARNING` to stderr, and the job **still exited 0** — so SonarCloud received zero coverage while every job reported green. Compounding it, the reports were pointed at `sonar.coverageReportPaths`, which accepts only Sonar's *Generic Test Data* XML schema and would not have parsed Cobertura or istanbul output even if the files had existed.
 
-*Solution:* Once F-10 is fixed, `test-results` properly generates and uploads `coverage.xml`. The prepare-sonarcloud job can then download and pass it to SonarScanner.
+*Solution (implemented):* `prepare-sonarcloud` was **deleted**. Each report is now uploaded by the job that produces it and downloaded straight to the path `sonar-project.properties` names:
+
+- `test-results` → `coverage combine` → `coverage xml` → normalise `<source>` roots to `backend/...` → artifact `backend-coverage-xml`
+- `frontend` → vitest LCOV → normalise `SF:` paths to `frontend/...` → artifact `frontend-coverage-lcov`
+- `sonarcloud-analysis` (`needs: [test-results, frontend]`) downloads both and **hard-fails** if either is missing or empty, then runs the scanner with `-Dsonar.qualitygate.wait=true`
+
+Language-specific properties replaced the generic one: `sonar.python.coverage.reportPaths` and `sonar.javascript.lcov.reportPaths`. `backend/pyproject.toml` also sets `relative_files = true`, so Cobertura source roots are relative instead of absolute shard-runner paths that only resolved by runner-path coincidence.
 
 **F-12: junit-merged.xml never created**
 
@@ -1650,14 +1656,26 @@ STAGE 1-5: PARALLEL QUALITY & SECURITY
   └─ OTHER
       ├─ backend-postgres (Postgres integration)
       ├─ backend-postgres-populated-migration (migration head test)
-      ├─ prepare-sonarcloud (coverage consolidation)
-      └─ sonarcloud-analysis (quality gate, independent check)
+      ├─ container-scan (matrix: backend/frontend — build + Trivy + Grype;
+      │                  job-scope call to _docker.yml, NOT a step)
+      └─ sonarcloud-analysis (quality gate, independent check;
+                              needs: [test-results, frontend])
 
 STAGE 6: AGGREGATION
-  ci-required (THE ONLY required status check in ruleset)
+  ci-required (the repository-owned required status check in the ruleset)
     - Asserts all upstream jobs == "success" (not just pass/fail, but catches skipped)
     - Fails if ANY required job is failure/cancelled/skipped
     - Gates merge to main
+    - needs: fast-checks, backend, test-results, backend-postgres,
+             backend-postgres-populated-migration, frontend,
+             security-scan-{secrets,iac,terraform}, container-scan
+    - Depends on `test-results` rather than the three pytest shard jobs
+      directly: test-results asserts each shard's result == success AND
+      enforces the 80% floor on MERGED coverage. Before that edge existed,
+      this gate depended on no backend test job at all.
+    - EXCLUDES sonarcloud-analysis on purpose (external service). The
+      SonarCloud quality gate must therefore be a SECOND required status
+      check in the ruleset; ci-required does not cover it.
 
 STAGE 7: BUILD (deploy.yml)
   gate → build → deploy

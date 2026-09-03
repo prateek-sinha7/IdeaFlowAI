@@ -1,93 +1,21 @@
-"""app/agents/revision_analyzer.py — single source for ``parse_analyzer_output`` and ``run_analyzer``.
-
-``parse_analyzer_output`` is a **pure function** (no I/O, no LLM calls) that
-extracts the ``## Solution Plan`` body from the raw Markdown string emitted
-by the ``prototype-revision-analyzer`` agent.  Returns a plain ``str``.
+"""app/agents/revision_analyzer.py — orchestrator for the Prototype Revision Analyzer agent.
 
 ``run_analyzer`` is the async orchestrator that invokes the LLM, calls
-``parse_analyzer_output``, emits SSE events onto the caller's event queue, and
-returns ``(tier, solution)``.  It is **deprecated dead code** as of the
-revision-pipeline-refactor — the engine now drives the analyzer as a manifest
-step and calls ``parse_analyzer_output`` directly.
+``parse_analyzer_output`` (from app.core.parsing), emits SSE events onto the
+caller's event queue, and returns ``(tier, solution)``.  It is **deprecated
+dead code** as of the revision-pipeline-refactor — the engine now drives the
+analyzer as a manifest step and calls ``parse_analyzer_output`` directly.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 
+from app.core.parsing import parse_analyzer_output  # noqa: F401
+
 logger = logging.getLogger("app.agents.revision_analyzer")
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Regex that matches an H2 heading line at the start of a line.
-_H2_PATTERN = re.compile(r"^## (.+)$", re.MULTILINE)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _split_h2_sections(raw: str) -> dict[str, str]:
-    """Split *raw* into a mapping of ``{header_text: section_body}``.
-
-    Each section body is the text between two consecutive ``## `` headings
-    (or between a heading and the end of the document).  Leading/trailing
-    newlines on each body are NOT stripped — the ``## Solution Plan`` body is
-    captured verbatim so downstream agents receive faithful whitespace.
-
-    The returned dict preserves insertion order (Python 3.7+).
-    """
-    sections: dict[str, str] = {}
-    matches = list(_H2_PATTERN.finditer(raw))
-    for i, match in enumerate(matches):
-        header = match.group(1).strip()
-        body_start = match.end()  # position just after the heading line
-        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(raw)
-        sections[header] = raw[body_start:body_end]
-    return sections
-
-
-def _find_section(sections: dict[str, str], target: str) -> str | None:
-    """Return the body of the section whose header matches *target* (case-insensitive).
-
-    Returns ``None`` if no matching header is found.
-    """
-    target_lower = target.strip().lower()
-    for header, body in sections.items():
-        if header.strip().lower() == target_lower:
-            return body
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def parse_analyzer_output(raw: str) -> str:
-    """Extract the ## Solution Plan body from the analyzer's raw output.
-
-    Returns the solution body string, or "" if the section is absent (logs WARNING).
-    Tier parsing logic (_VALID_TIERS, _DEFAULT_TIER, ## Tier section extraction) is removed.
-
-    Returns:
-        The full ``## Solution Plan`` section body (preserving interior whitespace),
-        or ``""`` if the section is absent.
-    """
-    sections = _split_h2_sections(raw)
-    body = _find_section(sections, "Solution Plan")
-    if body is None:
-        logger.warning(
-            "parse_analyzer_output: ## Solution Plan section not found in output"
-        )
-        return ""
-    return body
 
 
 # ---------------------------------------------------------------------------

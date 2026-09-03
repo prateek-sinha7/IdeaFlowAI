@@ -19,7 +19,7 @@ from textwrap import dedent
 import pytest
 import yaml
 
-from app.agents.revision_analyzer import parse_analyzer_output
+from app.core.parsing import parse_analyzer_output
 
 # ---------------------------------------------------------------------------
 # Helpers

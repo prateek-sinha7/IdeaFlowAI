@@ -65,12 +65,30 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   // Override default ignores of eslint-config-next.
+  //
+  // NOTE: declaring `globalIgnores` REPLACES eslint-config-next's defaults, so
+  // every generated directory has to be listed here explicitly — ESLint itself
+  // only ignores `node_modules` and dotfiles out of the box. Being gitignored is
+  // not enough; ESLint does not read .gitignore.
+  //
+  // `coverage/**` was missing, and that made `npm run lint` order-dependent:
+  // the v8/istanbul reporters emit their own `block-navigation.js`,
+  // `prettify.js` and `sorter.js` (each carrying an `/* eslint-disable */`
+  // header), so ESLint reported "Unused eslint-disable directive" against
+  // vendored report scaffolding and `--max-warnings 0` turned that into a
+  // failure. It only passed in CI because Lint happens to run BEFORE Test;
+  // any developer who ran the tests first — or any future reordering of those
+  // steps — saw lint fail on files nobody wrote.
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated test/coverage output (gitignored; not source):
+    "coverage/**",
+    "e2e/.report/**",
+    "test-results/**",
   ]),
   // Project-specific rules.
   {
