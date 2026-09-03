@@ -61,6 +61,7 @@ on:
   workflow_dispatch:
   # Reusable workflow entry point — deploy.yml calls this as a gate.
   workflow_call:
+    inputs: {}
 
 # Cancel superseded runs on the same branch/PR. When called as a reusable
 # workflow, github.workflow resolves to the CALLER's name ("Deploy"), so we

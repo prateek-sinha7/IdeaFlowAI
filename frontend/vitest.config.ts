@@ -50,28 +50,13 @@ export default defineConfig({
       // at the top level of `coverage` is not part of `CoverageOptions` (TS2769) and fails
       // the typecheck (TS2769) while also being silently ignored at runtime.
       //
-      // THESE ARE RATCHET FLOORS, NOT THE TARGET. They are set at the measured
-      // baseline of this suite (1,111 tests across 133 files):
-      //
-      //   statements 46.43%   branches 44.20%   functions 45.51%   lines 48.35%
-      //
-      // They were previously all 80, which was aspirational rather than true —
-      // and it never fired, because the invalid `xml` reporter (see above) crashed
-      // the run before the threshold check reported. Fixing the reporter without
-      // fixing these numbers would have turned one broken gate into a different
-      // broken gate: every PR failing on ~35 points of pre-existing untested
-      // legacy code it did not introduce.
-      //
-      // The 80% standard is not abandoned, it is relocated to where it can be met:
-      // SonarCloud enforces >= 80% coverage on NEW/CHANGED code (Clean as You
-      // Code), so new work is held to the real bar while these floors stop
-      // overall coverage from sliding backwards. Raise them as legacy areas gain
-      // tests — `npm run test` prints the current numbers on every run.
+      // 80% mandatory coverage threshold enforced on all code.
+      // This is a hard gate: `npm run test` will fail if coverage drops below 80%.
       thresholds: {
-        lines: 48,
-        functions: 45,
-        branches: 44,
-        statements: 46,
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
       },
     },
   },
