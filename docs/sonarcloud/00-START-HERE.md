@@ -29,10 +29,10 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 | File | Purpose |
 |------|---------|
-| **SONARCLOUD_INTEGRATION.md** | 📖 **Start here** — Comprehensive guide with setup instructions, runbook, troubleshooting |
-| **SONARCLOUD_IMPLEMENTATION_CHECKLIST.md** | ✅ **Step-by-step checklist** — Phases 1-10 to complete integration |
-| **SONARCLOUD_CHANGES_SUMMARY.md** | 📝 Technical summary of all code changes |
-| **SONARCLOUD_README.md** | 👋 This file — Quick reference |
+| **02-INTEGRATION-GUIDE.md** | 📖 **Start here** — Comprehensive guide with setup instructions, runbook, troubleshooting |
+| **01-IMPLEMENTATION-CHECKLIST.md** | ✅ **Step-by-step checklist** — Phases 1-10 to complete integration |
+| **03-CHANGES-SUMMARY.md** | 📝 Technical summary of all code changes |
+| **README.md** | 👋 Main navigation — Index of all files |
 
 **Also see:**
 - `sonar-project.properties` — SonarCloud configuration reference (project root)
@@ -50,7 +50,7 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 **Time:** ~10 minutes
 
-**Details:** See `SONARCLOUD_INTEGRATION.md` → "Setup Instructions"
+**Details:** See `02-INTEGRATION-GUIDE.md` → "Setup Instructions"
 
 ### 2. Store Token in GitHub Secrets
 - GitHub Org Settings → Secrets and variables → Actions
@@ -58,7 +58,7 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 **Time:** ~2 minutes
 
-**Details:** See `SONARCLOUD_INTEGRATION.md` → "GitHub Organization Secret"
+**Details:** See `02-INTEGRATION-GUIDE.md` → "GitHub Organization Secret"
 
 ### 3. Configure Quality Gate (Optional)
 - SonarCloud UI → Project Settings → Quality Gates
@@ -68,7 +68,7 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 **Default:** If skipped, SonarCloud uses "Sonar Way" gate (also reasonable)
 
-**Details:** See `SONARCLOUD_INTEGRATION.md` → "Quality Gate Thresholds"
+**Details:** See `02-INTEGRATION-GUIDE.md` → "Quality Gate Thresholds"
 
 ### 4. Test on a PR
 - Open a test PR
@@ -112,9 +112,9 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 | Need | Link |
 |------|------|
-| Full setup guide | `docs/SONARCLOUD_INTEGRATION.md` |
-| Step-by-step checklist | `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` |
-| Technical details | `docs/SONARCLOUD_CHANGES_SUMMARY.md` |
+| Full setup guide | `02-INTEGRATION-GUIDE.md` |
+| Step-by-step checklist | `01-IMPLEMENTATION-CHECKLIST.md` |
+| Technical details | `03-CHANGES-SUMMARY.md` |
 | Configuration reference | `sonar-project.properties` |
 | SonarCloud dashboard | https://sonarcloud.io/dashboard?id=velocityai (after setup) |
 
@@ -144,7 +144,7 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 ## Support
 
 ### If Setup Fails
-1. Check `SONARCLOUD_INTEGRATION.md` → "Troubleshooting" section
+1. Check `02-INTEGRATION-GUIDE.md` → "Troubleshooting" section
 2. Review CI logs: GitHub Actions → workflow → `sonarcloud-analysis` job
 3. Common issues:
    - SONAR_TOKEN not found → Verify GitHub Organization Secret
@@ -159,8 +159,8 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 3. Check CI logs for errors (SONAR_TOKEN, network, etc.)
 
 ### Team Questions
-- Direct to `SONARCLOUD_INTEGRATION.md` for operational procedures
-- Direct to `SONARCLOUD_CHANGES_SUMMARY.md` for technical details
+- Direct to `02-INTEGRATION-GUIDE.md` for operational procedures
+- Direct to `03-CHANGES-SUMMARY.md` for technical details
 
 ---
 
@@ -176,7 +176,7 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 
 **Total Time:** ~30-40 minutes
 
-**Full Checklist:** See `SONARCLOUD_IMPLEMENTATION_CHECKLIST.md`
+**Full Checklist:** See `01-IMPLEMENTATION-CHECKLIST.md`
 
 ---
 
@@ -244,7 +244,7 @@ PR Check (Pass ✓ or Fail ✗)
 ## Next Steps
 
 ### Immediate (This Week)
-1. Follow `SONARCLOUD_INTEGRATION.md` Phases 1-3 (account + secret setup)
+1. Follow `02-INTEGRATION-GUIDE.md` Phases 1-3 (account + secret setup)
 2. Open test PR to verify integration works
 3. Review first analysis in SonarCloud dashboard
 
@@ -268,10 +268,10 @@ PR Check (Pass ✓ or Fail ✗)
 - ✏️ `frontend/vitest.config.ts` — Enhanced coverage reporters
 
 ### Created
-- 📄 `docs/SONARCLOUD_INTEGRATION.md` — Comprehensive guide
-- 📄 `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` — Step-by-step checklist
-- 📄 `docs/SONARCLOUD_CHANGES_SUMMARY.md` — Technical details
-- 📄 `docs/SONARCLOUD_README.md` — This file
+- 📄 `02-INTEGRATION-GUIDE.md` — Comprehensive guide
+- 📄 `01-IMPLEMENTATION-CHECKLIST.md` — Step-by-step checklist
+- 📄 `03-CHANGES-SUMMARY.md` — Technical details
+- 📄 `00-START-HERE.md` — This file
 - 📄 `sonar-project.properties` — Configuration reference
 - 📄 `scripts/setup-sonarscanner-checksum.sh` — Helper script
 
@@ -300,13 +300,13 @@ PR Check (Pass ✓ or Fail ✗)
 - **SonarCloud Docs:** https://docs.sonarcloud.io/
 - **SonarCloud GitHub Integration:** https://docs.sonarcloud.io/github-integration/
 - **This Project's Guides:**
-  - Setup: `SONARCLOUD_INTEGRATION.md`
-  - Implementation: `SONARCLOUD_IMPLEMENTATION_CHECKLIST.md`
-  - Technical: `SONARCLOUD_CHANGES_SUMMARY.md`
+  - Setup: `02-INTEGRATION-GUIDE.md`
+  - Implementation: `01-IMPLEMENTATION-CHECKLIST.md`
+  - Technical: `03-CHANGES-SUMMARY.md`
 
 ---
 
-**Ready to integrate?** Start with Phase 1 in `SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` or dive deep into `SONARCLOUD_INTEGRATION.md`.
+**Ready to integrate?** Start with Phase 1 in `01-IMPLEMENTATION-CHECKLIST.md` or dive deep into `02-INTEGRATION-GUIDE.md`.
 
 **Questions?** Check the FAQ section above or search for your issue in the Troubleshooting guides.
 

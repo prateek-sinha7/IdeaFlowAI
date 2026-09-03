@@ -233,42 +233,52 @@ This checklist guides you through completing the SonarCloud integration. The CI 
   - [ ] If creating new: Click **+ Create**, name it `VelocityAI Moderate`
   - [ ] If editing: Click on the existing gate (usually "Sonar way")
 
-- [ ] **Set Quality Gate Conditions (Moderate Baseline):**
-  - [ ] **Overall Code Coverage:** Add condition
-    - [ ] Metric: `Coverage`
-    - [ ] Operator: `is less than`
-    - [ ] Value: `85%`
-    - [ ] Error Message: "Coverage < 85%"
+- [ ] **Set Quality Gate Conditions (Clean as You Code — New Code Only):**
+  > **IMPORTANT:** All conditions below are set on **NEW CODE** only, not overall metrics.
+  > This keeps PRs focused on their own changes rather than asking them to retroactively
+  > cover legacy code. Overall regression is blocked separately by coverage ratchet floors.
   
-  - [ ] **Blocker Issues:** Add condition
-    - [ ] Metric: `Blocker Issues`
+  - [ ] **Coverage on New Code:** Add condition
+    - [ ] Metric: `Coverage on New Code`
+    - [ ] Operator: `is less than`
+    - [ ] Value: `80%`
+    - [ ] Error Message: "Coverage on new code < 80%"
+  
+  - [ ] **New Blocker Issues:** Add condition
+    - [ ] Metric: `New Blocker Issues`
     - [ ] Operator: `is greater than`
     - [ ] Value: `0`
-    - [ ] Error Message: "Blocker issues found"
+    - [ ] Error Message: "New blocker issues found"
   
-  - [ ] **Critical Issues:** Add condition
-    - [ ] Metric: `Critical Issues`
+  - [ ] **New Critical Issues:** Add condition
+    - [ ] Metric: `New Critical Issues`
     - [ ] Operator: `is greater than`
-    - [ ] Value: `5`
-    - [ ] Error Message: "Too many critical issues"
+    - [ ] Value: `0`
+    - [ ] Error Message: "New critical issues found"
   
-  - [ ] **Code Smells:** Add condition
-    - [ ] Metric: `Code Smells`
-    - [ ] Operator: `is greater than`
-    - [ ] Value: `30`
-    - [ ] Error Message: "Too many code smells"
-  
-  - [ ] **Duplications:** Add condition
-    - [ ] Metric: `Duplicated Lines`
+  - [ ] **Duplicated Lines on New Code:** Add condition
+    - [ ] Metric: `Duplicated Lines on New Code`
     - [ ] Operator: `is greater than`
     - [ ] Value: `3%`
-    - [ ] Error Message: "Duplication > 3%"
+    - [ ] Error Message: "New code duplication > 3%"
   
-  - [ ] **Maintainability Rating:** Add condition
-    - [ ] Metric: `Maintainability Rating`
+  - [ ] **Maintainability Rating on New Code:** Add condition
+    - [ ] Metric: `Maintainability Rating on New Code`
     - [ ] Operator: `is worse than`
     - [ ] Value: `A`
-    - [ ] Error Message: "Maintainability rating < A"
+    - [ ] Error Message: "Maintainability rating on new code < A"
+  
+  - [ ] **Reliability Rating on New Code:** Add condition
+    - [ ] Metric: `Reliability Rating on New Code`
+    - [ ] Operator: `is worse than`
+    - [ ] Value: `A`
+    - [ ] Error Message: "Reliability rating on new code < A"
+  
+  - [ ] **Security Rating on New Code:** Add condition
+    - [ ] Metric: `Security Rating on New Code`
+    - [ ] Operator: `is worse than`
+    - [ ] Value: `A`
+    - [ ] Error Message: "Security rating on new code < A"
 
 - [ ] **Save Quality Gate:**
   - [ ] Click **Save** or **Update** button
@@ -365,7 +375,7 @@ Ensure CI jobs are correctly ordered and don't run unnecessarily.
 
 ### Steps
 - [ ] **Review documentation:**
-  - [ ] Read `docs/SONARCLOUD_INTEGRATION.md` (comprehensive guide)
+  - [ ] Read `02-INTEGRATION-GUIDE.md` (comprehensive guide)
   - [ ] Read `sonar-project.properties` (configuration reference)
   - [ ] Share with team
 
@@ -377,13 +387,11 @@ Ensure CI jobs are correctly ordered and don't run unnecessarily.
     - [ ] SonarToken rotation schedule (yearly)
 
 - [ ] **Test runbook tasks locally:**
-  - [ ] Adjust quality gate thresholds (as described in `SONARCLOUD_INTEGRATION.md` Task 6)
+  - [ ] Adjust quality gate thresholds (as described in `02-INTEGRATION-GUIDE.md` Task 6)
   - [ ] View analysis results in SonarCloud dashboard
   - [ ] Verify PR check appears and correctly shows pass/fail status
 
 ---
-
-## Troubleshooting
 
 ### Issue: `SONAR_TOKEN not found` error in CI logs
 

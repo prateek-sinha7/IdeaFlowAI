@@ -157,7 +157,7 @@ real bar without failing every PR on pre-existing legacy code.
 
 ---
 
-### 4. `docs/SONARCLOUD_INTEGRATION.md` (New File — Comprehensive Guide)
+### 4. `02-INTEGRATION-GUIDE.md` (New File — Comprehensive Guide)
 
 **What is it:**
 - Complete guide to SonarCloud integration
@@ -178,7 +178,7 @@ real bar without failing every PR on pre-existing legacy code.
 
 ---
 
-### 5. `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` (New File — Step-by-Step Checklist)
+### 5. `01-IMPLEMENTATION-CHECKLIST.md` (New File — Step-by-Step Checklist)
 
 **What is it:**
 - Phase-by-phase checklist for completing the integration
@@ -302,7 +302,7 @@ SONAR_CHECKSUM="<computed-hash>"
 
 **Security:**
 - Never commit this token to git
-- Rotate annually (see `SONARCLOUD_INTEGRATION.md` runbook)
+- Rotate annually (see `02-INTEGRATION-GUIDE.md` runbook)
 
 ---
 
@@ -355,7 +355,7 @@ Set in SonarCloud UI (`Project Settings → Quality Gates`):
 | Maintainability Rating | A | Excellent code health (SonarQube A/B/C/D/E scale) |
 | Security Rating | A | Excellent security posture |
 
-**Adjustment:** See `SONARCLOUD_INTEGRATION.md` → "Common Tasks" → "Adjust Quality Gate Thresholds"
+**Adjustment:** See `02-INTEGRATION-GUIDE.md` → "Common Tasks" → "Adjust Quality Gate Thresholds"
 
 ---
 
@@ -397,17 +397,17 @@ Set in SonarCloud UI (`Project Settings → Quality Gates`):
 | Issue | See Section |
 |-------|-------------|
 | SonarScanner download fails | `sonarcloud-analysis` job logs → "Install SonarScanner" step |
-| SONAR_TOKEN not found | `docs/SONARCLOUD_INTEGRATION.md` → "Troubleshooting" → "SONAR_TOKEN not found" |
-| Coverage files missing | `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` → "Troubleshooting" → "Frontend coverage shows 0%" |
-| Quality gate always fails | `SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` → "Troubleshooting" → "Quality gate always shows PASS..." |
-| PR check doesn't appear | `SONARCLOUD_INTEGRATION.md` → "Troubleshooting" → "SonarCloud doesn't receive analysis" |
+| SONAR_TOKEN not found | `02-INTEGRATION-GUIDE.md` → "Troubleshooting" → "SONAR_TOKEN not found" |
+| Coverage files missing | `01-IMPLEMENTATION-CHECKLIST.md` → "Troubleshooting" → "Frontend coverage shows 0%" |
+| Quality gate always fails | `01-IMPLEMENTATION-CHECKLIST.md` → "Troubleshooting" → "Quality gate always shows PASS..." |
+| PR check doesn't appear | `02-INTEGRATION-GUIDE.md` → "Troubleshooting" → "SonarCloud doesn't receive analysis" |
 
 ---
 
 ## Next Steps
 
 1. **Complete Setup (Manual):**
-   - Follow `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` phases 1-7
+   - Follow `01-IMPLEMENTATION-CHECKLIST.md` phases 1-7
    - Takes ~30 minutes
 
 2. **Test Integration:**
@@ -415,7 +415,7 @@ Set in SonarCloud UI (`Project Settings → Quality Gates`):
    - Verify SonarCloud check appears and works
 
 3. **Team Onboarding:**
-   - Share `docs/SONARCLOUD_INTEGRATION.md` with team
+   - Share `02-INTEGRATION-GUIDE.md` with team
    - Walkthrough SonarCloud dashboard and results
 
 4. **Monitor & Iterate:**
@@ -436,7 +436,7 @@ A: It was removed. It existed to copy two coverage files into one directory, and
 A: Yes! Install SonarScanner, then run: `sonar-scanner -Dproject.settings=sonar-project.properties`. See `sonar-project.properties` for configuration.
 
 **Q: How often should I rotate SONAR_TOKEN?**  
-A: At least annually. See `SONARCLOUD_INTEGRATION.md` runbook for rotation steps.
+A: At least annually. See `02-INTEGRATION-GUIDE.md` runbook for rotation steps.
 
 **Q: Can I use SonarQube (self-hosted) instead of SonarCloud?**  
 A: Yes, but changes are needed: update `SONAR_HOST_URL` and infrastructure setup. Current implementation assumes SonarCloud.
