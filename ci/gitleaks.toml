@@ -87,7 +87,13 @@ regexes = [
   '''AKIAIOSFODNN7EXAMPLE''',
   '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
   '''sk_live_abc123''',
-  '''verify_exp=not allow_expired''',
+  # NOTE: gitleaks' allowlist `regexes` match against the EXTRACTED SECRET
+  # value (finding.Secret), not the full matched line. For this finding the
+  # `generic-api-key` rule's capture group stops at the space before
+  # `allow_expired` (Secret == "verify_exp=not"), so a regex requiring the
+  # full "verify_exp=not allow_expired" string never matches and silently
+  # fails to suppress anything. Match the actual extracted secret instead.
+  '''verify_exp=not''',
 ]
 
 # NOTE: gitleaks' [allowlist] table has no `fingerprints` key (only `paths`,
