@@ -718,7 +718,6 @@ class TestOfflineProof:
 
     @pytest.mark.asyncio
     @pytest.mark.issue("ISS-638")
-    @pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
     async def test_prototype_revision_offline_chained(self) -> None:
         """prototype_revision CHAINED off a real prior prototype run (parent_run_id).
 

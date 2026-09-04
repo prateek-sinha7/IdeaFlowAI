@@ -159,6 +159,8 @@ export function ChatAttachments({ onChange, onFileContentsChange, reopenedAttach
       <div className={`flex flex-wrap gap-1.5 ${compact ? "mb-2" : "pt-2"}`}>
         {attachments.map((att) => {
           const extracting = extractingIds.has(att.id);
+          // ISS-422: look up the pre-extracted content entry to read the truncated flag.
+          const contentEntry = fileContents.find((fc) => fc.name === att.name);
           return (
           <span
             key={att.id}
@@ -189,6 +191,16 @@ export function ChatAttachments({ onChange, onFileContentsChange, reopenedAttach
             {!extracting && att.kind === "file" && att.sizeBytes ? (
               <span className={compact ? "text-ink-200 tabular-nums" : "text-gray-400"}>
                 {formatSize(att.sizeBytes)}
+              </span>
+            ) : null}
+            {/* ISS-422: show a truncation badge when the attached file was capped
+                before sending, so the user knows the agent only saw part of the file. */}
+            {!extracting && contentEntry?.truncated ? (
+              <span
+                title="File was truncated — only the first portion was sent to the agent"
+                className={compact ? "text-amber-500 text-[10px] font-medium" : "text-amber-500 text-[9px]"}
+              >
+                truncated
               </span>
             ) : null}
             {!extracting && (

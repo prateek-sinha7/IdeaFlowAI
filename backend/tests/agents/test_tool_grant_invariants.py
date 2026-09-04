@@ -303,7 +303,6 @@ async def test_denial_holds_on_the_async_path() -> None:
 
 
 @pytest.mark.issue("ISS-638")
-@pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
 def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
     """Every shipped workflow compiles, and no agent that writes lost its grant.
 
@@ -311,6 +310,13 @@ def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
     set needs a matching ``tools:`` grant on its step, or it silently degrades to
     read-only and produces nothing. Derived from what is on disk, so a newly
     added writing agent is covered without editing this test.
+
+    ISS-638: the original heuristic ``if frontmatter.get("tools")`` flagged any
+    non-empty tools list — including ``tools: [pptx]`` on ppt-code-generator,
+    which is NOT a filesystem tool (pptx produces a binary via render_pptx, and
+    write_files:false is intentional by design). Narrowed to agents that declare
+    ``write_file`` or ``workspace`` in their tools list — the only two values
+    that imply filesystem write access.
     """
     import re
     from pathlib import Path
@@ -319,12 +325,17 @@ def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
 
     from agents.execution_engine.engine import compile_for_run
 
+    # Filesystem-write tool names (the only ones that imply write_files access).
+    _FS_WRITE_TOOLS = {"write_file", "workspace"}
+
     prompts = Path("agents/prompts")
     declares_fs: set[str] = set()
     for agent_md in prompts.glob("*/AGENT.md"):
         match = re.search(r"^---\n(.*?)\n---", agent_md.read_text(encoding="utf-8"), re.S)
         frontmatter = yaml.safe_load(match.group(1)) if match else {}
-        if frontmatter.get("tools"):
+        tools = frontmatter.get("tools") or []
+        # Only flag agents that explicitly declare a filesystem-write tool.
+        if isinstance(tools, list) and _FS_WRITE_TOOLS.intersection(tools):
             declares_fs.add(agent_md.parent.name)
 
     missing: list[str] = []

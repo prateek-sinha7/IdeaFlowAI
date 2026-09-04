@@ -5,9 +5,9 @@
 | card | status | batch | round | fix site | tier | phases | model |
 |---|---|---|---|---|---|---|---|
 | ISS-187 | ANALYZED | B1 | 1 | `backend/agents/execution_engine/engine.py` (ISS-187 only) | C | full | **sonnet** (engine.py) |
-| ISS-076 | ANALYZED | B2 | 1 | docs·planning | C | validate→fix→verify (docs) | haiku |
-| ISS-095 | ANALYZED | B2 | 1 | docs·planning | C | validate→fix→verify (docs) | haiku |
-| BUG-031 | ANALYZED | B3 | 1 | unclassified (BUG-031) | C | full | haiku |
+| ISS-076 | CLOSED (won't-fix — stale figure is in frozen .planning/ archive; live reference frontend/e2e/README.md updated separately) | B2 | 1 | docs·planning | C | validate→fix→verify (docs) | haiku |
+| ISS-095 | CLOSED (already-fixed — all 3 gate-streaming tests pass as of 2026-08-31; fixed by commit da172056) | B2 | 1 | docs·planning | C | validate→fix→verify (docs) | haiku |
+| BUG-031 | CLOSED (already-fixed — stages: [manual] restored in commit 0228bf196, 2026-08-29; verified live at .pre-commit-config.yaml:185) | B3 | 1 | unclassified (BUG-031) | C | full | haiku |
 
 Notes:
 - ISS-187: spec-014 ex_A* gate fixtures / entitlements mismatch. Fix site is

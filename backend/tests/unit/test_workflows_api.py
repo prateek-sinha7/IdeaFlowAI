@@ -244,7 +244,6 @@ class TestList:
         assert resp.status_code == 200, resp.text
 
     @pytest.mark.issue("ISS-638")
-    @pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
     def test_list_carries_chained_from_and_short_name(self, client):
         # Plan 34-01: chaining is backend-owned via each target's OWN authored
         # `chained_from` consent list — REPLACES the formerly frontend-hardcoded
@@ -272,12 +271,15 @@ class TestList:
         # chained_from: prototype/user_stories/ppt chain into each other freely
         # (no beta edges among the three). Order is NOT asserted — only set
         # membership + each entry's beta flag.
+        # ISS-638 (row 4): prototype/workflow.yaml also lists ppt_v2 as a
+        # chained_from source (added alongside ppt; both are non-beta).
         def _as_set(entries):
             return {(e["id"], e["beta"]) for e in entries}
 
         assert _as_set(by_id["prototype"]["chained_from"]) == {
             ("user_stories", False),
             ("ppt", False),
+            ("ppt_v2", False),
         }
         assert _as_set(by_id["user_stories"]["chained_from"]) == {
             ("prototype", False),

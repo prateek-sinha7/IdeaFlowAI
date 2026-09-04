@@ -1137,10 +1137,16 @@ def _build_attached_files_block(file_contents: list[dict] | None) -> str:
     """FIX-218 (KAN-170): render pre-extracted file texts into a prompt block.
 
     ``file_contents`` is the ``body.file_contents`` list — each entry:
-    ``{name: str, text: str, error?: str}``. Builds a multi-file block capped
-    per-file at ``_ATTACHED_FILE_TEXT_CAP`` chars. Returns ``""`` when the list is
-    absent or all entries have extraction errors (so the Concierge prompt is
-    byte-identical to the pre-fix behaviour — INV-3).
+    ``{name: str, text: str, truncated?: bool, error?: str}``. Builds a multi-file
+    block capped per-file at ``_ATTACHED_FILE_TEXT_CAP`` chars. Returns ``""`` when
+    the list is absent or all entries have extraction errors (so the Concierge prompt
+    is byte-identical to the pre-fix behaviour — INV-3).
+
+    ISS-422: reads ``entry["truncated"]`` (set by the FE for both the client-side
+    text-slice path and the server-side extract-text path) in addition to the
+    backend-side cap check. The FE caps text to ``TEXT_CLIENT_CAP`` (6 000 chars)
+    before sending, so ``len(text) > _ATTACHED_FILE_TEXT_CAP`` alone would never
+    fire on a truncated-but-already-capped entry — the FE flag is the reliable signal.
 
     Payload-transient (ND-10): the block is used solely in the live Concierge ctx
     and the ``ectx.steering_notes`` carry; it is NEVER persisted to the DB.
@@ -1160,7 +1166,13 @@ def _build_attached_files_block(file_contents: list[dict] | None) -> str:
             parts.append(f"=== ATTACHED FILE: {name} ===\n[Extraction error: {error}]\n=== END FILE ===")
         elif text:
             capped = text[:_ATTACHED_FILE_TEXT_CAP]
-            suffix = "\n[Content truncated — showing first portion]" if len(text) > _ATTACHED_FILE_TEXT_CAP else ""
+            # ISS-422: honour the FE-computed truncated flag (set when client-side
+            # text was sliced to TEXT_CLIENT_CAP=6000, or when the extract-text
+            # server endpoint capped a binary file). The backend-side cap check
+            # `len(text) > _ATTACHED_FILE_TEXT_CAP` is kept as a fallback for any
+            # caller that sends a raw un-capped entry without the flag.
+            fe_truncated = bool(entry.get("truncated"))
+            suffix = "\n[Content truncated — showing first portion]" if (fe_truncated or len(text) > _ATTACHED_FILE_TEXT_CAP) else ""
             parts.append(f"=== ATTACHED FILE: {name} ===\n{capped}{suffix}\n=== END FILE ===")
     return "\n\n".join(parts)
 

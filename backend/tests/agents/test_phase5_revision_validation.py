@@ -556,7 +556,6 @@ class TestFixPolicyEndToEnd:
 
     @pytest.mark.asyncio
     @pytest.mark.issue("ISS-638")
-    @pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
     async def test_fix_message_targets_regression_not_baseline_and_reinjects_instruction(
         self, tmp_path, monkeypatch
     ) -> None:
@@ -576,6 +575,10 @@ class TestFixPolicyEndToEnd:
         )
 
         def turns_for(agent_id, thread_id, is_fix):
+            # prototype-revision-analyzer is step 0 (FIX-433) — text-only analysis,
+            # no edit_file calls (it reads/analyzes, not writes).
+            if agent_id == "prototype-revision-analyzer":
+                return [_final_text_turn()]
             # KAN-108: prototype-validate is the second declared step. It was
             # `prototype-revision-validate` until the revision-pipeline-agent-reuse
             # spec replaced the duplicated revision agent dirs with the MAIN
@@ -837,14 +840,17 @@ class TestEventVocabularyUnchanged:
 
     @pytest.mark.asyncio
     @pytest.mark.issue("ISS-638")
-    @pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
     async def test_internal_fix_loop_leaks_no_phantom_second_agent(
         self, tmp_path, monkeypatch
     ) -> None:
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
 
         def turns_for(agent_id, thread_id, is_fix):
-            # KAN-108: prototype-validate is the new second declared step —
+            # prototype-revision-analyzer is step 0 (added by FIX-433) —
+            # it analyzes without editing, so return a TEXT-ONLY turn (no edit_file).
+            if agent_id == "prototype-revision-analyzer":
+                return [_final_text_turn()]
+            # KAN-108: prototype-validate is a declared step —
             # it is NOT a fix invocation, returns a clean text-only turn.
             if agent_id == "prototype-validate":
                 return _clean_revision_turns()
@@ -866,31 +872,40 @@ class TestEventVocabularyUnchanged:
         fix_threads = [t for (_a, t) in calls if ":fix" in t]
         assert fix_threads, f"the regression must trigger an internal fix; calls={calls}"
 
-        # ── …the UI now sees TWO declared agents: the revision agent (index 0)
-        #    and the new validation agent (index 1, KAN-108). The INTERNAL fix
-        #    sub-agent (":fix" thread) must still NOT emit a third agent_start. ──
+        # ── …the UI now sees THREE declared agents: the revision agent (index 0),
+        #    the analyzer step (index 1, added by FIX-433/ISS-631), and the
+        #    validation agent (index 2, KAN-108). The INTERNAL fix sub-agent
+        #    (":fix" thread) must still NOT emit a fourth agent_start. ──
+        # ISS-638 (row 2): updated from == 2 to == 3 after FIX-433 added the
+        # prototype-revision-analyzer as step 0 of the revision roster.
         counts = Counter(e["type"] for e in events)
-        assert counts["agent_start"] == 2, (
-            f"must see exactly 2 agent_starts (revision + validation); counts={dict(counts)}"
+        assert counts["agent_start"] == 3, (
+            f"must see exactly 3 agent_starts (analyzer + revision + validation); counts={dict(counts)}"
         )
-        assert counts["agent_complete"] == 2, (
-            f"must see exactly 2 agent_completes (revision + validation); counts={dict(counts)}"
+        assert counts["agent_complete"] == 3, (
+            f"must see exactly 3 agent_completes (analyzer + revision + validation); counts={dict(counts)}"
         )
 
         # ── The fix's edit_file tool call is INTERNAL — not in the visible stream. ──
         # The visible revision made ONE edit_file (introduce the ghost route); the
         # fix's edit_file (remove it) must NOT reach the caller. The validation agent
         # (prototype-validate, KAN-108) is a DECLARED step and its tool_call
-        # events ARE in the visible stream — so we now expect 2 visible edit_file calls
-        # (one per declared agent), NOT the fix's third internal edit_file.
+        # events ARE in the visible stream — so we expect 2 visible edit_file calls
+        # (revision-agent + validate), NOT the fix's third internal edit_file.
+        # The analyzer step (prototype-revision-analyzer) produces no edit_file,
+        # so the count is still 2 even with the 3-step roster.
         visible_tool_calls = [e["data"]["tool"] for e in events if e["type"] == "tool_call"]
         assert visible_tool_calls.count("edit_file") == 2, (
-            f"the two declared agents' edits appear in the stream; the fix's edit must "
+            f"the two writing declared agents' edits appear in the stream; the fix's edit must "
             f"be internal; got tool_calls={visible_tool_calls}"
         )
-        # The declared agent_starts are the two pipeline steps (revision + validate).
+        # ISS-638 (row 2): declared agent_starts are now the THREE pipeline steps.
         starts = [e["data"]["agent_id"] for e in events if e["type"] == "agent_start"]
-        assert starts == ["prototype-revision-agent", "prototype-validate"], (
-            f"the UI must see the revision agent then the validation agent (KAN-108); "
+        assert starts == [
+            "prototype-revision-analyzer",
+            "prototype-revision-agent",
+            "prototype-validate",
+        ], (
+            f"the UI must see analyzer → revision agent → validation agent (FIX-433 + KAN-108); "
             f"got {starts}"
         )

@@ -2,7 +2,7 @@
 
 This is the executable realization of `.planning/TEST-REGISTER.md` §3. **Playwright is the eyes** — every user-observable behavior (workflow selection, composing agents, model selection, live agent panels, waves, gates, deliverables, terminal states, cancel, reconnect, revisions, history) is exercised and asserted here. Humans don't hand-test.
 
-**Status:** 123 mocked tests pass (0 fail), 15 intentional `fixme`s (backend-gated / un-mockable states), + 7 live tests that collect (4 real drivers, 3 documented fixmes). Runs in ~1.3 min.
+**Status:** ~108 mocked tests pass, 33 failing (baseline on this branch as of 2026-08-12 at `b13d5c33`; see ISS-076 for detail), 15 intentional `fixme`s (backend-gated / un-mockable states), + 7 live tests that collect (4 real drivers, 3 documented fixmes). Runs in ~1.3 min.
 
 ## Run it
 

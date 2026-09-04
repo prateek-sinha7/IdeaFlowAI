@@ -45,8 +45,14 @@ def _text_turn(tag: str) -> list[_ScriptedTurn]:
 
 
 async def _drive_execute(*, error_ids: set[str]):
-    """Drive the FULL ``ExecutionEngine.execute()`` for a 2-agent user_stories subset
-    through the REAL ``_run_agent`` path, returning ``(events, engine, run_id, ids)``.
+    """Drive the FULL ``ExecutionEngine.execute()`` for the complete user_stories
+    roster through the REAL ``_run_agent`` path, returning ``(events, engine, run_id, ids)``.
+
+    ISS-632: the original harness used ``get_pipeline_agents("user_stories")[:2]``,
+    which is a strict subset of the 6-step plan. ADR-0008's ``_roster_is_partial``
+    check fills in the full roster from the compiled plan, so the engine ran all 6
+    while the test only knew about 2 — count assertions were always wrong. Now drives
+    the full roster so the assertions are correct.
 
     ``create_runner`` is patched so an agent whose id is in ``error_ids`` is built on a
     ``ScriptedFakeChatModel([], raise_exc=ScriptedNonTransientError())`` (its runner
@@ -64,8 +70,8 @@ async def _drive_execute(*, error_ids: set[str]):
 
     _settings.RUNS_ROOT = _RUNS_ROOT
 
-    specs = get_pipeline_agents("user_stories")[:2]
-    assert len(specs) == 2, "harness expects two user_stories agents"
+    specs = get_pipeline_agents("user_stories")  # full roster — no [:2] slice (ISS-632/ADR-0008)
+    assert len(specs) >= 2, "harness expects at least two user_stories agents"
     ids = [s.id for s in specs]
 
     _orig_create_runner = factory_mod.create_runner
@@ -133,7 +139,6 @@ def _agent_complete_ids(events: list[dict]) -> set[str]:
 
 
 @pytest.mark.issue("ISS-632")
-@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_all_agents_error_ends_pipeline_failed() -> None:
     """Every agent's runner raises ``ScriptedNonTransientError`` → the run emits ≥1
@@ -174,7 +179,6 @@ async def test_all_agents_error_ends_pipeline_failed() -> None:
 
 
 @pytest.mark.issue("ISS-632")
-@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_partial_error_ends_degraded() -> None:
     """ONE agent errors, the other completes normally → the run emits
@@ -197,7 +201,8 @@ async def test_partial_error_ends_degraded() -> None:
     data = complete[0]["data"]
     assert data["status"] == "degraded", f"expected degraded: {data!r}"
     assert data["agents_failed"] == [failed_id]
-    assert data["agents_completed"] == 1
+    # 1 failed, len(ids)-1 completed
+    assert data["agents_completed"] == len(ids) - 1
 
     # The errored agent surfaced an agent_error and produced NO agent_complete; the
     # surviving agent's agent_complete IS present.

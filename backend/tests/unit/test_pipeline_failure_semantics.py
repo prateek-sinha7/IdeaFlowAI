@@ -114,11 +114,17 @@ def _make_stub_run_agent(fail_ids: set[str]):
 
 
 async def _drive_engine(monkeypatch, fail_ids: set[str]):
-    """Run a 2-agent user_stories subset through the REAL execute() path
+    """Run the FULL user_stories roster through the REAL execute() path
     (dispatch loop + terminal block) with the stubbed per-agent runner.
-    Returns (events, engine, run_id)."""
-    specs = get_pipeline_agents("user_stories")[:2]
-    assert len(specs) == 2, "harness expects two user_stories agents"
+    Returns (events, engine, run_id).
+
+    ISS-632: the original harness used ``get_pipeline_agents("user_stories")[:2]``,
+    a strict subset of the 6-step plan. ADR-0008's ``_roster_is_partial`` check fills
+    in the full plan, so the engine always ran all 6 while the test expected 2.
+    Now drives the full roster so count assertions are correct.
+    """
+    specs = get_pipeline_agents("user_stories")  # full roster — no [:2] slice
+    assert len(specs) >= 2, "harness expects at least two user_stories agents"
     monkeypatch.setattr(ExecutionEngine, "_run_agent", _make_stub_run_agent(fail_ids))
 
     engine = ExecutionEngine()
@@ -132,7 +138,7 @@ async def _drive_engine(monkeypatch, fail_ids: set[str]):
         session_id="sess-f3",
     ):
         events.append(event)
-    return events, engine, run_id
+    return events, engine, run_id, specs
 
 
 def _events_of(events: list[dict], etype: str) -> list[dict]:
@@ -145,15 +151,15 @@ def _events_of(events: list[dict], etype: str) -> list[dict]:
 
 
 @pytest.mark.issue("ISS-632")
-@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_all_agents_failed_emits_pipeline_failed_not_complete(
     _offline_engine_env, monkeypatch
 ):
-    specs = get_pipeline_agents("user_stories")[:2]
+    # ISS-632: use full roster — no [:2] slice (ADR-0008 would expand it anyway).
+    specs = get_pipeline_agents("user_stories")
     all_ids = {s.id for s in specs}
 
-    events, engine, run_id = await _drive_engine(monkeypatch, fail_ids=all_ids)
+    events, engine, run_id, specs = await _drive_engine(monkeypatch, fail_ids=all_ids)
 
     failed = _events_of(events, "pipeline_failed")
     assert len(failed) == 1, f"expected exactly one pipeline_failed, got {events}"
@@ -163,7 +169,7 @@ async def test_all_agents_failed_emits_pipeline_failed_not_complete(
 
     data = failed[0]["data"]
     assert data["agents_completed"] == 0
-    assert data["agents_total"] == 2
+    assert data["agents_total"] == len(specs)
     assert data["agents_failed"] == sorted(all_ids)
     # IN-04 (13 review fix): neutral message — gate-skipped agents are neither
     # completed nor failed, so the old "all agents failed" could overstate.
@@ -182,15 +188,15 @@ async def test_all_agents_failed_emits_pipeline_failed_not_complete(
 
 
 @pytest.mark.issue("ISS-632")
-@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_partial_failure_emits_degraded_pipeline_complete(
     _offline_engine_env, monkeypatch
 ):
-    specs = get_pipeline_agents("user_stories")[:2]
-    failed_id = specs[0].id  # first agent fails; second survives
+    # ISS-632: full roster — no [:2] slice.
+    specs = get_pipeline_agents("user_stories")
+    failed_id = specs[0].id  # first agent fails; the rest survive
 
-    events, engine, run_id = await _drive_engine(monkeypatch, fail_ids={failed_id})
+    events, engine, run_id, specs = await _drive_engine(monkeypatch, fail_ids={failed_id})
 
     assert _events_of(events, "pipeline_failed") == [], (
         "a partially-failed run completes (degraded) — it is not a total collapse"
@@ -201,8 +207,8 @@ async def test_partial_failure_emits_degraded_pipeline_complete(
     data = complete[0]["data"]
     assert data["status"] == "degraded"
     assert data["agents_failed"] == [failed_id]
-    assert data["agents_completed"] == 1  # the survivor
-    assert data["agents_total"] == 2
+    assert data["agents_completed"] == len(specs) - 1  # all but the one that failed
+    assert data["agents_total"] == len(specs)
     assert engine._state_machine.get_state(run_id) == "completed"
 
 
@@ -212,12 +218,11 @@ async def test_partial_failure_emits_degraded_pipeline_complete(
 
 
 @pytest.mark.issue("ISS-632")
-@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_clean_run_payload_carries_no_degraded_keys(
     _offline_engine_env, monkeypatch
 ):
-    events, engine, run_id = await _drive_engine(monkeypatch, fail_ids=set())
+    events, engine, run_id, specs = await _drive_engine(monkeypatch, fail_ids=set())
 
     assert _events_of(events, "pipeline_failed") == []
     complete = _events_of(events, "pipeline_complete")
@@ -228,7 +233,7 @@ async def test_clean_run_payload_carries_no_degraded_keys(
     # NEITHER key — the characterization snapshots gate the full byte-identity.
     assert "status" not in data, f"clean run leaked 'status': {data!r}"
     assert "agents_failed" not in data, f"clean run leaked 'agents_failed': {data!r}"
-    assert data["agents_completed"] == 2
+    assert data["agents_completed"] == len(specs)
     assert engine._state_machine.get_state(run_id) == "completed"
 
 
@@ -281,7 +286,6 @@ def _make_timeout_shaped_stub(timeout_ids: set[str]):
 
 
 @pytest.mark.issue("ISS-632")
-@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_recovered_timeout_agent_is_not_listed_as_failed(
     _offline_engine_env, monkeypatch
@@ -290,7 +294,8 @@ async def test_recovered_timeout_agent_is_not_listed_as_failed(
     degrade) must not flip the run to "degraded" — pre-fix it appeared in BOTH
     agents_completed and agents_failed (a contradictory payload), and a
     timeout-only run lost its clean-completion presentation."""
-    specs = get_pipeline_agents("user_stories")[:2]
+    # ISS-632: full roster — no [:2] slice.
+    specs = get_pipeline_agents("user_stories")
     monkeypatch.setattr(
         ExecutionEngine, "_run_agent", _make_timeout_shaped_stub({specs[0].id})
     )
@@ -312,8 +317,8 @@ async def test_recovered_timeout_agent_is_not_listed_as_failed(
     assert len(complete) == 1
 
     data = complete[0]["data"]
-    # Both agents completed — the recovered timeout is NOT a failure.
-    assert data["agents_completed"] == 2
+    # All agents completed — the recovered timeout is NOT a failure.
+    assert data["agents_completed"] == len(specs)
     assert "status" not in data, (
         f"recovered timeout flipped the run to degraded: {data!r}"
     )
@@ -324,14 +329,15 @@ async def test_recovered_timeout_agent_is_not_listed_as_failed(
 
 
 @pytest.mark.issue("ISS-632")
-@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_failure(
     _offline_engine_env, monkeypatch
 ):
     """Mixed run: agent 1 times out but recovers (error + complete), agent 2
     hard-fails (error, no complete) → degraded, agents_failed lists ONLY agent 2."""
-    specs = get_pipeline_agents("user_stories")[:2]
+    # ISS-632: full roster — no [:2] slice. Pick the first two agents for the
+    # specific recovered/failed roles; the remaining agents all complete normally.
+    specs = get_pipeline_agents("user_stories")
     recovered_id, failed_id = specs[0].id, specs[1].id
 
     def _mixed_stub():
@@ -393,5 +399,6 @@ async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_fa
     assert data["agents_failed"] == [failed_id], (
         "agents_failed must list ONLY the agent that never completed"
     )
-    assert data["agents_completed"] == 1
+    # recovered + (N-2) clean agents completed; only failed_id is absent.
+    assert data["agents_completed"] == len(specs) - 1
 

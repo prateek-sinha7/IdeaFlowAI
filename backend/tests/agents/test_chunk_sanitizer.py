@@ -116,6 +116,25 @@ async def _drive_single_agent(
     engine._run_review_gate = _noop_gate  # type: ignore[assignment]
 
     run_id = f"chunk-sanitizer-{agent_id}-{uuid.uuid4().hex[:8]}"
+    # ISS-634: pass compiled_override with a single-step plan matching `spec` so
+    # ADR-0008's _roster_is_partial fill-in doesn't expand agents=[spec] to the
+    # full N-step plan. compile_for_run is @lru_cache'd; dataclasses.replace
+    # makes a shallow copy so we never mutate the shared cached instance.
+    import dataclasses
+    from agents.execution_engine.engine import compile_for_run as _compile
+    base_compiled = _compile(pipeline_type)
+    single_step = next(
+        (s for s in base_compiled.steps if s.agent_id == agent_id), None
+    )
+    if single_step is None:
+        # Fallback: build a minimal step from the spec so the test still runs.
+        single_step = base_compiled.steps[0]
+    single_compiled = dataclasses.replace(
+        base_compiled,
+        steps=[single_step],
+        planner="skip",
+        clarify=dataclasses.replace(base_compiled.clarify, mode="off"),
+    )
     kwargs: dict[str, Any] = dict(
         agents=[spec],
         user_message="Build me a thing for managing tasks.",
@@ -124,6 +143,7 @@ async def _drive_single_agent(
         user_id="chunk-sanitizer-user",
         od_context=None,
         gate_agent_ids=[],
+        compiled_override=single_compiled,
     )
 
     emitted: list[str] = []
@@ -172,7 +192,6 @@ async def test_split_tool_xml_stripped_for_toolless_agent() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.issue("ISS-634")
-@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_split_tool_xml_untouched_for_tooluse_agent() -> None:
     """Identical SPLIT stream for a tool-USING agent → emitted chunks byte-identical."""
     emitted = await _drive_single_agent(_TOOLUSING_AGENT, _TOOLUSING_PIPELINE, _SPLIT_DELTAS)
@@ -207,7 +226,6 @@ async def test_single_chunk_tool_xml_stripped_for_toolless_agent() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.issue("ISS-634")
-@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> None:
     """Clean stream (no tool-XML) for a tool-less agent → emitted chunks == input."""
     deltas = ["Domain analysis: ", "the system manages tasks ", "for a single user."]
@@ -223,7 +241,6 @@ async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> Non
 
 @pytest.mark.asyncio
 @pytest.mark.issue("ISS-634")
-@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_lone_lt_and_html_at_boundaries_chunk_identical_for_toolless_agent() -> None:
     """WR-01: tool-less prose with ``<`` / ``<div>`` / ``a < b`` at chunk boundaries.
 
@@ -280,7 +297,6 @@ async def test_never_closed_opener_flushed_and_stripped_at_stream_end() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.issue("ISS-634")
-@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_benign_held_tail_survives_flush_no_content_loss() -> None:
     """WR-04: a benign trailing tail held at EOF is flushed VERBATIM (no content loss).
 
