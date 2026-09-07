@@ -21,6 +21,7 @@ memory. Updated by the closer after every domain run.
 | 14 | backend·api | 29 | DONE (29/29 resolved: CLOSED 9, ALREADY_FIXED 5, ESCALATED 15) | 4+previously | 0 | 15 | [20260902-1600-domain-14-backend-api.md](reports/20260902-1600-domain-14-backend-api.md) |
 | 15 | backend·other | 31 | DONE (all 31 cards resolved: CLOSED 18, ESCALATED 13) | 18 | 0 | 13 | [20260902-1800-domain-15-backend-other.md](reports/20260902-1800-domain-15-backend-other.md) |
 | T | triage (no fix site) | 21 | NOT STARTED | – | – | – | – |
+| R1 | refinement: RFN-001 model chip | 1 | DONE | RFN-001 CLOSED | 0 | 0 | [20260907-1200-rfn001-model-chip.md](reports/20260907-1200-rfn001-model-chip.md) |
 
 Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED · PARTIAL.
 
@@ -72,3 +73,5 @@ Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED
   PipelineRunState.deliverableMimetype + useWorkflow.ts). tsc clean; 11 unit tests passing.
   Backlog regenerated: 178 open cards → 156 work units.
   See `reports/20260901-1630-domain-06-frontend-components.md`.
+
+- Run 2026-09-07: **RFN-001 (per-agent model chip) DONE** — 6 source files changed (engine.py + 5 frontend), 27 new tests (8 backend + 15 AgentDetailPanel vitest + 4 WorkflowHistory vitest), all suites green. Backend restart required (engine.py changed; --reload auto-picks-it-up in dev). Knowledge index rebuilt (stage 1 success: 1165 cards; stage 2 pre-existing cp1252 failure). See `reports/20260907-1200-rfn001-model-chip.md`.
