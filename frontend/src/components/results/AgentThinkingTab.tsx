@@ -1,22 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Activity } from "lucide-react";
 
-// ISS-387: safe wrapper — useRouter/usePathname throw an invariant when mounted
+// ISS-387: safe wrapper — usePathname throws an invariant when mounted
 // outside a Next.js App Router context (e.g. in unit tests). We isolate the
 // call in a tiny hook so the component can call it unconditionally while tests
-// that don't provide a router context simply get no-op stubs back.
-function useSafeRouter(): { push: (url: string) => void; back: () => void } {
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useRouter();
-  } catch {
-    return { push: () => {}, back: () => {} };
-  }
-}
-
+// that don't provide a router context simply get an empty string back.
 function useSafePathname(): string {
   try {
     // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -25,6 +16,7 @@ function useSafePathname(): string {
     return "";
   }
 }
+
 import type { AgentRunState, PipelineRunState, ClarifyRound, WaveGroup } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
@@ -114,22 +106,40 @@ export function AgentThinkingTab({
 
   // ISS-387: push a browser history entry when the user selects an agent or task
   // so Back returns to the previous level (overview → agent → task) rather than
-  // skipping the Steps tab entirely. The router call is best-effort: if the
-  // component is mounted outside a Next.js router context (e.g. in a test) the
-  // hook may be absent — the state change is always applied regardless.
-  const router = useSafeRouter();
+  // skipping the Steps tab entirely.
+  //
+  // FIX (double-click / back-fluctuation): use window.history.pushState instead of
+  // router.push, and window.history.back() instead of router.back(). router.push
+  // causes the Next.js App Router to remount the whole page.tsx catch-all, which
+  // resets trackedRunIdRef, fires the cold-mount effect, and races the deep-link
+  // nonce against the page re-render — the detail view only appears on the second
+  // click because initialAgentId arrives late on the first remount. router.back()
+  // has the same remount problem in reverse, causing the visible "fluctuation".
+  // window.history.pushState is shallow (no remount), exactly like the run-tab
+  // navigation in DashboardLayout's handlePreviewPanelTabSelect. The state change
+  // is always applied regardless of whether the browser history API is available.
   const pathname = useSafePathname();
+
+  // Track when the user intentionally closes an agent detail via the in-pane Back
+  // button so the initialAgentId effect does not immediately re-open it while the
+  // URL still carries that agent's id (the URL reverts asynchronously via
+  // window.history.back; until it does, initialAgentId keeps pointing at the same
+  // id). Without this guard, pressing Back would instantly re-select the agent.
+  const [userClosedAgentId, setUserClosedAgentId] = useState<string | null>(null);
 
   // ISS-277 — a deep link that names an agent selects it. Seeded above for the
   // mount that the deep link itself triggers, and re-applied here for a LATER
   // one arriving while this tab is already mounted (a shallow run-tab nav or a
-  // back/forward). Keyed on the id, so an in-pane Back (which clears the
-  // selection) is never re-stomped while the URL keeps naming the same agent.
+  // back/forward). The userClosedAgentId guard prevents the Back button from
+  // being immediately overridden while the URL still names the closed agent.
   // The id is held even when `agents` has not arrived yet: `selectedAgent` is
   // resolved from it on every render, so the detail opens as soon as it does.
   useEffect(() => {
-    if (initialAgentId) { setSelectedAgentId(initialAgentId); setSelectedTaskIndex(null); }
-  }, [initialAgentId]);
+    if (initialAgentId && initialAgentId !== userClosedAgentId) {
+      setSelectedAgentId(initialAgentId);
+      setSelectedTaskIndex(null);
+    }
+  }, [initialAgentId, userClosedAgentId]);
 
   // ── Gate-events fetch (RUNUI-06) — the run's governance-gate rows drive the
   // "Review gate — {gate} · approved" strips interleaved in the overview spine.
@@ -300,7 +310,7 @@ export function AgentThinkingTab({
             task={pipelineState?.protoCompletedTasks?.find(t => t.number === selectedTaskIndex! + 1)}
             onBack={() => {
               setSelectedTaskIndex(null);
-              router.back();
+              if (typeof window !== "undefined") window.history.back();
             }}
           />
         ) : selectedAgent ? (
@@ -308,8 +318,9 @@ export function AgentThinkingTab({
           <AgentDetailPanel
             agent={selectedAgent}
             onBack={() => {
+              setUserClosedAgentId(selectedAgent.id);
               setSelectedAgentId(null);
-              router.back();
+              if (typeof window !== "undefined") window.history.back();
             }}
             // ISS-065 — lets the detail list this agent's earlier artifact versions.
             runId={runId ?? null}
@@ -334,8 +345,10 @@ export function AgentThinkingTab({
             } : undefined}
             onOpenTask={isConstructionSelected ? (i) => {
               setSelectedTaskIndex(i);
-              // ISS-387: push a history entry so Back returns to the agent detail.
-              router.push(`${pathname}?agent=${encodeURIComponent(selectedAgent!.id)}&task=${i}`);
+              // ISS-387: push a shallow history entry so Back returns to the agent detail.
+              if (typeof window !== "undefined") {
+                window.history.pushState(null, "", `${pathname}?agent=${encodeURIComponent(selectedAgent!.id)}&task=${i}`);
+              }
             } : undefined}
             agents={agents}
             agentIndex={agents.findIndex(a => a.id === selectedAgent.id)}
@@ -350,10 +363,16 @@ export function AgentThinkingTab({
             clarifications={resolvedClarifications}
             clarificationsLoading={clarificationsLoading}
             onOpenAgent={(id) => {
+              setUserClosedAgentId(null);
               setSelectedAgentId(id);
               setSelectedTaskIndex(null);
-              // ISS-387: push a history entry so Back returns to the overview.
-              router.push(`${pathname}?agent=${encodeURIComponent(id)}`);
+              // ISS-387: push a shallow history entry so Back returns to the overview.
+              // Uses window.history.pushState (not router.push) to avoid remounting
+              // the page.tsx catch-all — router.push would reset trackedRunIdRef and
+              // race the deep-link nonce, causing the double-click symptom.
+              if (typeof window !== "undefined") {
+                window.history.pushState(null, "", `${pathname}?agent=${encodeURIComponent(id)}`);
+              }
             }}
             gateEvents={gateEvents}
             topSlot={
