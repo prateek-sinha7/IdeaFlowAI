@@ -107,7 +107,7 @@ variable "alarm_email" {
 }
 
 variable "kms_key_arn" {
-  description = "Optional KMS CMK ARN to encrypt the SNS alerts topic. Empty uses the AWS-managed SNS key."
+  description = "Optional existing KMS CMK ARN to encrypt the SNS alerts topic. Empty (the default) makes the alb_internal module create a dedicated CMK for the topic; it does not leave the topic unencrypted and does not fall back to the AWS-managed SNS key, which CloudWatch alarms cannot publish through."
   type        = string
   default     = ""
 }

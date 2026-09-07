@@ -22,6 +22,7 @@
 # =============================================================================
 
 data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
 
 data "aws_instance" "target" {
   instance_id = var.instance_id
@@ -281,11 +282,101 @@ resource "aws_lb_listener" "https" {
 
 # --- Alarms -------------------------------------------------------------------
 
+locals {
+  # Create a key only when this module OWNS the topic and the caller supplied
+  # none. `kms_key_arn` stays an override rather than a requirement, so an
+  # environment that already has a project CMK can keep all of its alerting on
+  # one key instead of accumulating a per-module key.
+  create_alerts_kms_key = var.create_sns_topic && var.kms_key_arn == ""
+}
+
+# The topic used to fall back to `null` — i.e. no encryption at all — whenever
+# no CMK ARN was passed in, which is the default and the only configuration the
+# velocityai-alb root actually uses (it never sets kms_key_arn, so the deployed
+# topic was unencrypted rather than merely AWS-managed-key encrypted).
+#
+# Note the fallback could NOT simply become "alias/aws/sns": a CloudWatch alarm
+# cannot publish to a topic encrypted with an AWS-managed key, because that key's
+# policy does not authorise CloudWatch to call kms:Decrypt / kms:GenerateDataKey
+# and, being AWS-managed, cannot be edited. Swapping null for alias/aws/sns would
+# have satisfied the scanner while silently breaking all four ALB alarms. A
+# customer-managed key is the only option that is both encrypted and functional.
+# Ref: https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns
+resource "aws_kms_key" "alerts" {
+  count = local.create_alerts_kms_key ? 1 : 0
+
+  description              = "${var.name_prefix} internal-ALB alerts SNS topic key"
+  deletion_window_in_days  = var.alerts_kms_deletion_window_in_days
+  enable_key_rotation      = true
+  key_usage                = "ENCRYPT_DECRYPT"
+  customer_master_key_spec = "SYMMETRIC_DEFAULT"
+  multi_region             = false
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccountAdmin"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        # Confused-deputy guard mirrors modules/kms::AllowSns.
+        Sid    = "AllowSns"
+        Effect = "Allow"
+        Principal = {
+          Service = "sns.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
+        # No condition block, deliberately — AWS does not document CloudWatch as
+        # populating aws:SourceAccount on the KMS calls behind an alarm publish,
+        # and an unverified condition would fail closed and silently, dropping
+        # notifications while the alarms still appear healthy. Matches the
+        # equivalent statement in modules/kms and modules/monitoring.
+        Sid    = "AllowCloudWatchAlarmsForEncryptedSns"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudwatch.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = merge(local.tags, { Name = "${var.name_prefix}-alb-alerts-key" })
+}
+
+resource "aws_kms_alias" "alerts" {
+  count = local.create_alerts_kms_key ? 1 : 0
+
+  name          = "alias/${var.name_prefix}-alb-alerts"
+  target_key_id = aws_kms_key.alerts[0].key_id
+}
+
 resource "aws_sns_topic" "alerts" {
   count = var.create_sns_topic ? 1 : 0
 
   name              = "${var.name_prefix}-alb-alerts"
-  kms_master_key_id = var.kms_key_arn != "" ? var.kms_key_arn : null
+  kms_master_key_id = var.kms_key_arn != "" ? var.kms_key_arn : aws_kms_key.alerts[0].arn
 
   tags = merge(local.tags, { Name = "${var.name_prefix}-alb-alerts" })
 }

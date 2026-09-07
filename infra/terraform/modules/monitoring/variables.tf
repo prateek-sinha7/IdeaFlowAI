@@ -18,6 +18,17 @@ variable "kms_key_arn" {
   type        = string
 }
 
+variable "alerts_useast1_kms_deletion_window_in_days" {
+  description = "Days before the us-east-1 billing-alert SNS key is permanently deleted after `terraform destroy`. This key is separate from the project CMK only because KMS keys are single-region and the billing alarm is forced into us-east-1."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.alerts_useast1_kms_deletion_window_in_days >= 7 && var.alerts_useast1_kms_deletion_window_in_days <= 30
+    error_message = "KMS deletion window must be between 7 and 30 days."
+  }
+}
+
 variable "alert_email" {
   description = "Email address subscribed to the alerts SNS topic. Empty disables the subscription."
   type        = string

@@ -38,6 +38,7 @@ module "kms" {
 | `additional_principals` | Extra IAM principal ARNs allowed to use the key (e.g. an AWS Backup role). | `list(string)` | `[]` | no |
 | `allow_logs_service` | Allow CloudWatch Logs to use the key for log-group encryption. | `bool` | `true` | no |
 | `allow_sns_service` | Allow SNS to use the key (KMS-encrypted topics). | `bool` | `true` | no |
+| `allow_cloudwatch_alarm_service` | Allow CloudWatch alarm actions to publish to the KMS-encrypted alerts topic. Turning this off makes every alarm notification fail silently. | `bool` | `true` | no |
 | `allow_s3_service` | Allow S3 to use the key (SSE-KMS buckets). | `bool` | `true` | no |
 | `allow_backup_service` | Allow AWS Backup to use the key for vault encryption. | `bool` | `true` | no |
 | `allow_cloudtrail_service` | Allow CloudTrail to use the key (guarded to the `<name_prefix>-audit` trail). | `bool` | `true` | no |
@@ -54,6 +55,14 @@ module "kms" {
 ## Notes
 
 - `deletion_window_in_days` is validated to the AWS-allowed `7..30` range.
+- `allow_sns_service` and `allow_cloudwatch_alarm_service` are BOTH required for
+  a CloudWatch alarm to notify through a CMK-encrypted SNS topic. The SNS grant
+  alone is not sufficient: the `kms:GenerateDataKey*`/`kms:Decrypt` calls behind
+  an alarm publish are attributed to `cloudwatch.amazonaws.com`, so without the
+  CloudWatch grant the alarm still transitions to ALARM and the notification is
+  dropped with "CloudWatch Alarms does not have authorization to access the SNS
+  topic encryption key". Unlike the other grants, the CloudWatch statement
+  carries no `aws:SourceAccount` condition — see the rationale in `main.tf`.
 - The CloudTrail grant pins `aws:SourceArn` to `<name_prefix>-audit` and the
   `kms:EncryptionContext:aws:cloudtrail:arn` — keep the trail name aligned with
   `name_prefix` (the `monitoring` module already does).

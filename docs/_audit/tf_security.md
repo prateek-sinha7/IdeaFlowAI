@@ -155,8 +155,24 @@ The Terraform suite is unusually disciplined for a single-EC2 deployment: accoun
   - AWS GuardDuty findings (per `infra/README.md:115` GuardDuty is org-managed; need to verify the alerts pipe through to project SNS)
 - **Mitigation:** Add the metric filters + alarms above. Particularly the KMS-denial alarm — it's the canary for misconfigured IAM that this audit identified.
 
-### 21. SNS topic `kms_master_key_id` on the eu-central-1 topic is the project CMK; the us-east-1 billing topic uses `alias/aws/sns` (AWS-managed)
+### 21. SNS topic `kms_master_key_id` on the eu-central-1 topic is the project CMK; the us-east-1 billing topic uses `alias/aws/sns` (AWS-managed) — **RESOLVED**
 - **Files:** `infra/modules/monitoring/main.tf:81-89` (project CMK on project topic) + `:255-266` (AWS-managed key on billing topic)
+- **RESOLUTION (supersedes the risk assessment below):** the billing topic now
+  uses a dedicated us-east-1 customer-managed key
+  (`aws_kms_key.alerts_useast1`), and `modules/kms` gained an
+  `AllowCloudWatchAlarmsForEncryptedSns` grant. The finding below reasoned
+  correctly that the *impact* was low and concluded no mitigation was required.
+  That conclusion was wrong for a reason the analysis did not consider: an
+  AWS-managed SNS key cannot carry alarm notifications **at all**. Its key policy
+  does not authorise CloudWatch to call `kms:Decrypt` / `kms:GenerateDataKey`, and
+  it cannot be edited, so the billing alarm was transitioning to ALARM and then
+  failing its action with "CloudWatch Alarms does not have authorization to access
+  the SNS topic encryption key". The same gap existed on the eu-central-1 topic:
+  it was CMK-encrypted, but the project CMK's policy had no CloudWatch grant, so
+  all ~19 regional alarms were silently undeliverable too. The lesson for future
+  triage: "the payload is not sensitive" bounds the *confidentiality* risk, but
+  says nothing about whether the notification path works — check both.
+  Ref: https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns
 - **Risk:** Per the comment at `infra/modules/monitoring/main.tf:74-79`, the us-east-1 billing topic deliberately uses `alias/aws/sns` (the AWS-managed key) because the project CMK is region-pinned to eu-central-1. The risk is small (billing topic carries only operational metadata — account ID + USD threshold). However, AWS-managed keys are not under customer control: rotation, key-policy changes, and access patterns are AWS-defined. The choice is documented and intentional, but worth flagging: anyone with `sns:Subscribe` on the topic (gated by topic policy at `:283-344`) AND `kms:Decrypt` against `alias/aws/sns` (a wide allow by AWS default) can subscribe and read. The topic policy restricts subscribe to the topic owner (`Principal: root`), so this is OK today.
 - **Mitigation:** None required if the policy stays restrictive. Worth a periodic review.
 
@@ -344,7 +360,7 @@ The following are CHECKED and CORRECT — not findings, but worth documenting th
 | 18 | MEDIUM | bedrock-invoke.json inference-profile ARN region-pinned | infra/policies/bedrock-invoke.json:14-17 |
 | 19 | MEDIUM | VPC flow log retention default 30d | infra/modules/network/main.tf:432-484, variables.tf:89-98 |
 | 20 | MEDIUM | No CW alarms on security events (failed login, SSM session, KMS denies) | infra/modules/monitoring/main.tf (whole) |
-| 21 | MEDIUM | us-east-1 billing topic uses alias/aws/sns | infra/modules/monitoring/main.tf:255-266 |
+| 21 | MEDIUM (resolved) | us-east-1 billing topic uses alias/aws/sns — now a dedicated us-east-1 CMK; also fixed the missing CloudWatch grant on the project CMK, which was silently dropping all alarm notifications | infra/modules/monitoring/main.tf:255-266 |
 | 22 | MEDIUM (resolved) | SNS action format — PascalCase IS correct | infra/modules/monitoring/main.tf:113-145, 283-344 |
 | 23 | MEDIUM | aws_iam_role_policies_exclusive brittle to additions | infra/modules/iam/main.tf:226-238 |
 | 24 | MEDIUM | PG listen_addresses = '*' reliant on UFW | infra/scripts/bootstrap-ec2.sh:253-275 |

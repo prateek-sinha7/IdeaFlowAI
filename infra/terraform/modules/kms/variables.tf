@@ -42,6 +42,12 @@ variable "allow_sns_service" {
   default     = true
 }
 
+variable "allow_cloudwatch_alarm_service" {
+  description = "If true, allow the CloudWatch service principal to use the key so CloudWatch alarm actions can publish to the KMS-encrypted alerts SNS topic. Turning this off silently drops every alarm notification (the alarm still fires; only the publish fails), so leave it on unless no alarm targets a CMK-encrypted topic. Intentionally carries no aws:SourceAccount guard — see the rationale comment on the statement in main.tf."
+  type        = bool
+  default     = true
+}
+
 variable "allow_s3_service" {
   description = "If true, allow S3 service principal to use the key (so SSE-KMS works on encrypted buckets in this account)."
   type        = bool

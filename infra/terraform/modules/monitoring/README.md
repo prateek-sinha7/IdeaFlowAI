@@ -69,6 +69,16 @@ module "monitoring" {
 - This module needs a `aws.useast1` provider alias passed in (billing/
   `EstimatedCharges` metrics only exist in us-east-1, and an alarm must publish
   to a same-region topic).
+- Because of that, the module creates a **second, us-east-1 KMS key** solely to
+  encrypt the billing-alert topic. KMS keys are single-region and the project CMK
+  is pinned to eu-central-1 with `multi_region = false`, so it cannot be reused
+  there. The AWS-managed `alias/aws/sns` key is not an option either: CloudWatch
+  alarms cannot publish through it. Tune its deletion window with
+  `alerts_useast1_kms_deletion_window_in_days`.
+- `kms_key_arn` (the project CMK) must grant `cloudwatch.amazonaws.com`
+  `kms:Decrypt` + `kms:GenerateDataKey*` or every regional alarm will transition
+  to ALARM without notifying. `modules/kms` does this via
+  `allow_cloudwatch_alarm_service`.
 - `instance_role_arn` is excluded from the unexpected-secret-read filter so the
   legitimate `velocityai-load-secrets` reads don't page on-call; only
   unexpected principals trigger the alarm.

@@ -83,6 +83,8 @@ output "alb_url" {
 | `idle_timeout_seconds` | Must exceed the app's SSE heartbeat interval. | `number` | `300` | no |
 | `create_sns_topic` / `alarm_sns_topic_arn` | Create a dedicated topic, or publish to an existing one. | `bool` / `string` | `true` / `""` | no |
 | `alarm_email` | Subscribes to the created topic. Ignored when `create_sns_topic = false`. | `string` | `""` | no |
+| `kms_key_arn` | Existing CMK encrypting the created topic. Empty makes the module create its own dedicated CMK — it does **not** mean unencrypted. | `string` | `""` | no |
+| `alerts_kms_deletion_window_in_days` | Deletion window for the module-created alerts CMK. Ignored when `kms_key_arn` is set. | `number` | `30` | no |
 
 See `variables.tf` for the full list (health-check tuning, alarm thresholds,
 tagging).
@@ -112,3 +114,10 @@ tagging).
 - Pass a **narrow** `trusted_ingress_cidrs` (the approved corporate VPN/TGW
   range). A `/32` for a single tester's current VPN IP is fine for initial
   validation but is not a durable team-wide rule.
+- The alerts topic is always encrypted with a customer-managed key: either the
+  one you pass as `kms_key_arn` or one this module creates. There is deliberately
+  no "AWS-managed key" option, because a CloudWatch alarm cannot publish to a
+  topic encrypted with `alias/aws/sns` — that key's policy does not authorise
+  CloudWatch and, being AWS-managed, cannot be edited. Supplying your own key
+  means its key policy must grant `cloudwatch.amazonaws.com` `kms:Decrypt` and
+  `kms:GenerateDataKey*`, or the four alarms here will fire without notifying.

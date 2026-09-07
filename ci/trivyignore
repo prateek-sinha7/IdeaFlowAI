@@ -30,8 +30,25 @@
 # the documented residual in docs/_audit/tf_security.md (L-9). Tighter control
 # would require AWS Network Firewall + domain allow-listing (out of scope for a
 # single-EC2 design). Only the app SG egress rules in modules/network match
-# (infra/terraform/modules/network/main.tf, the four
-# aws_vpc_security_group_egress_rule blocks), reached from the foundation root.
+# (infra/terraform/modules/network/main.tf), reached from the foundation root:
+# exactly four of that SG's five aws_vpc_security_group_egress_rule blocks use
+# cidr_ipv4 = "0.0.0.0/0" — app_https, app_http, app_dns_udp, app_dns_tcp. The
+# fifth (app_self) targets a referenced_security_group_id and never matched this
+# check. Every other SG in the tree is already tighter: aws_security_group.
+# endpoints has no egress rule at all, aws_default_security_group.vpc_default is
+# deliberately wiped empty, and modules/alb_internal's egress is SG-referenced.
+#
+# PARTIALLY REDUCIBLE, NOT ACCEPTED AS-IS FOREVER: only app_https and app_http
+# genuinely need the whole internet (apt/OS updates, GitHub, ACME, OCSP, and the
+# Bedrock/S3 public-endpoint fallbacks). The two DNS rules do not — the instance
+# resolves through the VPC resolver, which is reachable inside the VPC CIDR, so
+# 53/udp+tcp could be narrowed to the VPC CIDR and remove DNS-over-port-53 as an
+# exfiltration channel. That is deliberately NOT done in the same change as the
+# AWS-0136 fix: it is a live-traffic firewall change whose failure mode is total
+# DNS loss on the host if anything on the box is pointed at an external resolver
+# (a hard-coded resolv.conf entry, a Docker DNS override), and it would not clear
+# this finding anyway because 80/443 keep it red. Tracked as its own change with
+# its own verification.
 AWS-0104
 
 # AWS-0132 — S3 bucket does not use a customer-managed KMS key. Matches ONLY
@@ -44,17 +61,50 @@ AWS-0104
 # inline `checkov:skip=CKV_AWS_145` annotation on that resource — this entry is
 # the trivy half of the SAME reviewed decision, which is why the finding was
 # reaching the gate unaccepted.
+#
+# Re-verified rather than taken on trust, because the neighbouring AWS-0136
+# accept turned out to be wrong: ELB still rejects a CMK on this bucket. The
+# service returns "The bucket uses an unsupported server-side encryption option.
+# The bucket must use Amazon S3-managed keys (SSE-S3)" via
+# InvalidConfigurationRequest / Access Denied at the point the LB attribute is
+# set. Note the contrast with Network Load Balancers, whose access-log docs
+# explicitly do permit SSE-KMS with a CMK — the capability is per-LB-type, so a
+# doc page about NLB access logs does not license a change here. Unlike AWS-0136
+# this accept costs nothing operationally: SSE-S3 still encrypts every object at
+# rest, so the residual is key custody only, not plaintext.
 AWS-0132
-
-# AWS-0136 — SNS topic not encrypted with a customer-managed KMS key. The
-# alerts topic carries non-sensitive CloudWatch alarm notifications and uses
-# the default AWS-managed SNS encryption. Only the monitoring alerts topic
-# matches (modules/monitoring, reached from the app root).
-AWS-0136
 
 # -----------------------------------------------------------------------------
 # NOT ignored — recorded so the absences are deliberate, not oversights.
 # -----------------------------------------------------------------------------
+# AWS-0136 (SNS topic without a customer-managed CMK) WAS accepted here. The
+# accept is withdrawn because it was both inaccurate and masking a real defect.
+#
+# Inaccurate: it named "the monitoring alerts topic (modules/monitoring, reached
+# from the app root)" as the only match. That topic — aws_sns_topic.alerts — has
+# always carried kms_master_key_id = var.kms_key_arn (the project CMK) and never
+# matched this check. The two topics that actually matched were never mentioned:
+#   * aws_sns_topic.alerts_useast1 (modules/monitoring) — used alias/aws/sns.
+#   * aws_sns_topic.alerts (modules/alb_internal) — resolved to no encryption at
+#     all, because velocityai-alb leaves kms_key_arn = "" and the old expression
+#     fell back to null.
+#
+# Masking a defect: an AWS-managed SNS key cannot carry alarm notifications. Its
+# key policy does not authorise CloudWatch to call kms:Decrypt /
+# kms:GenerateDataKey and cannot be edited, so the us-east-1 billing alarm was
+# transitioning to ALARM and then failing to publish. The accept's reasoning
+# ("payload is only an account ID and a USD threshold") argued impact was low,
+# which was true, and concluded a CMK was not worth it, which was wrong: a CMK is
+# the only configuration in which that alarm notifies anyone.
+#
+# Both topics now use customer-managed keys, and all three key policies grant
+# cloudwatch.amazonaws.com kms:Decrypt + kms:GenerateDataKey* so the publish path
+# works. The project CMK (modules/kms) gained the same grant, which it was
+# missing — the eu-central-1 alerts topic was CMK-encrypted with a key policy
+# that did not let CloudWatch use it, so all ~19 regional alarms were silently
+# failing to notify as well. The check is intentionally live so that a future
+# topic added without a CMK fails CI instead of being quietly undeliverable.
+#
 # AWS-0031 (ECR mutable tags) WAS accepted here on the grounds that a build
 # retry needs to re-push the same tag. That accept is withdrawn: the repos now
 # default to IMMUTABLE (infra/terraform/modules/ecr) and build retries are
