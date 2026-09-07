@@ -12,6 +12,7 @@ Requirements: INV-1 / INV-3 / INV-12 / SC-001 — see ISS-056 grounded context.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -319,7 +320,9 @@ class TestH3SmartPlannerDesignNote:
     def _make_planner(self):
         from agents.planner.smart_planner import SmartPlanner
 
-        return SmartPlanner(model_id=None)
+        # Inject a fake model to avoid real provider construction (ISS-102)
+        with patch.object(SmartPlanner, "_build_llm", return_value=MagicMock()):
+            return SmartPlanner(model_id=None)
 
     def test_design_note_present_when_design_context_supplied(self) -> None:
         """ISS-056/H3(b): 'Design already chosen' must appear when design_context is non-None."""

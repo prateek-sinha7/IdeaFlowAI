@@ -1,6 +1,16 @@
-# Production dependencies only (no test/dev tools)
-# For reproducible builds, use: uv sync --frozen
-# This is the authoritative source for production container images.
+# Production dependencies only (no test/dev tools).
+#
+# This file is a human-readable convenience mirror, NOT the CI/Docker
+# resolution authority (Task 3.16). The committed backend/uv.lock is the
+# single dependency-resolution authority:
+#   - CI installs via `uv sync --frozen --no-dev` (see
+#     .github/actions/setup-backend/action.yml).
+#   - The production Dockerfile derives its install list at build time with
+#     `uv export --frozen --no-dev` from the same uv.lock.
+# backend/tests/ci/test_dependency_lock_contracts.py asserts this file's pins
+# stay identical to [project.dependencies] in pyproject.toml, so it cannot
+# silently drift into a second, disagreeing source of truth — but it is not
+# read by CI or the Docker build.
 
 fastapi==0.141.1
 # starlette is pinned EXPLICITLY (it is fastapi's transitive dependency) because

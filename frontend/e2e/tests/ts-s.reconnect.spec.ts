@@ -153,6 +153,6 @@ test.describe("TS-S — reconnect / replay", () => {
   // standalone fixme test keeps the case visible in the run report without
   // skipping its siblings.
   test("TS-S-07 cross-owner demotion (backend-gated)", () => {
-    test.fixme(true, "cross-owner demotion is backend-gated (BE-RES-01)");
+    test.skip(true, "cross-owner demotion is backend-gated (BE-RES-01); Owner: backend");
   });
 });

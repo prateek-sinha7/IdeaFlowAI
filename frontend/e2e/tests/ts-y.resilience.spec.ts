@@ -103,7 +103,7 @@ test.describe("TS-Y — resilience / long-run", () => {
   // standalone fixme keeps the case visible in the run report without skipping
   // its siblings.
   test("TS-Y-02 backend-restart durable resume (covered elsewhere)", () => {
-    test.fixme(true, "durable resume covered by TS-S + BE-RES-02");
+    test.skip(true, "durable resume covered by TS-S + BE-RES-02; Owner: backend");
   });
 
   // TS-Y-03 — long-run heartbeat: the 20s client ping that keeps the socket
@@ -111,6 +111,6 @@ test.describe("TS-Y — resilience / long-run", () => {
   // contract). Re-driving a multi-minute idle run here would only duplicate that
   // coverage with a flaky wall-clock wait. Standalone fixme — siblings still run.
   test("TS-Y-03 long-run heartbeat keepalive (covered elsewhere)", () => {
-    test.fixme(true, "keepalive covered by TS-X-01");
+    test.skip(true, "keepalive covered by TS-X-01; Owner: frontend");
   });
 });

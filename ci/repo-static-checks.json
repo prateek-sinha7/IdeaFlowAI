@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "producer": "repo-static",
+  "description": "Repository static checks. Three independent signals, one owner. Keys use the schema backend/agents/ci/run_checks.py actually reads (check_id / command / timeout_seconds / mandatory) — an earlier version of this file used id/argv/required, which the runner rejects, so it could never have executed.",
+  "checks": [
+    {
+      "check_id": "actionlint",
+      "description": "GitHub Actions workflow schema and expression validation",
+      "command": ["bash", ".github/scripts/ci-actionlint.sh"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "bash-syntax",
+      "description": "Shell script parse check over every tracked script",
+      "command": ["bash", ".github/scripts/ci-shell-syntax.sh"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "shellcheck",
+      "description": "Blocking ShellCheck analysis at warning severity",
+      "command": ["bash", ".github/scripts/ci-shellcheck.sh"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    }
+  ]
+}

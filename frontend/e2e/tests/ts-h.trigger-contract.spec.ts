@@ -117,6 +117,6 @@ test.describe("TS-H — trigger contract", () => {
   // Standalone fixme so it skips ONLY this case (a bare test.fixme in the
   // describe body would skip the whole group).
   test("TS-H-05 wizard path (prototype/ppt) sends od_prototype/od_ppt + template_id", async () => {
-    test.fixme(true, "wizard path covered by TS-V live");
+    test.skip(true, "wizard path covered by TS-V live; Owner: frontend");
   });
 });

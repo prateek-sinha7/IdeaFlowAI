@@ -15,6 +15,15 @@ on:
         required: true
         type: string
         description: "Path to Dockerfile (e.g., './backend/Dockerfile')"
+      build-contexts:
+        required: false
+        type: string
+        default: ""
+        description: >-
+          Extra named build contexts, one per line, `name=path` (e.g.
+          'opendesign=./skills/opendesign'). Passed straight through to
+          docker/build-push-action's `build-contexts` input. Required for the
+          backend image, whose Dockerfile does `COPY --from=opendesign`.
       image-tag:
         required: true
         type: string
@@ -69,6 +78,7 @@ jobs:
         with:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}
+          build-contexts: ${{ inputs.build-contexts }}
           platforms: linux/amd64
           # Attestations require an exporter that can carry them (registry/oci).
           # On the PR path this build uses `outputs: type=docker` (below) so the
@@ -86,17 +96,34 @@ jobs:
           cache-to: type=gha,mode=max
           outputs: ${{ inputs.push && '' || 'type=docker' }}
 
-      - name: Export image (for scanning if not pushed)
-        if: ${{ !inputs.push }}
+      # Resolve ONE local image ID by digest so Trivy and Grype provably scan
+      # the exact same bytes just built, not a mutable tag that could be
+      # re-tagged between steps. `docker images --digests` on the freshly
+      # loaded `type=docker` image reports the CONTENT digest as `<none>`
+      # (untagged locally, unpushed), so the digest that matters here is the
+      # one build-push-action itself already resolved: `steps.build.outputs.digest`.
+      - name: Resolve local image reference (for scanning)
         run: |
-          # If not pushing to registry, the image is in docker daemon
-          # We'll reference it by tag for scanning
-          echo "IMAGE_REF=docker.io/library/${{ inputs.component }}:local-${{ inputs.image-tag }}" >> "$GITHUB_ENV"
-
-      - name: Set image ref (for scanning)
-        if: ${{ inputs.push }}
-        run: |
-          echo "IMAGE_REF=${{ inputs.registry }}/${{ inputs.component }}:${{ inputs.image-tag }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
+          set -euo pipefail
+          if [[ "${{ inputs.push }}" == "true" ]]; then
+            IMAGE_REF="${{ inputs.registry }}/${{ inputs.component }}:${{ inputs.image-tag }}@${{ steps.build.outputs.digest }}"
+          else
+            # Local, unpushed image: build-push-action's `type=docker` output
+            # loads it into the daemon under the tag below; the digest output
+            # still identifies the exact content built. Both scanners below
+            # are invoked against the TAG (the only reference the local
+            # daemon can resolve without a registry) but we assert the
+            # digest is non-empty first, so a build that produced no
+            # resolvable digest fails closed instead of silently scanning
+            # nothing.
+            if [[ -z "${{ steps.build.outputs.digest }}" ]]; then
+              echo "::error::build-push-action produced no digest for ${{ inputs.component }}; refusing to scan an unresolved image."
+              exit 1
+            fi
+            IMAGE_REF="docker.io/library/${{ inputs.component }}:local-${{ inputs.image-tag }}"
+          fi
+          echo "IMAGE_REF=${IMAGE_REF}" >> "$GITHUB_ENV"
+          echo "Resolved image for scanning: ${IMAGE_REF} (digest ${{ steps.build.outputs.digest }})"
 
       # ── Phase 7: Image Scanning ────────────────────────────────────────
 
@@ -128,17 +155,34 @@ jobs:
           
           echo "Scanning image: ${{ env.IMAGE_REF }}"
           
-          # Generate SARIF for GitHub Security tab
+          # Zero-finding policy (bugfix 2.8): every resolved HIGH/CRITICAL
+          # finding blocks regardless of fix availability. `--ignore-unfixed`
+          # and the CVE ignorefile are deliberately NOT passed here — either
+          # would let an unfixable-today finding report success, which is
+          # exactly the suppression path this task removes. A genuinely
+          # unfixable finding must be resolved by remediating the Dockerfile
+          # (base image, package versions), not by adding it to an ignore
+          # list.
+          #
+          # Captured into EXIT_CODE (not `set -e`'d straight through) so a
+          # non-zero Trivy exit does not short-circuit the job before Grype
+          # also gets to scan the same digest below — both engines must
+          # report a verdict even when the first one fails.
+          EXIT_CODE=0
           trivy image \
             --exit-code 1 \
             --severity CRITICAL,HIGH \
-            --ignore-unfixed \
-            --ignorefile ci/trivyignore.images \
             --format sarif \
             --output trivy-${{ inputs.component }}.sarif \
-            "${{ env.IMAGE_REF }}"
-          
-          echo "✓ Trivy scan passed (no HIGH/CRITICAL vulns)"
+            "${{ env.IMAGE_REF }}" || EXIT_CODE=$?
+
+          if [[ "$EXIT_CODE" -ne 0 ]]; then
+            echo "❌ Trivy scan failed (found HIGH or CRITICAL vulnerabilities)"
+            echo "TRIVY_FAILED=1" >> "$GITHUB_ENV"
+          else
+            echo "✓ Trivy scan passed (no HIGH/CRITICAL vulns)"
+            echo "TRIVY_FAILED=0" >> "$GITHUB_ENV"
+          fi
 
       # Best-effort, and deliberately not a gate. The code-scanning upload needs
       # `security-events: write`, which is not always available to this workflow:
@@ -180,15 +224,14 @@ jobs:
           # test below aborted the step with "EXIT_CODE: unbound variable".
           # A clean scan therefore failed the job, and only a clean scan did.
           EXIT_CODE=0
-          # --only-fixed matches Trivy's --ignore-unfixed above, so the two
-          # engines enforce the SAME policy: block on HIGH+ that this pipeline
-          # can actually action by rebuilding or bumping a dependency. Without
-          # it, Grype also failed on vulnerabilities with no upstream fix, which
-          # no change to this repo could ever clear — a gate nobody can pass is
-          # a gate that gets disabled, and ci/trivyignore.images explicitly
-          # reserves waivers for genuinely-unfixable findings only.
+          # Zero-finding policy (bugfix 2.8): `--only-fixed` is deliberately
+          # NOT passed. It previously matched Trivy's `--ignore-unfixed`
+          # above so both engines shared one lenient policy — but that
+          # policy is exactly what this task removes: every resolved
+          # HIGH/CRITICAL finding blocks regardless of fix availability, so
+          # a genuinely unfixable finding must be remediated (base image
+          # swap, package removal), not filtered out of the scan.
           grype "${{ env.IMAGE_REF }}" \
-            --only-fixed \
             --fail-on high \
             --output json \
             > grype-results-${{ inputs.component }}.json || EXIT_CODE=$?
@@ -196,10 +239,24 @@ jobs:
           if [[ "$EXIT_CODE" -ne 0 ]]; then
             echo "❌ Grype scan failed (found HIGH or higher severity vulnerabilities)"
             cat grype-results-${{ inputs.component }}.json
+            echo "GRYPE_FAILED=1" >> "$GITHUB_ENV"
+          else
+            echo "✓ Grype scan passed"
+            echo "GRYPE_FAILED=0" >> "$GITHUB_ENV"
+          fi
+
+      # Aggregate verdict: EITHER engine finding a blocking vulnerability
+      # fails the job, run AFTER both scanners have had a chance to report
+      # (Task 3.18: "run Trivy and Grype against that same digest even when
+      # the first engine fails").
+      - name: Enforce zero-finding policy (both engines)
+        run: |
+          set -euo pipefail
+          if [[ "${TRIVY_FAILED:-1}" != "0" || "${GRYPE_FAILED:-1}" != "0" ]]; then
+            echo "::error::Zero High/Critical policy violated for ${{ inputs.component }} (Trivy failed=${TRIVY_FAILED:-unset}, Grype failed=${GRYPE_FAILED:-unset})."
             exit 1
           fi
-          
-          echo "✓ Grype scan passed"
+          echo "✓ Both Trivy and Grype report zero High/Critical findings for ${{ inputs.component }}."
 
       - name: Generate SBOM artifact
         if: ${{ inputs.push }}

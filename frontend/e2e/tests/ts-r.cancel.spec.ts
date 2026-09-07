@@ -90,7 +90,7 @@ test.describe("TS-R — cancel", () => {
     // revision run must not write a poisoned/partial parent record. There is no
     // FE-observable surface for this in mocked mode (it is a DB/state-machine
     // invariant), so it cannot be exercised here.
-    test.fixme(true, "revision-cancel persistence is backend-gated (Phase 14)");
+    test.skip(true, "revision-cancel persistence is backend-gated (Phase 14); Owner: backend");
   });
 });
 

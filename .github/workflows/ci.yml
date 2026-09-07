@@ -1,1797 +1,1306 @@
 # =============================================================================
-# VelocityAI CI — lint, test, and security-scan gate.
+# VelocityAI CI — the single unprivileged evaluator
 # =============================================================================
-# This workflow has NO AWS access (no OIDC role, no secrets, no cloud calls).
-# It is a pure quality gate:
-#   - backend: ruff, pyright (import resolution), import-linter, vulture, pytest
-#   - frontend: eslint, vitest, next build
-#   - security-scan: gitleaks, checkov, trivy (config), tflint
+# One workflow, one owner per signal, every mandatory check blocking.
 #
-# USAGE:
-#   (a) Standalone — runs on push to `main` and on every pull_request.
-#   (b) Reusable workflow — called by deploy.yml as a gate before deploy.
-#       When called, it receives no secrets (AWS-blind) and inherits no
-#       environment, so the prod reviewer gate stays on the deploy job only.
+# WHAT THIS FILE IS
+#   The complete CI evaluation for one exact revision. It runs on pull requests,
+#   on pushes to main, on manual dispatch, and as a reusable gate called by
+#   deploy.yml. It holds NO cloud, OIDC, deployment or repository-write
+#   credentials, and it never pushes an image or touches Terraform state.
 #
-#   `dev` / `staging` / `v*` are deliberately NOT standalone push triggers:
-#   deploy.yml fires on exactly those refs and calls this workflow as its
-#   `gate` job (with `secrets: inherit`), so listing them here too would run
-#   the whole suite twice on the same commit and report two independent
-#   statuses for one push. THIS ONLY GIVES `dev`/`staging` PUSH COVERAGE IF
-#   deploy.yml's `gate` job is actually wired into `build`'s and `deploy`'s
-#   `needs:` (it was temporarily bypassed once — see git history around
-#   commit 8f3042d6 — which left every push to `dev` with NO CI at all,
-#   silently, because both the "runs on main/PR only" exclusion here AND the
-#   gate bypass in deploy.yml were true at once). tests/ci/test_workflow_contracts.py
-#   plus the "Deploy workflow gate contract" step in the test-debt job below
-#   assert the gate dependency exists, specifically so this exclusion never
-#   becomes a silent coverage gap again. PRs targeting `dev`/`staging` (prior
-#   to merge) ARE covered here regardless, via the unfiltered `pull_request:`
-#   trigger below.
+#   `deploy.yml` calls this file as its `gate` job. That gate must therefore
+#   actually evaluate something: a previous iteration reduced this file to a stub
+#   that only printed a deprecation notice, which silently un-gated every
+#   deployment. Do not do that again — if this file stops failing on red code,
+#   deploy.yml stops being protected.
 #
-# deploy.yml depends on this gate: no deploy lands without lint + test + scan
-# passing on the same commit. This gate BLOCKS deploy.yml's `build` job (which
-# blocks `deploy`), so no image is pushed to the shared ECR registry — not even
-# under a throwaway tag — until this workflow is green on that commit. It used
-# to run in parallel with build for speed, which meant a failing commit still
-# published artifacts.
+# WHO PUBLISHES THE MERGE STATUS
+#   Pull requests    : this workflow cannot see SONAR_TOKEN, so it defers the two
+#                      Sonar signals and publishes no commit status. The trusted
+#                      default-branch workflow `ci-authoritative.yml` consumes
+#                      this run, adds Sonar, and is the sole publisher of
+#                      `ci-required` for PRs.
+#   Trusted intents  : push to main / workflow_dispatch / workflow_call run
+#                      `sonar-inline` here and publish `ci-required` inline.
 #
-# NO TERRAFORM BINARY HERE. Terraform is not installed, initialised, planned or
-# applied anywhere in CI/CD (locked design decision — see
-# docs/GITHUB_CICD_SETUP.md). IaC coverage comes from static analysis only:
-# checkov + trivy config + tflint read the .tf files without a provider or a
-# backend. `terraform fmt`/`validate`, which the retired infra/buildspec.yml
-# ran in its pre_build phase, are covered locally by .pre-commit-config.yaml.
+# HOW A SIGNAL BECOMES A VERDICT
+#   Every mandatory signal is registered in
+#   backend/agents/ci/signal_registry.py with exactly one `owner_job`. The
+#   `ci-evidence` job feeds every job result into
+#   `python -m agents.ci.ci_gate aggregate`, which succeeds only if all 35
+#   mandatory signals succeeded for THIS exact SHA. Job names below must match
+#   the registry's `owner_job` values or the aggregate fails closed with
+#   "owns no registered signal".
 #
-# Action pinning: every third-party/first-party action below is pinned to a
-# full commit SHA (never a mutable tag). security-scan installs gitleaks,
-# checkov, trivy, and tflint as checksum-verified release binaries rather
-# than via aquasecurity/trivy-action or aquasecurity/setup-trivy at all.
-# Full incident rationale (CVE-2026-33634): F-07 —
-# docs/CICD-DESIGN-DECISIONS.md#action-pinning-and-cve-2026-33634
+# THE RULE THAT KEEPS THIS HONEST
+#   No mandatory step may use `continue-on-error: true`, `|| true`, or a
+#   trailing `exit 0`. Where several independent checks must all report even
+#   though one failed, use `agents/ci/run_checks.py`, which runs every command
+#   to completion, records a sub-verdict for each, and then exits non-zero.
+#   Collecting evidence past a failure is fine; converting a failure into a pass
+#   is not.
 # =============================================================================
 
 name: CI
 
 on:
+  pull_request:
   push:
     branches:
       - main
-  pull_request:
   workflow_dispatch:
-  # Reusable workflow entry point — deploy.yml calls this as a gate.
+    inputs:
+      intent_id:
+        description: >-
+          Unique label for this manual evaluation. Two dispatches with different
+          intent IDs must not cancel each other.
+        required: true
+        type: string
   workflow_call:
-    inputs: {}
+    inputs:
+      intent_id:
+        description: Unique label for this reusable invocation.
+        required: false
+        default: reusable
+        type: string
+    secrets:
+      SONAR_TOKEN:
+        description: >-
+          SonarCloud token. Declared explicitly rather than relying on
+          `secrets: inherit` so a caller cannot hand this workflow credentials
+          it has no business holding.
+        required: false
 
-# Cancel superseded runs on the same branch/PR. When called as a reusable
-# workflow, github.workflow resolves to the CALLER's name ("Deploy"), so we
-# include github.event_name in the key to keep CI-invoked and Deploy-invoked
-# runs in separate groups. PRs cancel in-progress; everything else queues.
+# Evaluation identity (Requirement 2.15). Pull requests and branch pushes group
+# WITHOUT the SHA so a newer head cancels an in-flight older one. Manual and
+# reusable intents include their intent ID and never cancel each other.
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: >-
+    ci-${{ github.repository }}-${{
+      github.event_name == 'pull_request'
+        && format('pr-{0}', github.event.pull_request.number)
+        || (github.event_name == 'push'
+              && format('branch-{0}', github.ref)
+              || format('intent-{0}-{1}', github.event_name, inputs.intent_id))
+    }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
-# Least-privilege default: this workflow only reads the repo. No job needs
-# write access to contents, PRs, or (crucially) any AWS/OIDC token.
+# Least privilege by default. Only `sonar-inline` widens this, and only to
+# `statuses: write`. No job requests id-token, packages, or contents: write.
 permissions:
   contents: read
 
-# F-08: values that were previously hardcoded at multiple sites within this
-# file (and, for TRIVY_*, duplicated a second time in deploy.yml) now have
-# exactly one authoritative definition. A version/checksum bump or an ECR
-# repo rename is now a one-line diff instead of a multi-site find-and-replace
-# that is easy to apply incompletely.
 env:
-  # Consumed by security-scan's "Install trivy" step below AND by
-  # deploy.yml's "Install trivy" step in the build job (deploy.yml declares
-  # its own identical copy of these two values — see the note there — since
-  # workflow-level `env:` cannot be shared across separate workflow FILES).
-  # Bumping the version here requires the SAME bump in deploy.yml; both
-  # locations are commented with a pointer to the other.
+  # Tool versions and checksums come from ci/toolchain-lock.json. They are
+  # mirrored here because GitHub does not allow a workflow `env:` block to read
+  # a file; tests/ci/test_ci_pin_contracts.py asserts the two agree, so a drift
+  # is a failing signal rather than a silent divergence.
+  ACTIONLINT_VERSION: "v1.7.12"
+  ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+  GITLEAKS_VERSION: "v8.30.1"
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
   TRIVY_VERSION: "0.69.3"
   TRIVY_SHA256: "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
-
-  # The 6 Terraform roots this repo has, read by BOTH "Terraform validate"
-  # and "Check for .terraform.lock.hcl" in the security-scan job (F-08: these
-  # were previously two independent hardcoded copies of the same array).
-  TF_ROOTS: "infra/terraform/app infra/terraform/bootstrap infra/terraform/foundation infra/terraform/localstack infra/terraform/shared infra/terraform/velocityai-alb"
+  GRYPE_VERSION: "0.75.0"
+  GRYPE_SHA256: "de8f5eb8e2b3bfe65e906945e5a80a5db92aa8c76fc2e7aba3c95a0b4e3b5b89"
+  # Service and toolchain pins. Patch-level, never a floating major.
+  POSTGRES_IMAGE: "postgres:16.10-bookworm"
+  COVERAGE_MIN_BACKEND: "80"
+  COVERAGE_MIN_FRONTEND: "80"
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Phase 8: Fast-fail tier — catches trivial errors in ~90 seconds, gates
-  # all heavier jobs. Runs:
-  #   - ruff format --check (formatting)
-  #   - ruff check (linting)
-  #   - python -m compileall (syntax)
-  #   - migration_guard.py --verify (migration invariants)
-  #   - gitleaks (secrets)
-  #   - shellcheck / bash -n (shell syntax)
-  #
-  # Cost: ~1 min billable. If this job fails, everything else is skipped.
-  # ---------------------------------------------------------------------------
-  fast-checks:
-    name: Fast checks (actionlint / format / lint / compile / migrate / gitleaks / shell)
+  # ===========================================================================
+  # repo-static — actionlint, shell parse, ShellCheck
+  # ===========================================================================
+  # Owns: repo-static/actionlint, repo-static/bash-syntax, repo-static/shellcheck
+  # All three run to completion via run_checks.py; the job then fails if any did.
+  # ===========================================================================
+  repo-static:
+    name: Repository static analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
+      - name: Checkout (exact SHA)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0  # Full history for gitleaks
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+          persist-credentials: false
 
-      # actionlint: static analysis of the workflow files THEMSELVES. Runs
-      # first, before any dependency install, because a workflow-level error is
-      # not something the rest of this job can meaningfully report on.
-      #
-      # Why this exists: tests/ci/test_workflow_contracts.py parses these files
-      # with yaml.safe_load and asserts *semantic* properties (gate is a
-      # transitive dep of deploy, every job has a timeout, no AWS secrets reach
-      # the gate). All 14 of those tests passed while ci.yml called
-      # `_docker.yml` — a `workflow_call` WORKFLOW — from `steps[].uses:`, which
-      # is only valid for ACTIONS. GitHub rejects such a file at startup, so no
-      # job in this workflow was created at all. A YAML parser cannot see that;
-      # it is valid YAML. actionlint knows the Actions schema and does.
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
       - name: Install actionlint
         uses: ./.github/actions/install-checksummed-tool
         with:
           name: actionlint
-          version: v1.7.12
-          url: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
-          # Verified against the release's own checksums file:
-          # https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
-          sha256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          version: ${{ env.ACTIONLINT_VERSION }}
+          url: https://github.com/rhysd/actionlint/releases/download/${{ env.ACTIONLINT_VERSION }}/actionlint_1.7.12_linux_amd64.tar.gz
+          sha256: ${{ env.ACTIONLINT_SHA256 }}
           archive-format: tar.gz
           binary-name: actionlint
 
-      # `-shellcheck=` / `-pyflakes=` disable actionlint's OPTIONAL delegation
-      # to those tools for embedded `run:` scripts. Shell scripts are already
-      # covered by the dedicated shellcheck steps below and the `shellcheck`
-      # job, and leaving the integration on would double-report the same
-      # findings under a different tool's name. Workflow-schema checking —
-      # the reason this step exists — is unaffected.
-      - name: actionlint (workflow schema + expression checks)
-        run: actionlint -color -shellcheck= -pyflakes= ./.github/workflows/*.yml
-
-      - name: Setup backend (uv + venv)
+      - name: Setup backend (for the check runner)
         uses: ./.github/actions/setup-backend
         with:
           dev-deps: "true"
 
-      - name: ruff format --check
-        working-directory: backend
-        run: uv run --no-sync ruff format --check .
-
-      - name: ruff check (linting)
-        working-directory: backend
-        run: uv run --no-sync ruff check .
-
-      - name: python -m compileall (syntax check)
-        working-directory: backend
-        run: python -m compileall -q app agents
-
-      - name: migration_guard.py --verify
-        working-directory: backend
-        run: uv run --no-sync python scripts/migration_guard.py --verify
-
-      # Phase 10: Workflow gate contract test — ensures gate cannot be removed
-      - name: Workflow gate contract
-        run: |
-          pip install --no-cache-dir pyyaml==6.0.2
-          python .github/scripts/check-workflow-gate-contract.py \
-            .github/workflows/deploy.yml --verbose
-
-      # gitleaks: secret scanning (see ci/gitleaks.toml + ci/gitleaksignore)
-      - name: Install gitleaks
-        uses: ./.github/actions/install-checksummed-tool
-        with:
-          name: gitleaks
-          version: v8.30.1
-          url: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
-          sha256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-          archive-format: tar.gz
-          binary-name: gitleaks
-
-      - name: gitleaks detect (full history)
-        run: gitleaks detect --redact --no-banner -v --config ci/gitleaks.toml -i ci/gitleaksignore --source .
-
-      # Shell syntax checks
-      - name: shellcheck (all .sh files)
-        run: |
-          find . -type f -name "*.sh" \
-            -not -path "./.git/*" \
-            -not -path "./.next/*" \
-            -not -path "./node_modules/*" \
-            -not -path "./.venv/*" \
-            -not -path "./.terraform/*" \
-            | xargs -r shellcheck --severity=error
-
-      - name: bash -n (syntax check all scripts in .github)
-        run: |
-          find .github/scripts -type f -exec bash -n {} +
-
-  # ---------------------------------------------------------------------------
-  # Shell scripts — the on-host / on-runner bash scripts that SSM RunCommand
-  # executes as root (remote-deploy.sh, remote-bootstrap.sh) or that provision
-  # a box directly (bootstrap-ec2.sh, reconcile-host-config.sh, setup-infra.sh).
-  # Several of these scripts' own header comments already claimed to be
-  # "shellcheck'd and bash -n'd in CI" before any such job existed — this job
-  # makes that claim true.
-  #
-  # `bash -n` is a pure parse check; shellcheck catches everything else
-  # (unquoted expansions, unset-variable use under `set -u`, SC2064-style
-  # trap quoting, etc.). The specific outage this class of check would have
-  # caught: docs/CICD-DESIGN-DECISIONS.md#the-ssm-runcommand-heredoc-incident-why-payloads-are-built-not-inlined
-  # ---------------------------------------------------------------------------
-  shellcheck:
-    name: Shell scripts (bash -n / shellcheck)
-    runs-on: ubuntu-latest
-    needs: [fast-checks]  # Phase 8: Depends on fast-checks
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-      # (actions/runner-images Ubuntu2404-Readme.md lists it under Included
-      # Software), so — unlike gitleaks/checkov/trivy/tflint below, none of
-      # which are preinstalled — there is nothing to download here. This
-      # avoids adding a checksum-verified download this workflow can't rotate
-      # without someone independently re-verifying a new hash out of band; if
-      # that ever changes, follow the same checksummed-binary pattern the
-      # security-scan job uses.
-      - name: shellcheck --version
-        run: shellcheck --version
-
-      - name: bash -n (parse check)
+      # ShellCheck ships preinstalled on ubuntu-latest. Using the runner's copy
+      # avoids an unpinned `apt-get install` while keeping the version on record
+      # in the evidence log.
+      - name: Record tool versions
         run: |
           set -euo pipefail
-          status=0
-          while IFS= read -r -d '' f; do
-            echo "bash -n: $f"
-            bash -n "$f" || status=1
-          done < <(find .github/scripts infra/scripts -type f -name '*.sh' -print0)
-          exit "$status"
+          mkdir -p ci-results
+          {
+            actionlint --version
+            shellcheck --version
+            bash --version | head -n 1
+          } | tee ci-results/repo-static-tool-versions.txt
 
-      # TODO(flip-to-failing): remove `|| true` once the FIRST real run's
-      # findings against the existing scripts (bootstrap-ec2.sh,
-      # reconcile-host-config.sh, remote-deploy.sh, setup-infra.sh, etc.) are
-      # triaged. This job has never run before now, so — same posture as the
-      # pip-audit/npm-audit warn-only steps above — it starts non-blocking
-      # rather than asserting a clean bill of health nobody has confirmed.
-      # `bash -n` above stays a hard gate regardless: a parse failure is
-      # unambiguous and needs no triage.
-      - name: shellcheck (warn-only until first-run findings are triaged)
-        run: |
-          shellcheck --severity=warning --shell=bash \
-            .github/scripts/*.sh \
-            infra/scripts/*.sh || true
-
-  # ---------------------------------------------------------------------------
-  # Test-debt enforcement (Requirements 32.3, 32.4, 32.5, 2.7)
-  #
-  # Three checks, all driven by backend/tests/ci/enforce_debt.py:
-  #   record  — every entry in .planning/REMEDIATION-RECORD.md must carry the
-  #             fields its section declares (owner, reason, unexpired date).
-  #             Blocking: an incomplete waiver is never allowed to merge.
-  #   counts  — collected pytest / Vitest / mocked-Playwright counts must equal
-  #             the recorded baselines in .planning/test-baselines.yml.
-  #   skips   — every skip/fixme must have a complete Disabled Tests entry.
-  # ---------------------------------------------------------------------------
-  test-debt:
-    name: Test debt (record completeness / baseline counts)
-    runs-on: ubuntu-latest
-    needs: [fast-checks]  # Phase 8: Depends on fast-checks
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup backend
-        uses: ./.github/actions/setup-backend
-        with:
-          frozen: "true"
-
-      - name: Setup frontend
-        uses: ./.github/actions/setup-frontend
-
-      # Phase 8: Cache Playwright browser (~400 MB, 90s install time)
-      - name: Cache Playwright browser
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: playwright-
-
-      # Needed only so `playwright test --list` can resolve the mocked project.
-      - name: Install Playwright browser
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
-
-      # Blocking: the pytest-agents-a/pytest-agents-b jobs below hardcode their
-      # file lists inline in a `run:` command rather than discovering
-      # tests/agents/ dynamically. That already went stale once — two
-      # characterization goldens (test_characterization_prototype_feature_revision.py,
-      # test_characterization_prototype_large_revision.py) were added to the
-      # directory and silently never ran in CI, which is exactly the failure
-      # mode INV-3 exists to prevent. This step re-derives both shards' file
-      # lists straight from this workflow file and diffs them against
-      # `tests/agents/test_*.py` on disk, so a new test file that isn't added
-      # to either shard fails the PR check instead of silently never running.
-      - name: Verify pytest shard coverage (tests/agents/)
+      - name: Run repository static checks (all, then fail if any failed)
+        working-directory: backend
         run: |
           set -euo pipefail
-          CI_YML=".github/workflows/ci.yml"
+          uv run --frozen python agents/ci/run_checks.py \
+            ../ci/repo-static-checks.json \
+            ../ci-results/repo-static-results.json \
+            ../ci-results/repo-static-results.junit.xml
 
-          on_disk="$(cd backend && find tests/agents -maxdepth 1 -name 'test_*.py' -printf '%f\n' | sort)"
-
-          shard_files="$(
-            awk '
-              /name: pytest \(agents — shard [AB]/ { in_shard=1 }
-              in_shard && /run: uv run/ { print; in_shard=0 }
-            ' "$CI_YML" \
-            | grep -oE 'tests/agents/test_[A-Za-z0-9_]+\.py' \
-            | sed 's#tests/agents/##' \
-            | sort -u
-          )"
-
-          missing="$(comm -23 <(echo "$on_disk") <(echo "$shard_files"))"
-
-          if [[ -n "$missing" ]]; then
-            echo "::error::The following tests/agents/test_*.py files exist on disk but are not listed in either pytest-agents-a or pytest-agents-b in ${CI_YML}:"
-            echo "$missing" | sed 's/^/  /'
-            echo "::error::Add each file to a shard's file list in ${CI_YML} before merging."
-            exit 1
-          fi
-
-          echo "All $(echo "$on_disk" | wc -l) tests/agents/test_*.py files are covered by a pytest shard."
-
-      # Blocking: asserts the deploy.yml gate contract directly (build/deploy
-      # both transitively require `gate`, no bypass constructs on the gate
-      # job, every job declares timeout-minutes, no secrets leak to `gate`).
-      # This is the automated check that would have caught `gate` being
-      # silently dropped from `needs:` (see the restored dependency in
-      # deploy.yml) — it must run on every PR, not just exist unwired in the
-      # repo. tests/ci/test_workflow_contracts.py is the single source of
-      # truth for this contract; .github/scripts/check-workflow-gate-contract.py
-      # is kept only as a standalone CLI for local debugging.
-      - name: Deploy workflow gate contract
-        working-directory: backend
-        run: uv run --no-sync pytest tests/ci/test_workflow_contracts.py -v
-
-      # Blocking: an incomplete or expired record entry fails the PR check.
-      - name: Remediation Record completeness
-        working-directory: backend
-        run: uv run --no-sync python -m tests.ci.enforce_debt record
-
-      # Blocking: baselines were refreshed to the current counts on 2026-09-15
-      # as a recorded, owned change (see the Baseline Count Changes section of
-      # .planning/REMEDIATION-RECORD.md). Any further drift must be recorded the
-      # same way per Requirement 32.4.
-      - name: Baseline test counts
-        working-directory: backend
-        run: uv run --no-sync python -m tests.ci.enforce_debt counts
-
-      # TODO(flip-to-blocking): task 34.2 records an owner, reason, and expiry
-      # for each pre-existing skip. Until then this step reports the inventory
-      # rather than failing on debt it does not yet own.
-      - name: Unrecorded skips (reporting until task 34.2 assigns owners)
-        working-directory: backend
-        continue-on-error: true
-        run: uv run --no-sync python -m tests.ci.enforce_debt skips
-
-  # ---------------------------------------------------------------------------
-  # Backend pytest — sharded for parallelism within 15m timeout
-  # 
-  # Task 3.2: Partition into 4 coherent shards (agents-a, agents-b, unit, 
-  # integration) with parallel execution. Each shard produces coverage + 
-  # JUnit artifacts; merged after all shards complete.
-  #
-  # Timing projection:
-  #   - agents-a: ~510s (8m30s)
-  #   - agents-b: ~505s (8m20s)  
-  #   - unit: ~157s (2m37s)
-  #   - integration: ~37s (0m37s)
-  # Parallel max duration: ~510s (8m30s) ✓ within 15m timeout
-  # 
-  # INV-3 requirement: all 6 characterization suites run in agents-a shard
-  # with SNAPSHOT_UPDATE unset (default pytest behavior). Two of the six
-  # (test_characterization_prototype_feature_revision.py,
-  # test_characterization_prototype_large_revision.py) were added to
-  # tests/agents/ after this shard's file list was written and were never
-  # picked up — added back here. A hardcoded file list cannot notice a new
-  # test file on its own; verify shard coverage after adding any new
-  # tests/agents/test_*.py with:
-  #   pytest --collect-only -q tests/agents/ | diff - <(this shard's list)
-  # or migrate to pytest-split (see docs/CICD note) so file lists never need
-  # hand-maintenance again.
-  # ---------------------------------------------------------------------------
-  pytest-agents-a:
-    name: Backend (pytest agents shard A)
-    runs-on: ubuntu-latest
-    needs: [fast-checks, test-debt]  # Phase 8: Depends on fast-checks + test-debt
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Setup backend
-        uses: ./.github/actions/setup-backend
-        with:
-          frozen: "true"
-
-      # WHY --cov-fail-under=0 ON EVERY SHARD (all four pytest steps in the three
-      # shard jobs use it; do not "restore" the 80 here).
-      #
-      # A shard runs a SUBSET of the tests but measures coverage over the WHOLE
-      # of app/ + agents/. Demanding 80% from a partial run is arithmetically
-      # impossible, not a quality bar: measured locally, the smallest shard
-      # (tests/integration) reaches 24.14%. Every shard would fail on coverage
-      # alone, regardless of whether a single test failed — and since
-      # `ci-required` now depends on `test-results`, which asserts each shard
-      # succeeded, that would have wedged the merge gate permanently red for a
-      # structurally wrong reason.
-      #
-      # The 80% floor is not dropped, it is enforced ONCE where it is meaningful:
-      # `coverage report --fail-under=80` in the `test-results` job, after
-      # `coverage combine` has merged all four shards.
-      #
-      # The explicit `=0` matters: backend/pyproject.toml sets
-      # [tool.coverage.report] fail_under = 80, which pytest-cov picks up on its
-      # own. Merely deleting the flag would leave the same gate in place via
-      # config, so it has to be actively overridden per shard.
-      - name: pytest (agents — shard A with coverage)
-        run: uv run --no-sync pytest tests/agents/test_allowed_step_keys.py tests/agents/test_api_prefix_validator.py tests/agents/test_artifact_fallback_and_roster.py tests/agents/test_artifact_graph.py tests/agents/test_artifacts.py tests/agents/test_attach_replay_matrix.py tests/agents/test_audit_endpoints.py tests/agents/test_banned_patterns.py tests/agents/test_bedrock_cache_and_thinking.py tests/agents/test_budget.py tests/agents/test_cancel_stops_resumed_run.py tests/agents/test_capabilities_threading.py tests/agents/test_capability_resolution.py tests/agents/test_characterization_app_builder.py tests/agents/test_characterization_ppt.py tests/agents/test_characterization_prototype.py tests/agents/test_characterization_prototype_revision.py tests/agents/test_characterization_prototype_feature_revision.py tests/agents/test_characterization_prototype_large_revision.py tests/agents/test_chat_event_neutrality.py tests/agents/test_chat_history_compaction.py tests/agents/test_chunk_sanitizer.py tests/agents/test_clarify_llm_live.py tests/agents/test_code_validators.py tests/agents/test_compiled_plan_runs.py tests/agents/test_compiler.py tests/agents/test_compiler_subagents.py tests/agents/test_compiler_trust.py tests/agents/test_composed_fanout.py tests/agents/test_composer_skills_delivery.py tests/agents/test_concierge_capability.py tests/agents/test_constitution_prod.py tests/agents/test_context_message_oracle.py tests/agents/test_context_pack.py tests/agents/test_context_providers.py tests/agents/test_conversation_provider.py tests/agents/test_create_runner.py tests/agents/test_custom_agent_prompt.py tests/agents/test_declared_gate_streaming.py tests/agents/test_deep_agent_runner_hitl_live.py tests/agents/test_deliverable_resolvers.py tests/agents/test_edge_manifests.py tests/agents/test_engine_runner_error_arm.py tests/agents/test_exec_runs.py tests/agents/test_execution_context.py tests/agents/test_fanout.py tests/agents/test_fanout_cancel.py tests/agents/test_fanout_tool.py tests/agents/test_gate_revision_discriminator.py tests/agents/test_gate_stub_signature_drift.py tests/agents/test_gates.py tests/agents/test_guardrails.py tests/agents/test_heading_tasks_parser.py tests/agents/test_hooks.py tests/agents/test_id_alias_resolver.py tests/agents/test_image_input_wiring.py tests/agents/test_input_providers_run_images.py tests/agents/test_integration_providers.py tests/agents/test_integration_scopes.py tests/agents/test_internet_tool_provider.py tests/agents/test_isolation.py tests/agents/test_iss032_cache_tokens.py tests/agents/test_iss033_aux_token_fold_offline.py tests/agents/test_iss033a_fixloop_token_fold_offline.py tests/agents/test_iss034_cost_full.py tests/agents/test_iss056_clarify_quality_fixes.py tests/agents/test_json_tasks.py tests/agents/test_live_contract.py tests/agents/test_live_harness.py tests/agents/test_loader.py tests/agents/test_local_runtime.py tests/agents/test_manifest.py tests/agents/test_manifest_coverage.py tests/agents/test_manifest_parity.py tests/agents/test_mcp_catalog.py tests/agents/test_mcp_client.py -v \
-          --cov=app \
-          --cov=agents \
-          --cov-report=term-missing:skip-covered \
-          --cov-report= \
-          --cov-fail-under=0 \
-          --junitxml=junit-agents-a.xml
-        env:
-          COVERAGE_FILE: .coverage.agents-a
-
-      - name: Upload coverage artifact (agents-a)
+      - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-agents-a
-          path: backend/.coverage.agents-a
-          retention-days: 1
-
-      - name: Upload JUnit artifact (agents-a)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: junit-agents-a
-          path: backend/junit-agents-a.xml
-          retention-days: 1
-
-  pytest-agents-b:
-    name: Backend (pytest agents shard B)
-    runs-on: ubuntu-latest
-    needs: [fast-checks, test-debt]  # Phase 8: Depends on fast-checks + test-debt
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Setup backend
-        uses: ./.github/actions/setup-backend
-        with:
-          frozen: "true"
-
-      - name: pytest (agents — shard B with coverage)
-        run: uv run --no-sync pytest tests/agents/test_mcp_compile_validation.py tests/agents/test_mcp_gating.py tests/agents/test_merge.py tests/agents/test_merge_conflict.py tests/agents/test_migration_ledger.py tests/agents/test_model_catalog.py tests/agents/test_model_fallback.py tests/agents/test_model_pricing.py tests/agents/test_nav_coverage.py tests/agents/test_parallel_group_strategy.py tests/agents/test_parent_run_ownership.py tests/agents/test_per_task_capture.py tests/agents/test_phase3_compaction.py tests/agents/test_phase3_cutover_verify.py tests/agents/test_phase3_parity.py tests/agents/test_phase3_token_delta_live.py tests/agents/test_phase5_fixloop_selection.py tests/agents/test_phase5_revision_validation.py tests/agents/test_phase6_frontend_consistency.py tests/agents/test_phase8_live.py tests/agents/test_phase8_resume.py tests/agents/test_prompt_contracts.py tests/agents/test_prototype_image_optin.py tests/agents/test_redo_gate_safety.py tests/agents/test_redo_prompt_contract.py tests/agents/test_registry.py tests/agents/test_registry_capabilities.py tests/agents/test_registry_discovery.py tests/agents/test_registry_helpers.py tests/agents/test_repo_diff.py tests/agents/test_repo_index.py tests/agents/test_repo_inventory.py tests/agents/test_repositories_persistence.py tests/agents/test_restart_resume.py tests/agents/test_resume_marker_workspace.py tests/agents/test_resume_ws_bridge.py tests/agents/test_revision_gating.py tests/agents/test_route_table.py tests/agents/test_routing_parity.py tests/agents/test_run_log.py tests/agents/test_runner_output_fallback.py tests/agents/test_sample_brownfield_workflow.py tests/agents/test_sample_wave_workflow.py tests/agents/test_sandbox_deliverable.py tests/agents/test_sc001_fanout.py tests/agents/test_sc001_gate_flag.py tests/agents/test_sc001_lane_router_concierge.py tests/agents/test_sc001_nonprototype_task_loop.py tests/agents/test_sc001_reconcile.py tests/agents/test_scratch_lock_fanout_race.py tests/agents/test_severity.py tests/agents/test_skill_directive_block.py tests/agents/test_skill_prompt_baseline.py tests/agents/test_skills_text_only_deliverable.py tests/agents/test_spec_revision_context.py tests/agents/test_spec_revision_cycles.py tests/agents/test_specs_from_plan.py tests/agents/test_sse_cutover_banned_patterns.py tests/agents/test_static_check.py tests/agents/test_steering_seam.py tests/agents/test_step_retry.py tests/agents/test_strategies.py tests/agents/test_subagent_runs.py tests/agents/test_task_identity.py tests/agents/test_task_list_gate_lineage.py tests/agents/test_text_only_prompt_hygiene.py tests/agents/test_tool_grant_invariants.py tests/agents/test_tool_permissions.py tests/agents/test_update_specs_enforcement.py tests/agents/test_uploaded_files_provider.py tests/agents/test_validators.py tests/agents/test_wave_runs.py tests/agents/test_wave_scheduler.py tests/agents/test_wire_parity.py -v \
-          --cov=app \
-          --cov=agents \
-          --cov-report=term-missing:skip-covered \
-          --cov-report= \
-          --cov-fail-under=0 \
-          --junitxml=junit-agents-b.xml
-        env:
-          COVERAGE_FILE: .coverage.agents-b
-
-      - name: Upload coverage artifact (agents-b)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-agents-b
-          path: backend/.coverage.agents-b
-          retention-days: 1
-
-      - name: Upload JUnit artifact (agents-b)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: junit-agents-b
-          path: backend/junit-agents-b.xml
-          retention-days: 1
-
-  pytest-unit-and-integration:
-    name: Backend (pytest unit + integration)
-    runs-on: ubuntu-latest
-    needs: [fast-checks, test-debt]  # Phase 8: Depends on fast-checks + test-debt
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Setup backend
-        uses: ./.github/actions/setup-backend
-        with:
-          frozen: "true"
-
-      # Phase 8: Merged job (unit + integration in one pass)
-      - name: pytest (unit tests with coverage)
-        run: uv run --no-sync pytest tests/unit -v \
-          --cov=app \
-          --cov=agents \
-          --cov-report=term-missing:skip-covered \
-          --cov-report= \
-          --cov-fail-under=0 \
-          --junitxml=junit-unit.xml
-        env:
-          COVERAGE_FILE: .coverage.unit
-
-      - name: pytest (integration tests with coverage)
-        run: uv run --no-sync pytest tests/integration -v \
-          --cov=app \
-          --cov=agents \
-          --cov-report=term-missing:skip-covered \
-          --cov-report= \
-          --cov-fail-under=0 \
-          --junitxml=junit-integration.xml
-        env:
-          COVERAGE_FILE: .coverage.integration
-
-      - name: Upload coverage artifact (unit)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-unit
-          path: backend/.coverage.unit
-          retention-days: 1
-
-      - name: Upload coverage artifact (integration)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-integration
-          path: backend/.coverage.integration
-          retention-days: 1
-
-      - name: Upload JUnit artifact (unit)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: junit-unit
-          path: backend/junit-unit.xml
-          retention-days: 1
-
-      - name: Upload JUnit artifact (integration)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: junit-integration
-          path: backend/junit-integration.xml
-          retention-days: 1
-
-  # Merge and report coverage & JUnit after all shards complete
-  test-results:
-    name: Backend (merge coverage & JUnit)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [pytest-agents-a, pytest-agents-b, pytest-unit-and-integration, fast-checks]  # Phase 8: Updated for merged job
-    defaults:
-      run:
-        working-directory: backend
-    if: always()
-    steps:
-      # `if: always()` above exists so this job still runs (and can collect
-      # artifacts) when a shard fails. That also means it must decide for itself
-      # whether the shards passed — `needs:` alone does not do that under
-      # `always()`. This assertion runs FIRST so a failed shard produces a
-      # named, actionable error here instead of surfacing four steps later as
-      # "coverage combine: No data to combine".
-      #
-      # This matters beyond a nicer message: `ci-required` now depends on this
-      # job (previously it depended on NO backend test job at all), so this
-      # check is the mechanism by which a backend pytest failure blocks a merge.
-      # Ordered after Checkout, not before it: this job sets
-      # `defaults.run.working-directory: backend`, so any `run:` step that
-      # executes before the repo exists on disk fails on a missing cwd rather
-      # than on what it is actually checking.
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Assert every backend test shard succeeded
-        env:
-          SHARD_RESULTS: >-
-            ${{ needs.pytest-agents-a.result }}
-            ${{ needs.pytest-agents-b.result }}
-            ${{ needs.pytest-unit-and-integration.result }}
-        run: |
-          set -euo pipefail
-          names=(pytest-agents-a pytest-agents-b pytest-unit-and-integration)
-          read -r -a results <<< "$SHARD_RESULTS"
-          status=0
-          for i in "${!names[@]}"; do
-            echo "${names[$i]}=${results[$i]}"
-            if [[ "${results[$i]}" != "success" ]]; then
-              echo "::error::Backend test shard ${names[$i]} did not succeed (result=${results[$i]})."
-              status=1
-            fi
-          done
-          exit "$status"
-
-      - name: Setup backend
-        uses: ./.github/actions/setup-backend
-        with:
-          frozen: "true"
-
-      - name: Download all coverage artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: coverage-*
-          # NOTE: this `path:` is an action input, not a `run:` step — it
-          # resolves relative to GITHUB_WORKSPACE (repo root), NOT relative to
-          # this job's `defaults.run.working-directory: backend`. So this
-          # lands at <repo-root>/backend/coverage-artifacts, which is exactly
-          # `coverage-artifacts` from the following `run:` step's cwd (backend/).
-          path: backend/coverage-artifacts
-          merge-multiple: false
-
-      - name: Extract coverage files from artifacts
-        run: |
-          set -euo pipefail
-          # Move .coverage.* files from subdirectories to current dir.
-          # `download-artifact`'s `path:` input resolves relative to the repo
-          # root (GITHUB_WORKSPACE) — `defaults.run.working-directory: backend`
-          # only applies to `run:` steps, not to action inputs — so the
-          # download above landed at backend/coverage-artifacts on disk. This
-          # `run:` step's cwd IS backend/, so the correct relative path from
-          # here is just `coverage-artifacts` (not `backend/coverage-artifacts`,
-          # which resolved to the nonexistent backend/backend/coverage-artifacts).
-          # `mkdir -p` guards the case where 0 artifacts matched the pattern:
-          # download-artifact then never creates the directory, and `find` on
-          # a missing directory would otherwise abort the step under `set -e`.
-          mkdir -p coverage-artifacts
-          find coverage-artifacts -name ".coverage.*" -exec mv {} . \;
-          ls -la .coverage.* 2>/dev/null || echo "No .coverage files found"
-
-      - name: Download all JUnit artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: junit-*
-          path: backend/
-          merge-multiple: true
-
-      - name: Merge coverage reports
-        run: |
-          # Combine all .coverage.<shard> files
-          uv run --no-sync coverage combine .coverage.agents-a .coverage.agents-b .coverage.unit .coverage.integration
-          
-          # Generate all report formats
-          uv run --no-sync coverage report --fail-under=80
-          uv run --no-sync coverage html
-          uv run --no-sync coverage json
-          uv run --no-sync coverage xml
-
-      # Make coverage.xml's source roots resolvable from the REPO ROOT, which is
-      # where SonarScanner runs.
-      #
-      # Cobertura XML locates a file by joining a `<sources><source>` prefix with
-      # a `<class filename="...">` attribute. coverage.py emits bare filenames
-      # (`filename="main.py"`), so the `<source>` roots do all the work.
-      #
-      # backend/pyproject.toml sets `relative_files = true`, which already
-      # removed the absolute `/home/runner/work/...` roots that previously made
-      # this resolvable only because every GitHub-hosted runner happens to share
-      # one workspace path. What it leaves is `<source>app</source>` /
-      # `<source>agents</source>` — relative to `backend/`, not to the repo root,
-      # so Sonar would still resolve nothing and still report 0% while exiting 0.
-      # This step closes that last gap by prefixing each root with `backend/`.
-      #
-      # Written in Python rather than sed because it must be idempotent and must
-      # FAIL LOUDLY on anything unexpected (absolute paths, zero roots) instead
-      # of silently passing a report Sonar cannot read.
-      - name: Normalise coverage.xml source paths for SonarCloud
-        run: |
-          uv run --no-sync python - <<'PY'
-          import pathlib
-          import re
-          import sys
-
-          path = pathlib.Path("coverage.xml")
-          xml = path.read_text(encoding="utf-8")
-
-          roots: list[str] = []
-
-          def _prefix(match: re.Match[str]) -> str:
-              value = match.group(1)
-              roots.append(value)
-              # Idempotent: a root already scoped to backend/ is left alone.
-              if value == "backend" or value.startswith("backend/"):
-                  return match.group(0)
-              return f"<source>backend/{value}</source>"
-
-          rewritten = re.sub(r"<source>([^<]*)</source>", _prefix, xml)
-
-          if not roots:
-              sys.exit("::error::coverage.xml contains no <source> roots — cannot map paths for Sonar.")
-
-          absolute = [r for r in roots if r.startswith("/") or re.match(r"^[A-Za-z]:", r)]
-          if absolute:
-              sys.exit(
-                  "::error::coverage.xml still contains ABSOLUTE source roots "
-                  f"{absolute}. Expected relative roots — check that "
-                  "[tool.coverage.run] relative_files = true is still set in "
-                  "backend/pyproject.toml."
-              )
-
-          path.write_text(rewritten, encoding="utf-8")
-          print(f"Source roots rewritten to repo-relative: {sorted(set(roots))}")
-          PY
-          echo "--- coverage.xml source roots ---"
-          grep -o '<source>[^<]*</source>' coverage.xml
-
-      - name: Display coverage summary
-        run: |
-          echo "=== COVERAGE SUMMARY ==="
-          uv run --no-sync coverage report
-
-      - name: Upload backend coverage HTML
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: backend-coverage-report
-          path: backend/htmlcov/
-          retention-days: 1  # Phase 8: Reduced from 30 to 1 day (PR-scoped data)
-
-      # The machine-readable Cobertura report — this is the file SonarCloud and
-      # Codecov actually consume. `coverage xml` (above) has always written it,
-      # but nothing uploaded it: the only backend coverage artifact was
-      # `backend-coverage-report`, which contains htmlcov/ and nothing else. The
-      # old prepare-sonarcloud job then looked for `coverage-backend/coverage.xml`
-      # inside that HTML-only artifact, never found it, warned, and exited 0 —
-      # which is why backend coverage has been absent from Sonar.
-      #
-      # `if: success()` (not `always()`), paired with `if-no-files-found: error`:
-      # the pair means "if we got here, the report MUST exist". Under `always()`
-      # the two fight each other — a failed shard would skip report generation
-      # and then this upload would raise a second, misleading error about a
-      # missing file. The only consumer is sonarcloud-analysis, which is itself
-      # skipped when this job fails, so there is nothing to preserve on the
-      # failure path (htmlcov/ above still uploads under `always()` for
-      # debugging).
-      - name: Upload backend coverage XML (for SonarCloud)
-        if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: backend-coverage-xml
-          path: backend/coverage.xml
-          retention-days: 1
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-repo-static-evidence
+          path: ci-results/
+          retention-days: 7
           if-no-files-found: error
 
-      - name: Upload merged JUnit report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: backend-junit-report
-          path: backend/junit-merged.xml
-          retention-days: 1  # Phase 8: Reduced from 30 to 1 day
-
-      - name: Upload backend coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@968872560f81e7bdde9272853e65f2507c0eca7c # v5.0.0
-        with:
-          files: ./backend/coverage.xml
-          flags: backend
-          name: backend-coverage
-          fail_ci_if_error: false
-
-  # Phase 8: Split backend linting into two jobs:
-  #   1. ruff-vulture: fast, dev deps only (~30s)
-  #   2. backend: full deps needed for pyright import resolution
-  ruff-vulture:
-    name: Backend (ruff + vulture)
+  # ===========================================================================
+  # backend-inventory — canonical pytest collection and partition proof
+  # ===========================================================================
+  # Owns: backend-inventory
+  # Collects every node ID once and assigns each to exactly one partition using
+  # real pytest MARKERS (not substring matching on the node ID text, which was
+  # the previous approach and cannot work — markers never appear in a node ID).
+  # ===========================================================================
+  backend-inventory:
+    name: Backend test inventory
     runs-on: ubuntu-latest
-    needs: [fast-checks]  # Phase 8: Depends on fast-checks
-    timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: backend
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      evaluation_sha: ${{ steps.sha.outputs.evaluation_sha }}
     steps:
-      - name: Checkout
+      - name: Checkout (exact SHA)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+          persist-credentials: false
 
-      - name: Setup backend (uv + venv)
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup backend (frozen, dev deps)
         uses: ./.github/actions/setup-backend
         with:
           dev-deps: "true"
 
-      - name: ruff (correctness rules)
-        run: uv run --no-sync ruff check .
-
-      - name: ruff (format check)
-        run: uv run --no-sync ruff format --check --diff .
-
-      - name: vulture (dead-code detection)
-        run: uv run --no-sync vulture app/ agents/
-
-  # Original backend job (now: pyright + import-linter + migration + bandit)
-  backend:
-    name: "Backend (Python linting: pyright / import-linter / bandit / migration)"
-    runs-on: ubuntu-latest
-    needs: [fast-checks, ruff-vulture]  # Phase 8: Depends on fast-checks + ruff-vulture
-    timeout-minutes: 15
-    defaults:
-      run:
+      - name: Build canonical inventory and prove the partition
         working-directory: backend
+        env:
+          EVALUATION_SHA: ${{ steps.sha.outputs.evaluation_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../ci-results
+          uv run --frozen python -m agents.ci.inventory_cli \
+            --tests-dir tests \
+            --evaluation-sha "$EVALUATION_SHA" \
+            --out ../ci-results/backend-inventory.json
+
+      - name: Upload canonical inventory
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-inventory
+          path: ci-results/backend-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # backend-static — Ruff, compile, Pyright, imports, Vulture, Bandit, migrations
+  # ===========================================================================
+  # Owns 8 signals, one sub-verdict each, shared setup, single execution.
+  # ===========================================================================
+  backend-static:
+    name: Backend static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
+      - name: Checkout (exact SHA)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+          persist-credentials: false
 
-      - name: Setup backend
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup backend (frozen, dev deps)
         uses: ./.github/actions/setup-backend
         with:
-          frozen: "true"
+          dev-deps: "true"
 
-      - name: pyright (import resolution only)
-        run: uv run --no-sync pyright
-
-      - name: import-linter (kernel/ports boundary contracts)
-        run: uv run --no-sync lint-imports
-
-      - name: bandit (Python SAST security scanning)
-        run: uv run --no-sync bandit -c pyproject.toml -r app agents -ll
-
-      # Migration-chain integrity. Catches three things Alembic cannot see for
-      # itself, all of which are silent until they reach a deployed database:
-      #
-      #   1. A RETROACTIVE EDIT to an already-released revision. `alembic_version`
-      #      stores a revision ID, never a content hash, so editing a revision a
-      #      database has already applied means `upgrade head` sees the stamped ID
-      #      and does nothing — the edit reaches fresh databases only, and the two
-      #      diverge permanently with no error anywhere. Making the DDL idempotent
-      #      does NOT help: the code never runs. This is why the check is a source
-      #      fingerprint (alembic/versions.lock) rather than a schema comparison —
-      #      every schema-derived check (`alembic check`, upgrade-from-scratch)
-      #      runs the edited file and therefore agrees with it.
-      #   2. DUPLICATE revision IDs — Alembic keeps one file, silently drops the
-      #      other from the graph, and reports multiple heads. Hit twice already
-      #      (0031 re-homed to 0036, 0032 re-homed to 0037).
-      #   3. MULTIPLE HEADS — `alembic upgrade head` then fails outright, and
-      #      docker-entrypoint.sh runs it under `set -eu` before `exec uvicorn`,
-      #      so the container crash-loops instead of reporting a failed step.
-      #
-      # Needs no database and no app config. Runs in the lint job deliberately so
-      # it fails in seconds, before the Postgres jobs spend time provisioning.
-      # When it fires on an intentional new migration, the fix is:
-      #   cd backend && uv run python scripts/migration_guard.py --update
-      # committed alongside the migration.
-      - name: migration guard (retro-edit + duplicate-ID + single-head)
-        run: uv run --no-sync python scripts/migration_guard.py --verify
-
-      # pip-audit resolves requirements.txt against the PyPI/OSV advisory
-      # databases. BLOCKING: a new vulnerable dependency fails the PR.
-      #
-      # History, because it explains the one suppression below. This step was
-      # written as blocking but pip-audit was never listed in
-      # requirements-dev.txt, so it could only ever exit 127 — and nobody saw
-      # even that, because the invalid `_docker.yml` step reference elsewhere in
-      # this file made the whole workflow fail at startup. Installing the tool
-      # made it run for the first time and surfaced 60 advisories across 11
-      # packages. Those have now been fixed by upgrading, not suppressed:
-      # starlette 0.41.3->1.3.1 (with fastapi 0.115.6->0.141.1 to lift its
-      # starlette<0.42 cap), pypdf 5.1.0->6.16.1 (41 advisories, all of them),
-      # python-jose 3.3.0->3.5.0, langchain 1.3.4->1.3.9, langchain-core
-      # 1.4.0->1.4.6, langchain-anthropic 1.4.3->1.4.6,
-      # langgraph-checkpoint-postgres 3.1.0->3.1.1, langsmith 0.8.5->0.8.18,
-      # mcp 1.27.2->1.28.1, python-dotenv 1.0.1->1.2.2, websockets 14.1->15.0.1,
-      # pytest 8.3.4->9.0.3 (+ pytest-asyncio 1.4.0, pytest-cov 7.1.0).
-      #
-      # --ignore-vuln PYSEC-2026-1325 (ecdsa 0.19.2) is the ONLY suppression,
-      # and it is not a deferral — there is NO fix version. The ecdsa
-      # maintainers treat side-channel resistance as out of scope for a
-      # pure-Python implementation, so no upgrade will ever clear it. It arrives
-      # transitively via python-jose, which depends on it unconditionally.
-      #
-      # It is safe to ignore HERE on a verified basis, not an assumed one: both
-      # JWT verification call sites pass an explicit non-EC algorithm
-      # allow-list — app/core/security.py uses `algorithms=["HS256"]` and
-      # app/core/cognito.py uses `algorithms=["RS256"]` — so no EC key is ever
-      # parsed and the vulnerable code path is unreachable. If either
-      # allow-list ever gains an ES* algorithm, this suppression becomes
-      # invalid and must be removed. See the note in requirements-prod.txt.
-      #
-      # TODO(migrate-off-python-jose): replacing python-jose with PyJWT drops
-      # the ecdsa dependency entirely and lets this suppression go away. PyJWT
-      # is already in the tree transitively.
-      - name: pip-audit (blocking)
+      - name: Run backend static checks (all, then fail if any failed)
+        working-directory: backend
         run: |
-          uv run --no-sync pip-audit -r requirements.txt \
-            --ignore-vuln PYSEC-2026-1325
+          set -euo pipefail
+          mkdir -p ../ci-results
+          uv run --frozen python agents/ci/run_checks.py \
+            ../ci/backend-static-checks.json \
+            ../ci-results/backend-static-results.json \
+            ../ci-results/backend-static-results.junit.xml
 
-      # NOTE: the backend container image build+scan is NOT a step here. It
-      # lives in the `container-scan` job below, because `_docker.yml` is a
-      # reusable WORKFLOW (`on: workflow_call`) and can only be invoked from a
-      # job's `uses:` key — never from `steps[].uses:`, which resolves only
-      # ACTIONS (a directory containing action.yml). See that job's header.
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-static-evidence
+          path: ci-results/
+          retention-days: 7
+          if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # Backend Postgres integration — task.md DB-002/DB-001. The `backend` job
-  # above runs entirely against SQLite (tests/conftest.py's default), which
-  # never exercises real PostgreSQL migration application or the
-  # transaction-level locking `uq_run_events_scope_seq` retry-on-IntegrityError
-  # path depends on. This job is the missing CI wiring task.md's DB-002 calls
-  # for: a Linux PostgreSQL service container, migrated to head, driving the
-  # `requires_postgres`-marked suite (currently: the migration-head +
-  # concurrent-seq-allocation proof in
-  # tests/integration/test_db002_postgres_seq_concurrency.py, plus
-  # tests/integration/test_bootstrap_admin_postgres.py).
-  #
-  # Uses GitHub's native Postgres SERVICE CONTAINER (not the docker-in-docker
-  # fixture the tests ALSO support for local/no-CI-service environments) —
-  # ubuntu-latest runners have the Docker daemon needed for services natively,
-  # so this is the lower-overhead CI path; the docker-fixture tests
-  # transparently reuse the SAME `postgresql+psycopg://` DSN shape either way.
+  # ===========================================================================
+  # backend-offline — the complete non-live, non-PostgreSQL pytest partition
+  # ===========================================================================
+  # Owns: backend-offline
+  # Runs with CI_OFFLINE=1 so the provider/credential/egress guard is active,
+  # then proves the characterization golden tree is byte-identical (INV-3).
+  # ===========================================================================
+  backend-offline:
+    name: Backend offline tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: [backend-inventory]
+    permissions:
+      contents: read
+    env:
+      CI_OFFLINE: "1"
+      SNAPSHOT_UPDATE: ""
+    steps:
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup backend (frozen, dev deps)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: Download canonical inventory
+        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        with:
+          name: ci-${{ needs.backend-inventory.outputs.evaluation_sha }}-backend-inventory
+          path: ci-results/
+
+      - name: Hash characterization goldens (before)
+        run: bash .github/scripts/ci-golden-digest.sh ci-results/golden-before.sha256
+
+      - name: Run the offline partition
+        working-directory: backend
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/ci-results/.coverage.backend-offline
+          # pytest imports `-p` plugins before any conftest runs, so `agents`
+          # must already be importable at that point.
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          uv run --frozen pytest tests \
+            -m "not live and not requires_api_key and not requires_postgres and not requires_postgres_populated_migration" \
+            -p agents.ci.execution_recorder \
+            --execution-record="$GITHUB_WORKSPACE/ci-results/execution-backend-offline.json" \
+            --cov=app --cov=agents \
+            --cov-report=xml:"$GITHUB_WORKSPACE/ci-results/backend-offline-coverage.xml" \
+            --junitxml="$GITHUB_WORKSPACE/ci-results/backend-offline-junit.xml" \
+            -q
+
+      - name: Verify every inventoried offline node executed exactly once
+        if: always()
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv run --frozen python -m agents.ci.inventory_cli verify-execution \
+            --inventory "$GITHUB_WORKSPACE/ci-results/backend-inventory.json" \
+            --execution "$GITHUB_WORKSPACE/ci-results/execution-backend-offline.json" \
+            --partition offline
+
+      - name: Verify characterization goldens unchanged
+        if: always()
+        run: bash .github/scripts/ci-golden-verify.sh ci-results/golden-before.sha256
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-offline-evidence
+          path: |
+            ci-results/.coverage.backend-offline
+            ci-results/backend-offline-coverage.xml
+            ci-results/backend-offline-junit.xml
+            ci-results/execution-backend-offline.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # backend-postgres — the PostgreSQL-backed partition against a real service
+  # ===========================================================================
+  # Owns: backend-postgres
+  # An unavailable service is a FAILED gate, never a skip and never a fallback
+  # to SQLite (Requirement 2.12).
+  # ===========================================================================
   backend-postgres:
-    name: Backend (PostgreSQL integration)
+    name: Backend PostgreSQL tests
     runs-on: ubuntu-latest
-    needs: [fast-checks, ruff-vulture]  # Phase 8: Depends on fast-checks + ruff-vulture
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: backend
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          # A disposable database name, never `postgres` — the default admin
-          # database. test_bootstrap_admin_postgres.py's _resolve_test_database_url
-          # guard refuses to run against any database whose name doesn't
-          # contain "test" (it drops tables), so the connection URL below must
-          # match this name exactly.
-          POSTGRES_DB: bootstrap_admin_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Setup backend
-        uses: ./.github/actions/setup-backend
-        with:
-          frozen: "true"
-
-      - name: pytest (requires_postgres suite only)
-        env:
-          # The docker-fixture tests (test_phase8_resume.py, our own
-          # test_db002_postgres_seq_concurrency.py) start their OWN throwaway
-          # container via `docker run` rather than reading this env var — this
-          # only feeds the ENV_VAR-gated suites (test_bootstrap_admin_postgres.py)
-          # that expect an already-running instance.
-          BOOTSTRAP_ADMIN_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/bootstrap_admin_test
-        run: |
-          uv run --no-sync pytest tests/ -v -m requires_postgres
-
-  # ---------------------------------------------------------------------------
-  # Populated PostgreSQL Migration Test (Requirement 8)
-  #
-  # Task 9.1: Provision postgres:16 service and enforce 120-second health check.
-  # This job tests the migration chain against populated data: seed at 0014,
-  # upgrade to head, verify data integrity and schema parity.
-  #
-  # Key constraints:
-  #   - Connection target MUST come exclusively from CI service configuration
-  #   - NO fallback to local/developer defaults
-  #   - Health check must complete within 120 seconds or abort with provisioning
-  #     failure (distinct from test failure)
-  #   - Database available for inspection on migration step failure
-  # ---------------------------------------------------------------------------
-  backend-postgres-populated-migration:
-    name: Backend (PostgreSQL populated migration test)
-    runs-on: ubuntu-latest
-    needs: [fast-checks, ruff-vulture]  # Phase 8: Depends on fast-checks + ruff-vulture
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: backend
+    needs: [backend-inventory]
+    permissions:
+      contents: read
     services:
       postgres:
-        image: postgres:16
+        # Patch-level pin, not a floating `postgres:16`. A digest pin is
+        # stronger still and is tracked in ci/toolchain-lock.json.
+        image: postgres:16.10-bookworm
         env:
-          POSTGRES_PASSWORD: postgres
-          # Disposable database name — this job runs real Alembic migrations
-          # (seed → upgrade → verify) against it, never the default `postgres`
-          # admin database. Mirrors the naming convention the
-          # test_bootstrap_admin_postgres.py disposability guard enforces on
-          # the sibling `backend-postgres` job, for the same reason.
-          POSTGRES_DB: populated_migration_test
+          POSTGRES_USER: ci_test
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: ci_test_db
         ports:
           - 5432:5432
         options: >-
           --health-cmd pg_isready
-          --health-interval 10s
+          --health-interval 5s
           --health-timeout 5s
           --health-retries 12
     steps:
-      - name: Checkout
+      - name: Checkout (exact SHA)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+          persist-credentials: false
 
-      - name: Wait for PostgreSQL availability (120s timeout)
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-          start=$(date +%s)
-          deadline=$((start + 120))
-          now=$start
-          until PGPASSWORD=postgres pg_isready -h localhost -p 5432 -U postgres > /dev/null 2>&1; do
-            now=$(date +%s)
-            if [ "$now" -ge "$deadline" ]; then
-              echo "ERROR: PostgreSQL service not reachable within 120 seconds (provisioning failure)"
-              exit 2
-            fi
-            sleep 2
-          done
-          echo "PostgreSQL ready after $((now - start))s"
-
-      - name: Setup backend
-        uses: ./.github/actions/setup-backend
-        with:
-          frozen: "true"
-
-      - name: pytest (populated migration test)
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
         env:
-          # Connection target from CI service configuration ONLY.
-          # Test MUST skip with explicit unavailability indication if this env
-          # var is not provided or if service is unreachable.
-          POPULATED_MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/populated_migration_test
-        run: |
-          uv run --no-sync pytest tests/ -v -m requires_postgres_populated_migration
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
-  # ---------------------------------------------------------------------------
-  # Frontend — Node 20 (matches frontend/Dockerfile + backend's pptx-builder
-  # stage), npm only (package-lock.json is the lockfile of record).
-  # ---------------------------------------------------------------------------
-  frontend:
-    name: Frontend (Node)
-    runs-on: ubuntu-latest
-    needs: [fast-checks]  # Phase 8: Depends on fast-checks
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Setup frontend
-        uses: ./.github/actions/setup-frontend
-
-      - name: Check git status (lockfile drift detection)
-        working-directory: frontend
-        run: |
-          git diff --exit-code package-lock.json || {
-            echo "::error::package-lock.json is out of sync with package.json"
-            echo "Run 'npm ci' or 'npm install' to update it"
-            exit 1
-          }
-
-      - name: Typecheck (TypeScript - parallel with lint)
-        working-directory: frontend
-        run: npm run typecheck
-
-      # `npm run lint` is `eslint --max-warnings 0`. The 135 pre-existing
-      # react-hooks violations are held in frontend/eslint-suppressions.json
-      # (ESLint's native bulk-suppression ledger), so the rules stay at `error`
-      # repo-wide and any NEW violation fails here.
-      - name: Lint
-        working-directory: frontend
-        run: npm run lint
-
-      # Ratchet guard: `--prune-suppressions` exits non-zero when the ledger
-      # contains entries whose violations no longer exist. That makes the debt
-      # strictly one-directional — once a violation is fixed, its ledger entry
-      # MUST be dropped in the same PR (`npm run lint:prune`), so a fixed
-      # violation cannot be silently re-introduced later under an existing
-      # allowance. Without this, the ledger would rot into a permanent blanket
-      # exemption, which is exactly the failure mode it exists to prevent.
-      - name: Lint suppressions ledger is not stale
-        working-directory: frontend
-        run: |
-          npx eslint --prune-suppressions || {
-            echo "::error::eslint-suppressions.json is stale — violations it still excuses are already fixed."
-            echo "Run 'npm run lint:prune' in frontend/ and commit the updated eslint-suppressions.json."
-            exit 1
-          }
-          git diff --exit-code eslint-suppressions.json || {
-            echo "::error::eslint-suppressions.json is stale (pruning changed it)."
-            echo "Run 'npm run lint:prune' in frontend/ and commit the updated eslint-suppressions.json."
-            exit 1
-          }
-
-      - name: Test (single-pass with coverage)
-        working-directory: frontend
-        run: npm run test
-
-      # Rewrite LCOV source paths to be REPO-root-relative.
-      #
-      # vitest writes `SF:src/app/layout.tsx` — relative to its own root
-      # (frontend/). SonarScanner runs from the repo root, so it would look for
-      # `<repo>/src/app/layout.tsx`, find nothing, and silently attribute zero
-      # coverage to every frontend file while still exiting 0. That is the same
-      # class of quiet failure this whole coverage chain just had, so it is
-      # normalised here rather than left to a path coincidence.
-      #
-      # Also normalises backslashes: developers on Windows produce `SF:src\app\...`,
-      # and a committed/attached report from such a run would not resolve either.
-      - name: Normalise LCOV paths for SonarCloud
-        working-directory: frontend
-        run: |
-          set -euo pipefail
-          test -s coverage/lcov.info
-          before="$(grep -c '^SF:' coverage/lcov.info)"
-          sed -i -e 's|\\|/|g' -e 's|^SF:frontend/|SF:|' -e 's|^SF:|SF:frontend/|' coverage/lcov.info
-          after="$(grep -c '^SF:frontend/' coverage/lcov.info)"
-          echo "Rewrote ${after}/${before} SF: entries to repo-relative paths."
-          [[ "$before" -eq "$after" ]]
-          head -2 coverage/lcov.info
-
-      # The Chromium binary MUST be installed on THIS runner. The `test-debt`
-      # job also installs it, but that is a different job on a different
-      # ephemeral VM — `~/.cache/ms-playwright` does not travel between jobs, and
-      # `npm ci` does not fetch browsers (the playwright wheel/package ships no
-      # browser binary). So `npm run e2e` below was relying on a filesystem state
-      # that only ever existed in another job. The cache key matches
-      # `test-debt`'s so the two jobs share one download.
-      - name: Cache Playwright browser
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: playwright-
-
-      - name: Install Playwright browser (chromium)
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
-
-      - name: E2E tests (Playwright mocked)
-        working-directory: frontend
-        run: npm run e2e
-
-      # Traces/screenshots/video for the failing spec only (playwright.config.ts
-      # sets trace: on-first-retry, screenshot/video: *-on-failure). Without this
-      # a red E2E step leaves nothing to debug from.
-      - name: Upload Playwright report (on failure)
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: playwright-report
-          path: |
-            frontend/e2e/.report/
-            frontend/test-results/
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: Upload frontend coverage HTML
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: frontend-coverage-report
-          path: frontend/coverage/
-          retention-days: 1  # Phase 8: Reduced from 30 to 1 day (PR-scoped data)
-
-      # LCOV, not XML. This artifact previously pointed at
-      # `frontend/coverage/coverage-final.xml`, which vitest never wrote: the
-      # `xml` entry in vitest.config.ts's reporter list is not a valid
-      # @vitest/coverage-v8 reporter, so it resolved to istanbul's `xml`
-      # reporter, failed to load its `xml` module, and took `npm run test` down
-      # with it AFTER every test had already passed. Sonar consumes LCOV for
-      # JS/TS natively (sonar.javascript.lcov.reportPaths), so there was never a
-      # reason to produce XML here in the first place.
-      #
-      # `if-no-files-found: error` on purpose: a silently-absent coverage report
-      # is the exact failure this whole chain just had, and the sonarcloud
-      # analysis job depends on this artifact existing.
-      # `if: success()` for the same reason as the backend XML upload — see the
-      # note on that step in the test-results job.
-      - name: Upload frontend coverage LCOV (for SonarCloud)
-        if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: frontend-coverage-lcov
-          path: frontend/coverage/lcov.info
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Upload frontend coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@968872560f81e7bdde9272853e65f2507c0eca7c # v5.0.0
-        with:
-          files: ./frontend/coverage/coverage-final.json
-          flags: frontend
-          name: frontend-coverage
-          fail_ci_if_error: false
-
-      - name: Build
-        working-directory: frontend
-        run: npm run build
-
-      - name: npm ls --omit=dev (detect lockfile drift)
-        working-directory: frontend
-        run: npm ls --omit=dev > /dev/null
-
-      # NOTE: the frontend container image build+scan is NOT a step here — see
-      # the `container-scan` job below and the matching note in the `backend`
-      # job for why a `workflow_call` workflow cannot be a step.
-
-      # Blocks on ANY critical, and ratchets HIGH against a recorded baseline.
-      #
-      # This replaces a plain `npm audit --audit-level=critical`, which passed
-      # while the tree carried 9 HIGH advisories (postcss, sharp, undici,
-      # @babel/core, brace-expansion, browserslist). Those are now fixed by
-      # upgrading — next 16.2.4 -> 16.3.4 cleared the postcss/sharp chains and
-      # `npm audit fix` cleared the rest.
-      #
-      # Why a baseline instead of `--audit-level=high`: exactly 2 HIGH advisories
-      # remain and NEITHER has an upstream fix. Both are `image-size` (DoS via
-      # infinite loops in its ICNS/JXL/HEIF parsers), reached through
-      # `pptxgenjs`, and the advisory's vulnerable range for image-size is `*` —
-      # every published version. npm's proposed remedy is pptxgenjs@1.1.5, a
-      # semver-MAJOR downgrade from 3.12.0 that would break the live
-      # `exportToPptx` path in src/components/chat/ArtifactCard.tsx. npm audit
-      # has no per-advisory allowlist, so a count baseline is the mechanism
-      # available.
-      #
-      # This is a RATCHET, not a waiver — it fails in BOTH directions. A new
-      # HIGH fails the build; and if the count DROPS, that also fails, forcing
-      # MAX_HIGH down so a future regression cannot hide inside a stale
-      # allowance. Same posture as the eslint `--prune-suppressions` guard above
-      # and the test-count baselines in the test-debt job.
-      - name: npm audit (critical blocking; high ratcheted to baseline)
-        working-directory: frontend
-        env:
-          # Number of HIGH advisories with NO available upstream fix. Both are
-          # image-size via pptxgenjs — see the note above. Lower this the moment
-          # upstream ships a fix (the step tells you when).
-          MAX_HIGH: "2"
-        run: |
-          set -euo pipefail
-          # npm audit exits non-zero whenever anything is found, so its status
-          # carries no information beyond "not clean" — the counts below are the
-          # actual signal.
-          report="$(npm audit --json || true)"
-
-          crit="$(jq -r '.metadata.vulnerabilities.critical' <<< "$report")"
-          high="$(jq -r '.metadata.vulnerabilities.high' <<< "$report")"
-          echo "critical=${crit}  high=${high}  (baseline allows high=${MAX_HIGH})"
-          jq -r '
-            .vulnerabilities // {} | to_entries[]
-            | select(.value.severity == "high" or .value.severity == "critical")
-            | "  \(.key)  severity=\(.value.severity)  range=\(.value.range)  fix=\(.value.fixAvailable | tostring)"
-          ' <<< "$report"
-
-          status=0
-          if [[ "$crit" -gt 0 ]]; then
-            echo "::error::npm audit found ${crit} CRITICAL advisories. No critical is tolerated."
-            status=1
-          fi
-          if [[ "$high" -gt "$MAX_HIGH" ]]; then
-            echo "::error::npm audit found ${high} HIGH advisories; baseline allows ${MAX_HIGH}. Fix the new one, or justify and raise MAX_HIGH in ci.yml."
-            status=1
-          fi
-          if [[ "$high" -lt "$MAX_HIGH" ]]; then
-            echo "::error::npm audit found only ${high} HIGH advisories but MAX_HIGH is ${MAX_HIGH} — upstream shipped a fix. Lower MAX_HIGH to ${high} in ci.yml so the allowance cannot mask a future regression."
-            status=1
-          fi
-          exit "$status"
-
-  # ---------------------------------------------------------------------------
-  # Container image build + scan (backend, frontend).
-  #
-  # WHY THIS IS A JOB AND NOT A STEP. `_docker.yml` declares `on:
-  # workflow_call`, which makes it a REUSABLE WORKFLOW. A reusable workflow can
-  # only be invoked from a job's `uses:` key. It was previously invoked from
-  # `steps[].uses:` inside the `backend` and `frontend` jobs; `steps[].uses:`
-  # resolves only ACTIONS (a path containing action.yml, a `owner/repo@ref`, or
-  # a `docker://` image). Pointing it at a workflow FILE makes the whole
-  # workflow invalid, and an invalid workflow file is a STARTUP failure: no job
-  # is created, so every check in this file — including `ci-required` — silently
-  # never ran. The new `actionlint` step in `fast-checks` is what catches this
-  # class of error going forward; the 14 yaml.safe_load-based contract tests in
-  # tests/ci/test_workflow_contracts.py all passed while it was broken.
-  #
-  # `timeout-minutes` is deliberately absent: GitHub rejects it (and `runs-on`,
-  # `steps`, `env`, ...) on a reusable-workflow-call job — that is the exact
-  # startup failure deploy.yml's `gate` job hit once. The time budget lives on
-  # `_docker.yml`'s own `build` job (30 min). tests/ci/test_workflow_contracts.py
-  # ::assert_timeout_present enforces both halves of this rule.
-  #
-  # This job IS part of `ci-required`. Both scanners are scoped to actionable
-  # findings — Trivy runs `--ignore-unfixed` and Grype `--only-fixed` — so the
-  # gate blocks on HIGH/CRITICAL that a base-image rebuild or dependency bump can
-  # clear, not on unfixable noise. ci/trivyignore.images is the documented
-  # (currently empty) waiver path, and it requires a per-CVE reason and expiry.
-  #
-  # FIRST-RUN CAVEAT: because the step-level invocation this replaces was a
-  # startup failure, this scan has never actually executed against these two
-  # Dockerfiles. If it fails on the first run, the most likely cause is the base
-  # image, not the application: both Dockerfiles build on `node:20-bookworm-slim`,
-  # and Node 20 went end-of-life in March 2026, so it no longer receives security
-  # patches. The remedy is to move to Node 24 LTS (tracked as Phase 4 hardening
-  # alongside .github/actions/setup-frontend's `node-version: "20"`), NOT to add
-  # blanket entries to the ignorefile.
-  # ---------------------------------------------------------------------------
-  container-scan:
-    name: Container image (build + scan)
-    needs: [fast-checks]
-    # `security-events: write` is what lets _docker.yml publish its Trivy SARIF
-    # to the code-scanning API. It is granted here rather than at workflow level
-    # so the other 14 jobs keep the least-privilege `contents: read` default.
-    # It is NOT always effective: when ci.yml is itself called as deploy.yml's
-    # `gate` (which grants only `contents: read`), a nested call cannot escalate
-    # beyond the caller's grant. _docker.yml therefore treats the SARIF upload
-    # as best-effort and keeps the BLOCKING signal on Trivy's exit code.
-    permissions:
-      contents: read
-      security-events: write
-    strategy:
-      # One component's vulnerabilities say nothing about the other's — report
-      # both in a single run instead of hiding the second behind the first.
-      fail-fast: false
-      matrix:
-        component: [backend, frontend]
-    uses: ./.github/workflows/_docker.yml
-    with:
-      component: ${{ matrix.component }}
-      build-context: ./${{ matrix.component }}
-      dockerfile-path: ./${{ matrix.component }}/Dockerfile
-      image-tag: pr-${{ github.run_number }}
-      push: false
-
-  # ---------------------------------------------------------------------------
-  # SonarCloud Analysis Job (Task 5)
-  #
-  # Runs SonarScanner CLI to analyze code and coverage reports, publishes
-  # results to SonarCloud, and enforces quality gates. SonarCloud automatically
-  # decorates PRs with check status and comments.
-  #
-  # Dependencies: test-results (backend coverage.xml), frontend (lcov.info).
-  # Environment: SONAR_TOKEN (GitHub Organization Secret), SONAR_HOST_URL
-  #
-  # There is deliberately NO separate coverage-consolidation job. The previous
-  # `prepare-sonarcloud` job existed to copy two files into a
-  # `sonarcloud-coverage/` directory, and it could not work: it downloaded the
-  # `backend-coverage-report` artifact (which contained only htmlcov/, never
-  # coverage.xml) and looked for `coverage-final.xml` in the frontend artifact
-  # (which vitest never produced). Both `if [ -f ... ]` guards therefore always
-  # took the `else` branch, warned to stderr, and the job still exited 0 — so
-  # SonarCloud has been receiving ZERO coverage while reporting success. The two
-  # downloads below replace it: each artifact lands directly at the path
-  # sonar-project.properties already names, so there is nothing left to
-  # consolidate and no silent-warning branch to hide a break.
-  # ---------------------------------------------------------------------------
-  sonarcloud-analysis:
-    name: SonarCloud analysis
-    runs-on: ubuntu-latest
-    needs: [test-results, frontend]
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'  # Phase 9: Guard fork PRs from accessing secrets
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0  # Full repo history needed for SonarScanner to compute delta/new code
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      # Cobertura XML from `coverage xml` in the test-results job. Lands at
-      # backend/coverage.xml == sonar.python.coverage.reportPaths.
-      - name: Download backend coverage XML
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: backend-coverage-xml
-          path: backend/
-
-      # LCOV from vitest's v8 provider. Lands at frontend/coverage/lcov.info ==
-      # sonar.javascript.lcov.reportPaths.
-      - name: Download frontend coverage LCOV
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: frontend-coverage-lcov
-          path: frontend/coverage/
-
-      # Hard failure, not a warning. A missing/empty report here means Sonar
-      # would compute 0% coverage and — depending on the gate — either pass
-      # vacuously or fail for the wrong reason. Neither is a usable signal, and
-      # the old consolidation job's `⚠ WARNING ... >&2; exit 0` behaviour is
-      # precisely how this went unnoticed.
-      - name: Verify coverage reports are present and non-empty
-        run: |
-          set -euo pipefail
-          status=0
-          for report in backend/coverage.xml frontend/coverage/lcov.info; do
-            if [[ ! -s "$report" ]]; then
-              echo "::error::Coverage report missing or empty: ${report}"
-              status=1
-            else
-              echo "OK: ${report} ($(wc -c < "$report") bytes)"
-            fi
-          done
-          exit "$status"
-
-      - name: Install SonarScanner CLI (checksum-verified binary)
-        run: |
-          set -euo pipefail
-          # SonarScanner latest stable release
-          # To verify/update checksum: download the .zip file and run:
-          #   sha256sum sonar-scanner-cli-<VERSION>-linux-x64.zip
-          SONAR_VERSION="8.0.1.6346"
-          # Checksum verified from official SonarSource release binaries:
-          # https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.0.1.6346-linux-x64.zip.sha256
-          SONAR_CHECKSUM="4bd40bf8411ed104853e94a3746ec92bc92845fde2b27dbf5c33fb5cfa8ecbe9"
-          SONAR_BINARY="sonar-scanner-cli-${SONAR_VERSION}-linux-x64"
-          SONAR_ZIP="${SONAR_BINARY}.zip"
-          
-          echo "Downloading SonarScanner v${SONAR_VERSION}..."
-          curl -sSL -o "${SONAR_ZIP}" \
-            "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${SONAR_ZIP}"
-          
-          # Verify checksum
-          echo "${SONAR_CHECKSUM}  ${SONAR_ZIP}" | sha256sum -c -
-          echo "✓ Checksum verified"
-          
-          echo "Extracting..."
-          unzip -q "${SONAR_ZIP}"
-          
-          echo "Installing to /opt..."
-          sudo mkdir -p /opt
-          sudo mv "${SONAR_BINARY}" /opt/sonar-scanner
-          sudo chmod +x /opt/sonar-scanner/bin/sonar-scanner
-          
-          echo "Verifying installation..."
-          /opt/sonar-scanner/bin/sonar-scanner --version
-          
-          echo ""
-          echo "✓ SonarScanner installed successfully"
-
-      # F-08: sonar-scanner reads sonar-project.properties from the current
-      # working directory (the repo root, where this step runs) by default —
-      # organization/projectKey/projectName/sources/exclusions/
-      # coverage.exclusions/coverageReportPaths were previously ALSO passed
-      # here as -D flags with the identical values, which win over the
-      # properties file on any conflict. That meant sonar-project.properties
-      # was decorative documentation, not the actual config: a value changed
-      # in one place silently had no effect unless the other copy was also
-      # updated. Only `sonar.log.level`, which has no equivalent entry in the
-      # properties file (deliberately: it's noisy and belongs at the
-      # invocation, not committed config), stays as a -D flag.
-      # `sonar.qualitygate.wait=true` makes the scanner block on the server's
-      # quality-gate verdict and exit non-zero when it fails. Without it this
-      # step reports success for "the scanner uploaded a report", which is a
-      # different fact from "the quality gate passed" — the distinction matters
-      # because this job's status is what a human reads in the Checks list.
-      #
-      # It stays a -D flag rather than a properties-file entry for the same
-      # reason as sonar.log.level (see the F-08 note above): it is a property of
-      # THIS invocation. A local `sonar-scanner` run by a developer should not
-      # inherit a blocking wait from committed config.
-      #
-      # This does NOT by itself gate merges: `ci-required` deliberately excludes
-      # this job (SonarCloud is an external service), so the SonarCloud quality
-      # gate must ALSO be listed as its own required status check in the
-      # repository ruleset. See docs/GITHUB_CICD_SETUP.md.
-      - name: Run SonarScanner analysis
-        env:
-          SONAR_HOST_URL: https://sonarcloud.io
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          /opt/sonar-scanner/bin/sonar-scanner \
-            -Dsonar.log.level=INFO \
-            -Dsonar.qualitygate.wait=true
-
-      - name: Display SonarCloud analysis results
-        if: always()
-        run: |
-          cat << 'EOF'
-          
-          ✓ SonarScanner analysis completed
-          
-          ================================
-          Next Steps
-          ================================
-          
-          1. View analysis results:
-             https://sonarcloud.io/dashboard?id=velocityai
-          
-          2. For PR checks:
-             - SonarCloud will automatically post a check on your PR
-             - Look for "SonarCloud Quality Gate" in the Checks section
-             - Merge is blocked if the quality gate fails
-          
-          3. Troubleshooting:
-             - If check doesn't appear: verify SONAR_TOKEN is set in GitHub Organization Secrets
-             - If analysis is incomplete: check this job's logs for errors
-             - For coverage issues: check the "Verify coverage reports" step in this job
-               (backend/coverage.xml comes from test-results, frontend/coverage/lcov.info from frontend)
-          
-          ================================
-          EOF
-
-  # ---------------------------------------------------------------------------
-  # Security scan — gitleaks, checkov, trivy (config), tflint.
-  #
-  # Every scanner is installed as a direct, checksum-verified release binary
-  # rather than via a third-party setup-* GitHub Action. This is a deliberate,
-  # stricter-than-default choice for the trivy/tflint/gitleaks steps because of
-  # CVE-2026-33634 (see workflow header) and the broader campaign it was part
-  # of (compromised npm + PyPI packages in the same window) — pinning a
-  # checksum we verify ourselves removes any dependency on a third party's
-  # Phase 8: Split security-scan into 3 parallel jobs for speed
-  # Job 1: secrets scanning (gitleaks)
-  security-scan-secrets:
-    name: Security scan (gitleaks)
-    runs-on: ubuntu-latest
-    needs: [fast-checks]  # Phase 8: Depends on fast-checks
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Install gitleaks
-        uses: ./.github/actions/install-checksummed-tool
-        with:
-          name: gitleaks
-          version: v8.30.1
-          url: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
-          sha256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-          archive-format: tar.gz
-          binary-name: gitleaks
-
-      - name: gitleaks detect (full history)
-        run: gitleaks detect --redact --no-banner -v --config ci/gitleaks.toml -i ci/gitleaksignore --source .
-
-  # Job 2: IaC scanning (checkov + trivy config)
-  security-scan-iac:
-    name: Security scan (checkov / trivy config)
-    runs-on: ubuntu-latest
-    needs: [fast-checks]  # Phase 8: Depends on fast-checks
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Setup backend
+      - name: Setup backend (frozen, dev deps)
         uses: ./.github/actions/setup-backend
         with:
           dev-deps: "true"
 
-      # checkov comes from backend/requirements-dev.txt into backend/.venv, so it
-      # is NOT on PATH — it must be invoked through `uv run` like every other
-      # venv-provided tool in this workflow (a bare `checkov` exited 127).
-      - name: checkov IaC scan
-        working-directory: backend
-        run: >-
-          uv run --no-sync --with checkov==3.2.200
-          checkov -d ../infra/terraform
-          --config-file ../ci/checkov.yaml
+      - name: Download canonical inventory
+        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        with:
+          name: ci-${{ needs.backend-inventory.outputs.evaluation_sha }}-backend-inventory
+          path: ci-results/
 
-      - name: Install trivy
+      - name: Require a reachable PostgreSQL service (fail-closed)
+        env:
+          PGPASSWORD: ci_test_password
+        run: bash .github/scripts/ci-postgres-ready.sh
+
+      - name: Run the PostgreSQL partition
+        working-directory: backend
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/ci-results/.coverage.backend-postgres
+          PYTEST_DATABASE_URL: postgresql://ci_test:ci_test_password@localhost:5432/ci_test_ordinary
+          PYTEST_DATABASE_URL_POPULATED_MIGRATION: postgresql://ci_test:ci_test_password@localhost:5432/ci_test_populated_migration
+          # See the note in backend-offline: `-p` plugins load before conftest.
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          uv run --frozen pytest tests \
+            -m "requires_postgres or requires_postgres_populated_migration" \
+            -p agents.ci.execution_recorder \
+            --execution-record="$GITHUB_WORKSPACE/ci-results/execution-backend-postgres.json" \
+            --cov=app --cov=agents \
+            --cov-report=xml:"$GITHUB_WORKSPACE/ci-results/backend-postgres-coverage.xml" \
+            --junitxml="$GITHUB_WORKSPACE/ci-results/backend-postgres-junit.xml" \
+            -q
+
+      - name: Verify every inventoried PostgreSQL node executed exactly once
+        if: always()
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv run --frozen python -m agents.ci.inventory_cli verify-execution \
+            --inventory "$GITHUB_WORKSPACE/ci-results/backend-inventory.json" \
+            --execution "$GITHUB_WORKSPACE/ci-results/execution-backend-postgres.json" \
+            --partition postgres
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-postgres-evidence
+          path: |
+            ci-results/.coverage.backend-postgres
+            ci-results/backend-postgres-coverage.xml
+            ci-results/backend-postgres-junit.xml
+            ci-results/execution-backend-postgres.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # backend-evidence — merge both partitions, then enforce 80% overall
+  # ===========================================================================
+  # Owns: backend-evidence
+  # Runs with `if: always()` so a failed producer still produces an honest
+  # verdict, but it REFUSES to merge an incomplete producer set: a missing or
+  # failed partition fails this job rather than yielding a partial percentage.
+  # ===========================================================================
+  backend-evidence:
+    name: Backend evidence and coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: always()
+    needs: [backend-inventory, backend-offline, backend-postgres]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Require both producers to have succeeded
+        env:
+          OFFLINE_RESULT: ${{ needs.backend-offline.result }}
+          POSTGRES_RESULT: ${{ needs.backend-postgres.result }}
+          INVENTORY_RESULT: ${{ needs.backend-inventory.result }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for pair in "backend-inventory=$INVENTORY_RESULT" \
+                      "backend-offline=$OFFLINE_RESULT" \
+                      "backend-postgres=$POSTGRES_RESULT"; do
+            name="${pair%%=*}"
+            result="${pair#*=}"
+            echo "  $name: $result"
+            if [[ "$result" != "success" ]]; then
+              echo "::error::mandatory backend producer '$name' is '$result'."
+              echo "::error::Aggregate coverage cannot be computed from an incomplete producer set."
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+      - name: Setup backend (frozen, dev deps)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: Download offline evidence
+        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-offline-evidence
+          path: ci-results/
+
+      - name: Download PostgreSQL evidence
+        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-postgres-evidence
+          path: ci-results/
+
+      - name: Combine coverage from every mandatory producer
+        working-directory: backend
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/ci-results/.coverage.merged
+        run: |
+          set -euo pipefail
+          # `coverage combine` needs the per-partition data files present; both
+          # were uploaded by their producers and downloaded above.
+          uv run --frozen coverage combine \
+            "$GITHUB_WORKSPACE/ci-results/.coverage.backend-offline" \
+            "$GITHUB_WORKSPACE/ci-results/.coverage.backend-postgres"
+          uv run --frozen coverage xml \
+            -o "$GITHUB_WORKSPACE/ci-results/backend-coverage.xml"
+          uv run --frozen coverage report --skip-covered | tail -n 20
+
+      - name: Enforce backend coverage threshold
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv run --frozen python -m agents.ci.ci_gate coverage-gate-backend \
+            --coverage-xml "$GITHUB_WORKSPACE/ci-results/backend-coverage.xml" \
+            --min "${{ env.COVERAGE_MIN_BACKEND }}"
+
+      - name: Merge backend JUnit reports (create the file uploads reference)
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv run --frozen python -m agents.ci.report_merger_cli junit \
+            --out "$GITHUB_WORKSPACE/ci-results/junit-backend.xml" \
+            "$GITHUB_WORKSPACE/ci-results/backend-offline-junit.xml" \
+            "$GITHUB_WORKSPACE/ci-results/backend-postgres-junit.xml"
+
+      - name: Upload merged backend evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-aggregate
+          path: |
+            ci-results/backend-coverage.xml
+            ci-results/junit-backend.xml
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # frontend-static — typecheck, lint, production build
+  # ===========================================================================
+  # Owns: frontend-static/typecheck, frontend-static/lint, frontend-static/build
+  # All three run to completion; the job fails if any did.
+  # ===========================================================================
+  frontend-static:
+    name: Frontend static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup frontend (npm ci from the committed lock)
+        uses: ./.github/actions/setup-frontend
+
+      - name: Setup backend (for the check runner)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: Run frontend static checks (all, then fail if any failed)
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          mkdir -p ../ci-results
+          uv run --frozen python agents/ci/run_checks.py \
+            ../ci/frontend-static-checks.json \
+            ../ci-results/frontend-static-results.json \
+            ../ci-results/frontend-static-results.junit.xml
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-frontend-static-evidence
+          path: ci-results/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # frontend-vitest — the complete Vitest inventory, once, with coverage
+  # ===========================================================================
+  # Owns: frontend-vitest
+  # The 80% four-metric gate lives in frontend-evidence so that a coverage miss
+  # is attributable separately from a test failure.
+  # ===========================================================================
+  frontend-vitest:
+    name: Frontend unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup frontend (npm ci from the committed lock)
+        uses: ./.github/actions/setup-frontend
+
+      # Vitest's own `thresholds` block would also fail the command, but the
+      # authoritative four-metric gate is frontend-evidence's, parsed from
+      # coverage-summary.json. Disabling thresholds here keeps a coverage miss
+      # from masquerading as a test failure.
+      - name: Run the complete Vitest inventory with coverage
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npx vitest --run \
+            --coverage \
+            --coverage.thresholds.lines=0 \
+            --coverage.thresholds.functions=0 \
+            --coverage.thresholds.branches=0 \
+            --coverage.thresholds.statements=0 \
+            --reporter=default \
+            --reporter=junit \
+            --outputFile.junit=../ci-results/frontend-vitest-junit.xml
+
+      - name: Stage coverage evidence
+        run: |
+          set -euo pipefail
+          mkdir -p ci-results
+          cp frontend/coverage/coverage-summary.json ci-results/
+          cp frontend/coverage/lcov.info ci-results/frontend-lcov.info
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-frontend-vitest-evidence
+          path: ci-results/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # frontend-e2e — the complete deterministic mocked Playwright project
+  # ===========================================================================
+  # Owns: frontend-e2e
+  # Only this job installs a browser. An unconditional `test.skip` inside the
+  # mocked project is an accepted-red baseline and fails this job.
+  # ===========================================================================
+  frontend-e2e:
+    name: Frontend end-to-end tests (mocked)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup frontend (npm ci from the committed lock)
+        uses: ./.github/actions/setup-frontend
+
+      - name: Install Chromium from the locked Playwright package
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npx --no-install playwright install --with-deps chromium
+
+      - name: Reject accepted-red skips in the mandatory mocked project
+        run: |
+          set -euo pipefail
+          mkdir -p ci-results
+          ./.github/scripts/ci-e2e-no-accepted-red.sh \
+            | tee ci-results/frontend-e2e-skip-audit.txt
+
+      - name: Run the complete mocked project
+        working-directory: frontend
+        env:
+          CI: "true"
+          PLAYWRIGHT_JUNIT_OUTPUT_NAME: ../ci-results/frontend-e2e-junit.xml
+        run: |
+          set -euo pipefail
+          npx playwright test --project=mocked \
+            --reporter=list,junit \
+            --output=../ci-results/frontend-e2e-artifacts
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-frontend-e2e-evidence
+          path: ci-results/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload failure diagnostics (best effort, non-authoritative)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-frontend-e2e-diagnostics
+          path: |
+            frontend/e2e/.report
+            frontend/test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # frontend-evidence — enforce all four coverage metrics at 80%
+  # ===========================================================================
+  # Owns: frontend-evidence
+  # ===========================================================================
+  frontend-evidence:
+    name: Frontend evidence and coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: always()
+    needs: [frontend-vitest, frontend-e2e]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Require both producers to have succeeded
+        env:
+          VITEST_RESULT: ${{ needs.frontend-vitest.result }}
+          E2E_RESULT: ${{ needs.frontend-e2e.result }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for pair in "frontend-vitest=$VITEST_RESULT" "frontend-e2e=$E2E_RESULT"; do
+            name="${pair%%=*}"
+            result="${pair#*=}"
+            echo "  $name: $result"
+            if [[ "$result" != "success" ]]; then
+              echo "::error::mandatory frontend producer '$name' is '$result'."
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+      - name: Setup backend (for the coverage gate)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: Download Vitest evidence
+        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-frontend-vitest-evidence
+          path: ci-results/
+
+      - name: Enforce all four frontend coverage metrics
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv run --frozen python -m agents.ci.ci_gate coverage-gate-frontend \
+            --summary "$GITHUB_WORKSPACE/ci-results/coverage-summary.json" \
+            --min "${{ env.COVERAGE_MIN_FRONTEND }}"
+
+      - name: Upload merged frontend evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-frontend-aggregate
+          path: |
+            ci-results/frontend-lcov.info
+            ci-results/coverage-summary.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # security — four distinct owners in one matrix
+  # ===========================================================================
+  # Owns 8 signals: security[secrets], security[backend-deps],
+  # security[frontend-deps], and the five security[iac]/* sub-verdicts.
+  #
+  # Every leg ends in `ci_gate scan-gate`, which fails on any resolved
+  # High/Critical finding regardless of fix availability. There is no baseline,
+  # no --ignore-unfixed, and no suppression list.
+  # ===========================================================================
+  security:
+    name: Security (${{ matrix.leg }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [secrets, backend-deps, frontend-deps, iac]
+    steps:
+      - name: Checkout (full history for secret scanning)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Quoted on purpose. GitHub expressions have no ternary, and the
+          # `cond && A || B` idiom silently breaks when A is falsy: with an
+          # unquoted 0, `true && 0` is 0, which is falsy, so `|| 1` wins and the
+          # secrets leg would get a shallow clone — scanning one commit of
+          # history instead of all of it, and reporting a clean result for it.
+          # '0' is a non-empty string and therefore truthy.
+          fetch-depth: ${{ matrix.leg == 'secrets' && '0' || '1' }}
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Create evidence directory
+        run: mkdir -p ci-results
+
+      # Every leg ends by running `agents.ci.ci_gate scan-gate` to turn its
+      # report into a verdict, so all four need the backend environment — not
+      # just the two that also use a Python scanner.
+      - name: Setup backend (for the scanner gate)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      # ---- secrets -------------------------------------------------------
+      - name: Install gitleaks
+        if: matrix.leg == 'secrets'
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: gitleaks
+          version: ${{ env.GITLEAKS_VERSION }}
+          url: https://github.com/gitleaks/gitleaks/releases/download/${{ env.GITLEAKS_VERSION }}/gitleaks_8.30.1_linux_x64.tar.gz
+          sha256: ${{ env.GITLEAKS_SHA256 }}
+          archive-format: tar.gz
+          binary-name: gitleaks
+
+      - name: gitleaks detect (full history)
+        if: matrix.leg == 'secrets'
+        run: bash .github/scripts/ci-gitleaks.sh ci-results/gitleaks-report.json
+
+      # ---- backend-deps --------------------------------------------------
+      - name: pip-audit the installed frozen graph
+        if: matrix.leg == 'backend-deps'
+        run: bash .github/scripts/ci-pip-audit.sh ci-results/pip-audit-report.json
+
+      # ---- frontend-deps -------------------------------------------------
+      - name: Setup frontend
+        if: matrix.leg == 'frontend-deps'
+        uses: ./.github/actions/setup-frontend
+
+      - name: npm audit the installed graph
+        if: matrix.leg == 'frontend-deps'
+        run: bash .github/scripts/ci-npm-audit.sh ci-results/npm-audit-report.json
+
+      # ---- iac -----------------------------------------------------------
+      - name: Setup Terraform
+        if: matrix.leg == 'iac'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Setup TFLint
+        if: matrix.leg == 'iac'
+        # First-party action: verifies the release checksum and GPG signature
+        # internally, which is stronger than an unverified curl. The version must
+        # match agents/ci/pin_authority.py (tests/ci/test_toolchain_pins.py
+        # asserts it).
+        uses: terraform-linters/setup-tflint@19a52fbac37dacb22a09518e4ef6ee234f2d4987 # v4.0.0
+        with:
+          tflint_version: v0.64.0
+
+      - name: Install Trivy
+        if: matrix.leg == 'iac'
         uses: ./.github/actions/install-checksummed-tool
         with:
           name: trivy
-          version: "v${{ env.TRIVY_VERSION }}"
+          version: v${{ env.TRIVY_VERSION }}
           url: https://github.com/aquasecurity/trivy/releases/download/v${{ env.TRIVY_VERSION }}/trivy_${{ env.TRIVY_VERSION }}_Linux-64bit.tar.gz
           sha256: ${{ env.TRIVY_SHA256 }}
           archive-format: tar.gz
           binary-name: trivy
 
-      - name: trivy config scan
-        run: |
-          trivy config --exit-code 1 --severity HIGH,CRITICAL \
-            --ignorefile ci/trivyignore \
-            --skip-dirs "**/examples/**" \
-            --skip-dirs "**/localstack/**" \
-            infra/terraform
-
-  # Job 3: Terraform linting and validation (tflint + terraform fmt/validate)
-  security-scan-terraform:
-    name: Security scan (terraform validate / tflint)
-    runs-on: ubuntu-latest
-    needs: [fast-checks]  # Phase 8: Depends on fast-checks
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
-
-      - name: Install tflint
-        uses: ./.github/actions/install-checksummed-tool
-        with:
-          name: tflint
-          version: v0.64.0
-          url: https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip
-          sha256: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537
-          archive-format: zip
-          binary-name: tflint
-
-      - name: tflint init (fetch pinned ruleset plugins)
-        env:
-          TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl
-        run: tflint --chdir=infra/terraform --init
-
-      - name: Install Terraform
-        uses: ./.github/actions/install-checksummed-tool
-        with:
-          name: terraform
-          version: v1.11.0
-          url: https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_linux_amd64.zip
-          # Verified against https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_SHA256SUMS
-          sha256: 069e531fd4651b9b510adbd7e27dd648b88d66d5f369a2059aadbb4baaead1c1
-          archive-format: zip
-          binary-name: terraform
-
-      - name: Terraform format check (recursive)
+      - name: Terraform fmt (format check)
+        if: matrix.leg == 'iac'
         run: terraform fmt -check -recursive infra/terraform
 
-      - name: Terraform validate (per root)
-        run: |
-          set -euo pipefail
-          status=0
-          IFS=' ' read -r -a roots <<< "$TF_ROOTS"
-          for root in "${roots[@]}"; do
-            echo "Validating root: $root"
-            if [ -d "$root" ]; then
-              cd "$root"
-              if ! terraform init -backend=false -input=false > /dev/null 2>&1; then
-                echo "ERROR: terraform init failed for $root"
-                status=1
-              elif ! terraform validate; then
-                echo "ERROR: terraform validate failed for $root"
-                status=1
-              fi
-              cd - > /dev/null
-            fi
-          done
-          exit "$status"
+      - name: Terraform validate (per root, backend disabled, never plan/apply)
+        if: matrix.leg == 'iac'
+        run: bash .github/scripts/ci-terraform-validate.sh
 
-      - name: Check for .terraform.lock.hcl in provider-declaring roots
-        run: |
-          set -euo pipefail
-          status=0
-          IFS=' ' read -r -a roots <<< "$TF_ROOTS"
-          for root in "${roots[@]}"; do
-            if [ -d "$root" ]; then
-              if grep -r 'provider\s*"' "$root" > /dev/null 2>&1; then
-                if [ ! -f "$root/.terraform.lock.hcl" ]; then
-                  echo "ERROR: $root declares a provider but has no committed .terraform.lock.hcl"
-                  status=1
-                fi
-              fi
-            fi
-          done
-          exit "$status"
+      - name: TFLint
+        if: matrix.leg == 'iac'
+        run: tflint --recursive --chdir=infra/terraform
 
-      - name: tflint (recursive)
-        env:
-          TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl
-        run: tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error
+      - name: Checkov and Trivy config policy gates
+        if: matrix.leg == 'iac'
+        run: bash .github/scripts/ci-iac-scan.sh ci-results
 
-  # ---------------------------------------------------------------------------
-  # ci-required — the single aggregation point for every job above.
-  #
-  # F-01: without this job, branch protection / repository rulesets would have
-  # to enumerate all 14 job names above as separate required status checks.
-  # That is brittle in both directions: renaming or removing a shard (as
-  # happened when the pytest jobs were split into agents-a/agents-b/unit/
-  # integration) silently drops a required check with no error anywhere, and
-  # a new job someone forgets to add to the ruleset never blocks anything.
-  # This job is the ONLY status check that should ever be named in a
-  # required_status_checks list — see docs/GITHUB_CICD_SETUP.md.
-  #
-  # `if: always()` is required so this job still runs (and can report
-  # failure) when an upstream job fails or is cancelled — the default
-  # `if: success()` would skip it, and a SKIPPED required check does not
-  # block a merge the way a FAILED one does.
-  #
-  # `needs` intentionally excludes sonarcloud-analysis: SonarCloud posts its own
-  # PR check ("SonarCloud Code Analysis") directly, which MUST be added to the
-  # ruleset as a second, independent required check — this job does not cover it.
-  # Folding it in here would make this job depend on Sonar's availability, which
-  # is an external service outside this repo's control.
-  #
-  # Everything else that gates a merge belongs in `needs` below. Two entries were
-  # missing (`test-results` and `backend-postgres-populated-migration`), which
-  # meant this "authoritative" gate could report success on a commit whose
-  # backend test suite had failed outright. `actionlint` in `fast-checks` cannot
-  # catch that class of gap — a job simply absent from a `needs:` list is valid
-  # Actions syntax — so it is guarded by review and by the comments below.
-  # ---------------------------------------------------------------------------
-  ci-required:
-    name: ci-required
+      # ---- shared --------------------------------------------------------
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-security-${{ matrix.leg }}-evidence
+          path: ci-results/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # container-scan — build locally, scan with BOTH engines, zero High/Critical
+  # ===========================================================================
+  # Owns 4 signals: container-scan[backend|frontend]/{trivy,grype}
+  # Both engines always run against the same local image, and the job fails if
+  # EITHER reports a High/Critical finding. Nothing is pushed to a registry.
+  # ===========================================================================
+  container-scan:
+    name: Container scan (${{ matrix.component }})
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: always()
-    needs:
-      - fast-checks  # Phase 8: First check, gates all else
-      - backend  # Python checks
-      # Backend pytest. Depends on `test-results` rather than on the three shard
-      # jobs directly, which covers both facts in one edge: `test-results`
-      # asserts each shard's `result == success` in its first step, AND it is the
-      # job that enforces the 80% MERGED coverage floor. Before this line, the
-      # authoritative merge gate depended on NO backend test job whatsoever —
-      # every pytest shard could fail and `ci-required` still went green.
-      - test-results
-      - backend-postgres  # Backend integration (requires_postgres suite)
-      # Migration chain applied to a POPULATED database (seed at 0014 → upgrade
-      # to head → verify). Also previously absent from this list, so a migration
-      # that corrupts existing rows could not block a merge.
-      - backend-postgres-populated-migration
-      - frontend  # Next.js checks
-      - security-scan-secrets  # Phase 8: Security scan (gitleaks)
-      - security-scan-iac  # Phase 8: Security scan (checkov/trivy)
-      - security-scan-terraform  # Phase 8: Security scan (terraform validate)
-      # Container image build + Trivy/Grype scan for both components. Now a
-      # merge requirement: both engines run --ignore-unfixed / --only-fixed, so
-      # they block only on HIGH/CRITICAL that a rebuild or dependency bump can
-      # actually clear, and ci/trivyignore.images is the documented (currently
-      # empty) exception path for anything genuinely unfixable.
-      - container-scan
-      # NOT listed (deliberate): sonarcloud-analysis is an external service and
-      # posts its own required check — see this job's header.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
     steps:
-      - name: Assert every upstream job succeeded
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
         env:
-          RESULTS: ${{ toJSON(needs) }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Create evidence directory
+        run: mkdir -p ci-results
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b664feb3c90bfb07d82ecb4fba6e0e9011 # v3.5.0
+
+      # The Dockerfiles live at backend/Dockerfile and frontend/Dockerfile.
+      # A previous revision pointed at ./Dockerfile.backend and
+      # ./Dockerfile.frontend, which do not exist, so both legs failed at build.
+      - name: Build the ${{ matrix.component }} image locally (never pushed)
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6eb524aadf63d81e # v6.9.0
+        with:
+          context: .
+          file: ./${{ matrix.component }}/Dockerfile
+          push: false
+          load: true
+          tags: localhost/velocityai-${{ matrix.component }}:ci-${{ steps.sha.outputs.evaluation_sha }}
+          # Cache scope is namespaced to CI and to the trust class so a fork's
+          # layers can never be consumed by a deployment build.
+          cache-from: type=gha,scope=ci-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=ci-${{ matrix.component }}
+
+      - name: Install Trivy
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: trivy
+          version: v${{ env.TRIVY_VERSION }}
+          url: https://github.com/aquasecurity/trivy/releases/download/v${{ env.TRIVY_VERSION }}/trivy_${{ env.TRIVY_VERSION }}_Linux-64bit.tar.gz
+          sha256: ${{ env.TRIVY_SHA256 }}
+          archive-format: tar.gz
+          binary-name: trivy
+
+      - name: Install Grype
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: grype
+          version: v${{ env.GRYPE_VERSION }}
+          url: https://github.com/anchore/grype/releases/download/v${{ env.GRYPE_VERSION }}/grype_${{ env.GRYPE_VERSION }}_linux_amd64.tar.gz
+          sha256: ${{ env.GRYPE_SHA256 }}
+          archive-format: tar.gz
+          binary-name: grype
+
+      - name: Setup backend (for the scanner gate)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: Scan with both engines and enforce zero High/Critical
+        env:
+          IMAGE_REF: localhost/velocityai-${{ matrix.component }}:ci-${{ steps.sha.outputs.evaluation_sha }}
+          COMPONENT: ${{ matrix.component }}
+        run: bash .github/scripts/ci-image-scan.sh ci-results
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-container-${{ matrix.component }}-evidence
+          path: ci-results/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # sonar-inline — Sonar analysis and quality gate for TRUSTED intents only
+  # ===========================================================================
+  # Owns: sonar-analysis, sonar-quality-gate (registered under owner `sonar-pr`,
+  # which is also the finalizer's job name — the signal is the same, the owner
+  # differs by trust path).
+  #
+  # Never runs for `pull_request`: that event may carry fork code, which must
+  # never see SONAR_TOKEN. The finalizer covers PRs.
+  # ===========================================================================
+  sonar-inline:
+    name: Sonar analysis and quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.event_name != 'pull_request'
+    needs: [backend-evidence, frontend-evidence]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history for accurate blame)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+
+      - name: Require a Sonar token (a missing secret is a failure, not a skip)
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           set -euo pipefail
-          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key)=\(.value.result)"'
-          failed="$(echo "$RESULTS" | jq -r \
-            'to_entries[] | select(.value.result != "success") | .key')"
-          if [[ -n "$failed" ]]; then
-            echo "::error::Required jobs did not succeed: $(echo "$failed" | tr '\n' ' ')"
+          if [[ -z "${SONAR_TOKEN:-}" ]]; then
+            echo "::error::SONAR_TOKEN is not available. The Sonar signals are"
+            echo "::error::mandatory, so an absent token is a failed gate."
             exit 1
           fi
-          echo "All required jobs succeeded."
+          echo "SONAR_TOKEN is present."
+
+      - name: Download backend aggregate coverage
+        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-backend-aggregate
+          path: sonar-inputs/
+
+      - name: Download frontend aggregate coverage
+        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-frontend-aggregate
+          path: sonar-inputs/
+
+      - name: Place coverage where Sonar expects it
+        run: |
+          set -euo pipefail
+          # These paths are the ones named in the scanner arguments below. A
+          # missing file here is a hard failure: analysing without coverage
+          # would silently produce a passing gate on unmeasured code.
+          test -s sonar-inputs/backend-coverage.xml
+          test -s sonar-inputs/frontend-lcov.info
+          mkdir -p frontend/coverage
+          cp sonar-inputs/backend-coverage.xml backend/coverage.xml
+          cp sonar-inputs/frontend-lcov.info frontend/coverage/lcov.info
+
+      - name: Sonar analysis with quality-gate wait
+        uses: SonarSource/sonarqube-scan-action@8c71dc039c2dd71d3821e89a2b58ecc7fee6ced9 # v6.0.0
+        env:
+          # Passed via the environment, never as a `-Dsonar.login=` argument:
+          # a command-line token is visible in the process table.
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: >-
+            -Dsonar.projectKey=velocityai
+            -Dsonar.organization=velocityai
+            -Dsonar.python.coverage.reportPaths=backend/coverage.xml
+            -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
+            -Dsonar.python.version=3.13
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=600
+
+  # ===========================================================================
+  # ci-evidence — the authoritative aggregate verdict
+  # ===========================================================================
+  # This job replaces the previous placeholder that read every upstream result
+  # into a shell variable, echoed it, and then ran `exit 0` with a comment
+  # saying failures do not fail the aggregate. It now delegates to
+  # `agents.ci.ci_gate aggregate`, which succeeds only when all 35 mandatory
+  # signals succeeded for this exact SHA.
+  #
+  # On pull requests the two Sonar signals are deferred to the trusted
+  # finalizer. Deferral is printed in the log and recorded in the manifest; it
+  # is a change of owner, not a waiver.
+  # ===========================================================================
+  ci-evidence:
+    name: CI evidence (aggregate verdict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: always()
+    needs:
+      - repo-static
+      - backend-inventory
+      - backend-static
+      - backend-offline
+      - backend-postgres
+      - backend-evidence
+      - frontend-static
+      - frontend-vitest
+      - frontend-e2e
+      - frontend-evidence
+      - security
+      - container-scan
+      - sonar-inline
+    permissions:
+      contents: read
+    outputs:
+      evaluation_sha: ${{ steps.sha.outputs.evaluation_sha }}
+      outcome: ${{ steps.aggregate.outcome }}
+    steps:
+      - name: Checkout (exact SHA)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify evaluation SHA
+        id: sha
+        run: bash .github/scripts/ci-verify-sha.sh
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup backend (for the aggregate gate)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: Compute the aggregate verdict
+        id: aggregate
+        working-directory: backend
+        env:
+          EVALUATION_SHA: ${{ steps.sha.outputs.evaluation_sha }}
+          IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+          R_REPO_STATIC: ${{ needs.repo-static.result }}
+          R_BACKEND_INVENTORY: ${{ needs.backend-inventory.result }}
+          R_BACKEND_STATIC: ${{ needs.backend-static.result }}
+          R_BACKEND_OFFLINE: ${{ needs.backend-offline.result }}
+          R_BACKEND_POSTGRES: ${{ needs.backend-postgres.result }}
+          R_BACKEND_EVIDENCE: ${{ needs.backend-evidence.result }}
+          R_FRONTEND_STATIC: ${{ needs.frontend-static.result }}
+          R_FRONTEND_VITEST: ${{ needs.frontend-vitest.result }}
+          R_FRONTEND_E2E: ${{ needs.frontend-e2e.result }}
+          R_FRONTEND_EVIDENCE: ${{ needs.frontend-evidence.result }}
+          R_SECURITY: ${{ needs.security.result }}
+          R_CONTAINER_SCAN: ${{ needs.container-scan.result }}
+          R_SONAR: ${{ needs.sonar-inline.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../ci-results
+
+          args=(
+            --sha "$EVALUATION_SHA"
+            --out "$GITHUB_WORKSPACE/ci-results/ci-evidence-manifest.json"
+            --job "repo-static=$R_REPO_STATIC"
+            --job "backend-inventory=$R_BACKEND_INVENTORY"
+            --job "backend-static=$R_BACKEND_STATIC"
+            --job "backend-offline=$R_BACKEND_OFFLINE"
+            --job "backend-postgres=$R_BACKEND_POSTGRES"
+            --job "backend-evidence=$R_BACKEND_EVIDENCE"
+            --job "frontend-static=$R_FRONTEND_STATIC"
+            --job "frontend-vitest=$R_FRONTEND_VITEST"
+            --job "frontend-e2e=$R_FRONTEND_E2E"
+            --job "frontend-evidence=$R_FRONTEND_EVIDENCE"
+            --job "security=$R_SECURITY"
+            --job "container-scan=$R_CONTAINER_SCAN"
+          )
+
+          if [[ "$IS_PULL_REQUEST" == "true" ]]; then
+            # Fork code must never hold SONAR_TOKEN, so the Sonar signals are
+            # owned by the trusted finalizer for this event type.
+            args+=(--defer sonar-pr)
+          else
+            args+=(--job "sonar-pr=$R_SONAR")
+          fi
+
+          uv run --frozen python -m agents.ci.ci_gate aggregate "${args[@]}"
+
+      - name: Upload the aggregate manifest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ steps.sha.outputs.evaluation_sha }}-ci-evidence-manifest
+          path: ci-results/ci-evidence-manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===========================================================================
+  # ci-required — publish the merge status for TRUSTED intents
+  # ===========================================================================
+  # Pull requests are published by ci-authoritative.yml instead; this job is
+  # skipped for them so a single identity never gets two authoritative statuses.
+  # ===========================================================================
+  ci-required:
+    name: Publish ci-required
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always() && github.event_name != 'pull_request'
+    needs: [ci-evidence]
+    permissions:
+      # The only elevated permission anywhere in this workflow, and only here.
+      statuses: write
+    steps:
+      - name: Publish the commit status for the exact evaluated SHA
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          EVALUATION_SHA: ${{ needs.ci-evidence.outputs.evaluation_sha || github.sha }}
+          AGGREGATE_RESULT: ${{ needs.ci-evidence.result }}
+        with:
+          script: |
+            const sha = process.env.EVALUATION_SHA;
+            const success = process.env.AGGREGATE_RESULT === 'success';
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              core.setFailed(`Refusing to publish a status for a malformed SHA: '${sha}'`);
+              return;
+            }
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: success ? 'success' : 'failure',
+              context: 'ci-required',
+              description: success
+                ? 'All mandatory CI signals succeeded'
+                : 'One or more mandatory CI signals did not succeed',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+            core.info(`Published ci-required=${success ? 'success' : 'failure'} for ${sha}`);
+            if (!success) {
+              core.setFailed('Aggregate verdict was not success.');
+            }

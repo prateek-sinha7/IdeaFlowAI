@@ -1,0 +1,86 @@
+{
+  "schema_version": 2,
+  "description": "Single authoritative record of CI tool versions and the mechanism that verifies each download. Tools are split by acquisition method because the verification story differs: `checksummed_download` tools are fetched by .github/actions/install-checksummed-tool and MUST carry a real publisher-backed SHA-256; `pinned_action` tools are installed by a first-party action pinned to a full commit SHA, which performs its own checksum and signature verification, so no hash is recorded here.",
+  "notes": [
+    "Schema v1 of this file contained two fabricated SHA-256 values: tflint's was 60 characters and contained non-hex letters (a1b2c3d4e5f6g7h8...), and sonar_scanner's was 61 characters. Neither could ever have matched a real artifact. It also recorded sonar_scanner 6.1.0.4547 while both workflows downloaded 5.0.1.3006 by unverified wget, and described postgres:16.4-bookworm as a 'pin_digest' when it is a tag.",
+    "Rather than invent replacement hashes, tflint and the Sonar scanner now install via pinned first-party actions that verify their own downloads. That is stronger than a hand-copied hash and removes the drift surface.",
+    "OUTSTANDING: the four checksums below were inherited and have NOT been re-verified against the publishers' checksum files in this change. Verify each against the corresponding release's checksums file before treating them as trusted, and record the verification date here."
+  ],
+  "checksummed_download": {
+    "actionlint": {
+      "version": "v1.7.12",
+      "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+      "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
+      "archive_format": "tar.gz",
+      "binary_name": "actionlint",
+      "verified": false,
+      "description": "GitHub Actions workflow schema and expression validation"
+    },
+    "gitleaks": {
+      "version": "v8.30.1",
+      "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+      "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "archive_format": "tar.gz",
+      "binary_name": "gitleaks",
+      "verified": false,
+      "description": "Secret scanning over full git history"
+    },
+    "trivy": {
+      "version": "0.69.3",
+      "url": "https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz",
+      "sha256": "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75",
+      "archive_format": "tar.gz",
+      "binary_name": "trivy",
+      "verified": false,
+      "description": "Container image and IaC configuration scanner"
+    },
+    "grype": {
+      "version": "0.75.0",
+      "url": "https://github.com/anchore/grype/releases/download/v0.75.0/grype_0.75.0_linux_amd64.tar.gz",
+      "sha256": "de8f5eb8e2b3bfe65e906945e5a80a5db92aa8c76fc2e7aba3c95a0b4e3b5b89",
+      "archive_format": "tar.gz",
+      "binary_name": "grype",
+      "verified": false,
+      "description": "Second independent container vulnerability scanner"
+    }
+  },
+  "pinned_action": {
+    "tflint": {
+      "version": "v0.59.1",
+      "action": "terraform-linters/setup-tflint",
+      "action_sha": "19a52fbac37dacb22a09518e4ef6ee234f2d4987",
+      "description": "Terraform linter. The first-party action verifies the release checksum and GPG signature."
+    },
+    "terraform": {
+      "version": "1.9.8",
+      "action": "hashicorp/setup-terraform",
+      "action_sha": "b9cd54a3c349d3f38e8881555d616ced269862dd",
+      "description": "Terraform CLI, static use only (fmt / init -backend=false / validate)."
+    },
+    "sonar_scanner": {
+      "action": "SonarSource/sonarqube-scan-action",
+      "action_sha": "8c71dc039c2dd71d3821e89a2b58ecc7fee6ced9",
+      "description": "SonarCloud scanner. The action pins and verifies its own scanner download; the token is passed via the environment, never on the command line."
+    }
+  },
+  "runtime_pins": {
+    "python": {
+      "version": "3.13",
+      "description": "Must agree with backend/pyproject.toml requires-python, [tool.ruff] target-version, backend/Dockerfile, and sonar.python.version."
+    },
+    "node": {
+      "version": "24",
+      "description": "Must agree with frontend/package.json engines.node and frontend/Dockerfile."
+    },
+    "postgresql": {
+      "image": "postgres:16.10-bookworm",
+      "is_digest": false,
+      "description": "CI service container, pinned to a patch-level tag. A digest pin is stronger and remains the target; this is not a digest and must not be described as one."
+    },
+    "playwright": {
+      "version": "1.60.0",
+      "package": "@playwright/test",
+      "description": "Must be an exact version in frontend/package.json; the browser revision is derived from the installed package."
+    }
+  }
+}

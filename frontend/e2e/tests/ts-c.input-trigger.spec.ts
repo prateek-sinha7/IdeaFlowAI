@@ -31,7 +31,9 @@ test.describe("TS-C — idea input & trigger", () => {
   });
 
   test("TS-C-01 placeholder matches TYPE_CONFIG per workflow type", async ({ dashboard, page }) => {
-    test.fixme(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline)");
+    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline)
+    // Owner: frontend
+    test.skip(true, "pre-existing feat/ui-2 red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     // user_stories
     await dashboard.selectWorkflow("Generate product requirements");
     await expect(dashboard.ideaTextarea()).toHaveAttribute("placeholder", PLACEHOLDER.user_stories);
@@ -48,7 +50,9 @@ test.describe("TS-C — idea input & trigger", () => {
   });
 
   test("TS-C-02 Run-button disabled states (empty idea, no agents)", async ({ dashboard, page }) => {
-    test.fixme(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline)");
+    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline)
+    // Owner: frontend
+    test.skip(true, "pre-existing feat/ui-2 red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     // user_stories seeds default agents → empty idea ⇒ Run disabled but labelled "Run workflow".
     await dashboard.selectWorkflow("Generate product requirements");
     const run = dashboard.runButton();

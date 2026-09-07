@@ -213,24 +213,24 @@ test.describe("TS-U — revision runs", () => {
   // cannot exercise. They are covered by the Phase 14/15 backend tests and the
   // live campaign (TS-V); kept here as a visible register of the full suite.
 
-  test.fixme(
-    "TS-U-03 lineage: revision persists derived_from to the parent; failed revision writes nothing",
+  test.skip(
+    "TS-U-03 lineage: revision persists derived_from to the parent; failed revision writes nothing; Owner: backend",
     () => {
       // Owner/workspace-scoped derived_from ref is a persistence concern (no row
       // is observable through the mocked REST/WS). Covered by Phase 14 BE tests.
     },
   );
 
-  test.fixme(
-    "TS-U-04 revision-of-revision resolves via FR-014 chain link and produces a 2nd deliverable",
+  test.skip(
+    "TS-U-04 revision-of-revision resolves via FR-014 chain link and produces a 2nd deliverable; Owner: backend",
     () => {
       // Chain-link resolution is engine/DB behaviour; the mocked UI has no parent
       // chain to resolve. Covered by Phase 14 BE tests + live TS-V.
     },
   );
 
-  test.fixme(
-    "TS-U-05 terminal fidelity: revision lands completed/degraded/failed/cancelled, never stuck 'revising'",
+  test.skip(
+    "TS-U-05 terminal fidelity: revision lands completed/degraded/failed/cancelled, never stuck 'revising'; Owner: backend",
     () => {
       // The persisted terminal status (and the never-stuck-'revising' guarantee)
       // is a DB/state-machine assertion not surfaced by the mocked UI. Covered by
@@ -238,8 +238,8 @@ test.describe("TS-U — revision runs", () => {
     },
   );
 
-  test.fixme(
-    "TS-U-06 surgical-diff prototype revise: agent returns only changed sections, engine merges full HTML",
+  test.skip(
+    "TS-U-06 surgical-diff prototype revise: agent returns only changed sections, engine merges full HTML; Owner: backend",
     () => {
       // The diff-merge happens in the engine; the mocked WS just delivers a final
       // output. The merge correctness is a backend concern. Covered by BE tests;
@@ -247,8 +247,8 @@ test.describe("TS-U — revision runs", () => {
     },
   );
 
-  test.fixme(
-    "TS-U-08 reconnect during revision: live-attach frames carry section={base}_output; panels rebuild",
+  test.skip(
+    "TS-U-08 reconnect during revision: live-attach frames carry section={base}_output; panels rebuild; Owner: backend",
     () => {
       // Mid-revision reconnect sectioning is a backend/live-attach concern; the
       // mocked harness has no durable replay backend. Covered live (29 frames) /

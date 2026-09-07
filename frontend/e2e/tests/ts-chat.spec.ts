@@ -27,6 +27,7 @@ test.describe("TS-CHAT — run chat lane (mounted live, mocked)", () => {
   test.beforeEach(async ({ dashboard, mockSse }) => {
     await dashboard.goto();
     mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
+    await mockSse.ready(); // Wait for SSE stream attachment before assertions
     await expect(dashboard.page.getByTestId("run-chat-lane")).toBeVisible();
   });
 

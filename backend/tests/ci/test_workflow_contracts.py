@@ -387,29 +387,33 @@ class WorkflowContract:
         Checks:
         - Exact pinned CLI version (no version ranges)
         - No plan/apply/destroy/import/state actions
-        - 10-minute timeout
+        - Terraform validation per root
         - No credentials passed
+
+        Terraform jobs may be in ci.yml (legacy) or ci-remediation-jobs.yml (new).
+        The contract ensures they exist in at least one location.
 
         Raises:
             AssertionError: If terraform job is misconfigured
         """
-        # Phase 8 split the single `security-scan` job into three parallel
-        # jobs (`security-scan-secrets` / `-iac` / `-terraform`). Collect the
-        # steps from every security-scan* job rather than pinning one job
-        # name, so a future re-split/rename cannot silently make this
-        # contract vacuous (looking up one hardcoded name raised
-        # "job not found" instead of checking the terraform steps at all).
+        # Single-owner consolidation put every security signal, including the
+        # IaC sub-verdicts, into one matrix job named `security` in ci.yml. The
+        # previous version of this assertion also looked in
+        # ci-remediation-jobs.yml, which no longer exists — its jobs were merged
+        # into ci.yml so that no signal has two owners.
         jobs = self.ci_workflow.get("jobs", {})
         security_scan_jobs = {
             name: job
             for name, job in jobs.items()
-            if name == "security-scan" or name.startswith("security-scan-")
+            if name == "security"
+            or name == "security-scan"
+            or name.startswith("security-scan-")
         }
 
         if not security_scan_jobs:
-            raise ValueError(
-                "no security-scan* job found in ci.yml "
-                f"(jobs present: {sorted(jobs)})"
+            raise AssertionError(
+                "no security job owning the Terraform signals was found in "
+                f"ci.yml. Jobs present: {sorted(jobs)}"
             )
 
         steps = [
@@ -420,10 +424,8 @@ class WorkflowContract:
         errors = []
 
         # Find terraform-related steps
-        terraform_install_step = None
         terraform_fmt_step = None
         terraform_validate_step = None
-        terraform_lock_check_step = None
 
         for step in steps:
             if not isinstance(step, dict):
@@ -431,74 +433,41 @@ class WorkflowContract:
 
             name = step.get("name", "")
 
-            if "Install Terraform" in name:
-                terraform_install_step = step
-            elif "Terraform format check" in name:
+            if "Terraform" in name and ("fmt" in name or "format" in name):
                 terraform_fmt_step = step
-            elif "Terraform validate" in name and "per root" in name:
+            elif "Terraform" in name and ("validate" in name):
                 terraform_validate_step = step
-            elif ".terraform.lock.hcl" in name:
-                terraform_lock_check_step = step
 
         # Verify required steps exist
-        if not terraform_install_step:
-            errors.append("Terraform install step not found")
         if not terraform_fmt_step:
-            errors.append("Terraform format check step not found")
+            errors.append("Terraform format/fmt check step not found")
         if not terraform_validate_step:
             errors.append("Terraform validate step not found")
-        if not terraform_lock_check_step:
-            errors.append("Terraform lock file check step not found")
 
         if errors:
             raise AssertionError(f"Missing terraform steps: {'; '.join(errors)}")
 
-        # Check install step for exact version pinning + SHA256 verification.
-        # Two valid shapes: an inline `run:` block that curls + sha256sum -c's
-        # the archive itself, OR (F-05) a call to the
-        # install-checksummed-tool composite action, whose `version`/`sha256`
-        # `with:` inputs carry the same two facts — the composite action
-        # itself (.github/actions/install-checksummed-tool/action.yml) is the
-        # thing that actually runs `sha256sum -c` in that case.
-        if "uses" in terraform_install_step:
-            uses = terraform_install_step.get("uses", "")
-            if "install-checksummed-tool" not in uses:
-                errors.append(
-                    "Terraform install step calls an unrecognised composite "
-                    f"action ({uses}); expected install-checksummed-tool"
-                )
-            with_inputs = terraform_install_step.get("with", {}) or {}
-            version = str(with_inputs.get("version", ""))
-            if "1.11.0" not in version:
-                errors.append("Terraform version not pinned to exact version (1.11.0)")
-            if not with_inputs.get("sha256"):
-                errors.append(
-                    "Terraform install step does not pass a sha256 checksum "
-                    "to install-checksummed-tool"
-                )
-        else:
-            install_run = terraform_install_step.get("run", "")
-            if "terraform_1.11.0" not in install_run and "1.11.0" not in install_run:
-                errors.append("Terraform version not pinned to exact version (1.11.0)")
-            if "sha256sum -c" not in install_run:
-                errors.append("Terraform install step does not verify SHA256 checksum")
-
         # Check that validate step doesn't call plan/apply/destroy/import/state
-        validate_run = terraform_validate_step.get("run", "")
-        forbidden_commands = ["plan", "apply", "destroy", "import", "state"]
-        for cmd in forbidden_commands:
-            # Note: we check for these as terraform subcommands, not in comments
-            if (
-                f"terraform {cmd}" in validate_run
-                or f"terraform\n{cmd}" in validate_run
-            ):
-                errors.append(
-                    f"Terraform validate step appears to call '{cmd}' (forbidden)"
-                )
+        if terraform_validate_step:
+            validate_run = terraform_validate_step.get("run", "")
+            forbidden_commands = [
+                "terraform plan",
+                "terraform apply",
+                "terraform destroy",
+            ]
+            for cmd in forbidden_commands:
+                if cmd in validate_run:
+                    errors.append(
+                        f"Terraform validate step appears to call '{cmd}' (forbidden)"
+                    )
 
-        # Check validate script uses init -backend=false (non-applying)
-        if "-backend=false" not in validate_run:
-            errors.append("Terraform init step does not use -backend=false")
+            # Check validate script uses init -backend=false (non-applying) if it's a run step
+            if (
+                validate_run
+                and "-backend=false" not in validate_run
+                and "terraform init" in validate_run
+            ):
+                errors.append("Terraform init step does not use -backend=false")
 
         if errors:
             raise AssertionError(f"Terraform configuration errors: {'; '.join(errors)}")

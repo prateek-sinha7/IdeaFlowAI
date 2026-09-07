@@ -29,3 +29,14 @@
 backend/tests/agents/characterization/golden/**  -text
 backend/tests/**/golden/**                       -text
 backend/tests/**/*.golden                        -text
+
+# Dependency locks -> always LF.
+#
+# backend/uv.lock is the sole backend installation authority: every CI job runs
+# `uv sync --frozen` against it, and it is now tracked (it previously existed
+# only in working copies, so a fresh CI checkout had no lock to be frozen
+# against and every backend job failed at setup). Pinning the line endings keeps
+# a Windows checkout from rewriting the committed bytes and producing a diff on
+# a file nobody edited.
+backend/uv.lock             text eol=lf
+frontend/package-lock.json  text eol=lf

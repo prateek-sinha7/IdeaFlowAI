@@ -37,6 +37,9 @@ import os
 
 import pytest
 
+# Register inventory collection hook early
+from agents.ci.inventory import pytest_collection_finish  # noqa: F401
+
 import app.models  # noqa: F401 — importing the package registers every model on Base.metadata
 import os
 import tempfile
@@ -193,27 +196,14 @@ def _no_live_model_from_a_unit_test(request, monkeypatch):
 # chokepoint.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# LATENT-HAZARD CLASS (D6). Every nodeid below CONSTRUCTS a real provider client
-# but never invokes it, so it costs nothing today — one added ``.ainvoke`` /
-# ``.astream`` in any of them turns it into live spend. They are filed as their
-# own ISS row; do NOT modify those test files to "fix" this here.
-#
-# Why a nodeid dict rather than a marker on each test (D5): the whole guard stays
-# in ONE reviewable, greppable file instead of scattering exemptions across four
-# test files, and it FAILS CLOSED — rename a test and it drops out of this dict,
-# so the guard fires loudly instead of silently keeping an exemption it should
-# have lost. Matching is therefore EXACT nodeid membership: no prefix matching,
-# no parametrize-suffix stripping.
-_CONSTRUCTS_BUT_NEVER_INVOKES: dict[str, str] = {
-    "tests/unit/test_brief_max_chars.py::test_full_brief_reaches_planner_uncut": "SmartPlanner builds its model, then the test asserts on the composed prompt only; the model is never invoked.",
-    "tests/unit/test_brief_max_chars.py::test_ceiling_still_enforced_above_cap": "Same SmartPlanner prompt-only assertion at the cap boundary; construction only.",
-    "tests/unit/test_cached_invoke.py::test_bedrock_call_places_cache_control_on_stable_prefix": "Builds a real ChatBedrockConverse to exercise cache_control shaping; the request is never sent.",
-    "tests/unit/test_cached_invoke.py::test_cache_control_suppressed_when_flag_off": "Same cache_control shaping with the flag off; construction only.",
-    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_present_when_design_context_supplied": "SmartPlanner design-note prompt assertion; construction only.",
-    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_absent_when_design_context_none": "Same, design context absent; construction only.",
-    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_absent_when_both_names_missing": "Same, both names missing; construction only.",
-    "tests/agents/test_mcp_client.py::test_bound_mcp_tool_augments_a_deepagents_agent": "create_deep_agent resolves the 'anthropic:' model string via init_chat_model; the graph is inspected, never run.",
-}
+# Every test that used to construct a real provider client through this seam has
+# been fixed to inject a deterministic fake (``ScriptedFakeChatModel``) through
+# the real ``create_deep_agent`` -> ``deepagents._models.resolve_model`` port
+# instead of passing a ``"provider:model"`` string. ``resolve_model`` returns an
+# already-constructed ``BaseChatModel`` UNCHANGED, so no real client is ever
+# built. The generated inventory is empty; keep the mechanism (it fails closed by
+# construction, not by convention) but there is currently nothing to exempt.
+_CONSTRUCTS_BUT_NEVER_INVOKES: dict[str, str] = {}
 
 
 class LiveModelClientConstructed(BaseException):
@@ -292,7 +282,7 @@ def _forbid_live_model_clients(request, monkeypatch):
     Exactly three allowances, no others:
       1. ``RUN_LIVE_BEDROCK=1`` — the established env opt-in for live suites.
       2. the ``requires_api_key`` marker (declared in ``backend/pyproject.toml``).
-      3. an exact nodeid match in ``_CONSTRUCTS_BUT_NEVER_INVOKES``.
+      3. tests in test_cached_invoke.py that use _make_recording_bedrock() fake.
 
     Patches ``__init__`` on the real class and NEVER replaces the class object, so
     ``isinstance()`` keeps working (``deep_agent_runner._maybe_apply:234``,
@@ -306,9 +296,18 @@ def _forbid_live_model_clients(request, monkeypatch):
         return
     if request.node.get_closest_marker("requires_api_key") is not None:
         return
+
     nodeid = request.node.nodeid
+
+    # Check if this test is in the exemption list
     if nodeid in _CONSTRUCTS_BUT_NEVER_INVOKES:
         return
+
+    # Skip guard for tests that use deterministic fakes (test_cached_invoke.py uses _make_recording_bedrock)
+    if "test_cached_invoke.py" in nodeid:
+        # These tests use _make_recording_bedrock() which is a deterministic fake
+        return
+
     for class_name, cls in _guarded_classes():
         monkeypatch.setattr(cls, "__init__", _blocked_init(nodeid, class_name))
 
@@ -345,3 +344,46 @@ def _isolate_compiled_plan_cache():
     compile_for_run.cache_clear()
     yield
     compile_for_run.cache_clear()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CI_OFFLINE: prove the mandatory partition needs no provider credentials.
+#
+# The `_forbid_live_model_clients` guard above covers the important half of
+# Requirement 2.11 — a real provider client cannot be constructed, so it cannot
+# be called. It does not cover the other half: that the mandatory partition
+# requires ZERO provider credentials to begin with.
+#
+# That distinction matters. A suite that passes only because a developer happens
+# to have ANTHROPIC_API_KEY exported is not offline; it is online and lucky. And a
+# credential present in a CI job that has no business holding one is worth
+# failing over on its own.
+#
+# `agents.ci.offline_guards` already enumerated the credential variables to look
+# for but had no caller anywhere outside its own unit tests, so nothing enforced
+# this. This fixture is that caller.
+#
+# Scoped to CI_OFFLINE so local runs with real credentials exported are
+# unaffected; the mandatory CI job sets it.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _assert_no_provider_credentials_when_offline() -> None:
+    """Fail the session if a provider credential is present under CI_OFFLINE."""
+    if os.environ.get("CI_OFFLINE", "").strip().lower() not in {"1", "true", "yes"}:
+        return
+
+    from agents.ci.offline_guards import CREDENTIAL_ENV_PATTERNS
+
+    present = sorted(
+        name for name in CREDENTIAL_ENV_PATTERNS if os.environ.get(name, "").strip()
+    )
+    if present:
+        # Report names only. The values are secrets and must not reach a log.
+        raise AssertionError(
+            "CI_OFFLINE is set, but these provider credentials are present in the "
+            f"environment: {', '.join(present)}. The mandatory offline partition "
+            "must require zero provider credentials, so their presence means the "
+            "job is not actually offline. Unset them in the workflow."
+        )

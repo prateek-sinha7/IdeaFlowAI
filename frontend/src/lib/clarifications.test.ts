@@ -1,85 +1,486 @@
-import { describe, expect, it } from "vitest";
-import { parseClarificationArtifacts, renderClarificationsMarkdown } from "./clarifications";
+import { describe, it, expect } from "vitest";
+import {
+  parseClarificationArtifacts,
+  renderClarificationsMarkdown,
+} from "./clarifications";
 
-// ─────────────────────────────────────────────────────────────────
-// Workstream C2 (POR §5 D4 / §11) — clarify-artifact transform lib.
-// Pure-lib unit tests (no DOM), cloning the runInput.test.ts idiom.
-// Ordering is BY the content `round` field (artifacts have no created_at).
-// ─────────────────────────────────────────────────────────────────
+describe("parseClarificationArtifacts", () => {
+  it("should parse a single round with one question", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          {
+            question_id: "q1",
+            question_text: "What color?",
+            impact_level: "high",
+            answer: "Blue",
+            round: 0,
+          },
+        ]),
+      },
+    ];
 
-function itemsJson(items: Array<Record<string, unknown>>): string {
-  return JSON.stringify(items);
-}
+    const result = parseClarificationArtifacts(nodes);
 
-describe("parseClarificationArtifacts — empty / malformed", () => {
-  it("returns [] for an empty node list", () => {
+    expect(result).toHaveLength(1);
+    expect(result[0].round).toBe(0);
+    expect(result[0].qa).toHaveLength(1);
+    expect(result[0].qa[0]).toEqual({
+      question_id: "q1",
+      question_text: "What color?",
+      impact_level: "high",
+      answer: "Blue",
+    });
+  });
+
+  it("should group questions by round", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          {
+            question_id: "q1",
+            question_text: "First?",
+            impact_level: "low",
+            answer: "Yes",
+            round: 0,
+          },
+          {
+            question_id: "q2",
+            question_text: "Second?",
+            impact_level: "high",
+            answer: "No",
+            round: 1,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].round).toBe(0);
+    expect(result[1].round).toBe(1);
+  });
+
+  it("should merge questions from multiple nodes", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          {
+            question_id: "q1",
+            question_text: "Q1?",
+            answer: "A1",
+            round: 0,
+          },
+        ]),
+      },
+      {
+        content: JSON.stringify([
+          {
+            question_id: "q2",
+            question_text: "Q2?",
+            answer: "A2",
+            round: 0,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].qa).toHaveLength(2);
+    expect(result[0].qa[0].question_id).toBe("q1");
+    expect(result[0].qa[1].question_id).toBe("q2");
+  });
+
+  it("should sort rounds in ascending order", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          {
+            question_id: "q1",
+            question_text: "Round 2",
+            answer: "A",
+            round: 2,
+          },
+          {
+            question_id: "q2",
+            question_text: "Round 0",
+            answer: "B",
+            round: 0,
+          },
+          {
+            question_id: "q3",
+            question_text: "Round 1",
+            answer: "C",
+            round: 1,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result).toHaveLength(3);
+    expect(result[0].round).toBe(0);
+    expect(result[1].round).toBe(1);
+    expect(result[2].round).toBe(2);
+  });
+
+  it("should handle missing optional fields with defaults", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          {
+            round: 0,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].qa[0]).toEqual({
+      question_id: "",
+      question_text: "",
+      impact_level: "",
+      answer: null,
+    });
+  });
+
+  it("should treat missing round as 0", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          {
+            question_id: "q1",
+            question_text: "No round specified",
+            answer: "Yes",
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result[0].round).toBe(0);
+  });
+
+  it("should handle null answer", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          {
+            question_id: "q1",
+            question_text: "Unanswered?",
+            answer: null,
+            round: 0,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result[0].qa[0].answer).toBeNull();
+  });
+
+  it("should return empty array for empty nodes", () => {
     expect(parseClarificationArtifacts([])).toEqual([]);
   });
 
-  it("skips nodes with no content and returns []", () => {
-    expect(parseClarificationArtifacts([{}, { content: "" }, { content: "   " }])).toEqual([]);
+  it("should return empty array for null/undefined", () => {
+    expect(parseClarificationArtifacts(undefined as unknown as Array<{ content?: string }>)).toEqual([]);
+    expect(parseClarificationArtifacts(null as unknown as Array<{ content?: string }>)).toEqual([]);
   });
 
-  it("never throws on non-JSON / malformed content — returns []", () => {
-    expect(parseClarificationArtifacts([{ content: "not json {{{" }])).toEqual([]);
-    expect(parseClarificationArtifacts([{ content: "{\"not\":\"a list\"}" }])).toEqual([]);
-  });
-});
+  it("should skip nodes with missing/empty content", () => {
+    const nodes = [
+      { content: "" },
+      { content: undefined },
+      {},
+      {
+        content: JSON.stringify([
+          {
+            question_id: "valid",
+            question_text: "Valid question",
+            answer: "Valid answer",
+            round: 0,
+          },
+        ]),
+      },
+    ];
 
-describe("parseClarificationArtifacts — grouping + ordering", () => {
-  it("groups a single node's JSON list spanning 2 rounds, sorted ascending", () => {
-    const node = {
-      content: itemsJson([
-        { question_id: "q1", question_text: "Auth?", impact_level: "high", answer: "OAuth", round: 1 },
-        { question_id: "q2", question_text: "DB?", impact_level: "medium", answer: "Postgres", round: 2 },
-      ]),
-    };
-    const rounds = parseClarificationArtifacts([node]);
-    expect(rounds.length).toBe(2);
-    expect(rounds[0].round).toBe(1);
-    expect(rounds[1].round).toBe(2);
-    expect(rounds[0].qa[0]).toEqual({
-      question_id: "q1",
-      question_text: "Auth?",
-      impact_level: "high",
-      answer: "OAuth",
-    });
-    expect(rounds[1].qa[0].question_text).toBe("DB?");
-    expect(rounds[1].qa[0].impact_level).toBe("medium");
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].qa).toHaveLength(1);
+    expect(result[0].qa[0].question_id).toBe("valid");
   });
 
-  it("flattens MULTIPLE nodes and groups them by round (out-of-order input sorts)", () => {
-    const nodeB = { content: itemsJson([{ question_id: "q3", question_text: "Scale?", impact_level: "low", answer: "Yes", round: 2 }]) };
-    const nodeA = { content: itemsJson([{ question_id: "q1", question_text: "Auth?", impact_level: "high", answer: "OAuth", round: 1 }]) };
-    const rounds = parseClarificationArtifacts([nodeB, nodeA]);
-    expect(rounds.map(r => r.round)).toEqual([1, 2]);
-    expect(rounds[0].qa[0].question_id).toBe("q1");
-    expect(rounds[1].qa[0].question_id).toBe("q3");
+  it("should skip nodes with malformed JSON", () => {
+    const nodes = [
+      { content: "not json" },
+      { content: "{invalid json}" },
+      {
+        content: JSON.stringify([
+          {
+            question_id: "valid",
+            question_text: "Valid",
+            answer: "Valid",
+            round: 0,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].qa[0].question_id).toBe("valid");
   });
 
-  it("tolerates a null answer and a missing impact_level", () => {
-    const node = { content: itemsJson([{ question_id: "q1", question_text: "Skipped?", answer: null, round: 1 }]) };
-    const rounds = parseClarificationArtifacts([node]);
-    expect(rounds[0].qa[0].answer).toBeNull();
-    expect(rounds[0].qa[0].impact_level).toBe("");
+  it("should skip non-array JSON content", () => {
+    const nodes = [
+      { content: JSON.stringify({ not: "array" }) },
+      {
+        content: JSON.stringify([
+          {
+            question_id: "valid",
+            round: 0,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result).toHaveLength(1);
+  });
+
+  it("should skip invalid items in valid arrays", () => {
+    const nodes = [
+      {
+        content: JSON.stringify([
+          null,
+          "string",
+          123,
+          {
+            question_id: "valid",
+            question_text: "Valid question",
+            round: 0,
+          },
+        ]),
+      },
+    ];
+
+    const result = parseClarificationArtifacts(nodes);
+
+    expect(result[0].qa).toHaveLength(1);
+    expect(result[0].qa[0].question_id).toBe("valid");
   });
 });
 
 describe("renderClarificationsMarkdown", () => {
-  it("returns an empty string for no rounds", () => {
+  it("should render a single round with one question", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q1",
+            question_text: "What color?",
+            impact_level: "high",
+            answer: "Blue",
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    expect(result).toContain("# Clarifications");
+    expect(result).toContain("## Round 0");
+    expect(result).toContain("What color?");
+    expect(result).toContain("(high impact)");
+    expect(result).toContain("**Answer:** Blue");
+  });
+
+  it("should render multiple rounds", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q1",
+            question_text: "First?",
+            impact_level: "low",
+            answer: "Yes",
+          },
+        ],
+      },
+      {
+        round: 1,
+        qa: [
+          {
+            question_id: "q2",
+            question_text: "Second?",
+            impact_level: "high",
+            answer: "No",
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    expect(result).toContain("## Round 0");
+    expect(result).toContain("## Round 1");
+    expect(result).toContain("First?");
+    expect(result).toContain("Second?");
+  });
+
+  it("should handle missing impact level", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q1",
+            question_text: "No impact?",
+            impact_level: "",
+            answer: "Yes",
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    expect(result).toContain("No impact?");
+    expect(result).not.toContain("impact)");
+  });
+
+  it("should handle null answer", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q1",
+            question_text: "Unanswered?",
+            impact_level: "",
+            answer: null,
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    expect(result).toContain("**Answer:** (no answer)");
+  });
+
+  it("should use question_id when question_text is missing", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q123",
+            question_text: "",
+            impact_level: "",
+            answer: "Yes",
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    expect(result).toContain("### q123");
+  });
+
+  it("should render multiple questions in one round", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q1",
+            question_text: "Question 1",
+            impact_level: "",
+            answer: "Answer 1",
+          },
+          {
+            question_id: "q2",
+            question_text: "Question 2",
+            impact_level: "",
+            answer: "Answer 2",
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    expect(result).toContain("Question 1");
+    expect(result).toContain("Question 2");
+    expect(result).toContain("Answer 1");
+    expect(result).toContain("Answer 2");
+  });
+
+  it("should return empty string for empty rounds", () => {
     expect(renderClarificationsMarkdown([])).toBe("");
   });
 
-  it("renders each round heading + each question and its answer", () => {
-    const md = renderClarificationsMarkdown([
-      { round: 1, qa: [{ question_id: "q1", question_text: "Auth method?", impact_level: "high", answer: "OAuth" }] },
-      { round: 2, qa: [{ question_id: "q2", question_text: "Database?", impact_level: "medium", answer: "Postgres" }] },
-    ]);
-    expect(md).toContain("Round 1");
-    expect(md).toContain("Round 2");
-    expect(md).toContain("Auth method?");
-    expect(md).toContain("OAuth");
-    expect(md).toContain("Database?");
-    expect(md).toContain("Postgres");
+  it("should return empty string for null/undefined", () => {
+    expect(renderClarificationsMarkdown(undefined as never)).toBe("");
+    expect(renderClarificationsMarkdown(null as never)).toBe("");
+  });
+
+  it("should trim trailing newlines", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q1",
+            question_text: "Q?",
+            impact_level: "",
+            answer: "A",
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    expect(result.endsWith("\n")).toBe(true);
+    expect(result.endsWith("\n\n")).toBe(false);
+  });
+
+  it("should format as valid markdown", () => {
+    const rounds = [
+      {
+        round: 0,
+        qa: [
+          {
+            question_id: "q1",
+            question_text: "What is your name?",
+            impact_level: "critical",
+            answer: "John Doe",
+          },
+        ],
+      },
+    ];
+
+    const result = renderClarificationsMarkdown(rounds);
+
+    // Verify structure
+    expect(result.split("\n")[0]).toBe("# Clarifications");
+    expect(result).toMatch(/^# Clarifications[\s\S]*## Round \d+[\s\S]*### .*[\s\S]*\*\*Answer:\*/);
   });
 });

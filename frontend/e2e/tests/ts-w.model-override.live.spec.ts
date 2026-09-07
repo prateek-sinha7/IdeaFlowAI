@@ -173,9 +173,9 @@ test.describe("TS-W — per-agent model override (LIVE)", () => {
     }
   });
 
-  // ── TS-W-03 no-override parity (fixme — cross-ref TS-E) ───────────────────────
-  test.fixme(
-    "TS-W-03 no-override parity → omits model_overrides (see mocked TS-E-04)",
+  // ── TS-W-03 no-override parity (skip — cross-ref TS-E) ───────────────────────
+  test.skip(
+    "TS-W-03 no-override parity → omits model_overrides (see mocked TS-E-04); Owner: frontend",
     async () => {
       // ── WHY FIXME ──────────────────────────────────────────────────────────
       // No-override parity is a WIRE/payload contract, not a live-Bedrock

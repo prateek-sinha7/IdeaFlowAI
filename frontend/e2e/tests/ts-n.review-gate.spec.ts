@@ -251,7 +251,7 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await expect(g).toHaveCount(0);
   });
 
-  test.fixme("TS-N-06 empty-content gate shows the defensive empty state", async () => {
+  test.skip("TS-N-06 empty-content gate shows the defensive empty state; Owner: frontend", async () => {
     // The old full-screen ReviewGatePanel rendered a defensive empty state ("No
     // content was produced for review." + a "Review" fallback heading) for an
     // empty-output gate. Phase 42-08 DELETED that panel; the inline Steps gate

@@ -2,12 +2,108 @@
 name = "velocityai"
 version = "0.1.0"
 description = "Enterprise-grade AI SaaS platform backend"
-requires-python = ">=3.12"
-
-[project.optional-dependencies]
-dev = [
-    "pytest-cov==5.0.0",
+requires-python = ">=3.13.0"
+dependencies = [
+    "fastapi==0.141.1",
+    "starlette==1.3.1",
+    "uvicorn==0.34.0",
+    "sqlalchemy==2.0.36",
+    "alembic==1.14.0",
+    "psycopg2-binary==2.9.12",
+    "pydantic[email]==2.12.5",
+    "pydantic-settings==2.7.1",
+    "python-jose[cryptography]==3.5.0",
+    "passlib[bcrypt]==1.7.4",
+    "langchain==1.3.9",
+    "langchain-core==1.4.6",
+    "langchain-anthropic==1.4.6",
+    "langchain-mistralai==1.1.4",
+    "langgraph==1.2.4",
+    "langchain-aws==1.4.6",
+    "boto3==1.43.2",
+    "deepagents==0.6.7",
+    "langsmith==0.8.18",
+    "langgraph-checkpoint-postgres==3.1.1",
+    "psycopg[binary]==3.2.4",
+    "websockets==15.0.1",
+    "python-dotenv==1.2.2",
+    "python-frontmatter==1.1.0",
+    "opentelemetry-api==1.42.1",
+    "opentelemetry-sdk==1.42.1",
+    "tree-sitter==0.25.2",
+    "tree-sitter-python==0.25.0",
+    "tree-sitter-javascript==0.25.0",
+    "tree-sitter-typescript==0.23.2",
+    "langchain-mcp-adapters==0.2.2",
+    "mcp==1.28.1",
+    "sse-starlette==3.0.2",
+    "python-docx==1.1.2",
+    "python-pptx==1.0.2",
+    "pypdf==6.16.1",
 ]
+
+# ---------------------------------------------------------------------------
+# Dev/test dependencies (PEP 735 dependency group).
+#
+# THIS is the resolution authority (Task 3.16): CI installs with `uv sync
+# --frozen --group dev` against the committed backend/uv.lock (see
+# .github/actions/setup-backend/action.yml), and local development's bare
+# `uv sync` reads this list directly. requirements-dev.txt mirrors this
+# group as a human-readable convenience file (kept in sync by
+# backend/tests/ci/test_dependency_lock_contracts.py) but is not itself read
+# by CI or `uv sync`.
+#
+# History: before uv.lock was committed, the two lists WERE the only source
+# of truth and drifted — pyproject declared 3 dev pins while
+# requirements-dev.txt declared 12, so `uv sync` uninstalled every tool
+# missing here (pytest, ruff, pyright, vulture, import-linter, bandit,
+# pip-audit, httpx, playwright) and downgraded pytest-cov 7.1.0 -> 5.0.0. The
+# committed lock plus the equality test above is what now prevents that.
+#
+# `dependency-groups` (not `project.optional-dependencies`) because uv installs
+# the `dev` group by default on a bare `uv sync`; an extra would need
+# `--extra dev`. The legacy `[tool.uv] dev-dependencies` key it replaces is
+# deprecated and was a THIRD, separately-drifting copy of the same list.
+# ---------------------------------------------------------------------------
+[dependency-groups]
+dev = [
+    # Testing framework — pytest 8.3.4 carried PYSEC-2026-1845; 9.0.3 is the
+    # fix, and it drags pytest-asyncio/pytest-cov forward as a set. See the
+    # note in requirements-dev.txt.
+    "pytest==9.0.3",
+    "pytest-asyncio==1.4.0",
+    "hypothesis==6.122.3",
+    # HTTP testing client
+    "httpx==0.28.1",
+    # Browser automation for render validation. The wheel does NOT bundle the
+    # browser binary: `playwright install --with-deps chromium` is separate.
+    "playwright==1.60.0",
+    # Code-quality toolchain (invoked in CI via `uv run --no-sync`)
+    "ruff==0.7.4",
+    "pyright==1.1.384",
+    "vulture==2.14",
+    "import-linter==2.1",
+    # Coverage — 5.0.0 predates pytest 9.
+    "pytest-cov==7.1.0",
+    # Security scanning: SAST + dependency CVE audit. The [toml] extra is what
+    # lets `bandit -c pyproject.toml` read [tool.bandit] below.
+    "bandit[toml]==1.9.4",
+    "pip-audit==2.10.1",
+    # NOTE: checkov is deliberately NOT here. checkov 3.2.x pins
+    # boto3==1.34.25, which conflicts with this project's boto3==1.43.2, so
+    # adding it makes the lock unresolvable. It is a standalone CLI, not a
+    # library this code imports, so .github/scripts/ci-iac-scan.sh runs it in an
+    # isolated environment with `uv tool run --from checkov==<version>`, taking
+    # the version from agents/ci/pin_authority.py. That keeps one version
+    # authority without dragging a conflicting dependency graph into the project.
+]
+
+[tool.uv]
+# This project is a source tree run in place (`uv run` from backend/), not a
+# distribution — there is no [build-system], and nothing imports `velocityai`
+# as an installed package. Declaring it explicitly stops uv from attempting to
+# build/install the root project during `uv sync`.
+package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -99,7 +195,7 @@ max_examples = 100
 # ---------------------------------------------------------------------------
 [tool.ruff]
 # Match the project's Python version so syntax-level checks line up.
-target-version = "py312"
+target-version = "py313"
 # Anchor src so first-party imports (`app.*`) resolve for unresolved-import
 # detection.
 src = ["."]
@@ -344,18 +440,29 @@ skips = [
 ]
 
 # ---------------------------------------------------------------------------
-# pytest-split — dynamic test sharding for parallel CI execution (Phase 3).
+# Test sharding — NO pytest-split config here, deliberately.
 #
-# Instead of hardcoding file lists in ci.yml (which drift as tests are added),
-# pytest-split dynamically partitions tests based on file or runtime duration.
-# 
-# Usage in CI: `pytest --splits 4 --group $SHARD_INDEX tests/agents/`
-#   --splits 4        = partition into 4 shards total
-#   --group $INDEX    = this shard (0-indexed: 0, 1, 2, 3)
-#   default strategy  = split by file (deterministic, fast)
+# A `[tool.pytest_split]` table used to sit at this spot claiming it "replaces
+# the manual pytest-agents-a/pytest-agents-b lists in ci.yml". It did not, and
+# could not: `pytest-split` is not in requirements-prod.txt or
+# requirements-dev.txt, so it is not installed in backend/.venv, and ci.yml
+# still passes explicit file lists to pytest with no `--splits`/`--group`
+# anywhere. The table was inert configuration for an absent plugin — pytest
+# ignores unknown `[tool.*]` sections, so it never errored and never did
+# anything either. Config that reads as active but is not is worse than no
+# config: the next person to touch sharding trusts it.
 #
-# Replaces the manual "pytest-agents-a pytest-agents-b" lists in ci.yml.
+# The drift it was meant to prevent (a new tests/agents/test_*.py silently
+# belonging to no shard, which already happened once to two INV-3
+# characterization goldens) is instead prevented by an ENFORCED check: the
+# "Verify pytest shard coverage (tests/agents/)" step in ci.yml's test-debt job
+# re-derives both shard lists from ci.yml itself and diffs them against the
+# files on disk, failing the PR when one is missing. That is a blocking gate,
+# not a comment, so removing the dead table loses no protection.
+#
+# Migrating to pytest-split is still a reasonable future change, but it is not a
+# config-only edit: ci.yml's shards write per-shard coverage files by exact name
+# (.coverage.agents-a / .coverage.agents-b) which the test-results job combines
+# positionally, so a real migration has to move those too. Doing it as a
+# drive-by alongside a pin cleanup would risk the coverage chain for no gain.
 # ---------------------------------------------------------------------------
-[tool.pytest_split]
-# Splitting strategy: "file" = split by test file (deterministic, no history needed)
-splitting_strategy = "file"

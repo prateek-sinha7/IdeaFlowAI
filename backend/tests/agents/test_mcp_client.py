@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -74,10 +75,23 @@ async def test_exposed_tool_allow_list_filters_bound_tools() -> None:
 
 @pytest.mark.asyncio
 async def test_bound_mcp_tool_augments_a_deepagents_agent() -> None:
-    """The bound MCP tool drops into a real ``create_deep_agent`` tool set (INV-13)."""
+    """The bound MCP tool drops into a real ``create_deep_agent`` tool set (INV-13).
+
+    ``create_deep_agent`` accepts either a ``"provider:model"`` string (resolved via
+    ``deepagents._models.resolve_model`` -> ``langchain.chat_models.init_chat_model``,
+    which constructs a REAL ``ChatAnthropic``/``ChatBedrockConverse`` client) or an
+    already-constructed ``BaseChatModel`` instance, which ``resolve_model`` returns
+    UNCHANGED (``isinstance(model, BaseChatModel)`` short-circuit — see
+    ``deepagents/_models.py::resolve_model``). Passing the deterministic
+    ``ScriptedFakeChatModel`` fake directly uses that same real port (no test-only
+    monkeypatch of ``create_deep_agent`` internals) while never constructing a live
+    provider client — the ISS-102 guard proves it (a real construction would raise
+    ``LiveModelClientConstructed`` before this assertion runs).
+    """
     from deepagents import create_deep_agent
 
     from app.agents.mcp.client import McpClientAdapter
+    from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn
 
     adapter = McpClientAdapter(_stub_config())
     mcp_tools = await adapter.get_tools(allowed={"stub": {"echo"}})
@@ -86,11 +100,21 @@ async def test_bound_mcp_tool_augments_a_deepagents_agent() -> None:
     # Build a real deepagents graph WITH the MCP tool unioned into its tool set.
     # We do NOT invoke the model (offline / no creds) — the acceptance is that the
     # MCP tool binds INTO the runtime (augment, never replace): the constructed
-    # graph carries the tool by name. No network, no model call.
-    agent = create_deep_agent(
-        tools=list(mcp_tools), model="anthropic:claude-3-5-haiku-latest"
-    )
+    # graph carries the tool by name. No network, no model call, no real provider
+    # client construction — a deterministic fake flows through the real
+    # `create_deep_agent` -> `resolve_model` port instead of a "provider:model" string.
+    fake_model = ScriptedFakeChatModel([_ScriptedTurn(texts=["unused"])])
+
+    agent = create_deep_agent(tools=list(mcp_tools), model=fake_model)
     assert agent is not None
+
+    # Prove the FAKE — not a real client — is what construction actually used.
+    # `create_deep_agent` -> `resolve_model` returns a `BaseChatModel` instance
+    # UNCHANGED, so the exact fake object we passed in is the one bound into the
+    # graph. No real provider class was constructed to get here (the ISS-102
+    # guard fails the test loudly before this point if one had been).
+    assert isinstance(fake_model, ScriptedFakeChatModel)
+    assert type(fake_model).__name__ not in {"ChatAnthropic", "ChatBedrockConverse"}
 
     # The bound tool is a LangChain BaseTool (has name + ainvoke) — the exact shape
     # create_deep_agent binds; prove it is invocable through the same stdio transport.

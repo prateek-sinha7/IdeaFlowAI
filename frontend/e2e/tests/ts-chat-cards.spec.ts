@@ -24,6 +24,7 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
   test.beforeEach(async ({ dashboard, mockSse }) => {
     await dashboard.goto();
     mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
+    await mockSse.ready(); // Wait for SSE stream attachment before assertions
     await expect(dashboard.page.getByTestId("run-chat-lane")).toBeVisible();
   });
 

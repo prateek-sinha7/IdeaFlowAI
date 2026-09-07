@@ -1,14 +1,15 @@
-# Phase 6: Reproducible builds
-# This file is now a convenience include for development only.
-# Production containers build from requirements-prod.txt (no test deps).
-# For reproducible builds with uv, use: uv sync --frozen
-# This reads uv.lock and installs exact pinned versions.
+# Convenience include for tools that expect a flat requirements.txt (e.g. an
+# IDE's "select interpreter/requirements" flow). NOT read by CI or the
+# production Docker build (Task 3.16) — both install from the committed
+# backend/uv.lock:
+#   - CI:      uv sync --frozen --group dev   (see .github/actions/setup-backend)
+#   - Docker:  uv export --frozen --no-dev     (see backend/Dockerfile)
+#   - Local dev: uv sync                       (reads pyproject.toml directly)
 #
-# Local development: uv sync (without --frozen)
-#   Installs prod + dev dependencies from requirements.txt and requirements-dev.txt
-#
-# For CI: uv sync --frozen
-#   Ensures exact reproducibility across all builds
+# backend/tests/ci/test_dependency_lock_contracts.py keeps requirements-prod.txt
+# and requirements-dev.txt pins identical to pyproject.toml's
+# project.dependencies / [dependency-groups].dev, so this convenience include
+# cannot silently disagree with the actual resolution authority.
 
 -r requirements-prod.txt
 -r requirements-dev.txt

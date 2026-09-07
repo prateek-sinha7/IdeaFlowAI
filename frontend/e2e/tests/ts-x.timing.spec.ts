@@ -40,7 +40,7 @@ test.describe("TS-X — timing budgets", () => {
   // is exercised by ts-sse-resilience (drop → reattach) + TS-Y-01. The standalone
   // fixme keeps the case visible in the report without skipping its siblings.
   test("TS-X-01 client keepalive ping (retired — SSE server-heartbeat + native reconnect)", () => {
-    test.fixme(true, "client ping retired with the WS transport (44-06); SSE liveness = server heartbeat + native Last-Event-ID reconnect (ts-sse-resilience / TS-Y-01)");
+    test.skip(true, "client ping retired with the WS transport (44-06); SSE liveness = server heartbeat + native Last-Event-ID reconnect (ts-sse-resilience / TS-Y-01); Owner: frontend");
   });
 
   // ── TS-X-05 — copy toast reverts after 2000ms ──────────────────────────────
@@ -150,7 +150,7 @@ test.describe("TS-X — timing budgets", () => {
 // q2's options becoming visible. Not re-implemented here to avoid a duplicate,
 // flakier timer assertion of the same behavior.
 test.describe("TS-X-03 — questionnaire auto-advance (cross-ref)", () => {
-  test.fixme(true, "covered by TS-M-03 (questionnaire auto-advance 300ms)");
+  test.skip(true, "covered by TS-M-03 (questionnaire auto-advance 300ms); Owner: frontend");
   test("questionnaire auto-advances ~300ms after MCQ select", async () => {
     // Intentionally empty — see TS-M-03.
   });

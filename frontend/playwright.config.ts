@@ -10,7 +10,8 @@ import { defineConfig, devices } from "@playwright/test";
  *                 AWS_PROFILE=default) + seeded users. Run nightly / on demand:
  *                 `npx playwright test --project=live`.
  *
- * The Next dev server is auto-started (reused if already running).
+ * The Next dev server is auto-started with clean worker-specific lifecycle (no reuse).
+ * Bounded server lifecycle: each worker starts fresh, tests run, server stops cleanly.
  */
 export default defineConfig({
   testDir: "./e2e/tests",
@@ -26,12 +27,18 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
+    // Deterministic network mocking support
+    offline: false,
   },
   projects: [
     {
       name: "mocked",
       testIgnore: /\.live\.spec\.ts$/,
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        // Ensure semantic locators and role-based queries
+        actionTimeout: 10_000,
+      },
     },
     {
       name: "live",
@@ -42,7 +49,7 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     url: "http://localhost:3000",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 180_000,
     stdout: "ignore",
     stderr: "pipe",

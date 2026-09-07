@@ -11,7 +11,7 @@ Requirements: 32.3, 32.4, 32.5, 2.7
 import pytest
 from pathlib import Path
 from datetime import datetime, timedelta
-from test_count_enforcement import TestCountValidator, SkipEnforcementLinter
+from .test_count_enforcement import TestCountValidator, SkipEnforcementLinter
 
 
 @pytest.fixture

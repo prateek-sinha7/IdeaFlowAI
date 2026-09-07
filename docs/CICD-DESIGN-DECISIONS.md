@@ -1015,11 +1015,16 @@ Merged two apt-get update calls into one:
 ```yaml
 - name: Scan backend image (blocking on HIGH,CRITICAL)
   run: |
-    trivy image --severity HIGH,CRITICAL --exit-code 1 \
-      --ignore-unfixed --ignorefile ci/trivyignore.images "$IMAGE"
+    trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
 ```
 
 **Now**: No `--exit-code 0`, no `|| true`. Scan failure = deploy failure.
+
+**Task 3.18 update (ci-pipeline-remediation, bugfix 2.8)**: `--ignore-unfixed`
+and `--ignorefile ci/trivyignore.images` were removed. Zero-finding policy: a
+resolved HIGH/CRITICAL finding blocks the build regardless of fix
+availability. `ci/trivyignore.images` is retired (unconsumed); remediate the
+Dockerfile instead of suppressing the finding.
 
 ### Dockerfile Standards (Codified in Phase 7)
 

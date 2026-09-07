@@ -1,5 +1,5 @@
 name: Setup backend
-description: Install Python, uv, and cached venv (dev or prod deps)
+description: Install Python and uv, then `uv sync --frozen` from the committed backend/uv.lock (dev or prod deps)
 
 inputs:
   dev-deps:
@@ -9,17 +9,23 @@ inputs:
   python-version:
     description: Python version to use
     required: false
-    default: "3.12"
-  frozen:
-    description: >-
-      Deprecated no-op. backend/uv.lock is gitignored (never committed), so
-      there is no lockfile on the runner for `uv sync --frozen` to read.
-      Dependencies are always installed from requirements*.txt regardless of
-      this input. Kept only so existing callers that pass `frozen: "true"`
-      don't fail on an unrecognized input.
-    required: false
-    default: "false"
-
+    # 3.13, NOT 3.12. Every other declaration of the backend Python version in
+    # this repo says 3.13: backend/pyproject.toml `requires-python = ">=3.13.0"`,
+    # its `[tool.ruff] target-version = "py313"`, backend/Dockerfile's
+    # `python:3.13-slim-bookworm` (builder AND runtime), and
+    # agents/ci/pin_authority.py `python_runtime_version = "3.13.0"`.
+    #
+    # This default was 3.12, so CI built and tested the backend on an interpreter
+    # the project declares it does not support, while the deployed container ran
+    # 3.13. `uv pip install -r requirements-*.txt` is a pip-compatible interface
+    # that never reads pyproject.toml, so `requires-python` could not catch the
+    # mismatch at install time — nothing failed, CI was just testing a different
+    # Python than production ran. That is a silent wrong answer, not an error.
+    #
+    # `uv run --no-sync` (used by ~20 steps in ci.yml) DOES resolve the project
+    # and honours `requires-python`, which is where a 3.12 venv would eventually
+    # surface as a hard failure.
+    default: "3.13"
 runs:
   using: composite
   steps:
@@ -28,35 +34,49 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
+    # `enable-cache` caches ONLY uv's verified wheel/sdist download store
+    # (content-addressed by package hash, restored via GitHub Actions cache),
+    # never the project .venv. `cache-dependency-glob` binds the cache key to
+    # backend/uv.lock's digest (plus pyproject.toml, in case the lock and the
+    # manifest ever disagree) so the key changes exactly when the resolved
+    # dependency graph changes. `cache-suffix` folds in OS, architecture, the
+    # pinned Python version, and dev/prod group selection ("trust class" — a
+    # prod-only install and a dev+test install are different graphs and must
+    # not collide), matching Task 3.16's "OS/architecture/runtime/lock
+    # digest/trust class" cache-key requirement. setup-uv's restored store
+    # holds already-hash-verified artifacts, so warming it is a download-time
+    # optimization, not a second source of dependency truth: `uv sync
+    # --frozen` below still refuses to install anything the lock does not
+    # already pin.
     - name: Setup uv
       uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       with:
         enable-cache: true
-        cache-dependency-glob: backend/requirements*.txt
+        cache-dependency-glob: |
+          backend/uv.lock
+          backend/pyproject.toml
+        cache-suffix: ${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-${{ inputs.dev-deps == 'true' && 'dev' || 'prod' }}
 
-    - name: Cache .venv
-      id: venv
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: backend/.venv
-        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('backend/requirements-prod.txt', 'backend/requirements-dev.txt') }}-${{ inputs.dev-deps }}
-        restore-keys: |
-          venv-${{ runner.os }}-py${{ inputs.python-version }}-
-          venv-${{ runner.os }}-
-
-    - name: Install dependencies
-      if: steps.venv.outputs.cache-hit != 'true'
+    # `.venv` is DELIBERATELY never cached (Task 3.16): a cached venv can
+    # silently retain packages a lock/manifest edit was supposed to remove,
+    # which is exactly how this project's tooling last drifted (see the `dev`
+    # dependency-group history below). `uv sync --frozen` is fast enough
+    # against the warmed download store above that a venv cache buys nothing
+    # but a correctness risk.
+    #
+    # `uv.lock` is the sole installation authority — it is a committed,
+    # complete resolution of every direct dependency declared in
+    # pyproject.toml's `[project.dependencies]` (prod) and
+    # `[dependency-groups].dev` (test/static/security tooling). `--frozen`
+    # makes this authoritative: it fails closed if the lock and
+    # pyproject.toml have drifted, rather than silently re-resolving.
+    - name: Install dependencies (uv sync --frozen)
       shell: bash
       working-directory: backend
       run: |
         set -euo pipefail
-        uv venv --python ${{ inputs.python-version }} --clear
-        # Source of truth is requirements*.txt, not uv.lock: uv.lock is
-        # gitignored (local dev convenience only) and never present on the
-        # CI runner, so `uv sync --frozen` always fails here with
-        # "Unable to find lockfile". Install with `uv pip install` instead.
         if [[ "${{ inputs.dev-deps }}" == "true" ]]; then
-          uv pip install -r requirements-dev.txt
+          uv sync --frozen --group dev
         else
-          uv pip install -r requirements-prod.txt
+          uv sync --frozen --no-dev
         fi
