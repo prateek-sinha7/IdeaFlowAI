@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import {
-  ChevronLeft, Activity,
+  ChevronLeft, ChevronDown, Activity,
   RefreshCw, CheckCircle2, XCircle, Clock3, Cpu,
 } from "lucide-react";
-import { getToken, getAnalyticsSummary, getPreferences } from "@/lib/api";
-import type { AnalyticsSummary } from "@/lib/api";
+import { getToken, getAnalyticsSummary, getPreferences, getCapabilities } from "@/lib/api";
+import type { AnalyticsSummary, CapabilityModelEntry } from "@/lib/api";
 import { routes } from "@/lib/routes";
 import { BarChart } from "./charts/BarChart";
 import { DonutChart } from "./charts/DonutChart";
@@ -22,25 +22,35 @@ interface AnalyticsPageProps {
 type DateFilter = "today" | "3d" | "7d" | "30d" | "90d" | "all";
 type PipelineFilter = "all" | "user_stories" | "ppt" | "prototype" | "app_builder" | "custom";
 
-// ─── Model metadata (DISPLAY-ONLY lookup — SC-001, no control flow) ───────────
-// Covers both eu. and us. geo prefixes (GEO-01: model_policy normalizes the prefix
-// at runtime, but the DB stores whichever prefix was active when the run completed).
-// Cache read rate is 10% of input; cache write (5m) is 125% of input per Anthropic pricing.
-const MODEL_META: Record<string, { name: string; short: string; inputRate: string; outputRate: string; cacheReadRate: string; cacheWriteRate: string; context: string }> = {
-  "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",   cacheReadRate: "$0.03 / 1M",  cacheWriteRate: "$0.30 / 1M",  context: "200K" },
-  "us.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",   cacheReadRate: "$0.03 / 1M",  cacheWriteRate: "$0.30 / 1M",  context: "200K" },
-  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "200K" },
-  "us.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "200K" },
-  "eu.anthropic.claude-sonnet-4-6":               { name: "Claude Sonnet 4.6", short: "Sonnet 4.6",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
-  "us.anthropic.claude-sonnet-4-6":               { name: "Claude Sonnet 4.6", short: "Sonnet 4.6",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
-  "eu.anthropic.claude-sonnet-5":                 { name: "Claude Sonnet 5",   short: "Sonnet 5",    inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
-  "us.anthropic.claude-sonnet-5":                 { name: "Claude Sonnet 5",   short: "Sonnet 5",    inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
-  "eu.anthropic.claude-opus-4-5-20251101-v1:0":   { name: "Claude Opus 4.5",   short: "Opus 4.5",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
-  "us.anthropic.claude-opus-4-5-20251101-v1:0":   { name: "Claude Opus 4.5",   short: "Opus 4.5",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
-  "eu.anthropic.claude-opus-4-6-v1":              { name: "Claude Opus 4.6",   short: "Opus 4.6",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
-  "us.anthropic.claude-opus-4-6-v1":              { name: "Claude Opus 4.6",   short: "Opus 4.6",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
-};
-const DEFAULT_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+// ─── Model metadata helpers (RFN-002b — dynamic, sourced from /api/capabilities) ─
+// The static MODEL_META map is replaced by a live fetch on mount so new models
+// added to the catalog appear automatically (SC-001 / INV-12 — no hardcoded
+// model-id list on the frontend). Rate formatters scale per-1M values from the
+// catalog's Pricing dataclass.
+
+function formatRate(ratePerMillion: number): string {
+  if (ratePerMillion === 0) return "—";
+  return `$${ratePerMillion.toFixed(2)} / 1M`;
+}
+
+function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(0)}M`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`;
+  return String(tokens);
+}
+
+/** Derive the short display label from a full catalog label.
+ *  E.g. "Claude Haiku 4.5" → "Haiku 4.5"
+ *       "Claude Sonnet 5 (EU)" → "Sonnet 5"
+ *       "Claude Sonnet 5 (US)" → "Sonnet 5"
+ *  Region/geo suffixes are stripped — the analytics page shows model families,
+ *  not deployment regions (the geo prefix on the raw id is an infra detail). */
+function shortLabel(label: string): string {
+  return label
+    .replace(/^Claude\s+/i, "")
+    .replace(/\s*\((EU|US|APAC|Global)\)\s*$/i, "")
+    .trim();
+}
 
 // DISPLAY-ONLY pipeline label map (SC-001/INV-1): the server rolls up on the
 // generic `type` column; this maps a type string → a friendly label, and normalises
@@ -146,6 +156,13 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   });
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [preferredModelId, setPreferredModelId] = useState<string | null>(null);
+  // RFN-002b — live catalog keyed by model id; built from /api/capabilities once
+  // on mount.  Replaces the deleted static MODEL_META.  A null value means the
+  // fetch has not yet completed; we degrade gracefully (raw id shown as label).
+  const [catalogMap, setCatalogMap] = useState<Record<string, CapabilityModelEntry>>({});
+  // Model Details collapse state — tracks which model cards are expanded.
+  // Seeded with the first model's id once the summary loads so it opens by default.
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
 
   // SC-1 server recompute: the summary is re-queried whenever ANY filter
   // changes — the server re-aggregates the owner's rows for the new
@@ -193,6 +210,42 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     getPreferences(token)
       .then((p) => { if (!cancelled) setPreferredModelId(p.preferred_model); })
       .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Seed the first catalog-matched model as expanded when the summary (re)loads,
+  // so the top model card opens by default without requiring a click.
+  // We reset expandedModels here rather than using an implicit idx===0 fallback,
+  // so that clicking to collapse actually works on the first item.
+  useEffect(() => {
+    if (!summary) return;
+    const firstId = (summary.models ?? [])
+      .filter(m => m.model_id !== "unknown")
+      .sort((a, b) => b.total_tokens - a.total_tokens)[0]?.model_id;
+    if (firstId) setExpandedModels(new Set([firstId]));
+    else setExpandedModels(new Set());
+  }, [summary]);
+
+  // RFN-002b — fetch the live capability catalog once on mount to build catalogMap.
+  // The map covers every model in model_catalog.py (all geo-prefix variants) so the
+  // Model Details panel and model-dropdown short labels are always correct for new
+  // models added to the catalog without any frontend-only change.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    getCapabilities(token)
+      .then((palette) => {
+        if (cancelled) return;
+        const map: Record<string, CapabilityModelEntry> = {};
+        for (const entry of palette.model_catalog) {
+          map[entry.id] = entry;
+        }
+        setCatalogMap(map);
+      })
+      .catch(() => {
+        // Non-fatal: model labels fall back to raw ids, rates show "—".
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -272,9 +325,13 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     : Math.max(...pipelineRows.map((p) => p.runs), 1);
 
   const modelRows = (summary?.models ?? [])
+    .filter((m) => m.model_id !== "unknown")
     .map((m) => ({
       id: m.model_id,
-      name: MODEL_META[m.model_id]?.short ?? m.model_id,
+      // RFN-002b: use live catalog label; fall back to cleaned raw id for unrecognised entries.
+      name: catalogMap[m.model_id]?.label
+        ? shortLabel(catalogMap[m.model_id].label)
+        : m.model_id,
       runs: m.count,
       tokens: m.total_tokens,
       cost: m.cost,
@@ -282,12 +339,27 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     .sort((a, b) => b.tokens - a.tokens);
   const modelMax = Math.max(...modelRows.map((m) => m.tokens), 1);
 
+  // RFN-002 — per-agent breakdown derived from summary.agents (sorted desc by backend).
+  const agentRows = (summary?.agents ?? []).map((a) => ({
+    id: a.agent_id,
+    name: a.agent_name,
+    runs: a.count,
+    tokens: a.total_tokens,
+    cost: a.cost,
+  }));
+  const agentMax = Math.max(...agentRows.map((a) => a.tokens), 1);
+  const agentHasTokens = agentRows.some((a) => a.tokens > 0);
+
   const activeModelId = modelFilter !== "all"
     ? modelFilter
-    : (modelRows[0]?.id ?? DEFAULT_MODEL_ID);
-  const meta = MODEL_META[activeModelId] ?? MODEL_META[DEFAULT_MODEL_ID];
-  const preferenceLabel = preferredModelId ? (MODEL_META[preferredModelId]?.name ?? null) : null;
-  const showPreferenceNote = preferenceLabel && preferenceLabel !== meta.name && modelFilter === "all";
+    : (modelRows[0]?.id ?? "");
+  // RFN-002b — active catalog entry (null when catalog not yet loaded or model unknown).
+  const activeCatalogEntry = activeModelId ? (catalogMap[activeModelId] ?? null) : null;
+  const preferenceLabel = preferredModelId
+    ? (catalogMap[preferredModelId]?.label ?? null)
+    : null;
+  const showPreferenceNote = preferenceLabel && activeCatalogEntry &&
+    preferenceLabel !== activeCatalogEntry.label && modelFilter === "all";
 
   const DATE_LABELS: Record<DateFilter, string> = {
     today: "Today", "3d": "Last 3 days", "7d": "Last 7 days",
@@ -352,7 +424,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                 <option value="all">All models</option>
                 {availableModelIds.map(id => (
                   <option key={id} value={id}>
-                    {MODEL_META[id]?.short ?? id}
+                    {catalogMap[id] ? shortLabel(catalogMap[id].label) : id}
                   </option>
                 ))}
               </select>
@@ -538,6 +610,40 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               </div>
             </div>
 
+            {/* ── By Agent — RFN-002 ── */}
+            <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
+              <p className="text-[12px] font-semibold text-ink-800 mb-3.5">By Agent</p>
+              {agentRows.length === 0 ? (
+                <p className="text-[11px] text-ink-400 py-6 text-center">No agent data for this period</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {agentRows.map((a, i) => {
+                    const barVal = agentHasTokens ? a.tokens : a.runs;
+                    const pct = Math.max(Math.round((barVal / agentMax) * 100), barVal > 0 ? 3 : 0);
+                    return (
+                      <motion.div key={a.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-surface-warm text-ink-500 uppercase tracking-wide">{a.name}</span>
+                          <div className="flex items-center gap-2 text-[10.5px] text-ink-300 tabular-nums">
+                            <span>{a.runs} run{a.runs !== 1 ? "s" : ""}</span>
+                            {a.tokens > 0 && <><span>·</span><span className="font-semibold text-ink-700">{formatTokens(a.tokens)}</span><span>{formatCost(a.cost)}</span></>}
+                          </div>
+                        </div>
+                        <div className="h-1.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden">
+                          <motion.div className="h-full rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.6, delay: i * 0.04, ease: "easeOut" }}
+                            style={{ background: "var(--brand)" }}
+                          />
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* ── Token ratio + Model info ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
@@ -654,24 +760,71 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                   </>
                 )}
               </div>
-              {/* Model info — display-only meta for the active model */}
+              {/* Model info — display-only meta for all models in use (RFN-002b: fully dynamic) */}
               <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
-                <p className="text-[12px] font-semibold text-ink-800 mb-2">Model Details</p>
-                <div>
-                  {[
-                    { label: "Model",             value: meta.name },
-                    { label: "Input rate",        value: `${meta.inputRate} tokens` },
-                    { label: "Output rate",       value: `${meta.outputRate} tokens` },
-                    { label: "Cache read rate",   value: `${meta.cacheReadRate} tokens` },
-                    { label: "Cache write rate",  value: `${meta.cacheWriteRate} tokens (5m TTL)` },
-                    { label: "Context window",    value: `${meta.context} tokens` },
-                  ].map(item => (
-                    <div key={item.label} className="flex items-center gap-3 py-2 border-t border-line-faint-row">
-                      <span className="w-[130px] flex-none text-[11.5px] font-medium text-ink-300">{item.label}</span>
-                      <span className="flex-1 text-[12px] text-ink-700 tabular-nums">{item.value}</span>
-                    </div>
-                  ))}
-                </div>
+                <p className="text-[12px] font-semibold text-ink-800 mb-3">Model Details</p>
+                {modelRows.filter(m => catalogMap[m.id]).length === 0 ? (
+                  <p className="text-[11px] text-ink-400 py-4 text-center">No model data for this period</p>
+                ) : (
+                  <div className="divide-y divide-line-faint-row">
+                    {modelRows
+                      .filter(m => catalogMap[m.id])
+                      .filter(m => modelFilter === "all" || modelFilter === m.id)
+                      .map((m) => {
+                        const entry = catalogMap[m.id]!;
+                        // isExpanded is now driven purely by the set — seeded by the useEffect above.
+                        const isExpanded = expandedModels.has(m.id);
+                        const toggle = () => setExpandedModels(prev => {
+                          const next = new Set(prev);
+                          if (next.has(m.id)) next.delete(m.id);
+                          else next.add(m.id);
+                          return next;
+                        });
+                        return (
+                          <div key={m.id} className="border-t border-line-faint-row first:border-t-0">
+                            {/* Clickable header row */}
+                            <button
+                              onClick={toggle}
+                              className="w-full flex items-center gap-2 py-1.5 group focus:outline-none"
+                              aria-expanded={isExpanded}
+                              aria-controls={`model-detail-${m.id}`}
+                            >
+                              <Cpu className="h-3 w-3 text-brand flex-none" />
+                              <span className="text-[11px] font-semibold text-ink-800 group-hover:text-brand transition-colors">{shortLabel(entry.label)}</span>
+                              <span className="text-[10px] text-ink-400 tabular-nums">{formatTokens(m.tokens)} · {formatCost(m.cost)}</span>
+                              <ChevronDown
+                                className={`h-3 w-3 text-ink-300 ml-auto flex-none transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                              />
+                            </button>
+                            {/* Collapsible detail rows */}
+                            {isExpanded && (
+                              <div id={`model-detail-${m.id}`} className="pb-2">
+                                {[
+                                  { label: "Tier",             value: entry.tier.charAt(0).toUpperCase() + entry.tier.slice(1) },
+                                  { label: "Input rate",       value: `${formatRate(entry.input_rate_per_1m ?? 0)} tokens` },
+                                  { label: "Output rate",      value: `${formatRate(entry.output_rate_per_1m ?? 0)} tokens` },
+                                  { label: "Cache read rate",  value: `${formatRate(entry.cache_read_rate_per_1m ?? 0)} tokens` },
+                                  { label: "Cache write rate", value: `${formatRate(entry.cache_write_5m_rate_per_1m ?? 0)} tokens (5m)` },
+                                  { label: "Context window",   value: `${formatContextWindow(entry.context_window)} tokens` },
+                                ].map(item => (
+                                  <div key={item.label} className="flex items-center gap-3 py-1.5 border-t border-line-faint-row">
+                                    <span className="w-[120px] flex-none text-[11px] font-medium text-ink-300">{item.label}</span>
+                                    <span className="flex-1 text-[11.5px] text-ink-700 tabular-nums">{item.value}</span>
+                                  </div>
+                                ))}
+                                {entry.thinking_supported && (
+                                  <div className="flex items-center gap-3 py-1.5 border-t border-line-faint-row">
+                                    <span className="w-[120px] flex-none text-[11px] font-medium text-ink-300">Thinking</span>
+                                    <span className="text-[11.5px] text-brand font-medium">Adaptive (effort: max)</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
                 {showPreferenceNote && (
                   <div className="mt-3 rounded-lg bg-[var(--status-amber-fill)] border border-[var(--status-amber-border)] px-3 py-2">
                     <p className="text-[10px] text-[var(--status-amber)]">

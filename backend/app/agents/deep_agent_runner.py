@@ -393,7 +393,21 @@ class DeepAgentRunner:
             self._model = build_model(model, max_tokens=max_tokens)
         else:
             self._model = model
-        self.model_id: str = model_identifier(self._model)
+        # Prefer the model string we already know (the caller-supplied ``model``
+        # or the settings default) over a post-hoc attribute probe — the LangChain
+        # object may not expose it reliably for every provider, and
+        # ``model_identifier`` falls back to the literal string "unknown" which
+        # then propagates into agent_complete.model_id and analytics.
+        if isinstance(model, str) and model:
+            self.model_id: str = model
+        else:
+            resolved = model_identifier(self._model)
+            if resolved == "unknown":
+                # Last resort: use the configured inference profile so the
+                # analytics "By Model" section shows a real model label rather
+                # than the sentinel.
+                resolved = settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID or "unknown"
+            self.model_id = resolved
 
         # ── Tool exclusion: library sub-agents OFF (always), built-ins off
         #    for text-only agents (Task #25) ──────────────────────────────

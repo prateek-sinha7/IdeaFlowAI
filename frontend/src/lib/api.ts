@@ -803,11 +803,28 @@ export interface AnalyticsModelRollup {
   cost: number;
 }
 
+/** RFN-002 — per-agent token breakdown derived from agent_outputs.
+ *  Numbers only (T-38-Leak): agent_name is the display name stored in
+ *  agent_outputs[].name — already surfaced by _SUMMARY_SAFE_AGENT_KEYS.
+ *  No output / prompt / thinking text. */
+export interface AnalyticsAgentRollup {
+  agent_id: string;
+  agent_name: string;
+  count: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+}
+
 export interface AnalyticsSummary {
   kpis: AnalyticsKpis;
   daily: AnalyticsDailyBucket[];
   pipelines: AnalyticsPipelineRollup[];
   models: AnalyticsModelRollup[];
+  /** RFN-002 — per-agent token breakdown. Empty array on accounts with no
+   *  completed runs or legacy runs whose agent_outputs predate ISS-165. */
+  agents: AnalyticsAgentRollup[];
   spend: number;
   /** ISS-034 — the same window priced as-if prompt caching had been OFF. */
   spend_full: number;
@@ -1560,6 +1577,15 @@ export interface CapabilityModelEntry {
   provider: string;
   context_window: number;
   user_allowed: boolean;
+  /** RFN-002b — pricing rates in USD per 1 M tokens, from the catalog Pricing
+   *  dataclass (scaled × 1e6).  Absent on older API responses → 0 (safe default).
+   *  Use these for display only; actual billed cost lives in token_usage.estimated_cost_usd. */
+  input_rate_per_1m?: number;
+  output_rate_per_1m?: number;
+  cache_read_rate_per_1m?: number;
+  cache_write_5m_rate_per_1m?: number;
+  /** True for models that support adaptive/extended thinking (sonnet-5, opus-*). */
+  thinking_supported?: boolean;
 }
 
 /** The full capability-registry payload; the relocated AgentModelPicker

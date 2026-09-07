@@ -86,7 +86,16 @@ class CapabilityEntry(BaseModel):
 
 
 class ModelCatalogEntry(BaseModel):
-    """One model-picker entry, projected from ``ModelCatalog`` (MODEL-04)."""
+    """One model-picker entry, projected from ``ModelCatalog`` (MODEL-04).
+
+    RFN-002b: pricing rates added (USD per 1 M tokens, scaled from the catalog's
+    per-single-token ``Pricing`` dataclass × 1 000 000) so the Analytics page can
+    build a fully dynamic model-details panel without a hardcoded rate table.
+    ``thinking_supported`` flags models whose id contains an adaptive-thinking
+    fragment (claude-sonnet-5, claude-opus-*) so the UI can surface a note.
+    All new fields have safe defaults so existing callers that don't read them
+    are unaffected (purely additive).
+    """
 
     id: str
     label: str
@@ -96,6 +105,16 @@ class ModelCatalogEntry(BaseModel):
     provider: str
     context_window: int
     user_allowed: bool
+    # RFN-002b — pricing rates in USD per 1 M tokens (catalog Pricing × 1e6).
+    # 5-minute cache-write TTL is the default; 1-hour rate omitted (rare usage).
+    input_rate_per_1m: float = 0.0
+    output_rate_per_1m: float = 0.0
+    cache_read_rate_per_1m: float = 0.0
+    cache_write_5m_rate_per_1m: float = 0.0
+    # True for models that support adaptive/extended thinking
+    # (claude-sonnet-5, claude-opus-*).  Haiku and older Sonnets use budget_tokens
+    # thinking or thinking-off; only these newer models use effort="max".
+    thinking_supported: bool = False
 
 
 class CapabilitiesPalette(BaseModel):
@@ -143,6 +162,12 @@ def list_capabilities(
             )
         )
 
+    # Models whose id contains one of these fragments support adaptive thinking
+    # (effort="max" in build_model).  Mirrors the _ADAPTIVE_THINKING_MODEL_FRAGMENTS
+    # tuple in model_factory.py — kept in sync by grep rather than a shared import
+    # (model_factory is app-layer, not capabilities-layer).
+    _THINKING_FRAGMENTS = ("sonnet-5", "opus-5", "fable-5", "mythos-5", "opus-4")
+
     model_catalog = [
         ModelCatalogEntry(
             id=m.id,
@@ -153,6 +178,15 @@ def list_capabilities(
             provider=m.provider,
             context_window=m.context_window,
             user_allowed=m.user_allowed,
+            # RFN-002b — scale per-single-token rates → per-1M-token rates.
+            # The regional inference-profile +10 % premium is NOT applied here
+            # because the analytics page shows catalog base rates (operator info),
+            # not per-run billed amounts (which already live in token_usage.estimated_cost_usd).
+            input_rate_per_1m=round(m.pricing.input * 1_000_000, 4),
+            output_rate_per_1m=round(m.pricing.output * 1_000_000, 4),
+            cache_read_rate_per_1m=round(m.pricing.cache_read * 1_000_000, 4),
+            cache_write_5m_rate_per_1m=round(m.pricing.cache_write_5m * 1_000_000, 4),
+            thinking_supported=any(frag in m.id for frag in _THINKING_FRAGMENTS),
         )
         for m in ModelCatalog().list()
     ]

@@ -32,8 +32,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from agents.capabilities.model_pricing import estimate_cost_usd
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.database import get_db
 from app.models.user import User
@@ -136,11 +139,33 @@ class ModelRollup(BaseModel):
     cost: float = 0.0
 
 
+class AgentRollup(BaseModel):
+    """Per-agent token breakdown — derived from ``agent_outputs`` JSON array.
+
+    Numbers only (T-38-Leak): carries counts, tokens, and cost.  The ``agent_name``
+    field is the display name already stored in the ``name`` key of each
+    ``agent_outputs`` element — it is safe to surface (already echoed by
+    ``_SUMMARY_SAFE_AGENT_KEYS`` in ``runs.py``). No output/prompt/thinking text.
+    """
+
+    agent_id: str
+    agent_name: str
+    count: int = 0            # number of agent occurrences across runs in the window
+    total_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float = 0.0
+
+
 class AnalyticsSummary(BaseModel):
     kpis: Kpis
     daily: list[DailyBucket] = Field(default_factory=list)
     pipelines: list[PipelineRollup] = Field(default_factory=list)
     models: list[ModelRollup] = Field(default_factory=list)
+    #: RFN-002 — per-agent token breakdown derived from ``agent_outputs``.
+    #: Default empty list so existing callers and tests that don't read this
+    #: field continue to work without changes (purely additive).
+    agents: list[AgentRollup] = Field(default_factory=list)
     spend: float = 0.0
     #: ISS-034 — the same window priced as-if prompt caching had been OFF. The SIGNED
     #: difference ``spend_full - spend`` is what caching actually did: POSITIVE means it
@@ -184,6 +209,20 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
         lambda: {"count": 0, "total_tokens": 0, "cost": 0.0, "dur_sum": 0.0, "dur_n": 0}
     )
     models: dict[str, dict] = defaultdict(lambda: {"count": 0, "total_tokens": 0, "cost": 0.0})
+    # RFN-002 — per-agent accumulators (keyed on agent_id).
+    agents_acc: dict[str, dict] = defaultdict(
+        lambda: {"count": 0, "total_tokens": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
+    )
+    # Human-readable name for each agent_id — keep the last non-empty value seen
+    # (a build loop may repeat the same agent_id; name is stable across repeats).
+    agent_names: dict[str, str] = {}
+    # RFN-002 — per-agent model attribution accumulator (separate from the
+    # run-level ``models`` dict).  Merged into ``models`` after the loop; tokens
+    # attributed here override the run-level bucket for the same volume so that
+    # a run where different agents use different models is split correctly.
+    models_agent: dict[str, dict] = defaultdict(
+        lambda: {"run_ids": set(), "total_tokens": 0, "cost": 0.0}
+    )
 
     for r in runs:
         usage = _parse_token_usage(r.token_usage)
@@ -240,7 +279,104 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
         m["total_tokens"] += r_total
         m["cost"] += r_cost
 
+        # ── RFN-002 — per-agent rollup from ``agent_outputs`` ────────────────
+        # Parse the same JSON array that ``run_commands._apply_terminal_output_columns``
+        # writes.  A missing/malformed blob degrades to an empty list — same
+        # try/except→{} idiom used above for ``token_usage`` (T-38-02).
+        agent_list: list[dict] = []
+        if r.agent_outputs:
+            try:
+                parsed_agents = json.loads(r.agent_outputs)
+                if isinstance(parsed_agents, list):
+                    agent_list = parsed_agents
+            except Exception:
+                pass  # malformed blob → contribute no per-agent rows
+
+        for ag in agent_list:
+            if not isinstance(ag, dict):
+                continue
+            aid = ag.get("agent_id") or ""
+            if not aid:
+                continue
+
+            # Keep the latest non-empty display name (stable across build-loop repeats).
+            aname = ag.get("name") or ""
+            if aname:
+                agent_names[aid] = aname
+
+            a_in    = int(_num(ag.get("input_tokens")))
+            a_out   = int(_num(ag.get("output_tokens")))
+            a_total = int(_num(ag.get("total_tokens"))) or (a_in + a_out)
+            a_cr    = int(_num(ag.get("cache_read_tokens")))
+            a_cw    = int(_num(ag.get("cache_write_tokens")))
+            # Resolve cost against the agent's own model if present; fall back to
+            # the run-level model (key) so legacy runs without per-agent model_id
+            # still get a cost estimate.
+            a_model = ag.get("model_id") or r.model_id or ""
+            a_cost  = estimate_cost_usd(
+                a_model or None,
+                input_tokens=max(0, a_in - a_cr - a_cw),
+                output_tokens=a_out,
+                cache_read_tokens=a_cr,
+                cache_write_tokens=a_cw,
+                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            )
+
+            av = agents_acc[aid]
+            av["count"]        += 1
+            av["total_tokens"] += a_total
+            av["input_tokens"] += a_in
+            av["output_tokens"] += a_out
+            av["cost"]         += a_cost
+
+            # ── Two-pass model attribution (fixes "unknown") ─────────────────
+            # When the agent carries its own ``model_id``, attribute its tokens
+            # to that specific model bucket (``models_agent``) rather than to
+            # the run-level bucket.  This is the correct split when different
+            # agents within the same run use different models.  Runs where all
+            # agents share one model look identical to before.
+            agent_model_key = ag.get("model_id")
+            if agent_model_key:
+                mm = models_agent[agent_model_key]
+                mm["run_ids"].add(r.id)       # distinct runs that used this model
+                mm["total_tokens"] += a_total
+                mm["cost"]         += a_cost
+
     success_rate = (completed / total) if total else 0.0
+
+    # ── RFN-002 — merge agent-level model attribution into the run-level dict ──
+    # For each model that appeared at the per-agent level:
+    #   - token/cost: replace with the per-agent totals (more accurate split).
+    #   - count (run count): if the model already has a run-level count (meaning
+    #     the run row itself carried that model_id), keep it — it is already
+    #     correct.  If count is 0 (the model only appeared at the agent level,
+    #     e.g. because the run row was NULL → "unknown"), set it to the number
+    #     of distinct runs that had at least one agent use this model.  This is
+    #     what fixes the "0 runs" display on Haiku / Sonnet when the run-level
+    #     model_id was NULL.
+    # The ``unknown`` bucket shrinks to only runs whose agent_outputs were empty
+    # or whose agents all had NULL model_id.
+    for agent_model_key, av in models_agent.items():
+        distinct_run_count = len(av["run_ids"])
+        if agent_model_key not in models:
+            # Model appeared only at agent level — initialise the bucket.
+            models[agent_model_key]["count"] = distinct_run_count
+        elif models[agent_model_key]["count"] == 0:
+            # Run-level bucket existed but count was 0 (should not normally happen,
+            # but guard it defensively).
+            models[agent_model_key]["count"] = distinct_run_count
+        # If the run-level count is already > 0, leave it — it means the run row
+        # itself carried this model_id and the count is correct.
+        models[agent_model_key]["total_tokens"] = av["total_tokens"]
+        models[agent_model_key]["cost"] = av["cost"]
+        # Shrink the ``unknown`` bucket by the tokens now attributed to real models.
+        if _UNKNOWN_MODEL in models:
+            models[_UNKNOWN_MODEL]["total_tokens"] = max(
+                0, models[_UNKNOWN_MODEL]["total_tokens"] - av["total_tokens"]
+            )
+            models[_UNKNOWN_MODEL]["cost"] = max(
+                0.0, models[_UNKNOWN_MODEL]["cost"] - av["cost"]
+            )
 
     pipelines = [
         PipelineRollup(
@@ -255,6 +391,21 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
     model_rollups = [
         ModelRollup(model_id=k, count=v["count"], total_tokens=v["total_tokens"], cost=v["cost"])
         for k, v in sorted(models.items())
+        if (v["total_tokens"] > 0 or v["count"] > 0) and k != _UNKNOWN_MODEL
+    ]
+    # RFN-002 — per-agent rollup, sorted by total_tokens descending so the most
+    # expensive agents appear first in the UI.
+    agent_rollups = [
+        AgentRollup(
+            agent_id=aid,
+            agent_name=agent_names.get(aid, aid),
+            count=v["count"],
+            total_tokens=v["total_tokens"],
+            input_tokens=v["input_tokens"],
+            output_tokens=v["output_tokens"],
+            cost=v["cost"],
+        )
+        for aid, v in sorted(agents_acc.items(), key=lambda kv: -kv[1]["total_tokens"])
     ]
     type_avg_duration_sec = {
         t: (v["dur_sum"] / v["dur_n"]) if v["dur_n"] else 0.0 for t, v in pipe.items()
@@ -265,6 +416,7 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
         daily=[DailyBucket(date=d, **daily[d]) for d in sorted(daily)],
         pipelines=pipelines,
         models=model_rollups,
+        agents=agent_rollups,
         spend=spend,
         spend_full=spend_full,
         metered_runs=metered_runs,
@@ -317,11 +469,36 @@ def get_analytics_summary(
     if model:
         # ``_aggregate`` buckets a null ``model_id`` under the "unknown" sentinel
         # and offers it as a filter value, so the filter honours it back.
-        query = query.filter(
-            WorkflowRun.model_id.is_(None)
-            if model == _UNKNOWN_MODEL
-            else WorkflowRun.model_id == model
-        )
+        #
+        # RFN-002 fix: the model rollup is built from two sources —
+        #   1. WorkflowRun.model_id (the run-row column, set only at completion)
+        #   2. agent_outputs JSON (per-agent model_id via the two-pass merge)
+        # Most historical runs have model_id = NULL on the run row even when
+        # their agent_outputs carry a real model_id. Filtering on the run-row
+        # column alone would return 0 rows for any agent-sourced model id.
+        # Fix: include runs where agent_outputs JSON contains the requested
+        # model_id string (a substring match on the serialised JSON blob is
+        # safe here because model_id values are unique enough strings that
+        # false positives are not a concern, and this avoids a JSON subquery
+        # that SQLite/Postgres handle differently).
+        if model == _UNKNOWN_MODEL:
+            # "unknown" means the run row had no model_id AND no agent carried
+            # a real model_id in their outputs.  Match NULL run-row column only;
+            # the _aggregate two-pass will exclude tokens attributed to real
+            # models from this bucket.
+            query = query.filter(WorkflowRun.model_id.is_(None))
+        else:
+            query = query.filter(
+                or_(
+                    WorkflowRun.model_id == model,
+                    # Runs where the run-row model_id is NULL but agent_outputs
+                    # carries this model_id string.
+                    (
+                        WorkflowRun.model_id.is_(None)
+                        & WorkflowRun.agent_outputs.contains(model)
+                    ),
+                )
+            )
 
     runs = query.all()
     return _aggregate(runs)

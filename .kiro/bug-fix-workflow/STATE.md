@@ -22,6 +22,7 @@ memory. Updated by the closer after every domain run.
 | 15 | backend·other | 31 | DONE (all 31 cards resolved: CLOSED 18, ESCALATED 13) | 18 | 0 | 13 | [20260902-1800-domain-15-backend-other.md](reports/20260902-1800-domain-15-backend-other.md) |
 | T | triage (no fix site) | 21 | NOT STARTED | – | – | – | – |
 | R1 | refinement: RFN-001 model chip | 1 | DONE | RFN-001 CLOSED | 0 | 0 | [20260907-1200-rfn001-model-chip.md](reports/20260907-1200-rfn001-model-chip.md) |
+| R2 | refinement: RFN-002 analytics agent/model breakdown | 6 FIX cards | DONE | FIX-487–492 CLOSED | 0 | 0 | [20260907-1600-rfn002-analytics-agent-model-breakdown.md](reports/20260907-1600-rfn002-analytics-agent-model-breakdown.md) |
 
 Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED · PARTIAL.
 
@@ -75,3 +76,5 @@ Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED
   See `reports/20260901-1630-domain-06-frontend-components.md`.
 
 - Run 2026-09-07: **RFN-001 (per-agent model chip) DONE** — 6 source files changed (engine.py + 5 frontend), 27 new tests (8 backend + 15 AgentDetailPanel vitest + 4 WorkflowHistory vitest), all suites green. Backend restart required (engine.py changed; --reload auto-picks-it-up in dev). Knowledge index rebuilt (stage 1 success: 1165 cards; stage 2 pre-existing cp1252 failure). See `reports/20260907-1200-rfn001-model-chip.md`.
+
+- Run 2026-09-07 (RFN-002): **Analytics agent/model breakdown DONE** — 6 FIX cards (FIX-487–492). Backend: `analytics.py` gains "By Agent" rollup from `agent_outputs`, two-pass model attribution, correct run counts, model filter OR clause for NULL run-row, `unknown` bucket suppressed. `deep_agent_runner.py` `model_id` fallback before "unknown". `capabilities.py` exposes pricing rates. Frontend: `AnalyticsPage.tsx` static `MODEL_META` replaced with live `/api/capabilities` catalog map, collapsible Model Details panel, collapse toggle bug fixed. tsc 0 new errors. Knowledge rebuild pending (manual: `python3 tools/knowledge/rebuild_knowledge.py --skip-architecture`). See `reports/20260907-1600-rfn002-analytics-agent-model-breakdown.md`.

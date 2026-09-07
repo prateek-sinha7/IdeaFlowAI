@@ -85,6 +85,8 @@ function summary(overrides: Partial<AnalyticsSummary>): AnalyticsSummary {
     models: [
       { model_id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0", count: 5, total_tokens: 500, cost: 0.5 },
     ],
+    // RFN-002 — agents defaults to empty; individual tests can override via spread.
+    agents: [],
     spend: 1.23,
     // ISS-034 default: spend_full === spend → a ZERO delta, so the prompt-cache
     // line renders nothing and the pre-existing cases stay untouched.

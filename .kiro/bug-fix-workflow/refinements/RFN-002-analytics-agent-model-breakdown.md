@@ -476,3 +476,55 @@ const MODEL_META: Record<string, { name: string; short: string; ... }> = {
   these rows without a backfill.
 - **Caching delta per agent:** A per-agent cache-savings breakdown similar to the
   run-level `spend_full`/`spend` delta (ISS-034). Deferred.
+
+---
+
+## Addendum — RFN-002b: Dynamic Model Details Panel & Full MODEL_META (2026-09-07)
+
+**Status:** OPEN → IN PROGRESS
+
+### Problems discovered post-RFN-002 implementation
+
+#### Problem A — Static `MODEL_META` misses models and has stale rates
+
+`AnalyticsPage.tsx` maintains a hardcoded `MODEL_META` map keyed on raw model IDs.
+Two concrete failures:
+
+1. **Missing entries:** `eu.anthropic.claude-3-5-haiku-20241022-v1:0` (Haiku 3.5),
+   `eu.anthropic.claude-sonnet-4-20250514-v1:0` (Sonnet 4), `us.` geo-prefixed
+   variants for Opus 4.5 and Opus 4.6 — all absent from the map.
+2. **Wrong rates:** The static map duplicates the `Pricing` dataclass in
+   `model_catalog.py` by hand, guaranteed to drift. The current Haiku 4.5 entry
+   shows `$0.25 / 1M` input but `model_catalog.py` specifies `1e-6` per token =
+   `$1.00 / 1M`. The rates in the static map were from an older pricing tier.
+3. **Fallback is always Haiku:** `MODEL_META[activeModelId] ?? MODEL_META[DEFAULT_MODEL_ID]`
+   silently shows Haiku 4.5's details for any model not in the map — so Sonnet 5 /
+   Opus 4.6 / any new model added to the catalog all display Haiku's rates.
+
+#### Problem B — Capabilities API strips `Pricing`
+
+`ModelCatalogEntry` (backend Pydantic model) projects only
+`id / label / description / tier / cost_class / provider / context_window / user_allowed`
+from the catalog. The `Pricing` dataclass (`input / output / cache_read /
+cache_write_5m / cache_write_1h`) is **never serialized** — the frontend has no
+way to get authoritative rates from the server.
+
+#### Problem C — No thinking-model flag surfaced
+
+Thinking is globally enabled via `THINKING_BUDGET_TOKENS = 32767`. Models that
+support adaptive thinking (claude-sonnet-5, claude-opus-*) use `effort = "max"`;
+Haiku 4.5 uses `budget_tokens`. There is no per-model `thinking_supported` flag
+in the catalog or the API response. The Model Details panel should note when
+thinking is active for a model but cannot do so without this signal.
+
+---
+
+### Fix sites (RFN-002b)
+
+| # | File | Change |
+|---|------|--------|
+| B-1 | `backend/app/api/capabilities.py` | Add `input_rate_per_1m`, `output_rate_per_1m`, `cache_read_rate_per_1m`, `cache_write_5m_rate_per_1m` (USD per 1M tokens, scaled from `Pricing` per-token rates × 1e6) to `ModelCatalogEntry`. Add `thinking_supported: bool` (True for sonnet-5, opus-* models). |
+| F-1 | `frontend/src/lib/api.ts` | Add matching fields to `CapabilityModelEntry` interface. |
+| F-2 | `frontend/src/components/analytics/AnalyticsPage.tsx` | Fetch `/api/capabilities` once on mount; build a `catalogMap: Record<string, CapabilityModelEntry>` keyed by `id`; replace ALL `MODEL_META[x]` lookups with `catalogMap[x]`; remove the hardcoded `MODEL_META` const; fix the Model Details panel to render from live catalog data; remove the hardcoded `DEFAULT_MODEL_ID` fallback. |
+
+**No migration. No new table. No SSE change. INV-3 goldens unaffected.**
