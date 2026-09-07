@@ -196,7 +196,27 @@ def pytest_runtest_logreport(report: Any) -> None:
     _recorder.record_report(report)
 
 
-def pytest_sessionfinish(session: Any, _exitstatus: int) -> None:
-    """Flush the records. Runs even when the session failed."""
+def pytest_sessionfinish() -> None:
+    """
+    Flush the records. Runs even when the session failed.
+
+    DELIBERATELY ZERO-ARGUMENT. A hookimpl may accept any SUBSET of its
+    hookspec's parameters, but never a name the spec does not declare: pluggy
+    validates argument names at plugin REGISTRATION time and raises
+    PluginValidationError otherwise. This signature was
+    `(session, _exitstatus)`, and `_exitstatus` — an underscore-prefixed
+    "unused parameter" marker, added because vulture flags a genuinely unused
+    `exitstatus` at 100% confidence — is not in
+    `_pytest.hookspec.pytest_sessionfinish`, whose parameter is `exitstatus`.
+    Registration therefore aborted pytest before collection began, so the
+    inventory plugin could never load and the canonical inventory could never
+    be produced.
+
+    Taking neither parameter satisfies both constraints at once: pluggy has no
+    unknown name to reject, and vulture has no unused binding to report.
+    pytest's own plugins do the same (see `_pytest/junitxml.py` and
+    `_pytest/terminal.py`). The body needs neither value — it flushes the
+    module-level recorder.
+    """
     if _recorder is not None:
         _recorder.write()

@@ -15,6 +15,9 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import parse as safe_parse
+
 
 def _iter_suites(root: ET.Element):
     """Yield every <testsuite> element, whether or not it is wrapped."""
@@ -37,8 +40,11 @@ def cmd_junit(args: argparse.Namespace) -> int:
             missing.append(raw_path)
             continue
         try:
-            root = ET.parse(path).getroot()
-        except ET.ParseError as exc:
+            # defusedxml for READING (entity-expansion / external-entity
+            # hardening, bandit B314); stdlib ET stays for building and
+            # writing the merged tree below, which parses nothing.
+            root = safe_parse(path).getroot()
+        except (ET.ParseError, DefusedXmlException) as exc:
             print(f"::error::{path} is not parseable JUnit XML: {exc}")
             return 1
 

@@ -2,33 +2,66 @@
 # Trivy misconfiguration ignores.
 # =============================================================================
 # Location: ci/trivyignore (moved from the repo root).
-# Consumed by .github/workflows/ci.yml (`security-scan-iac` job):
-#   trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile ci/trivyignore
-#     --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" infra/terraform
-# (previously by the retired infra/buildspec.yml pre_build phase — same flags).
-# The HIGH,CRITICAL threshold matters: the accepts below were triaged at it.
+# Consumed by .github/scripts/ci-iac-scan.sh:
+#   trivy config --ignorefile ci/trivyignore \
+#     --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" \
+#     --format json --output <report> infra/terraform
+# The verdict is NOT trivy's exit code — `agents.ci.ci_gate scan-gate
+# --scanner trivy-config` reads the JSON and fails on any HIGH/CRITICAL that
+# survives this file. The accepts below were triaged at that threshold.
+#
+# ID FORMAT IS LOAD-BEARING. trivy filters a misconfiguration when the ignore
+# entry matches its `ID`, its `AVDID`, or one of its `Aliases`
+# (pkg/result/filter.go). trivy 0.69.3 reports terraform misconfigurations with
+# ID `AWS-0104` and an EMPTY AVDID, and the aliases are tfsec rule names
+# ("aws-ec2-no-public-egress-sgr"), not AVD identifiers. The `AVD-`-prefixed IDs
+# this file used to carry therefore matched nothing — they were inert. Use the
+# bare `AWS-0nnn` form that appears in the report, and verify against
+# ci-results/trivy-config-report.json rather than against the AVD website URL.
 # =============================================================================
 # Each ID below is an ACCEPTED finding for this single-account / single-EC2 /
 # single-region architecture. Each maps ONLY to the resources noted, so a
 # global ignore loses no real coverage today. These mirror the accepts already
 # documented in ci/checkov.yaml and the inline checkov:skip annotations.
 
-# AVD-AWS-0104 — Security group rule allows unrestricted egress to 0.0.0.0/0.
+# AWS-0104 — Security group rule allows unrestricted egress to 0.0.0.0/0.
 # The single EC2 host needs outbound internet on 443/80/53 to reach AWS APIs
 # (Bedrock, ECR, SSM), OS/package updates, ACME/Let's Encrypt, and DNS. This is
 # the documented residual in docs/_audit/tf_security.md (L-9). Tighter control
 # would require AWS Network Firewall + domain allow-listing (out of scope for a
-# single-EC2 design). Only the app SG egress rules match.
-AVD-AWS-0104
+# single-EC2 design). Only the app SG egress rules in modules/network match
+# (infra/terraform/modules/network/main.tf, the four
+# aws_vpc_security_group_egress_rule blocks), reached from the foundation root.
+AWS-0104
 
-# AVD-AWS-0031 (ECR mutable tags) WAS accepted here on the grounds that a build
+# AWS-0132 — S3 bucket does not use a customer-managed KMS key. Matches ONLY
+# the ALB access-log bucket (modules/alb_internal, reached from the
+# velocityai-alb root). AWS's own ELB access-logging documentation states that
+# SSE-S3 (AES256) is the ONLY server-side encryption this bucket supports;
+# SSE-KMS makes ELB log delivery fail with access denied. A CMK here would
+# break log delivery rather than harden it, so this is a provider constraint,
+# not a hardening gap. Already accepted for the equivalent checkov rule via the
+# inline `checkov:skip=CKV_AWS_145` annotation on that resource — this entry is
+# the trivy half of the SAME reviewed decision, which is why the finding was
+# reaching the gate unaccepted.
+AWS-0132
+
+# AWS-0136 — SNS topic not encrypted with a customer-managed KMS key. The
+# alerts topic carries non-sensitive CloudWatch alarm notifications and uses
+# the default AWS-managed SNS encryption. Only the monitoring alerts topic
+# matches (modules/monitoring, reached from the app root).
+AWS-0136
+
+# -----------------------------------------------------------------------------
+# NOT ignored — recorded so the absences are deliberate, not oversights.
+# -----------------------------------------------------------------------------
+# AWS-0031 (ECR mutable tags) WAS accepted here on the grounds that a build
 # retry needs to re-push the same tag. That accept is withdrawn: the repos now
 # default to IMMUTABLE (infra/terraform/modules/ecr) and build retries are
 # handled by reusing the existing image's digest instead of re-pushing it
 # (.github/workflows/deploy.yml, "Probe ECR for an existing image"). The check
-# is intentionally live again so that flipping a repo back to MUTABLE fails CI.
-
-# AVD-AWS-0136 — SNS topic not encrypted with a customer-managed KMS key. The
-# alerts topic carries non-sensitive CloudWatch alarm notifications and uses
-# the default AWS-managed SNS encryption. Only the monitoring alerts topic matches.
-AVD-AWS-0136
+# is intentionally live so that flipping a repo back to MUTABLE fails CI. The
+# only AWS-0031 hits today come from infra/terraform/localstack, which pins
+# `image_tag_mutability = "MUTABLE"` on purpose for a throwaway local emulator
+# and is excluded by --skip-dirs, not by an ignore — so the check still fires
+# for shared/ and for the module's own example.

@@ -97,7 +97,10 @@ if [[ -f "$PID_FILE" ]]; then
   rm -f "$PID_FILE"
 fi
 
-cd "$SCRIPT_DIR"
+# `|| exit 1` is required, not defensive: everything below runs `node
+# server.cjs` by relative path, so a failed cd would launch the wrong file (or
+# nothing) from whatever directory the caller happened to be in (SC2164).
+cd "$SCRIPT_DIR" || exit 1
 
 # Resolve the harness PID (grandparent of this script).
 # $PPID is the ephemeral shell the harness spawned to run us — it dies
@@ -122,7 +125,7 @@ disown "$SERVER_PID" 2>/dev/null
 echo "$SERVER_PID" > "$PID_FILE"
 
 # Wait for server-started message (check log file)
-for i in {1..50}; do
+for _ in {1..50}; do
   if grep -q "server-started" "$LOG_FILE" 2>/dev/null; then
     # Verify server is still alive after a short window (catches process reapers)
     alive="true"

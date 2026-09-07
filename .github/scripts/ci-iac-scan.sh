@@ -3,9 +3,9 @@
 #
 # Both scanners always run and both verdicts are computed; the script exits
 # non-zero afterwards if either is red. Documented architectural exceptions live
-# in ci/checkov.yaml and are reviewed there. Those exceptions may never contain
-# a CVE or GHSA identifier: an IaC policy decision is not a software
-# vulnerability waiver.
+# in ci/checkov.yaml (checkov) and ci/trivyignore (trivy) and are reviewed
+# there. Those exceptions may never contain a CVE or GHSA identifier: an IaC
+# policy decision is not a software vulnerability waiver.
 #
 # Usage: ci-iac-scan.sh <evidence-dir>
 set -euo pipefail
@@ -17,14 +17,17 @@ evidence_abs="$(cd "${evidence_dir}" && pwd)"
 checkov_report="${evidence_abs}/checkov-report.json"
 trivy_config_report="${evidence_abs}/trivy-config-report.json"
 
-# Refuse to run if a software-vulnerability ID has been smuggled into the IaC
-# exception file.
-if grep -Eiq '(CVE-[0-9]{4}-[0-9]+|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})' \
-   ci/checkov.yaml 2>/dev/null; then
-  echo "::error::ci/checkov.yaml contains a CVE/GHSA identifier. IaC policy"
-  echo "::error::exceptions must not be used to waive software vulnerabilities."
-  exit 1
-fi
+# Refuse to run if a software-vulnerability ID has been smuggled into either IaC
+# exception file. ci/trivyignore is checked too now that it is actually passed to
+# trivy below: an unread file needed no guard, a read one does.
+for exception_file in ci/checkov.yaml ci/trivyignore; do
+  if grep -Eiq '(CVE-[0-9]{4}-[0-9]+|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})' \
+     "${exception_file}" 2>/dev/null; then
+    echo "::error::${exception_file} contains a CVE/GHSA identifier. IaC policy"
+    echo "::error::exceptions must not be used to waive software vulnerabilities."
+    exit 1
+  fi
+done
 
 # checkov's version comes from the single pin authority, so there is no second
 # copy in this script or in the workflow to drift. It runs in an ISOLATED
@@ -48,7 +51,29 @@ if [[ -f "${evidence_abs}/results_json.json" ]]; then
   mv "${evidence_abs}/results_json.json" "${checkov_report}"
 fi
 
-trivy config --format json --output "${trivy_config_report}" infra/terraform || true
+# The ignorefile and the two --skip-dirs are NOT optional decoration; without
+# them this gate reported 19 HIGH/CRITICAL findings, none of which was an
+# unreviewed risk:
+#   * ci/trivyignore carries the reviewed architectural accepts (documented and
+#     mirrored in ci/checkov.yaml). Passing no --ignorefile meant trivy loaded
+#     no ignore config at all, so the accepts were dead text.
+#   * "**/examples/**" — every module ships an illustrative examples/basic root.
+#     Trivy walks each one as its own root module and re-reports the module's
+#     findings against it, so a single real finding was counted once per
+#     example. Examples are never applied to an account.
+#   * "**/localstack/**" — the local emulator root deliberately weakens settings
+#     that make no sense against LocalStack (ECR image_tag_mutability =
+#     "MUTABLE", open egress). It is not deployable infrastructure, and skipping
+#     it is what keeps the live AWS-0031 check meaningful for shared/ instead of
+#     forcing a blanket ignore of mutable ECR tags.
+# Verified against the failing run's own evidence
+# (ci-results/trivy-config-report.json): the surviving real findings are exactly
+# the three accepted IDs, from foundation/, app/ and velocityai-alb/.
+trivy config \
+  --ignorefile ci/trivyignore \
+  --skip-dirs "**/examples/**" \
+  --skip-dirs "**/localstack/**" \
+  --format json --output "${trivy_config_report}" infra/terraform || true
 
 overall=0
 cd "${GITHUB_WORKSPACE:-.}/backend"

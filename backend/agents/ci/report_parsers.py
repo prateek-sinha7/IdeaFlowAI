@@ -12,6 +12,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
+
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring as safe_fromstring
 from typing import Optional, Any
 
 from .evidence_manifest import normalize_path
@@ -114,8 +117,12 @@ def parse_junit(xml_content: str) -> JUnitReport:
         raise ValueError("Empty JUnit XML content")
 
     try:
-        root = ET.fromstring(xml_content)
-    except ET.ParseError as e:
+        # defusedxml for READING: entity-expansion and external-entity
+        # constructs are rejected rather than resolved (bandit B314). A
+        # rejected document surfaces as the same ValueError as malformed XML,
+        # so every caller keeps its single failure path.
+        root = safe_fromstring(xml_content)
+    except (ET.ParseError, DefusedXmlException) as e:
         raise ValueError(f"Malformed JUnit XML: {e}")
 
     # Root should be testsuites or testsuite
@@ -198,8 +205,8 @@ def parse_cobertura(xml_content: str) -> CoverageReport:
         raise ValueError("Empty Cobertura XML content")
 
     try:
-        root = ET.fromstring(xml_content)
-    except ET.ParseError as e:
+        root = safe_fromstring(xml_content)
+    except (ET.ParseError, DefusedXmlException) as e:
         raise ValueError(f"Malformed Cobertura XML: {e}")
 
     if root.tag != "coverage":

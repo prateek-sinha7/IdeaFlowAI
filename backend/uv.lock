@@ -3000,6 +3000,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "bandit" },
+    { name = "defusedxml" },
     { name = "httpx" },
     { name = "hypothesis" },
     { name = "import-linter" },
@@ -3056,6 +3057,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", extras = ["toml"], specifier = "==1.9.4" },
+    { name = "defusedxml", specifier = "==0.7.1" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "hypothesis", specifier = "==6.122.3" },
     { name = "import-linter", specifier = "==2.1" },

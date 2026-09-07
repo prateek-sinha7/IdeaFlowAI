@@ -89,6 +89,16 @@ dev = [
     # lets `bandit -c pyproject.toml` read [tool.bandit] below.
     "bandit[toml]==1.9.4",
     "pip-audit==2.10.1",
+    # Hardened XML parsing for the CI report readers (agents/ci/*). They read
+    # coverage.xml and JUnit XML, and bandit B314 blocks
+    # xml.etree.ElementTree.parse/fromstring outright — the documented
+    # remediation is the defusedxml equivalent, not a suppression. It was
+    # already resolvable in uv.lock as a transitive dependency of
+    # pip-audit -> cyclonedx-python-lib -> py-serializable; declaring it here
+    # makes that an intentional, pinned edge instead of an accident that a
+    # pip-audit bump could remove. Dev-only on purpose: nothing under
+    # app/ imports agents.ci, so the production image never needs it.
+    "defusedxml==0.7.1",
     # NOTE: checkov is deliberately NOT here. checkov 3.2.x pins
     # boto3==1.34.25, which conflicts with this project's boto3==1.43.2, so
     # adding it makes the lock unresolvable. It is a standalone CLI, not a

@@ -88,9 +88,11 @@ REGION="${VELOCITYAI_REGION:-eu-central-1}"
 DOMAIN="${VELOCITYAI_FQDN:?VELOCITYAI_FQDN missing in /etc/velocityai/bootstrap.env}"
 PARAM_PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/prod}"
 ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:-prod}"
-# Capitalize first letter for CloudWatch namespace ("prod" -> "Prod"). Matches
-# the monitoring module's `cw_metric_namespace = "VelocityAI/${title(env)}"`.
-ENV_TITLE="${ENVIRONMENT^}"
+# NOTE: the title-cased environment for the CloudWatch namespace
+# ("prod" -> "VelocityAI/Prod", matching the monitoring module's
+# `cw_metric_namespace`) is derived in reconcile-host-config.sh, which is the
+# script that actually writes the agent config. An unused ENV_TITLE assignment
+# lived here as a leftover from before that move (SC2034).
 ACME_EMAIL="${VELOCITYAI_ACME_EMAIL:-security@example.com}"
 BACKUP_BUCKET="${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET missing in /etc/velocityai/bootstrap.env}"
 # VELOCITYAI_DATA_DEVICE lets a hand-provisioned box (attached data volume on

@@ -44,6 +44,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import parse as safe_parse
+
 from .aggregate_truth import (
     SignalResult,
     SignalState,
@@ -238,8 +241,11 @@ def cmd_coverage_gate_backend(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        root = ET.parse(path).getroot()
-    except ET.ParseError as exc:
+        # defusedxml, not xml.etree, for the same reason the gate exists at
+        # all: fail closed. It rejects entity-expansion and external-entity
+        # constructs instead of resolving them (bandit B314).
+        root = safe_parse(path).getroot()
+    except (ET.ParseError, DefusedXmlException) as exc:
         print(f"::error::backend coverage report is not parseable XML: {exc}")
         return 1
 
