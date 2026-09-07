@@ -120,7 +120,6 @@ module "compute" {
 
   detailed_monitoring     = false
   ebs_optimized           = false
-  protect_eip             = false
   disable_api_termination = false
   disable_api_stop        = false
 
@@ -139,7 +138,6 @@ module "compute" {
 module "dns" {
   source = "../modules/dns"
 
-  name_prefix       = local.name_prefix
   route53_zone_name = var.route53_zone_name
   app_subdomain     = var.app_subdomain
   eip_address       = module.compute.public_ip

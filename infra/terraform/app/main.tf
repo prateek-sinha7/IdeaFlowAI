@@ -127,7 +127,6 @@ resource "aws_s3_object" "reconcile_script" {
 module "dns" {
   source = "../modules/dns"
 
-  name_prefix       = local.name_prefix
   use_nip_io        = var.use_nip_io
   route53_zone_name = var.route53_zone_name
   app_subdomain     = var.app_subdomain
