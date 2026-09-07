@@ -196,7 +196,7 @@ def pytest_runtest_logreport(report: Any) -> None:
     _recorder.record_report(report)
 
 
-def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
+def pytest_sessionfinish(session: Any, _exitstatus: int) -> None:
     """Flush the records. Runs even when the session failed."""
     if _recorder is not None:
         _recorder.write()
