@@ -84,7 +84,6 @@ module "ecr" {
 module "secrets" {
   source = "../modules/secrets"
 
-  name_prefix                  = local.name_prefix
   environment                  = var.environment
   region                       = module.account_guard.region
   kms_key_id                   = module.kms.key_id
@@ -168,14 +167,7 @@ module "monitoring" {
   backup_vault_name = ""
 
   instance_role_arn = module.iam.instance_role_arn
-  secrets_path_prefix_arn = format(
-    "arn:%s:ssm:%s:%s:parameter%s",
-    module.account_guard.partition,
-    module.account_guard.region,
-    module.account_guard.account_id,
-    module.secrets.parameter_path_prefix,
-  )
-  project_cmk_arn = module.kms.key_arn
+  project_cmk_arn   = module.kms.key_arn
 
   # Let `terraform destroy` empty the CloudTrail bucket in this throwaway env.
   audit_trail_bucket_force_destroy = var.audit_trail_bucket_force_destroy

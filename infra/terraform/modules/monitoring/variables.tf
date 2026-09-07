@@ -194,15 +194,7 @@ variable "instance_role_arn" {
   }
 }
 
-variable "secrets_path_prefix_arn" {
-  description = "ARN prefix (no trailing slash, no wildcard) for the SSM parameter path containing the project's SecureStrings — e.g. arn:aws:ssm:<region>:<acct>:parameter/velocityai/<env>. Historically used to scope a (now-removed) advanced-data-event selector; the trail now captures management events, and the namespace scope lives in the unexpected_secret_read metric filter's $.requestParameters.name / $.requestParameters.path patterns. This ARN is still kept on the module contract (a) for forward-compat if data events for SSM Parameter Store become available, and (b) so future filters that need an ARN-shaped scope can reuse it. Sourced from the parent composition (envs/prod/main.tf) so the value tracks module.secrets.parameter_path_prefix without re-deriving partition/region/account here."
-  type        = string
 
-  validation {
-    condition     = can(regex("^arn:aws[a-zA-Z-]*:ssm:[a-z0-9-]+:[0-9]{12}:parameter/.+$", var.secrets_path_prefix_arn))
-    error_message = "secrets_path_prefix_arn must be a valid SSM Parameter ARN prefix (arn:aws:ssm:<region>:<acct>:parameter/<path>) with no trailing slash and no wildcard."
-  }
-}
 
 variable "project_cmk_arn" {
   description = "ARN of the project KMS CMK (module.kms.key_arn). Used inside the unexpected_kms_decrypt metric filter pattern ($.resources[0].ARN match) so we don't alarm on Decrypt against arbitrary keys. The trail itself captures management events for ALL keys in this account+region (CloudTrail advanced-selector data events don't support AWS::KMS::Key — see the trail-resource header), and the per-key scoping is enforced filter-side."

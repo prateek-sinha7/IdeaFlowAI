@@ -29,10 +29,9 @@ module "monitoring" {
   kms_key_arn = module.kms.key_arn
   alert_email = var.alert_email
 
-  bedrock_model_id        = local.effective_model_id
-  instance_role_arn       = module.iam.instance_role_arn
-  project_cmk_arn         = module.kms.key_arn
-  secrets_path_prefix_arn = local.secrets_path_prefix_arn
+  bedrock_model_id  = local.effective_model_id
+  instance_role_arn = module.iam.instance_role_arn
+  project_cmk_arn   = module.kms.key_arn
 
   providers = { aws.useast1 = aws.useast1 }
 }
@@ -48,7 +47,6 @@ module "monitoring" {
 | `kms_key_arn` | CMK encrypting log groups + SNS topic. | `string` | — | yes |
 | `bedrock_model_id` | Model ID the app invokes (Bedrock alarm `ModelId` dimension). | `string` | — | yes |
 | `instance_role_arn` | EC2 instance role ARN (excluded from the unexpected-secret-read filter). | `string` | — | yes |
-| `secrets_path_prefix_arn` | SSM parameter ARN prefix for the audit-trail filters. | `string` | — | yes |
 | `project_cmk_arn` | Project CMK ARN (scopes the unexpected-KMS-decrypt filter). | `string` | — | yes |
 | `alert_email` | Email subscribed to the SNS topic; empty disables the subscription. | `string` | `""` | no |
 | `log_retention_days` + `log_retention_overrides` | Default + per-group CW Logs retention. | `number`/`map(number)` | `30` / `{}` | no |

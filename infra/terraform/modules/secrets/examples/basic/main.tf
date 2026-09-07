@@ -25,7 +25,6 @@ provider "aws" {
 module "secrets" {
   source = "../../"
 
-  name_prefix = "velocityai-dev"
   environment = "dev"
   region      = "eu-central-1"
   kms_key_id  = "arn:aws:kms:eu-central-1:123456789012:key/00000000-0000-0000-0000-000000000000"
