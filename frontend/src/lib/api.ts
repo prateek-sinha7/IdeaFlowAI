@@ -881,6 +881,9 @@ export interface RunSummaryAgent {
   total_tokens?: number;
   cache_read_tokens?: number;
   cache_write_tokens?: number;
+  // RFN-001 — already in _SUMMARY_SAFE_AGENT_KEYS and persisted in agent_outputs;
+  // adding the field here so TS consumers can read it without a cast.
+  model_id?: string;
 }
 
 /** The aggregated, read-only summary of an owned run — the data spine for the

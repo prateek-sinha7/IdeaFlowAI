@@ -614,6 +614,12 @@ export function handlePipelineMessage(
           outputTokens: undefined,
           totalTokens: undefined,
           estimatedCostUsd: undefined,
+          // RFN-001 — write the resolved model id from agent_start immediately so
+          // the chip shows while the agent is running (the backend now emits model_id
+          // on agent_start as well as agent_complete). If the event predates the
+          // engine change and carries no model_id, the chip simply stays hidden until
+          // agent_complete fires (graceful degrade, no chip flip).
+          modelId: (msg.model_id as string) || undefined,
           inputPrompt: undefined,
           contextSources: undefined,
         };
@@ -709,6 +715,10 @@ export function handlePipelineMessage(
           outputTokens: (msg.output_tokens as number) || 0,
           totalTokens: (msg.total_tokens as number) || 0,
           estimatedCostUsd: (msg.estimated_cost_usd as number) || 0,
+          // RFN-001 — the engine already emits the resolved per-agent model id on
+          // agent_complete (engine.py). Surface it here so the chip can render
+          // immediately when the agent finishes, and persist through pipeline end.
+          modelId: (msg.model_id as string) || undefined,
         };
 
         const completedCount = updated.filter((a) => a.status === "done").length;

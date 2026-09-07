@@ -776,6 +776,10 @@ export interface AgentRunState {
   // of advertising them (464 + 66 × count, advisory).
   skillsLoadErrors?: string[];
   estimatedTokens?: number;
+  // RFN-001 — resolved per-agent model id, set from the `model_id` field on the
+  // `agent_complete` SSE event (engine.py already emits it). Optional so every
+  // existing AgentRunState construction site is unaffected.
+  modelId?: string;
 }
 
 /** A source of context for an agent — either a summarized prior-agent output,

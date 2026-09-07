@@ -4757,6 +4757,18 @@ class ExecutionEngine:
                     continue
                 return
 
+            # RFN-001 — resolve the effective model for this agent BEFORE yielding
+            # agent_start so the chip can appear while the agent is running, not only
+            # after agent_complete. _resolve_model uses ectx.current_step (already set
+            # by the strategy handle before this call) + ectx.model_resolver (wired at
+            # execute() time). The result is the same id that will later land on
+            # agent_complete — guaranteed by the identical call-site at line ~4895.
+            # INV-3 SAFE: model_id is already in _VOLATILE_STRIP_KEYS in
+            # tests/agents/characterization/_normalize.py, so adding it here strips
+            # out of the golden normalizer — all 5 characterization event goldens stay
+            # byte-identical with ZERO regeneration needed.
+            _start_model_id = self._resolve_model(ectx, spec, model_id, step=ectx.current_step)
+
             yield {
                 "type": "agent_start",
                 # ``visit_count`` (R-08) is emitted ONLY when non-zero: a first dispatch
@@ -4766,8 +4778,10 @@ class ExecutionEngine:
                 # appears only on a RE-dispatch, which is the only time it carries
                 # information. Without it two passes of the same step are
                 # indistinguishable on the wire and a loop is invisible in the UI.
+                # ``model_id`` is stripped by _VOLATILE_STRIP_KEYS (INV-3 safe — see above).
                 "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
                          "icon": spec.icon, "index": index, "total": len(ordered_agents),
+                         "model_id": _start_model_id,
                          **({"visit_count": _vc}
                             if (_vc := ectx.step_visit_counts.get(spec.id, 0)) else {})},
             }

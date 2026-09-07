@@ -923,6 +923,37 @@ export interface AgentDetailPanelProps {
   runId?: string | null;
 }
 
+// ─── RFN-001 — model label resolution ────────────────────────────────────────
+// Maps raw Bedrock inference-profile IDs to short human-readable labels.
+// Derived verbatim from model_catalog.py (the single authoritative model list,
+// INV-12). Any new catalog entry must be added here in the same change.
+const MODEL_LABELS: Record<string, string> = {
+  "eu.anthropic.claude-haiku-4-5-20251001-v1:0":    "Claude Haiku 4.5",
+  "us.anthropic.claude-3-5-haiku-20241022-v1:0":    "Claude Haiku 3.5",
+  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0":   "Claude Sonnet 4.5",
+  "eu.anthropic.claude-sonnet-4-6":                 "Claude Sonnet 4.6",
+  "us.anthropic.claude-sonnet-5":                   "Claude Sonnet 5",
+  "eu.anthropic.claude-sonnet-5":                   "Claude Sonnet 5",
+  "eu.anthropic.claude-sonnet-4-20250514-v1:0":     "Claude Sonnet 4",
+  "eu.anthropic.claude-opus-4-5-20251101-v1:0":     "Claude Opus 4.5",
+  "eu.anthropic.claude-opus-4-6-v1":               "Claude Opus 4.6",
+};
+
+/** Return the short display label for a raw Bedrock model id, with a
+ *  cleaned-up fallback (strips region prefix + date suffix) so the chip
+ *  never renders a blank or throws on an unknown id. */
+function resolveModelLabel(modelId: string): string {
+  if (MODEL_LABELS[modelId]) return MODEL_LABELS[modelId];
+  return modelId
+    .replace(/^(eu|us|global)\./, "")
+    .replace(/anthropic\./, "")
+    .replace(/-\d{8}-v\d(:\d)?$/, "")
+    .replace(/-v\d+$/, "")
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+// ─── end RFN-001 ──────────────────────────────────────────────────────────────
+
 export function AgentDetailPanel({
   agent, onBack, construction, onOpenTask,
   agents, agentIndex, dagEdges,
@@ -1027,6 +1058,15 @@ export function AgentDetailPanel({
                   {isRunning && <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-brand-fill text-brand"><Zap className="h-2.5 w-2.5" />Live</span>}
                   {isDone && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-surface-paper text-ink-500">Done</span>}
                   {isError && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-status-failed-fill text-status-failed">Failed</span>}
+                  {/* RFN-001 — per-agent model chip. Shown as soon as model_id
+                      arrives on agent_complete and persists through pipeline end
+                      and history-reopen. Hidden while status is idle/skipped. */}
+                  {agent.modelId && (
+                    <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-surface-warm text-ink-500 border border-line-faint">
+                      <Cpu className="h-2.5 w-2.5 flex-none" />
+                      {resolveModelLabel(agent.modelId)}
+                    </span>
+                  )}
                 </div>
                 <p className="m-0 text-[11px] text-ink-400 truncate">{agent.role}</p>
               </div>

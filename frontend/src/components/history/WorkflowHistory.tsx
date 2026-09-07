@@ -482,7 +482,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const detailWorkflowType = (selectedRun?.type ?? "custom") as WorkflowType;
   const detailIsAppBuilder = detailWorkflowType === "app_builder" || detailWorkflowType === "app_builder_revision";
 
-  const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null; input_tokens?: number; output_tokens?: number; total_tokens?: number }[]>(() => {
+  const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null; input_tokens?: number; output_tokens?: number; total_tokens?: number; model_id?: string }[]>(() => {
     if (!selectedRun?.agentOutputs) return [];
     try {
       const raw = selectedRun.agentOutputs;
@@ -508,6 +508,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           existing.total_tokens = ((existing.total_tokens as number) || 0) + ((a.total_tokens as number) || 0);
           // Keep the last output (most recent/final result)
           if ((a.output as string)?.trim()) existing.output = a.output;
+          // RFN-001 — keep-last model_id (same pattern as output above): for a
+          // build agent that re-runs, the most recent agent_complete is the
+          // authoritative model for the chip.
+          if ((a as Record<string, unknown>).model_id) existing.model_id = (a as Record<string, unknown>).model_id;
         } else {
           seen.set(aid, deduped.length);
           deduped.push({ ...a });
@@ -550,6 +554,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       contextSources: (a as Record<string, unknown>).context_sources as import("@/types/index").ContextSource[] | undefined,
       toolCalls: (a as Record<string, unknown>).tool_calls as import("@/types/index").ToolCallEntry[] | undefined,
       thinkingText: (a as Record<string, unknown>).thinking_text as string | undefined,
+      // RFN-001 — carry the persisted per-agent model id through to AgentRunState
+      // so the model chip renders when a completed run is reopened from history.
+      modelId: (a as Record<string, unknown>).model_id as string | undefined,
     }));
   }, [detailAgentOutputs]);
 
