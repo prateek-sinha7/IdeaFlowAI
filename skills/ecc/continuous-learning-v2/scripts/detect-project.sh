@@ -274,8 +274,16 @@ atomic_write_json(registry_path, registry)
 # Auto-detect on source
 _clv2_detect_project
 
-# Convenience aliases for callers (short names pointing to prefixed vars)
+# Convenience aliases for callers (short names pointing to prefixed vars).
+#
+# shellcheck disable=SC2034
+# PROJECT_ID and PROJECT_NAME are unused WITHIN this file by design: it is a
+# library meant to be sourced ("Auto-detect on source" above), and these two
+# exist for the sourcing shell to read afterwards. PROJECT_ROOT and PROJECT_DIR
+# happen to also be consumed below, which is why shellcheck only flags the
+# other two — the asymmetry is coincidence, not intent.
 PROJECT_ID="$_CLV2_PROJECT_ID"
+# shellcheck disable=SC2034  # sourced-library export; see the note above
 PROJECT_NAME="$_CLV2_PROJECT_NAME"
 PROJECT_ROOT="$_CLV2_PROJECT_ROOT"
 PROJECT_DIR="$_CLV2_PROJECT_DIR"

@@ -92,6 +92,41 @@ resource "aws_kms_key" "this" {
           }
         }
       ] : [],
+      # CloudWatch alarm grant — REQUIRED for alarm actions to reach the
+      # KMS-encrypted `alerts` SNS topic (modules/monitoring). Without it every
+      # alarm action fails at publish time with "CloudWatch Alarms does not have
+      # authorization to access the SNS topic encryption key", and the failure
+      # is silent from the alarm's point of view: the alarm still transitions to
+      # ALARM, only the notification is dropped. The AllowSns statement above
+      # does NOT cover this — it authorises the SNS service principal, whereas
+      # the GenerateDataKey/Decrypt calls for an alarm publish are attributed to
+      # cloudwatch.amazonaws.com.
+      # Ref: https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns
+      #
+      # NO CONDITION BLOCK, DELIBERATELY. Every other service grant in this
+      # policy carries an aws:SourceAccount confused-deputy guard; this one does
+      # not, because AWS does not document CloudWatch as populating
+      # aws:SourceAccount (or aws:SourceArn) on the KMS calls it makes for an
+      # alarm publish, and the AWS-published policy for exactly this case
+      # carries no conditions. An unverified condition key here fails CLOSED and
+      # silently — it would re-break the alerting path this statement exists to
+      # repair, and nothing in CI would catch it. The residual is bounded: two
+      # read/derive actions, for one AWS service principal, on a key whose only
+      # non-alerting uses are already separately granted.
+      var.allow_cloudwatch_alarm_service ? [
+        {
+          Sid    = "AllowCloudWatchAlarmsForEncryptedSns"
+          Effect = "Allow"
+          Principal = {
+            Service = "cloudwatch.amazonaws.com"
+          }
+          Action = [
+            "kms:Decrypt",
+            "kms:GenerateDataKey*"
+          ]
+          Resource = "*"
+        }
+      ] : [],
       var.allow_s3_service ? [
         {
           Sid    = "AllowS3WithinAccount"

@@ -58,7 +58,7 @@ terraform apply -var-file=localstack.tfvars -auto-approve
   LocalStack's EC2 backend can't see IAM-created profiles. The IAM module still
   creates the role/policies/profile so they're exercised.
 - **MonitorInstances / EbsOptimized** unimplemented → both `false` here.
-- **EIP** is ephemeral (`protect_eip = false`); `disable_api_*` are `false` so
+- **EIP** is ephemeral; `disable_api_*` are `false` so
   `destroy.sh` works without `aws ec2 modify-instance-attribute`.
 - **Vault Lock / Object Lock** enforcement absent → hardcoded off.
 - **ECR** shared repos (`velocityai/backend`, `velocityai/frontend`) — same

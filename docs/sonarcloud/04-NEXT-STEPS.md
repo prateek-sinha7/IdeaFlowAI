@@ -4,7 +4,7 @@
 
 ### 1️⃣ **Today** — Read the Overview (5 minutes)
 ```
-📖 Read: SONARCLOUD_IMPLEMENTATION_SUMMARY.md
+📖 Read: README.md (in this directory)
 📍 Location: Project root (this directory)
 ⏱️ Time: 5 minutes
 ✅ Outcome: Understand what was done and why
@@ -12,7 +12,7 @@
 
 ### 2️⃣ **This Hour** — Start Manual Setup (30-40 minutes)
 ```
-📋 Follow: docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md
+📋 Follow: 01-IMPLEMENTATION-CHECKLIST.md
 📍 Phases: 1, 2, 3 (account, token, GitHub secret)
 ⏱️ Time: ~15 minutes
 ✅ Outcome: SonarCloud ready to receive analysis
@@ -29,7 +29,7 @@
 
 ### 4️⃣ **This Week** — Review & Educate (20 minutes)
 ```
-📚 Read: docs/SONARCLOUD_INTEGRATION.md
+📚 Read: 02-INTEGRATION-GUIDE.md
 📍 Sections: "Viewing Analysis Results" & "Common Tasks"
 👥 Share: With your team
 ⏱️ Time: 20 minutes
@@ -40,7 +40,7 @@
 ```
 ⚙️ Setup: Custom quality gate thresholds
 📍 Location: SonarCloud UI → Project Settings
-📋 Reference: SONARCLOUD_IMPLEMENTATION_CHECKLIST.md → Phase 6-7
+📋 Reference: 01-IMPLEMENTATION-CHECKLIST.md → Phase 6-7
 ⏱️ Time: 10 minutes
 ✅ Outcome: Custom quality standards enforced
 ```
@@ -50,21 +50,21 @@
 ## 📄 Documentation Map
 
 ```
-You are here → SONARCLOUD_NEXT_STEPS.md
+You are here → 04-NEXT-STEPS.md
          ↓
    [Choose your path]
    ├─ 🎓 "I want to understand what happened"
-   │  └─→ SONARCLOUD_IMPLEMENTATION_SUMMARY.md
+   │  └─→ README.md (in this directory)
    │
    ├─ 🚀 "I want to get started NOW"
-   │  └─→ docs/SONARCLOUD_README.md (quick start)
-   │     └─→ docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md (step-by-step)
+   │  └─→ 00-START-HERE.md (quick start)
+   │     └─→ 01-IMPLEMENTATION-CHECKLIST.md (step-by-step)
    │
    ├─ 📖 "I want comprehensive documentation"
-   │  └─→ docs/SONARCLOUD_INTEGRATION.md (everything)
+   │  └─→ 02-INTEGRATION-GUIDE.md (everything)
    │
    ├─ 🔧 "I want technical details"
-   │  └─→ docs/SONARCLOUD_CHANGES_SUMMARY.md
+   │  └─→ 03-CHANGES-SUMMARY.md
    │
    └─ ⚙️ "I want configuration reference"
       └─→ sonar-project.properties
@@ -153,13 +153,14 @@ open https://sonarcloud.io/dashboard?id=velocityai
 **A:** Go to https://sonarcloud.io and sign up. Takes 2 minutes with GitHub OAuth.
 
 ### Q: What if the setup fails?
-**A:** See `docs/SONARCLOUD_INTEGRATION.md` → "Troubleshooting" section. Most issues are:
+**A:** See `02-INTEGRATION-GUIDE.md` → "Troubleshooting" section. Most issues are:
 - SONAR_TOKEN not set → Check GitHub Organization Secrets
-- Coverage not found → Check `prepare-sonarcloud` job artifacts
+- Coverage not found → Read the "Verify coverage reports are present and non-empty" step in `sonarcloud-analysis`; the artifacts are `backend-coverage-xml` (from `test-results`) and `frontend-coverage-lcov` (from `frontend`)
+- Coverage shows 0% but the scanner passed → a path that does not resolve from the repo root is dropped **silently**; see 02-INTEGRATION-GUIDE.md
 - Check doesn't appear → Wait 2+ minutes and refresh
 
 ### Q: Can I undo this?
-**A:** Yes. Comment out the `prepare-sonarcloud` and `sonarcloud-analysis` jobs in `.github/workflows/ci.yml`. The changes don't affect existing functionality.
+**A:** Yes. Comment out the `sonarcloud-analysis` job in `.github/workflows/ci.yml` and remove the SonarCloud quality gate from the repository ruleset's required checks. (There is no `prepare-sonarcloud` job — it was removed.) Note that the coverage artifacts themselves are still worth keeping: `backend-coverage-xml` and `frontend-coverage-lcov` are produced by the test jobs regardless.
 
 ### Q: Do I need to do anything locally?
 **A:** No. The integration runs entirely in CI. The only local change is vitest now exports XML coverage (automatic).
@@ -189,15 +190,15 @@ You'll know it's working when:
 Once setup is complete, share these documents with your team:
 
 1. **Managers/Leads:**
-   - `SONARCLOUD_IMPLEMENTATION_SUMMARY.md` (overview)
-   - `docs/SONARCLOUD_README.md` (quick reference)
+   - `README.md` (overview)
+   - `00-START-HERE.md` (quick reference)
 
 2. **Developers:**
-   - `docs/SONARCLOUD_INTEGRATION.md` (full guide)
-   - `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` (runbook)
+   - `02-INTEGRATION-GUIDE.md` (full guide)
+   - `01-IMPLEMENTATION-CHECKLIST.md` (runbook)
 
 3. **DevOps/Platform:**
-   - `docs/SONARCLOUD_CHANGES_SUMMARY.md` (technical)
+   - `03-CHANGES-SUMMARY.md` (technical)
    - `sonar-project.properties` (configuration)
 
 ---
@@ -211,9 +212,14 @@ After initial setup, consider:
    - Get real-time feedback while coding
 
 2. **Tighter Quality Gates** (~10 min)
-   - Start with 85% coverage
-   - Gradually increase as code improves
-   - Add custom rules as needed
+   - Set conditions on **new code**, not overall — start at ≥80% coverage on new
+     code. Do **not** set an ≥85% *overall* coverage condition: measured coverage
+     is ~80% backend and ~46% frontend, so an overall gate fails every PR
+     regardless of what it changed.
+   - Overall regression is already prevented elsewhere: ratchet floors in
+     `frontend/vitest.config.ts` and `coverage report --fail-under=80` on merged
+     backend coverage.
+   - Raise the frontend floors as legacy areas gain tests; add custom rules as needed
 
 3. **Team Dashboard** (~20 min)
    - Create custom SonarCloud dashboard
@@ -232,7 +238,7 @@ After initial setup, consider:
 
 **1. Check Troubleshooting:**
 ```
-docs/SONARCLOUD_INTEGRATION.md → "Troubleshooting" section
+02-INTEGRATION-GUIDE.md → "Troubleshooting" section
 ```
 
 **2. Check CI Logs:**
@@ -243,12 +249,12 @@ Look for error messages
 
 **3. Common Issues:**
 - ❌ SONAR_TOKEN not found → GitHub Organization Secret not set
-- ❌ Coverage files missing → Check prepare-sonarcloud artifacts
+- ❌ Coverage files missing → Check the `backend-coverage-xml` / `frontend-coverage-lcov` artifacts
 - ❌ Check doesn't appear → Wait 2+ min, check SonarCloud dashboard
 - ❌ Quality gate always fails → Too strict? See Phase 6 in checklist
 
 **4. Advanced Issues:**
-- See `docs/SONARCLOUD_CHANGES_SUMMARY.md` for job parameters
+- See `03-CHANGES-SUMMARY.md` for job parameters
 - See `sonar-project.properties` for configuration options
 
 ---
@@ -269,9 +275,9 @@ Everything is set up. You now have:
 ## 👉 Ready to Start?
 
 ### Option A: Read Everything First (25 min)
-1. Read `SONARCLOUD_IMPLEMENTATION_SUMMARY.md`
-2. Read `docs/SONARCLOUD_README.md`
-3. Read `docs/SONARCLOUD_INTEGRATION.md`
+1. Read `README.md`
+2. Read `00-START-HERE.md`
+3. Read `02-INTEGRATION-GUIDE.md`
 
 ### Option B: Jump Right In (30 min + test)
 1. Follow the **Critical Path** above
@@ -280,7 +286,7 @@ Everything is set up. You now have:
 4. Open test PR to verify
 
 ### Option C: Step-by-Step (40 min)
-1. Follow `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md`
+1. Follow `01-IMPLEMENTATION-CHECKLIST.md`
 2. Complete all 10 phases (most are automatic verification)
 
 ---

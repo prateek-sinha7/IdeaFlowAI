@@ -25,7 +25,8 @@ build/
 *.db
 *.db.*
 *.bak
-*uv.lock
+# uv.lock IS tracked in git; remove the ignore pattern for frozen dependency reproducibility
+# (formerly *uv.lock — this was removed per Task 3.16)
 # Virtual environments
 venv/
 .venv/

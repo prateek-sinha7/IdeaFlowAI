@@ -267,8 +267,8 @@ test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
   //     neither is nullish, so the literal "Failed to load models." copy can't be
   //     produced via route manipulation. (The error UI itself IS reachable, but
   //     asserting this exact copy would be a false assertion.)
-  test.fixme(
-    "TS-E-01b-nojwt-and-failcopy: no-jwt redirects to /login (picker never mounts); 500/abort surface the body/statusText, never the literal 'Failed to load models.' fallback",
+  test.skip(
+    "TS-E-01b-nojwt-and-failcopy: no-jwt redirects to /login (picker never mounts); 500/abort surface the body/statusText, never the literal 'Failed to load models.' fallback; Owner: frontend",
     async () => {},
   );
 });

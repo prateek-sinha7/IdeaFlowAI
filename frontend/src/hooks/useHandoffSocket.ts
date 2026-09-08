@@ -164,6 +164,7 @@ export function useHandoffSocket(
         setConnectionStatus("disconnected");
         setLastError("Your session has expired. Please log in again.");
         if (typeof window !== "undefined") {
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
           window.location.href = "/login";
         }
         return;

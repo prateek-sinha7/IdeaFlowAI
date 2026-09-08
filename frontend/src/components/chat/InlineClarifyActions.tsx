@@ -21,7 +21,7 @@
  *   coercion to handle non-string values (array, null, etc.) from the API.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Zap } from "lucide-react";
 
 import type { ClarifyQuestion } from "@/types/index";

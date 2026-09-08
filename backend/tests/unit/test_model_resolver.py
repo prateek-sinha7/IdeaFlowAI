@@ -354,9 +354,7 @@ def test_normalize_noop_for_unknown_region():
 
 def test_normalize_noop_for_empty_region_override():
     """Empty string _region_override (used by test helpers) disables normalization."""
-    result = _normalize_geo_prefix(
-        "us.anthropic.claude-sonnet-5", _region_override=""
-    )
+    result = _normalize_geo_prefix("us.anthropic.claude-sonnet-5", _region_override="")
     assert result == "us.anthropic.claude-sonnet-5"
 
 

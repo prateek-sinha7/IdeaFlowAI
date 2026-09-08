@@ -19,9 +19,4 @@ locals {
   # Model ID the app actually invokes (profile ID when using cross-region
   # inference). Drives the Bedrock CloudWatch alarm dimension.
   effective_model_id = var.use_inference_profile_for_app ? var.bedrock_inference_profile_id : var.bedrock_model_id
-
-  # SSM parameter ARN prefix for the monitoring module's CloudTrail metric
-  # filters. Built from the guard's partition/region/account + the foundation
-  # parameter prefix (no trailing slash, no wildcard).
-  secrets_path_prefix_arn = "arn:${module.account_guard.partition}:ssm:${module.account_guard.region}:${module.account_guard.account_id}:parameter${local.fnd.parameter_path_prefix}"
 }

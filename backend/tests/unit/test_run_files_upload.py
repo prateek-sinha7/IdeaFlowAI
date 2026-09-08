@@ -476,7 +476,10 @@ class TestStreamingSizeCap:
                 return chunk
 
         big = _CountingUpload(b"x" * (1024 * 1024))  # 1 MB part, 4-byte cap
-        out = asyncio.get_event_loop().run_until_complete(rf._read_capped(big, 4))
+        # asyncio.run, not get_event_loop() — see the note in
+        # tests/unit/test_user_workflows_selections.py. Under pytest-asyncio 1.x
+        # there is no implicit current loop once any async test has run.
+        out = asyncio.run(rf._read_capped(big, 4))
         assert out is None
         assert big.read_bytes <= 6  # aborted after crossing the cap, NOT ~1 MB
 
@@ -493,9 +496,7 @@ class TestStreamingSizeCap:
             async def read(self, size: int = -1) -> bytes:
                 return self._buf.read(size)
 
-        out = asyncio.get_event_loop().run_until_complete(
-            rf._read_capped(_Upload(b"hello"), 1024)
-        )
+        out = asyncio.run(rf._read_capped(_Upload(b"hello"), 1024))
         assert out == b"hello"
 
 

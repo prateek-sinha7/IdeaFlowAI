@@ -9,13 +9,14 @@
 #                     runs as non-root user `flowin`.
 #
 # Notes on build hygiene:
-#   * Only `requirements.txt` is COPYed before `pip install` so unrelated
-#     source changes don't bust the (slow) dependency layer.
+#   * Only `pyproject.toml` and `uv.lock` are COPYed before the dependency
+#     export/install so unrelated source changes don't bust the (slow)
+#     dependency layer. `uv.lock` (Task 3.16) is the single committed
+#     resolution authority; there is no separate requirements-prod.txt to
+#     drift out of sync with it — `uv export --frozen --no-dev` derives the
+#     production-only, hash-bearing install list from the lock at build time.
 #   * apt-get update + install live in a single RUN to prevent stale-cache
 #     poisoning across rebuilds.
-#   * `requirements.txt` mixes runtime + test deps (pytest, hypothesis). We
-#     install the lot rather than refactor the file; ~5 MB of dead weight is
-#     acceptable to avoid coupling this Dockerfile to a requirements split.
 #   * The Node toolchain lives in its own builder stage so that pptxgenjs
 #     version bumps don't invalidate the Python wheel cache (and vice versa).
 
@@ -42,22 +43,42 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# `uv` is used in this stage ONLY to export the production dependency slice
+# from the committed backend/uv.lock — it never runs `uv sync`/`uv pip
+# install` itself, so the actual install below still targets a plain
+# `python -m venv`, matching the runtime stage's plain-venv PATH. Installed
+# via pip (from PyPI, exact version, no floating range) rather than a
+# separate curl|sh install script, since this builder stage already has a
+# working pip and this is the only place `uv` is needed at build time.
+RUN pip install --no-cache-dir uv==0.11.3
+
 # Create the venv that the runtime stage will inherit. Using a venv (rather
 # than the system site-packages) keeps the install tree relocatable — the
 # COPY into the runtime stage is just a directory copy.
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# Cache-friendly: install deps before copying app source so source-only
-# changes hit the cached layer. 
-# Phase 6: Install only production dependencies (requirements-prod.txt).
-# Test dependencies (pytest, hypothesis, etc.) are NOT included in the runtime image.
-# Phase 7: Use --mount=type=cache to speed up pip installs (local cache, not in layer).
+# Cache-friendly: export + install deps before copying app source so
+# source-only changes hit the cached layer.
+#
+# `backend/uv.lock` (committed, Task 3.16) is the SOLE dependency-resolution
+# authority for this image — there is no second, separately-maintained
+# requirements file to drift out of sync with it. `uv export --frozen`
+# refuses to re-resolve if uv.lock and pyproject.toml disagree (fails the
+# build instead of silently installing something the lock didn't pin), and
+# `--no-dev` produces exactly `[project.dependencies]` — no test/static/
+# security tooling in the runtime image. The export is hash-bearing
+# (`--require-hashes` below verifies every wheel/sdist against the digest
+# uv.lock recorded), so this build gets the same integrity guarantee a
+# committed requirements-prod.txt with `--hash` lines would, without a
+# second file someone could forget to regenerate.
 WORKDIR /build
-COPY requirements-prod.txt ./
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv export --frozen --no-dev --no-emit-project -o requirements-prod.lock.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements-prod.txt
+    && pip install --no-cache-dir --require-hashes -r requirements-prod.lock.txt
 
 
 # ============================================================================
@@ -79,7 +100,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 #   * Mirrors the approach already used by frontend/Dockerfile, so the two
 #     services pull Node from the same upstream and we don't add a second
 #     pattern for the same problem.
-FROM node:20-bookworm-slim AS pptx-builder
+FROM node:20-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS pptx-builder
 
 # Install pptxgenjs at the exact version pinned by frontend/package-lock.json.
 # `--prefix /opt/pptx` lays out node_modules under /opt/pptx/node_modules/
@@ -91,7 +112,7 @@ RUN npm install --prefix /opt/pptx --no-audit --no-fund --omit=dev pptxgenjs@3.1
 # ============================================================================
 # Stage 3 — runtime
 # ============================================================================
-FROM python:3.13-slim-bookworm AS runtime
+FROM python:3.13-slim-bookworm@sha256:b6bd71b0dd3811ddbcbc523ec2965fd1e1bcfdf7a20ab24679273d3bee726129 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -165,7 +186,7 @@ RUN playwright install --with-deps chromium \
 # pptx-builder stage so the ABI matches the node_modules copied below.
 # We need only the `node` binary itself — `npm` is not invoked at runtime;
 # the FastAPI service in pptx_export.py spawns `node <script>` directly.
-COPY --from=node:20-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:20-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c /usr/local/bin/node /usr/local/bin/node
 
 # Bring the pre-installed pptxgenjs node_modules across. Owned by the non-root
 # runtime user so `node` can read them when invoked from the FastAPI process.

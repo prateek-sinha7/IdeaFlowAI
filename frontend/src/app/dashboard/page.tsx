@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { buildLoginRedirect } from "@/lib/authRedirect";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions, getRunFamily } from "@/lib/api";
+import { getToken, getChat, logout, deleteChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions, getRunFamily } from "@/lib/api";
 import type { WorkflowSummary } from "@/lib/api";
 import { useAppDispatch } from "@/store/hooks";
 import { signedIn, userLoaded, signedOut } from "@/store/slices/authSlice";
@@ -33,7 +33,7 @@ import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents
 // DashboardLayout already uses for notification titles (INV-12 — no dual impl).
 import { parseRunInput } from "@/lib/runInput";
 import { useRunStateStore } from "@/hooks/useRunStateStore";
-import type { PerRunState } from "@/hooks/useRunStateStore";
+
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -1887,7 +1887,6 @@ export default function DashboardPage() {
       ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
   // effectiveConnectionStatus drives the re-run.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveConnectionStatus]);
 
   // Fire a staged od_ppt run once the SSE connection is ready (idle → connected).
@@ -1961,7 +1960,6 @@ export default function DashboardPage() {
       ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
       ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveConnectionStatus]);
 
   // Select a chat session and load its messages
@@ -2165,7 +2163,6 @@ export default function DashboardPage() {
       runConnection.attachRun(runId);
     },
     // runConnection is stable (memo'd in RunConnectionProvider). All others are refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [runConnection],
   );
 

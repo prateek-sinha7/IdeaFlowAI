@@ -1,8 +1,29 @@
-# Production dependencies only (no test/dev tools)
-# For reproducible builds, use: uv sync --frozen
-# This is the authoritative source for production container images.
+# Production dependencies only (no test/dev tools).
+#
+# This file is a human-readable convenience mirror, NOT the CI/Docker
+# resolution authority (Task 3.16). The committed backend/uv.lock is the
+# single dependency-resolution authority:
+#   - CI installs via `uv sync --frozen --no-dev` (see
+#     .github/actions/setup-backend/action.yml).
+#   - The production Dockerfile derives its install list at build time with
+#     `uv export --frozen --no-dev` from the same uv.lock.
+# backend/tests/ci/test_dependency_lock_contracts.py asserts this file's pins
+# stay identical to [project.dependencies] in pyproject.toml, so it cannot
+# silently drift into a second, disagreeing source of truth — but it is not
+# read by CI or the Docker build.
 
-fastapi==0.115.6
+fastapi==0.141.1
+# starlette is pinned EXPLICITLY (it is fastapi's transitive dependency) because
+# it is the package the advisories are filed against, and a floating transitive
+# is how 0.41.3 sat here through nine of them. 1.3.1 is the lowest release that
+# clears all nine (PYSEC-2026-161, -248, -249, -1941, -1942, -2280, -2281 and
+# the two duplicate -161/-248 entries).
+#
+# This required moving fastapi off 0.115.6, which capped starlette at <0.42.
+# fastapi 0.141.1 declares `starlette>=0.46.0` with NO upper bound, so the two
+# pins are compatible. NOTE: starlette 1.x is a MAJOR bump from 0.41 — see the
+# note on `mcp` below, which was previously pinned low for exactly this reason.
+starlette==1.3.1
 uvicorn==0.34.0
 sqlalchemy==2.0.36
 # Schema migrations. Production runs `alembic upgrade head` as the systemd
@@ -14,15 +35,41 @@ alembic==1.14.0
 psycopg2-binary==2.9.12
 pydantic[email]==2.12.5
 pydantic-settings==2.7.1
-python-jose[cryptography]==3.3.0
+# 3.5.0, not 3.4.0. 3.4.0 is the minimum release that clears the five advisories
+# filed against 3.3.0, but it declares `pyasn1<0.5.0,>=0.4.1` — taking it would
+# have silently DOWNGRADED pyasn1 0.6.4 -> 0.4.8 and pyasn1-modules 0.4.2 ->
+# 0.4.1 (pyasn1-modules 0.4.2 needs pyasn1>=0.6.1, so the whole pair rolls back).
+# Fixing one advisory by reverting two transitive dependencies several years is a
+# bad trade. 3.5.0 carries the same fixes and declares `pyasn1>=0.5.0` with no
+# cap, so pyasn1 stays current.
+#
+# KNOWN RESIDUAL: python-jose depends unconditionally on `ecdsa`, which carries
+# PYSEC-2026-1325 with NO fix version published — the ecdsa maintainers treat
+# side-channel resistance as out of scope for a pure-Python implementation, so
+# no upgrade will clear it. It is suppressed in ci.yml's pip-audit step via an
+# explicit --ignore-vuln, on this verified basis: BOTH verification call sites
+# pass an explicit non-EC algorithm allow-list — app/core/security.py uses
+# `algorithms=["HS256"]` and app/core/cognito.py uses `algorithms=["RS256"]` —
+# so no EC key is ever parsed and the vulnerable code path is unreachable.
+#
+# TODO(migrate-off-python-jose): the durable fix is PyJWT, which has no ecdsa
+# dependency and is already present in the tree transitively (via langgraph-sdk
+# and mcp). That is an auth refactor across security.py, identity.py, cognito.py
+# and api/auth.py, so it is tracked separately rather than folded into a CI
+# remediation change.
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 # langchain 1.x line. Bumped to satisfy deepagents 0.6.7's floor
 # (langchain>=1.3.2, langchain-core>=1.4.0, langgraph>=1.2.4). Resolver-verified
 # to coexist unchanged with langchain-aws 1.4.6 + langchain-anthropic 1.4.3.
-langchain==1.3.4
-langchain-core==1.4.0
+langchain==1.3.9
+# Raised 1.4.0 -> 1.4.6 because langchain 1.3.9 requires langchain-core>=1.4.6.
+# Still satisfies deepagents 0.6.7's floor (langchain-core>=1.4.0) and stays
+# below langchain-mistralai 1.1.5's floor of >=1.4.7, so the mistralai 1.1.4 pin
+# below remains valid for the reason its own comment gives.
+langchain-core==1.4.6
 # Anthropic direct API — used when ANTHROPIC_API_KEY is set (local dev)
-langchain-anthropic==1.4.3
+langchain-anthropic==1.4.6
 # Mistral — free-tier provider used as a build_model() fallback / explicit
 # eval-harness opt-in.
 # Pinned to 1.1.4, NOT the latest (1.1.6): 1.1.5+ requires langchain-core>=1.4.7,
@@ -41,9 +88,13 @@ boto3==1.43.2
 # LangChain deepagents — the agent runtime for ALL pipeline agents (replaces the
 # custom app/agents/deep_agent.py). Pulls langgraph-checkpoint/prebuilt/sdk + langsmith.
 deepagents==0.6.7
+# Pinned explicitly although it arrives transitively via deepagents: 0.8.5 was
+# resolved here and carries GHSA-f4xh-w4cj-qxq8. 0.8.18 is the fix. Pinning it
+# stops the transitive resolution drifting back below the fix.
+langsmith==0.8.18
 # LangGraph Postgres checkpointer — durable HITL review gates + crash/disconnect
 # resume; uses the production DATABASE_URL=postgresql://... (manages its own tables).
-langgraph-checkpoint-postgres==3.1.0
+langgraph-checkpoint-postgres==3.1.1
 # langgraph-checkpoint-postgres depends transitively on bare `psycopg>=3.2.0`,
 # which resolves to the core package with NO pq wrapper bundled — it needs a
 # system libpq at import time or it raises "no pq wrapper available" the
@@ -51,8 +102,13 @@ langgraph-checkpoint-postgres==3.1.0
 # here bundles a self-contained libpq in the wheel so no OS-level Postgres
 # client library install is required on any dev machine or container.
 psycopg[binary]==3.2.4
-websockets==14.1
-python-dotenv==1.0.1
+# Raised 14.1 -> 15.0.1 because langsmith 0.8.18 (the advisory fix) requires
+# websockets>=15.0. Held at the 15.x line rather than the current 17.1: the only
+# remaining WebSocket surface in this repo is /ws/handoff (LOCK-B — the run
+# frames were removed in the SSE cutover), so there is nothing to gain from two
+# further major bumps here.
+websockets==15.0.1
+python-dotenv==1.2.2
 # YAML frontmatter parser for AGENT.md files (folder-per-agent architecture)
 python-frontmatter==1.1.0
 # OpenTelemetry — the otel_tracing canonical hook (08-07 / OBS-02). API + SDK only
@@ -92,18 +148,31 @@ tree-sitter-typescript==0.23.2
 # (github.com/modelcontextprotocol/python-sdk, Anthropic PBC) providing FastMCP/stdio
 # for the offline stub fixture.
 #
-# VERSION-PIN DECISION (checkpoint version-resolution caution realized): the floor
-# `>=0.2.2` resolves to the day-old `0.3.0` (released 2026-06-10), whose transitive
-# `mcp` pulls `starlette>=...` up to 1.2.x, which BREAKS the pinned `fastapi==0.115.6`
-# (it requires `starlette<0.42`; `app.main` failed to import on the 0.3.0 resolution).
-# Per the documented caution we pin the known-good 0.2.x: `langchain-mcp-adapters>=0.2.2,<0.3`.
-# `mcp` is pinned at the resolved 1.27.2 (requires only `starlette>=0.27`, no upper bound —
-# so it does NOT itself force the breaking upgrade); `sse-starlette` is held at 3.0.2
-# (its starlette pin is an `examples` extra only, so it coexists with the project's
-# starlette 0.41.3). starlette is NOT bumped — the project's 0.41.3 (fastapi-compatible)
-# is the floor. Proven: FastMCP + MultiServerMCPClient + app.main all import together.
-langchain-mcp-adapters>=0.2.2,<0.3
-mcp==1.27.2
+# VERSION-PIN DECISION — SUPERSEDED, kept for context. The original note here
+# explained that `langchain-mcp-adapters` had to stay on 0.2.x and `mcp` on
+# 1.27.2 because newer versions pulled starlette past `fastapi==0.115.6`'s
+# `starlette<0.42` cap. That cap is GONE: fastapi is now 0.141.1
+# (`starlette>=0.46.0`, no upper bound) and starlette is pinned at 1.3.1 above,
+# so the starlette ceiling is no longer the binding constraint.
+#
+# `mcp` moves 1.27.2 -> 1.28.1, the fix for its advisory. It is deliberately NOT
+# taken to the current 2.1.1, which switches its HTTP stack to `httpx2>=2.5.0` —
+# a second, parallel HTTP client alongside the httpx the rest of this tree uses.
+# That is a bigger change than a CVE fix warrants; 1.28.1 is the minimum that
+# clears the advisory.
+#
+# `langchain-mcp-adapters` is now pinned EXACTLY at 0.2.2 rather than as
+# `>=0.2.2,<0.3`. A floating range is not reproducible — the resolved version
+# could differ between two builds of the same commit, which is the thing the rest
+# of this file exists to prevent. 0.2.2 is the top of the 0.2 line and is what
+# that range already resolved to, so this pin changes nothing at runtime.
+#
+# The `<0.3` half of the old constraint is no longer load-bearing (the starlette
+# cap it protected against is gone), but 0.3.x is not required by any advisory,
+# so moving to it is a behavioural change with no security payoff. Left for a
+# deliberate upgrade rather than folded in here.
+langchain-mcp-adapters==0.2.2
+mcp==1.28.1
 sse-starlette==3.0.2
 # Document-text extraction — used by _extract_docx / _extract_pptx / _extract_pdf
 # in app/api/file_extract.py (single extraction impl, INV-12).  These were absent
@@ -113,4 +182,10 @@ sse-starlette==3.0.2
 # versions.  ISS-057 / FIX-191.
 python-docx==1.1.2
 python-pptx==1.0.2
-pypdf==5.1.0
+# 5.1.0 carried 41 advisories — by far the largest single concentration in this
+# file, which is unsurprising for a parser fed untrusted user uploads (see
+# _extract_pdf in app/api/file_extract.py). 6.16.1 is the lowest release that
+# clears all 41. This is a MAJOR bump (5.x -> 6.x); pypdf 6 removed the
+# long-deprecated PdfFileReader/PdfFileWriter aliases and some
+# camelCase methods, so the call site was checked against the 6.x API.
+pypdf==6.16.1

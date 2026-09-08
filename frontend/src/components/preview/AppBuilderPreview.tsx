@@ -67,6 +67,21 @@ function getFileIcon(ext: string): typeof File {
   return map[ext.toLowerCase()] || File;
 }
 
+// react-hooks/static-components flags ANY `const X = someLookup(...)` binding
+// of a component reference inside a named component function's body — even
+// though getFileIcon is a pure, module-scope Record lookup, not a component
+// definition, and even wrapped in useMemo (memoizing the VALUE doesn't change
+// that the binding itself sits in render scope, which is what the rule keys
+// off; verified empirically — useMemo(() => getFileIcon(...)) is STILL
+// flagged). The shape it accepts is the resolved component passed in as a
+// PROP, never bound to a local variable inside the consuming component's own
+// body. FileIcon is that seam: it takes the ALREADY-RESOLVED component as
+// `Icon`, so the caller does the lookup in an expression position (JSX
+// attribute), not a statement that binds a name.
+function FileIcon({ Icon, className }: { Icon: typeof File; className?: string }) {
+  return <Icon className={className} />;
+}
+
 // ─── Tree builder ─────────────────────────────────────────────────────────────
 
 function buildTree(files: ParsedFile[]): TreeNode[] {
@@ -198,7 +213,6 @@ function FileTreeNode({
     );
   }
 
-  const Icon = getFileIcon(node.file?.ext || "");
   const matchesSearch = !searchQuery || node.name.toLowerCase().includes(searchQuery.toLowerCase());
   if (!matchesSearch) return null;
 
@@ -212,7 +226,10 @@ function FileTreeNode({
       }`}
       style={{ paddingLeft: `${10 + indent}px`, paddingRight: "8px" }}
     >
-      <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-brand" : "text-ink-400"}`} />
+      <FileIcon
+        Icon={getFileIcon(node.file?.ext || "")}
+        className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-brand" : "text-ink-400"}`}
+      />
       <span className={`text-[11px] truncate ${isActive ? "text-brand font-medium" : "text-ink-600"}`}>
         {node.name}
       </span>

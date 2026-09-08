@@ -208,9 +208,20 @@ variable "alarm_email" {
 }
 
 variable "kms_key_arn" {
-  description = "ARN of a KMS CMK used to encrypt the SNS topic this module creates. Empty uses the AWS-managed SNS key."
+  description = "ARN of an existing KMS CMK used to encrypt the SNS topic this module creates. Empty (the default) makes the module create its own dedicated CMK for that topic — it does NOT mean unencrypted, and it cannot mean the AWS-managed SNS key, because CloudWatch alarms cannot publish to a topic encrypted with alias/aws/sns."
   type        = string
   default     = ""
+}
+
+variable "alerts_kms_deletion_window_in_days" {
+  description = "Days before the module-created alerts SNS key is permanently deleted after `terraform destroy`. Ignored when kms_key_arn is supplied or create_sns_topic is false."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.alerts_kms_deletion_window_in_days >= 7 && var.alerts_kms_deletion_window_in_days <= 30
+    error_message = "KMS deletion window must be between 7 and 30 days."
+  }
 }
 
 variable "unhealthy_host_alarm_threshold" {

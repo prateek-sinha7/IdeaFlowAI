@@ -24,7 +24,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+
 import React from "react";
 
 // next/navigation — LoginPage calls useRouter() + useSearchParams() at the top

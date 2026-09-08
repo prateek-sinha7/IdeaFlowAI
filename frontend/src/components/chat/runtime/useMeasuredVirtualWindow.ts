@@ -19,7 +19,7 @@
  * transcripts).
  */
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 /** Above this many messages the measured virtual window engages. */
@@ -157,29 +157,62 @@ export function useMeasuredVirtualWindow(
       ? estimateHeight
       : () => estimateHeight;
 
-  // Below the threshold virtualization disengages: full range, zero spacers.
-  if (itemCount <= VIRTUALIZE_THRESHOLD) {
-    return {
-      startIndex: 0,
-      endIndex: itemCount,
-      topSpacer: 0,
-      bottomSpacer: 0,
-      measure,
-    };
-  }
-
-  const el = scrollRef.current;
-  const scrollTop = el?.scrollTop ?? 0;
-  const viewport = el?.clientHeight ?? 0;
-
-  const window = computeWindow(
-    itemCount,
-    scrollTop,
-    viewport,
-    heights.current,
-    estimate,
-    overscan,
+  // react-hooks/refs — no ref (`scrollRef.current` OR `heights.current`) may
+  // be read in the render body: React does not re-render when a ref mutates,
+  // and the compiler flags a render-time read as unsafe regardless of intent.
+  // The whole windowing computation therefore moves INSIDE a layout effect,
+  // which is the sanctioned place to read refs, and only the RESULT is kept
+  // in state — render reads that state, never a ref directly.
+  //
+  // useLayoutEffect (not useEffect) so the result is committed before paint —
+  // the FIRST render still resolves to the real scroll metrics before the
+  // user sees anything, matching the hook's original synchronous-on-first-
+  // render behavior. Deliberately no dependency array: must recompute on
+  // EVERY render (not just when scrollRef/itemCount/a version counter
+  // changes), because a re-render caused by something OTHER than bump() —
+  // e.g. the parent re-rendering after a message arrives — can also coincide
+  // with the scroll container's real scrollTop having moved (ChatPanel's own
+  // bottom-pin effect adjusts it directly). A dependency array would miss
+  // that case and leave the window stale until the next explicit bump(). The
+  // change-guard below (returning `prev` when nothing moved) is what prevents
+  // an infinite update loop, not the dependency array — the same reasoning
+  // eslint cannot statically verify, mirroring the scroll-subscription effect
+  // above.
+  const [result, setResult] = useState<Omit<MeasuredVirtualWindow, "measure">>(
+    () => ({ startIndex: 0, endIndex: itemCount, topSpacer: 0, bottomSpacer: 0 }),
   );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    // Below the threshold virtualization disengages: full range, zero spacers.
+    if (itemCount <= VIRTUALIZE_THRESHOLD) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setResult((prev) =>
+        prev.startIndex === 0 && prev.endIndex === itemCount
+          ? prev
+          : { startIndex: 0, endIndex: itemCount, topSpacer: 0, bottomSpacer: 0 },
+      );
+      return;
+    }
+    const el = scrollRef.current;
+    const scrollTop = el?.scrollTop ?? 0;
+    const viewport = el?.clientHeight ?? 0;
+    const next = computeWindow(
+      itemCount,
+      scrollTop,
+      viewport,
+      heights.current,
+      estimate,
+      overscan,
+    );
+    setResult((prev) =>
+      prev.startIndex === next.startIndex &&
+      prev.endIndex === next.endIndex &&
+      prev.topSpacer === next.topSpacer &&
+      prev.bottomSpacer === next.bottomSpacer
+        ? prev
+        : next,
+    );
+  });
 
-  return { ...window, measure };
+  return { ...result, measure };
 }

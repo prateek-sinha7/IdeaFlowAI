@@ -87,7 +87,14 @@ def _build_span_processor() -> Any:
     if endpoint:
         try:
             # Lazy, guarded import — the OTLP exporter is NOT a hard dependency.
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            # `opentelemetry-exporter-otlp` is intentionally NOT in
+            # requirements-prod.txt (see the module docstring / OBS-02): adding
+            # it to satisfy pyright would contradict that documented decision.
+            # pyright's import-resolution-only mode has no per-package way to
+            # say "this optional dependency may be absent"; scope the ignore to
+            # this exact line rather than relaxing reportMissingImports
+            # workspace-wide (backend/pyrightconfig.json).
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # pyright: ignore[reportMissingImports]
                 OTLPSpanExporter,
             )
             from opentelemetry.sdk.trace.export import BatchSpanProcessor

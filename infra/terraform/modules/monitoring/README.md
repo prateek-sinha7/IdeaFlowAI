@@ -29,10 +29,9 @@ module "monitoring" {
   kms_key_arn = module.kms.key_arn
   alert_email = var.alert_email
 
-  bedrock_model_id        = local.effective_model_id
-  instance_role_arn       = module.iam.instance_role_arn
-  project_cmk_arn         = module.kms.key_arn
-  secrets_path_prefix_arn = local.secrets_path_prefix_arn
+  bedrock_model_id  = local.effective_model_id
+  instance_role_arn = module.iam.instance_role_arn
+  project_cmk_arn   = module.kms.key_arn
 
   providers = { aws.useast1 = aws.useast1 }
 }
@@ -48,7 +47,6 @@ module "monitoring" {
 | `kms_key_arn` | CMK encrypting log groups + SNS topic. | `string` | — | yes |
 | `bedrock_model_id` | Model ID the app invokes (Bedrock alarm `ModelId` dimension). | `string` | — | yes |
 | `instance_role_arn` | EC2 instance role ARN (excluded from the unexpected-secret-read filter). | `string` | — | yes |
-| `secrets_path_prefix_arn` | SSM parameter ARN prefix for the audit-trail filters. | `string` | — | yes |
 | `project_cmk_arn` | Project CMK ARN (scopes the unexpected-KMS-decrypt filter). | `string` | — | yes |
 | `alert_email` | Email subscribed to the SNS topic; empty disables the subscription. | `string` | `""` | no |
 | `log_retention_days` + `log_retention_overrides` | Default + per-group CW Logs retention. | `number`/`map(number)` | `30` / `{}` | no |
@@ -71,6 +69,16 @@ module "monitoring" {
 - This module needs a `aws.useast1` provider alias passed in (billing/
   `EstimatedCharges` metrics only exist in us-east-1, and an alarm must publish
   to a same-region topic).
+- Because of that, the module creates a **second, us-east-1 KMS key** solely to
+  encrypt the billing-alert topic. KMS keys are single-region and the project CMK
+  is pinned to eu-central-1 with `multi_region = false`, so it cannot be reused
+  there. The AWS-managed `alias/aws/sns` key is not an option either: CloudWatch
+  alarms cannot publish through it. Tune its deletion window with
+  `alerts_useast1_kms_deletion_window_in_days`.
+- `kms_key_arn` (the project CMK) must grant `cloudwatch.amazonaws.com`
+  `kms:Decrypt` + `kms:GenerateDataKey*` or every regional alarm will transition
+  to ALARM without notifying. `modules/kms` does this via
+  `allow_cloudwatch_alarm_service`.
 - `instance_role_arn` is excluded from the unexpected-secret-read filter so the
   legitimate `velocityai-load-secrets` reads don't page on-call; only
   unexpected principals trigger the alarm.

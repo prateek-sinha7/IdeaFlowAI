@@ -562,7 +562,10 @@ class TestConciergeRevisionPath:
                 },
             )
 
-            asyncio.get_event_loop().run_until_complete(
+            # asyncio.run, not get_event_loop() — see the note in
+            # tests/unit/test_user_workflows_selections.py. Under pytest-asyncio
+            # 1.x there is no implicit current loop once any async test has run.
+            asyncio.run(
                 _dispose_concierge_proposal(
                     intent,
                     confirmed=True,
@@ -648,7 +651,7 @@ class TestConciergeRevisionPath:
                     ectx=None,
                 )
 
-        asyncio.get_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
         run_analyzer_mock.assert_not_called()
 
 
@@ -691,7 +694,7 @@ class TestFallbackChain:
                 )
                 return tier, solution
 
-        tier, solution = asyncio.get_event_loop().run_until_complete(_run())
+        tier, solution = asyncio.run(_run())
         classify_mock.assert_called_once_with(_FAKE_INSTRUCTION, "parent-123", None)
         assert tier == "large", f"Expected fallback tier 'large', got {tier!r}"
         assert solution == "", f"Fallback must return empty solution, got {solution!r}"
@@ -724,7 +727,7 @@ class TestFallbackChain:
                     parent_run_id="parent-123",
                 )
 
-        tier, solution = asyncio.get_event_loop().run_until_complete(_run())
+        tier, solution = asyncio.run(_run())
         assert tier == "large", f"Double-failure must default to 'large', got {tier!r}"
         assert (
             solution == ""

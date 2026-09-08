@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip,
@@ -169,6 +169,29 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
 
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
+  // react-hooks/refs flags `selectionsRef.current` read at the JSX attribute
+  // below, even though it's a legitimate read-once-at-mount seed: AgentsPopup
+  // is keyed on `userWorkflowId`, so a key change forces a REMOUNT and the
+  // seed is consumed by AgentsPopup's OWN useState initializer (read once,
+  // not tracked reactively) — the sanctioned "reset via key change" idiom the
+  // rule's static analysis cannot see through a `key`. Mirrors the fix in
+  // useMeasuredVirtualWindow.ts: sync the ref into state via a layout effect
+  // (committed before paint, so the FIRST render already has the real seed —
+  // no flash of an empty AgentsPopup) and read ONLY state at the JSX site.
+  const [selectionsSeed, setSelectionsSeed] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
+  // No dependency array: the seed must re-sync on every render, because
+  // selectionsRef.current is written by an effect (draft restore), a mode
+  // change and every AgentsPopup lever edit — none of which are values a
+  // dependency array can track. The identity guard below (returning `prev`
+  // when the ref object has not changed) is what prevents an update loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    setSelectionsSeed((prev) =>
+      prev === selectionsRef.current ? prev : selectionsRef.current,
+    );
+  });
   const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
 
   // Save-workflow state.
@@ -836,7 +859,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
-        initialSelections={selectionsRef.current}
+        initialSelections={selectionsSeed}
         onSelectionsChange={handleSelectionsChange}
         userWorkflowId={userWorkflowId}
         savedName={savedName}

@@ -19,7 +19,7 @@ import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { AnimatePresence } from "motion/react";
-import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
+import type { WorkflowType, AgentDef } from "@/types/index";
 
 // Migration is a meta-pipeline: the home page sends `workflowType="migration"`
 // and this page lets the user pick the concrete sub-pipeline before running.

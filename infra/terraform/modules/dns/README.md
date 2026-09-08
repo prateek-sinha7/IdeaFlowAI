@@ -25,7 +25,6 @@ Either way, the only contract callers should depend on is the `fqdn` output.
 # nip.io (zero DNS config)
 module "dns" {
   source      = "../../modules/dns"
-  name_prefix = local.name_prefix
   use_nip_io  = true
   eip_address = module.compute.public_ip
 }
@@ -33,7 +32,6 @@ module "dns" {
 # Route 53
 module "dns" {
   source            = "../../modules/dns"
-  name_prefix       = local.name_prefix
   route53_zone_name = "example.com"
   app_subdomain     = "velocityai"
   eip_address       = module.compute.public_ip
@@ -44,7 +42,6 @@ module "dns" {
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|----------|
-| `name_prefix` | Resource name prefix (used in tags). | `string` | — | yes |
 | `eip_address` | Elastic IP (string). Target of the A record, or source of the nip.io hostname. | `string` | — | yes |
 | `use_nip_io` | Derive the hostname from `eip_address` via nip.io and create no Route 53 resources. | `bool` | `false` | no |
 | `route53_zone_name` | Existing hosted zone name to look up (ignored when `use_nip_io`). | `string` | `""` | no |

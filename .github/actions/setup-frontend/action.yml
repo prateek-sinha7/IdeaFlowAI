@@ -20,4 +20,13 @@ runs:
     - name: Install npm dependencies
       shell: bash
       working-directory: frontend
-      run: npm ci --prefer-offline --no-audit
+      # `--no-audit` is deliberately NOT passed: it would silently skip npm's
+      # install-time advisory check on every install, which is exactly the
+      # "npm ci used to bypass audit" pattern Task 3.16 forbids. The dedicated
+      # blocking `npm audit` step later in ci.yml is a separate, explicit
+      # policy gate — it does not make a quieter install-time check redundant,
+      # it is just the enforcement point. `--prefer-offline` only prefers the
+      # local cache over the registry; it does not affect determinism because
+      # `npm ci` already installs the exact resolved tree from
+      # package-lock.json and fails if package.json disagrees with it.
+      run: npm ci --prefer-offline

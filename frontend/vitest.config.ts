@@ -17,10 +17,21 @@ export default defineConfig({
     // Coverage configuration: collect coverage for all src files
     coverage: {
       provider: "v8",
-      // Reporters: text (console), html (browsable), json (for tooling),
-      // xml (Cobertura for SonarCloud), lcov (alternative XML format).
-      // v8 provider generates all formats from a single run.
-      reporter: ["text", "text-summary", "html", "json", "json-summary", "xml", "lcov"],
+      // Reporters: text/text-summary (console), html (browsable), json +
+      // json-summary (for tooling and the threshold ratchet), lcov (what
+      // SonarCloud consumes for JS/TS via sonar.javascript.lcov.reportPaths,
+      // written to coverage/lcov.info).
+      //
+      // There is deliberately NO "xml" reporter. It is not a valid coverage
+      // reporter name here — the list is passed through to istanbul-reports,
+      // whose `xml` entry is a Cobertura-adjacent reporter that fails to load
+      // its own `xml` module under this toolchain. The symptom was nasty
+      // precisely because it is not a test failure: all 1,111 tests passed, the
+      // console printed a full green summary, and THEN `npm run test` exited 1
+      // while writing the reports. Sonar wants LCOV for JS/TS anyway, so the
+      // XML was never needed. (`cobertura` is the correct name if XML is ever
+      // genuinely required.)
+      reporter: ["text", "text-summary", "html", "json", "json-summary", "lcov"],
       // Coverage report output directory (default: coverage/)
       reportsDirectory: "./coverage",
       // `include` is what makes coverage span every source file, not only the
@@ -38,6 +49,9 @@ export default defineConfig({
       // Vitest >=2 nests the percentage gates under `thresholds`; declaring them
       // at the top level of `coverage` is not part of `CoverageOptions` (TS2769) and fails
       // the typecheck (TS2769) while also being silently ignored at runtime.
+      //
+      // 80% mandatory coverage threshold enforced on all code.
+      // This is a hard gate: `npm run test` will fail if coverage drops below 80%.
       thresholds: {
         lines: 80,
         functions: 80,

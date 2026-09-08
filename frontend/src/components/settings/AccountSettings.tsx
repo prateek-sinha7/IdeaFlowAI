@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, Check, ShieldCheck, Info,
+  ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, ShieldCheck, Info,
 } from "lucide-react";
 import { getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities } from "@/lib/api";
 import type { ModelOption, CapabilityModelEntry } from "@/lib/api";

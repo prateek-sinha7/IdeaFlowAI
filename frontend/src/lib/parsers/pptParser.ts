@@ -81,7 +81,7 @@ export function parsePPTSlideData(json: string): SlideData {
     try {
       const repaired = repairTruncatedJSON(extracted);
       parsed = JSON.parse(repaired);
-    } catch (e2) {
+    } catch (_e2) {
       throw new Error(
         `Failed to parse PPT slide JSON: ${e instanceof Error ? e.message : "Invalid JSON"}`
       );

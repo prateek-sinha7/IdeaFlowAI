@@ -163,15 +163,14 @@ jobs:
   # the shared registry; a few minutes of pipeline latency is the correct price
   # for "nothing unreviewed ever reaches ECR".
   #
-  # `secrets: inherit` is REQUIRED: a local reusable-workflow call does NOT
-  # inherit the caller's secrets by default. Without this line,
-  # ci.yml's sonarcloud-analysis job resolves `secrets.SONAR_TOKEN` as empty,
-  # fails auth, and `gate` reports red on every run regardless of code
-  # quality — which is what silently forced `gate` out of `needs:` below in
-  # the first place (see git history: commit 8f3042d6). This is AWS-blind on
-  # purpose — SONAR_TOKEN is the only secret ci.yml consumes, and no
-  # `environment:` is declared here, so this job never mints an OIDC token
-  # and the prod reviewer gate stays on build/deploy alone.
+  # Secrets are mapped EXPLICITLY rather than with `secrets: inherit`. A local
+  # reusable-workflow call inherits nothing by default, so some mapping is
+  # required — but `inherit` forwards every secret this workflow can see,
+  # including the AWS/OIDC material the gate must never hold. ci.yml declares
+  # SONAR_TOKEN as its only secret input, so that is the only thing passed.
+  # This keeps the gate AWS-blind by construction instead of by convention: no
+  # `environment:` is declared here either, so this job never mints an OIDC
+  # token and the production reviewer gate stays on build/deploy alone.
   #
   # NO `timeout-minutes:` HERE. A job that calls a reusable workflow accepts
   # only name/uses/with/secrets/needs/if/permissions/strategy/concurrency —
@@ -184,7 +183,10 @@ jobs:
   gate:
     name: CI gate
     uses: ./.github/workflows/ci.yml
-    secrets: inherit
+    with:
+      intent_id: deploy-${{ github.run_id }}
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   # ---------------------------------------------------------------------------
   # Resolve which environment and image tag to use based on the trigger event.
@@ -554,13 +556,13 @@ jobs:
       # output and a green check. Now blocking, scanned BY DIGEST so the bytes
       # scanned are provably the bytes deployed.
       #
-      # Two deliberate policy choices keep this enforceable rather than
-      # perpetually red:
-      #   --ignore-unfixed  a CVE with no released fix cannot be actioned by
-      #       this pipeline; failing on it would only train people to bypass
-      #       the gate. Rebuilding picks up fixes as upstream ships them.
-      #   --ignorefile      triaged, time-boxed exceptions live in
-      #       ci/trivyignore.images next to a justification, reviewed like code.
+      # Zero-finding policy (bugfix 2.8): every resolved HIGH/CRITICAL finding
+      # blocks regardless of fix availability, prior count, or suppression
+      # text. `--ignore-unfixed` and the CVE ignorefile are deliberately NOT
+      # passed — either would let an unfixable-today finding report success,
+      # which is the exact suppression path this policy removes. A genuinely
+      # unfixable finding must be remediated (base image swap, package
+      # removal/pin) before this image can deploy.
       # An image that fails here is already in ECR but is NEVER deployed: the
       # `deploy` job needs this job to succeed.
       # F-08: version/checksum come from env.TRIVY_VERSION / env.TRIVY_SHA256
@@ -581,15 +583,13 @@ jobs:
         env:
           IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 1 \
-            --ignore-unfixed --ignorefile ci/trivyignore.images "$IMAGE"
+          trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
 
       - name: Scan frontend image (blocking on HIGH,CRITICAL)
         env:
           IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 1 \
-            --ignore-unfixed --ignorefile ci/trivyignore.images "$IMAGE"
+          trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
 
   # ---------------------------------------------------------------------------
   # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
@@ -983,7 +983,14 @@ jobs:
         run: |
           set -euo pipefail
           
-          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}"
+          # `needs.build.outputs.*`, NOT `steps.digests.outputs.*`. The `digests`
+          # step lives in the BUILD job; there is no such step in this job, so
+          # that expression resolved to the empty string and produced a
+          # digest-less reference ("…/repo@") — cosign cannot verify that, so
+          # this signature gate could never have passed. Every other digest
+          # consumer in this job already reads needs.build.outputs (see the
+          # remote-payload and SSM-record steps).
+          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ needs.build.outputs.backend_digest }}"
           
           echo "Verifying signature for: $BACKEND_IMAGE"
           cosign verify "$BACKEND_IMAGE" \
@@ -998,7 +1005,9 @@ jobs:
         run: |
           set -euo pipefail
           
-          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}"
+          # See the note on BACKEND_IMAGE above: needs.build.outputs, not
+          # steps.digests (which does not exist in this job).
+          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ needs.build.outputs.frontend_digest }}"
           
           echo "Verifying signature for: $FRONTEND_IMAGE"
           cosign verify "$FRONTEND_IMAGE" \

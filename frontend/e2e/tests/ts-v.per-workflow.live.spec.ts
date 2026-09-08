@@ -274,9 +274,9 @@ test.describe("TS-V — per-workflow end-to-end (LIVE, real Bedrock)", () => {
     await expectNoToolXml(page);
   });
 
-  // ── TS-V-02 od_prototype — WIZARD PATH (fixme: live template/DS selection) ────
-  test.fixme(
-    "TS-V-02 od_prototype → Prototype Preview iframe (wizard-path live driver)",
+  // ── TS-V-02 od_prototype — WIZARD PATH (skip: live template/DS selection) ────
+  test.skip(
+    "TS-V-02 od_prototype → Prototype Preview iframe (wizard-path live driver); Owner: backend",
     async () => {
       // ── WHY FIXME ──────────────────────────────────────────────────────────
       // CreationHub routes "Build an interactive prototype" to a hard nav
@@ -321,9 +321,9 @@ test.describe("TS-V — per-workflow end-to-end (LIVE, real Bedrock)", () => {
     },
   );
 
-  // ── TS-V-03 od_ppt — WIZARD PATH (fixme: live template selection) ────────────
-  test.fixme(
-    "TS-V-03 od_ppt → Slide Deck Preview iframe (wizard-path live driver)",
+  // ── TS-V-03 od_ppt — WIZARD PATH (skip: live template selection) ────────────
+  test.skip(
+    "TS-V-03 od_ppt → Slide Deck Preview iframe (wizard-path live driver); Owner: backend",
     async () => {
       // ── WHY FIXME ──────────────────────────────────────────────────────────
       // CreationHub routes "Pitch an idea" to /workflow/create?mode=ppt (hard nav,

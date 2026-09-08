@@ -73,7 +73,7 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     await expect(formal).toHaveClass(/text-white/);
   });
 
-  test.fixme("TS-M-04 hybrid question exposes a free-text input that clears the MCQ selection", async () => {
+  test.skip("TS-M-04 hybrid question exposes a free-text input that clears the MCQ selection; Owner: frontend", async () => {
     // The "Quick Setup" wizard's hybrid free-text affordance ("Describe your own" /
     // "Type your specific answer…") was intentionally REMOVED with the panel (Phase
     // 42-06, CONTEXT §G / §8 decision 3). The inline clarify (InlineClarifyActions)
@@ -83,7 +83,7 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     // components/chat/InlineClarifyActions.tsx (chat-clarify-actions).
   });
 
-  test.fixme("TS-M-05a all answered → primary 'Run User Stories Pipeline' + skip control", async () => {
+  test.skip("TS-M-05a all answered → primary 'Run User Stories Pipeline' + skip control; Owner: frontend", async () => {
     // The wizard's summary slide (a per-answer-count primary control "Run {label}
     // Pipeline" + "Skip all & run directly") was DELETED with the panel (Phase
     // 42-06). The inline clarify has a single, answer-count-agnostic submit
@@ -92,14 +92,14 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     // components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
   });
 
-  test.fixme("TS-M-05b some answered → primary 'Run User Stories Pipeline' (partial label)", async () => {
+  test.skip("TS-M-05b some answered → primary 'Run User Stories Pipeline' (partial label); Owner: frontend", async () => {
     // As TS-M-05a: the wizard summary's partial-answer "Run {label} Pipeline" control
     // is retired. The inline clarify submits any (incl. partial) selection through the
     // one "Submit answers & start the build" control. Replacement surface:
     // components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
   });
 
-  test.fixme("TS-M-05c none answered → 'Run with defaults'", async () => {
+  test.skip("TS-M-05c none answered → 'Run with defaults'; Owner: frontend", async () => {
     // The wizard's zero-answered "Run with defaults" summary control is retired with
     // the panel (Phase 42-06). The inline clarify offers only "Submit answers & start
     // the build"; submitting with no chips selected sends an empty responses array

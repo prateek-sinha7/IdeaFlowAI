@@ -1,8 +1,3 @@
-variable "name_prefix" {
-  description = "Resource name prefix, e.g. velocityai-prod (used in tags)."
-  type        = string
-}
-
 variable "use_nip_io" {
   description = <<-EOT
     If true, derive the public hostname from var.eip_address via nip.io

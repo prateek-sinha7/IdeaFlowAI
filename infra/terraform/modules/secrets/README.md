@@ -32,7 +32,6 @@ inputs only to import a known existing value (e.g. restoring a snapshot).
 module "secrets" {
   source = "../../modules/secrets"
 
-  name_prefix = local.name_prefix
   environment = var.environment
   region      = var.aws_region
   kms_key_id  = module.kms.key_id
@@ -47,7 +46,6 @@ module "secrets" {
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|----------|
-| `name_prefix` | Resource name prefix (used in tags). | `string` | — | yes |
 | `environment` | Environment short name; drives the `/velocityai/<env>/...` parameter paths. | `string` | — | yes |
 | `region` | AWS region (written as the LLM region parameter). | `string` | — | yes |
 | `kms_key_id` | KMS key ID/ARN that encrypts the SecureString parameters. | `string` | — | yes |

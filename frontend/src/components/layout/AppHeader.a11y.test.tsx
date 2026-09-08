@@ -14,8 +14,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderWithProviders, screen, within, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
-import { Provider } from "react-redux";
-import { configureStore } from "@reduxjs/toolkit";
 
 // next/navigation — AppHeader calls useRouter() to route the admin-only
 // "Admin Dashboard" menu item to /admin.
@@ -24,22 +22,17 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { AppHeader } from "./AppHeader";
-import globalReducer from "@/store/slices/globalSlice";
 
 type HeaderOverrides = Partial<React.ComponentProps<typeof AppHeader>>;
 
 // AppHeader resolves its live-run workflow labels through `useWorkflowLabels()`,
 // which reads the `global` slice via `useAppSelector` — so the component must be
 // rendered inside a react-redux Provider or every assertion here dies on
-// "could not find react-redux context value". Only the `global` slice is
-// registered: it is the only one this component subscribes to, and an empty
-// workflow catalog is the correct fixture (the label resolver falls back to the
-// static map, which is what these nav/a11y assertions expect). Mirrors the
-// Provider + configureStore pattern in LibraryPage.reskin.test.tsx.
-function createTestStore() {
-  return configureStore({ reducer: { global: globalReducer } });
-}
-
+// "could not find react-redux context value". `renderWithProviders` supplies
+// that Provider (with the `global` slice registered and an empty workflow
+// catalog, so the label resolver falls back to the static map — which is what
+// these nav/a11y assertions expect), which is why the local
+// Provider + configureStore scaffolding this file used to carry is gone.
 function setup(overrides: HeaderOverrides = {}) {
   const onNavigate = vi.fn();
   const onLogout = vi.fn();

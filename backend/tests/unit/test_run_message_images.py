@@ -215,9 +215,10 @@ def _compose_blocks_for_images(images: list) -> list:
     assert ectx.pending_turn_images == []  # consume-once (pending cleared)
     spec = SimpleNamespace(id="prototype-specify", injects=["images"])
     engine = get_execution_engine()
-    return asyncio.get_event_loop().run_until_complete(
-        engine._compose_input_blocks(spec, ectx)
-    ), ectx
+    # asyncio.run, not get_event_loop() — see the note in
+    # tests/unit/test_user_workflows_selections.py. Under pytest-asyncio 1.x
+    # there is no implicit current loop once any async test has run.
+    return asyncio.run(engine._compose_input_blocks(spec, ectx)), ectx
 
 
 def _dispatch_blocks(ectx, spec) -> list:
@@ -228,9 +229,7 @@ def _dispatch_blocks(ectx, spec) -> list:
 
     _drain_turn_images(ectx)
     engine = get_execution_engine()
-    return asyncio.get_event_loop().run_until_complete(
-        engine._compose_input_blocks(spec, ectx)
-    )
+    return asyncio.run(engine._compose_input_blocks(spec, ectx))
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -289,9 +288,7 @@ class TestPerTurnImageDelivery:
         _drain_turn_images(ectx)
         spec = SimpleNamespace(id="plain-agent", injects=[])  # NOT opted in
         engine = get_execution_engine()
-        blocks = asyncio.get_event_loop().run_until_complete(
-            engine._compose_input_blocks(spec, ectx)
-        )
+        blocks = asyncio.run(engine._compose_input_blocks(spec, ectx))
         assert blocks == []
 
 

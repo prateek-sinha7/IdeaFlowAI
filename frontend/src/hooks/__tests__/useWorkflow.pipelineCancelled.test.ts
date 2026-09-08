@@ -20,7 +20,7 @@
  * and gates agent_start through `shouldApplyEvent` to model the real dashboard
  * dedup (dashboard/page.tsx).
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { handlePipelineMessage } from "../useWorkflow";
 import { shouldApplyEvent } from "@/lib/wsReplayState";
 import type { AgentRunState, PipelineRunState } from "@/types/index";

@@ -30,6 +30,11 @@ trap _rules_cleanup EXIT
 for i in "${!files[@]}"; do
   file="${files[$i]}"
   rel_path="${file#"$HOME"/}"
+  # shellcheck disable=SC2088
+  # The literal tilde is wanted. rel_path is a DISPLAY string emitted into the
+  # JSON below (`--arg path`), never passed to a command or opened as a file, so
+  # non-expansion is the point: readers should see "~/.claude/..." rather than a
+  # machine-specific absolute home path.
   rel_path="~/$rel_path"
 
   # Extract H2 headings (## Title) into a JSON array via jq

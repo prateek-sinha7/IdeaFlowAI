@@ -127,7 +127,6 @@ resource "aws_s3_object" "reconcile_script" {
 module "dns" {
   source = "../modules/dns"
 
-  name_prefix       = local.name_prefix
   use_nip_io        = var.use_nip_io
   route53_zone_name = var.route53_zone_name
   app_subdomain     = var.app_subdomain
@@ -248,9 +247,8 @@ module "monitoring" {
   stuck_workflows_check_period         = var.stuck_workflows_check_period
 
   # CloudTrail management-event audit-trail wiring (C2-1).
-  instance_role_arn       = local.fnd.instance_role_arn
-  secrets_path_prefix_arn = local.secrets_path_prefix_arn
-  project_cmk_arn         = local.fnd.kms_key_arn
+  instance_role_arn = local.fnd.instance_role_arn
+  project_cmk_arn   = local.fnd.kms_key_arn
   # M-07: CloudTrail data-event capture for the backup bucket (GetObject/
   # PutObject on the hourly pg_dump backups — the management-event trail
   # above never captured object-level S3 API calls).

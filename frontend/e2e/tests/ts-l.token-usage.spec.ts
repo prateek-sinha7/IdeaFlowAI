@@ -93,7 +93,7 @@ test.describe("TS-L — token usage summary", () => {
   // mounted anywhere. These test only the removed cost display, so they are
   // marked test.fixme (skipped) to preserve the exact assertions for re-enable
   // if cost estimation returns — see each test.fixme reason below.
-  test.fixme("TS-L-03 cost format: zero → em dash — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockSse }) => {
+  test.skip("TS-L-03 cost format: zero → em dash — cost display removed in KAN-83 restyle; re-enable if cost estimation returns; Owner: frontend", async ({ dashboard, mockSse }) => {
     await runAllAgents(mockSse);
     mockSse.complete({
       pipelineType: "user_stories",
@@ -107,7 +107,7 @@ test.describe("TS-L — token usage summary", () => {
     await expect(costRow(dashboard)).toContainText("—");
   });
 
-  test.fixme("TS-L-03 cost format: sub-cent → <$0.001 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockSse }) => {
+  test.skip("TS-L-03 cost format: sub-cent → <$0.001 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns; Owner: frontend", async ({ dashboard, mockSse }) => {
     await runAllAgents(mockSse);
     mockSse.complete({
       pipelineType: "user_stories",
@@ -120,7 +120,7 @@ test.describe("TS-L — token usage summary", () => {
     await expect(costRow(dashboard)).toContainText("<$0.001");
   });
 
-  test.fixme("TS-L-03 cost format: 0.042 → ~$0.042 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockSse }) => {
+  test.skip("TS-L-03 cost format: 0.042 → ~$0.042 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns; Owner: frontend", async ({ dashboard, mockSse }) => {
     await runAllAgents(mockSse);
     mockSse.complete({
       pipelineType: "user_stories",
@@ -140,7 +140,7 @@ test.describe("TS-L — token usage summary", () => {
   // sets status:"done" and totalTokens ATOMICALLY (useWorkflow.ts:383-388), so a
   // done agent always carries its tokens in production (where the panel opens on a
   // settled run). Quarantined pending a robust drill-in sync; body preserved verbatim.
-  test.fixme("TS-L-04 per-agent token count: DONE agent detail shows 3.1K tok (flaky drill-in — see note above)", async ({ dashboard, mockSse }) => {
+  test.skip("TS-L-04 per-agent token count: DONE agent detail shows 3.1K tok (flaky drill-in — see note above); Owner: frontend", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
     mockSse.start(agents, { pipelineType: "user_stories" });
     // Complete the first agent with an explicit per-agent total.

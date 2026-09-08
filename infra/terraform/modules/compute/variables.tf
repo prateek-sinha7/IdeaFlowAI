@@ -114,12 +114,6 @@ variable "user_data_extra_env" {
   default     = {}
 }
 
-variable "protect_eip" {
-  description = "Documents the EIP-protection contract. Currently advisory only: Terraform's lifecycle.prevent_destroy field accepts only literal bools (verified on TF 1.15.1, May 2026), so the EIP is unconditionally `prevent_destroy = true` and ephemeral envs (LocalStack) state-rm it before `terraform destroy` — see envs/localstack/destroy.sh. The variable is plumbed through the modules so a future Terraform release that loosens this restriction can be adopted with a one-line change in modules/compute/main.tf."
-  type        = bool
-  default     = true
-}
-
 variable "disable_api_termination" {
   description = "If true, the EC2 instance cannot be terminated via the AWS API/console. The data EBS volume survives termination either way (it's a separate aws_ebs_volume with prevent_destroy=true), but reattaching it to a fresh instance is manual and disruptive. Default true in prod; set false in ephemeral envs (LocalStack) so destroy.sh works without state-rm."
   type        = bool

@@ -17,7 +17,7 @@
  *   4. first-run reset is a no-op;
  *   5. cross-agent + pipeline-level isolation.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { handlePipelineMessage } from "./useWorkflow";
 import { shouldApplyEvent } from "@/lib/wsReplayState";
 import type { AgentRunState, PipelineRunState } from "@/types/index";

@@ -1,8 +1,3 @@
-variable "name_prefix" {
-  description = "Resource name prefix, e.g. velocityai-prod (used in tags)."
-  type        = string
-}
-
 variable "environment" {
   description = "Environment short name (e.g. prod). Used in parameter paths /velocityai/$${env}/... — top-level keys are UPPERCASE (SECRET_KEY, DATABASE_PASSWORD, CORS_ORIGINS, ACCESS_TOKEN_EXPIRE_HOURS); nested namespaces are lower-case (llm/*) and translated to env-var names by the on-host loader."
   type        = string

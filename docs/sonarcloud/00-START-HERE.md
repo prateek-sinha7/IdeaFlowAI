@@ -1,6 +1,12 @@
 # SonarCloud Integration — Quick Start
 
-**Status:** ✅ Implementation Complete (Awaiting Manual Configuration)
+> ⚠️ **Parts of this file are out of date.** The `prepare-sonarcloud` job it
+> describes has been removed, and the frontend Cobertura-XML step it describes
+> never worked (coverage reached SonarCloud as 0% while every job reported
+> success). See the **Correction notice** in [README.md](./README.md) for the
+> current coverage flow before following any step here.
+
+**Status:** ⚠️ Coverage plumbing repaired; SonarCloud UI configuration still manual
 
 This directory contains complete documentation and implementation for SonarCloud integration into your CI/CD pipeline.
 
@@ -23,10 +29,10 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 | File | Purpose |
 |------|---------|
-| **SONARCLOUD_INTEGRATION.md** | 📖 **Start here** — Comprehensive guide with setup instructions, runbook, troubleshooting |
-| **SONARCLOUD_IMPLEMENTATION_CHECKLIST.md** | ✅ **Step-by-step checklist** — Phases 1-10 to complete integration |
-| **SONARCLOUD_CHANGES_SUMMARY.md** | 📝 Technical summary of all code changes |
-| **SONARCLOUD_README.md** | 👋 This file — Quick reference |
+| **02-INTEGRATION-GUIDE.md** | 📖 **Start here** — Comprehensive guide with setup instructions, runbook, troubleshooting |
+| **01-IMPLEMENTATION-CHECKLIST.md** | ✅ **Step-by-step checklist** — Phases 1-10 to complete integration |
+| **03-CHANGES-SUMMARY.md** | 📝 Technical summary of all code changes |
+| **README.md** | 👋 Main navigation — Index of all files |
 
 **Also see:**
 - `sonar-project.properties` — SonarCloud configuration reference (project root)
@@ -44,7 +50,7 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 **Time:** ~10 minutes
 
-**Details:** See `SONARCLOUD_INTEGRATION.md` → "Setup Instructions"
+**Details:** See `02-INTEGRATION-GUIDE.md` → "Setup Instructions"
 
 ### 2. Store Token in GitHub Secrets
 - GitHub Org Settings → Secrets and variables → Actions
@@ -52,7 +58,7 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 **Time:** ~2 minutes
 
-**Details:** See `SONARCLOUD_INTEGRATION.md` → "GitHub Organization Secret"
+**Details:** See `02-INTEGRATION-GUIDE.md` → "GitHub Organization Secret"
 
 ### 3. Configure Quality Gate (Optional)
 - SonarCloud UI → Project Settings → Quality Gates
@@ -62,7 +68,7 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 **Default:** If skipped, SonarCloud uses "Sonar Way" gate (also reasonable)
 
-**Details:** See `SONARCLOUD_INTEGRATION.md` → "Quality Gate Thresholds"
+**Details:** See `02-INTEGRATION-GUIDE.md` → "Quality Gate Thresholds"
 
 ### 4. Test on a PR
 - Open a test PR
@@ -77,13 +83,21 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 ## What Was Already Done (Code Changes)
 
 ### ✅ CI Workflow Updated (`.github/workflows/ci.yml`)
-- ✅ Frontend job now exports coverage as XML (Cobertura format)
-- ✅ New `prepare-sonarcloud` job consolidates backend + frontend coverage
-- ✅ New `sonarcloud-analysis` job runs SonarScanner and posts PR checks
+- ✅ Frontend job exports coverage as **LCOV** (`coverage/lcov.info`) — the native
+  JS/TS coverage format for Sonar. (Originally Cobertura XML; that never worked.)
+- ✅ `test-results` publishes `backend/coverage.xml` as the `backend-coverage-xml`
+  artifact after `coverage combine` merges all four pytest shards
+- ✅ Both reports are rewritten to repo-root-relative paths before upload
+- ✅ `sonarcloud-analysis` downloads both directly, hard-fails if either is
+  missing/empty, and runs the scanner with `-Dsonar.qualitygate.wait=true`
+- ❌ There is **no** `prepare-sonarcloud` consolidation job — it was removed
 
 ### ✅ Configuration Files Created
-- ✅ `sonar-project.properties` — SonarCloud configuration reference
-- ✅ Frontend vitest config enhanced for XML export
+- ✅ `sonar-project.properties` — SonarCloud configuration reference, using the
+  language-specific `sonar.python.coverage.reportPaths` and
+  `sonar.javascript.lcov.reportPaths` properties
+- ✅ Frontend vitest config emits LCOV, with coverage thresholds set as ratchet
+  floors at the measured baseline (46/44/45/48) rather than an unreachable 80
 - ✅ Helper script for SonarScanner checksum verification
 
 ### ✅ Documentation Created
@@ -98,9 +112,9 @@ Your GitHub Actions CI workflow now includes SonarCloud code quality analysis. H
 
 | Need | Link |
 |------|------|
-| Full setup guide | `docs/SONARCLOUD_INTEGRATION.md` |
-| Step-by-step checklist | `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` |
-| Technical details | `docs/SONARCLOUD_CHANGES_SUMMARY.md` |
+| Full setup guide | `02-INTEGRATION-GUIDE.md` |
+| Step-by-step checklist | `01-IMPLEMENTATION-CHECKLIST.md` |
+| Technical details | `03-CHANGES-SUMMARY.md` |
 | Configuration reference | `sonar-project.properties` |
 | SonarCloud dashboard | https://sonarcloud.io/dashboard?id=velocityai (after setup) |
 
@@ -130,11 +144,13 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 ## Support
 
 ### If Setup Fails
-1. Check `SONARCLOUD_INTEGRATION.md` → "Troubleshooting" section
+1. Check `02-INTEGRATION-GUIDE.md` → "Troubleshooting" section
 2. Review CI logs: GitHub Actions → workflow → `sonarcloud-analysis` job
 3. Common issues:
    - SONAR_TOKEN not found → Verify GitHub Organization Secret
-   - Coverage files missing → Check `prepare-sonarcloud` job artifacts
+   - Coverage files missing → Read the "Verify coverage reports are present and
+     non-empty" step in `sonarcloud-analysis`; artifacts are
+     `backend-coverage-xml` and `frontend-coverage-lcov`
    - Analysis doesn't appear → Wait 1-2 minutes for SonarCloud to process
 
 ### If PR Check Never Appears
@@ -143,8 +159,8 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 3. Check CI logs for errors (SONAR_TOKEN, network, etc.)
 
 ### Team Questions
-- Direct to `SONARCLOUD_INTEGRATION.md` for operational procedures
-- Direct to `SONARCLOUD_CHANGES_SUMMARY.md` for technical details
+- Direct to `02-INTEGRATION-GUIDE.md` for operational procedures
+- Direct to `03-CHANGES-SUMMARY.md` for technical details
 
 ---
 
@@ -160,7 +176,7 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 
 **Total Time:** ~30-40 minutes
 
-**Full Checklist:** See `SONARCLOUD_IMPLEMENTATION_CHECKLIST.md`
+**Full Checklist:** See `01-IMPLEMENTATION-CHECKLIST.md`
 
 ---
 
@@ -170,27 +186,32 @@ A: ~2-3 minutes per PR (SonarScanner analysis). Runs in parallel with other jobs
 Developer Push
        ↓
 GitHub Actions Triggers
-       ├─ pytest (backend)
-       ├─ vitest (frontend) ← now exports XML coverage
+       ├─ pytest shards (backend)
+       ├─ vitest (frontend) → coverage/lcov.info
        └─ (other jobs in parallel)
        ↓
-test-results job (merge backend coverage)
-       ↓
-prepare-sonarcloud job ← NEW
-├─ Download backend/coverage.xml
-├─ Download frontend/coverage.xml
-└─ Consolidate → sonarcloud-coverage/
-       ↓
-sonarcloud-analysis job ← NEW
-├─ Install SonarScanner
-├─ Run analysis (code + coverage)
-└─ Publish to SonarCloud
+test-results job
+├─ coverage combine (4 shards) → report --fail-under=80 → coverage xml
+└─ normalise <source> roots → artifact: backend-coverage-xml
+       ↓                       frontend job
+       │                       └─ normalise SF: paths
+       │                          → artifact: frontend-coverage-lcov
+       └───────────┬───────────────────────┘
+                   ↓
+sonarcloud-analysis job    needs: [test-results, frontend]
+├─ Download both reports to the paths sonar-project.properties names
+├─ HARD-FAIL if either is missing or empty
+├─ Install SonarScanner (checksum-verified)
+└─ Run analysis with -Dsonar.qualitygate.wait=true
        ↓
 SonarCloud Processes
-├─ Evaluate quality gate
-└─ Post PR check + comment
+├─ Evaluate quality gate (conditions on NEW code)
+└─ Post its own PR check + comment
        ↓
 PR Check (Pass ✓ or Fail ✗)
+   ⚠ blocks the merge only if the SonarCloud quality gate is listed as a
+     REQUIRED status check in the repository ruleset — sonarcloud-analysis is
+     deliberately not part of ci-required
 ```
 
 ---
@@ -202,12 +223,17 @@ PR Check (Pass ✓ or Fail ✗)
 - Project Key: `velocityai`
 - Project Name: `VelocityAI`
 
-**Quality Gate Thresholds (Moderate Baseline, set in SonarCloud UI):**
-- Coverage: ≥ 85%
-- Blocker Issues: = 0
-- Critical Issues: ≤ 5
-- Code Smells: ≤ 30
-- Duplications: ≤ 3%
+**Quality Gate Thresholds — conditions on NEW code (set in SonarCloud UI):**
+- Coverage on New Code: ≥ 80%
+- Duplicated Lines on New Code: ≤ 3%
+- New Blocker / Critical Issues: = 0
+- Maintainability / Reliability / Security Rating on New Code: A
+
+> Do **not** set an "overall coverage ≥ 85%" condition. Measured coverage is ~80%
+> backend and ~46% frontend, so an overall gate fails every PR regardless of what
+> it changed. Overall regression is prevented separately: ratchet floors in
+> `frontend/vitest.config.ts` and `coverage report --fail-under=80` on merged
+> backend coverage.
 
 **SonarScanner Parameters (in CI workflow):**
 - See `sonarcloud-analysis` job in `.github/workflows/ci.yml`
@@ -218,7 +244,7 @@ PR Check (Pass ✓ or Fail ✗)
 ## Next Steps
 
 ### Immediate (This Week)
-1. Follow `SONARCLOUD_INTEGRATION.md` Phases 1-3 (account + secret setup)
+1. Follow `02-INTEGRATION-GUIDE.md` Phases 1-3 (account + secret setup)
 2. Open test PR to verify integration works
 3. Review first analysis in SonarCloud dashboard
 
@@ -242,10 +268,10 @@ PR Check (Pass ✓ or Fail ✗)
 - ✏️ `frontend/vitest.config.ts` — Enhanced coverage reporters
 
 ### Created
-- 📄 `docs/SONARCLOUD_INTEGRATION.md` — Comprehensive guide
-- 📄 `docs/SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` — Step-by-step checklist
-- 📄 `docs/SONARCLOUD_CHANGES_SUMMARY.md` — Technical details
-- 📄 `docs/SONARCLOUD_README.md` — This file
+- 📄 `02-INTEGRATION-GUIDE.md` — Comprehensive guide
+- 📄 `01-IMPLEMENTATION-CHECKLIST.md` — Step-by-step checklist
+- 📄 `03-CHANGES-SUMMARY.md` — Technical details
+- 📄 `00-START-HERE.md` — This file
 - 📄 `sonar-project.properties` — Configuration reference
 - 📄 `scripts/setup-sonarscanner-checksum.sh` — Helper script
 
@@ -274,13 +300,13 @@ PR Check (Pass ✓ or Fail ✗)
 - **SonarCloud Docs:** https://docs.sonarcloud.io/
 - **SonarCloud GitHub Integration:** https://docs.sonarcloud.io/github-integration/
 - **This Project's Guides:**
-  - Setup: `SONARCLOUD_INTEGRATION.md`
-  - Implementation: `SONARCLOUD_IMPLEMENTATION_CHECKLIST.md`
-  - Technical: `SONARCLOUD_CHANGES_SUMMARY.md`
+  - Setup: `02-INTEGRATION-GUIDE.md`
+  - Implementation: `01-IMPLEMENTATION-CHECKLIST.md`
+  - Technical: `03-CHANGES-SUMMARY.md`
 
 ---
 
-**Ready to integrate?** Start with Phase 1 in `SONARCLOUD_IMPLEMENTATION_CHECKLIST.md` or dive deep into `SONARCLOUD_INTEGRATION.md`.
+**Ready to integrate?** Start with Phase 1 in `01-IMPLEMENTATION-CHECKLIST.md` or dive deep into `02-INTEGRATION-GUIDE.md`.
 
 **Questions?** Check the FAQ section above or search for your issue in the Troubleshooting guides.
 

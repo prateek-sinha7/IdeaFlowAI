@@ -117,7 +117,9 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
   test.use({ tier: "enterprise" });
 
   test("TS-Z2-01 compose custom → Save persists a POST", async ({ dashboard, page }) => {
-    test.fixme(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline)");
+    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope
+    // Owner: frontend
+    test.skip(true, "pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope; Owner: frontend");
     await dashboard.goto({ tier: "enterprise" });
     const { posts } = await mockUserWorkflows(page); // AFTER goto → wins over the catch-all
 
@@ -167,7 +169,9 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
   });
 
   test("TS-Z2-02 saved row appears in 'Your workflows', renames, and launches pre-loaded", async ({ dashboard, page }) => {
-    test.fixme(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline)");
+    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope
+    // Owner: frontend
+    test.skip(true, "pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope; Owner: frontend");
     await dashboard.goto({ tier: "enterprise" });
     const { rows } = await mockUserWorkflows(page);
 

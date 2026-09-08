@@ -304,7 +304,14 @@ def _reply_rows(store_env, run_id):
 def _run(coro):
     import asyncio
 
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # asyncio.run, not get_event_loop().run_until_complete — same reason as the
+    # comment in tests/unit/test_user_workflows_selections.py: get_event_loop()
+    # only returns a loop already set for this thread, so once another test has
+    # closed the implicit loop this raises "There is no current event loop".
+    # Under pytest-asyncio 1.x that is the normal state after any async test has
+    # run, which made every test in this file pass alone and fail in-suite purely
+    # on ordering. asyncio.run owns its own loop and closes it.
+    return asyncio.run(coro)
 
 
 class TestPersistence:

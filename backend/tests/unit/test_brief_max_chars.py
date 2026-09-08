@@ -13,6 +13,8 @@ Pure offline: no model call, no network — only the pure prompt builder + slice
 
 from __future__ import annotations
 
+from unittest.mock import patch, MagicMock
+
 from agents.planner.smart_planner import SmartPlanner
 from app.core.config import settings
 
@@ -24,11 +26,14 @@ def test_full_brief_reaches_planner_uncut():
     brief = (phrase * ((target // len(phrase)) + 1))[:target]
     assert len(brief) <= settings.BRIEF_MAX_CHARS
 
-    prompt = SmartPlanner()._build_prompt(brief, "prototype")
+    # Inject a fake model to avoid real provider construction
+    with patch.object(SmartPlanner, "_build_llm", return_value=MagicMock()):
+        planner = SmartPlanner(model_id=None)
+        prompt = planner._build_prompt(brief, "prototype")
 
-    # The full brief text is present verbatim (old head+tail cap removed).
-    assert brief in prompt
-    assert "chars omitted" not in prompt
+        # The full brief text is present verbatim (old head+tail cap removed).
+        assert brief in prompt
+        assert "chars omitted" not in prompt
 
 
 def test_full_user_request_reaches_clarify_uncut():
@@ -50,13 +55,16 @@ def test_ceiling_still_enforced_above_cap():
     """A brief > settings.BRIEF_MAX_CHARS is still head+tail sampled ('chars omitted')."""
     brief = "z" * (settings.BRIEF_MAX_CHARS + 10_000)  # over the ceiling
 
-    prompt = SmartPlanner()._build_prompt(brief, "prototype")
+    # Inject a fake model to avoid real provider construction
+    with patch.object(SmartPlanner, "_build_llm", return_value=MagicMock()):
+        planner = SmartPlanner(model_id=None)
+        prompt = planner._build_prompt(brief, "prototype")
 
-    # Sampling triggered: the omitted marker is present and the raw brief is NOT
-    # embedded whole, so the prompt stays bounded well under the raw brief length.
-    assert "chars omitted" in prompt
-    assert brief not in prompt
-    assert len(prompt) < len(brief) + 5000
+        # Sampling triggered: the omitted marker is present and the raw brief is NOT
+        # embedded whole, so the prompt stays bounded well under the raw brief length.
+        assert "chars omitted" in prompt
+        assert brief not in prompt
+        assert len(prompt) < len(brief) + 5000
 
 
 def test_planner_and_clarify_share_single_source_of_truth():

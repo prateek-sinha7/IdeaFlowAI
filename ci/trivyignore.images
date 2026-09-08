@@ -1,36 +1,21 @@
 # =============================================================================
-# Trivy CONTAINER IMAGE ignores (deliberately separate from ci/trivyignore).
+# RETIRED — image CVE suppression is no longer supported (bugfix 2.8).
 # =============================================================================
-# Location: ci/trivyignore.images (moved from the repo root).
-# Consumed by .github/workflows/deploy.yml (`build` job) and _docker.yml:
-#   trivy image --severity HIGH,CRITICAL --exit-code 1 \
-#     --ignore-unfixed --ignorefile ci/trivyignore.images <repo>@sha256:...
+# This file is NO LONGER CONSUMED. .github/workflows/deploy.yml and
+# .github/workflows/_docker.yml previously passed it to `trivy image` as
+# `--ignorefile ci/trivyignore.images`, alongside `--ignore-unfixed`
+# (Trivy) / `--only-fixed` (Grype). Task 3.18 (ci-pipeline-remediation)
+# removed all four: the zero High/Critical policy blocks on every resolved
+# finding regardless of fix availability, prior count, or suppression text —
+# there is no longer an exception path for image CVEs, mirroring the
+# dependency-scan policy in ci/trivyignore's software-CVE-free namespace.
 #
-# WHY A SECOND FILE
-# -----------------
-# ci/trivyignore holds Terraform MISCONFIGURATION accepts (AVD-AWS-*) consumed by
-# `trivy config` in ci.yml. Image scanning consumes CVE identifiers
-# (CVE-*/GHSA-*), a disjoint namespace with a completely different review
-# cadence: an infrastructure accept is a standing architectural decision, while
-# a CVE suppression is a temporary, dated waiver that should disappear when the
-# fix ships. Mixing them in one file makes both impossible to audit.
+# A HIGH/CRITICAL image finding must now be remediated (base image digest
+# bump, OS/application package upgrade, or package removal) — see
+# backend/Dockerfile and frontend/Dockerfile, and
+# backend/agents/ci/pin_authority.py for the current digest pins.
 #
-# THE SCAN IS BLOCKING. A HIGH/CRITICAL finding with an available fix fails the
-# build, and the image is therefore never deployed (the `deploy` job needs
-# `build`). `--ignore-unfixed` already excludes findings this pipeline cannot
-# action, so anything that lands here is a CVE that COULD be fixed by rebuilding
-# or bumping a dependency and is being consciously deferred.
-#
-# RULES FOR ADDING AN ENTRY
-#   1. One CVE/GHSA id per line.
-#   2. A comment above it: which image, why it is not exploitable here (or what
-#      compensating control applies), who accepted it, and an expiry date.
-#   3. Prefer `exp:` so trivy re-raises the finding automatically when the
-#      waiver lapses — a suppression with no end date becomes permanent by
-#      accident. Format:  CVE-2026-12345 exp:2026-12-31
-#   4. Fix it instead, if a fix exists. This file is the exception path.
-#
-# Currently EMPTY: no image CVE waivers are in force. If the first enforced run
-# fails, triage the findings — bump the base image or the dependency — and only
-# add an entry here when a fix genuinely is not available yet.
+# This file is kept only so a stale reference to it (docs, old branches)
+# resolves to an explanation rather than a 404. It is safe to delete once no
+# workflow or doc references it.
 # =============================================================================

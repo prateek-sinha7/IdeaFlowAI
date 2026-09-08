@@ -10,7 +10,7 @@ dotfile per tool.
 | `gitleaksignore` | gitleaks | same | `-i ci/gitleaksignore` |
 | `checkov.yaml` | checkov | `ci.yml` (`security-scan-iac`) | `--config-file ci/checkov.yaml` |
 | `trivyignore` | trivy `config` | `ci.yml` (`security-scan-iac`) | `--ignorefile ci/trivyignore` |
-| `trivyignore.images` | trivy `image` | `deploy.yml` (`build`), `_docker.yml` | `--ignorefile ci/trivyignore.images` |
+| `trivyignore.images` | *(retired, unconsumed)* | — | Image CVE suppression was removed (Task 3.18, bugfix 2.8): every resolved HIGH/CRITICAL image finding now blocks regardless of fix availability. See the file's own header. |
 
 ## Every file here is referenced by an explicit flag
 

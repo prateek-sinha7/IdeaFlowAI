@@ -82,13 +82,24 @@ resource "aws_cloudwatch_log_group" "groups" {
 #
 #  - `alerts_useast1`   in us-east-1 — required ONLY for the billing alarm
 #    because CloudWatch alarms can publish only to a same-region SNS topic and
-#    `EstimatedCharges` is emitted exclusively in us-east-1. We use the
-#    AWS-managed `alias/aws/sns` key here (deliberate deviation): the project
-#    CMK is region-pinned to eu-central-1, and this topic carries only billing
-#    alarm payloads (account ID + USD threshold) — no PII, no application
-#    secrets, no log content. The added-managed-key risk is small; the
-#    additional-region CMK cost and operational surface are not worth it for
-#    one alarm whose payload is operational metadata.
+#    `EstimatedCharges` is emitted exclusively in us-east-1. It gets its OWN
+#    us-east-1 CMK (aws_kms_key.alerts_useast1 below) because the project CMK is
+#    region-pinned to eu-central-1 with multi_region = false, and a KMS key can
+#    only be used in the region it was created in.
+#
+#    This topic previously used the AWS-managed `alias/aws/sns` key, justified as
+#    an accepted deviation on the grounds that the payload (account ID + USD
+#    threshold) carries no PII, no secrets and no log content. That reasoning was
+#    sound about IMPACT but wrong about FUNCTION: an AWS-managed SNS key cannot
+#    be used for alarm notifications at all. Its key policy does not authorise
+#    CloudWatch to call kms:Decrypt / kms:GenerateDataKey, and being AWS-managed
+#    it cannot be edited — so the billing alarm's action failed at publish time
+#    with "CloudWatch Alarms does not have authorization to access the SNS topic
+#    encryption key", while the alarm itself still transitioned to ALARM. The
+#    cost/benefit trade was therefore being made against a notification path that
+#    never delivered. A customer-managed key is the only configuration in which
+#    this alarm can notify anyone.
+#    Ref: https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns
 
 resource "aws_sns_topic" "alerts" {
   name              = "${var.name_prefix}-alerts"
@@ -263,13 +274,94 @@ resource "aws_backup_vault_notifications" "alerts" {
   depends_on = [aws_sns_topic_policy.alerts]
 }
 
+# --- us-east-1 CMK for the billing-alarm topic -------------------------------
+#
+# A second key exists only because KMS keys are single-region and the billing
+# alarm is forced into us-east-1 (see the SNS header comment above). Its sole
+# purpose is encrypting `alerts_useast1`, so the policy is the minimum that
+# makes an encrypted-topic alarm notification work: root administration, the SNS
+# service principal, and the CloudWatch service principal.
+resource "aws_kms_key" "alerts_useast1" {
+  provider = aws.useast1
+
+  description              = "${var.name_prefix} us-east-1 billing-alert SNS topic key"
+  deletion_window_in_days  = var.alerts_useast1_kms_deletion_window_in_days
+  enable_key_rotation      = true
+  key_usage                = "ENCRYPT_DECRYPT"
+  customer_master_key_spec = "SYMMETRIC_DEFAULT"
+  multi_region             = false
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccountAdmin"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        # Confused-deputy guard mirrors modules/kms::AllowSns.
+        Sid    = "AllowSns"
+        Effect = "Allow"
+        Principal = {
+          Service = "sns.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
+        # No condition block, deliberately — same reasoning as the matching
+        # statement in modules/kms/main.tf: AWS does not document CloudWatch as
+        # populating aws:SourceAccount on the KMS calls behind an alarm publish,
+        # an unverified condition here would fail closed and silently, and the
+        # AWS-published policy for this case carries no conditions.
+        Sid    = "AllowCloudWatchAlarmsForEncryptedSns"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudwatch.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name      = "${var.name_prefix}-alerts-useast1-key"
+    Component = "monitoring"
+  }
+}
+
+resource "aws_kms_alias" "alerts_useast1" {
+  provider = aws.useast1
+
+  name          = "alias/${var.name_prefix}-alerts-useast1"
+  target_key_id = aws_kms_key.alerts_useast1.key_id
+}
+
 # Billing-alarm topic in us-east-1.
 resource "aws_sns_topic" "alerts_useast1" {
   provider = aws.useast1
 
   name = "${var.name_prefix}-alerts-useast1"
-  # AWS-managed key — see header comment above for the deviation rationale.
-  kms_master_key_id = "alias/aws/sns"
+  # Customer-managed us-east-1 key — an AWS-managed SNS key cannot authorise
+  # CloudWatch alarm publishes at all. See the header comment above.
+  kms_master_key_id = aws_kms_key.alerts_useast1.arn
 
   tags = {
     Name      = "${var.name_prefix}-alerts-useast1"

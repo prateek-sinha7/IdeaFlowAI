@@ -1,6 +1,6 @@
 {
   "name": "dev-staging-protection",
-  "description": "Deploying branches (dev, staging): prevent accidental deletion and force push.",
+  "description": "Deploying branches (dev, staging): prevent accidental deletion and force push. NOTE: `ci-required` is deliberately NOT listed as a required status check yet. Adding it is the LAST step of the CI remediation and may only be done after a reviewed canary has actually observed the `ci-required` context being published successfully on a protected-branch PR (see .kiro/specs/ci-pipeline-remediation/ROLLOUT-EVIDENCE.md). Requiring a context that no workflow can emit permanently blocks every pull request.",
   "target": "branch",
   "enforcement": "active",
   "bypass_actors": [],

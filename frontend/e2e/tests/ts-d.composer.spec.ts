@@ -185,7 +185,7 @@ test.describe("TS-D — agent composer", () => {
   });
 
   test("TS-D-08 capabilities modal shows the three sections", async ({ dashboard }) => {
-    test.fixme(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline)");
+    test.skip(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     await openComposer(dashboard);
 
     // Open the capabilities inspector from a card's Info button. Phase-39/SHELL-04

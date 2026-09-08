@@ -28,11 +28,20 @@ fi
 # shellcheck source=/dev/null
 . /etc/velocityai/bootstrap.env
 
-REGION="${VELOCITYAI_REGION:-eu-central-1}"
+# Only the values this script actually reads are bound here. REGION and
+# ACME_EMAIL were assigned alongside these and then read nowhere in the file
+# (SC2034), and nothing here needs them: this script invokes no aws CLI command
+# (the CloudWatch agent it configures resolves its own region from instance
+# metadata), and Let's Encrypt registration lives in bootstrap-ec2.sh. Dropping
+# the two dead bindings changes no behaviour — VELOCITYAI_REGION and
+# VELOCITYAI_ACME_EMAIL still arrive in the environment from the bootstrap.env
+# sourced above for anything downstream that wants them.
 DOMAIN="${VELOCITYAI_FQDN:?VELOCITYAI_FQDN missing in /etc/velocityai/bootstrap.env}"
 ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:?VELOCITYAI_ENVIRONMENT missing in /etc/velocityai/bootstrap.env}"
+# Title-cased for the CloudWatch namespace ("prod" -> "VelocityAI/Prod"), which
+# matches the monitoring module's `cw_metric_namespace`. Read at the agent
+# config heredoc further down.
 ENV_TITLE="${ENVIRONMENT^}"
-ACME_EMAIL="${VELOCITYAI_ACME_EMAIL:-security@example.com}"
 
 echo "[reconcile] ENVIRONMENT=$ENVIRONMENT DOMAIN=$DOMAIN"
 
@@ -361,14 +370,15 @@ ln -sfn /etc/nginx/sites-available/velocityai /etc/nginx/sites-enabled/velocitya
 rm -f /etc/nginx/sites-enabled/default
 
 # Fail closed when TLS is expected but unavailable; otherwise a post-bootstrap
-# deployment could leave an unvalidated site configuration on disk.
-NGINX_APPLIED=0
+# deployment could leave an unvalidated site configuration on disk. The
+# fail-closed behaviour is carried entirely by restore_and_die in the branches
+# below — an NGINX_APPLIED flag was set here and never read (SC2034), so it
+# recorded the outcome for no one.
 if [[ -d /etc/letsencrypt/live/$DOMAIN ]]; then
     if ! nginx -t; then
         restore_and_die "nginx -t validation failed (see log above)"
     fi
     systemctl reload nginx
-    NGINX_APPLIED=1
     echo "[reconcile] nginx reloaded successfully"
 elif [[ -f /var/lib/velocityai/.bootstrap-done ]]; then
     restore_and_die "TLS cert directory /etc/letsencrypt/live/$DOMAIN is missing on an already-provisioned host — refusing to leave an unvalidated nginx config live"

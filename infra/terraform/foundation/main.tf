@@ -142,7 +142,6 @@ module "cognito" {
 module "secrets" {
   source = "../modules/secrets"
 
-  name_prefix                  = local.name_prefix
   environment                  = var.environment
   region                       = module.account_guard.region
   kms_key_id                   = module.kms.key_id

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "producer": "backend-static",
+  "description": "Eight independent backend static-quality signals under one owner with shared setup. Every command runs to completion so each gets its own sub-verdict; the runner then exits non-zero if any failed. Commands are relative to backend/, which is the runner's working directory.",
+  "checks": [
+    {
+      "check_id": "ruff-lint",
+      "command": ["uv", "run", "--frozen", "ruff", "check", "."],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "ruff-format",
+      "command": ["uv", "run", "--frozen", "ruff", "format", "--check", "."],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "python-compile",
+      "command": ["uv", "run", "--frozen", "python", "-m", "compileall", "-q", "app", "agents"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "pyright",
+      "command": ["uv", "run", "--frozen", "pyright"],
+      "timeout_seconds": 900,
+      "mandatory": true
+    },
+    {
+      "check_id": "import-linter",
+      "command": ["uv", "run", "--frozen", "lint-imports"],
+      "timeout_seconds": 600,
+      "mandatory": true
+    },
+    {
+      "check_id": "vulture",
+      "command": ["uv", "run", "--frozen", "vulture", "app", "agents"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "bandit",
+      "command": ["uv", "run", "--frozen", "bandit", "-c", "pyproject.toml", "-r", "app", "agents", "-ll"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "migration-guard",
+      "command": ["uv", "run", "--frozen", "python", "scripts/migration_guard.py", "--verify"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    }
+  ]
+}

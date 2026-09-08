@@ -38,10 +38,9 @@ module "monitoring" {
   kms_key_arn = "arn:aws:kms:eu-central-1:123456789012:key/00000000-0000-0000-0000-000000000000"
   alert_email = "ops@example.com"
 
-  bedrock_model_id        = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-  instance_role_arn       = "arn:aws:iam::123456789012:role/velocityai-dev-instance"
-  project_cmk_arn         = "arn:aws:kms:eu-central-1:123456789012:key/00000000-0000-0000-0000-000000000000"
-  secrets_path_prefix_arn = "arn:aws:ssm:eu-central-1:123456789012:parameter/velocityai/dev"
+  bedrock_model_id  = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+  instance_role_arn = "arn:aws:iam::123456789012:role/velocityai-dev-instance"
+  project_cmk_arn   = "arn:aws:kms:eu-central-1:123456789012:key/00000000-0000-0000-0000-000000000000"
 }
 
 output "alerts_topic_arn" {

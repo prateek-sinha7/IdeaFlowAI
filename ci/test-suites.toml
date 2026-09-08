@@ -1,0 +1,31 @@
+# Auxiliary test registry
+#
+# Every tracked test-like file that pytest cannot collect must appear here with
+# an exact command and an owner, or it is invisible work: a file named like a
+# test but never executed looks like coverage and provides none.
+#
+# `agents.ci.inventory_cli` fails the backend-inventory signal when it finds an
+# uncollectable test-like file under backend/tests/ that is not listed here, so
+# this registry cannot silently fall out of date.
+#
+# To add an entry:
+#
+#   [[suite]]
+#   path    = "backend/tests/unit/example.js"
+#   owner   = "backend-offline"        # the CI job that runs it
+#   command = ["node", "backend/tests/unit/example.js", "<arg>"]
+#   reason  = "Why pytest cannot collect it."
+#
+# The registry is currently empty. That is the desired state: prefer converting
+# an auxiliary test into a collected one over registering a second runner.
+
+# --- Removed entries -------------------------------------------------------
+#
+# backend/tests/unit/test_grading_site_sorting.js
+#   Deleted rather than registered. It extracted an `asNumber()` function from a
+#   shipped `assets.py` script and drove the real comparator, which was a good
+#   design — but neither `assets.py` nor `asNumber` exists anywhere in the
+#   repository any more, and there are no remaining references to the grading
+#   site. The test could only ever report "asNumber() not found in the shipped
+#   script", so registering it would have added a permanently failing signal
+#   guarding code that no longer ships.

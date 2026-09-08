@@ -21,7 +21,6 @@ provider "aws" {
 module "dns" {
   source = "../../"
 
-  name_prefix = "velocityai-dev"
   use_nip_io  = true
   eip_address = "203.0.113.10" # normally module.compute.public_ip
 }

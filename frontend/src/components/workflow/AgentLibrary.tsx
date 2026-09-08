@@ -235,7 +235,11 @@ export function AgentLibrary({
                         >
                           {/* ℹ️ button — top right corner */}
                           <button
-                            onClick={(e) => { e.stopPropagation(); !isBeta && setCapAgent({ agent, index: idx }); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isBeta) return;
+                              setCapAgent({ agent, index: idx });
+                            }}
                             disabled={isBeta}
                             className={`absolute top-3 right-3 flex items-center justify-center w-6 h-6 rounded-md border transition-colors ${
                               isBeta
