@@ -594,6 +594,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
   # ---------------------------------------------------------------------------
+  # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
+  # ---------------------------------------------------------------------------
   deploy:
     name: Deploy (${{ needs.resolve.outputs.environment }})
     runs-on: ubuntu-latest
@@ -621,6 +623,13 @@ jobs:
       group: deploy-${{ needs.resolve.outputs.environment }}
       cancel-in-progress: true
     steps:
+      # ── Phase 6: Install Cosign in deploy job ──────────────────────────
+      # Cosign is needed in the deploy job to verify image signatures before
+      # deploying. The build job signs; the deploy job must verify.
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.1
+        with:
+          cosign-release: 'v2.2.2'
       # Only the four files the SSM payload carries. Cone mode is off because
       # the set mixes root-level files with a nested path; cone mode selects
       # whole directories and would pull far more than this.

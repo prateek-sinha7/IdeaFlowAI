@@ -18,6 +18,17 @@
     },
     {
       "type": "non_fast_forward"
+    },
+    {
+      "type": "creation",
+      "parameters": {
+        "required_status_checks": [
+          {
+            "context": "ci-required",
+            "integration_id": null
+          }
+        ]
+      }
     }
   ]
 }

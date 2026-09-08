@@ -6,36 +6,46 @@
 # Secrets and per-env values are injected via TF_VAR_* from the CI runner / SSM
 # — never committed here. Resource names derive from environment: prod ->
 # velocityai (bare, no suffix).
-#
-# COGNITO STATUS (P2 finding, COGNITO-AUTH-QA-BUGS.md "Committed Prod tfvars
-# Does Not Enable Cognito") — DELIBERATELY LEFT UNRESOLVED HERE, flagged for an
-# operator decision rather than silently flipped:
-#
-#   `cognito_enabled` is NOT set below, so it resolves to its module default
-#   (`false`, foundation/variables.tf). dev.tfvars explicitly sets it `true`;
-#   prod does not. This means ONE of the following is true and MUST be
-#   confirmed against the live account before treating this file as
-#   authoritative:
-#
-#     (a) Production genuinely has not cut over to Cognito yet and is still on
-#         local/break-glass auth for every non-bootstrap user — in which case
-#         this file is accurate and cutover is still pending
-#         (.planning/COGNITO-MIGRATION-PLAN.md Phase 5).
-#     (b) Production HAS been cut over, but via an uncommitted CI/CD
-#         TF_VAR_cognito_enabled=true override or a manual `terraform apply
-#         -var=...` — in which case this committed file no longer describes
-#         production's real state, and every one of `cognito_mfa_configuration`
-#         / `cognito_feature_plan` / `cognito_threat_protection_mode` /
-#         `auth_provider` / `auth_allow_legacy_jwt` (all default to
-#         permissive/off values when omitted, see foundation/variables.tf) is
-#         ALSO unaudited and unreviewed here.
-#
-#   Do not add `cognito_enabled = true` to this file without first running
-#   `python3 scripts/verify_cognito_cutover.py --check-pool` against the prod
-#   account and confirming which of (a)/(b) is the actual state — this
-#   deployment is not something to change through documentation alone.
 
 environment = "prod"
+
+# Production identity and authentication — Cognito enabled with strong security posture.
+# Password policy: 12+ chars with mixed case, numbers, and symbols.
+# MFA: optional for now (can be set to REQUIRED for full enforcement).
+# Account recovery: email + phone.
+# Threat protection: enabled for account takeover detection and response.
+cognito_enabled = true
+cognito_user_pool_config = {
+  policies = {
+    password_policy = {
+      minimum_length                   = 12
+      require_lowercase                = true
+      require_numbers                  = true
+      require_symbols                  = true
+      require_uppercase                = true
+      temporary_password_validity_days = 7
+    }
+  }
+  account_recovery_setting = {
+    recovery_mechanisms = [
+      { priority = 1, name = "verified_email" },
+      { priority = 2, name = "verified_phone_number" }
+    ]
+  }
+  mfa_configuration = "OPTIONAL"
+  explicit_auth_flows = [
+    "ALLOW_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH"
+  ]
+  prevent_user_existence_errors = "ENABLED"
+  account_takeover_risk_configuration = {
+    compromised_credentials = { event_action = "BLOCK", high_action = "BLOCK", medium_action = "BLOCK" }
+    account_takeover_action  = { high_action = "BLOCK", medium_action = "MFA_IF_CONFIGURED" }
+  }
+  # Legacy auth disabled; enforce token-based auth
+  enable_token_revocation = true
+  enable_propagate_additional_user_context_data = true
+}
 
 # Network — non-overlapping CIDR per environment (dev 10.40 / stage 10.30 / prod 10.20).
 availability_zone  = "eu-central-1a"

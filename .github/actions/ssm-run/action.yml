@@ -185,3 +185,25 @@ runs:
           --region "$AWS_REGION" || echo "::warning::cancel-command itself failed — the box may continue running the command unsupervised; check it manually." >&2
         print_box_output
         exit 1
+
+    # Handle GitHub job cancellation: when this job is cancelled externally,
+    # immediately cancel the SSM command so it doesn't continue running after
+    # the deployment has been aborted. This prevents orphaned commands from
+    # interfering with subsequent deployments.
+    - name: Cancel SSM command on job cancellation
+      if: cancelled()
+      shell: bash
+      env:
+        AWS_REGION: ${{ inputs.aws-region }}
+        INSTANCE_ID: ${{ inputs.instance-id }}
+        COMMAND_ID: ${{ steps.send.outputs.command_id }}
+      run: |
+        if [[ -n "$COMMAND_ID" && "$COMMAND_ID" != "" ]]; then
+          echo "GitHub job cancelled; sending SSM cancel-command for $COMMAND_ID..."
+          aws ssm cancel-command \
+            --command-id "$COMMAND_ID" \
+            --instance-ids "$INSTANCE_ID" \
+            --region "$AWS_REGION" && echo "SSM command cancelled successfully" || echo "::warning::cancel-command failed; the box may still execute the command." >&2
+        else
+          echo "No command ID available to cancel"
+        fi
