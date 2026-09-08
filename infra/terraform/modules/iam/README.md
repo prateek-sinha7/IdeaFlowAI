@@ -11,7 +11,9 @@ default) SSM Session Manager access.
 
 - `aws_iam_role.instance` — the EC2 instance role (assumed by `ec2.amazonaws.com`).
 - `aws_iam_role_policy.*` — inline policies from `policies/*.json` (SSM read,
-  KMS decrypt, S3 backup write, Bedrock invoke, …).
+  KMS decrypt, S3 backup write, Bedrock invoke, …), plus two policies built
+  inline from `data "aws_iam_policy_document"` blocks (`cw_agent`,
+  `capacity_read`) for actions AWS does not support scoping by `Resource`.
 - `aws_iam_instance_profile.instance` — wraps the role for `aws_instance`.
 - Optional attachment of the AWS-managed `AmazonSSMManagedInstanceCore`.
 

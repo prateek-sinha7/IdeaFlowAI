@@ -576,6 +576,66 @@ can't have metric filters attached.
 
 ---
 
+## 7.2 Host capacity matrix + admission gate (specs/014) — enable procedure
+
+The admin capacity matrix (`GET /api/admin/capacity`, "Machines" tab) and its
+admission gate ship **disabled-gate-by-default** (`HOST_CAPACITY_GATE_ENABLED
+= false`) — the matrix itself collects and is visible to admins from the
+first apply, but nothing is blocked until you deliberately turn the gate on,
+per environment, after watching real readings. Do not skip straight to step 4.
+
+1. **Apply the IAM change.** `modules/iam` grew a new inline policy
+   (`capacity_read`: `cloudwatch:GetMetricData` + `ec2:DescribeInstances`,
+   region-bounded) on the instance role. Apply the `foundation(<env>)` layer
+   for each environment:
+   ```bash
+   terraform -chdir=infra/terraform/foundation/<env> apply
+   ```
+   `terraform plan` should show exactly one new `aws_iam_role_policy` and an
+   updated `aws_iam_role_policies_exclusive` resource — nothing else. If the
+   plan shows other inline policies being *removed*, stop: that means the
+   exclusive list in `modules/iam/main.tf` is missing a name (see the comment
+   at `aws_iam_role_policies_exclusive.instance`).
+
+2. **Confirm the matrix populates.** No app redeploy is required for the IAM
+   change alone (the role's permissions take effect immediately once the
+   policy attaches), but the poller only starts logging once the app has
+   restarted at least once after the apply. As an admin, open `/admin` →
+   *Machines* and confirm the instance row shows real, non-`null` CPU/Memory
+   readings with a fresh `Reading age`. If the gate shows **Blind**, check
+   `blind_reason` — it names exactly which signal(s) are missing/stale.
+
+3. **Set thresholds for real traffic, if the defaults don't fit.** Defaults
+   are `HOST_CAPACITY_CPU_THRESHOLD_PERCENT=75` /
+   `HOST_CAPACITY_MEM_THRESHOLD_PERCENT=75` (deliberately tighter than the
+   existing 80%/85% CloudWatch alarms in `modules/monitoring`). Unlike
+   `HOST_CAPACITY_METRIC_NAMESPACE` / `HOST_CAPACITY_INSTANCE_IDS` (the only
+   two `HOST_CAPACITY_*` settings wired through GitHub Environment
+   variables — `docs/GITHUB_CICD_SETUP.md` §3.2/§10), the thresholds and
+   every other `HOST_CAPACITY_*` field are changed by editing the default
+   directly in `backend/app/core/config.py` and redeploying — never edit
+   `.env` on the box by hand.
+
+4. **Enable the gate per environment**, only after 2–3 have held up under
+   real load: set `HOST_CAPACITY_GATE_ENABLED = True` in
+   `backend/app/core/config.py` for that environment's deploy and redeploy.
+   This is intentionally a per-environment, human decision — there is no
+   "enable everywhere" switch.
+
+5. **Verify a real rejection end-to-end** (optional but recommended before
+   trusting the gate in prod): temporarily lower
+   `HOST_CAPACITY_CPU_THRESHOLD_PERCENT` in a non-prod environment, launch a
+   workflow as a non-admin user, and confirm the "Service is busy" modal
+   appears with a working countdown. Admin actions (cancel, gate-resolve,
+   answers, SSE reconnect) must all keep working while engaged — if any of
+   those are blocked, that is a regression of D-01, not expected behavior.
+
+Rollback is the mirror image: set `HOST_CAPACITY_GATE_ENABLED = False` (or
+`HOST_CAPACITY_ENABLED = False` to stop collection entirely) in `config.py`
+and redeploy — no Terraform change needed to disable.
+
+---
+
 ## 8. Provider lock files (CI portability note)
 
 The committed `.terraform.lock.hcl` files carry the full `zh:` hash set (so CI

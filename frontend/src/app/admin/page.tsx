@@ -20,6 +20,9 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
+import { Tabs } from "@/components/ui/Tabs";
+import { CapacityMatrix } from "@/components/admin/CapacityMatrix";
+import { useCapacityMatrix } from "@/hooks/useCapacityMatrix";
 
 const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise", "hexaware"];
 
@@ -123,6 +126,11 @@ export default function AdminPage() {
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  // specs/014 §3.7 — Users | Machines tabs. Users stays the default so the
+  // existing landing behavior (and every render test that awaits
+  // "alice@example.com" without first switching tabs) is unaffected.
+  const [activeTab, setActiveTab] = useState<"users" | "machines">("users");
+  const capacityState = useCapacityMatrix(getToken());
 
   // Create user form
   const [newEmail, setNewEmail] = useState("");
@@ -283,6 +291,19 @@ export default function AdminPage() {
 
       <div className="max-w-5xl mx-auto px-6 py-6 space-y-5">
 
+        <Tabs
+          tabs={[
+            { id: "users", label: "Users" },
+            { id: "machines", label: "Machines" },
+          ]}
+          active={activeTab}
+          onChange={(id) => setActiveTab(id as "users" | "machines")}
+        />
+
+        {activeTab === "machines" ? (
+          <CapacityMatrix state={capacityState} />
+        ) : (
+        <>
         {/* Stat cards */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           {[
@@ -441,6 +462,8 @@ export default function AdminPage() {
             </table>
           )}
         </Card>
+        </>
+        )}
       </div>
 
       {/* Create user modal */}

@@ -791,6 +791,14 @@ secrets are masked.
 | `HANDOFF_MAX_TRANSCRIPT_BYTES` | *(optional)* | |
 | `LANGSMITH_TRACING` | *(optional)* `true`/`false` | |
 | `LANGSMITH_PROJECT` | *(optional)* | |
+| `HOST_CAPACITY_METRIC_NAMESPACE` | *(optional; empty derives `VelocityAI/{ENV.title()}`)* | Only set if the CloudWatch Agent's namespace has diverged from the derived default. |
+| `HOST_CAPACITY_INSTANCE_IDS` | *(optional)* `i-0abc123def456` | Operator-supplied EC2 instance id allow-list. Highest precedence over tag-based discovery — set this and discovery is skipped entirely. |
+
+Every other `HOST_CAPACITY_*` setting (gate on/off, thresholds, poll interval,
+timeouts, etc. — see `backend/app/core/config.py`) is **not** wired as a
+GitHub Environment variable. Only the two above are, by design — the rest are
+changed by editing their default in `Settings` and redeploying, since they're
+rarely-touched values and a GitHub var per field wasn't worth the sprawl.
 
 **Secrets (masked):**
 
@@ -1008,7 +1016,30 @@ exact and load-bearing.
 | `llm/model_id` | `BEDROCK_MODEL_ID` | var `BEDROCK_MODEL_ID` |
 | `llm/inference_profile_id` | `BEDROCK_INFERENCE_PROFILE_ID` | var `BEDROCK_INFERENCE_PROFILE_ID` |
 | `llm/coding_model_id` | `BEDROCK_CODING_MODEL_ID` | var `BEDROCK_CODING_MODEL_ID` |
+| `HOST_CAPACITY_METRIC_NAMESPACE` | `HOST_CAPACITY_METRIC_NAMESPACE` | var `HOST_CAPACITY_METRIC_NAMESPACE` |
+| `HOST_CAPACITY_INSTANCE_IDS` | `HOST_CAPACITY_INSTANCE_IDS` | var `HOST_CAPACITY_INSTANCE_IDS` |
+| `HOST_CAPACITY_ENABLED` | `HOST_CAPACITY_ENABLED` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_GATE_ENABLED` | `HOST_CAPACITY_GATE_ENABLED` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_CPU_THRESHOLD_PERCENT` | `HOST_CAPACITY_CPU_THRESHOLD_PERCENT` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_MEM_THRESHOLD_PERCENT` | `HOST_CAPACITY_MEM_THRESHOLD_PERCENT` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_CLEAR_MARGIN_PERCENT` | `HOST_CAPACITY_CLEAR_MARGIN_PERCENT` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_BREACH_DATAPOINTS` | `HOST_CAPACITY_BREACH_DATAPOINTS` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_MIN_BLOCK_SECONDS` | `HOST_CAPACITY_MIN_BLOCK_SECONDS` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_MAX_STALENESS_SECONDS` | `HOST_CAPACITY_MAX_STALENESS_SECONDS` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_POLL_SECONDS` | `HOST_CAPACITY_POLL_SECONDS` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_INVENTORY_TTL_SECONDS` | `HOST_CAPACITY_INVENTORY_TTL_SECONDS` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_GATE_SCOPE` | `HOST_CAPACITY_GATE_SCOPE` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_RETRY_AFTER_SECONDS` | `HOST_CAPACITY_RETRY_AFTER_SECONDS` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_AWS_CONNECT_TIMEOUT` | `HOST_CAPACITY_AWS_CONNECT_TIMEOUT` | *(not pushed — Settings default only)* |
+| `HOST_CAPACITY_AWS_READ_TIMEOUT` | `HOST_CAPACITY_AWS_READ_TIMEOUT` | *(not pushed — Settings default only)* |
 | *(anything else)* | — | **logged as WARN, dropped** |
+
+The 14 rows marked "not pushed" are still recognized by the loader's
+`HOST_CAPACITY_*)` glob case-arm if an SSM parameter under that name ever
+exists (e.g. set by hand, or if `deploy.yml` is extended later) — they are
+simply not currently wired from a GitHub Environment variable. To change one
+of their values today, edit its default in `backend/app/core/config.py` and
+redeploy.
 
 Host-anchored values NOT sourced from SSM (preserved across loader runs):
 

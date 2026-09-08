@@ -4,6 +4,7 @@ import { Manrope, Heebo } from "next/font/google";
 import "./globals.css";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
 import { RunConnectionProvider } from "@/providers/RunConnectionProvider";
+import { ServiceBusyProvider } from "@/providers/ServiceBusyProvider";
 import { StoreProvider } from "@/store/StoreProvider";
 import { GlobalPreloadIndicator } from "@/store/GlobalPreloadIndicator";
 
@@ -41,17 +42,27 @@ export default function RootLayout({
         </Script>
         <StoreProvider>
           <GlobalPreloadIndicator />
-          <SkillsHooksProvider>
-            {/*
-              43-06 (A.2): mount the app-level SSE run connection ABOVE the router
-              so per-run streams survive route changes (D-14a). SSE is the sole,
-              unconditional run transport (44-06 hard cutoff) — the provider always
-              attaches; there is no transport flag and no legacy WS path.
-            */}
-            <RunConnectionProvider>
-              {children}
-            </RunConnectionProvider>
-          </SkillsHooksProvider>
+          {/*
+            specs/014: mounted ABOVE RunConnectionProvider (and every route) so
+            a capacity-gate rejection from ANY authenticated call — a run
+            launch, a handoff start, an admin action — shows the SAME busy
+            modal regardless of which page or provider issued the request.
+            Owns no run state itself; it only subscribes to lib/api.ts's
+            onCapacityRejected pub/sub.
+          */}
+          <ServiceBusyProvider>
+            <SkillsHooksProvider>
+              {/*
+                43-06 (A.2): mount the app-level SSE run connection ABOVE the router
+                so per-run streams survive route changes (D-14a). SSE is the sole,
+                unconditional run transport (44-06 hard cutoff) — the provider always
+                attaches; there is no transport flag and no legacy WS path.
+              */}
+              <RunConnectionProvider>
+                {children}
+              </RunConnectionProvider>
+            </SkillsHooksProvider>
+          </ServiceBusyProvider>
         </StoreProvider>
       </body>
     </html>

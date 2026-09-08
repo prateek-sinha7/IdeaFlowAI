@@ -143,6 +143,75 @@ class Settings(BaseSettings):
     # Empty (default) → fall through to the IAM/SSO credential chain (AWS_PROFILE).
     AWS_BEARER_TOKEN_BEDROCK: str = ""
 
+    # ---- Host capacity matrix + admission gate (specs/014) --------------------
+    # Reads the CPU/memory series the CloudWatch Agent already publishes
+    # (infra/scripts/reconcile-host-config.sh) via the boto3 default credential
+    # chain — same auth model as Bedrock/Cognito above, no new credentials.
+    #
+    # HOST_CAPACITY_ENABLED: master switch for collection (matrix + poller).
+    # Independent of the gate switch below — the matrix can run read-only with
+    # the gate off.
+    HOST_CAPACITY_ENABLED: bool = True
+    # HOST_CAPACITY_GATE_ENABLED: enforce the admission gate on launch/resume/
+    # revision/etc. Defaults OFF (D-10, specs/014 §5) — a feature capable of
+    # refusing every launch must not switch itself on at deploy time. Enable
+    # per environment only after the matrix has been observed there.
+    HOST_CAPACITY_GATE_ENABLED: bool = False
+    # Engage thresholds (specs/014 §10 Resolutions Q1 — operator-confirmed 75%
+    # for both, deliberately tighter than the existing 80%/85% CloudWatch
+    # alarms in infra/terraform/modules/monitoring/variables.tf).
+    HOST_CAPACITY_CPU_THRESHOLD_PERCENT: float = 75.0
+    HOST_CAPACITY_MEM_THRESHOLD_PERCENT: float = 75.0
+    # Hysteresis band (specs/014 D-05): once engaged, the gate clears only
+    # below (threshold - this margin), so a reading oscillating right at the
+    # threshold does not flap the busy modal on and off.
+    HOST_CAPACITY_CLEAR_MARGIN_PERCENT: float = 10.0
+    # Consecutive breaching datapoints required to ENGAGE (mirrors the existing
+    # alarms' evaluation_periods "sustained, not a burst" logic).
+    HOST_CAPACITY_BREACH_DATAPOINTS: int = 2
+    # Minimum time an engaged gate stays engaged, so one transient spike cannot
+    # produce a three-second modal flash.
+    HOST_CAPACITY_MIN_BLOCK_SECONDS: int = 60
+    # A datapoint older than this is treated as UNKNOWN, not stale-but-valid —
+    # unknown fails OPEN (specs/014 D-03/D-04). Bounds how long a broken poller
+    # can keep gating the product on a frozen reading.
+    HOST_CAPACITY_MAX_STALENESS_SECONDS: int = 300
+    # Background poller cadence. The CloudWatch Agent itself publishes every
+    # 60s, so polling faster than that buys nothing.
+    HOST_CAPACITY_POLL_SECONDS: int = 30
+    # ec2:DescribeInstances is the more expensive call and the instance list
+    # changes rarely, so it is cached far longer than the metric poll.
+    HOST_CAPACITY_INVENTORY_TTL_SECONDS: int = 300
+    # CloudWatch namespace the agent publishes to. Empty (default) derives
+    # "VelocityAI/{ENV.title()}" to match reconcile-host-config.sh's
+    # `"namespace": "VelocityAI/${ENV_TITLE}"` exactly — see the model_validator
+    # below. Override only if the agent config's namespace has diverged.
+    HOST_CAPACITY_METRIC_NAMESPACE: str = ""
+    # Optional comma-separated EC2 instance-id allow-list (specs/014 D-07 /
+    # §10 Resolutions Q3). Highest precedence over discovery — set this and
+    # tag-based ec2:DescribeInstances discovery is skipped entirely. Delivered
+    # per environment as a GitHub Environment variable through the same SSM
+    # pipeline as BEDROCK_MODEL_ID (see docs/GITHUB_CICD_SETUP.md). Empty
+    # default = discover via instance tags (Project=velocityai,
+    # Environment=<ENV>, state=running) — the default, per the operator's
+    # confirmation that discovery should remain the primary path and a
+    # supplied id only a cross-check.
+    HOST_CAPACITY_INSTANCE_IDS: str = ""
+    # Which instance's reading decides admission for a REQUEST TO THIS PROCESS.
+    # "self"  (default) — the instance serving the request (resolved via IMDSv2
+    #          at startup). Correct for today's single-instance deployment
+    #          (specs/014 §10 Resolutions Q2 — operator-confirmed one instance).
+    # "fleet_worst" — reserved for a future multi-instance fleet; deliberately
+    #          not the default (one hot node would gate every node).
+    HOST_CAPACITY_GATE_SCOPE: str = "self"
+    # Retry-After (seconds) sent on a 503 host_capacity_exhausted rejection.
+    HOST_CAPACITY_RETRY_AFTER_SECONDS: int = 120
+    # botocore timeouts for the metrics adapter — deliberately tight, NOT the
+    # Bedrock read_timeout=600 config. A metrics call must fail fast; a hung
+    # one must never wedge the background poller.
+    HOST_CAPACITY_AWS_CONNECT_TIMEOUT: int = 5
+    HOST_CAPACITY_AWS_READ_TIMEOUT: int = 10
+
     # ---- Output token ceiling (single source of truth) ----
     # The Anthropic/Bedrock APIs REQUIRE a finite max_tokens on every call — it
     # cannot be omitted — so "no capping" means "run every agent at the model's
@@ -524,6 +593,22 @@ class Settings(BaseSettings):
         """
         if "SHUTDOWN_STOP_RUNS" not in self.model_fields_set:
             self.SHUTDOWN_STOP_RUNS = self.ENV.lower() == "development"
+        return self
+
+    @model_validator(mode="after")
+    def _default_host_capacity_namespace_from_env(self) -> "Settings":
+        """Derive the CloudWatch namespace from ENV when unset (specs/014 §6).
+
+        Must match ``reconcile-host-config.sh``'s
+        ``"namespace": "VelocityAI/${ENV_TITLE}"`` byte-for-byte, or the
+        adapter queries a namespace the CloudWatch Agent never publishes to
+        and every reading comes back empty. ``ENV_TITLE`` there is the shell's
+        capitalized deploy-environment name (e.g. ``Prod``, ``Dev``); ``.title()``
+        on the Python side reproduces that for the common single-word values.
+        Only applied when the operator did not supply an explicit value.
+        """
+        if "HOST_CAPACITY_METRIC_NAMESPACE" not in self.model_fields_set:
+            self.HOST_CAPACITY_METRIC_NAMESPACE = f"VelocityAI/{self.ENV.title()}"
         return self
 
     @model_validator(mode="after")

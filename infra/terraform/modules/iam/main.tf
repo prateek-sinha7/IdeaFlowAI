@@ -204,6 +204,39 @@ resource "aws_iam_role_policy" "cw_agent" {
   policy = data.aws_iam_policy_document.cw_agent_describes.json
 }
 
+# --- Host capacity matrix + admission gate (specs/014) ----------------------
+# The background poller (app/services/host_metrics.py) needs to read the
+# CloudWatch Agent's own custom metrics back (cloudwatch:GetMetricData) and
+# discover the fleet by tag (ec2:DescribeInstances) when
+# HOST_CAPACITY_INSTANCE_IDS is not set. Same shape as cw_agent_describes
+# above: neither action supports resource-level ARNs (Resource "*" is the
+# only form IAM accepts for them), so the `aws:RequestedRegion` condition is
+# the only blast-radius control available — bounds a stolen instance
+# credential to this deploy region, same as the agent's own describe policy.
+data "aws_iam_policy_document" "capacity_read" {
+  statement {
+    sid    = "HostCapacityRead"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:GetMetricData",
+      "ec2:DescribeInstances"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "capacity_read" {
+  name   = "${var.name_prefix}-capacity-read"
+  role   = aws_iam_role.instance.id
+  policy = data.aws_iam_policy_document.capacity_read.json
+}
+
 # --- Cognito admin (COGNITO-MIGRATION-PLAN Phase 1) -------------------------
 # Scoped to exactly one pool ARN (least privilege — never Resource "*"). No
 # statement is created when cognito_user_pool_arn is empty, so environments
@@ -275,6 +308,7 @@ resource "aws_iam_role_policies_exclusive" "instance" {
       aws_iam_role_policy.s3_config_read.name,
       aws_iam_role_policy.ecr_pull.name,
       aws_iam_role_policy.cw_agent.name,
+      aws_iam_role_policy.capacity_read.name,
     ],
     # count-guarded resource — [*] flattens to [] when the count is 0, so the
     # exclusive list stays correct whether or not Cognito is enabled.

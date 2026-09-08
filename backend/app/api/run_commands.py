@@ -674,6 +674,10 @@ async def resume_run_endpoint(
         # the launch-time gate.
         _require_tier_entitlement(current_user, wr.type)
 
+        # specs/014: resume re-drives new agent work exactly like a fresh launch —
+        # gated at the same point, same as the tier check immediately above.
+        _require_host_capacity(current_user)
+
         # (3) Overlap mutex — the authoritative liveness signal is the in-process DRIVER
         # TASK (NOT the DB status, and NOT bare registry membership: a stale entry from a
         # driver that raised before its cleanup used to 409 this run forever). NO ``await``
@@ -1432,6 +1436,12 @@ async def _dispose_concierge_proposal(
 
     # ── revision → _mint_revision_row + _drive_revision_to_queue (family child). ────
     if channel == "revision":
+        # specs/014 D-01: this disposal mints + drives a NEW child run — the same
+        # cost as POST /{id}/revisions and CHANNEL_REVISION above — so it is gated
+        # here too, right before the mint. The steering_note/gate_action/chain
+        # disposals above are release/steer operations on EXISTING work and are
+        # deliberately never gated.
+        _require_host_capacity(current_user)
         # FIX-211: when the parent run is itself a revision (e.g. user_stories_revision),
         # wr_type already ends with "_revision". Using it verbatim as the target gives
         # "user_stories_revision_output" → revision_pipeline_type becomes
@@ -1788,6 +1798,10 @@ async def post_message(
                 )
             apply_steering(ectx, {"text": _steering_file_block, "sticky": False})
     elif dispatch.channel == CHANNEL_REVISION:
+        # specs/014: this channel mints + drives a new child run — new agent work,
+        # gated exactly like POST /{id}/revisions (D-01). Never gates CHANNEL_ANSWERS/
+        # CHANNEL_GATE/CHANNEL_STEERING above, which release or steer EXISTING work.
+        _require_host_capacity(current_user)
         # revision → mint + drive the shipped family child run (D-02), the exact seam
         # POST /{id}/revisions uses. A generic target derives from the run type when the
         # client omits one (string derivation only — no workflow name-branch).
@@ -1897,6 +1911,14 @@ async def post_message(
                 "channel": dispatch.channel,
                 "proposal": result,
             }
+
+        # specs/014 D-01: a fresh free-form turn invokes a real LLM call (new work,
+        # new cost) — gated here, before the model is ever reached. The confirm_proposal
+        # branch above is NOT gated at this point: disposing an already-decided proposal
+        # only re-invokes the model for a "revision" intent, which is gated inside
+        # _dispose_concierge_proposal itself; gate_action/steering_note disposals there
+        # release or steer EXISTING work and must stay open per D-01.
+        _require_host_capacity(current_user)
 
         # A fresh free-form turn: invoke the Concierge (owner-scoped) and project its
         # answer to the lane as a chat_reply row (the documented answer-projection type;
@@ -2288,14 +2310,22 @@ def _reject(
     *,
     http_status: int = status.HTTP_400_BAD_REQUEST,
     recoverable: bool = False,
+    response_headers: dict[str, str] | None = None,
     **extra,
 ) -> HTTPException:
     """Shape a rejection identically to the WS error-event ``data`` triple, but as
     an HTTP error (the REST channel's equivalent of ``ws.send_json({"type":"error"})``
-    + ``return`` before ``engine.execute`` — never a silent drop)."""
+    + ``return`` before ``engine.execute`` — never a silent drop).
+
+    ``response_headers`` (specs/014): real HTTP response headers (e.g.
+    ``Retry-After``) — distinct from ``**extra``, which lands inside the JSON
+    ``detail`` body. Optional and unused by every existing caller.
+    """
     detail = {"error": error, "code": code, "recoverable": recoverable}
     detail.update(extra)
-    return HTTPException(status_code=http_status, detail=detail)
+    return HTTPException(
+        status_code=http_status, detail=detail, headers=response_headers
+    )
 
 
 def _require_tier_entitlement(current_user: User, pipeline_type: str) -> None:
@@ -2328,6 +2358,59 @@ def _require_tier_entitlement(current_user: User, pipeline_type: str) -> None:
             reason,
             http_status=status.HTTP_403_FORBIDDEN,
         )
+
+
+def _require_host_capacity(current_user: User) -> None:
+    """specs/014 (host capacity matrix + admission gate) — the sibling of
+    ``_require_tier_entitlement`` above, called from the SAME shared seams
+    (launch / resume / revision) plus the concierge/revision channels of
+    ``post_message`` and ``user_message_shim``. Denies with a 503, never a
+    403 — this is a capacity condition, not an authorization decision.
+
+    Deliberately admission-control ONLY (D-01/D-08): this is called before
+    NEW expensive work is minted/dispatched, never before an operation that
+    RELEASES or REDUCES load (cancel, gate/answers resolution, steering, SSE
+    reconnect) — blocking those would strand already-paid-for work instead of
+    reducing it, which is the opposite of the point.
+
+    No-ops (returns immediately) in three cases, each documented in
+    specs/014:
+      * the gate is disabled (``HOST_CAPACITY_GATE_ENABLED=False``, the
+        default — D-10: a feature that can refuse every launch must not
+        switch itself on at deploy time),
+      * the caller is an admin (D-02 — an admin locked out by the exact
+        condition they are trying to diagnose is a dead end; reads the
+        advisory ``is_admin`` DB column, the same staleness window
+        ``_require_tier_entitlement`` above already accepts for ``tier``),
+      * the gate's own state is currently blind/unknown (D-03 — a monitoring
+        gap must fail OPEN, never be indistinguishable from "still busy").
+
+    Reads exclusively from the already-computed process-local decision
+    (``capacity_state.current_decision()``) — never calls AWS, so a
+    CloudWatch outage can never add latency to this check.
+    """
+    if not settings.HOST_CAPACITY_GATE_ENABLED:
+        return
+
+    from app.services.capacity_state import should_block_new_work
+
+    decision = should_block_new_work(is_admin=getattr(current_user, "is_admin", False))
+    if decision is None:
+        return
+
+    retry_after = settings.HOST_CAPACITY_RETRY_AFTER_SECONDS
+    raise _reject(
+        "host_capacity_exhausted",
+        "The service is busy right now. Please try again in a few minutes.",
+        http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        recoverable=True,
+        response_headers={"Retry-After": str(retry_after)},
+        retry_after_seconds=retry_after,
+        signals=[
+            {"name": s.name, "value": s.value, "threshold": s.threshold}
+            for s in decision.signals
+        ],
+    )
 
 
 def _resolve_launch_agents(body: "LaunchCommand"):
@@ -2626,6 +2709,10 @@ async def launch_run(
     # stamped from pipeline_type too. Checking the alias-collapsed base would
     # silently mis-key the lookup for every od_prototype launch.
     _require_tier_entitlement(current_user, pipeline_type)
+
+    # ── Capacity gate (specs/014) — checked right beside the entitlement gate, at
+    # the same "deny before mint" point, before any registry lookup or DB row. ──
+    _require_host_capacity(current_user)
 
     # ── Resolve + allow-list the agents (invalid_agent_ids) ────────────────────
     # RUNS for: FILE_PIPELINE, USER_WORKFLOW_FLAT (both are agent_ids-shaped —
@@ -3632,6 +3719,11 @@ async def create_revision(
     finally:
         db.close()
 
+    # specs/014: this mints + drives a new child run — gated right after the owner
+    # check and BEFORE the tier-classification LLM call below, so a busy host never
+    # pays for a classification call it will then discard.
+    _require_host_capacity(current_user)
+
     # ── Tier classification (prototype_output only) ───────────────────────────
     # For prototype revisions, run a lightweight one-word LLM call to select the
     # correct pipeline tier (small / large / feature) before minting the child row.
@@ -3915,6 +4007,10 @@ async def user_message_shim(
         db.commit()
     finally:
         db.close()
+
+    # specs/014: this drives a real LLM call (ChatRunner) — new work, gated before
+    # the stream is opened.
+    _require_host_capacity(current_user)
 
     mode_prompt = get_mode_prompt(body.mode)
 

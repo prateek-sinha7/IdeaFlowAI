@@ -31,6 +31,7 @@ from app.api.websocket_handoff import router as websocket_handoff_router
 from app.api.prototype_templates import router as prototype_templates_router
 from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
+from app.api.admin_capacity import router as admin_capacity_router
 from app.api.file_extract import router as file_extract_router
 from app.api.run_files import router as run_files_router
 from app.core.config import settings
@@ -224,6 +225,56 @@ async def lifespan(app: FastAPI):
 
     _sweep_task = _asyncio.create_task(_sandbox_sweep_loop())
 
+    # specs/014 (host capacity matrix + admission gate): periodic poller that
+    # reads CPU/memory from CloudWatch (via app.services.host_metrics) and
+    # publishes a decision into the process-local app.services.capacity_state
+    # holder. Mirrors the sandbox-sweep shape immediately above: interval from
+    # settings, the blocking boto3 call offloaded via asyncio.to_thread, broad
+    # non-fatal except (a monitoring outage must never crash the app — D-03),
+    # cancel-then-await on shutdown. Skipped entirely when HOST_CAPACITY_ENABLED
+    # is off, so a disabled deployment pays zero background cost.
+    _capacity_task = None
+    if settings.HOST_CAPACITY_ENABLED:
+
+        async def _capacity_poll_loop() -> None:
+            """Periodic host-capacity poll — runs every HOST_CAPACITY_POLL_SECONDS.
+
+            Logs only on a STATE TRANSITION (blind<->known, engaged<->allowing),
+            never once per tick — D-03 asks for a log per transition, not a
+            WARNING every HOST_CAPACITY_POLL_SECONDS while a state persists.
+            """
+            from datetime import datetime, timezone
+
+            from app.services import capacity_state, host_metrics
+
+            while True:
+                try:
+                    prev = capacity_state.current_decision()
+                    snapshot = await _asyncio.to_thread(host_metrics.collect_snapshot)
+                    decision = capacity_state.advance(
+                        snapshot, datetime.now(timezone.utc)
+                    )
+                    if decision.blind and not prev.blind:
+                        logger.warning(
+                            "host capacity: now blind (%s)", decision.blind_reason
+                        )
+                    elif not decision.blind and prev.blind:
+                        logger.info("host capacity: monitoring recovered")
+                    if decision.engaged and not prev.engaged:
+                        logger.warning(
+                            "host capacity: gate engaged — signals=%s",
+                            [(s.name, s.value, s.threshold) for s in decision.signals],
+                        )
+                    elif prev.engaged and not decision.engaged:
+                        logger.info("host capacity: gate cleared")
+                except Exception as _capacity_exc:  # noqa: BLE001
+                    logger.warning(
+                        "host capacity poll failed (non-fatal): %s", _capacity_exc
+                    )
+                await _asyncio.sleep(settings.HOST_CAPACITY_POLL_SECONDS)
+
+        _capacity_task = _asyncio.create_task(_capacity_poll_loop())
+
     yield
 
     # ── Shutdown sequence (D7 — KAN-139). The checkpointer pool close is NOT wired
@@ -238,6 +289,13 @@ async def lifespan(app: FastAPI):
         await _sweep_task
     except _asyncio.CancelledError:
         pass
+
+    if _capacity_task is not None:
+        _capacity_task.cancel()
+        try:
+            await _capacity_task
+        except _asyncio.CancelledError:
+            pass
 
     # ── KAN-151 D8: the shutdown half of the application lifecycle. ────────────
     # Reachable only because the process is launched with --timeout-graceful-shutdown
@@ -317,7 +375,10 @@ app.add_middleware(
     # for pagination without a separate request. Custom response headers are NOT
     # accessible from browser fetch() by default — they must be explicitly listed
     # in Access-Control-Expose-Headers.
-    expose_headers=["X-Total-Count"],
+    # specs/014: expose Retry-After so the capacity gate's 503 rejections let the
+    # frontend show a countdown — otherwise the header is silently invisible to
+    # fetch() despite being present on the wire.
+    expose_headers=["X-Total-Count", "Retry-After"],
 )
 
 
@@ -371,6 +432,12 @@ app.include_router(websocket_handoff_router)
 app.include_router(prototype_templates_router)
 app.include_router(ppt_templates_router)
 app.include_router(admin_router)
+# specs/014: admin-only, read-only host capacity matrix. Own module (not
+# admin.py) so admin_capacity.py stays free of the Cognito user-management
+# imports; shares the /api/admin prefix (FastAPI allows multiple routers per
+# prefix, same as runs_router/run_stream_router/run_commands_router do for
+# /api/runs).
+app.include_router(admin_capacity_router)
 app.include_router(file_extract_router)
 # UPLD-01: owner-scoped, capped document upload → RunSandbox ``.uploads/`` prefix
 # (additive — shares the /api/runs prefix; no new table / migration).
