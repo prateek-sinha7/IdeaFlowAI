@@ -32,7 +32,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getToken, getWorkflows } from "@/lib/api";
+import { ApiError, getToken, getWorkflows } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { parseSseBlock } from "@/lib/sseFrame";
 import {
@@ -401,6 +401,28 @@ export function RunConnectionProvider({
         },
         body: JSON.stringify(payload),
       });
+      // D2 (KAN-139) / specs/014: check res.ok BEFORE reading the body, for
+      // BOTH branches. A non-ok /messages response previously returned null
+      // silently, leaving the chat message as an orphan optimistic bubble
+      // forever with no error shown — and the LAUNCH branch (runId === null,
+      // POST /api/runs) had NO check at all, so a 503 host_capacity_exhausted
+      // rejection (or any other launch failure) fell straight through to the
+      // JSON-parse-then-return-null path below and the UI went dead with no
+      // error. Hoisting this check above the `if (runId)` split closes that
+      // gap for launch while leaving the per-run branch's existing behavior
+      // unchanged. Throws the typed `ApiError` (status + detail) rather than a
+      // plain `Error` so a caller (e.g. ServiceBusyProvider) can branch on
+      // `err.detail.code` without re-parsing a stringified message.
+      if (!res.ok) {
+        let detail: unknown;
+        try {
+          const body = (await res.json()) as Record<string, unknown>;
+          detail = body.detail ?? body;
+        } catch {
+          detail = `HTTP ${res.status}`;
+        }
+        throw new ApiError(res.status, detail);
+      }
       // A per-run message carries no new run to attach. m0o: content-negotiate —
       // the fresh-Concierge /messages response streams as `text/event-stream`
       // (Plan 01); drain its body and dispatch each parsed frame through the
@@ -410,22 +432,6 @@ export function RunConnectionProvider({
       // `concierge` literal — every other /messages response stays JSON and takes
       // the unchanged `return null` path below.
       if (runId) {
-        // D2 (KAN-139): check res.ok BEFORE reading the body. A 429/404/409/5xx
-        // response previously returned null silently, leaving the chat message as
-        // an orphan optimistic bubble forever with no error shown. Throw ApiError
-        // on any non-ok response so the caller can surface it to the user.
-        if (!res.ok) {
-          let detail: unknown;
-          try {
-            const body = (await res.json()) as Record<string, unknown>;
-            detail = body.detail ?? body;
-          } catch {
-            detail = `HTTP ${res.status}`;
-          }
-          throw new Error(
-            typeof detail === "string" ? detail : JSON.stringify(detail),
-          );
-        }
         const contentType = res.headers.get("content-type") ?? "";
         if (res.body && contentType.includes("text/event-stream")) {
           // Drain with the SAME reader-loop shape as useRunStream (split on
@@ -476,8 +482,8 @@ export function RunConnectionProvider({
         }
       }
       // Launch (POST /api/runs): parse the created run_id so the caller can
-      // attachRun it (W1/R4). A non-2xx create yields no id to attach.
-      if (!res.ok) return null;
+      // attachRun it (W1/R4). The non-2xx case is handled by the hoisted
+      // !res.ok check above (throws ApiError) — by this point res.ok is true.
       try {
         const body = (await res.json()) as
           | { run_id?: string; id?: string }

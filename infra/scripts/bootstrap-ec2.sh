@@ -830,6 +830,16 @@ while IFS= read -r param_json; do
             # never reached /etc/velocityai/app.env on any deployed host — an
             # operator flipping either one in Terraform saw no effect at all.
             emit "$rel" "$value" ;;
+        HOST_CAPACITY_*)
+            # specs/014 — host capacity matrix + admission gate. Every
+            # HOST_CAPACITY_* SSM key maps 1:1 to its Settings field name (no
+            # sub-prefix remap like llm/model_id -> BEDROCK_MODEL_ID below), so
+            # a single glob arm covers the whole family — same shape as the
+            # deploy/* / cloudwatch-agent/* / bootstrap/* glob arms elsewhere in
+            # this case. Every field already has a safe default in
+            # app/core/config.py, so an absent SSM parameter is fine; this arm
+            # only fires when deploy.yml actually pushed an override.
+            emit "$rel" "$value" ;;
         DATABASE_PASSWORD)
             emit DATABASE_URL "postgresql://velocityai:${value}@host.docker.internal:5432/velocityai" ;;
         llm/region)               emit AWS_REGION                  "$value" ;;

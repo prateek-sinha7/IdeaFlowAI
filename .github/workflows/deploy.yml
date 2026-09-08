@@ -679,6 +679,17 @@ jobs:
           BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
           BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
           BOOTSTRAP_ADMIN_EMAIL: ${{ vars.BOOTSTRAP_ADMIN_EMAIL }}
+          # specs/014 — host capacity matrix + admission gate. Only these two
+          # are wired as GitHub Environment variables; every other
+          # HOST_CAPACITY_* setting is left at its Settings default
+          # (app/core/config.py) and changed there directly if ever needed —
+          # not worth a GitHub var per field. Not secrets; String,
+          # delete-if-empty.
+          HOST_CAPACITY_METRIC_NAMESPACE: ${{ vars.HOST_CAPACITY_METRIC_NAMESPACE }}
+          # The operator-supplied EC2 instance id override (specs/014 §10
+          # Resolutions Q3) — delivered as an ordinary Environment variable,
+          # never pasted into source or Terraform.
+          HOST_CAPACITY_INSTANCE_IDS: ${{ vars.HOST_CAPACITY_INSTANCE_IDS }}
           # The project CMK that encrypts this environment's SecureString
           # parameters. Set KMS_KEY_ALIAS on the GitHub Environment to the
           # actual alias in the account (e.g. `velocityai-dev-euc1`); the
@@ -846,6 +857,15 @@ jobs:
           put_param "LANGSMITH_TRACING"            "$LANGSMITH_TRACING"            "String" "delete-if-empty"
           put_param "LANGSMITH_PROJECT"             "$LANGSMITH_PROJECT"            "String" "delete-if-empty"
           put_param "bootstrap/admin-email"        "$BOOTSTRAP_ADMIN_EMAIL"        "String" "delete-if-empty"
+
+          # specs/014 — host capacity matrix + admission gate. Only these two
+          # are pushed from GitHub Environment variables; every other
+          # HOST_CAPACITY_* setting (thresholds, gate on/off, poll interval,
+          # etc.) is left at its Settings default (app/core/config.py) and
+          # changed there directly if a non-default value is ever needed.
+          # Plain config, never secrets.
+          put_param "HOST_CAPACITY_METRIC_NAMESPACE"       "$HOST_CAPACITY_METRIC_NAMESPACE"       "String" "delete-if-empty"
+          put_param "HOST_CAPACITY_INSTANCE_IDS"           "$HOST_CAPACITY_INSTANCE_IDS"           "String" "delete-if-empty"
 
           # Bedrock LLM config (under the llm/ sub-prefix the host loader maps
           # to AWS_REGION / BEDROCK_* — any other key name is silently dropped).

@@ -692,6 +692,150 @@ def test_handoff_start_is_race_safe(monkeypatch, app_client):
     assert r2.status_code == 409, r2.text
 
 
+def test_handoff_start_gated_by_host_capacity(monkeypatch, app_client):
+    """specs/014: POST /{token}/start spawns a full background pipeline —
+    new agent work, exactly like a fresh /api/runs launch — so it must be
+    refused with the same {error, code, recoverable, retry_after_seconds,
+    signals} triple + Retry-After header while the capacity gate is engaged.
+    """
+    from datetime import datetime, timezone
+
+    import app.api.handoff as handoff_module
+    from app.core.config import settings
+    from app.services import capacity_state as cs
+
+    async def _noop_pipeline(**_kwargs):
+        return None
+
+    monkeypatch.setattr(handoff_module, "_run_pipeline_background", _noop_pipeline)
+    monkeypatch.setattr(settings, "HOST_CAPACITY_GATE_ENABLED", True)
+    cs.reset_state_for_tests()
+    now = datetime.now(timezone.utc)
+    cs.publish_decision(
+        cs.AdmissionState(
+            engaged=True,
+            engaged_at=now,
+            breach_streak=2,
+            blind=False,
+            blind_reason=None,
+            signals=(cs.Signal(name="memory", value=88.0, threshold=75.0),),
+            evaluated_at=now,
+        )
+    )
+    try:
+        jwt = _register_and_login(app_client)
+        key = app_client.post(
+            "/api/settings/api-keys",
+            json={"name": "X"},
+            headers={"Authorization": f"Bearer {jwt}"},
+        ).json()["token"]
+
+        from app.core.crypto import encrypt_pat
+        from app.models.handoff import UserGithubCredential
+
+        db = handoff_module.SessionLocal()
+        try:
+            db.add(
+                UserGithubCredential(
+                    user_id=app_client.get(
+                        "/api/auth/me", headers={"Authorization": f"Bearer {jwt}"}
+                    ).json()["id"],
+                    encrypted_pat=encrypt_pat("github_pat_test_value_long"),
+                    github_username="testuser",
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        sess = app_client.post(
+            "/api/handoff/receive",
+            json={"task": "do work", "repo_url": "https://github.com/x/y"},
+            headers={"X-Flowin-API-Key": key},
+        ).json()
+
+        r = app_client.post(
+            f"/api/handoff/{sess['token']}/start",
+            headers={"Authorization": f"Bearer {jwt}"},
+        )
+        assert r.status_code == 503, r.text
+        body = r.json()["detail"]
+        assert body["code"] == "host_capacity_exhausted"
+        assert body["recoverable"] is True
+        assert body["signals"] == [{"name": "memory", "value": 88.0, "threshold": 75.0}]
+        assert r.headers.get("retry-after") is not None
+    finally:
+        cs.reset_state_for_tests()
+
+
+def test_handoff_start_unaffected_when_capacity_gate_disabled(monkeypatch, app_client):
+    """The default (HOST_CAPACITY_GATE_ENABLED=False) must leave /start
+    completely unaffected even when the underlying decision is engaged."""
+    from datetime import datetime, timezone
+
+    import app.api.handoff as handoff_module
+    from app.core.config import settings
+    from app.services import capacity_state as cs
+
+    async def _noop_pipeline(**_kwargs):
+        return None
+
+    monkeypatch.setattr(handoff_module, "_run_pipeline_background", _noop_pipeline)
+    monkeypatch.setattr(settings, "HOST_CAPACITY_GATE_ENABLED", False)
+    cs.reset_state_for_tests()
+    now = datetime.now(timezone.utc)
+    cs.publish_decision(
+        cs.AdmissionState(
+            engaged=True,
+            engaged_at=now,
+            breach_streak=2,
+            blind=False,
+            blind_reason=None,
+            signals=(cs.Signal(name="memory", value=88.0, threshold=75.0),),
+            evaluated_at=now,
+        )
+    )
+    try:
+        jwt = _register_and_login(app_client)
+        key = app_client.post(
+            "/api/settings/api-keys",
+            json={"name": "X"},
+            headers={"Authorization": f"Bearer {jwt}"},
+        ).json()["token"]
+
+        from app.core.crypto import encrypt_pat
+        from app.models.handoff import UserGithubCredential
+
+        db = handoff_module.SessionLocal()
+        try:
+            db.add(
+                UserGithubCredential(
+                    user_id=app_client.get(
+                        "/api/auth/me", headers={"Authorization": f"Bearer {jwt}"}
+                    ).json()["id"],
+                    encrypted_pat=encrypt_pat("github_pat_test_value_long"),
+                    github_username="testuser",
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        sess = app_client.post(
+            "/api/handoff/receive",
+            json={"task": "do work", "repo_url": "https://github.com/x/y"},
+            headers={"X-Flowin-API-Key": key},
+        ).json()
+
+        r = app_client.post(
+            f"/api/handoff/{sess['token']}/start",
+            headers={"Authorization": f"Bearer {jwt}"},
+        )
+        assert r.status_code == 200, r.text
+    finally:
+        cs.reset_state_for_tests()
+
+
 def test_install_endpoint_serves_installer(app_client):
     """``GET /install/flowin-handoff`` returns a runnable bash installer.
 

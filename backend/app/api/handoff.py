@@ -286,6 +286,38 @@ async def start_handoff(
             detail="Handoff has expired; create a new one from your IDE",
         )
 
+    # specs/014 (host capacity matrix + admission gate): this endpoint spawns a
+    # full background pipeline (asyncio.create_task(_run_pipeline_background))
+    # exactly like a fresh /api/runs launch — new agent work, gated the same
+    # way. Unlike run_commands.py's ``_reject`` triple, this module's existing
+    # error shape is a plain-string ``HTTPException.detail`` (see 404/409/410/412
+    # above), so the gate is applied inline here rather than importing
+    # run_commands._require_host_capacity, whose 503 detail carries the
+    # ``{error, code, recoverable, ...}`` triple the frontend's ServiceBusyProvider
+    # expects — matching that shape (not this module's plain-string convention)
+    # is what makes the busy modal fire identically regardless of which endpoint
+    # rejected the request.
+    if settings.HOST_CAPACITY_GATE_ENABLED:
+        from app.services.capacity_state import should_block_new_work
+
+        _capacity_decision = should_block_new_work(is_admin=bool(user.is_admin))
+        if _capacity_decision is not None:
+            _retry_after = settings.HOST_CAPACITY_RETRY_AFTER_SECONDS
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "The service is busy right now. Please try again in a few minutes.",
+                    "code": "host_capacity_exhausted",
+                    "recoverable": True,
+                    "retry_after_seconds": _retry_after,
+                    "signals": [
+                        {"name": s.name, "value": s.value, "threshold": s.threshold}
+                        for s in _capacity_decision.signals
+                    ],
+                },
+                headers={"Retry-After": str(_retry_after)},
+            )
+
     pat_row = (
         db.query(UserGithubCredential)
         .filter(UserGithubCredential.user_id == user.id)

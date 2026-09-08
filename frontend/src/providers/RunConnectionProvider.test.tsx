@@ -207,6 +207,124 @@ function jsonResponse() {
   } as unknown as Response;
 }
 
+/** A non-ok JSON error Response, mirroring the backend's `_reject` triple. */
+function errorResponse(status: number, detail: unknown) {
+  return {
+    ok: false,
+    status,
+    headers: {
+      get: (k: string) =>
+        k.toLowerCase() === "content-type" ? "application/json" : null,
+    },
+    body: null,
+    json: async () => ({ detail }),
+  } as unknown as Response;
+}
+
+describe("RunConnectionProvider — sendCommand surfaces launch failures (specs/014)", () => {
+  it("a non-ok POST /api/runs (launch, runId=null) THROWS ApiError instead of silently returning null", async () => {
+    const detail = {
+      error: "The service is busy right now. Please try again in a few minutes.",
+      code: "host_capacity_exhausted",
+      recoverable: true,
+      retry_after_seconds: 120,
+      signals: [{ name: "cpu", value: 91.0, threshold: 75.0 }],
+    };
+    const fetchMock = vi.fn(async () => errorResponse(503, detail));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() => useRunConnection(), {
+        wrapper: RunConnectionProvider,
+      });
+      await waitFor(() => {
+        expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+      });
+
+      let caught: unknown = null;
+      await act(async () => {
+        try {
+          await result.current.sendCommand(null, {
+            type: "run_pipeline",
+            pipeline_type: "prototype",
+            message: "build it",
+          });
+        } catch (err) {
+          caught = err;
+        }
+      });
+
+      expect(caught).not.toBeNull();
+      expect((caught as { status: number }).status).toBe(503);
+      expect((caught as { detail: typeof detail }).detail).toEqual(detail);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a non-ok POST /{id}/messages (runId set) still throws the SAME ApiError shape (unchanged D2 behavior)", async () => {
+    const detail = { error: "Pipeline is no longer running", code: "pipeline_not_running", recoverable: false };
+    const fetchMock = vi.fn(async () => errorResponse(409, detail));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() => useRunConnection(), {
+        wrapper: RunConnectionProvider,
+      });
+      await waitFor(() => {
+        expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+      });
+
+      let caught: unknown = null;
+      await act(async () => {
+        try {
+          await result.current.sendCommand("run-9", { text: "hi" });
+        } catch (err) {
+          caught = err;
+        }
+      });
+
+      expect(caught).not.toBeNull();
+      expect((caught as { status: number }).status).toBe(409);
+      expect((caught as { detail: typeof detail }).detail).toEqual(detail);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a successful launch (runId=null, 2xx) still resolves the created run_id (regression guard)", async () => {
+    const fetchMock = vi.fn(async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        body: null,
+        json: async () => ({ run_id: "new-run-123" }),
+      }) as unknown as Response,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() => useRunConnection(), {
+        wrapper: RunConnectionProvider,
+      });
+      await waitFor(() => {
+        expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+      });
+
+      let ret: string | null = "unset";
+      await act(async () => {
+        ret = await result.current.sendCommand(null, {
+          type: "run_pipeline",
+          pipeline_type: "prototype",
+          message: "build it",
+        });
+      });
+
+      expect(ret).toBe("new-run-123");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("RunConnectionProvider — sendCommand drains a streamed POST body (m0o)", () => {
   it("Test 5: a text/event-stream /messages response is drained and fan-out-dispatched IN ORDER", async () => {
     const fetchMock = vi.fn(async () =>

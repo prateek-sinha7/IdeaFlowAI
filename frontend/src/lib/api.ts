@@ -68,6 +68,60 @@ export async function logout(token: string): Promise<void> {
 
 // --- HTTP helpers ---
 
+// specs/014 — host capacity admission gate. The backend's structured 503
+// rejection body (`_reject("host_capacity_exhausted", ..., signals=[...])` in
+// run_commands.py / the inline twin in handoff.py). Declared once here so
+// every caller and the ServiceBusyProvider share one shape instead of each
+// re-deriving it from a loosely-typed `unknown`.
+export interface CapacitySignal {
+  name: string;
+  value: number;
+  threshold: number;
+}
+
+export interface CapacityRejectionDetail {
+  error: string;
+  code: "host_capacity_exhausted";
+  recoverable: true;
+  retry_after_seconds: number;
+  signals: CapacitySignal[];
+}
+
+function isCapacityRejectionDetail(
+  detail: unknown,
+): detail is CapacityRejectionDetail {
+  return (
+    typeof detail === "object" &&
+    detail !== null &&
+    (detail as { code?: unknown }).code === "host_capacity_exhausted"
+  );
+}
+
+type CapacityRejectionListener = (detail: CapacityRejectionDetail) => void;
+
+// Every 503 host_capacity_exhausted rejection reaches the UI through an
+// `ApiError` — every REST call site in this module, and the launch branch of
+// `RunConnectionProvider.sendCommand` (which imports this same class), throw
+// one on a non-ok response. Hooking the detection into the constructor is
+// therefore a SINGLE seam that catches every current and future call site,
+// rather than re-instrumenting each fetch individually. `ServiceBusyProvider`
+// is the sole subscriber; nothing else needs to know a rejection happened.
+const _capacityRejectionListeners = new Set<CapacityRejectionListener>();
+
+/**
+ * Subscribe to every capacity-gate rejection ANY `ApiError` construction
+ * surfaces, anywhere in the app. Returns an unsubscribe function (the same
+ * pattern `RunConnectionProvider.subscribe` uses).
+ */
+export function onCapacityRejected(
+  listener: CapacityRejectionListener,
+): () => void {
+  _capacityRejectionListeners.add(listener);
+  return () => {
+    _capacityRejectionListeners.delete(listener);
+  };
+}
+
 class ApiError extends Error {
   status: number;
   detail: unknown;
@@ -79,6 +133,19 @@ class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+
+    if (status === 503 && isCapacityRejectionDetail(detail)) {
+      for (const listener of _capacityRejectionListeners) {
+        // A subscriber's own bug must never break the request that reported
+        // the rejection — swallow and move on, matching the fire-and-forget
+        // fan-out RunConnectionProvider.subscribe already uses.
+        try {
+          listener(detail);
+        } catch {
+          /* non-fatal — see comment above */
+        }
+      }
+    }
   }
 }
 
@@ -1237,6 +1304,58 @@ export async function adminDeleteUser(
     const body = await response.json().catch(() => ({ detail: response.statusText }));
     throw new ApiError(response.status, body.detail ?? body);
   }
+}
+
+// --- Admin capacity matrix API (specs/014) ---
+
+/** One EC2 instance's row, mirroring admin_capacity.py's InstanceCapacityResponse. */
+export interface AdminCapacityInstance {
+  instance_id: string;
+  instance_type: string | null;
+  is_self: boolean;
+  cpu_used_percent: number | null;
+  mem_used_percent: number | null;
+  cpu_user_percent: number | null;
+  cpu_system_percent: number | null;
+  cpu_iowait_percent: number | null;
+  reading_age_seconds: number | null;
+  stale: boolean;
+}
+
+/** The admission-gate's current state, mirroring CapacityGateResponse. */
+export interface AdminCapacityGate {
+  enabled: boolean;
+  state: "allowing" | "blocking" | "blind";
+  blind_reason: string | null;
+  cpu_threshold_percent: number;
+  mem_threshold_percent: number;
+  signals: CapacitySignal[];
+  engaged_at: string | null;
+  evaluated_at: string;
+}
+
+/** `GET /api/admin/capacity`'s full response, mirroring CapacityMatrixResponse. */
+export interface AdminCapacityMatrix {
+  collected_at: string;
+  self_instance_id: string | null;
+  instance_source: "override" | "discovery" | "none";
+  instances: AdminCapacityInstance[];
+  gate: AdminCapacityGate;
+}
+
+/**
+ * Admin-only host capacity matrix (specs/014). Read-only over the backend's
+ * process-local snapshot — never triggers an AWS call itself. Reuses the same
+ * `require_admin` guard every other `/api/admin/*` route does, so a non-admin
+ * gets the SAME 403 as `adminListUsers`.
+ */
+export async function adminListCapacity(
+  token: string,
+): Promise<AdminCapacityMatrix> {
+  return request<AdminCapacityMatrix>("/api/admin/capacity", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
 }
 
 // --- Capabilities API (API-02 / D-11) ---

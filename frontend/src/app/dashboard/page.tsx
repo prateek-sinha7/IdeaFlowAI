@@ -2782,6 +2782,19 @@ export default function DashboardPage() {
           // Always clear launchPendingRef regardless of whether we got a run id
           // (failure case — launch failed or returned no id).
           else { launchPendingRef.current = false; }
+        }).catch((err: unknown) => {
+          // specs/014: sendCommand's launch branch (runId=null) now THROWS
+          // ApiError on a non-2xx POST /api/runs (previously silently returned
+          // null and left the UI stuck on "launching..."). A 503
+          // host_capacity_exhausted rejection is the ServiceBusyProvider's own
+          // detection seam (it subscribes independently and shows the busy
+          // modal); this handler's only job is to recover the local UI state
+          // that assumed the launch had already started.
+          launchPendingRef.current = false;
+          resetPipeline();
+          if (process.env.NODE_ENV !== "production") {
+            console.error("Pipeline launch failed:", err);
+          }
         });
       }}
       onResetPipeline={resetPipeline}
