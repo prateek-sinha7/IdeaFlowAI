@@ -136,13 +136,7 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
             max_tokens=max_tokens,
         )
         if thinking_enabled:
-            t_type = _thinking_type(model_id)
-            if t_type == "adaptive":
-                # Adaptive models (sonnet-5, opus-5, fable-5, mythos-5) use effort
-                # instead of budget_tokens. "max" = always thinks with no depth cap.
-                anthropic_kwargs["thinking"] = {"type": t_type, "effort": "max"}
-            else:
-                anthropic_kwargs["thinking"] = {"type": t_type, "budget_tokens": budget}
+            anthropic_kwargs["thinking"] = {"type": _thinking_type(model_id), "budget_tokens": budget}
             anthropic_kwargs["temperature"] = 1  # required when thinking is on
         elif disable_thinking and any(f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS):
             anthropic_kwargs["thinking"] = {"type": "disabled"}
@@ -203,10 +197,6 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
         thinking_field: dict = {"type": t_type}
         if t_type == "enabled":
             thinking_field["budget_tokens"] = budget
-        elif t_type == "adaptive":
-            # Adaptive models (sonnet-5, opus-5, fable-5, mythos-5) use effort
-            # instead of budget_tokens. "max" = always thinks with no depth cap.
-            thinking_field["effort"] = "max"
         extra_fields["thinking"] = thinking_field
     elif disable_thinking and any(f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS):
         # Adaptive models enable thinking by default — explicitly disable it.
