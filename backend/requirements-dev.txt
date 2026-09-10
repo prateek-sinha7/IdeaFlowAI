@@ -26,11 +26,15 @@ hypothesis==6.122.3
 # HTTP testing client
 httpx==0.28.1
 
-# Browser automation for render validation (dev/test only)
-# Note: playwright wheel does NOT bundle the browser binary.
-# Browser install must be done separately: playwright install --with-deps chromium
-# (This is only done in CI for testing, never in production container)
-playwright==1.60.0
+# NOTE: playwright is NOT here — it moved to requirements-prod.txt /
+# pyproject.toml's [project.dependencies]. The old comment on this entry claimed
+# the browser was installed "only in CI for testing, never in production
+# container", which was wrong on both counts: backend/Dockerfile's runtime stage
+# DOES run `playwright install --with-deps chromium`, and render_check.py /
+# app/agents/validators/html_render.py use it as a production capability. Being
+# dev-only is what made `uv export --no-dev` strip it from the image and fail
+# the build with exit 127. This file begins with `-r requirements-prod.txt`, so
+# playwright is still installed in every dev environment.
 
 # Code quality tools (linting, type checking, etc.)
 # Note: ruff, pyright, vulture, import-linter are in the CI pipeline and

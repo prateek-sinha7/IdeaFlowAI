@@ -616,7 +616,6 @@ class TestPinDriftDetection:
             ("pyright", "pyright_version"),
             ("bandit", "bandit_version"),
             ("pip-audit", "pip_audit_version"),
-            ("playwright", "playwright_package_version"),
         ],
     )
     def test_python_tool_matches_requirements_dev(self, package, authority_field):
@@ -626,6 +625,68 @@ class TestPinDriftDetection:
         assert recorded == installed, (
             f"pin drift: pin_authority.{authority_field}={recorded!r} but "
             f"backend/requirements-dev.txt installs {package}=={installed}"
+        )
+
+    # ---- playwright is a PRODUCTION dependency, not a dev tool -------------
+    #
+    # It was parametrized into test_python_tool_matches_requirements_dev above
+    # and therefore pinned in requirements-dev.txt. That was the wrong home:
+    # backend/Dockerfile installs the image's deps with
+    # `uv export --frozen --no-dev`, so a dev-only playwright was stripped from
+    # /opt/venv and the runtime stage's `RUN playwright install --with-deps
+    # chromium` failed with exit 127 on every build. It is genuinely runtime
+    # code — app/agents/render_check.py imports playwright.async_api and
+    # app/agents/validators/html_render.py registers it as a Validator — so it
+    # now lives in [project.dependencies] / requirements-prod.txt.
+    #
+    # The drift contract is unchanged; only the file it reads moved. Asserting
+    # against requirements-prod.txt is also what keeps it from silently sliding
+    # back into the dev group and breaking the image build again.
+    def test_playwright_matches_requirements_prod(self):
+        """playwright must be pinned in requirements-prod.txt, matching the authority."""
+        installed = _requirement_version(
+            _read("backend/requirements-prod.txt"), "playwright"
+        )
+        recorded = get_authority().playwright_package_version
+        assert recorded == installed, (
+            f"pin drift: pin_authority.playwright_package_version={recorded!r} but "
+            f"backend/requirements-prod.txt installs playwright=={installed}"
+        )
+
+    def test_playwright_is_not_dev_only(self):
+        """
+        Regression guard for the exit-127 image-build failure.
+
+        playwright must NOT be declared in the `dev` dependency group: the
+        Dockerfile's `uv export --frozen --no-dev` would strip it from the
+        runtime venv and `playwright install --with-deps chromium` would fail
+        with `playwright: not found`.
+        """
+        import tomllib
+
+        data = tomllib.loads(_read("backend/pyproject.toml"))
+
+        prod = [
+            spec
+            for spec in data["project"]["dependencies"]
+            if spec.split("==")[0].strip().lower() == "playwright"
+        ]
+        assert prod, (
+            "playwright must be declared in pyproject.toml [project.dependencies] — "
+            "backend/Dockerfile's runtime stage runs `playwright install`, and the "
+            "builder installs prod deps only (`uv export --no-dev`)."
+        )
+
+        dev_group = [
+            spec
+            for spec in data.get("dependency-groups", {}).get("dev", [])
+            if isinstance(spec, str)
+            and spec.split("==")[0].strip().lower() == "playwright"
+        ]
+        assert not dev_group, (
+            "playwright must NOT be in [dependency-groups].dev — "
+            "`uv export --frozen --no-dev` strips that group from the image, which "
+            "makes the runtime stage's `playwright install` fail with exit 127."
         )
 
     # ---- eslint comes from frontend/package.json --------------------------

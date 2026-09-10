@@ -189,3 +189,18 @@ python-pptx==1.0.2
 # long-deprecated PdfFileReader/PdfFileWriter aliases and some
 # camelCase methods, so the call site was checked against the 6.x API.
 pypdf==6.16.1
+# Browser automation for headless render validation. PRODUCTION, not test:
+# app/agents/render_check.py imports playwright.async_api at runtime and
+# app/agents/validators/html_render.py registers it as a Validator capability.
+# It also backs the build-time thumbnail pre-render in
+# scripts/generate_template_thumbnails.py.
+#
+# Moved here from requirements-dev.txt: the Docker build installs prod deps via
+# `uv export --frozen --no-dev`, so a dev-only declaration left /opt/venv with
+# no `playwright` and the runtime stage's `RUN playwright install --with-deps
+# chromium` failed with exit 127 (`playwright: not found`) on every build.
+#
+# The wheel does NOT bundle the browser binary; backend/Dockerfile fetches that
+# separately with `playwright install --with-deps chromium`.
+# Version is owned by tools/ci/pin_authority.py::playwright_package_version.
+playwright==1.60.0

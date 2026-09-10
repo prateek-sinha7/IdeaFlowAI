@@ -40,6 +40,21 @@ dependencies = [
     "python-docx==1.1.2",
     "python-pptx==1.0.2",
     "pypdf==6.16.1",
+    # Browser automation for headless render validation. PRODUCTION, not test:
+    # app/agents/render_check.py imports playwright.async_api at runtime and
+    # app/agents/validators/html_render.py registers it as a Validator
+    # capability. It also backs the build-time thumbnail pre-render in
+    # scripts/generate_template_thumbnails.py.
+    #
+    # It previously lived in [dependency-groups].dev, which the Dockerfile's
+    # `uv export --frozen --no-dev` strips — so /opt/venv had no `playwright`
+    # and the runtime stage's `RUN playwright install --with-deps chromium`
+    # died with exit 127 (`playwright: not found`), failing every image build.
+    #
+    # The wheel does NOT bundle the browser binary; `playwright install
+    # --with-deps chromium` in backend/Dockerfile fetches that separately.
+    # Version is owned by tools/ci/pin_authority.py::playwright_package_version.
+    "playwright==1.60.0",
 ]
 
 # ---------------------------------------------------------------------------
@@ -75,9 +90,12 @@ dev = [
     "hypothesis==6.122.3",
     # HTTP testing client
     "httpx==0.28.1",
-    # Browser automation for render validation. The wheel does NOT bundle the
-    # browser binary: `playwright install --with-deps chromium` is separate.
-    "playwright==1.60.0",
+    # NOTE: playwright is NOT here — it moved to [project.dependencies]. It is a
+    # runtime capability (render_check / the html_render Validator), and the
+    # Docker build installs prod deps with `uv export --no-dev`, so declaring it
+    # dev-only removed it from the image and broke the build. Declaring it in
+    # project.dependencies also keeps it installed for dev/E2E, so nothing is
+    # lost here — a bare `uv sync` still gets it.
     # Code-quality toolchain (invoked in CI via `uv run --no-sync`)
     "ruff==0.7.4",
     "pyright==1.1.384",

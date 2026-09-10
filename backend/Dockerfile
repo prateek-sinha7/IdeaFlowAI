@@ -171,7 +171,12 @@ RUN apt-get update \
 COPY --from=builder /opt/venv /opt/venv
 
 # Headless Chromium for prototype render-validation (app/agents/render_check.py).
-# `playwright` (the Python package) arrived in the venv above from requirements-prod.txt;
+# `playwright` (the Python package) arrived in the venv above via the builder's
+# `uv export --frozen --no-dev` — which means it MUST be declared in
+# pyproject.toml's [project.dependencies], NOT in [dependency-groups].dev.
+# It was dev-only until this was fixed, so `--no-dev` stripped it and this very
+# step failed every build with `playwright: not found` (exit 127). If you are
+# tempted to move it back to the dev group, this line breaks again.
 # this step fetches the browser binary + its OS libraries. Run as root, BEFORE the USER switch,
 # into a fixed path the non-root runtime user can launch from (PLAYWRIGHT_BROWSERS_PATH).
 # Adds ~350 MB to the image — the cost of in-image headless validation.
