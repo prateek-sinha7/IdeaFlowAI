@@ -648,9 +648,14 @@ npm ls --omit=dev > /dev/null
 
 ---
 
-## Phase 6 — Supply Chain Security (Reproducible Builds, SBOM, Provenance, Dependency Automation)
+## Phase 6 — Supply Chain Security (Reproducible Builds, Provenance, Dependency Automation)
 
-Phase 6 hardens supply chain security: builds become reproducible via uv.lock, SBOM/provenance attestations enable audit trails, image signing prevents tampering, and Dependabot automates security updates.
+Phase 6 hardens supply chain security: builds become reproducible via uv.lock,
+provenance attestations enable audit trails, digest pinning plus blocking image
+scans prevent tampered or vulnerable bytes from reaching a host, and Dependabot
+automates security updates. SBOM generation and Cosign image signing were part of
+the original Phase 6 design and have since been removed — see the removal note
+below.
 
 ### Reproducible Builds via uv.lock
 
@@ -697,75 +702,65 @@ Phase 6 hardens supply chain security: builds become reproducible via uv.lock, S
 2. **Playwright browser binary** is installed separately (`playwright install --with-deps chromium`) — it's a production runtime dependency for render-validation, not a test tool
 3. **Net result**: No test tools, no dead weight in production images
 
-### SBOM + Provenance Attestations
+### Provenance Attestations
 
 **F-22 Problem**: Provenance and SBOM were explicitly disabled (`provenance: false, sbom: false`), disabling the entire supply chain audit trail.
 
-**Phase 6 Solution**:
-
-1. **Enable in build-push-action**:
-   ```yaml
-   provenance: mode=max    # SLSA v1 Build Level 2 via GitHub attestation
-   sbom: true              # Generate SPDX/CycloneDX SBOM
-   ```
-
-2. **Benefit**:
-   - `provenance: mode=max` — GitHub signs a build attestation (SLSA L2)
-   - `sbom: true` — Software Bill of Materials is generated and attached to the image
-   - Both are stored as OCI attestations in ECR (under image digests, not as separate manifests)
-
-3. **Verification happens at deploy time** (see below)
-
-### Image Signing with Cosign (Keyless)
-
-**Phase 6 Addition**: Sign images with Cosign using keyless OIDC (GitHub's OIDC token, no key material managed).
-
-**Implementation** (in deploy.yml):
+**Current state**: `provenance: mode=max` is enabled; `sbom:` is **not**.
 
 ```yaml
-- uses: sigstore/cosign-installer@v4.1.1
-  with:
-    cosign-release: 'v2.2.2'
-
-- name: Sign backend image + attest SBOM
-  env:
-    COSIGN_EXPERIMENTAL: 1  # Enable keyless signing
-  run: |
-    BACKEND_IMAGE="${ECR_REGISTRY}/${BACKEND_ECR_REPO}@${DIGEST}"
-    cosign sign --yes "$BACKEND_IMAGE"
-    cosign attest --yes --predicate sbom-*.json \
-      --type spdxjson "$BACKEND_IMAGE"
+provenance: mode=max    # SLSA v1 Build Level 2, signed by GitHub
+# no sbom: flag — see below
 ```
 
-**Key points**:
-- `COSIGN_EXPERIMENTAL=1` — Cosign uses GitHub's OIDC token (no private key stored)
-- Images are signed **after** build but **before** deploy
-- SBOM attestation is bound to the image digest
-- Certificate identity verified to GitHub repo
+`provenance: mode=max` is kept because it is free: buildkit attaches a
+GitHub-signed attestation to the pushed digest, it needs no extra tooling and no
+extra IAM, and nothing in the deploy path has to read it back for a deploy to
+work.
 
-### Image Verification on Deploy
+### Removed: SBOM generation and Cosign signing/verification
 
-**Phase 6 Addition**: Before deploying, verify signatures to ensure images haven't been tampered with.
+An earlier revision of this document described `sbom: true` plus `cosign sign` in
+the `build` job and `cosign verify` in the `deploy` job as live controls. They
+were removed, because as built they did not work and could not have worked:
 
-**Implementation** (in deploy.yml, before SSM deploy):
+- **The SBOM attestation was a no-op.** `sbom: true` makes buildkit attach an
+  SBOM as an OCI attestation *in the registry*; it does not write a file to the
+  runner. The `cosign attest --predicate sbom-backend.spdx.json` step therefore
+  referenced a path that never existed, and the failure was swallowed by a
+  trailing `|| true`. Every run logged `Attesting SBOM...` and attested nothing.
+- **`cosign verify` in the `deploy` job could never pass.** Reading a signature
+  back out of a private ECR repository requires ECR credentials.
+  `infra/terraform/bootstrap/github_oidc.tf` grants `ecr:*` **only** to the
+  shared build role — the per-environment deploy roles hold SSM, KMS-via-SSM and
+  EC2 SendCommand and nothing else — and the `deploy` job has no
+  `amazon-ecr-login` step. The verify call fails on
+  `ecr:GetAuthorizationToken` regardless of whether a valid signature exists.
+- **Signing was skipped on the re-run path.** Both sign steps were gated on
+  `steps.probe.outputs.*_exists != 'true'`. A re-run that adopted an already
+  pushed tag skipped signing, so a run that had pushed but not yet signed left a
+  permanently unverifiable tag — unfixable, because the ECR repositories are
+  IMMUTABLE and the tag cannot be rebuilt.
 
-```yaml
-- name: Verify backend image signature
-  env:
-    COSIGN_EXPERIMENTAL: 1
-  run: |
-    BACKEND_IMAGE="${ECR_REGISTRY}/${BACKEND_ECR_REPO}@${DIGEST}"
-    cosign verify "$BACKEND_IMAGE" \
-      --certificate-identity-regexp "^https://github.com/Hexaware-HnI/velocityai/" \
-      --certificate-oidc-issuer https://token.actions.githubusercontent.com
-```
+Both were deleted rather than left in place as decoration.
 
-**Verification checks**:
-- Signature was created by this repository's CI
-- Signature is from GitHub's OIDC provider
-- Image digest hasn't been tampered with since signing
+**What guarantees integrity now**: the `build` job resolves an immutable
+`sha256:` digest, Trivy and Grype scan exactly those bytes (blocking on any
+resolved High/Critical), and the `deploy` job ships that same digest into the SSM
+payload. The host pulls **by digest**, so any tampering changes the digest and
+the pull fails. This is the control that was actually load-bearing all along.
 
-If verification fails, deploy is blocked.
+**If signature verification is reintroduced**, it needs all three of:
+1. `ecr:GetAuthorizationToken` + `ecr:BatchGetImage` +
+   `ecr:GetDownloadUrlForLayer` on each per-environment deploy role,
+2. an ECR login step in the `deploy` job,
+3. signing that is **not** conditional on the probe, so an adopted tag is still
+   guaranteed to carry a signature.
+
+Note also that keyless Cosign publishes the image digest and the signing
+identity (org/repo/workflow ref) to the public Rekor transparency log. For a
+private enterprise repository that is a disclosure decision, not just a
+technical one.
 
 ### Dependabot Automation
 
@@ -839,41 +834,47 @@ infra/**            @Hexaware-HnI/devops
 | **Build reproducibility** | Fresh resolve each job | `uv sync --frozen` from uv.lock | Bit-for-bit reproducible; audit-trail safe |
 | **Test deps in production** | ~350 MB (playwright included) | 0 B (prod-only installs) | Smaller images, less attack surface |
 | **Provenance** | Disabled | `mode=max` (SLSA L2) | Build chain signed by GitHub |
-| **SBOM** | Disabled | Generated (SPDX) | Software inventory auditable |
-| **Image signing** | ❌ absent | Cosign keyless (OIDC) | Images verified on deploy |
-| **Image verification** | ❌ absent | Cosign verify + cert check | Tampering detected before deploy |
+| **SBOM** | Disabled | Still not generated (removed) | See "Removed: SBOM generation and Cosign signing/verification" above |
+| **Image signing** | ❌ absent | ❌ absent (removed) | Integrity rests on digest pinning + blocking Trivy/Grype |
+| **Image verification** | ❌ absent | ❌ absent (removed) | Host pulls by digest; tampering changes the digest and the pull fails |
 | **Dependency updates** | Manual (pins rot) | Dependabot groups (weekly) | Security patches auto-applied |
 | **Code ownership** | ❌ absent | CODEOWNERS + Phase 2 rule | Mandatory team review per path |
 
 ### Deployment Workflow (with Phase 6)
 
 ```
-git push to main
+push to dev/staging, or a v* tag
     ↓
-CI: build images (provenance: mode=max, sbom: true)
+gate: full ci.yml run on the same commit (blocks everything below)
     ↓
-CI: sign images with Cosign (keyless OIDC)
+build: images built once (provenance: mode=max), pushed to IMMUTABLE ECR
     ↓
-Deploy workflow triggered (digest-pinned, signed)
+build: resolve the sha256 digest (fresh push, or adopted from the ECR probe)
     ↓
-Deploy: verify signatures (cosign verify + cert identity)
+build: Trivy scan of that exact digest — any HIGH/CRITICAL blocks
     ↓
-If verification passes: deploy via SSM
-If verification fails: block deploy
+deploy: push config to SSM, assemble the SSM payload pinned to those digests
     ↓
-Deploy: health-check backend/frontend
+deploy: SSM RunCommand -> remote-deploy.sh (pulls BY DIGEST)
     ↓
-If health-check passes: record deployment as recovery point
+box: health-check backend + frontend + nginx ingress
+    ↓
+If health-check passes: record the digests as the environment's recovery point
+If health-check fails:  automatic rollback to the previously pinned digests
 ```
 
 ### Migration Path
 
-**Immediate**: Phase 6 changes are live:
-1. All CI builds now generate SBOM + provenance
-2. All CI signings happen after builds
-3. Deploy verification blocks unsigned images
+**Immediate**: Phase 6 changes that are live:
+1. Provenance attestation on every pushed image
+2. Blocking Trivy scan of the pushed digest in `deploy.yml`, plus the
+   dual-engine Trivy + Grype `container-scan` job in `ci.yml`
+3. Digest-pinned deploys (no tag ever reaches the host)
 4. Dependabot creates PRs for updates
 5. CODEOWNERS rule enforces team approval
+
+SBOM generation and Cosign signing/verification are **not** live — see the
+removal note earlier in this section.
 
 **First Dependabot PR**: May auto-update 100+ packages (initial backlog). Review and merge without blocking – future PRs are incremental.
 
@@ -882,8 +883,12 @@ If health-check passes: record deployment as recovery point
 ### Future Enhancements (Phase 7+)
 
 1. **SLSA Level 3**: Isolated/ephemeral builder (requires GitHub Actions hosted runners or self-hosted hardened builders)
-2. **Policy enforcement**: OPA/Conftest gates on image SBOM (e.g., "no GPL licenses in prod")
-3. **Vulnerability scanning integration**: Cosign integrates with Grype/Trivy to block deployment on known CVEs
+2. **Image signing, done properly**: if reintroduced, it needs ECR read on the
+   per-env deploy roles, an ECR login in the `deploy` job, and signing that is
+   not skipped on the probe-adopt path. See the removal note above.
+3. **SBOM + policy enforcement**: OPA/Conftest gates over a real, retrievable
+   SBOM (e.g. "no GPL licenses in prod") — worth doing only once something
+   actually consumes the SBOM.
 4. **Private registry scanning**: If artifacts are stored in a private registry, add layer security scanning
 5. **Binary transparency logs**: Hash images to a transparency log (similar to Certificate Transparency) for append-only audit
 
@@ -1187,7 +1192,7 @@ security-scan-terraform (8 min):
 
 **After** (Task #7): Reduced to `retention-days: 1` for all PR-scoped data.
 
-**Rationale**: Coverage HTML is PR-local; no historical value after merge. Audit artifacts (signed images, SBOM) kept longer only on deploy.
+**Rationale**: Coverage HTML is PR-local; no historical value after merge. Deploy-path audit trail (image digests, provenance attestations, the SSM `deploy/*` recovery-point parameters) lives in ECR and Parameter Store, not in workflow artifacts, so it is not subject to this retention window at all.
 
 **Impact**: ~90% reduction in artifact storage footprint; minor cost, large benefit.
 
@@ -1433,7 +1438,14 @@ concurrency:
 
 ## Phase 10 — Deployment Gate Review
 
-Phase 10 restores and enforces deployment gates that were all open (1 of 10 enforced). Implements defense-in-depth with ci-required aggregation, workflow contract testing, cosign artifact verification, and GitHub rulesets to make gate removal impossible without failing CI.
+Phase 10 restores and enforces deployment gates that were all open (1 of 10 enforced). Implements defense-in-depth with ci-required aggregation, workflow contract testing, digest-pinned artifact promotion, and GitHub rulesets to make gate removal impossible without failing CI.
+
+> **Correction**: this section originally listed *cosign artifact verification* as
+> one of the Phase 10 gates. That gate has been removed — it could not pass,
+> because the per-environment deploy roles hold no ECR permissions and the
+> `deploy` job never logs into ECR. See "Removed: SBOM generation and Cosign
+> signing/verification" in Phase 6. The artifact gate that remains is digest
+> pinning plus the blocking Trivy/Grype scan of those exact bytes.
 
 ### Findings & Fixes
 
@@ -1448,7 +1460,7 @@ Phase 10 restores and enforces deployment gates that were all open (1 of 10 enfo
 | Trivy | ❌ | Uses `--exit-code 0 \|\| true` (F-28) |
 | Coverage | ❌ | Merge broken, no threshold (F-10/F-13) |
 | Build | ✅ | `deploy` needs `build` — only working gate |
-| Artifact | ⚠️ | Digest validated regex, but no SBOM/signature (F-22) |
+| Artifact | ⚠️ | Digest validated by regex; no SBOM/signature (F-22 — signing was later attempted and removed, see the correction above) |
 | Approvals | ❌ | `protection_rules: []` on prod (GitHub setting) |
 | Branch protection | ❌ | No rulesets configured; `main` unprotected |
 
@@ -1478,11 +1490,16 @@ Phase 10 restores and enforces deployment gates that were all open (1 of 10 enfo
    - Deploy workflow pauses at prod environment, waits for human approval
    - Ruleset prevents admins from bypassing both controls
 
-5. **Cosign artifact verification** (Phase 10-5)
-   - Verify backend image signature before SSM RunCommand
-   - Verify frontend image signature before SSM RunCommand
-   - Verifies digests are valid (not replaced or re-tagged)
-   - Unsigned/unattested digest never reaches the host
+5. **Digest-pinned artifact promotion** (Phase 10-5, revised)
+   - `build` resolves an immutable `sha256:` digest per component and re-validates
+     its shape (`^sha256:[0-9a-f]{64}$`) before it can travel
+   - Trivy scans that exact digest; any HIGH/CRITICAL blocks, so a vulnerable
+     image cannot reach `deploy`
+   - `deploy` re-validates both digests on the way into the SSM payload and the
+     host pulls **by digest** — a replaced or re-tagged image changes the digest
+     and the pull fails
+   - Originally specified as `cosign verify` before SSM RunCommand. That step was
+     removed as unworkable; see the correction note at the top of this section.
 
 ### Rationale: Why Gates Were Open
 
@@ -1527,9 +1544,11 @@ Layer 4 (Environment approval):  prod environment gate
   └─ restricts deployment to protected branches
   └─ if violated → deploy job paused indefinitely
 
-Artifact verification:   cosign verify before SSM
-  └─ ensures unsigned image never reaches host
-  └─ if signature invalid → deploy fails
+Artifact integrity:      digest pinning + blocking image scan
+  └─ build resolves and shape-validates a sha256 digest
+  └─ Trivy scans those exact bytes; HIGH/CRITICAL blocks the build job
+  └─ deploy re-validates the digest and the host pulls BY DIGEST
+  └─ if the bytes differ → the digest differs → the pull fails
 ```
 
 **Why each layer is necessary**:
@@ -1565,7 +1584,7 @@ Each step is either:
 | Trivy | contract test + --exit-code 1 | checks `trivy image` has `--exit-code 1` |
 | Coverage | ci-required (test-results job) | test-results aggregates coverage; in ci-required needs |
 | Build | deploy job needs: [gate, build] | build blocks deploy |
-| Artifact (cosign) | cosign verify before SSM | signature verified; unsigned image rejected |
+| Artifact (digest) | digest resolved + scanned in `build`, re-validated in `deploy`, pulled by digest on the host | tampered or re-tagged bytes produce a different digest and the pull fails |
 | Approvals | GitHub environment gate | prod environment requires 2+ approvers |
 | Branch protection | GitHub ruleset | ruleset blocks merge if ci-required fails |
 
@@ -1582,9 +1601,11 @@ Each step is either:
 - `docs/GITHUB-BRANCH-PROTECTION-SETUP.md`: Step-by-step setup guide for GitHub ruleset + environment approval
 
 **Already in place** (verified):
-- `gate` job in deploy.yml with secrets: inherit
+- `gate` job in deploy.yml (secrets mapped explicitly — `SONAR_TOKEN` only, not
+  `secrets: inherit`, so the gate never holds AWS/OIDC material)
 - build and deploy both depend on gate
-- Cosign verification before SSM RunCommand
+- digest-pinned deploys: `build` resolves and scans the digest, `deploy` ships it
+  into the SSM payload, the host pulls by digest
 
 **Manual setup required**:
 - Configure GitHub branch protection ruleset for main (see setup guide)
@@ -1628,7 +1649,7 @@ Phase 11 consolidates and optimizes the entire CI pipeline into a gold standard 
 2. **Structured stages** (fast-checks → parallel [backend/frontend/security/iac] → docker → sonarcloud → ci-required)
 3. **Dynamic pytest matrix** with coverage gating (no hardcoded file lists)
 4. **All checks blocking** (no --exit-code 0, no || true on scanners)
-5. **SBOM + attestation** for artifact verification
+5. **Digest-pinned promotion + SLSA provenance** for artifact integrity
 6. **Single aggregation point** (ci-required) as the sole required status check
 
 ### Architecture Overview
@@ -1767,41 +1788,27 @@ coverage:
 
 **Phase 11 Goal**: All checks must have explicit `--exit-code 1` or equivalent, no `|| true` fallback. pip-audit currently deviates; migration path documented in REMEDIATION-RECORD.md.
 
-### SBOM + Attestation + SLSA Provenance
+### SLSA Provenance (and why there is no SBOM/signing layer)
 
-**Implementation** (in _docker.yml reusable workflow):
+**Implemented**: `provenance: mode=max` on `docker/build-push-action` in
+`deploy.yml`'s `build` job (and on the push path of `_docker.yml`). Buildkit
+attaches a GitHub-signed SLSA v1 Build Level 2 attestation to the pushed digest.
 
-```yaml
-- name: Generate SBOM with syft
-  run: |
-    syft "${{ env.IMAGE_DIGEST }}" -o spdx-json > sbom-${{ matrix.component }}.json
+**Not implemented** (previously described here as a design, with a `syft` +
+`cosign sign` + `cosign attest` + `cosign verify` chain): SBOM generation and
+image signing/verification. See "Removed: SBOM generation and Cosign
+signing/verification" under Phase 6 for why — the SBOM predicate file never
+existed on the runner, and `cosign verify` in the `deploy` job cannot read ECR
+because the per-environment deploy roles hold no ECR permissions.
 
-- name: Sign image with Cosign (keyless OIDC)
-  env:
-    COSIGN_EXPERIMENTAL: 1
-  run: |
-    cosign sign --yes "${{ env.IMAGE_DIGEST }}"
-
-- name: Attest SBOM with Cosign
-  env:
-    COSIGN_EXPERIMENTAL: 1
-  run: |
-    cosign attest --predicate sbom-${{ matrix.component }}.json \
-      --type spdx \
-      "${{ env.IMAGE_DIGEST }}"
-
-- name: Record build provenance (SLSA L2)
-  uses: actions/attest-build-provenance@...
-  with:
-    subject-path: ${{ env.IMAGE_DIGEST }}
-    github-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-**Verification Flow** (in deploy.yml):
-1. `cosign verify` before SSM RunCommand
-2. `cosign verify-attestation --type spdx` checks SBOM attestation
-3. Image digest matches provenance claims
-4. If signature invalid → deploy fails (no unsigned image reaches host)
+**Artifact integrity flow that is actually in place** (`deploy.yml`):
+1. `build` resolves the pushed image's `sha256:` digest and shape-validates it
+2. Trivy scans that digest; any HIGH/CRITICAL fails the `build` job, so the
+   `deploy` job never starts
+3. `deploy` re-validates both digests before embedding them in the SSM payload
+4. `remote-deploy.sh` pins `BACKEND_IMAGE`/`FRONTEND_IMAGE` to `repo@sha256:...`
+   and pulls by digest — different bytes mean a different digest and a failed
+   pull
 
 ### ci-required: Sole Aggregation Point
 
@@ -1840,7 +1847,7 @@ ci-required:
 | Setup duplication | 9+ blocks × 4-8 lines each | 1 composite action call | 99% less code |
 | Pytest file list maintenance | Manual lists (error-prone) | Dynamic matrix | Zero maintenance |
 | Security scanner overhead | Multiple --exit-code 0 steps | All --exit-code 1 | No false negatives |
-| SBOM generation | Missing | syft + cosign attest | Full attestation chain |
+| Artifact integrity | Tag-based deploy | Digest-pinned deploy + SLSA provenance | Deployed bytes are the scanned bytes |
 | Branch protection updates | Needed on every job change | None (ci-required stable) | Never needed |
 | Pipeline clarity | Many jobs, unclear sequence | Staged diagram, clear flow | Self-documenting |
 
@@ -1862,9 +1869,11 @@ ci-required:
    - Fail one security job → ci-required should fail
    - Merge should be blocked by ruleset
 
-5. **Test SBOM + attestation** (in deploy.yml):
-   - Deploy job should verify image signature before SSM RunCommand
-   - Unsigned image should be rejected
+5. **Test digest pinning** (in deploy.yml):
+   - Tamper with a digest output → the `deploy` job's re-validation should refuse
+     to build the SSM payload
+   - Introduce a HIGH/CRITICAL CVE in a base image → the `build` job's Trivy scan
+     should block, and `deploy` should never start
 
 ### Gold Standard Checklist
 
@@ -1874,7 +1883,11 @@ ci-required:
 - [x] ci-required as sole aggregation point in ruleset
 - [x] Workflow contract test ensures gate dependency
 - [x] Coverage gating (--fail-under=80)
+- [x] Digest-pinned deploys (build once, promote by digest, pull by digest)
+- [x] SLSA provenance attestation (`provenance: mode=max` on the push path)
 - [ ] Dynamic pytest matrix (proposed, not yet migrated from hardcoded lists)
-- [ ] SBOM + Cosign attestation (implemented in _docker.yml, Phase 6+)
-- [ ] SLSA provenance attestation (actions/attest-build-provenance in _docker.yml)
+- [ ] SBOM generation — **removed, not pending.** See "Removed: SBOM generation
+      and Cosign signing/verification" under Phase 6
+- [ ] Image signing/verification — **removed, not pending.** Requires ECR read on
+      the per-env deploy roles before it can be reintroduced
 

@@ -419,13 +419,23 @@ jobs:
         if: steps.probe.outputs.backend_exists != 'true' || steps.probe.outputs.frontend_exists != 'true'
         uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb # v3.3.0
 
-      # Build flags for Phase 6 supply chain security:
-      #   provenance: mode=max  — SLSA Build Level 2 attestation (signed by GitHub)
-      #   sbom: true            — generate SPDX/CycloneDX SBOM
-      #   These create OCI attestations in ECR; they are verified at deploy time (see below)
-      #
+      # Build flags:
+      #   provenance: mode=max  — SLSA Build Level 2 attestation, signed by
+      #       GitHub and attached in ECR. Kept: it costs nothing, needs no extra
+      #       tooling or IAM, and nothing in the deploy path depends on reading
+      #       it back.
       #   platforms: linux/amd64  the EC2 host is x86_64; never publish an image
       #       whose architecture depends on the runner GitHub happens to give us
+      #
+      #   NO `sbom:` FLAG — deliberately. It was set to `true` alongside a
+      #   `cosign attest --predicate sbom-<component>.spdx.json` step that could
+      #   never work: buildkit attaches its SBOM as an OCI attestation in the
+      #   registry and writes no such file to the runner, so the attest call
+      #   always failed and was swallowed by a trailing `|| true`. Both the flag
+      #   and the cosign steps are gone rather than left as decoration. The
+      #   dependency-vulnerability signal this repo actually enforces is the
+      #   blocking Trivy/Grype scan of the pushed digest, below and in ci.yml's
+      #   container-scan job.
       - name: Build + push backend
         id: build-backend
         if: steps.probe.outputs.backend_exists != 'true'
@@ -444,7 +454,6 @@ jobs:
             opendesign=./skills/opendesign
           platforms: linux/amd64
           provenance: mode=max
-          sbom: true
           push: true
           # ONE tag per build. The `<env>-latest` alias is deliberately gone:
           # on an IMMUTABLE repository it could not be re-pushed anyway (tag
@@ -465,7 +474,6 @@ jobs:
           context: ./frontend
           platforms: linux/amd64
           provenance: mode=max
-          sbom: true
           push: true
           # No NEXT_PUBLIC_* build args (D-4): the frontend is built
           # env-agnostic and uses relative URLs that nginx terminates, so the
@@ -474,45 +482,6 @@ jobs:
             ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}:${{ needs.resolve.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      # ── Phase 6: Sign images with Cosign (keyless OIDC) ──────────────────
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.1
-        with:
-          cosign-release: 'v2.2.2'
-
-      - name: Sign backend image + attest SBOM
-        if: steps.probe.outputs.backend_exists != 'true'
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          set -euo pipefail
-          
-          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.build-backend.outputs.digest }}"
-          
-          echo "Signing backend image: $BACKEND_IMAGE"
-          cosign sign --yes "$BACKEND_IMAGE"
-          
-          echo "Attesting SBOM..."
-          # SBOM is automatically generated and available; attest it to the image
-          cosign attest --yes --predicate sbom-backend.spdx.json \
-            --type spdxjson "$BACKEND_IMAGE" || true
-
-      - name: Sign frontend image + attest SBOM
-        if: steps.probe.outputs.frontend_exists != 'true'
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          set -euo pipefail
-          
-          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.build-frontend.outputs.digest }}"
-          
-          echo "Signing frontend image: $FRONTEND_IMAGE"
-          cosign sign --yes "$FRONTEND_IMAGE"
-          
-          echo "Attesting SBOM..."
-          cosign attest --yes --predicate sbom-frontend.spdx.json \
-            --type spdxjson "$FRONTEND_IMAGE" || true
 
       # ── Resolve the digests this run will deploy ──────────────────────
       # Either the freshly built digest (build-push-action's `digest` output)
@@ -623,13 +592,6 @@ jobs:
       group: deploy-${{ needs.resolve.outputs.environment }}
       cancel-in-progress: true
     steps:
-      # ── Phase 6: Install Cosign in deploy job ──────────────────────────
-      # Cosign is needed in the deploy job to verify image signatures before
-      # deploying. The build job signs; the deploy job must verify.
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.1
-        with:
-          cosign-release: 'v2.2.2'
       # Only the four files the SSM payload carries. Cone mode is off because
       # the set mixes root-level files with a nested path; cone mode selects
       # whole directories and would pull far more than this.
@@ -1003,47 +965,18 @@ jobs:
           echo "path=remote.sh" >> "$GITHUB_OUTPUT"
 
 
-      # ── Phase 6: Verify image signatures before deploy ──────────────────
-      # Both images must be signed by the CI pipeline before deployment proceeds.
-      # This ensures we never run unsigned or tampered images in production.
-      - name: Verify backend image signature
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          set -euo pipefail
-          
-          # `needs.build.outputs.*`, NOT `steps.digests.outputs.*`. The `digests`
-          # step lives in the BUILD job; there is no such step in this job, so
-          # that expression resolved to the empty string and produced a
-          # digest-less reference ("…/repo@") — cosign cannot verify that, so
-          # this signature gate could never have passed. Every other digest
-          # consumer in this job already reads needs.build.outputs (see the
-          # remote-payload and SSM-record steps).
-          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ needs.build.outputs.backend_digest }}"
-          
-          echo "Verifying signature for: $BACKEND_IMAGE"
-          cosign verify "$BACKEND_IMAGE" \
-            --certificate-identity-regexp "^https://github.com/Hexaware-HnI/velocityai/" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
-          
-          echo "✓ Backend image signature valid"
-
-      - name: Verify frontend image signature
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          set -euo pipefail
-          
-          # See the note on BACKEND_IMAGE above: needs.build.outputs, not
-          # steps.digests (which does not exist in this job).
-          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ needs.build.outputs.frontend_digest }}"
-          
-          echo "Verifying signature for: $FRONTEND_IMAGE"
-          cosign verify "$FRONTEND_IMAGE" \
-            --certificate-identity-regexp "^https://github.com/Hexaware-HnI/velocityai/" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
-          
-          echo "✓ Frontend image signature valid"
+      # NO IMAGE-SIGNATURE GATE HERE — deliberately. Cosign signing (build job)
+      # and `cosign verify` (this job) were removed: the deploy role holds NO
+      # ECR permissions at all (infra/terraform/bootstrap/github_oidc.tf grants
+      # ecr:* only to the shared BUILD role), and this job never logs into ECR,
+      # so `cosign verify` could not read the signature it was asked to check.
+      # The integrity guarantee that remains is the one that always did the real
+      # work: the `build` job resolves an immutable sha256 DIGEST, scans exactly
+      # those bytes, and this job ships that same digest into the SSM payload —
+      # the host pulls by digest, so tampering would change the digest and the
+      # pull would fail. If signature verification is reintroduced, it needs
+      # ecr:GetAuthorizationToken + ecr:BatchGetImage on the per-env deploy role
+      # and an ECR login step in this job first.
 
       # FIX-SSM-03: executionTimeout (the ON-BOX limit, 1800s = 30 min) must
       # stay BELOW both the polling window (35 min) and this job's own
