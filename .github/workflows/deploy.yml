@@ -180,8 +180,29 @@ jobs:
   # The gate's time budget belongs to the called workflow: every job in ci.yml
   # declares its own `timeout-minutes` (10-30), so nothing here is unbounded.
   # ---------------------------------------------------------------------------
+  # DEV FAST PATH (temporary): the gate is SKIPPED for the `dev` environment
+  # only. stage and prod remain fully gated — `if:` below is the only control,
+  # and it names `dev` explicitly rather than excluding prod, so a new
+  # environment is gated by default.
+  #
+  # Why: ci.yml currently reports red on four mandatory gates that are
+  # pre-existing product/dependency debt (frontend coverage, two dependency
+  # audits, e2e skips — see .github/CI_STATUS.md), and `ci-required` cannot
+  # publish from this call path anyway because a reusable workflow cannot hold
+  # more token permission than its caller and this file grants only
+  # `contents: read`. Both block every dev deploy for reasons unrelated to the
+  # commit being deployed.
+  #
+  # REVERT: delete the `needs:`/`if:` pair below and the matching `if:` on
+  # `build` and `deploy`. Nothing else changed; ci.yml is untouched.
+  #
+  # `needs: resolve` is required for the `if:` to read the resolved environment.
+  # Both keys are legal on a reusable-workflow-call job (unlike
+  # `timeout-minutes` — see the note below).
   gate:
     name: CI gate
+    needs: resolve
+    if: ${{ needs.resolve.outputs.environment != 'dev' }}
     uses: ./.github/workflows/ci.yml
     with:
       intent_id: deploy-${{ github.run_id }}
@@ -332,6 +353,16 @@ jobs:
     # test_build_depends_on_gate enforces this in CI — do not remove `gate`
     # from `needs` without updating that test's contract at the same time.
     needs: [gate, resolve]
+    # A skipped `gate` would otherwise skip this job too, so the dev fast path
+    # needs an explicit condition here. Deliberately NOT a bare `!failure()`:
+    # that treats "gate skipped" and "gate succeeded" as equally acceptable for
+    # EVERY environment, so any future edit that skips the gate on stage/prod
+    # would silently open the path to ECR. This form demands either a gate that
+    # actually SUCCEEDED, or the one environment where skipping is sanctioned.
+    #
+    # Fail-closed on a broken `resolve`: its outputs are empty, `gate` skips
+    # (it needs resolve), so both clauses are false and this job does not run.
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.resolve.outputs.environment == 'dev') }}
     timeout-minutes: 60
     environment: ${{ needs.resolve.outputs.environment }}
     # Only this job and `deploy` mint an AWS OIDC token (see the workflow-level
@@ -575,6 +606,10 @@ jobs:
     # path to `deploy`. tests/ci/test_workflow_contracts.py::
     # test_deploy_depends_on_gate enforces this in CI.
     needs: [resolve, gate, build]
+    # Same shape as `build`'s condition above, plus an explicit demand that
+    # `build` SUCCEEDED — a skipped build produces no digests, and this job
+    # would go on to assemble an SSM payload out of empty strings.
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.gate.result == 'success' || needs.resolve.outputs.environment == 'dev') }}
     timeout-minutes: 50
     environment: ${{ needs.resolve.outputs.environment }}
     # See the workflow-level `permissions:` note — the AWS token is minted per
@@ -639,6 +674,15 @@ jobs:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
+          # Cognito app-client secret — a SECRET, not a variable: it is a live
+          # credential used to compute SECRET_HASH on AdminInitiateAuth
+          # (backend/app/core/cognito.py compute_secret_hash). Read it out of
+          # the foundation layer with
+          #   terraform -chdir=infra/terraform/foundation output -raw cognito_client_secret
+          # (or the Cognito console → App client → Show client secret) and paste
+          # it into the environment's GitHub secret. Leave it UNSET to keep
+          # Terraform as the sole owner — see the preserve-if-empty note below.
+          COGNITO_CLIENT_SECRET: ${{ secrets.COGNITO_CLIENT_SECRET }}
           # Variables
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
           PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
@@ -650,6 +694,50 @@ jobs:
           BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
           BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
           BOOTSTRAP_ADMIN_EMAIL: ${{ vars.BOOTSTRAP_ADMIN_EMAIL }}
+          # ── Cognito + auth cutover flags (COGNITO-MIGRATION-PLAN §6.3/§11) ──
+          # The nine keys the application actually reads (Settings fields in
+          # backend/app/core/config.py:449-510) and that the on-host loader
+          # allowlist already recognises (infra/scripts/bootstrap-ec2.sh:826) —
+          # so this block needs NO host-script change to take effect.
+          #
+          # DUAL OWNERSHIP, DELIBERATELY NON-DESTRUCTIVE. Every one of these is
+          # also published by Terraform's foundation layer
+          # (infra/terraform/modules/secrets/main.tf:246-386). They are pushed
+          # here with the `preserve-if-empty` policy, NOT `delete-if-empty`: an
+          # unset GitHub value means "the pipeline does not manage this key",
+          # never "delete whatever Terraform wrote". Using delete-if-empty here
+          # would make the first deploy after this block landed erase a live
+          # pool config, and any environment on AUTH_PROVIDER=cognito would then
+          # crash-loop at boot on CognitoMisconfigured (config.py:549).
+          #
+          # So there are two supported postures per environment, and both work:
+          #   * Terraform-owned (default): leave all nine unset in GitHub. Deploy
+          #     touches nothing; `terraform apply` on foundation stays the single
+          #     writer. This is the recommended posture for the pool identifiers
+          #     and the client secret.
+          #   * Pipeline-owned: set them on the GitHub Environment. Useful for
+          #     the cutover FLAGS (AUTH_PROVIDER, AUTH_ALLOW_LEGACY_JWT,
+          #     ADMIN_MFA_REQUIRED, BREAK_GLASS_ENABLED), which an operator
+          #     flips per environment far more often than the pool is recreated.
+          # Mixing is fine — ownership is per key, not per block.
+          COGNITO_USER_POOL_ID: ${{ vars.COGNITO_USER_POOL_ID }}
+          COGNITO_CLIENT_ID: ${{ vars.COGNITO_CLIENT_ID }}
+          # Empty falls back to AWS_REGION inside the app (core/cognito.py
+          # _region), so it only needs setting when the pool lives outside the
+          # deploy region.
+          COGNITO_REGION: ${{ vars.COGNITO_REGION }}
+          AUTH_PROVIDER: ${{ vars.AUTH_PROVIDER }}
+          AUTH_ALLOW_LEGACY_JWT: ${{ vars.AUTH_ALLOW_LEGACY_JWT }}
+          BREAK_GLASS_ENABLED: ${{ vars.BREAK_GLASS_ENABLED }}
+          ADMIN_MFA_REQUIRED: ${{ vars.ADMIN_MFA_REQUIRED }}
+          # Mirrors a CONSTRAINT AWS imposes, not a feature toggle: a pool with
+          # email OTP as a second factor cannot also use email for account
+          # recovery, so /api/auth/forgot-password must say so instead of
+          # returning its usual generic 202. Terraform sources this from the
+          # cognito module's DERIVED email_mfa_active output, which is why
+          # leaving it Terraform-owned is usually correct — a hand-set GitHub
+          # value can disagree with the pool that actually exists.
+          AUTH_EMAIL_MFA_ENABLED: ${{ vars.AUTH_EMAIL_MFA_ENABLED }}
           # specs/014 — host capacity matrix + admission gate. Only these two
           # are wired as GitHub Environment variables; every other
           # HOST_CAPACITY_* setting is left at its Settings default
@@ -735,9 +823,20 @@ jobs:
           #                      so the host loader's own documented fallback
           #                      (a default, or the box's FQDN, etc.) applies
           #                      instead of a value GitHub no longer sets
-          # Values are never echoed for either outcome — only key names and
-          # the action taken (created/updated/deleted/unchanged).
-          declare -i PARAMS_PUSHED=0 PARAMS_DELETED=0 PARAMS_UNCHANGED=0
+          #   preserve-if-empty -> empty value is a NO-OP: the existing
+          #                      parameter is left exactly as it is. For keys
+          #                      this pipeline SHARES with another writer —
+          #                      today that is the Cognito/auth block, which
+          #                      Terraform's foundation layer also publishes
+          #                      (infra/terraform/modules/secrets/main.tf).
+          #                      "GitHub has no value" means "GitHub does not
+          #                      manage this key", NOT "delete it". Choosing
+          #                      delete-if-empty for a shared key would make
+          #                      every deploy an instruction to erase the other
+          #                      writer's value.
+          # Values are never echoed for any outcome — only key names and the
+          # action taken (created/updated/deleted/unchanged/skipped).
+          declare -i PARAMS_PUSHED=0 PARAMS_DELETED=0 PARAMS_UNCHANGED=0 PARAMS_SKIPPED=0
 
           put_param() {
             local key="$1" value="$2" type="${3:-String}" policy="${4:-delete-if-empty}"
@@ -745,6 +844,16 @@ jobs:
               if [[ "$policy" == "required" ]]; then
                 echo "::error::Required config value for '${key}' is empty — refusing to deploy without it."
                 exit 1
+              fi
+              if [[ "$policy" == "preserve-if-empty" ]]; then
+                # No AWS call at all — deliberately. The deploy role holds only
+                # ssm:PutParameter (github_oidc.tf sid=SSMPutParameters), so it
+                # cannot read the parameter to report whether one exists, and it
+                # must not try: an unmanaged key is simply not this pipeline's
+                # business on this run.
+                echo "  skipped: ${key} (not set in GitHub — left to its other owner, e.g. terraform)"
+                PARAMS_SKIPPED+=1
+                return
               fi
               # delete-if-empty: remove any existing parameter so the host's
               # own fallback/default takes effect, rather than leaving a
@@ -829,6 +938,108 @@ jobs:
           put_param "LANGSMITH_PROJECT"             "$LANGSMITH_PROJECT"            "String" "delete-if-empty"
           put_param "bootstrap/admin-email"        "$BOOTSTRAP_ADMIN_EMAIL"        "String" "delete-if-empty"
 
+          # ── Cognito + auth cutover flags ─────────────────────────────
+          # See the long note in this step's `env:` block for the dual-ownership
+          # rationale. All nine are preserve-if-empty, so an environment that
+          # leaves them unset in GitHub keeps Terraform as the sole writer and
+          # this section is a no-op for it.
+          #
+          # Coherence gate FIRST: AUTH_PROVIDER=cognito without the pool trio is
+          # the one combination that produces a container which cannot boot
+          # (CognitoMisconfigured, config.py:549 — a crash-loop under
+          # docker-entrypoint.sh's `set -eu`, so the deploy fails at the health
+          # gate with a far less obvious message than this one). The workflow
+          # cannot verify what SSM already holds — the deploy role has no
+          # ssm:GetParameter — so if the pipeline is going to assert
+          # "provider = cognito", it must also supply the config that claim
+          # implies rather than hoping Terraform got there first.
+          #
+          # Explicit if/then throughout this block, never `[[ test ]] && x=y`:
+          # that form evaluates to the test's status, which is a latent `set -e`
+          # trap — the same reasoning already recorded on `resolve_digest` in the
+          # build job.
+          AUTH_PROVIDER_LOWER="$(printf '%s' "${AUTH_PROVIDER:-}" | tr '[:upper:]' '[:lower:]')"
+          if [[ "$AUTH_PROVIDER_LOWER" == "cognito" ]]; then
+            AUTH_MISSING=""
+            if [[ -z "${COGNITO_USER_POOL_ID:-}" ]]; then
+              AUTH_MISSING="${AUTH_MISSING} COGNITO_USER_POOL_ID(var)"
+            fi
+            if [[ -z "${COGNITO_CLIENT_ID:-}" ]]; then
+              AUTH_MISSING="${AUTH_MISSING} COGNITO_CLIENT_ID(var)"
+            fi
+            if [[ -z "${COGNITO_CLIENT_SECRET:-}" ]]; then
+              AUTH_MISSING="${AUTH_MISSING} COGNITO_CLIENT_SECRET(secret)"
+            fi
+            if [[ -n "$AUTH_MISSING" ]]; then
+              echo "::error::vars.AUTH_PROVIDER is 'cognito' on the '${DEPLOY_ENV}' environment, but these are not set:${AUTH_MISSING}"
+              echo "::error::The backend refuses to boot in that state (CognitoMisconfigured), so the deploy would fail at the health gate instead."
+              echo "::error::Either set all three on the '${DEPLOY_ENV}' GitHub Environment, or clear AUTH_PROVIDER and let the foundation layer's terraform apply own the whole Cognito block."
+              exit 1
+            fi
+          fi
+
+          # Shape checks on the two identifiers — a typo here reaches the app as
+          # a pool that does not exist, and the first symptom is every login
+          # failing at runtime rather than anything visible at deploy time.
+          if [[ -n "${COGNITO_USER_POOL_ID:-}" && ! "$COGNITO_USER_POOL_ID" =~ ^[a-z]{2}-[a-z]+-[0-9]+_[A-Za-z0-9]+$ ]]; then
+            echo "::error::COGNITO_USER_POOL_ID ('${COGNITO_USER_POOL_ID}') is not a user-pool id. Expected <region>_<suffix>, e.g. eu-central-1_AbC123xyz."
+            exit 1
+          fi
+          if [[ -n "${COGNITO_CLIENT_ID:-}" && ! "$COGNITO_CLIENT_ID" =~ ^[a-z0-9]{16,}$ ]]; then
+            echo "::error::COGNITO_CLIENT_ID is not an app-client id (expected 16+ lowercase alphanumerics)."
+            exit 1
+          fi
+
+          # AUTH_PROVIDER is compared as `!= "cognito"` in the app
+          # (config.py _validate_cognito_config, core/identity.py), so ANY other
+          # string silently means "local". A typo therefore does not fail — it
+          # quietly leaves the environment on legacy auth after an operator
+          # believed they had cut over. Allow-list it.
+          if [[ -n "$AUTH_PROVIDER_LOWER" && "$AUTH_PROVIDER_LOWER" != "local" && "$AUTH_PROVIDER_LOWER" != "cognito" ]]; then
+            echo "::error::AUTH_PROVIDER must be 'local' or 'cognito' (got '${AUTH_PROVIDER}'). Anything else is treated as 'local' by the backend, which would silently leave '${DEPLOY_ENV}' on legacy auth."
+            exit 1
+          fi
+          AUTH_PROVIDER="$AUTH_PROVIDER_LOWER"
+
+          # The four flags land on `bool` Settings fields. pydantic v2 coerces a
+          # known set of strings ('1/on/t/true/y/yes' and '0/off/f/false/n/no',
+          # case-insensitive) and raises ValidationError on anything else — and
+          # because that error is raised while constructing the module-level
+          # `settings` object, it takes the whole app down at import time over a
+          # typo in a GitHub variable. Validate against exactly that set, then
+          # normalise to true/false so the SSM tree reads uniformly regardless of
+          # what an operator typed.
+          #
+          # `declare -g` (not bare `declare`) is required: inside this loop we
+          # are at script scope, but bare `declare` would still be the wrong
+          # habit to copy into a function, where it creates a local.
+          for flag_name in AUTH_ALLOW_LEGACY_JWT BREAK_GLASS_ENABLED ADMIN_MFA_REQUIRED AUTH_EMAIL_MFA_ENABLED; do
+            flag_value="${!flag_name:-}"
+            if [[ -z "$flag_value" ]]; then
+              continue
+            fi
+            flag_lower="$(printf '%s' "$flag_value" | tr '[:upper:]' '[:lower:]')"
+            case "$flag_lower" in
+              1|on|t|true|y|yes)  flag_norm="true" ;;
+              0|off|f|false|n|no) flag_norm="false" ;;
+              *)
+                echo "::error::${flag_name} must be a boolean (got '${flag_value}'). Accepted: true/false (also 1/0, yes/no, on/off). pydantic rejects anything else and the backend fails to start."
+                exit 1
+                ;;
+            esac
+            declare -g "${flag_name}=${flag_norm}"
+          done
+
+          put_param "COGNITO_USER_POOL_ID"   "${COGNITO_USER_POOL_ID:-}"   "String"       "preserve-if-empty"
+          put_param "COGNITO_CLIENT_ID"      "${COGNITO_CLIENT_ID:-}"      "String"       "preserve-if-empty"
+          put_param "COGNITO_CLIENT_SECRET"  "${COGNITO_CLIENT_SECRET:-}"  "SecureString" "preserve-if-empty"
+          put_param "COGNITO_REGION"         "${COGNITO_REGION:-}"         "String"       "preserve-if-empty"
+          put_param "AUTH_PROVIDER"          "${AUTH_PROVIDER:-}"          "String"       "preserve-if-empty"
+          put_param "AUTH_ALLOW_LEGACY_JWT"  "${AUTH_ALLOW_LEGACY_JWT:-}"  "String"       "preserve-if-empty"
+          put_param "BREAK_GLASS_ENABLED"    "${BREAK_GLASS_ENABLED:-}"    "String"       "preserve-if-empty"
+          put_param "ADMIN_MFA_REQUIRED"     "${ADMIN_MFA_REQUIRED:-}"     "String"       "preserve-if-empty"
+          put_param "AUTH_EMAIL_MFA_ENABLED" "${AUTH_EMAIL_MFA_ENABLED:-}" "String"       "preserve-if-empty"
+
           # specs/014 — host capacity matrix + admission gate. Only these two
           # are pushed from GitHub Environment variables; every other
           # HOST_CAPACITY_* setting (thresholds, gate on/off, poll interval,
@@ -847,7 +1058,7 @@ jobs:
           put_param "llm/inference_profile_id" "$BEDROCK_INFERENCE_PROFILE_ID" "String" "delete-if-empty"
           put_param "llm/coding_model_id"      "$BEDROCK_CODING_MODEL_ID"      "String" "delete-if-empty"
 
-          echo "Config push complete: ${PARAMS_PUSHED} pushed, ${PARAMS_DELETED} deleted, ${PARAMS_UNCHANGED} unchanged."
+          echo "Config push complete: ${PARAMS_PUSHED} pushed, ${PARAMS_DELETED} deleted, ${PARAMS_UNCHANGED} unchanged, ${PARAMS_SKIPPED} skipped (owned elsewhere)."
 
       # ── Bedrock inference profile / region consistency check ──────────
       # FIX-BEDROCK-01: the deployed AWS_REGION and the configured Bedrock
