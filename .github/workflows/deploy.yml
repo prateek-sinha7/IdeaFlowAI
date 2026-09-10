@@ -203,6 +203,22 @@ jobs:
     name: CI gate
     needs: resolve
     if: ${{ needs.resolve.outputs.environment != 'dev' }}
+    # STARTUP-FAILURE FIX: a called reusable workflow cannot request MORE token
+    # permission than the calling job grants, and GitHub enforces this while
+    # BUILDING the graph — before any `if:` is evaluated and before any job is
+    # created. ci.yml's `ci-required` job declares `statuses: write` (its only
+    # elevated permission), so with the workflow-level `contents: read` alone
+    # this call was rejected with "the nested job is requesting
+    # 'statuses: write', but is only allowed 'statuses: none'". The whole run
+    # died as `startup_failure` with zero jobs — including for `dev`, where the
+    # gate is skipped, because skipping happens after graph construction.
+    #
+    # Granted on THIS JOB only, not workflow-level, so `resolve`/`build`/
+    # `deploy` keep their existing envelopes. The gate stays AWS-blind: no
+    # `id-token: write` here, so it still cannot mint a token for STS.
+    permissions:
+      contents: read
+      statuses: write
     uses: ./.github/workflows/ci.yml
     with:
       intent_id: deploy-${{ github.run_id }}
