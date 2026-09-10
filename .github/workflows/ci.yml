@@ -26,9 +26,9 @@
 #
 # HOW A SIGNAL BECOMES A VERDICT
 #   Every mandatory signal is registered in
-#   backend/agents/ci/signal_registry.py with exactly one `owner_job`. The
+#   backend/tools/ci/signal_registry.py with exactly one `owner_job`. The
 #   `ci-evidence` job feeds every job result into
-#   `python -m agents.ci.ci_gate aggregate`, which succeeds only if all 35
+#   `python -m tools.ci.ci_gate aggregate`, which succeeds only if all 35
 #   mandatory signals succeeded for THIS exact SHA. Job names below must match
 #   the registry's `owner_job` values or the aggregate fails closed with
 #   "owns no registered signal".
@@ -36,7 +36,7 @@
 # THE RULE THAT KEEPS THIS HONEST
 #   No mandatory step may use `continue-on-error: true`, `|| true`, or a
 #   trailing `exit 0`. Where several independent checks must all report even
-#   though one failed, use `agents/ci/run_checks.py`, which runs every command
+#   though one failed, use `tools/ci/run_checks.py`, which runs every command
 #   to completion, records a sub-verdict for each, and then exits non-zero.
 #   Collecting evidence past a failure is fine; converting a failure into a pass
 #   is not.
@@ -166,7 +166,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          uv run --frozen python agents/ci/run_checks.py \
+          uv run --frozen python tools/ci/run_checks.py \
             ../ci/repo-static-checks.json \
             ../ci-results/repo-static-results.json \
             ../ci-results/repo-static-results.junit.xml
@@ -220,7 +220,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../ci-results
-          uv run --frozen python -m agents.ci.inventory_cli \
+          uv run --frozen python -m tools.ci.inventory_cli \
             --tests-dir tests \
             --evaluation-sha "$EVALUATION_SHA" \
             --out ../ci-results/backend-inventory.json
@@ -267,7 +267,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../ci-results
-          uv run --frozen python agents/ci/run_checks.py \
+          uv run --frozen python tools/ci/run_checks.py \
             ../ci/backend-static-checks.json \
             ../ci-results/backend-static-results.json \
             ../ci-results/backend-static-results.junit.xml
@@ -328,16 +328,16 @@ jobs:
         working-directory: backend
         env:
           COVERAGE_FILE: ${{ github.workspace }}/ci-results/.coverage.backend-offline
-          # pytest imports `-p` plugins before any conftest runs, so `agents`
+          # pytest imports `-p` plugins before any conftest runs, so `tools`
           # must already be importable at that point.
           PYTHONPATH: .
         run: |
           set -euo pipefail
           uv run --frozen pytest tests \
             -m "not live and not requires_api_key and not requires_postgres and not requires_postgres_populated_migration" \
-            -p agents.ci.execution_recorder \
+            -p tools.ci.execution_recorder \
             --execution-record="$GITHUB_WORKSPACE/ci-results/execution-backend-offline.json" \
-            --cov=app --cov=agents \
+            --cov=app --cov=agents --cov=tools \
             --cov-report=xml:"$GITHUB_WORKSPACE/ci-results/backend-offline-coverage.xml" \
             --junitxml="$GITHUB_WORKSPACE/ci-results/backend-offline-junit.xml" \
             -q
@@ -347,7 +347,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          uv run --frozen python -m agents.ci.inventory_cli verify-execution \
+          uv run --frozen python -m tools.ci.inventory_cli verify-execution \
             --inventory "$GITHUB_WORKSPACE/ci-results/backend-inventory.json" \
             --execution "$GITHUB_WORKSPACE/ci-results/execution-backend-offline.json" \
             --partition offline
@@ -439,9 +439,9 @@ jobs:
           set -euo pipefail
           uv run --frozen pytest tests \
             -m "requires_postgres or requires_postgres_populated_migration" \
-            -p agents.ci.execution_recorder \
+            -p tools.ci.execution_recorder \
             --execution-record="$GITHUB_WORKSPACE/ci-results/execution-backend-postgres.json" \
-            --cov=app --cov=agents \
+            --cov=app --cov=agents --cov=tools \
             --cov-report=xml:"$GITHUB_WORKSPACE/ci-results/backend-postgres-coverage.xml" \
             --junitxml="$GITHUB_WORKSPACE/ci-results/backend-postgres-junit.xml" \
             -q
@@ -451,7 +451,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          uv run --frozen python -m agents.ci.inventory_cli verify-execution \
+          uv run --frozen python -m tools.ci.inventory_cli verify-execution \
             --inventory "$GITHUB_WORKSPACE/ci-results/backend-inventory.json" \
             --execution "$GITHUB_WORKSPACE/ci-results/execution-backend-postgres.json" \
             --partition postgres
@@ -555,7 +555,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          uv run --frozen python -m agents.ci.ci_gate coverage-gate-backend \
+          uv run --frozen python -m tools.ci.ci_gate coverage-gate-backend \
             --coverage-xml "$GITHUB_WORKSPACE/ci-results/backend-coverage.xml" \
             --min "${{ env.COVERAGE_MIN_BACKEND }}"
 
@@ -563,7 +563,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          uv run --frozen python -m agents.ci.report_merger_cli junit \
+          uv run --frozen python -m tools.ci.report_merger_cli junit \
             --out "$GITHUB_WORKSPACE/ci-results/junit-backend.xml" \
             "$GITHUB_WORKSPACE/ci-results/backend-offline-junit.xml" \
             "$GITHUB_WORKSPACE/ci-results/backend-postgres-junit.xml"
@@ -616,7 +616,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../ci-results
-          uv run --frozen python agents/ci/run_checks.py \
+          uv run --frozen python tools/ci/run_checks.py \
             ../ci/frontend-static-checks.json \
             ../ci-results/frontend-static-results.json \
             ../ci-results/frontend-static-results.junit.xml
@@ -822,7 +822,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          uv run --frozen python -m agents.ci.ci_gate coverage-gate-frontend \
+          uv run --frozen python -m tools.ci.ci_gate coverage-gate-frontend \
             --summary "$GITHUB_WORKSPACE/ci-results/coverage-summary.json" \
             --min "${{ env.COVERAGE_MIN_FRONTEND }}"
 
@@ -879,7 +879,7 @@ jobs:
       - name: Create evidence directory
         run: mkdir -p ci-results
 
-      # Every leg ends by running `agents.ci.ci_gate scan-gate` to turn its
+      # Every leg ends by running `tools.ci.ci_gate scan-gate` to turn its
       # report into a verdict, so all four need the backend environment — not
       # just the two that also use a Python scanner.
       - name: Setup backend (for the scanner gate)
@@ -929,7 +929,7 @@ jobs:
         if: matrix.leg == 'iac'
         # First-party action: verifies the release checksum and GPG signature
         # internally, which is stronger than an unverified curl. The version must
-        # match agents/ci/pin_authority.py (tests/ci/test_toolchain_pins.py
+        # match tools/ci/pin_authority.py (tests/ci/test_toolchain_pins.py
         # asserts it).
         uses: terraform-linters/setup-tflint@19a52fbac37dacb22a09518e4ef6ee234f2d4987 # v4.0.0
         with:
@@ -1153,7 +1153,7 @@ jobs:
   # This job replaces the previous placeholder that read every upstream result
   # into a shell variable, echoed it, and then ran `exit 0` with a comment
   # saying failures do not fail the aggregate. It now delegates to
-  # `agents.ci.ci_gate aggregate`, which succeeds only when all 35 mandatory
+  # `tools.ci.ci_gate aggregate`, which succeeds only when all 35 mandatory
   # signals succeeded for this exact SHA.
   #
   # On pull requests the two Sonar signals are deferred to the trusted
@@ -1249,7 +1249,7 @@ jobs:
             args+=(--job "sonar-pr=$R_SONAR")
           fi
 
-          uv run --frozen python -m agents.ci.ci_gate aggregate "${args[@]}"
+          uv run --frozen python -m tools.ci.ci_gate aggregate "${args[@]}"
 
       - name: Upload the aggregate manifest
         if: always()

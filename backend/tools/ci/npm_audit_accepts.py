@@ -3,7 +3,7 @@ Apply reviewed, per-advisory accepts to an `npm audit --json` report.
 
 WHERE THIS SITS, AND WHY IT IS NOT A HOLE IN THE GATE
 -----------------------------------------------------
-`agents.ci.ci_gate scan-gate` has, deliberately, no way to downgrade a failure:
+`tools.ci.ci_gate scan-gate` has, deliberately, no way to downgrade a failure:
 a resolved High or Critical finding fails the signal whether or not a fix
 exists. That property is preserved here. This module runs BEFORE the gate, on
 the report-production side, and is the npm equivalent of the `--ignore-vuln`
@@ -197,7 +197,7 @@ def _recount(metadata: Any, kept: dict[str, Any]) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     """Entrypoint. Returns the process exit code."""
-    parser = argparse.ArgumentParser(prog="agents.ci.npm_audit_accepts")
+    parser = argparse.ArgumentParser(prog="tools.ci.npm_audit_accepts")
     parser.add_argument("--report", required=True, help="raw npm audit JSON")
     parser.add_argument("--out", required=True, help="filtered JSON for the gate")
     args = parser.parse_args(argv)
@@ -227,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"::error::accepted advisory {ghsa} matched nothing in "
                 f"{raw}. Delete the stale accept in "
-                f"agents/ci/npm_audit_accepts.py rather than leaving a "
+                f"tools/ci/npm_audit_accepts.py rather than leaving a "
                 f"suppression that protects nothing."
             )
         return 1

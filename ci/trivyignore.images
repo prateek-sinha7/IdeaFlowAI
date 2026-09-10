@@ -13,7 +13,7 @@
 # A HIGH/CRITICAL image finding must now be remediated (base image digest
 # bump, OS/application package upgrade, or package removal) — see
 # backend/Dockerfile and frontend/Dockerfile, and
-# backend/agents/ci/pin_authority.py for the current digest pins.
+# backend/tools/ci/pin_authority.py for the current digest pins.
 #
 # This file is kept only so a stale reference to it (docs, old branches)
 # resolves to an explanation rather than a 404. It is safe to delete once no

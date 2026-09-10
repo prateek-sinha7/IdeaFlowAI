@@ -28,7 +28,7 @@ import sys
 from typing import Any, Generator
 from unittest.mock import patch, MagicMock, PropertyMock
 
-from agents.ci.offline_guards import (
+from tools.ci.offline_guards import (
     require_mandatory_offline,
     no_credentials,
     no_egress,
@@ -274,43 +274,43 @@ class TestProviderBlockingBehavior:
 
     def test_anthropic_module_in_blocked_list(self):
         """anthropic should be in blocked provider modules."""
-        from agents.ci.offline_guards import BLOCKED_PROVIDER_MODULES
+        from tools.ci.offline_guards import BLOCKED_PROVIDER_MODULES
 
         assert "anthropic" in BLOCKED_PROVIDER_MODULES
 
     def test_langchain_anthropic_module_in_blocked_list(self):
         """langchain_anthropic should be in blocked provider modules."""
-        from agents.ci.offline_guards import BLOCKED_PROVIDER_MODULES
+        from tools.ci.offline_guards import BLOCKED_PROVIDER_MODULES
 
         assert "langchain_anthropic" in BLOCKED_PROVIDER_MODULES
 
     def test_bedrock_module_in_blocked_list(self):
         """langchain_aws should be in blocked provider modules."""
-        from agents.ci.offline_guards import BLOCKED_PROVIDER_MODULES
+        from tools.ci.offline_guards import BLOCKED_PROVIDER_MODULES
 
         assert "langchain_aws" in BLOCKED_PROVIDER_MODULES
 
     def test_openai_module_in_blocked_list(self):
         """openai should be in blocked provider modules."""
-        from agents.ci.offline_guards import BLOCKED_PROVIDER_MODULES
+        from tools.ci.offline_guards import BLOCKED_PROVIDER_MODULES
 
         assert "openai" in BLOCKED_PROVIDER_MODULES
 
     def test_azure_module_in_blocked_list(self):
         """azure.ai.inference should be in blocked provider modules."""
-        from agents.ci.offline_guards import BLOCKED_PROVIDER_MODULES
+        from tools.ci.offline_guards import BLOCKED_PROVIDER_MODULES
 
         assert "azure.ai.inference" in BLOCKED_PROVIDER_MODULES
 
     def test_mistral_module_in_blocked_list(self):
         """mistralai should be in blocked provider modules."""
-        from agents.ci.offline_guards import BLOCKED_PROVIDER_MODULES
+        from tools.ci.offline_guards import BLOCKED_PROVIDER_MODULES
 
         assert "mistralai" in BLOCKED_PROVIDER_MODULES
 
     def test_aws_module_in_blocked_list(self):
         """boto3 should be in blocked provider modules."""
-        from agents.ci.offline_guards import BLOCKED_PROVIDER_MODULES
+        from tools.ci.offline_guards import BLOCKED_PROVIDER_MODULES
 
         assert "boto3" in BLOCKED_PROVIDER_MODULES
 
@@ -320,7 +320,7 @@ class TestCredentialEnvironmentClearing:
 
     def test_credential_env_patterns_defined(self):
         """Credential environment variable patterns should be defined."""
-        from agents.ci.offline_guards import CREDENTIAL_ENV_PATTERNS
+        from tools.ci.offline_guards import CREDENTIAL_ENV_PATTERNS
 
         assert len(CREDENTIAL_ENV_PATTERNS) >= 8
         assert "ANTHROPIC_API_KEY" in CREDENTIAL_ENV_PATTERNS
@@ -755,7 +755,7 @@ class TestRequirementsMapping:
 
     def test_requirement_2_11_provider_blocking(self):
         """Requirement 2.11: Mandatory-offline provider blocking."""
-        from agents.ci.offline_guards import (
+        from tools.ci.offline_guards import (
             require_mandatory_offline,
             BLOCKED_PROVIDER_MODULES,
         )
@@ -767,7 +767,7 @@ class TestRequirementsMapping:
 
     def test_requirement_3_1_offline_boundary(self):
         """Requirement 3.1: Offline boundary enforcement."""
-        from agents.ci.offline_guards import (
+        from tools.ci.offline_guards import (
             no_credentials,
             no_egress,
             require_all_guards,

@@ -6,7 +6,7 @@
 #   trivy config --ignorefile ci/trivyignore \
 #     --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" \
 #     --format json --output <report> infra/terraform
-# The verdict is NOT trivy's exit code — `agents.ci.ci_gate scan-gate
+# The verdict is NOT trivy's exit code — `tools.ci.ci_gate scan-gate
 # --scanner trivy-config` reads the JSON and fails on any HIGH/CRITICAL that
 # survives this file. The accepts below were triaged at that threshold.
 #

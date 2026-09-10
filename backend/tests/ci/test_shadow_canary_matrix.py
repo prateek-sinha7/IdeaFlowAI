@@ -26,8 +26,8 @@ import json
 from datetime import datetime
 from typing import Dict, List, Any
 
-from agents.ci.ci_gate import main as ci_gate_main
-from agents.ci.scanner_parsers import (
+from tools.ci.ci_gate import main as ci_gate_main
+from tools.ci.scanner_parsers import (
     parse_grype_json,
     parse_pip_audit_json,
     parse_trivy_json,

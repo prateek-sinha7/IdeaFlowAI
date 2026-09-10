@@ -755,8 +755,8 @@ class TestCIRemediationExploration:
         workflow or in the trusted finalizer. Substring matching against the file
         text cannot tell a job apart from a comment.
         """
-        from agents.ci.aggregate_truth import compute_aggregate_required_signals
-        from agents.ci.signal_registry import SIGNAL_REGISTRY
+        from tools.ci.aggregate_truth import compute_aggregate_required_signals
+        from tools.ci.signal_registry import SIGNAL_REGISTRY
 
         workflows_dir = REPO_ROOT / ".github" / "workflows"
         job_names: set[str] = set()
@@ -793,7 +793,7 @@ class TestCIRemediationExploration:
         finding things.
 
         Collecting evidence past a failure is fine — that is what
-        `agents/ci/run_checks.py` is for. Discarding the failure is not.
+        `tools/ci/run_checks.py` is for. Discarding the failure is not.
         """
         workflow_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}

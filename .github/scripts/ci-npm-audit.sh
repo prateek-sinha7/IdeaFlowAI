@@ -8,7 +8,7 @@
 #
 # KNOWN RESIDUALS: two image-size advisories (GHSA-w3rx-r6r6-pgpr and
 # GHSA-5p2g-fcmc-qvqq) are accepted, with per-advisory justifications, in
-# backend/agents/ci/npm_audit_accepts.py. They are unfixable upstream — every
+# backend/tools/ci/npm_audit_accepts.py. They are unfixable upstream — every
 # image-size release through 2.0.2, the latest, is affected and the project has
 # issues disabled — and they reach us only through the pinned pptxgenjs. npm
 # audit has no `--ignore` flag, so unlike ci-pip-audit.sh (which passes
@@ -44,11 +44,11 @@ cd backend
 # to fail the job rather than fall through to a gate reading a stale file. Both
 # the raw and the gated report are uploaded as evidence, so the accepts stay
 # auditable after the fact.
-uv run --frozen python -m agents.ci.npm_audit_accepts \
+uv run --frozen python -m tools.ci.npm_audit_accepts \
   --report "${report_abs}" \
   --out "${gated_abs}"
 
-uv run --frozen python -m agents.ci.ci_gate scan-gate \
+uv run --frozen python -m tools.ci.ci_gate scan-gate \
   --scanner npm \
   --report "${gated_abs}" \
   --producer 'security[frontend-deps]' \

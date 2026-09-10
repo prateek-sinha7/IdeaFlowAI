@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from agents.ci.npm_audit_accepts import (
+from tools.ci.npm_audit_accepts import (
     ACCEPTED_ADVISORIES,
     filter_report,
     main,
@@ -247,7 +247,7 @@ class TestAgainstTheRealAuditGate:
     """End-to-end: the filtered report must make the real gate pass."""
 
     def test_gate_passes_on_the_filtered_real_world_report(self):
-        from agents.ci.scanner_parsers import parse_npm_audit_json
+        from tools.ci.scanner_parsers import parse_npm_audit_json
 
         raw = _real_world_report()
         before = parse_npm_audit_json(json.dumps(raw))
@@ -262,7 +262,7 @@ class TestAgainstTheRealAuditGate:
 
     @pytest.mark.parametrize("severity", ["high", "critical"])
     def test_gate_still_fails_on_anything_unaccepted(self, severity: str):
-        from agents.ci.scanner_parsers import parse_npm_audit_json
+        from tools.ci.scanner_parsers import parse_npm_audit_json
 
         report = _report(
             {

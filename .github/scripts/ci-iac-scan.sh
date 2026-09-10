@@ -35,9 +35,9 @@ done
 # backend's boto3 and would make backend/uv.lock unresolvable.
 checkov_version="$(
   cd backend && uv run --frozen python -c \
-    'from agents.ci.pin_authority import get_authority; print(get_authority().checkov_version)'
+    'from tools.ci.pin_authority import get_authority; print(get_authority().checkov_version)'
 )"
-echo "Using checkov==${checkov_version} (from agents/ci/pin_authority.py)"
+echo "Using checkov==${checkov_version} (from tools/ci/pin_authority.py)"
 
 # Report production only; the gates below are the verdicts.
 uv tool run --from "checkov==${checkov_version}" checkov \
@@ -81,7 +81,7 @@ overall=0
 cd "${GITHUB_WORKSPACE:-.}/backend"
 
 echo "::group::Checkov verdict"
-if ! uv run --frozen python -m agents.ci.ci_gate scan-gate \
+if ! uv run --frozen python -m tools.ci.ci_gate scan-gate \
     --scanner checkov \
     --report "${checkov_report}" \
     --producer 'security[iac]/checkov' \
@@ -91,7 +91,7 @@ fi
 echo "::endgroup::"
 
 echo "::group::Trivy config verdict"
-if ! uv run --frozen python -m agents.ci.ci_gate scan-gate \
+if ! uv run --frozen python -m tools.ci.ci_gate scan-gate \
     --scanner trivy-config \
     --report "${trivy_config_report}" \
     --producer 'security[iac]/trivy-config' \

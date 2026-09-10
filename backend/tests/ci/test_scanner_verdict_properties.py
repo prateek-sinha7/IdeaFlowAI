@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from hypothesis import given, settings, strategies as st, assume
 
-from agents.ci.scanner_parsers import (
+from tools.ci.scanner_parsers import (
     parse_pip_audit_json,
     parse_npm_audit_json,
     parse_trivy_json,
@@ -19,12 +19,12 @@ from agents.ci.scanner_parsers import (
     parse_gitleaks_json,
     ParserError,
 )
-from agents.ci.scanner_policy import (
+from tools.ci.scanner_policy import (
     ZeroHighCriticalPolicy,
     merge_verdicts,
     validate_no_severity_exceptions,
 )
-from agents.ci.scanner_verdict import (
+from tools.ci.scanner_verdict import (
     Finding,
     ScannerVerdict,
     SeverityLevel,

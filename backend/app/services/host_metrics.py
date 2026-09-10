@@ -41,7 +41,7 @@ logger = logging.getLogger("app.services.host_metrics")
 # agents/capabilities/hooks/otel_tracing.py's _get_tracer() pattern. boto3 is
 # imported lazily (function-local, never at module scope) so importing this
 # module never requires AWS credentials to be configured, and so the CI
-# offline-sandbox guard (agents/ci/offline_guards.py's BLOCKED_PROVIDER_MODULES)
+# offline-sandbox guard (tools/ci/offline_guards.py's BLOCKED_PROVIDER_MODULES)
 # never sees a module-level `import boto3`.
 # ---------------------------------------------------------------------------
 

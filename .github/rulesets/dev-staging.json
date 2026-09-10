@@ -1,6 +1,6 @@
 {
   "name": "dev-staging-protection",
-  "description": "Deploying branches (dev, staging): prevent accidental deletion and force push. NOTE: `ci-required` is deliberately NOT listed as a required status check yet. Adding it is the LAST step of the CI remediation and may only be done after a reviewed canary has actually observed the `ci-required` context being published successfully on a protected-branch PR (see .kiro/specs/ci-pipeline-remediation/ROLLOUT-EVIDENCE.md). Requiring a context that no workflow can emit permanently blocks every pull request.",
+  "description": "Deploying branches (dev, staging): prevent accidental deletion and force push, and require the `ci-required` aggregate status check. Approvals are not required and the status-check policy is deliberately loose here, so routine iteration does not need a rebase for every upstream push; main.json is the strict gate. For pull requests `ci-required` is published solely by the publish-ci-required job in .github/workflows/ci-authoritative.yml. Before adding a context here, confirm that publisher exists and has been seen succeeding — a required context nothing can emit blocks every pull request. backend/tests/ci/test_ruleset_workflow_contract.py enforces the reachability and self-consistency of this file.",
   "target": "branch",
   "enforcement": "active",
   "bypass_actors": [],

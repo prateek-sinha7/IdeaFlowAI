@@ -4,7 +4,7 @@
 # an exact command and an owner, or it is invisible work: a file named like a
 # test but never executed looks like coverage and provides none.
 #
-# `agents.ci.inventory_cli` fails the backend-inventory signal when it finds an
+# `tools.ci.inventory_cli` fails the backend-inventory signal when it finds an
 # uncollectable test-like file under backend/tests/ that is not listed here, so
 # this registry cannot silently fall out of date.
 #

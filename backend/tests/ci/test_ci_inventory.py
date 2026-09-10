@@ -19,14 +19,14 @@ from typing import Set
 
 import pytest
 
-from agents.ci.inventory import (
+from tools.ci.inventory import (
     InventoryCollector,
     PartitionInventory,
     Partition,
     TestNode,
     validate_inventory,
 )
-from agents.ci.auxiliary_registry import (
+from tools.ci.auxiliary_registry import (
     AuxiliaryRegistry,
     AuxiliaryTestType,
     identify_tracked_test_files,

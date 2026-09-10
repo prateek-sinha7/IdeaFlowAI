@@ -172,7 +172,7 @@ Policy enforcement for zero High/Critical findings.
 ## Usage Examples
 
 ```python
-from agents.ci import (
+from tools.ci import (
     parse_pip_audit_json,
     parse_npm_audit_json,
     ZeroHighCriticalPolicy,

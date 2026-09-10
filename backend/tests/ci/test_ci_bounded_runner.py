@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import pytest
 
-from agents.ci.run_checks import (
+from tools.ci.run_checks import (
     MAX_CHECK_TIMEOUT_SECONDS,
     BoundedCheckRunner,
     CheckDefinition,
@@ -529,7 +529,7 @@ class TestDeterministicExecution:
 class TestAuditLogging:
     """Tests for audit logging of check execution."""
 
-    @patch("agents.ci.run_checks.logger")
+    @patch("tools.ci.run_checks.logger")
     def test_check_start_logged(self, mock_logger):
         """Test that check start is logged."""
         check = CheckDefinition(
@@ -543,7 +543,7 @@ class TestAuditLogging:
         calls = [str(call) for call in mock_logger.info.call_args_list]
         assert any("Starting check" in str(call) for call in calls)
 
-    @patch("agents.ci.run_checks.logger")
+    @patch("tools.ci.run_checks.logger")
     def test_check_result_logged(self, mock_logger):
         """Test that check result is logged."""
         check = CheckDefinition(

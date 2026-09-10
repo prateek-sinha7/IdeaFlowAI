@@ -44,24 +44,44 @@ never see `SONAR_TOKEN`. It is the sole publisher of `ci-required` for PRs.
 - No mandatory step may use `continue-on-error: true`, a trailing `|| true`, or a
   trailing `exit 0`. `tests/ci/test_ci_remediation_exploration.py::test_no_mandatory_step_is_advisory`
   fails the build if one appears. Where several independent checks must all
-  report, `backend/agents/ci/run_checks.py` runs each to completion, records a
+  report, `backend/tools/ci/run_checks.py` runs each to completion, records a
   sub-verdict, and then exits non-zero.
-- Every mandatory signal is registered in `backend/agents/ci/signal_registry.py`
+- Every mandatory signal is registered in `backend/tools/ci/signal_registry.py`
   with exactly one `owner_job`. `ci-evidence` feeds all job results through
-  `python -m agents.ci.ci_gate aggregate`, which succeeds only if all 35 signals
+  `python -m tools.ci.ci_gate aggregate`, which succeeds only if all 35 signals
   succeeded for the exact evaluated SHA.
-- Security verdicts come from `agents.ci.ci_gate scan-gate`, which fails on any
+- Security verdicts come from `tools.ci.ci_gate scan-gate`, which fails on any
   resolved High or Critical finding regardless of fix availability. No baseline,
   no `--ignore-unfixed`, no suppression list.
 - A missing, empty or unparseable mandatory report is a failure, not a skip.
 
-## Branch protection is NOT yet enabled
+## Branch protection requires `ci-required`
 
-`.github/rulesets/*.json` deliberately do **not** require `ci-required`. Adding
-it is the last step and needs observed evidence first — see
-`.kiro/specs/ci-pipeline-remediation/ROLLOUT-EVIDENCE.md`. Requiring a context
-that no workflow can emit blocks every pull request, which is what happened
-previously.
+`.github/rulesets/main.json` and `dev-staging.json` both require the
+`ci-required` aggregate status check; `main.json` additionally applies the strict
+up-to-date policy and a code-owner approval. `main.json` is the strict gate,
+`dev-staging.json` is deliberately loose so routine iteration does not need a
+rebase per upstream push.
+
+Only the single aggregate is ever required. Shards, jobs and scanners are inputs
+to it, so renaming one internally is not a branch-protection change.
+
+For pull requests the context is published solely by the `publish-ci-required`
+job in `ci-authoritative.yml`, which is triggered by `workflow_run` and therefore
+runs default-branch code that can read `SONAR_TOKEN`. `ci.yml` runs untrusted PR
+code and must never publish it.
+
+Before adding a context to a ruleset, confirm a publisher exists and has been
+seen succeeding: a required context that no workflow can emit blocks every pull
+request, which is what happened previously.
+`backend/tests/ci/test_ruleset_workflow_contract.py` enforces publisher
+reachability and keeps these descriptions honest.
+
+An earlier revision of this section, and of both ruleset descriptions, claimed
+`ci-required` was deliberately **not** required, and pointed at a rollout
+evidence document under `.kiro/`. The requirement was added in `db2ddea7`; the
+prose was not updated, and the cited path is gitignored and has never existed in
+this repo. Both are corrected here.
 
 ## The pipeline currently reports red, on purpose
 

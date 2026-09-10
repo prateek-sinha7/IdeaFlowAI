@@ -26,7 +26,7 @@ if [[ ! -f "${report}" ]]; then
 fi
 
 cd backend
-uv run --frozen python -m agents.ci.ci_gate scan-gate \
+uv run --frozen python -m tools.ci.ci_gate scan-gate \
   --scanner gitleaks \
   --report "${GITHUB_WORKSPACE:-..}/${report}" \
   --producer 'security[secrets]' \

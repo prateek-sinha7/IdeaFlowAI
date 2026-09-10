@@ -17,7 +17,7 @@
     },
     {
       "check_id": "python-compile",
-      "command": ["uv", "run", "--frozen", "python", "-m", "compileall", "-q", "app", "agents"],
+      "command": ["uv", "run", "--frozen", "python", "-m", "compileall", "-q", "app", "agents", "tools"],
       "timeout_seconds": 300,
       "mandatory": true
     },
@@ -35,13 +35,13 @@
     },
     {
       "check_id": "vulture",
-      "command": ["uv", "run", "--frozen", "vulture", "app", "agents"],
+      "command": ["uv", "run", "--frozen", "vulture", "app", "agents", "tools"],
       "timeout_seconds": 300,
       "mandatory": true
     },
     {
       "check_id": "bandit",
-      "command": ["uv", "run", "--frozen", "bandit", "-c", "pyproject.toml", "-r", "app", "agents", "-ll"],
+      "command": ["uv", "run", "--frozen", "bandit", "-c", "pyproject.toml", "-r", "app", "agents", "tools", "-ll"],
       "timeout_seconds": 300,
       "mandatory": true
     },

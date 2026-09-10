@@ -3,7 +3,7 @@
 import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
-from agents.ci.record_parser import RemediationRecordParser, RemediationEntry
+from tools.ci.record_parser import RemediationRecordParser, RemediationEntry
 
 
 @pytest.fixture

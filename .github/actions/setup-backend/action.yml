@@ -13,7 +13,7 @@ inputs:
     # this repo says 3.13: backend/pyproject.toml `requires-python = ">=3.13.0"`,
     # its `[tool.ruff] target-version = "py313"`, backend/Dockerfile's
     # `python:3.13-slim-bookworm` (builder AND runtime), and
-    # agents/ci/pin_authority.py `python_runtime_version = "3.13.0"`.
+    # tools/ci/pin_authority.py `python_runtime_version = "3.13.0"`.
     #
     # This default was 3.12, so CI built and tested the backend on an interpreter
     # the project declares it does not support, while the deployed container ran

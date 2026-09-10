@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 from hypothesis import given, strategies as st, assume, settings
-from agents.ci.evaluation_identity import (
+from tools.ci.evaluation_identity import (
     EvaluationEventType,
     EvaluationIdentity,
     SupersessionGroup,

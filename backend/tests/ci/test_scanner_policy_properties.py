@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from hypothesis import given, strategies as st
 import pytest
-from agents.ci.scanner_policy import Finding, ScannerPolicy, Severity
+from tools.ci.scanner_policy import Finding, ScannerPolicy, Severity
 
 
 class TestScannerPolicy:

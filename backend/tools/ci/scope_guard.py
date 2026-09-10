@@ -42,7 +42,7 @@ CI_ONLY_PATHS = {
     ".github/environments/",  # Environment config (not secrets)
     "ci/",  # CI helper scripts and configuration
     "backend/tests/ci/",  # CI-specific tests
-    "backend/agents/ci/",  # CI-specific agent code
+    "backend/tools/ci/",  # CI gate/evidence tooling
     "frontend/tests/ci/",  # CI-specific frontend tests
     ".github/rulesets/",  # Branch protection rules (special: no new requirements until Task 3.27)
 }
@@ -325,7 +325,7 @@ def validate_pin_contracts_in_scope() -> tuple[bool, list[str]]:
     Returns:
         Tuple of (all_valid, violations)
     """
-    from agents.ci.pin_contracts import (
+    from tools.ci.pin_contracts import (
         ActionPinValidator,
         ImagePinValidator,
     )

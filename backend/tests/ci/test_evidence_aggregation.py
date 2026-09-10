@@ -12,7 +12,7 @@ from hypothesis import given, strategies as st
 from pathlib import Path
 from datetime import datetime
 
-from agents.ci.evidence_aggregator import (
+from tools.ci.evidence_aggregator import (
     BackendEvidenceAggregator,
     FrontendEvidenceAggregator,
     CIEvidenceAggregator,
@@ -21,9 +21,9 @@ from agents.ci.evidence_aggregator import (
     BackendEvidenceResult,
     FrontendEvidenceResult,
 )
-from agents.ci.evidence_manifest import EvidenceManifest
-from agents.ci.report_parsers import JUnitReport, CoverageReport, TestCase, CoverageFile
-from agents.ci.aggregate_truth import SignalResult, SignalState
+from tools.ci.evidence_manifest import EvidenceManifest
+from tools.ci.report_parsers import JUnitReport, CoverageReport, TestCase, CoverageFile
+from tools.ci.aggregate_truth import SignalResult, SignalState
 
 
 class TestBackendEvidenceAggregator:

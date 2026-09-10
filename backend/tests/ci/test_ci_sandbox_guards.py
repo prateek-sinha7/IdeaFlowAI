@@ -20,7 +20,7 @@ import sys
 from unittest.mock import patch, MagicMock
 from typing import Generator
 
-from agents.ci.offline_guards import (
+from tools.ci.offline_guards import (
     require_mandatory_offline,
     no_credentials,
     no_egress,

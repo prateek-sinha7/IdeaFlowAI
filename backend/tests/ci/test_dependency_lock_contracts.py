@@ -27,7 +27,7 @@ import shutil
 
 import pytest
 from hypothesis import given, strategies as st, settings
-from agents.ci.pin_authority import (
+from tools.ci.pin_authority import (
     get_authority,
     is_exact_semver,
     is_exact_image_tag,

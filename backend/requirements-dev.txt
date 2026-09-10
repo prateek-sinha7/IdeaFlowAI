@@ -58,7 +58,7 @@ pytest-cov==7.1.0
 bandit[toml]==1.9.4
 pip-audit==2.10.1
 
-# Hardened XML parsing for the CI report readers (agents/ci/*).
+# Hardened XML parsing for the CI report readers (tools/ci/*).
 #
 # Those modules read coverage.xml and JUnit XML, and bandit B314 blocks
 # xml.etree.ElementTree.parse/fromstring outright; the documented remediation
@@ -66,5 +66,5 @@ pip-audit==2.10.1
 # was already present in uv.lock as a transitive dependency of
 # pip-audit -> cyclonedx-python-lib -> py-serializable, so this pin turns an
 # incidental edge into a declared one that a pip-audit bump cannot silently
-# remove. Dev-only: nothing under app/ imports agents.ci.
+# remove. Dev-only: nothing under app/ imports tools.ci.
 defusedxml==0.7.1

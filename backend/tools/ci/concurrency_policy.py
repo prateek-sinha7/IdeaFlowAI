@@ -15,7 +15,7 @@ Requirements: 2.15, 2.16, 3.11, 3.14
 from __future__ import annotations
 
 from typing import Any
-from agents.ci.evaluation_identity import (
+from tools.ci.evaluation_identity import (
     EvaluationIdentity,
     SupersessionGroup,
     compute_identity,

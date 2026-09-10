@@ -38,7 +38,7 @@ import os
 import pytest
 
 # Register inventory collection hook early
-from agents.ci.inventory import pytest_collection_finish  # noqa: F401
+from tools.ci.inventory import pytest_collection_finish  # noqa: F401
 
 import app.models  # noqa: F401 — importing the package registers every model on Base.metadata
 import os
@@ -359,7 +359,7 @@ def _isolate_compiled_plan_cache():
 # credential present in a CI job that has no business holding one is worth
 # failing over on its own.
 #
-# `agents.ci.offline_guards` already enumerated the credential variables to look
+# `tools.ci.offline_guards` already enumerated the credential variables to look
 # for but had no caller anywhere outside its own unit tests, so nothing enforced
 # this. This fixture is that caller.
 #
@@ -374,7 +374,7 @@ def _assert_no_provider_credentials_when_offline() -> None:
     if os.environ.get("CI_OFFLINE", "").strip().lower() not in {"1", "true", "yes"}:
         return
 
-    from agents.ci.offline_guards import CREDENTIAL_ENV_PATTERNS
+    from tools.ci.offline_guards import CREDENTIAL_ENV_PATTERNS
 
     present = sorted(
         name for name in CREDENTIAL_ENV_PATTERNS if os.environ.get(name, "").strip()

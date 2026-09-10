@@ -9,7 +9,7 @@ Requirements: 2.5, 2.6, 3.8, 3.14, 3.15
 import pytest
 from hypothesis import given, strategies as st
 
-from agents.ci.report_parsers import (
+from tools.ci.report_parsers import (
     parse_junit,
     parse_cobertura,
     parse_lcov,
@@ -18,7 +18,7 @@ from agents.ci.report_parsers import (
     CoverageReport,
     TestCase,
 )
-from agents.ci.report_merger import (
+from tools.ci.report_merger import (
     merge_junit_reports,
     merge_coverage_reports,
     validate_merged_output,
@@ -465,7 +465,7 @@ class TestCoverageMerging:
 
     def test_merge_coverage_single_report(self):
         """Merging single coverage report should work."""
-        from agents.ci.report_parsers import CoverageFile
+        from tools.ci.report_parsers import CoverageFile
 
         report = CoverageReport()
         report.files["file1.py"] = CoverageFile(
@@ -480,7 +480,7 @@ class TestCoverageMerging:
 
     def test_merge_coverage_duplicate_file(self):
         """Duplicate files in coverage should error."""
-        from agents.ci.report_parsers import CoverageFile
+        from tools.ci.report_parsers import CoverageFile
 
         report1 = CoverageReport()
         report1.files["file.py"] = CoverageFile(

@@ -21,6 +21,15 @@ ENV/
 tests/
 pptx/
 
+# --- Build-time/CI tooling (not part of the runtime image) -----------------
+# tools/ci/* is the CI gate + evidence pipeline, run by GitHub Actions and
+# tests/, never by the service. It also imports defusedxml, which is a dev-only
+# pin and therefore absent from the production venv. The Dockerfile does not
+# COPY it either; this entry is the defence-in-depth half, matching tests/ and
+# skills/ above. It used to live at agents/ci/ and so WAS baked into the image
+# by `COPY agents/`.
+tools/
+
 # --- Per-user runtime data (bind-mounted from the host at runtime) ---------
 # In production /app/skills is an EBS volume, NOT baked image content.
 skills/

@@ -2,11 +2,11 @@
 
 ## Overview
 
-Task 3.15 establishes one exact runtime, tool, browser, service, and image-pin authority (`backend/agents/ci/pin_authority.py`) as the single source of truth for all pinned versions across the CI/CD stack.
+Task 3.15 establishes one exact runtime, tool, browser, service, and image-pin authority (`backend/tools/ci/pin_authority.py`) as the single source of truth for all pinned versions across the CI/CD stack.
 
 ## What Was Created
 
-### 1. Pin Authority Module (`backend/agents/ci/pin_authority.py`)
+### 1. Pin Authority Module (`backend/tools/ci/pin_authority.py`)
 
 A centralized, immutable dataclass that pins:
 
@@ -118,7 +118,7 @@ All use specific tags (not mutable `latest` or vague `slim` alone):
 
 All tests pass with no failures.
 
-### 3. Integration with CI Package (`backend/agents/ci/__init__.py`)
+### 3. Integration with CI Package (`backend/tools/ci/__init__.py`)
 
 Updated to export all pin authority functions:
 - `PinAuthority`
@@ -170,7 +170,7 @@ Updated to export all pin authority functions:
 ### Access Pins in CI Code
 
 ```python
-from agents.ci.pin_authority import (
+from tools.ci.pin_authority import (
     get_python_runtime,
     get_node_runtime,
     get_scanner_versions,
@@ -185,7 +185,7 @@ images = get_container_base_images()  # {"backend-python": "...", ...}
 
 ### Update a Pin
 
-1. Edit `backend/agents/ci/pin_authority.py`
+1. Edit `backend/tools/ci/pin_authority.py`
 2. Change the relevant field (e.g., `python_runtime_version = "3.14.0"`)
 3. Run tests to verify consistency:
    ```bash
@@ -206,7 +206,7 @@ uv run pytest tests/ci/test_toolchain_pins.py -q
 uv run pytest tests/ci/test_toolchain_pins.py::TestPinAuthorityExactness -q
 
 # Check a single pin
-python -c "from agents.ci.pin_authority import get_python_runtime; print(get_python_runtime())"
+python -c "from tools.ci.pin_authority import get_python_runtime; print(get_python_runtime())"
 ```
 
 ## Integration with Task 3.15 Requirements
@@ -261,9 +261,9 @@ Task 3.15 is part of Phase A (pure policy primitives) in the CI remediation work
 
 ## Files Modified
 
-- ✅ **Created**: `backend/agents/ci/pin_authority.py` (283 lines)
+- ✅ **Created**: `backend/tools/ci/pin_authority.py` (283 lines)
 - ✅ **Created**: `backend/tests/ci/test_toolchain_pins.py` (647 lines)
-- ✅ **Modified**: `backend/agents/ci/__init__.py` (added 11 exports)
+- ✅ **Modified**: `backend/tools/ci/__init__.py` (added 11 exports)
 
 ## Summary
 

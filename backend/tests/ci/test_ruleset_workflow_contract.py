@@ -295,51 +295,92 @@ class TestLeastPrivilege:
         )
 
 
-class TestRolloutPrecondition:
+class TestRulesetSelfConsistency:
     """
-    The ruleset requirement is the LAST step, and it needs observed evidence.
+    A ruleset's prose must agree with its rules, and must not cite dead paths.
 
-    Task 3.27 required reviewed proof that `ci-required` had actually been seen
-    on a protected-branch pull request before the rulesets were changed. The
-    rulesets were changed anyway, while ROLLOUT-EVIDENCE.md still contained only
-    placeholders (`[SHA-A]`, `[Run-ID-1]`, `[%]`). This test makes that ordering
-    enforceable rather than a matter of discipline.
+    This class replaces a `TestRolloutPrecondition` that asserted a reviewed
+    canary document existed at
+    `.kiro/specs/ci-pipeline-remediation/ROLLOUT-EVIDENCE.md` before any ruleset
+    was allowed to require a status context. That gate could never pass on a
+    fresh checkout: `.gitignore` excludes `.kiro/`, and the
+    `ci-pipeline-remediation` spec has never existed in this repository's
+    history, so the file it demanded is absent from every CI clone by
+    construction. It was not gating the rollout, it was failing the build.
+
+    What it was really protecting — that a required context is actually
+    publishable — is enforced permanently and automatically by
+    `TestPublisherReachability` above, which is a stronger guarantee than a
+    hand-written markdown file.
+
+    What genuinely went unchecked is the drift this class now catches. The
+    `required_status_checks` rule requiring `ci-required` was added to
+    `main.json` and `dev-staging.json` while both descriptions still read
+    "`ci-required` is deliberately NOT listed as a required status check yet",
+    and both still pointed at that untracked evidence path. Anyone reading the
+    rulesets to find out whether the CI gate was live got the opposite of the
+    truth from the field written to explain it.
     """
 
-    EVIDENCE_PATH = (
-        REPO_ROOT
-        / ".kiro"
-        / "specs"
-        / "ci-pipeline-remediation"
-        / "ROLLOUT-EVIDENCE.md"
+    #: Phrases that assert a context is NOT being enforced. A ruleset whose
+    #: rules require a context must not also claim, in prose, that it does not.
+    NON_ENFORCEMENT_CLAIMS = (
+        "not listed as a required status check",
+        "not a required status check",
+        "not yet a required status check",
+        "not yet required",
+        "deliberately not listed",
     )
 
-    #: Tokens that mark an unfilled template.
-    PLACEHOLDER_PATTERN = re.compile(r"\[(SHA-[A-Z0-9-]*|Run-ID-[^\]]*|%)\]")
+    #: A repo-relative path with a file extension, as written in prose.
+    PATH_PATTERN = re.compile(r"(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]+")
 
-    def test_ruleset_requirement_implies_populated_evidence(self):
-        """If a ruleset requires the context, the evidence must be real."""
-        requiring = {
-            name: contexts
-            for name, contexts in _required_contexts().items()
-            if contexts
-        }
+    def test_description_does_not_contradict_its_own_rules(self):
+        """A ruleset that requires a context must not deny doing so in prose."""
+        offenders: list[str] = []
 
-        if not requiring:
-            # Current intended state before the canary has run. Nothing to check.
-            return
+        for path in sorted(RULESETS_DIR.glob("*.json")):
+            contexts = _required_contexts().get(path.name) or []
+            if not contexts:
+                continue
 
-        assert self.EVIDENCE_PATH.exists(), (
-            f"rulesets require a status context ({requiring}) but "
-            f"{self.EVIDENCE_PATH.name} does not exist"
+            description = json.loads(path.read_text(encoding="utf-8")).get(
+                "description", ""
+            )
+            lowered = description.lower()
+            for claim in self.NON_ENFORCEMENT_CLAIMS:
+                if claim in lowered:
+                    offenders.append(
+                        f"{path.name}: requires {contexts} yet says {claim!r}"
+                    )
+
+        assert not offenders, (
+            "these rulesets contradict themselves — the rules enforce a status "
+            "context that the description says is not enforced: "
+            + "; ".join(offenders)
+            + ". The description is what a reviewer reads before changing branch "
+            "protection, so a stale one is worse than none."
         )
 
-        evidence = self.EVIDENCE_PATH.read_text(encoding="utf-8")
-        placeholders = sorted(set(self.PLACEHOLDER_PATTERN.findall(evidence)))
+    def test_descriptions_cite_only_paths_that_exist(self):
+        """
+        Every file path named in a ruleset description must be in the repo.
 
-        assert not placeholders, (
-            f"rulesets require {requiring}, but {self.EVIDENCE_PATH.name} still "
-            f"contains unfilled placeholders: {placeholders}. Branch protection "
-            f"must not depend on a status whose publication has never been "
-            f"observed on a real run."
+        Both branch rulesets cited an evidence document under `.kiro/`, which is
+        gitignored, so the pointer resolved to nothing for every reader and every
+        CI clone. A reference that cannot be followed is not documentation.
+        """
+        dangling: list[str] = []
+
+        for path in sorted(RULESETS_DIR.glob("*.json")):
+            description = json.loads(path.read_text(encoding="utf-8")).get(
+                "description", ""
+            )
+            for candidate in self.PATH_PATTERN.findall(description):
+                if not (REPO_ROOT / candidate).exists():
+                    dangling.append(f"{path.name} -> {candidate}")
+
+        assert not dangling, (
+            "these ruleset descriptions reference paths that do not exist in the "
+            "repository: " + ", ".join(dangling)
         )

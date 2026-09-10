@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from hypothesis import assume, given, settings, strategies as st
 
-from agents.ci.aggregate_truth import (
+from tools.ci.aggregate_truth import (
     SignalResult,
     SignalState,
     aggregate_truth,
@@ -25,7 +25,7 @@ from agents.ci.aggregate_truth import (
     explain_aggregate_failure,
     validate_aggregate_inputs,
 )
-from agents.ci.signal_registry import SIGNAL_REGISTRY
+from tools.ci.signal_registry import SIGNAL_REGISTRY
 
 
 # ============================================================================

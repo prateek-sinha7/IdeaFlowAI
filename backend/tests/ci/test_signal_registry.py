@@ -1,7 +1,7 @@
 """Tests for signal registry and single-ownership contract."""
 
 import pytest
-from agents.ci.signal_registry import Signal, SignalRegistry, SignalType
+from tools.ci.signal_registry import Signal, SignalRegistry, SignalType
 
 
 class TestSignalRegistry:

@@ -1,7 +1,10 @@
-"""CI pipeline remediation agents and utilities.
+"""CI pipeline gate and evidence utilities.
 
-This module provides pure-policy primitives for CI pipeline remediation without
-changing deployment, provisioning, or product behavior.
+This package provides pure-policy primitives for CI pipeline remediation without
+changing deployment, provisioning, or product behavior. It is build-time tooling,
+not part of the running service — see `tools/__init__.py`. It lived under
+`agents/ci/` until the word "agents" in its original docstring was read as the
+product's agent runtime; nothing here relates to that runtime.
 
 Key components:
 - signal_registry: Authoritative registry of CI signals with semantic deduplication

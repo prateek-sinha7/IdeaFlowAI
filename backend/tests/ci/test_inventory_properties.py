@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from hypothesis import given, strategies as st
 
-from agents.ci.inventory import (
+from tools.ci.inventory import (
     InventoryCollector,
     PartitionInventory,
     Partition,
@@ -28,7 +28,7 @@ from agents.ci.inventory import (
     TestNode,
     validate_inventory,
 )
-from agents.ci.auxiliary_registry import (
+from tools.ci.auxiliary_registry import (
     AuxiliaryRegistry,
     AuxiliaryTestType,
     identify_tracked_test_files,
@@ -42,7 +42,7 @@ class TestCanonicalCollection:
         """GIVEN pytest conftest WHEN configured THEN inventory hook installed."""
         # The hook is installed automatically via conftest.py
         # This test simply verifies that pytest_collection_finish is defined
-        from agents.ci import inventory as inv_module
+        from tools.ci import inventory as inv_module
 
         assert hasattr(
             inv_module, "pytest_collection_finish"
@@ -212,7 +212,7 @@ class TestPartitionValidation:
     def test_validate_detects_overlapping_partitions(self) -> None:
         """GIVEN overlapping partitions WHEN validated THEN errors reported."""
         # Create inventory with overlapping nodes manually
-        from agents.ci.inventory import TestNode, Partition
+        from tools.ci.inventory import TestNode, Partition
 
         inventory = PartitionInventory(
             evaluation_sha="a" * 40,

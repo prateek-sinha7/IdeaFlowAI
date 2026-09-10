@@ -46,7 +46,7 @@ for engine in trivy grype; do
   esac
 
   echo "::group::${engine} verdict for ${COMPONENT}"
-  if ! uv run --frozen python -m agents.ci.ci_gate scan-gate \
+  if ! uv run --frozen python -m tools.ci.ci_gate scan-gate \
       --scanner "${scanner_flag}" \
       --report "${report}" \
       --producer "container-scan[${COMPONENT}]/${engine}" \

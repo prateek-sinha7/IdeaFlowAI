@@ -207,7 +207,7 @@ is invented.
 - **Import boundaries** (`backend/pyproject.toml:303-357`): `agents.capabilities`,
   `agents.workflows`, `agents.runtime` may not import `app`. The adapter needs
   `settings`, so it lives **app-side**. `app/services/` it is.
-- **CI offline guards** (`backend/agents/ci/offline_guards.py`) block `boto3` at
+- **CI offline guards** (`backend/tools/ci/offline_guards.py`) block `boto3` at
   module scope. Import it **function-locally**, exactly as `cognito._client()`
   does.
 - **`aws_iam_role_policies_exclusive`** (`modules/iam/main.tf:265-283`) locks the

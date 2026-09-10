@@ -20,17 +20,17 @@ the whole point (Requirements 2.5, 2.6, 2.8, 2.14).
 
 Usage (all paths are relative to the repository root unless stated otherwise):
 
-    python -m agents.ci.ci_gate scan-gate \
+    python -m tools.ci.ci_gate scan-gate \
         --scanner pip-audit --report ci-results/pip-audit.json \
         --producer 'security[backend-deps]' --out ci-results/verdict.json
 
-    python -m agents.ci.ci_gate coverage-gate-backend \
+    python -m tools.ci.ci_gate coverage-gate-backend \
         --coverage-xml ci-results/backend-coverage.xml --min 80
 
-    python -m agents.ci.ci_gate coverage-gate-frontend \
+    python -m tools.ci.ci_gate coverage-gate-frontend \
         --summary frontend/coverage/coverage-summary.json --min 80
 
-    python -m agents.ci.ci_gate aggregate \
+    python -m tools.ci.ci_gate aggregate \
         --sha "$EVALUATION_SHA" --job repo-static=success --job security=failure ...
 """
 
@@ -519,7 +519,7 @@ def _write_aggregate_json(
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for all gate subcommands."""
     parser = argparse.ArgumentParser(
-        prog="agents.ci.ci_gate",
+        prog="tools.ci.ci_gate",
         description="Blocking CI policy gates (fail-closed).",
     )
     sub = parser.add_subparsers(dest="command", required=True)

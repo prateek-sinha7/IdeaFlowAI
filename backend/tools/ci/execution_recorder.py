@@ -16,7 +16,7 @@ Two problems this solves, both of which the previous CI could not detect.
    canonical node ID so `inventory_cli verify-execution` can compare the two sets
    and fail on an omission, a duplicate, or an unexpected skip.
 
-Enable with `-p agents.ci.execution_recorder` plus one of the two output flags.
+Enable with `-p tools.ci.execution_recorder` plus one of the two output flags.
 """
 
 from __future__ import annotations

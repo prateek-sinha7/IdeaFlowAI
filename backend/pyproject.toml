@@ -89,7 +89,7 @@ dev = [
     # lets `bandit -c pyproject.toml` read [tool.bandit] below.
     "bandit[toml]==1.9.4",
     "pip-audit==2.10.1",
-    # Hardened XML parsing for the CI report readers (agents/ci/*). They read
+    # Hardened XML parsing for the CI report readers (tools/ci/*). They read
     # coverage.xml and JUnit XML, and bandit B314 blocks
     # xml.etree.ElementTree.parse/fromstring outright — the documented
     # remediation is the defusedxml equivalent, not a suppression. It was
@@ -97,14 +97,14 @@ dev = [
     # pip-audit -> cyclonedx-python-lib -> py-serializable; declaring it here
     # makes that an intentional, pinned edge instead of an accident that a
     # pip-audit bump could remove. Dev-only on purpose: nothing under
-    # app/ imports agents.ci, so the production image never needs it.
+    # app/ imports tools.ci, so the production image never needs it.
     "defusedxml==0.7.1",
     # NOTE: checkov is deliberately NOT here. checkov 3.2.x pins
     # boto3==1.34.25, which conflicts with this project's boto3==1.43.2, so
     # adding it makes the lock unresolvable. It is a standalone CLI, not a
     # library this code imports, so .github/scripts/ci-iac-scan.sh runs it in an
     # isolated environment with `uv tool run --from checkov==<version>`, taking
-    # the version from agents/ci/pin_authority.py. That keeps one version
+    # the version from tools/ci/pin_authority.py. That keeps one version
     # authority without dragging a conflicting dependency graph into the project.
 ]
 
@@ -132,7 +132,12 @@ markers = [
 
 # Coverage configuration for pytest-cov
 [tool.coverage.run]
-source = ["app", "agents"]
+# `tools` is the build-time/CI package (tools/ci/*), exercised by tests/ci/. It
+# is measured because it used to live at agents/ci/ and was therefore already
+# inside `agents` here — dropping it on the move would have quietly lowered the
+# denominator that `fail_under` is judged against. ci.yml's two pytest shards
+# pass a matching `--cov=tools`.
+source = ["app", "agents", "tools"]
 # Store and report RELATIVE file paths instead of absolute ones.
 #
 # Two reasons, both load-bearing in CI:
@@ -301,7 +306,7 @@ ignore = [
 # dependency inversion. This requires widening root to both `agents` and `app`.
 # ---------------------------------------------------------------------------
 [tool.importlinter]
-root_packages = ["agents", "app"]
+root_packages = ["agents", "app", "tools"]
 
 [[tool.importlinter.contracts]]
 name = "kernel imports only capability ports (scaffold)"
@@ -357,6 +362,29 @@ source_modules = ["agents.runtime"]
 forbidden_modules = ["agents.execution_engine", "app"]
 
 # ---------------------------------------------------------------------------
+# Build-time tooling boundary: shipped code must not import `tools`.
+#
+# `tools/ci/*` is the CI gate + evidence pipeline. It is invoked by GitHub
+# Actions (`python -m tools.ci.ci_gate ...`) and by backend/tests/, never by the
+# service. Two things depend on that staying true: backend/Dockerfile does not
+# COPY tools/ into the image, and `defusedxml` (imported by ci_gate.py,
+# report_parsers.py, report_merger_cli.py) is pinned in the DEV group only, so
+# it is absent from the production venv. An `app` or `agents` import of `tools`
+# would therefore not fail here — it would fail at runtime in the container,
+# which is the worst place to find out.
+#
+# This package spent its life at `agents/ci/`, inside the product's agent
+# runtime package and inside `COPY agents/`, purely because its docstring opened
+# with the word "agents". Nothing imported it from app/ or agents/ in that time,
+# so this contract is non-vacuous and green on the tree as moved.
+# ---------------------------------------------------------------------------
+[[tool.importlinter.contracts]]
+name = "shipped code must not import the build-time tooling package"
+type = "forbidden"
+source_modules = ["app", "agents"]
+forbidden_modules = ["tools"]
+
+# ---------------------------------------------------------------------------
 # vulture — dead-code / orphaned-symbol detection (D-13).
 #
 # Complements ruff (which only flags unused-WITHIN-a-file F401/F811) by finding
@@ -379,7 +407,7 @@ forbidden_modules = ["agents.execution_engine", "app"]
 # a verified false positive, NOT real dead code — re-audit before removing.
 # ---------------------------------------------------------------------------
 [tool.vulture]
-paths = ["app", "agents"]
+paths = ["app", "agents", "tools"]
 min_confidence = 80
 exclude = ["alembic/versions/", "*/migrations/*"]
 ignore_decorators = ["@app.*", "@router.*", "@pytest.fixture", "@tool", "@field_validator", "@validator", "@property"]

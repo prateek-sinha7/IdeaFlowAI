@@ -23,7 +23,7 @@ from typing import Dict, List, Tuple
 from dataclasses import fields
 
 # Import the pin authority and validator functions
-from agents.ci.pin_authority import (
+from tools.ci.pin_authority import (
     PinAuthority,
     get_authority,
     get_python_runtime,
@@ -583,7 +583,7 @@ class TestPinDriftDetection:
 
     def test_pin_documentation_present(self):
         """Pin authority module must have documentation."""
-        from agents.ci.pin_authority import PinAuthority as PA
+        from tools.ci.pin_authority import PinAuthority as PA
 
         assert PA.__doc__ is not None, "PinAuthority must have docstring"
 
@@ -744,7 +744,7 @@ class TestPinDriftDetection:
             "`uv tool run --from checkov==<version>`"
         )
         assert "pin_authority" in script, (
-            "the checkov version must be read from agents/ci/pin_authority.py so "
+            "the checkov version must be read from tools/ci/pin_authority.py so "
             "there is only one authority for it"
         )
 

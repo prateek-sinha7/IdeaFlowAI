@@ -83,7 +83,7 @@ def cmd_junit(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the CLI."""
-    parser = argparse.ArgumentParser(prog="agents.ci.report_merger_cli")
+    parser = argparse.ArgumentParser(prog="tools.ci.report_merger_cli")
     sub = parser.add_subparsers(dest="command", required=True)
 
     junit = sub.add_parser("junit", help="Merge JUnit XML reports.")

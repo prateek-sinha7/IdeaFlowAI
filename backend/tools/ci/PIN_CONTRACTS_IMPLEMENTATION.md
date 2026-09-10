@@ -111,7 +111,7 @@ violation = validator.validate_installer_function("install_tool", func_code)
 The `validate_all_pin_contracts()` function validates all four contracts together:
 
 ```python
-from agents.ci.pin_contracts import validate_all_pin_contracts
+from tools.ci.pin_contracts import validate_all_pin_contracts
 
 all_valid, violations = validate_all_pin_contracts(
     manifest=check_manifest,

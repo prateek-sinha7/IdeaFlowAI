@@ -32,7 +32,7 @@ report_abs="$(cd "$(dirname "${report}")" && pwd)/$(basename "${report}")"
 )
 
 cd backend
-uv run --frozen python -m agents.ci.ci_gate scan-gate \
+uv run --frozen python -m tools.ci.ci_gate scan-gate \
   --scanner pip-audit \
   --report "${report_abs}" \
   --producer 'security[backend-deps]' \

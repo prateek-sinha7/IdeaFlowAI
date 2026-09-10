@@ -20,7 +20,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from agents.ci.signal_registry import (
+from tools.ci.signal_registry import (
     SIGNAL_REGISTRY,
     Signal,
 )

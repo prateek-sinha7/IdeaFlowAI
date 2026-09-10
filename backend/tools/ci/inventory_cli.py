@@ -57,7 +57,7 @@ def _run_collection(tests_dir: str, record_path: Path) -> None:
             "--collect-only",
             "-q",
             "-p",
-            "agents.ci.execution_recorder",
+            "tools.ci.execution_recorder",
             f"--inventory-record={record_path}",
         ],
         capture_output=True,
@@ -260,7 +260,7 @@ def cmd_verify_execution(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the CLI."""
-    parser = argparse.ArgumentParser(prog="agents.ci.inventory_cli")
+    parser = argparse.ArgumentParser(prog="tools.ci.inventory_cli")
     sub = parser.add_subparsers(dest="command")
 
     parser.add_argument("--tests-dir", default="tests")

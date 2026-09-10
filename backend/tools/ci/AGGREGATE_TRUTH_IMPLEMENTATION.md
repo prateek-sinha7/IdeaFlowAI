@@ -206,7 +206,7 @@ All non-success states (FAILURE, CANCELLED, SKIPPED, TIMED_OUT, MISSING, UNAVAIL
 
 ```python
 from datetime import datetime, timezone
-from agents.ci.aggregate_truth import (
+from tools.ci.aggregate_truth import (
     aggregate_truth,
     SignalResult,
     SignalState,
@@ -291,7 +291,7 @@ else:
 
 ### Files Created
 
-1. `backend/agents/ci/aggregate_truth.py` - Core implementation (400+ lines)
+1. `backend/tools/ci/aggregate_truth.py` - Core implementation (400+ lines)
 2. `backend/tests/ci/test_aggregate_truth_properties.py` - Property-based tests (650+ lines)
 3. `backend/tests/ci/test_aggregate_truth_integration.py` - Integration tests (350+ lines)
 

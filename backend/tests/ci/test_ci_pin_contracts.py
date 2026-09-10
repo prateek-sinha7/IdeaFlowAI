@@ -12,7 +12,7 @@ import pytest
 from hypothesis import given, strategies as st, assume
 import json
 import re
-from agents.ci.pin_contracts import (
+from tools.ci.pin_contracts import (
     ToolPinValidator,
     ActionPinValidator,
     ImagePinValidator,

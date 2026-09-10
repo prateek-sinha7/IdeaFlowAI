@@ -8,7 +8,7 @@ from pathlib import Path
 import json
 import pytest
 from hypothesis import given, strategies as st
-from agents.ci.evidence_manifest import EvidenceManifest, FileRecord
+from tools.ci.evidence_manifest import EvidenceManifest, FileRecord
 
 
 class TestEvidenceManifest:

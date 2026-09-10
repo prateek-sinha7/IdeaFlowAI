@@ -21,9 +21,9 @@ from typing import Dict, List, Optional, Set, Tuple
 import pytest
 from hypothesis import given, settings, strategies as st, assume
 
-from agents.ci.scanner_parsers import parse_trivy_json, parse_grype_json
-from agents.ci.scanner_policy import ZeroHighCriticalPolicy, merge_verdicts
-from agents.ci.scanner_verdict import Finding, ScannerVerdict, SeverityLevel
+from tools.ci.scanner_parsers import parse_trivy_json, parse_grype_json
+from tools.ci.scanner_policy import ZeroHighCriticalPolicy, merge_verdicts
+from tools.ci.scanner_verdict import Finding, ScannerVerdict, SeverityLevel
 
 
 # ============================================================================
