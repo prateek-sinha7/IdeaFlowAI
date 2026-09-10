@@ -38,7 +38,10 @@
 #
 #   - generic-api-key on infra/terraform/velocityai-alb/README.md:14 — false
 #     positive. Matches the prose "Secrets: none created or read by this
-#     layer."
+#     layer." The internal-ALB layer has since been DELETED, but this entry
+#     MUST STAY: `fast-checks` scans full history (fetch-depth: 0), so the
+#     finding is still reported from the commits that predate the removal.
+#     Same reason the two entries below survive their deleted files.
 #   - generic-api-key on infra/terraform/foundation/README.md:13 — false
 #     positive. Matches the prose "Secrets: `app_secret_key` / `db_password`
 #     default empty and are auto-generated...".

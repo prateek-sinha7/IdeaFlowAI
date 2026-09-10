@@ -9,43 +9,52 @@
 
 environment = "prod"
 
-# Production identity and authentication — Cognito enabled with strong security posture.
-# Password policy: 12+ chars with mixed case, numbers, and symbols.
-# MFA: optional for now (can be set to REQUIRED for full enforcement).
-# Account recovery: email + phone.
-# Threat protection: enabled for account takeover detection and response.
+# --- Cognito (COGNITO-MIGRATION-PLAN, Phase 1 + Phase 5) --------------------
+# Pool + backend app client + tier/role groups exist in prod.
+#
+# This block previously assigned a single `cognito_user_pool_config` object.
+# That variable is NOT declared in foundation/variables.tf, so Terraform
+# emitted "Value for undeclared variable" and DISCARDED all of it — none of
+# the posture it described was ever applied. It also contradicted the module
+# in three places: `ALLOW_USER_PASSWORD_AUTH` (the app client deliberately
+# uses ALLOW_ADMIN_USER_PASSWORD_AUTH only — Decision 1, backend-mediated
+# auth, no browser redirect), `verified_phone_number` recovery (the pool
+# collects no phone numbers, so that mechanism is unavailable), and a second
+# recovery mechanism at all (the module sets exactly one). It is replaced
+# below with the variables that actually exist.
 cognito_enabled = true
-cognito_user_pool_config = {
-  policies = {
-    password_policy = {
-      minimum_length                   = 12
-      require_lowercase                = true
-      require_numbers                  = true
-      require_symbols                  = true
-      require_uppercase                = true
-      temporary_password_validity_days = 7
-    }
-  }
-  account_recovery_setting = {
-    recovery_mechanisms = [
-      { priority = 1, name = "verified_email" },
-      { priority = 2, name = "verified_phone_number" }
-    ]
-  }
-  mfa_configuration = "OPTIONAL"
-  explicit_auth_flows = [
-    "ALLOW_USER_PASSWORD_AUTH",
-    "ALLOW_REFRESH_TOKEN_AUTH"
-  ]
-  prevent_user_existence_errors = "ENABLED"
-  account_takeover_risk_configuration = {
-    compromised_credentials = { event_action = "BLOCK", high_action = "BLOCK", medium_action = "BLOCK" }
-    account_takeover_action  = { high_action = "BLOCK", medium_action = "MFA_IF_CONFIGURED" }
-  }
-  # Legacy auth disabled; enforce token-based auth
-  enable_token_revocation = true
-  enable_propagate_additional_user_context_data = true
-}
+
+# Password policy (12 chars, lower + upper + digits + symbols, 7-day temporary
+# password) is the modules/cognito default and needs no override here; the
+# foundation layer intentionally does not expose it per-environment.
+#
+# Token revocation and prevent_user_existence_errors are hardcoded ON in the
+# module's app client — not tunable, and not something prod wants to tune.
+
+# MFA: TOTP available to every user, not forced pool-wide. Admin operations are
+# gated separately by admin_mfa_required below, which is the app-layer
+# "required for admins" control (Cognito has no per-group MFA requirement).
+cognito_mfa_configuration = "OPTIONAL"
+
+# Longest refresh-token life of the three environments (dev 7 / stage 14).
+cognito_refresh_token_validity_days = 30
+
+# THREAT PROTECTION — deliberately left off, not forgotten. Turning it on is
+# two lines, but it requires the PLUS feature plan, which raises the per-MAU
+# price for the whole pool, so it is an explicit budget decision rather than a
+# default. Start at AUDIT (logs risk assessments without blocking) and review
+# the signal before moving to ENFORCED, which maps to event_action = "BLOCK"
+# on compromised credentials at sign-in and can lock real users out:
+#
+#   cognito_feature_plan           = "PLUS"
+#   cognito_threat_protection_mode = "AUDIT"
+
+# CUTOVER SWITCHES — see foundation/dev.tfvars for the full explanation.
+# prod is the LAST environment cut over (dev -> stage -> prod), so these stay
+# at the pre-cutover values until stage has been verified end to end.
+auth_provider         = "local"
+auth_allow_legacy_jwt = true
+break_glass_enabled   = true
 
 # Network — non-overlapping CIDR per environment (dev 10.40 / stage 10.30 / prod 10.20).
 availability_zone  = "eu-central-1a"

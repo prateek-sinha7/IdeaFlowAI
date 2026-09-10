@@ -68,7 +68,9 @@ fi
 #     forcing a blanket ignore of mutable ECR tags.
 # Verified against the failing run's own evidence
 # (ci-results/trivy-config-report.json): the surviving real findings are exactly
-# the three accepted IDs, from foundation/, app/ and velocityai-alb/.
+# the accepted IDs in ci/trivyignore, from foundation/ and app/. The
+# velocityai-alb root (and modules/alb_internal) were removed, which also
+# retired the AWS-0132 accept that only ever matched the ALB access-log bucket.
 trivy config \
   --ignorefile ci/trivyignore \
   --skip-dirs "**/examples/**" \

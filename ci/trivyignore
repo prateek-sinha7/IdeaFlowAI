@@ -35,8 +35,8 @@
 # cidr_ipv4 = "0.0.0.0/0" — app_https, app_http, app_dns_udp, app_dns_tcp. The
 # fifth (app_self) targets a referenced_security_group_id and never matched this
 # check. Every other SG in the tree is already tighter: aws_security_group.
-# endpoints has no egress rule at all, aws_default_security_group.vpc_default is
-# deliberately wiped empty, and modules/alb_internal's egress is SG-referenced.
+# endpoints has no egress rule at all, and aws_default_security_group.vpc_default
+# is deliberately wiped empty.
 #
 # PARTIALLY REDUCIBLE, NOT ACCEPTED AS-IS FOREVER: only app_https and app_http
 # genuinely need the whole internet (apt/OS updates, GitHub, ACME, OCSP, and the
@@ -51,32 +51,20 @@
 # its own verification.
 AWS-0104
 
-# AWS-0132 — S3 bucket does not use a customer-managed KMS key. Matches ONLY
-# the ALB access-log bucket (modules/alb_internal, reached from the
-# velocityai-alb root). AWS's own ELB access-logging documentation states that
-# SSE-S3 (AES256) is the ONLY server-side encryption this bucket supports;
-# SSE-KMS makes ELB log delivery fail with access denied. A CMK here would
-# break log delivery rather than harden it, so this is a provider constraint,
-# not a hardening gap. Already accepted for the equivalent checkov rule via the
-# inline `checkov:skip=CKV_AWS_145` annotation on that resource — this entry is
-# the trivy half of the SAME reviewed decision, which is why the finding was
-# reaching the gate unaccepted.
-#
-# Re-verified rather than taken on trust, because the neighbouring AWS-0136
-# accept turned out to be wrong: ELB still rejects a CMK on this bucket. The
-# service returns "The bucket uses an unsupported server-side encryption option.
-# The bucket must use Amazon S3-managed keys (SSE-S3)" via
-# InvalidConfigurationRequest / Access Denied at the point the LB attribute is
-# set. Note the contrast with Network Load Balancers, whose access-log docs
-# explicitly do permit SSE-KMS with a CMK — the capability is per-LB-type, so a
-# doc page about NLB access logs does not license a change here. Unlike AWS-0136
-# this accept costs nothing operationally: SSE-S3 still encrypts every object at
-# rest, so the residual is key custody only, not plaintext.
-AWS-0132
-
 # -----------------------------------------------------------------------------
 # NOT ignored — recorded so the absences are deliberate, not oversights.
 # -----------------------------------------------------------------------------
+# AWS-0132 (S3 bucket without a customer-managed KMS key) WAS accepted here. The
+# accept is withdrawn because its only match is gone: it matched exactly one
+# resource, the ALB access-log bucket in modules/alb_internal (reached from the
+# velocityai-alb root), and both were removed along with the internal-ALB layer.
+# The accept was legitimate while it existed — ELB access logging supports only
+# SSE-S3, and a CMK made log delivery fail with "The bucket uses an unsupported
+# server-side encryption option" — but keeping a global ignore for a resource
+# that no longer exists would silently accept the next bucket added without a
+# CMK. The three remaining buckets (tfstate, backups, audit_trail) all use the
+# project CMK, so the check is intentionally live.
+#
 # AWS-0136 (SNS topic without a customer-managed CMK) WAS accepted here. The
 # accept is withdrawn because it was both inaccurate and masking a real defect.
 #
@@ -85,9 +73,10 @@ AWS-0132
 # always carried kms_master_key_id = var.kms_key_arn (the project CMK) and never
 # matched this check. The two topics that actually matched were never mentioned:
 #   * aws_sns_topic.alerts_useast1 (modules/monitoring) — used alias/aws/sns.
-#   * aws_sns_topic.alerts (modules/alb_internal) — resolved to no encryption at
-#     all, because velocityai-alb leaves kms_key_arn = "" and the old expression
-#     fell back to null.
+#   * aws_sns_topic.alerts (the since-removed modules/alb_internal) — resolved
+#     to no encryption at all, because velocityai-alb left kms_key_arn = "" and
+#     the old expression fell back to null. Both that module and its root layer
+#     have been deleted, so this second match no longer exists.
 #
 # Masking a defect: an AWS-managed SNS key cannot carry alarm notifications. Its
 # key policy does not authorise CloudWatch to call kms:Decrypt /
@@ -97,7 +86,7 @@ AWS-0132
 # which was true, and concluded a CMK was not worth it, which was wrong: a CMK is
 # the only configuration in which that alarm notifies anyone.
 #
-# Both topics now use customer-managed keys, and all three key policies grant
+# The surviving topics now use customer-managed keys, and their key policies grant
 # cloudwatch.amazonaws.com kms:Decrypt + kms:GenerateDataKey* so the publish path
 # works. The project CMK (modules/kms) gained the same grant, which it was
 # missing — the eu-central-1 alerts topic was CMK-encrypted with a key policy

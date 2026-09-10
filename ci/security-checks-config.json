@@ -78,8 +78,7 @@
         "infra/terraform/bootstrap",
         "infra/terraform/foundation",
         "infra/terraform/localstack",
-        "infra/terraform/shared",
-        "infra/terraform/velocityai-alb"
+        "infra/terraform/shared"
       ],
       "checks": [
         {
