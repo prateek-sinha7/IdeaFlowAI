@@ -594,8 +594,6 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
   # ---------------------------------------------------------------------------
-  # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
-  # ---------------------------------------------------------------------------
   deploy:
     name: Deploy (${{ needs.resolve.outputs.environment }})
     runs-on: ubuntu-latest
