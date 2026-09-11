@@ -96,12 +96,17 @@ jobs:
       id-token: write
       contents: read
     steps:
-      # Only the on-host script the SSM payload needs.
+      # Only the on-host script the SSM payload needs, plus the local composite
+      # action this job invokes. .github/actions/ssm-run/ MUST stay listed:
+      # `uses: ./...` resolves against the checked-out tree, so omitting it
+      # fails the step with "Can't find 'action.yml'". Add any new local action
+      # you `uses:` here.
       - name: Checkout (recovery payload only)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
             .github/scripts/remote-admin-recovery.sh
+            .github/actions/ssm-run/
           sparse-checkout-cone-mode: false
           persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 

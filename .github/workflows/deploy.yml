@@ -687,9 +687,16 @@ jobs:
       group: deploy-${{ needs.resolve.outputs.environment }}
       cancel-in-progress: true
     steps:
-      # Only the four files the SSM payload carries. Cone mode is off because
-      # the set mixes root-level files with a nested path; cone mode selects
-      # whole directories and would pull far more than this.
+      # Only the four files the SSM payload carries, plus the local composite
+      # action this job invokes. Cone mode is off because the set mixes
+      # root-level files with nested paths; cone mode selects whole
+      # directories and would pull far more than this.
+      #
+      # .github/actions/ssm-run/ MUST stay in this list: `uses: ./...` resolves
+      # against the checked-out tree, so a sparse checkout that omits it fails
+      # the step with "Can't find 'action.yml' ... under
+      # .github/actions/ssm-run" — at deploy time, after the image build has
+      # already burned 11 minutes. Add any new local action you `uses:` here.
       - name: Checkout (deploy payload only)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -698,6 +705,7 @@ jobs:
             docker-compose.prod.yml
             infra/scripts/reconcile-host-config.sh
             .github/scripts/remote-deploy.sh
+            .github/actions/ssm-run/
           sparse-checkout-cone-mode: false
           persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
