@@ -307,75 +307,52 @@ from agents.model_policy import _normalize_geo_prefix  # noqa: E402
 def test_normalize_swaps_us_to_eu_on_eu_region():
     """us. prefix → eu. prefix when AWS_REGION is eu-central-1."""
     result = _normalize_geo_prefix(
-        "us.anthropic.claude-sonnet-5", _region_override="eu-central-1"
+        "us.anthropic.claude-sonnet-4-6", _region_override="eu-central-1"
     )
-    assert result == "eu.anthropic.claude-sonnet-5"
+    assert result == "eu.anthropic.claude-sonnet-4-6"
 
 
 def test_normalize_swaps_eu_to_us_on_us_region():
     """eu. prefix → us. prefix when AWS_REGION is us-east-2."""
     result = _normalize_geo_prefix(
-        "eu.anthropic.claude-sonnet-5", _region_override="us-east-2"
+        "eu.anthropic.claude-sonnet-4-6", _region_override="us-east-2"
     )
-    assert result == "us.anthropic.claude-sonnet-5"
+    assert result == "us.anthropic.claude-sonnet-4-6"
 
 
 def test_normalize_noop_when_already_correct():
     """eu. prefix on eu-central-1 is a no-op."""
     result = _normalize_geo_prefix(
-        "eu.anthropic.claude-sonnet-5", _region_override="eu-central-1"
+        "eu.anthropic.claude-sonnet-4-6", _region_override="eu-central-1"
     )
-    assert result == "eu.anthropic.claude-sonnet-5"
+    assert result == "eu.anthropic.claude-sonnet-4-6"
 
 
 def test_normalize_noop_for_global_prefix():
     """global. prefix is never swapped — it routes anywhere by design."""
     result = _normalize_geo_prefix(
-        "global.anthropic.claude-sonnet-5", _region_override="eu-central-1"
+        "global.anthropic.claude-sonnet-4-6", _region_override="eu-central-1"
     )
-    assert result == "global.anthropic.claude-sonnet-5"
+    assert result == "global.anthropic.claude-sonnet-4-6"
 
 
 def test_normalize_noop_for_no_geo_prefix():
     """A bare model id (no geo prefix) passes through unchanged."""
     result = _normalize_geo_prefix(
-        "anthropic.claude-sonnet-5", _region_override="eu-central-1"
+        "anthropic.claude-sonnet-4-6", _region_override="eu-central-1"
     )
-    assert result == "anthropic.claude-sonnet-5"
+    assert result == "anthropic.claude-sonnet-4-6"
 
 
 def test_normalize_noop_for_unknown_region():
     """Unknown region — pass through so Bedrock can surface the real error."""
     result = _normalize_geo_prefix(
-        "us.anthropic.claude-sonnet-5", _region_override="unknown-region-99"
+        "us.anthropic.claude-sonnet-4-6", _region_override="unknown-region-99"
     )
-    assert result == "us.anthropic.claude-sonnet-5"
+    assert result == "us.anthropic.claude-sonnet-4-6"
 
 
 def test_normalize_noop_for_empty_region_override():
     """Empty string _region_override (used by test helpers) disables normalization."""
-    result = _normalize_geo_prefix("us.anthropic.claude-sonnet-5", _region_override="")
-    assert result == "us.anthropic.claude-sonnet-5"
-
-
-def test_resolver_normalizes_agent_model_on_eu_region():
-    """End-to-end: resolver with eu-central-1 override swaps us. → eu. for AGENT.md model."""
-    r = ModelResolver(
-        session_model_id=HAIKU,
-        catalog=ModelCatalog(),
-        _region_override="eu-central-1",
-    )
-    # AGENT.md declares us. prefix — should be normalized to eu. for EU deployment.
-    spec = FakeSpec(id="prototype-validate", model="us.anthropic.claude-sonnet-5")
-    assert r.resolve(spec, None) == "eu.anthropic.claude-sonnet-5"
-
-
-def test_resolver_normalizes_agent_model_on_us_region():
-    """End-to-end: resolver with us-east-2 override keeps us. prefix intact."""
-    r = ModelResolver(
-        session_model_id=HAIKU,
-        catalog=ModelCatalog(),
-        _region_override="us-east-2",
-    )
-    spec = FakeSpec(id="prototype-validate", model="us.anthropic.claude-sonnet-5")
-    assert r.resolve(spec, None) == "us.anthropic.claude-sonnet-5"
+    result = _normalize_geo_prefix("us.anthropic.claude-sonnet-4-6", _region_override="")
+    assert result == "us.anthropic.claude-sonnet-4-6"

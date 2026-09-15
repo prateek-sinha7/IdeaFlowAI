@@ -126,40 +126,7 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         vision=True,
     ),
-    ModelEntry(
-        # US cross-region inference profile for Sonnet 5 — use when the
-        # deployment region is us-east-1 / us-east-2 / us-west-2 (e.g. the
-        # local dev environment at AWS_REGION=us-east-2). The `eu.` Sonnet 4.6
-        # variant is routed through EU regions; this entry uses the US CRIS prefix.
-        id="us.anthropic.claude-sonnet-5",
-        label="Claude Sonnet 5 (US)",
-        description="Most capable Sonnet model. Near-Opus intelligence for coding, agents, and professional work. 1M token context.",
-        tier="balanced",
-        cost_class="standard",
-        provider="bedrock",
-        context_window=1000000,
-        user_allowed=True,
-        pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
-        vision=True,
-    ),
-    ModelEntry(
-        # EU cross-region inference profile for Sonnet 5 — use when the
-        # deployment region is eu-central-1 / eu-west-1 / eu-west-2 etc.
-        # (production deployment at AWS_REGION=eu-central-1). Keeps data
-        # within EU regions. Geo-prefix normalization in model_policy.py
-        # auto-selects this entry when AWS_REGION is an EU region, so
-        # AGENT.md files never need a region-specific literal.
-        id="eu.anthropic.claude-sonnet-5",
-        label="Claude Sonnet 5 (EU)",
-        description="Most capable Sonnet model. Near-Opus intelligence for coding, agents, and professional work. 1M token context.",
-        tier="balanced",
-        cost_class="standard",
-        provider="bedrock",
-        context_window=1000000,
-        user_allowed=True,
-        pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
-        vision=True,
-    ),
+
     ModelEntry(
         # Deprecated (not retired) per AWS's Bedrock lifecycle table — prefer
         # Sonnet 4.5/4.6. Kept `eu.`-prefixed for parity with the rest of

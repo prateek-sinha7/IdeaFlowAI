@@ -7,7 +7,6 @@ guardrails:
 icon: 🔍
 id: prototype-revision-analyzer
 max_tokens: 4096
-model: eu.anthropic.claude-sonnet-5
 name: Prototype Revision Analyzer
 order: 1
 pipeline_type: prototype_revision_analyzer
