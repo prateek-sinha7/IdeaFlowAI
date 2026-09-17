@@ -446,15 +446,13 @@ export default function AdminPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      {!user.is_admin && (
-                        <button
-                          onClick={() => setDeleteConfirm(user.id)}
-                          aria-label={`Delete ${user.email}`}
-                          className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors ml-auto"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setDeleteConfirm(user.id)}
+                        aria-label={`Delete ${user.email}`}
+                        className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors ml-auto"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </td>
                   </motion.tr>
                 ))}
