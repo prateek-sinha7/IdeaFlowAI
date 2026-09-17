@@ -34,18 +34,24 @@ from app.core.identity import (
     enforce_admin_mfa,
 )
 from app.models.artifact_ref import ArtifactRef
+from app.models.chat import ChatSession, Message
 from app.models.database import get_db
 from app.models.exec_runs import ExecRun
 from app.models.gate_events import GateEvent
+from app.models.handoff import HandoffSession, UserApiKey, UserGithubCredential
 from app.models.hook_runs import HookRun
+from app.models.revoked_token import RevokedToken
 from app.models.run_capabilities import RunCapabilities
 from app.models.run_event import RunEvent
 from app.models.subagent_run import SubagentRun
 from app.models.user import User
+from app.models.user_agent import UserAgent
 from app.models.validation_results import ValidationResult
 from app.models.wave_run import WaveRun
 from app.models.workflow import WorkflowRun
 from app.models.workflow_clarification import WorkflowClarification
+from app.models.workflow_definition import WorkflowDefinition
+from app.models.workflow_memory import WorkflowMemory
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = logging.getLogger("app.api.admin")
@@ -702,8 +708,47 @@ def delete_user(
             WorkflowRun.parent_run_id.in_(workflow_run_ids)
         ).update({WorkflowRun.parent_run_id: None}, synchronize_session=False)
 
-    # Delete all workflow runs owned by this user
-    db.query(WorkflowRun).filter(WorkflowRun.user_id == user_id).delete()
+    # Delete all workflow runs owned by this user.
+    db.query(WorkflowRun).filter(WorkflowRun.user_id == user_id).delete(
+        synchronize_session=False
+    )
+
+    # Remove every remaining direct user dependency before the parent row.
+    # Chat messages must be removed before their chat sessions.
+    chat_session_ids = [
+        chat_session_id
+        for (chat_session_id,) in db.query(ChatSession.id)
+        .filter(ChatSession.user_id == user_id)
+        .all()
+    ]
+    if chat_session_ids:
+        db.query(Message).filter(Message.chat_session_id.in_(chat_session_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(ChatSession).filter(ChatSession.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(HandoffSession).filter(HandoffSession.issuer_user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(UserApiKey).filter(UserApiKey.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(UserGithubCredential).filter(
+        UserGithubCredential.user_id == user_id
+    ).delete(synchronize_session=False)
+    db.query(RevokedToken).filter(RevokedToken.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(UserAgent).filter(UserAgent.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(WorkflowDefinition).filter(WorkflowDefinition.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(WorkflowMemory).filter(WorkflowMemory.user_id == user_id).delete(
+        synchronize_session=False
+    )
 
     db.delete(user)
     db.commit()
