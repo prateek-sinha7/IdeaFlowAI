@@ -42,7 +42,7 @@ from app.models.run_capabilities import RunCapabilities
 from app.models.run_event import RunEvent
 from app.models.subagent_run import SubagentRun
 from app.models.user import User
-from app.models.validation_results import ValidationResults
+from app.models.validation_results import ValidationResult
 from app.models.wave_run import WaveRun
 from app.models.workflow import WorkflowRun
 from app.models.workflow_clarification import WorkflowClarification
@@ -690,13 +690,17 @@ def delete_user(
         db.query(HookRun).filter(HookRun.run_id.in_(workflow_run_ids)).delete()
         db.query(RunCapabilities).filter(RunCapabilities.run_id.in_(workflow_run_ids)).delete()
         db.query(RunEvent).filter(RunEvent.run_id.in_(workflow_run_ids)).delete()
-        db.query(ValidationResults).filter(ValidationResults.run_id.in_(workflow_run_ids)).delete()
+        db.query(ValidationResult).filter(
+            ValidationResult.run_id.in_(workflow_run_ids)
+        ).delete(synchronize_session=False)
         db.query(WaveRun).filter(WaveRun.run_id.in_(workflow_run_ids)).delete()
         db.query(WorkflowClarification).filter(
             WorkflowClarification.workflow_run_id.in_(workflow_run_ids)
         ).delete()
         db.query(SubagentRun).filter(SubagentRun.parent_run_id.in_(workflow_run_ids)).delete()
-        db.query(WorkflowRun).filter(WorkflowRun.parent_run_id.in_(workflow_run_ids)).delete()
+        db.query(WorkflowRun).filter(
+            WorkflowRun.parent_run_id.in_(workflow_run_ids)
+        ).update({WorkflowRun.parent_run_id: None}, synchronize_session=False)
 
     # Delete all workflow runs owned by this user
     db.query(WorkflowRun).filter(WorkflowRun.user_id == user_id).delete()
