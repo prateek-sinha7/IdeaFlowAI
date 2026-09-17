@@ -398,6 +398,27 @@ export AWS_REGION="$REGION"
 cd "$APP_DIR"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 
+# ── 10a-ONETIME. ONE-TIME COGNITO MIGRATION FIX (TEMPORARY — REVERT AFTER SUCCESS) ──
+# Automatically link any non-Cognito-linked users before the migration gate.
+# This is a one-time fix that will be reverted after the first successful deploy.
+# REVERT: delete this entire section (lines 403–417) after the deploy succeeds.
+echo "[deploy] ONE-TIME FIX: auto-linking non-Cognito-linked users..."
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+        run --rm --no-deps --entrypoint python backend \
+        scripts/migrate_local_users_to_cognito.py --report
+echo "[deploy] Attempting --link mode (invite existing users to link)..."
+if docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+        run --rm --no-deps --entrypoint python backend \
+        scripts/migrate_local_users_to_cognito.py --link --apply; then
+    echo "[deploy] --link mode succeeded."
+else
+    echo "[deploy] --link mode failed or no users to link; trying --invite mode..."
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+        run --rm --no-deps --entrypoint python backend \
+        scripts/migrate_local_users_to_cognito.py --invite --apply
+fi
+echo "[deploy] ONE-TIME FIX complete."
+
 # ── 10a. Pre-migration gate: users must be cleanly Cognito-linked ───────────
 # Migrations do NOT run as a deploy step — backend/docker-entrypoint.sh runs
 # `alembic upgrade head` under `set -eu` before `exec uvicorn`. So a migration
