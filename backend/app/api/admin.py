@@ -35,6 +35,7 @@ from app.core.identity import (
 )
 from app.models.database import get_db
 from app.models.user import User
+from app.models.workflow import WorkflowRun
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = logging.getLogger("app.api.admin")
@@ -668,6 +669,13 @@ def delete_user(
                 )
 
     deleted_id, deleted_provider = user.id, user.auth_provider
+
+    # Delete all workflow runs owned by this user before deleting the user,
+    # since WorkflowRun.user_id is NOT NULL and cascade delete is not configured.
+    # This prevents SQLAlchemy from attempting to set user_id to NULL, which
+    # would violate the NOT NULL constraint.
+    db.query(WorkflowRun).filter(WorkflowRun.user_id == user_id).delete()
+
     db.delete(user)
     db.commit()
     auth_events.emit(
