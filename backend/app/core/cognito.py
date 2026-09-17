@@ -370,12 +370,22 @@ def change_password(
 
 
 def admin_create_user(
-    email: str, temporary_password: str | None = None
+    email: str,
+    temporary_password: str | None = None,
+    *,
+    desired_delivery_mediums: list[str] | None = None,
 ) -> dict[str, Any]:
-    """``AdminCreateUser``. `temporary_password` omitted -> Cognito generates
-    one and (if email delivery is configured) sends the invite; the caller
-    then typically calls ``admin_set_user_password`` with a known temp
-    password for deterministic bootstrap/test flows."""
+    """``AdminCreateUser``.
+
+    ``temporary_password`` omitted -> Cognito generates one itself.
+    ``desired_delivery_mediums`` (e.g. ``["EMAIL"]``) tells Cognito to send an
+    invitation containing that password to the address on file -- this is what
+    ``core/cognito_admin.py::invite_user`` (Cognito-only auth migration, Decision
+    6) relies on so the admin-create flow never has to know a working password
+    for someone else's account. Omitted entirely by the bootstrap/seed scripts,
+    which want a deterministic password with no email side effect and call
+    ``admin_set_user_password`` themselves right after.
+    """
     kwargs: dict[str, Any] = {
         "UserPoolId": settings.COGNITO_USER_POOL_ID,
         "Username": email,
@@ -386,6 +396,8 @@ def admin_create_user(
     }
     if temporary_password:
         kwargs["TemporaryPassword"] = temporary_password
+    if desired_delivery_mediums:
+        kwargs["DesiredDeliveryMediums"] = desired_delivery_mediums
     return _client().admin_create_user(**kwargs)
 
 
@@ -401,23 +413,60 @@ def admin_set_user_password(email: str, password: str, permanent: bool = True) -
     )
 
 
-def admin_get_user(email: str) -> dict[str, Any]:
-    """``AdminGetUser`` — raises ``UserNotFoundException`` if absent. Used by
-    reconciliation/seed tooling that needs to read an existing pool user's
-    ``sub`` back rather than assuming a create just happened."""
+def admin_get_user(username: str) -> dict[str, Any]:
+    """``AdminGetUser`` — raises ``UserNotFoundException`` if absent.
+
+    ``username`` may be EITHER the email alias or the pool's canonical
+    ``Username`` — which, for this pool (``username_attributes = ["email"]``,
+    so Cognito generates the username itself), is the UUID that also appears as
+    the ``sub`` claim. Both resolve the same user on the Admin* read surface,
+    which is what makes just-in-time provisioning from a verified access token
+    possible at all: that token carries ``sub``, never necessarily an email
+    (see ``core/provisioning.py::provision_from_token_sub``).
+
+    The parameter is named ``username`` rather than ``email`` deliberately.
+    While it was named ``email``, ``core/cognito.py`` had no wrapper anywhere
+    that documented a ``sub`` was acceptable, and the one place in this
+    codebase where the alias-vs-canonical distinction actually BITES
+    (:func:`refresh_auth`, where the email alias fails with a misleading
+    "Unable to verify secret hash") was only discovered against a live pool.
+    Encoding the contract in the signature is what keeps the JIT path from
+    inheriting that class of bug.
+
+    Read APIs are also outside the scope of ``prevent_user_existence_errors``,
+    so ``UserNotFoundException`` here is authoritative -- unlike a
+    ``NotAuthorizedException`` from ``AdminInitiateAuth``, which is
+    deliberately ambiguous (see ``api/auth.py``).
+    """
     return _client().admin_get_user(
         UserPoolId=settings.COGNITO_USER_POOL_ID,
-        Username=email,
+        Username=username,
     )
 
 
-def admin_get_user_sub(email: str) -> str:
+def user_attributes(admin_get_user_result: dict[str, Any]) -> dict[str, str]:
+    """Flatten an ``AdminGetUser``/``AdminCreateUser`` attribute list to a dict.
+
+    Cognito returns attributes as ``[{"Name": ..., "Value": ...}, ...]`` and
+    puts them under a different key depending on the call (``UserAttributes``
+    for ``AdminGetUser``, ``User.Attributes`` for ``AdminCreateUser``, plain
+    ``Attributes`` for ``ListUsers`` rows). Both spellings are handled here so
+    callers stop re-implementing the same ``next(... for attr in ...)``
+    generator expression, which silently raises ``StopIteration`` when the
+    attribute is absent.
+    """
+    attrs = (
+        admin_get_user_result.get("UserAttributes")
+        or admin_get_user_result.get("Attributes")
+        or admin_get_user_result.get("User", {}).get("Attributes")
+        or []
+    )
+    return {a["Name"]: a["Value"] for a in attrs if "Name" in a}
+
+
+def admin_get_user_sub(username: str) -> str:
     """Return an existing pool user's ``sub`` claim value."""
-    return next(
-        attr["Value"]
-        for attr in admin_get_user(email)["UserAttributes"]
-        if attr["Name"] == "sub"
-    )
+    return user_attributes(admin_get_user(username))["sub"]
 
 
 def admin_delete_user(email: str) -> None:
@@ -438,6 +487,55 @@ def admin_user_global_sign_out(email: str) -> None:
         UserPoolId=settings.COGNITO_USER_POOL_ID,
         Username=email,
     )
+
+
+def admin_disable_user(username: str) -> None:
+    """``AdminDisableUser`` -- deactivates sign-in and revokes every access
+    token issued to the account, immediately. Distinct from
+    ``admin_user_global_sign_out``: that revokes REFRESH tokens (so no NEW
+    access token can be minted) but, per AWS's own documented caveat, does
+    nothing to an access token already in the caller's hands, which stays
+    offline-valid until its own ``exp``. Disabling is the step that actually
+    ends a live session -- ``core.identity.resolve_principal`` additionally
+    rejects a non-``active`` local row as the backstop that does not depend on
+    every step here having completed in order (Decision 6).
+
+    The user still appears in ``ListUsers`` results -- disabling is not
+    deleting.
+    """
+    _client().admin_disable_user(
+        UserPoolId=settings.COGNITO_USER_POOL_ID,
+        Username=username,
+    )
+
+
+def admin_enable_user(username: str) -> None:
+    """``AdminEnableUser`` -- reverses :func:`admin_disable_user`."""
+    _client().admin_enable_user(
+        UserPoolId=settings.COGNITO_USER_POOL_ID,
+        Username=username,
+    )
+
+
+def list_users_in_group(group_name: str) -> list[dict[str, Any]]:
+    """``ListUsersInGroup`` across every page. Returns the raw boto3 user dicts.
+
+    Used for the last-admin check (Decision 6: "add last-admin protection via
+    ``ListUsersInGroup`` on the admin group"), which needs a LIVE count of
+    admin-group membership at write time -- the local ``is_admin`` projection is
+    advisory (Decision 3) and could under- or over-count relative to what
+    Cognito would actually let someone act as. Paginated for the same reason
+    ``list_pool_users`` is: an admin group with more members than one page must
+    not silently under-report.
+    """
+    client = _client()
+    paginator = client.get_paginator("list_users_in_group")
+    users: list[dict[str, Any]] = []
+    for page in paginator.paginate(
+        UserPoolId=settings.COGNITO_USER_POOL_ID, GroupName=group_name
+    ):
+        users.extend(page.get("Users", []))
+    return users
 
 
 def admin_add_user_to_group(email: str, group_name: str) -> None:

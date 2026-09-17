@@ -20,6 +20,26 @@ const BASE_URL = ENV.API_URL;
 
 const TOKEN_KEY = "auth_token";
 
+/** Refresh the browser token one minute before its Cognito expiry. */
+export const SESSION_REFRESH_SKEW_MS = 60_000;
+
+type TokenChangeListener = () => void;
+type SessionExpiryListener = () => void;
+
+const tokenChangeListeners = new Set<TokenChangeListener>();
+const sessionExpiryListeners = new Set<SessionExpiryListener>();
+let sessionHasExpired = false;
+
+function notifyTokenChange(): void {
+  for (const listener of tokenChangeListeners) {
+    try {
+      listener();
+    } catch {
+      // A subscriber must never prevent login, logout, or a token refresh.
+    }
+  }
+}
+
 // --- Token management ---
 
 export function getToken(): string | null {
@@ -31,12 +51,78 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/** Decode a Cognito JWT's expiry into milliseconds, or null when unavailable. */
+export function getTokenExpiryMs(token: string | null): number | null {
+  if (!token) return null;
+
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const decoded = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
+    ) as { exp?: unknown };
+    return typeof decoded.exp === "number" ? decoded.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to updates made through the shared browser-token seam. */
+export function onTokenChanged(listener: TokenChangeListener): () => void {
+  tokenChangeListeners.add(listener);
+  return () => {
+    tokenChangeListeners.delete(listener);
+  };
+}
+
+/** Subscribe to a confirmed terminal Cognito-session failure. */
+export function onSessionExpired(listener: SessionExpiryListener): () => void {
+  sessionExpiryListeners.add(listener);
+
+  if (sessionHasExpired) {
+    try {
+      listener();
+    } catch {
+      // A late subscriber must not break the request that expired the session.
+    }
+  }
+
+  return () => {
+    sessionExpiryListeners.delete(listener);
+  };
+}
+
 export function setToken(token: string): void {
+  sessionHasExpired = false;
   localStorage.setItem(TOKEN_KEY, token);
+  notifyTokenChange();
 }
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+  notifyTokenChange();
+}
+
+/**
+ * End the local browser session after a terminal bearer-auth failure.
+ *
+ * The app-wide AuthSessionProvider owns navigation so API helpers remain
+ * transport-focused. Retaining this state means a provider that mounts after
+ * an early failure still receives the redirect signal.
+ */
+export function expireSession(): void {
+  if (sessionHasExpired) return;
+
+  sessionHasExpired = true;
+  clearToken();
+
+  for (const listener of sessionExpiryListeners) {
+    try {
+      listener();
+    } catch {
+      // Session cleanup must proceed even if a UI subscriber has failed.
+    }
+  }
 }
 
 /**
@@ -122,6 +208,51 @@ export function onCapacityRejected(
   };
 }
 
+// Admin MFA gate. `admin.py::require_admin` refuses an admin whose CURRENT
+// SESSION carries no second-factor proof, and answers with a machine-readable
+// body rather than a bare "Admin access required." The distinction matters:
+// a plain 403 is indistinguishable from "you are not an admin", which has
+// nothing the user can do about it, whereas this one has an exact remedy and
+// the server names the path to it.
+export interface AdminMfaRequiredDetail {
+  code: "admin_mfa_required";
+  /** Server-named enrolment endpoint. Never hardcode the route from this. */
+  enroll_path: string;
+}
+
+function isAdminMfaRequiredDetail(
+  detail: unknown,
+): detail is AdminMfaRequiredDetail {
+  return (
+    typeof detail === "object" &&
+    detail !== null &&
+    (detail as { code?: unknown }).code === "admin_mfa_required"
+  );
+}
+
+type AdminMfaRequiredListener = (detail: AdminMfaRequiredDetail) => void;
+
+const _adminMfaRequiredListeners = new Set<AdminMfaRequiredListener>();
+
+/**
+ * Subscribe to every admin-MFA refusal ANY `ApiError` construction surfaces.
+ *
+ * Detection lives in the `ApiError` constructor for the same reason the
+ * capacity gate above does: it is one seam that covers every existing and
+ * future `/api/admin/*` call site. That is not merely tidy here — several admin
+ * call sites swallow their error with a bare `catch {}` to render a generic
+ * "could not load" state, so a per-call-site handler would miss exactly the
+ * requests most likely to hit this gate.
+ */
+export function onAdminMfaRequired(
+  listener: AdminMfaRequiredListener,
+): () => void {
+  _adminMfaRequiredListeners.add(listener);
+  return () => {
+    _adminMfaRequiredListeners.delete(listener);
+  };
+}
+
 class ApiError extends Error {
   status: number;
   detail: unknown;
@@ -143,6 +274,16 @@ class ApiError extends Error {
           listener(detail);
         } catch {
           /* non-fatal — see comment above */
+        }
+      }
+    }
+
+    if (status === 403 && isAdminMfaRequiredDetail(detail)) {
+      for (const listener of _adminMfaRequiredListeners) {
+        try {
+          listener(detail);
+        } catch {
+          /* non-fatal — see the capacity fan-out above */
         }
       }
     }
@@ -200,7 +341,7 @@ export async function refreshAccessToken(): Promise<string | null> {
  */
 let inFlightRefresh: Promise<string | null> | null = null;
 
-function refreshOnce(): Promise<string | null> {
+export function refreshOnce(): Promise<string | null> {
   if (!inFlightRefresh) {
     inFlightRefresh = refreshAccessToken().finally(() => {
       inFlightRefresh = null;
@@ -216,8 +357,11 @@ function withBearer(options: RequestInit, token: string): RequestInit {
   return { ...options, headers };
 }
 
-function hasAuthorization(options: RequestInit): boolean {
-  return new Headers(options.headers as HeadersInit | undefined).has("Authorization");
+function hasBearerAuthorization(options: RequestInit): boolean {
+  const authorization = new Headers(
+    options.headers as HeadersInit | undefined,
+  ).get("Authorization");
+  return authorization?.startsWith("Bearer ") ?? false;
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
@@ -241,43 +385,42 @@ async function fetchWithTimeout(url: string, options: RequestInit): Promise<Resp
 }
 
 /**
- * Cognito migration (Phase 4): on a 401, refresh once and replay the request.
- *
- * Cognito access tokens are short-lived (60 min on the app client), so an
- * authenticated REST call can legitimately expire mid-session. The SSE hook
- * already did this (`useRunStream.ts::attemptSilentRefresh`); REST did not, so
- * a token that expired between page load and the next click surfaced as a hard
- * 401 the user had to resolve by logging in again.
+ * Cognito migration (Phase 4): on a bearer 401, refresh once and replay the
+ * request. A refresh failure, or a second 401 from the replay, ends the local
+ * browser session through the app-wide session owner.
  *
  * Three deliberate bounds keep this from becoming a retry storm:
  *
  * 1. **At most one retry per request.** The replay is issued with `retryOn401`
- *    off, so a second 401 propagates to the caller. There is no recursion.
+ *    off, so a second 401 terminates the session without recursion.
  * 2. **Only for requests that actually sent a bearer.** An unauthenticated 401
- *    (e.g. wrong password on `/login`) is a real answer, not an expiry — the
- *    login form depends on receiving it.
+ *    (e.g. wrong password on `/login`) is a real answer, not an expiry.
  * 3. **Never for the refresh endpoint itself**, which would be circular.
  */
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  retryOn401 = true
+  retryOn401 = true,
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
   const response = await fetchWithTimeout(url, options);
+  const isTerminalBearerFailure =
+    response.status === 401 &&
+    path !== REFRESH_PATH &&
+    hasBearerAuthorization(options);
 
   if (!response.ok) {
-    if (
-      response.status === 401 &&
-      retryOn401 &&
-      path !== REFRESH_PATH &&
-      hasAuthorization(options)
-    ) {
+    if (isTerminalBearerFailure && retryOn401) {
       const fresh = await refreshOnce();
       if (fresh) {
         return request<T>(path, withBearer(options, fresh), false);
       }
     }
+
+    if (isTerminalBearerFailure) {
+      expireSession();
+    }
+
     const body = await response.json().catch(() => ({
       detail: response.statusText,
     }));
@@ -295,19 +438,6 @@ function authHeaders(token: string): HeadersInit {
 }
 
 // --- Auth API ---
-
-export async function register(
-  email: string,
-  password: string
-): Promise<AuthResponse> {
-  const data = await request<AuthResponse>("/api/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  setToken(data.token);
-  return data;
-}
 
 // Cognito migration (Phase 3/4): returned instead of AuthResponse when Cognito
 // needs another auth step before a token can be issued. Detected by the presence
@@ -413,6 +543,42 @@ export async function respondToLoginChallenge(
   return data;
 }
 
+// --- Self-service password reset (Phase 6 item 3, Decision 10) ---
+
+/**
+ * Start a self-service password reset. Backend ALWAYS returns 202 with a
+ * generic message, whether or not the address exists (Cognito's own
+ * `prevent_user_existence_errors` does the same for login) -- do not treat a
+ * 202 as proof the account exists, and do not surface a different message for
+ * one branch vs another.
+ *
+ * A 409 means self-service reset is unavailable in this deployment (email is
+ * configured as an MFA factor, which disqualifies it as a recovery channel
+ * too -- an AWS constraint, not a bug). Callers should show that 409's own
+ * `detail` message rather than a generic error, so the user knows to contact
+ * an administrator instead of retrying.
+ */
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** Complete a self-service password reset with the code Cognito emailed. */
+export async function confirmForgotPassword(
+  email: string,
+  code: string,
+  newPassword: string
+): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/auth/forgot-password/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, new_password: newPassword }),
+  });
+}
+
 // --- MFA (account security) ---
 
 /** Read the caller's second-factor state and what this deployment offers. */
@@ -454,6 +620,58 @@ export async function disableEmailMfa(
     "/api/auth/mfa/email/disable",
     { method: "POST", headers: authHeaders(token) }
   );
+}
+
+/** Server response to the first step of the TOTP enrolment ceremony. */
+export interface TotpAssociation {
+  /** Shared secret, returned ONCE and never stored server-side. */
+  secret: string;
+  issuer: string;
+  account: string;
+  /** Standard `otpauth://` URI, ready to render as a QR code. */
+  otpauth_uri: string;
+}
+
+/**
+ * Begin TOTP enrolment: provision a shared secret for an authenticator app.
+ *
+ * Requires only an authenticated caller — deliberately NOT admin-gated, because
+ * this is the way OUT of the admin-MFA 403. Gating it behind `require_admin`
+ * would make the only escape from that refusal pass through the same refusal.
+ *
+ * The secret is shown once. Enrolment is not complete, and no factor exists,
+ * until `verifyTotp` proves possession.
+ */
+export async function associateTotp(token: string): Promise<TotpAssociation> {
+  return request<TotpAssociation>("/api/auth/mfa/totp/associate", {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+}
+
+/**
+ * Complete TOTP enrolment by proving possession of the secret.
+ *
+ * A wrong or stale code is a 400 with a message worth showing verbatim — the
+ * usual cause is a code that scrolled over between typing and submitting, which
+ * the user fixes by reading the next one.
+ *
+ * Note for callers: succeeding here enrols the factor but does NOT satisfy the
+ * admin gate for the CURRENT session. That gate compares the bearer's `iat`
+ * against `mfa_verified_at`, and the token in hand was minted before this
+ * enrolment, so it can never carry the proof. Signing out and back in is
+ * required, and the UI must say so rather than bouncing the user back to a 403.
+ */
+export async function verifyTotp(
+  token: string,
+  code: string,
+  deviceName?: string
+): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/auth/mfa/totp/verify", {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ code, device_name: deviceName }),
+  });
 }
 
 export async function getMe(token: string): Promise<User> {
@@ -1202,13 +1420,11 @@ export async function updatePreferences(
 export interface AdminUser {
   id: string;
   email: string;
-  tier: "basic" | "pro" | "enterprise";
+  tier: "basic" | "pro" | "enterprise" | "hexaware";
   is_admin: boolean;
+  status: "active" | "disabled";
   created_at: string;
   workflow_run_count: number;
-  // Cognito migration (Phase 3): "local" | "cognito". Optional so the type
-  // still matches a pre-migration backend response shape.
-  auth_provider?: "local" | "cognito";
 }
 
 export async function adminListUsers(token: string): Promise<AdminUser[]> {
@@ -1256,38 +1472,46 @@ export async function adminUpdateRole(
  * email as an account-recovery channel whenever it is a second factor, so
  * /api/auth/forgot-password correctly refuses in that configuration.
  *
- * `permanent` defaults to false, which issues a TEMPORARY password — the user is
- * forced to choose their own at next sign-in, so the admin never ends up knowing
- * a live credential for someone else's account. The target's existing sessions
- * are revoked either way.
+ * The backend generates the temporary password and never returns it to the
+ * administrator. Sending an empty JSON object preserves the strict API
+ * boundary that rejects password-bearing input, while the recipient is forced
+ * through Cognito's NEW_PASSWORD_REQUIRED challenge on their next sign-in.
  */
+export type AdminPasswordResetResponse = {
+  status: "temporary_password_set";
+};
+
 export async function adminResetUserPassword(
   token: string,
   userId: string,
-  newPassword: string,
-  permanent = false
-): Promise<{ message: string; requires_new_password_at_next_login: boolean }> {
-  return request<{ message: string; requires_new_password_at_next_login: boolean }>(
+): Promise<AdminPasswordResetResponse> {
+  return request<AdminPasswordResetResponse>(
     `/api/admin/users/${userId}/reset-password`,
     {
       method: "POST",
       headers: authHeaders(token),
-      body: JSON.stringify({ new_password: newPassword, permanent }),
+      body: JSON.stringify({}),
     }
   );
 }
 
+/**
+ * Create a user by INVITATION (Cognito migration Phase 3, Decision 6). No
+ * password parameter -- the backend's `CreateUserRequest` is `extra=forbid`
+ * and no longer accepts one at all. Cognito generates a temporary password
+ * and emails it directly to the new account; this app never sees it, so
+ * there is nothing here for an admin to type or store.
+ */
 export async function adminCreateUser(
   token: string,
   email: string,
-  password: string,
   tier: string,
   is_admin: boolean
 ): Promise<AdminUser> {
   return request<AdminUser>("/api/admin/users", {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ email, password, tier, is_admin }),
+    body: JSON.stringify({ email, tier, is_admin }),
   });
 }
 
@@ -1304,6 +1528,36 @@ export async function adminDeleteUser(
     const body = await response.json().catch(() => ({ detail: response.statusText }));
     throw new ApiError(response.status, body.detail ?? body);
   }
+}
+
+/**
+ * Disable a user account (Cognito migration Phase 3, Decision 6). Reversible
+ * via `adminEnableUser`, unlike delete -- revokes API keys and the stored
+ * refresh token, disables sign-in at Cognito, and signs out every existing
+ * session server-side.
+ */
+export async function adminDisableUser(
+  token: string,
+  userId: string
+): Promise<AdminUser> {
+  return request<AdminUser>(`/api/admin/users/${userId}/disable`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+}
+
+/**
+ * Re-enable a disabled user account. Does NOT restore API keys or the
+ * refresh token revoked on disable -- the user re-authenticates normally.
+ */
+export async function adminEnableUser(
+  token: string,
+  userId: string
+): Promise<AdminUser> {
+  return request<AdminUser>(`/api/admin/users/${userId}/enable`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
 }
 
 // --- Admin capacity matrix API (specs/014) ---

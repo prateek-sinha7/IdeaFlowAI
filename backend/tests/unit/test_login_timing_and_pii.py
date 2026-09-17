@@ -9,9 +9,12 @@ COGNITO-AUTH-QA-BUGS.md:
    never write the plaintext address into the log line — only a stable,
    non-reversible hash.
 
-Local-auth path only (no live AWS calls) — mirrors ``test_logout.py``'s
-in-memory-SQLite + real ``TestClient`` harness for the login endpoint, plus a
-direct unit test of ``auth_events.emit`` for the PII fix (no HTTP needed).
+Cognito is the sole authentication authority (Cognito-only auth migration,
+``.kiro/specs/login/prompt.md`` Phase 1) — mirrors ``test_logout.py``'s
+in-memory-SQLite + real ``TestClient`` harness for the login endpoint, with
+``admin_initiate_auth`` faked to reject a wrong password the same way
+Cognito would (``NotAuthorizedException``), plus a direct unit test of
+``auth_events.emit`` for the PII fix (no HTTP needed).
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -26,9 +30,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.auth import router as auth_router
-from app.core import auth_events
+from app.core import auth_events, cognito
 from app.core.auth_events import AuthEvent
-from app.core.security import hash_password
 from app.models.database import Base, get_db
 from app.models.revoked_token import RevokedToken  # noqa: F401
 from app.models.user import User
@@ -36,8 +39,19 @@ from app.models.chat import ChatSession, Message  # noqa: F401
 from app.models.workflow import WorkflowRun  # noqa: F401
 
 
+def _not_authorized(email: str, password: str):
+    """Fake ``admin_initiate_auth`` — always rejects, exactly like Cognito
+    does for a wrong password OR an unknown email under
+    ``prevent_user_existence_errors = ENABLED``."""
+    del email, password
+    raise ClientError(
+        {"Error": {"Code": "NotAuthorizedException", "Message": "boom"}},
+        "AdminInitiateAuth",
+    )
+
+
 @pytest.fixture
-def client():
+def client(monkeypatch):
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -57,6 +71,19 @@ def client():
     app.include_router(auth_router)
     app.dependency_overrides[get_db] = override_get_db
 
+    monkeypatch.setattr(cognito, "admin_initiate_auth", _not_authorized)
+
+    def _user_not_found(email: str):
+        del email
+        raise ClientError(
+            {"Error": {"Code": "UserNotFoundException", "Message": "boom"}},
+            "AdminGetUser",
+        )
+
+    # _probe_unknown_email's ambiguous branch classifies via AdminGetUser —
+    # fake it too, so an unknown email never attempts a real AWS call.
+    monkeypatch.setattr(cognito, "admin_get_user", _user_not_found)
+
     with TestClient(app) as test_client:
         test_client.app = app  # for the db-seeding helper below
         yield test_client
@@ -66,15 +93,10 @@ def client():
     engine.dispose()
 
 
-def _seed_user(client, email="alice@example.com", password="password123") -> User:
+def _seed_user(client, email="alice@example.com") -> User:
     db = next(client.app.dependency_overrides[get_db]())
     try:
-        u = User(
-            id="u-1",
-            email=email,
-            password_hash=hash_password(password),
-            auth_provider="local",
-        )
+        u = User(id="u-1", email=email, cognito_sub="sub-u-1")
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -97,16 +119,16 @@ class TestLoginTimingEnumeration:
         self, client
     ):
         """The timing gap between an unknown email and a known email with a
-        wrong password must be small relative to the bcrypt cost each pays —
-        proving the unknown-email path now does real work instead of
-        returning immediately off a bare DB miss.
+        wrong password must be small relative to the AdminInitiateAuth cost
+        each pays — proving the unknown-email path now does real work
+        instead of returning immediately off a bare DB miss.
 
         Not a strict equality (system jitter), but the unknown-email path
         must be within the same order of magnitude as the known-email path,
         not orders of magnitude faster as it was pre-fix (a bare indexed
-        DB-miss lookup vs. a full bcrypt verify).
+        DB-miss lookup vs. a full provider round-trip).
         """
-        _seed_user(client, email="known@example.com", password="password123")
+        _seed_user(client, email="known@example.com")
 
         def _timed_login(email: str) -> float:
             start = time.perf_counter()
@@ -118,7 +140,7 @@ class TestLoginTimingEnumeration:
             assert resp.status_code == 401
             return elapsed
 
-        # Warm up (first bcrypt call sometimes pays a one-time cost).
+        # Warm up (first call sometimes pays a one-time cost).
         _timed_login("known@example.com")
 
         known_times = [_timed_login("known@example.com") for _ in range(3)]
@@ -128,10 +150,10 @@ class TestLoginTimingEnumeration:
         unknown_avg = sum(unknown_times) / len(unknown_times)
 
         # Pre-fix, the unknown-email path was ~2 orders of magnitude faster
-        # (a bare indexed miss vs. a bcrypt verify). Post-fix it should be
-        # within a generous 5x envelope of the known-email path — loose
-        # enough to avoid CI flakiness, tight enough to catch a regression
-        # back to the "return immediately" shape.
+        # (a bare indexed miss vs. a real provider round-trip). Post-fix it
+        # should be within a generous 5x envelope of the known-email path —
+        # loose enough to avoid CI flakiness, tight enough to catch a
+        # regression back to the "return immediately" shape.
         assert unknown_avg >= known_avg / 5, (
             f"unknown-email login ({unknown_avg:.4f}s) is implausibly faster "
             f"than a known-email wrong-password attempt ({known_avg:.4f}s) — "

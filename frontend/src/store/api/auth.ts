@@ -1,20 +1,7 @@
 import { http } from "./http";
-import { setToken } from "@/lib/api";
-import type { AuthResponse, User } from "@/types/index";
+import type { User } from "@/types/index";
 
 export const authApi = {
-  register: async (email: string, password: string): Promise<AuthResponse> => {
-    const { data } = await http.post<AuthResponse>("/api/auth/register", { email, password });
-    setToken(data.token);
-    return data;
-  },
-
-  login: async (email: string, password: string): Promise<AuthResponse> => {
-    const { data } = await http.post<AuthResponse>("/api/auth/login", { email, password });
-    setToken(data.token);
-    return data;
-  },
-
   me: async (): Promise<User> => {
     const { data } = await http.get<User>("/api/auth/me");
     return data;

@@ -1,0 +1,58 @@
+# Endpoints with NO authentication dependency, explicitly approved as public.
+#
+# Format:  METHOD /path  # why it is safe to expose unauthenticated
+#
+# A reason is mandatory. Adding a line here removes an endpoint from the auth
+# contract, so the justification is the only thing standing between this file and
+# an accidental public API.
+#
+# Before adding: check whether the route authenticates by a means the scanner
+# cannot see — a handler-local dependency, or a function called inside the body
+# rather than injected. Two such cases already exist (get_current_principal,
+# api/mcp.py::_get_user_from_bearer) and both were resolved by teaching the
+# scanner the dependency name, NOT by declaring the route public.
+
+# --- Authentication entry points -------------------------------------------
+# These cannot require a credential: they are how a caller obtains one.
+POST /api/auth/login  # issues the first credential; nothing to authenticate with yet
+POST /api/auth/login/challenge  # continues an in-flight login, authorised by the Cognito-issued session token in the body
+POST /api/auth/forgot-password  # pre-credential recovery start; answers uniformly to avoid account enumeration
+POST /api/auth/forgot-password/confirm  # completes recovery; the emailed code is the proof of possession
+
+# --- Liveness ---------------------------------------------------------------
+GET /health  # load-balancer probe; returns no information about the system or its data
+
+# --- Static template preview assets ----------------------------------------
+# Read-only files embedded by the gallery via <iframe sandbox> and <img src>.
+# Unauthenticated deliberately: a browser subresource request cannot carry the
+# bearer, and plumbing the JWT into static asset URLs would put it in history,
+# logs and referrers. Each handler resolves paths through od_loader and is
+# confined to one template's own directory, so there is no traversal surface.
+GET /api/prototype/templates/{template_id}/preview  # static example.html for a sandboxed iframe; loader-confined path
+GET /api/prototype/templates/{template_id}/thumbnail  # static thumbnail.jpg for the gallery card
+GET /api/prototype/templates/{template_id}/assets/{asset_path:path}  # sibling assets the preview HTML references relatively; confined to the template's assets/ dir
+GET /api/prototype/design-systems/{ds_id}/preview  # static components.html for a sandboxed iframe
+GET /api/ppt/templates/{template_id}/preview  # static example.html for a sandboxed iframe
+GET /api/ppt/templates/{template_id}/thumbnail  # static thumbnail.jpg for the gallery card
+
+# --- IDE handoff bootstrap --------------------------------------------------
+# The `curl | bash` installer and its raw parts. Public by nature, like any
+# install script URL: they are fetched before the user has a credential, and
+# they contain no secret — the text instructs the reader to mint their own API
+# key from the settings page.
+GET /install/flowin-handoff  # curl|bash installer text; no secrets, pre-credential by design
+GET /install/flowin-handoff/command  # raw slash-command markdown served by the installer
+GET /install/flowin-handoff/script  # raw handoff script served by the installer
+
+# --- FastAPI-mounted documentation -----------------------------------------
+# Mounted by the framework, not by application code. Whether they are exposed is
+# a deployment decision (docs_url/redoc_url/openapi_url in app/main.py), not
+# something an auth dependency governs.
+GET /docs  # framework-mounted Swagger UI
+HEAD /docs  # framework-mounted Swagger UI
+GET /docs/oauth2-redirect  # framework-mounted OAuth2 redirect helper
+HEAD /docs/oauth2-redirect  # framework-mounted OAuth2 redirect helper
+GET /redoc  # framework-mounted ReDoc UI
+HEAD /redoc  # framework-mounted ReDoc UI
+GET /openapi.json  # framework-mounted schema document
+HEAD /openapi.json  # framework-mounted schema document

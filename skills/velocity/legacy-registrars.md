@@ -154,7 +154,7 @@ they die with this file:
 
 | Claim in the legacy docs | Reality |
 |---|---|
-| `scripts/knowledge/*.py` (`extract.py`, `check.py`, `ctx.py`) | Does not exist. Tracked in git, deleted from the working tree. Use `tools/knowledge/build_index.py`. |
+| `scripts/knowledge/*.py` legacy scripts | Retired and absent. Use the canonical `/velocity` commands; they select the appropriate current knowledge workflow. |
 | `.knowledge/surface/INDEX.md` | Does not exist. The index is `.knowledge/INDEX.md`. |
 | Migration head `0026` | `0030` |
 | Playwright live on `:8002` | backend runs on `:8010` |

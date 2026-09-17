@@ -224,7 +224,6 @@ if [[ -z "${VELOCITYAI_SKIP_IMAGES:-}" ]]; then
         backend/
     docker build --platform linux/amd64 \
         --build-arg "NEXT_PUBLIC_API_URL=https://$FQDN" \
-        --build-arg "NEXT_PUBLIC_WS_URL=wss://$FQDN/ws/chat" \
         -t "$FRONTEND_REPO:$TAG" \
         frontend/
 

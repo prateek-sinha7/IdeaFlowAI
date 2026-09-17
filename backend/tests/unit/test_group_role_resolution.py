@@ -90,21 +90,19 @@ class TestProjectionPrecedence:
 
     This is the rule most likely to be silently violated by future code (the
     columns are right there on the User object), so it gets an explicit test:
-    a stale/hostile projection must not be able to escalate a Cognito
-    principal, and must remain authoritative for break-glass.
+    a stale/hostile projection must not be able to escalate a principal.
     """
 
-    def _user(self, *, tier: str, is_admin: bool, auth_provider: str) -> User:
+    def _user(self, *, tier: str, is_admin: bool) -> User:
         return User(
             id="local-uuid",
             email="u@example.com",
             tier=tier,
             is_admin=is_admin,
-            auth_provider=auth_provider,
         )
 
     def test_cognito_groups_override_a_stale_higher_db_tier(self):
-        user = self._user(tier="enterprise", is_admin=True, auth_provider="cognito")
+        user = self._user(tier="enterprise", is_admin=True)
         principal = Principal(
             provider="cognito", sub="s", jti="j", iat=0, groups=["flowin-tier-basic"]
         )
@@ -112,7 +110,7 @@ class TestProjectionPrecedence:
         assert effective_is_admin(user, principal) is False
 
     def test_cognito_groups_override_a_stale_lower_db_tier(self):
-        user = self._user(tier="basic", is_admin=False, auth_provider="cognito")
+        user = self._user(tier="basic", is_admin=False)
         principal = Principal(
             provider="cognito",
             sub="s",
@@ -123,18 +121,9 @@ class TestProjectionPrecedence:
         assert effective_tier(user, principal) == "enterprise"
         assert effective_is_admin(user, principal) is True
 
-    def test_local_principal_uses_the_db_columns(self):
-        """Break-glass has no group claim — the columns ARE the authority."""
-        user = self._user(tier="enterprise", is_admin=True, auth_provider="local")
-        principal = Principal(
-            provider="local", sub="local-uuid", jti="j", iat=0, groups=[]
-        )
-        assert effective_tier(user, principal) == "enterprise"
-        assert effective_is_admin(user, principal) is True
-
     def test_cognito_principal_with_no_groups_is_least_privileged(self):
         """A Cognito user removed from every group must not inherit old DB values."""
-        user = self._user(tier="enterprise", is_admin=True, auth_provider="cognito")
+        user = self._user(tier="enterprise", is_admin=True)
         principal = Principal(provider="cognito", sub="s", jti="j", iat=0, groups=[])
         assert effective_tier(user, principal) == "basic"
         assert effective_is_admin(user, principal) is False

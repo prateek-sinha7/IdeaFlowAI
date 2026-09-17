@@ -39,14 +39,14 @@ fastapi, pydantic
 <!-- /AUTO-GENERATED -->
 
 ## Purpose
-Serves manifest-derived workflow *definitions* (the static declaration of every authored workflow) for the composer UI — distinct from run-history CRUD, which lives in `app/api/runs.py`. The source of truth is the compiled manifests (`compile_for_run` + `get_pipeline_agents`); this router never queries the DB.
+Serves manifest-derived workflow *definitions* (the static declaration of every authored workflow) for the composer UI â€” distinct from run-history CRUD, which lives in `app/api/runs.py`. The source of truth is the compiled manifests (`compile_for_run` + `get_pipeline_agents`); this router never queries the DB.
 
 ## Shape
-- `list_workflows` (`GET /api/workflows`) — one summary entry per `PIPELINE_AGENTS` id, combining the compiled step plan with manifest-declared catalog metadata (`user_launchable`, `display_name`, `icon`, `launch_surface`).
-- `get_workflow` (`GET /api/workflows/{id}`) — the full compiled step configuration (strategy, gates, validators, task_source, deliverable, clarify policy) for one workflow, resolved only against the closed `_KNOWN_WORKFLOW_IDS` allow-list.
-- `_spec_by_id` — maps agent_id to `AgentSpec`, preferring `get_pipeline_agents` discovery but falling back to `PIPELINE_AGENTS` membership + `load_agent_spec` for pipelines whose agents declare a different shared `pipeline_type` (e.g. `ppt`'s agents declare `od_ppt`).
-- `_display_name` / `_describe` — pure derivation helpers (snake_case → title case; a one-line step summary) since the manifest itself carries no presentation strings.
+- `list_workflows` (`GET /api/workflows`) â€” one summary entry per `PIPELINE_AGENTS` id, combining the compiled step plan with manifest-declared catalog metadata (`user_launchable`, `display_name`, `icon`, `launch_surface`).
+- `get_workflow` (`GET /api/workflows/{id}`) â€” the full compiled step configuration (strategy, gates, validators, task_source, deliverable, clarify policy) for one workflow, resolved only against the closed `_KNOWN_WORKFLOW_IDS` allow-list.
+- `_spec_by_id` â€” maps agent_id to `AgentSpec`, preferring `get_pipeline_agents` discovery but falling back to `PIPELINE_AGENTS` membership + `load_agent_spec` for pipelines whose agents declare a different shared `pipeline_type` (e.g. `ppt`'s agents declare `od_ppt`).
+- `_display_name` / `_describe` â€” pure derivation helpers (snake_case â†’ title case; a one-line step summary) since the manifest itself carries no presentation strings.
 - Response schemas (`WorkflowSummary`/`WorkflowStepSummary`, `WorkflowDetail`/`WorkflowStepDetail`/`WorkflowDeliverable`).
 
 ## Why this shape
-`{id}` is resolved only against an in-memory closed id set sourced from `PIPELINE_AGENTS.keys()` — never a filesystem scan on user input — explicitly to close a path-traversal surface (T-04-13/ASVS V5, called out in the module docstring); reads are DB-free by design since these are static, authored definitions, not run instances.
+`{id}` is resolved only against an in-memory closed id set sourced from `PIPELINE_AGENTS.keys()` â€” never a filesystem scan on user input â€” explicitly to close a path-traversal surface (T-04-13/ASVS V5, called out in the module docstring); reads are DB-free by design since these are static, authored definitions, not run instances.

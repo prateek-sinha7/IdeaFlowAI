@@ -47,18 +47,20 @@ pydantic-settings==2.7.1
 # PYSEC-2026-1325 with NO fix version published — the ecdsa maintainers treat
 # side-channel resistance as out of scope for a pure-Python implementation, so
 # no upgrade will clear it. It is suppressed in ci.yml's pip-audit step via an
-# explicit --ignore-vuln, on this verified basis: BOTH verification call sites
-# pass an explicit non-EC algorithm allow-list — app/core/security.py uses
-# `algorithms=["HS256"]` and app/core/cognito.py uses `algorithms=["RS256"]` —
-# so no EC key is ever parsed and the vulnerable code path is unreachable.
+# explicit --ignore-vuln, on this verified basis: the only verification call
+# site is app/core/cognito.py, which uses `algorithms=["RS256"]` — so no EC key
+# is ever parsed and the vulnerable code path is unreachable.
 #
 # TODO(migrate-off-python-jose): the durable fix is PyJWT, which has no ecdsa
 # dependency and is already present in the tree transitively (via langgraph-sdk
-# and mcp). That is an auth refactor across security.py, identity.py, cognito.py
-# and api/auth.py, so it is tracked separately rather than folded into a CI
+# and mcp). That is an auth refactor across identity.py, cognito.py and
+# api/auth.py, so it is tracked separately rather than folded into a CI
 # remediation change.
+#
+# passlib[bcrypt] was removed (Cognito-only auth migration,
+# .kiro/specs/login/prompt.md Phase 1): there is no local password to hash
+# anywhere in this application.
 python-jose[cryptography]==3.5.0
-passlib[bcrypt]==1.7.4
 # langchain 1.x line. Bumped to satisfy deepagents 0.6.7's floor
 # (langchain>=1.3.2, langchain-core>=1.4.0, langgraph>=1.2.4). Resolver-verified
 # to coexist unchanged with langchain-aws 1.4.6 + langchain-anthropic 1.4.3.

@@ -388,6 +388,52 @@ export AWS_REGION="$REGION"
 
 cd "$APP_DIR"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+
+# ── 10a. Pre-migration gate: users must be cleanly Cognito-linked ───────────
+# Migrations do NOT run as a deploy step — backend/docker-entrypoint.sh runs
+# `alembic upgrade head` under `set -eu` before `exec uvicorn`. So a migration
+# that refuses to apply never reports a failed step: the container exits,
+# `restart: unless-stopped` loops it, :8000 is never bound, and the §11 health
+# gate burns its full five minutes before rolling the images back. The operator
+# sees "health gate failed", not the actual cause.
+#
+# Migration 0038 (Cognito-only users) has exactly that shape: it aborts when any
+# `users` row is not cleanly Cognito-linked (NULL/duplicate `cognito_sub`, or a
+# residual non-'cognito' `auth_provider`), because dropping `password_hash`
+# would otherwise leave an account with no way to authenticate at all. The
+# cutover runbook says to check for this first, but that was a MANUAL step with
+# nothing enforcing it.
+#
+# So assert it here, before anything mutates: fail fast, name the rows, and
+# leave the currently-healthy stack untouched and serving.
+#
+# Three details matter:
+#   --entrypoint python  bypasses docker-entrypoint.sh. Without it this very
+#                        command would run `alembic upgrade head` — the thing
+#                        being gated.
+#   --no-deps            does not drag the frontend up as a dependency.
+#   run (not exec)       a one-off container against the NEW image; `exec`
+#                        would need a running container and would use the OLD
+#                        one, whose migration requirements may differ.
+# `run` does not publish ports (that needs --service-ports), so this cannot
+# collide with the live backend on :8000. The script is read-only, and reads
+# DATABASE_URL from the same env_file the service uses.
+echo "[deploy] pre-migration gate: checking users are cleanly Cognito-linked..."
+if ! docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+        run --rm --no-deps --entrypoint python backend \
+        scripts/migrate_local_users_to_cognito.py --report --fail-on-unlinked; then
+    echo "[deploy] FATAL: pre-migration gate FAILED — one or more users rows are not" >&2
+    echo "[deploy]        cleanly Cognito-linked, so 'alembic upgrade head' would abort" >&2
+    echo "[deploy]        inside the backend container and crash-loop it." >&2
+    echo "[deploy]        Resolve the rows listed above, then re-run this deploy:" >&2
+    echo "[deploy]          scripts/migrate_local_users_to_cognito.py --link --apply" >&2
+    echo "[deploy]          scripts/migrate_local_users_to_cognito.py --invite --apply" >&2
+    echo "[deploy]        See docs/runbooks/cognito-cutover.md step 1." >&2
+    echo "[deploy]        NOTE: nothing was changed — the previous stack is still running." >&2
+    exit 1
+fi
+echo "[deploy] pre-migration gate passed"
+
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 
@@ -493,110 +539,9 @@ if [ "$HEALTHY" -eq 1 ]; then
         echo "[deploy] healthy: backend + frontend (ingress tier skipped)"
     fi
 
-    # ── 12. Bootstrap the initial administrator (empty database only) ───────
-    # Self-registration is disabled and /api/admin/users needs an existing
-    # admin, so a fresh environment has no way in. This is the replacement for
-    # the default-admin hook removed from this script earlier, and it satisfies
-    # the three conditions that removal set out: it runs INSIDE the backend
-    # container using the image's own installed code, it sources credentials
-    # from SSM (KMS-encrypted SecureString) rather than generating and printing
-    # them, and it BLOCKS the deploy when it is required and cannot complete.
-    #
-    # Ordering: after the health gate, so migrations have run (the container
-    # entrypoint does `alembic upgrade head`) and we never bootstrap into a
-    # stack that is about to be rolled back.
-    #
-    # Two-phase on purpose. The check comes first and needs no secret, so on
-    # every redeploy — the overwhelmingly common case — the password is never
-    # decrypted, never leaves SSM, and never touches this host.
-    #
-    # PREFIX: the host's own bootstrap.env is authoritative (Terraform writes
-    # it), not a string rebuilt from DEPLOY_ENV. They agree today, and §2 has
-    # already hard-failed on any host/deploy environment mismatch; using the
-    # host value keeps a future prefix change in one place instead of two.
-    SSM_PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/${DEPLOY_ENV}}"
-    ADMIN_EMAIL_PARAM="${SSM_PREFIX}/bootstrap/admin-email"
-    ADMIN_PASSWORD_PARAM="${SSM_PREFIX}/bootstrap/admin-password"
+    # Bootstrap-admin step removed: Cognito-only. See docs/architecture/authentication-and-authorization.md.
 
-    echo "[deploy] checking whether an initial administrator is needed..."
-    set +e
-    compose_stack exec -T backend python -m app.scripts.bootstrap_admin --check-only
-    BOOTSTRAP_CHECK_RC=$?
-    set -e
-
-    case "$BOOTSTRAP_CHECK_RC" in
-        0)
-            echo "[deploy] users table already initialised — no bootstrap needed"
-            ;;
-        10)
-            echo "[deploy] users table is empty — bootstrapping the initial administrator"
-
-            # The email is not a secret, so it is fetched into a variable and
-            # logged: knowing WHICH account was created is exactly what an
-            # operator reading a deploy log needs.
-            if ! ADMIN_EMAIL="$(aws ssm get-parameter \
-                --name "$ADMIN_EMAIL_PARAM" \
-                --query 'Parameter.Value' \
-                --output text \
-                --region "$REGION" 2>/dev/null)"; then
-                echo "[deploy] FATAL: this environment has no users and ${ADMIN_EMAIL_PARAM} is not set." >&2
-                echo "[deploy]        Set BOOTSTRAP_ADMIN_EMAIL on the '${DEPLOY_ENV}' GitHub Environment and re-run." >&2
-                exit 1
-            fi
-            if [ -z "$ADMIN_EMAIL" ] || [ "$ADMIN_EMAIL" = "None" ]; then
-                echo "[deploy] FATAL: ${ADMIN_EMAIL_PARAM} is empty." >&2
-                exit 1
-            fi
-            echo "[deploy] initial administrator will be: ${ADMIN_EMAIL}"
-
-            # The password is NEVER assigned to a shell variable: a variable is
-            # readable in /proc, survives into any subprocess environment, and
-            # tends to end up in an error message. It goes SSM -> pipe -> the
-            # container's stdin and nowhere else. Note there is no `echo` of
-            # this pipeline and no `set -x` anywhere in this script.
-            #
-            # pipefail (set at the top of this file) is what makes this safe:
-            # if get-parameter fails, the pipeline is non-zero even though the
-            # container command may exit on its own — and the command would in
-            # any case reject the empty stdin. Fail-closed either way.
-            echo "[deploy] streaming the bootstrap password from SSM (never logged)..."
-            set +e
-            aws ssm get-parameter \
-                --name "$ADMIN_PASSWORD_PARAM" \
-                --with-decryption \
-                --query 'Parameter.Value' \
-                --output text \
-                --region "$REGION" 2>/dev/null \
-                | compose_stack exec -T backend \
-                    python -m app.scripts.bootstrap_admin \
-                        --email "$ADMIN_EMAIL" \
-                        --password-stdin
-            BOOTSTRAP_RC=$?
-            set -e
-
-            if [ "$BOOTSTRAP_RC" -ne 0 ]; then
-                echo "[deploy] FATAL: could not create the initial administrator (exit ${BOOTSTRAP_RC})." >&2
-                echo "[deploy]        Check that ${ADMIN_PASSWORD_PARAM} exists as a SecureString and is" >&2
-                echo "[deploy]        at least 16 characters (BOOTSTRAP_ADMIN_PASSWORD on the '${DEPLOY_ENV}'" >&2
-                echo "[deploy]        GitHub Environment). The command is idempotent — re-running is safe." >&2
-                echo "[deploy]        The stack itself is HEALTHY and is deliberately NOT rolled back: no" >&2
-                echo "[deploy]        earlier image can log anyone in either, so reverting fixes nothing." >&2
-                exit 1
-            fi
-            echo "[deploy] initial administrator ready — change this password after first login"
-            ;;
-        *)
-            # Neither "needed" nor "not needed": the database state is unknown
-            # (container gone, migrations incomplete, connection refused).
-            # Reporting success here would advertise a usable environment
-            # without knowing whether anyone can log into it.
-            echo "[deploy] FATAL: could not determine whether bootstrap is needed (exit ${BOOTSTRAP_CHECK_RC})." >&2
-            compose_stack logs --tail=40 backend >&2 || true
-            exit 1
-            ;;
-    esac
-
-    # ── 13. Prune unused Docker images ───────────────────────────────────────
+    # ── 12. Prune unused Docker images ───────────────────────────────────────
     # Every deploy pulls a NEW backend/frontend image by digest (§7-§10) but
     # never removed the one it replaced, so pulled images accumulate on the
     # box's local disk (the root/data EBS volume) without bound across enough

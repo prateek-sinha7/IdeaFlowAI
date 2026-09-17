@@ -45,8 +45,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_principal, get_current_user
 from app.core.entitlements import can_run_pipeline
+from app.core.identity import Principal, effective_tier
 from app.models.database import get_db
 from app.models.user import User
 from app.models.workflow_definition import WorkflowDefinition
@@ -490,7 +491,11 @@ def _migrate_attached_skills_to_steps(db: Session, row: WorkflowDefinition) -> N
 )
 def create_user_workflow(
     body: SaveUserWorkflowRequest,
-    current_user: User = Depends(get_current_user),
+    # get_current_principal, not get_current_user: the entitlement gate below
+    # resolves the caller's tier from this request's verified ``cognito:groups``
+    # (Cognito-only auth migration, Decision 3). Identical verification and
+    # revocation checks — the principal is returned rather than discarded.
+    auth: tuple[User, Principal] = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
     """Persist a saved workflow as a ``source="user"`` row (owner-stamped).
@@ -498,6 +503,7 @@ def create_user_workflow(
     Validates the composition with the EXACT launch predicates before any row is
     created (fail-fast, no orphan rows).
     """
+    current_user, principal = auth
     from agents.loader import SUPPORTED_PIPELINE_TYPES
     from agents.registry import allowed_custom_agent_ids
 
@@ -513,7 +519,14 @@ def create_user_workflow(
     # od_prototype to itself — an identity function shaped like a translation.
     # With the od_ labels collapsed there is nothing to normalise: the declared
     # base type IS the entitlement key.
-    allowed, reason = can_run_pipeline(current_user.tier, body.base_pipeline_type)
+    #
+    # Reads the EFFECTIVE tier off the verified token, not ``current_user.tier``
+    # (Decision 3). The DB column is a projection and cannot grant an entitlement
+    # on its own; the launch path re-validates against the live allow-list anyway
+    # (T-21-03), so this gate and that one now agree on their authority.
+    allowed, reason = can_run_pipeline(
+        effective_tier(current_user, principal), body.base_pipeline_type
+    )
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 

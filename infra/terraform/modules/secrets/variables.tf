@@ -72,7 +72,7 @@ variable "cors_origins" {
 }
 
 variable "access_token_expire_hours" {
-  description = "JWT lifetime in hours. NOTE (Cognito migration): once Cognito is the active auth provider, this setting governs break-glass local-admin tokens ONLY — Cognito controls its own access-token lifetime via the app client (see the cognito module's access_token_validity_minutes)."
+  description = "JWT lifetime in hours. UNUSED as of Phase 4 of the Cognito-only auth migration -- Cognito is the sole authentication authority and controls its own access-token lifetime via the app client (see the cognito module's access_token_validity_minutes). Retained as a variable only because ACCESS_TOKEN_EXPIRE_HOURS may still be read by operational tooling that has not been audited off it; the value itself governs nothing in the application."
   type        = number
   default     = 12
 
@@ -83,11 +83,15 @@ variable "access_token_expire_hours" {
 }
 
 # --- Cognito (COGNITO-MIGRATION-PLAN §6.3 / §11) ---------------------------
-# Four parameters written only when the caller opts in. Environments that
-# haven't yet run Phase 1 of the Cognito migration get no new parameters — the
-# backend's boot guard (core/config.py) treats an unset pool id as "Cognito not
-# configured" and refuses to boot ONLY if AUTH_PROVIDER=cognito is also set, so
-# this is safe to leave off during the transitional phases.
+# Four parameters written only when the caller opts in. This module's own
+# `cognito_enabled` stays a plain bool (no validation here) since it is just
+# the count-guard for the four COGNITO_* parameters; the actual "Cognito is
+# mandatory" enforcement lives one level up, on `foundation/variables.tf`'s
+# `cognito_enabled`, which carries a `validation` block requiring `true` and is
+# what this module's input is wired from. As of Phase 4 of the Cognito-only
+# auth migration the backend's boot guard (core/config.py) also unconditionally
+# refuses to boot outside development without a configured pool, so there is
+# no supported "opt out" posture left in practice either way.
 
 variable "cognito_enabled" {
   description = "Whether to create the COGNITO_* parameters. MUST be a plan-time-known boolean rather than a `length(var.cognito_user_pool_id) > 0` test, because the pool id/client id/secret are module outputs that are unknown until apply — counting on them yields \"The count value depends on resource attributes that cannot be determined until apply\"."
@@ -120,35 +124,6 @@ variable "cognito_region" {
   default     = ""
 }
 
-# --- Auth cutover flags (COGNITO-MIGRATION-PLAN §7 Phase 5) -----------------
-# These three are SSM-managed (not baked into the image) precisely so the
-# cutover sequence -- deploy dual-accept, provision users, then flip
-# AUTH_ALLOW_LEGACY_JWT to false -- is an operational parameter change plus a
-# service restart, NOT a code change and redeploy. That is what makes step 7
-# of the Phase 5 checklist safely reversible per environment.
-
-variable "auth_provider" {
-  description = "Active credential authority for NEW logins: \"local\" (pre-migration behaviour) or \"cognito\". Empty (default) omits the parameter, so the application keeps its own \"local\" default."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.auth_provider == "" || contains(["local", "cognito"], var.auth_provider)
-    error_message = "auth_provider must be empty, \"local\", or \"cognito\"."
-  }
-}
-
-variable "auth_allow_legacy_jwt" {
-  description = "Dual-accept window (Decision 11). \"true\" during cutover so BOTH legacy HS256 and Cognito RS256 tokens are accepted (zero forced logouts); flip to \"false\" per environment once legacy tokens have aged out. Empty omits the parameter (application default: true)."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.auth_allow_legacy_jwt == "" || contains(["true", "false"], var.auth_allow_legacy_jwt)
-    error_message = "auth_allow_legacy_jwt must be empty, \"true\", or \"false\"."
-  }
-}
-
 variable "auth_email_mfa_enabled" {
   description = "Whether the pool has email OTP configured as a second factor. Drives the backend's forgot-password posture: when true, email is disqualified as an account-recovery channel and self-service reset must report that instead of silently accepting the request. Empty omits the parameter (application default: false)."
   type        = string
@@ -157,17 +132,6 @@ variable "auth_email_mfa_enabled" {
   validation {
     condition     = var.auth_email_mfa_enabled == "" || contains(["true", "false"], var.auth_email_mfa_enabled)
     error_message = "auth_email_mfa_enabled must be empty, \"true\", or \"false\"."
-  }
-}
-
-variable "break_glass_enabled" {
-  description = "Kill switch for the single local-password break-glass admin (Decision 12). Empty omits the parameter (application default: true)."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.break_glass_enabled == "" || contains(["true", "false"], var.break_glass_enabled)
-    error_message = "break_glass_enabled must be empty, \"true\", or \"false\"."
   }
 }
 

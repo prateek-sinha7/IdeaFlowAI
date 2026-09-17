@@ -1,96 +1,18 @@
-"""Security utilities for password hashing and JWT token management."""
+"""Per-token (jti) revocation lookup.
 
-import uuid
-from datetime import datetime, timedelta, timezone
+Password hashing and local JWT issuance/verification were removed in the
+Cognito-only auth migration (``.kiro/specs/login/prompt.md`` Phase 1):
+Cognito is now the sole authentication authority, so there is no local
+credential to hash or verify, and no local JWT to sign or decode. This
+module keeps only ``is_token_revoked``, which is provider-agnostic (it looks
+up a ``jti`` in the ``revoked_tokens`` table regardless of whether that jti
+came from a Cognito access token or, historically, a local one).
+"""
+
 from typing import TYPE_CHECKING
-
-import bcrypt
-from jose import jwt
-
-from app.core.config import settings
 
 if TYPE_CHECKING:  # pragma: no cover - type-only import
     from sqlalchemy.orm import Session
-
-# JWT configuration
-ALGORITHM = "HS256"
-
-
-def hash_password(password: str) -> str:
-    """Hash a plain-text password using bcrypt.
-
-    Args:
-        password: The plain-text password to hash.
-
-    Returns:
-        The bcrypt hash string.
-    """
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
-    return hashed.decode("utf-8")
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    """Verify a plain-text password against a bcrypt hash.
-
-    Args:
-        plain: The plain-text password to verify.
-        hashed: The bcrypt hash to verify against.
-
-    Returns:
-        True if the password matches the hash, False otherwise.
-    """
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
-
-
-def create_access_token(user_id: str) -> str:
-    """Create a JWT access token with 24-hour expiry.
-
-    Each token is given a fresh ``jti`` (JWT ID) so it can be individually
-    revoked via the ``revoked_tokens`` table.
-
-    Args:
-        user_id: The user ID to encode in the token's 'sub' claim.
-
-    Returns:
-        The encoded JWT token string.
-    """
-    now = datetime.now(timezone.utc)
-    expire = now + timedelta(hours=settings.ACCESS_TOKEN_EXPIRE_HOURS)
-    payload = {
-        "sub": user_id,
-        "exp": expire,
-        "iat": now,
-        "jti": str(uuid.uuid4()),
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
-
-
-def decode_access_token(token: str, *, verify_exp: bool = True) -> dict:
-    """Decode and validate a JWT access token.
-
-    Args:
-        token: The JWT token string to decode.
-        verify_exp: When False, an expired token still decodes successfully
-            (signature/issuer-equivalent checks still apply). Used ONLY by
-            the refresh path (``core.identity.verify_credential(...,
-            allow_expired=True)``), which needs to identify who an expired
-            token belonged to in order to mint a replacement.
-
-    Returns:
-        The decoded payload dictionary with 'sub', 'exp', 'iat', and 'jti'
-        claims.
-
-    Raises:
-        JWTError: If the token is expired (when verify_exp=True), malformed,
-            or has an invalid signature.
-    """
-    return jwt.decode(
-        token,
-        settings.SECRET_KEY,
-        algorithms=[ALGORITHM],
-        options={"verify_exp": verify_exp},
-    )
 
 
 def is_token_revoked(jti: str, db: "Session") -> bool:

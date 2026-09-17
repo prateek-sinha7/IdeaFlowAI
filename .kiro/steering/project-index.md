@@ -5,8 +5,8 @@ inclusion: always
 # IdeaFlowAI — Project Index & Navigation
 
 > **Read this before implementing any feature or bug-fix.**
-> The project's full history lives in the card store — 532 cards, queryable in milliseconds.
-> The registers (`.planning/FIX-REGISTER.md`, `IMPLEMENTATION-REGISTER.md`) are **never** loaded wholesale.
+> The project history is maintained as individual cards under `.knowledge/cards/`.
+> The `.planning/` registers are a frozen fallback and are never loaded wholesale.
 
 ---
 
@@ -16,7 +16,7 @@ inclusion: always
 
 - **Stack:** Python · FastAPI · PostgreSQL · LangGraph checkpointer · LangChain `deepagents==0.6.7`
 - **Full spec:** `specs/003-workflow-engine-decoupling/plan.md`
-- **Issues log:** `.planning/ISSUES-REGISTER.md`
+- **Issues log:** `.planning/ISSUES-REGISTER.md` (fallback only)
 
 ---
 
@@ -28,66 +28,38 @@ inclusion: always
 
 ## Before Implementing Anything
 
-1. **Prime the knowledge store** (once per session):
-   ```
-   python3 scripts/knowledge/ctx.py --help
-   ```
-   Or invoke the `knowledge-prime` skill.
-
-2. **Before touching a file**, query what rules and fixes apply to it:
-   ```
-   python3 scripts/knowledge/ctx.py --for <path>
-   ```
-
-3. **Before diagnosing a bug**, search prior fixes:
-   ```
-   python3 scripts/knowledge/ctx.py "<symptom words>"
-   ```
-
-4. **For domain-specific constraints**, the `fileMatch` steering files load automatically when you open the relevant code.
-
-5. **Check `.planning/ISSUES-REGISTER.md`** for known open issues before touching a surface.
+1. **Prime the knowledge store** once per session with `/velocity prime`.
+2. **Before touching a file**, use the primed `.knowledge/CONTEXT.md` to choose its `MOD-*.md` architecture card. Then use `.knowledge/INDEX.md` to select and open only the relevant cards; inspect their `applies_to` and `locked_constraints` fields.
+3. **Before diagnosing a bug**, use `/velocity analyze <symptom>`. Use `/velocity fix <symptom>` when the user has asked for a repair.
+4. **For domain-specific constraints**, the `fileMatch` steering files load automatically when you open relevant code.
+5. **Use `.planning/` only when cards and the index do not contain the historical detail needed.** State that it is a frozen-archive fallback when reporting anything derived from it.
 
 ---
 
-## Knowledge Store — How to Query
+## Knowledge Store — Current Workflow
 
-```bash
-# Search by symptom (finds fixes, issues, decisions)
-python3 scripts/knowledge/ctx.py "reconnect banner"
+| Need | Current workflow |
+|---|---|
+| Inspect freshness | `/velocity status` |
+| Build or refresh session context | `/velocity prime` |
+| Investigate a symptom | `/velocity analyze <symptom>` |
+| Diagnose and apply a fix | `/velocity fix <symptom>` |
+| Find a card by known ID | Follow its link from `.knowledge/INDEX.md` |
+| Find file or area context | Prime → `.knowledge/CONTEXT.md` → relevant `MOD-*.md` → `.knowledge/INDEX.md` → selected cards |
 
-# Find every rule and fix touching a specific file
-python3 scripts/knowledge/ctx.py --for frontend/src/hooks/useRunStream.ts
-
-# Get decisions in force for an area
-python3 scripts/knowledge/ctx.py --rules sse
-
-# Open one full card
-python3 scripts/knowledge/ctx.py --show FIX-157
-
-# Check store freshness
-python3 scripts/knowledge/check.py
-```
-
-The store contains **532 cards** across fixes, issues, bugs, phases, tests, requirements, and decisions. The full card index is at `.knowledge/surface/INDEX.md`.
+The legacy cache-query command is gone. The active read models are `.knowledge/CONTEXT.md`, `.knowledge/ARCHITECTURE.md`, `.knowledge/INDEX.md`, and the linked cards under `.knowledge/cards/`.
 
 ---
 
 ## Current Project State
 
-Current state, milestone, and enforced import boundaries: `.knowledge/surface/ARCHITECTURE.md`
+Current state, milestone, and enforced import boundaries: `.knowledge/ARCHITECTURE.md`.
 
 ---
 
-## Alembic Migration Chain (head: 0037)
+## Alembic Migration Chain
 
-`0014` → `0015` → `0016` → `0017` → `0018` → `0019` → `0020` → `0021` → `0022` → `0023` → `0024` → `0025` → `0026` → `0027` → `0028` → `0029` → `0030` → `0031` → `0032` → `0033` → `0034` → `0035` → `0036` → `0037`
-
-This number drifts — verify it, don't trust it: `cd backend && alembic heads` must
-print exactly ONE head. Two heads make `alembic upgrade head` fail, which
-crash-loops the container (`docker-entrypoint.sh` runs it under `set -eu`). Two
-collisions have already happened this way: `0031`→re-homed to `0036`, and
-`0032`→re-homed to `0037`.
+The migration head drifts. Verify it from `backend/` with `uv run alembic heads`; it must print exactly one head. Two heads make `alembic upgrade head` fail, which crash-loops the container (`docker-entrypoint.sh` runs it under `set -eu`).
 
 Every new table **must** carry `owner_id` + `workspace_id` (Q3, additive-only).
 
@@ -96,7 +68,7 @@ Every new table **must** carry `owner_id` + `workspace_id` (Q3, additive-only).
 ## Key Source Files
 
 | What | File |
-|------|------|
+|---|---|
 | Runtime kernel | `backend/agents/execution_engine/engine.py` |
 | ExecutionContext | `backend/agents/execution_engine/context.py` |
 | Capability registry | `backend/agents/capabilities/registry.py` |
@@ -116,13 +88,12 @@ Every new table **must** carry `owner_id` + `workspace_id` (Q3, additive-only).
 ## Glossary Quick Reference
 
 | Tag | Meaning |
-|-----|---------|
+|---|---|
 | `INV-#` | Global invariant (see `invariants.md`) |
 | `SC-001` | Zero-engine-edit custom-workflow proof |
 | `Q#` | Locked architecture decision |
-| `ISS-###` | Issue in `.planning/ISSUES-REGISTER.md` |
-| `FIX-###` | Fix card — query with `ctx.py --show FIX-###` |
-| `ADR-###` | Decision card — query with `ctx.py --rules <area>` |
-| `migration 00NN` | Alembic revision |
-| `INV-3` | 5 characterization goldens must stay byte/event-identical |
+| `ISS-###` | Issue card — follow the link from `.knowledge/INDEX.md` |
+| `FIX-###` | Fix card — follow the link from `.knowledge/INDEX.md` |
+| `ADR-###` | Decision card — follow the link from `.knowledge/INDEX.md` |
+| `INV-3` | Characterization goldens must stay byte/event-identical |
 | `LOCK-B` | WS deletion complete — do not reintroduce WS run frames |

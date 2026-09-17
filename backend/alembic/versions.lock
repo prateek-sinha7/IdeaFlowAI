@@ -1,7 +1,7 @@
 {
   "lock_format_version": 1,
   "_comment": "Fingerprints of released Alembic revisions. A mismatch means an already-applied migration was edited, which can never reach a database that is already stamped past it. Regenerate ONLY when adding a new revision: python scripts/migration_guard.py --update",
-  "generated_at": "2026-08-26T08:18:00Z",
+  "generated_at": "2026-09-13T13:43:33Z",
   "revisions": {
     "0001": {
       "file": "0001_initial_schema.py",
@@ -146,6 +146,19 @@
     "0037": {
       "file": "0037_collapse_od_prototype_label.py",
       "logic_sha256": "c95dfc791fd51da76c1a0af87e81e2c4470c8d6b0f486b9ca2500b9df87e9b4d"
+    },
+    "0038": {
+      "file": "0038_cognito_only_users.py",
+      "logic_sha256": "c9e789b67b680f9fbea7ee25a1c3f3b619a09bb8a82650b1acda4a8b2fe96d58"
+    },
+    "0039": {
+      "file": "0039_user_fk_cascades.py",
+      "logic_sha256": "bef021bb03c48860008364c7e197e5fa6af8e42a490278c09b0cf609c9852a89"
+    },
+    "0040": {
+      "file": "0040_api_key_expiry_backfill.py",
+      "logic_sha256": "36d4bb822a79c206e3d1c6727d7d6efe0a654b77c7b05d02ec72daf17e2c337e"
     }
-  }
+  },
+  "last_override_reason": "0038: made idempotent with migration_helpers guards against partial application"
 }

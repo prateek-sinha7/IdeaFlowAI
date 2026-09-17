@@ -23,14 +23,13 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.api.api_key_auth import hash_api_key
+from app.api.api_key_auth import resolve_api_key
 from app.core.config import settings
 from app.models.database import get_db
 from app.models.handoff import (
@@ -39,7 +38,6 @@ from app.models.handoff import (
     HANDOFF_MODE_TEST,
     HANDOFF_STATUS_PENDING,
     HandoffSession,
-    UserApiKey,
 )
 from app.models.user import User
 
@@ -122,42 +120,29 @@ def _get_user_from_bearer(
     request: Request,
     db: Session = Depends(get_db),
 ) -> User:
-    auth = request.headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
+    """Resolve ``Authorization: Bearer flowin_...`` → ``User``.
+
+    This transport carries the API key on the Authorization header rather than
+    ``X-Flowin-API-Key``, so it cannot reuse the
+    ``api_key_auth.get_user_via_api_key`` DEPENDENCY -- but it now shares that
+    dependency's implementation via ``resolve_api_key``.
+
+    It previously carried its own copy of the lookup, and the copy had drifted: it
+    checked ``revoked_at`` but never ``is_expired()``, so MCP clients kept
+    authenticating with keys that had passed the 90-day expiry stamped on their own
+    row (migration 0033). Every check now lives in one function, including expiry
+    and the disabled-account check (Cognito-only auth migration, Decision 6).
+    """
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = auth.split(None, 1)[1].strip()
-    if not token.startswith("flowin_"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    row = (
-        db.query(UserApiKey)
-        .filter(UserApiKey.token_hash == hash_api_key(token))
-        .first()
+    return resolve_api_key(
+        header.split(None, 1)[1].strip(), db, detail="Invalid token"
     )
-    if row is None or row.revoked_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    user = db.query(User).filter(User.id == row.user_id).first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    row.last_used_at = datetime.now(timezone.utc)
-    db.add(row)
-    db.commit()
-    return user
 
 
 def _jsonrpc_response(req_id: Any, result: Any) -> dict[str, Any]:

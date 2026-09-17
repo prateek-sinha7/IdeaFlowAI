@@ -250,7 +250,7 @@ jobs:
       # F-05: sending and polling are delegated to the ssm-run composite
       # action (.github/actions/ssm-run) -- see that file's header for why
       # this ~60-line pair is no longer duplicated by hand across
-      # deploy.yml/provision.yml/admin-recovery.yml. Only payload ASSEMBLY,
+      # deploy.yml/provision.yml/cognito-reconcile.yml. Only payload ASSEMBLY,
       # which differs per caller, stays here.
       - name: Build SSM provision payload
         id: build-payload

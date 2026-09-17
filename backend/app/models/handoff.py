@@ -49,8 +49,13 @@ class UserGithubCredential(Base):
     __tablename__ = "user_github_credentials"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    # ondelete="CASCADE" (migration 0039): purely dependent on the user.
     user_id = Column(
-        String, ForeignKey("users.id"), nullable=False, unique=True, index=True
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
     )
     encrypted_pat = Column(Text, nullable=False)
     github_username = Column(String, nullable=True)
@@ -67,7 +72,10 @@ class UserApiKey(Base):
     __tablename__ = "user_api_keys"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    # ondelete="CASCADE" (migration 0039): purely dependent on the user.
+    user_id = Column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name = Column(String, nullable=False, default="Default")
     token_prefix = Column(String(8), nullable=False)
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
@@ -128,7 +136,13 @@ class HandoffSession(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     token = Column(String(64), unique=True, index=True, nullable=False)
-    issuer_user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    # ondelete="CASCADE" (migration 0039): purely dependent on the user.
+    issuer_user_id = Column(
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     task_description = Column(Text, nullable=False)
     transcript = Column(Text, nullable=False, default="")

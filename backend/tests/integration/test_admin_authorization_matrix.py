@@ -43,9 +43,81 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from botocore.exceptions import ClientError
+
+from app.core import cognito
 from app.core.config import settings
+from app.core.entitlements import ADMIN_GROUP, group_for_tier
 from app.models.database import Base, get_db
-from tests.fixtures.user_factory import create_user
+from tests.fixtures.user_factory import FakeCognitoAuth, create_user
+
+
+class _FakePool:
+    """In-memory Cognito pool: enough of the Admin* surface for the admin
+    router's create/tier/role/delete flows, keyed by email.
+
+    Cognito is the sole authentication authority (Cognito-only auth
+    migration, ``.kiro/specs/login/prompt.md`` Phase 1) — every write this
+    test suite exercises against ``/api/admin/*`` now goes through Cognito
+    Admin* calls, so the fake must model group membership, not just
+    existence.
+    """
+
+    def __init__(self, auth: FakeCognitoAuth) -> None:
+        self._auth = auth
+        self.groups: dict[str, set[str]] = {}  # email -> group names
+        self.disabled: set[str] = set()
+
+    def create_user(self, email: str) -> str:
+        if email in self.groups:
+            raise ClientError(
+                {"Error": {"Code": "UsernameExistsException", "Message": "exists"}},
+                "AdminCreateUser",
+            )
+        self.groups[email] = set()
+        sub = self._auth.sub_for(email)
+        return sub
+
+    def delete_user(self, email: str) -> None:
+        if email not in self.groups:
+            raise ClientError(
+                {"Error": {"Code": "UserNotFoundException", "Message": "absent"}},
+                "AdminDeleteUser",
+            )
+        del self.groups[email]
+        self.disabled.discard(email)
+
+    def disable_user(self, email: str) -> None:
+        if email not in self.groups:
+            raise ClientError(
+                {"Error": {"Code": "UserNotFoundException", "Message": "absent"}},
+                "AdminDisableUser",
+            )
+        self.disabled.add(email)
+
+    def enable_user(self, email: str) -> None:
+        if email not in self.groups:
+            raise ClientError(
+                {"Error": {"Code": "UserNotFoundException", "Message": "absent"}},
+                "AdminEnableUser",
+            )
+        self.disabled.discard(email)
+
+    def add_group(self, email: str, group: str) -> None:
+        self.groups.setdefault(email, set()).add(group)
+
+    def remove_group(self, email: str, group: str) -> None:
+        self.groups.setdefault(email, set()).discard(group)
+
+    def list_groups(self, email: str) -> list[str]:
+        return list(self.groups.get(email, set()))
+
+    def list_users_in_group(self, group: str) -> list[dict]:
+        return [
+            {"Username": email, "Attributes": [{"Name": "email", "Value": email}]}
+            for email, groups in self.groups.items()
+            if group in groups
+        ]
 
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -55,8 +127,11 @@ from tests.fixtures.user_factory import create_user
 def admin_api_client(monkeypatch, tmp_path):
     """FastAPI TestClient backed by fresh in-memory SQLite DB.
 
-    Sets up production auth wiring with no mocks. Same pattern as
-    test_handoff_api but tuned for admin endpoint testing.
+    Sets up production auth wiring with Cognito faked at the boto3-client
+    boundary (``FakeCognitoAuth`` + ``_FakePool``) — real code paths in
+    ``core.identity``/``api.auth``/``api.admin`` run unmodified; only the
+    AWS network call is replaced. Same DB-setup pattern as
+    test_handoff_api, tuned for admin endpoint testing.
     """
     db_path = tmp_path / "test_admin.db"
     db_url = f"sqlite:///{db_path}"
@@ -97,9 +172,61 @@ def admin_api_client(monkeypatch, tmp_path):
     monkeypatch.setattr(db_module, "engine", test_engine)
     monkeypatch.setattr(db_module, "SessionLocal", TestSession)
 
+    fake_auth = FakeCognitoAuth(monkeypatch)
+    fake_auth.configure_settings()
+    pool = _FakePool(fake_auth)
+
+    def _fake_admin_initiate_auth(email: str, password: str):
+        # Mint a token carrying the pool's CURRENT group membership for this
+        # email, so require_admin's cognito:groups-derived check reflects
+        # whatever this fixture/test set on `pool.groups` — not a fixed
+        # empty list.
+        del password
+        return {
+            "AuthenticationResult": {
+                "AccessToken": fake_auth._mint_token(
+                    email, groups=pool.list_groups(email)
+                ),
+                "RefreshToken": "fake-refresh-token",
+            }
+        }
+
+    monkeypatch.setattr(cognito, "admin_initiate_auth", _fake_admin_initiate_auth)
+
+    def _fake_admin_create_user(email: str, *_a, **_k):
+        sub = pool.create_user(email)
+        return {"User": {"Attributes": [{"Name": "sub", "Value": sub}]}}
+
+    monkeypatch.setattr(cognito, "admin_create_user", _fake_admin_create_user)
+    monkeypatch.setattr(cognito, "admin_set_user_password", lambda *a, **k: None)
+    monkeypatch.setattr(
+        cognito, "admin_add_user_to_group", lambda email, group: pool.add_group(email, group)
+    )
+    monkeypatch.setattr(
+        cognito,
+        "admin_remove_user_from_group",
+        lambda email, group: pool.remove_group(email, group),
+    )
+    monkeypatch.setattr(
+        cognito, "admin_list_groups_for_user", lambda email: pool.list_groups(email)
+    )
+    monkeypatch.setattr(cognito, "admin_user_global_sign_out", lambda *a, **k: None)
+    monkeypatch.setattr(cognito, "admin_delete_user", lambda email: pool.delete_user(email))
+    monkeypatch.setattr(
+        cognito, "admin_disable_user", lambda email: pool.disable_user(email)
+    )
+    monkeypatch.setattr(
+        cognito, "admin_enable_user", lambda email: pool.enable_user(email)
+    )
+    monkeypatch.setattr(
+        cognito, "list_users_in_group", lambda group: pool.list_users_in_group(group)
+    )
+
     with TestClient(app) as client:
         client.SessionLocal = TestSession
         client.test_engine = test_engine
+        client.fake_auth = fake_auth
+        client.pool = pool
         yield client
 
     app.dependency_overrides.clear()
@@ -108,18 +235,25 @@ def admin_api_client(monkeypatch, tmp_path):
 @pytest.fixture()
 def admin_user(admin_api_client):
     """Create an admin user and return (user_id, jwt_token)."""
+    email = "admin@example.com"
     session = admin_api_client.SessionLocal()
     try:
         admin = create_user(
-            session, "admin@example.com", "SecurePassword123", is_admin=True
+            session,
+            email,
+            "SecurePassword123",
+            is_admin=True,
+            tier="enterprise",
+            cognito_sub=admin_api_client.fake_auth.sub_for(email),
         )
         admin_id = admin.id
     finally:
         session.close()
+    admin_api_client.pool.groups[email] = {group_for_tier("enterprise"), ADMIN_GROUP}
 
     resp = admin_api_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "SecurePassword123"},
+        json={"email": email, "password": "SecurePassword123"},
     )
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
@@ -129,18 +263,24 @@ def admin_user(admin_api_client):
 @pytest.fixture()
 def regular_user(admin_api_client):
     """Create a regular non-admin user and return (user_id, jwt_token)."""
+    email = "regular@example.com"
     session = admin_api_client.SessionLocal()
     try:
         user = create_user(
-            session, "regular@example.com", "SecurePassword123", is_admin=False
+            session,
+            email,
+            "SecurePassword123",
+            is_admin=False,
+            cognito_sub=admin_api_client.fake_auth.sub_for(email),
         )
         user_id = user.id
     finally:
         session.close()
+    admin_api_client.pool.groups[email] = {group_for_tier("basic")}
 
     resp = admin_api_client.post(
         "/api/auth/login",
-        json={"email": "regular@example.com", "password": "SecurePassword123"},
+        json={"email": email, "password": "SecurePassword123"},
     )
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
@@ -265,7 +405,6 @@ class TestCreateUserAuthorization:
         user_id, token = regular_user
         payload = {
             "email": "another@example.com",
-            "password": "SecurePass123",
             "tier": "basic",
             "is_admin": False,
         }
@@ -274,11 +413,13 @@ class TestCreateUserAuthorization:
         assert resp.status_code == 403
 
     def test_create_user_succeeds_for_admin(self, admin_api_client, admin_user):
-        """Authenticated admin → 201 with created user record persisted."""
+        """Authenticated admin → 201 with created user record persisted.
+
+        Phase 3: no password field — creation is invitation-only
+        (``core.cognito_admin.invite_user``)."""
         admin_id, token = admin_user
         payload = {
             "email": "created@example.com",
-            "password": "SecurePass123",
             "tier": "pro",
             "is_admin": False,
         }
@@ -324,7 +465,6 @@ class TestCreateUserAuthorization:
         # Attempt to create a user with the same email as regular_user
         payload = {
             "email": "regular@example.com",  # Already exists
-            "password": "DifferentPass456",
             "tier": "basic",
             "is_admin": False,
         }
@@ -362,7 +502,6 @@ class TestCreateUserAuthorization:
 
         payload = {
             "email": "invalid_tier@example.com",
-            "password": "SecurePass123",
             "tier": "invalid_tier_name",  # Not in TIER_PIPELINES
             "is_admin": False,
         }
@@ -379,10 +518,11 @@ class TestCreateUserAuthorization:
         finally:
             session.close()
 
-    def test_create_user_short_password_validation_error(
-        self, admin_api_client, admin_user
-    ):
-        """Password too short → 400 with byte-identical pre-state."""
+    def test_create_user_rejects_a_password_field(self, admin_api_client, admin_user):
+        """Phase 3: creation is invitation-only. A client that still POSTs a
+        ``password`` (hoping to set one) gets a 422 from Pydantic's
+        ``extra=forbid`` — never a silently-ignored value that could make the
+        caller believe a password was set when it never reached Cognito."""
         admin_id, token = admin_user
 
         session = admin_api_client.SessionLocal()
@@ -393,15 +533,13 @@ class TestCreateUserAuthorization:
 
         payload = {
             "email": "shortpass@example.com",
-            "password": "short",  # Less than 8 chars
+            "password": "short",
             "tier": "basic",
             "is_admin": False,
         }
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.post("/api/admin/users", json=payload, headers=headers)
-        assert resp.status_code == 400
-        error = resp.json()
-        assert "password" in error.get("detail", "").lower()
+        assert resp.status_code == 422
 
         # Verify state unchanged
         session = admin_api_client.SessionLocal()
@@ -680,3 +818,336 @@ class TestAdminCrossWorkspaceIsolation:
         headers = {"Authorization": f"Bearer {token}"}
         resp = admin_api_client.get("/api/admin/users", headers=headers)
         assert resp.status_code == 200
+
+
+# ─── Phase 3 (Cognito-only auth migration): disable/enable + last-admin ────
+
+
+class TestUpdateUserRoleLastAdminProtection:
+    def test_demote_refuses_when_the_target_is_the_sole_real_admin(
+        self, admin_api_client, admin_user
+    ):
+        """A distinct-actor path for the last-admin check on
+        ``PATCH .../role`` (Phase 3, Decision 6) — the self-action guard only
+        fires when the actor targets themselves, so this constructs a drift
+        scenario (a local ``is_admin=True`` row that never actually joined the
+        Cognito admin group) to exercise the LIVE ``ListUsersInGroup`` check
+        from a different acting admin."""
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        session = admin_api_client.SessionLocal()
+        try:
+            from app.models.user import User
+
+            drifted = User(
+                id="drifted-admin-3",
+                email="drifted3@example.com",
+                cognito_sub=admin_api_client.fake_auth.sub_for("drifted3@example.com"),
+                tier="enterprise",
+                is_admin=True,
+            )
+            session.add(drifted)
+            session.commit()
+            before = _snapshot_all_users(session)
+        finally:
+            session.close()
+
+        resp = admin_api_client.patch(
+            "/api/admin/users/drifted-admin-3/role",
+            json={"is_admin": False},
+            headers=headers,
+        )
+        assert resp.status_code == 409
+
+        session = admin_api_client.SessionLocal()
+        try:
+            _assert_users_unchanged(session, before)
+        finally:
+            session.close()
+
+
+class TestDisableUserAuthorization:
+    """Test POST /api/admin/users/{user_id}/disable across authorization
+    states (Phase 3, Decision 6 — new endpoint)."""
+
+    def test_disable_requires_authentication(self, admin_api_client, regular_user):
+        user_id, _ = regular_user
+        resp = admin_api_client.post(f"/api/admin/users/{user_id}/disable")
+        assert resp.status_code == 401
+
+    def test_disable_requires_admin_role(self, admin_api_client, regular_user):
+        user_id, token = regular_user
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = admin_api_client.post(
+            f"/api/admin/users/{user_id}/disable", headers=headers
+        )
+        assert resp.status_code == 403
+
+    def test_disable_succeeds_for_admin_on_other_user(
+        self, admin_api_client, admin_user, regular_user
+    ):
+        admin_id, token = admin_user
+        user_id, _ = regular_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = admin_api_client.post(
+            f"/api/admin/users/{user_id}/disable", headers=headers
+        )
+        assert resp.status_code == 200
+
+        session = admin_api_client.SessionLocal()
+        try:
+            from app.models.user import User
+
+            user = session.query(User).filter(User.id == user_id).first()
+            assert user.status == "disabled"
+        finally:
+            session.close()
+
+    def test_disabled_user_cannot_log_in_again(
+        self, admin_api_client, admin_user, regular_user
+    ):
+        """The point of the endpoint: a disabled account is rejected by the
+        credential verifier (core.identity.resolve_principal), not merely
+        flagged in the database."""
+        admin_id, admin_token = admin_user
+        user_id, user_token = regular_user
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        resp = admin_api_client.post(
+            f"/api/admin/users/{user_id}/disable", headers=headers
+        )
+        assert resp.status_code == 200
+
+        # The token minted BEFORE the disable must now be rejected.
+        probe = admin_api_client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {user_token}"}
+        )
+        assert probe.status_code == 401
+
+    def test_disable_cannot_target_self(self, admin_api_client, admin_user):
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = admin_api_client.post(
+            f"/api/admin/users/{admin_id}/disable", headers=headers
+        )
+        assert resp.status_code == 400
+
+    def test_disable_refuses_when_the_target_is_the_sole_real_admin(
+        self, admin_api_client, admin_user
+    ):
+        """A distinct-actor path for the last-admin check, not the self-action
+        guard (which fires only for self-targeting requests and is tested
+        separately).
+
+        Constructed via a DB/pool drift: two local rows are flagged
+        ``is_admin=True``, but only ONE of them is an actual member of the
+        Cognito admin group — a realistic state after a partial prior
+        failure or a manual console edit. The acting admin is the REAL
+        group member; the target is the drifted row. Since the live group
+        has exactly one member, ``is_last_admin`` correctly refuses to
+        remove it, even though the actor is a DIFFERENT account.
+        """
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # A second row flagged admin locally, but never actually added to the
+        # Cognito admin group — simulated drift.
+        session = admin_api_client.SessionLocal()
+        try:
+            from app.models.user import User
+
+            drifted = User(
+                id="drifted-admin",
+                email="drifted@example.com",
+                cognito_sub=admin_api_client.fake_auth.sub_for("drifted@example.com"),
+                tier="enterprise",
+                is_admin=True,
+            )
+            session.add(drifted)
+            session.commit()
+        finally:
+            session.close()
+
+        resp = admin_api_client.post(
+            "/api/admin/users/drifted-admin/disable", headers=headers
+        )
+        assert resp.status_code == 409
+
+    def test_disable_target_not_found(self, admin_api_client, admin_user):
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = admin_api_client.post(
+            "/api/admin/users/nonexistent-id/disable", headers=headers
+        )
+        assert resp.status_code == 404
+
+    def test_disable_twice_is_rejected_with_409(
+        self, admin_api_client, admin_user, regular_user
+    ):
+        admin_id, token = admin_user
+        user_id, _ = regular_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        first = admin_api_client.post(
+            f"/api/admin/users/{user_id}/disable", headers=headers
+        )
+        assert first.status_code == 200
+
+        second = admin_api_client.post(
+            f"/api/admin/users/{user_id}/disable", headers=headers
+        )
+        assert second.status_code == 409
+
+
+class TestEnableUserAuthorization:
+    """Test POST /api/admin/users/{user_id}/enable (Phase 3, Decision 6)."""
+
+    def test_enable_requires_admin_role(self, admin_api_client, regular_user):
+        user_id, token = regular_user
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = admin_api_client.post(
+            f"/api/admin/users/{user_id}/enable", headers=headers
+        )
+        assert resp.status_code == 403
+
+    def test_enable_reverses_a_disable(
+        self, admin_api_client, admin_user, regular_user
+    ):
+        admin_id, token = admin_user
+        user_id, _ = regular_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        admin_api_client.post(f"/api/admin/users/{user_id}/disable", headers=headers)
+        resp = admin_api_client.post(
+            f"/api/admin/users/{user_id}/enable", headers=headers
+        )
+        assert resp.status_code == 200
+
+        session = admin_api_client.SessionLocal()
+        try:
+            from app.models.user import User
+
+            user = session.query(User).filter(User.id == user_id).first()
+            assert user.status == "active"
+        finally:
+            session.close()
+
+    def test_enable_an_already_active_user_is_rejected_with_409(
+        self, admin_api_client, admin_user, regular_user
+    ):
+        admin_id, token = admin_user
+        user_id, _ = regular_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = admin_api_client.post(
+            f"/api/admin/users/{user_id}/enable", headers=headers
+        )
+        assert resp.status_code == 409
+
+
+class TestCreateUserInvitationOnly:
+    """Phase 3, Decision 6: creation never sets a permanent password."""
+
+    def test_created_user_starts_in_force_change_password_state(
+        self, admin_api_client, admin_user
+    ):
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = admin_api_client.post(
+            "/api/admin/users",
+            json={"email": "invitee@example.com", "tier": "basic", "is_admin": False},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+
+        pool_user = admin_api_client.pool.groups  # membership sanity check
+        assert "invitee@example.com" in pool_user
+        assert group_for_tier("basic") in pool_user["invitee@example.com"]
+
+    def test_compensating_delete_fires_when_the_local_insert_fails(
+        self, admin_api_client, admin_user, monkeypatch
+    ):
+        """Phase 6 checklist item: "admin create -> pool user in expected
+        groups + DB row, and compensation on DB failure".
+
+        ``api/admin.py::create_user`` creates the Cognito pool user FIRST
+        (``cognito_admin.invite_user``), then inserts the local row; if that
+        insert's ``db.commit()`` raises, the handler's own except-block calls
+        ``cognito_admin.try_delete_pool_user`` so the pool user this request
+        just created is not left orphaned with no local row (the exact "email
+        already exists at Cognito but not locally" state that would otherwise
+        require ``scripts/reconcile_cognito_users.py`` to notice and fix).
+
+        Forces the failure at the SQLAlchemy ``Session.commit`` level (a
+        constraint violation, disk-full, whatever) rather than mocking
+        ``db.add`` — this exercises the handler's real
+        ``try/except Exception`` branch around ``db.commit()`` exactly as
+        written, not a synthetic shortcut.
+        """
+        from sqlalchemy.orm import Session
+
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+        email = "orphan-risk@example.com"
+
+        def _boom(self, *a, **k):
+            raise RuntimeError("simulated commit failure")
+
+        # Patch narrowly: only THIS request's local-insert commit fails.
+        # admin_user's own fixture setup already committed before this
+        # monkeypatch is applied, so it is unaffected.
+        monkeypatch.setattr(Session, "commit", _boom)
+
+        resp = admin_api_client.post(
+            "/api/admin/users",
+            json={"email": email, "tier": "basic", "is_admin": False},
+            headers=headers,
+        )
+        assert resp.status_code == 500
+
+        # The pool user the handler created before the DB failure must have
+        # been compensated away -- no orphaned Cognito identity survives.
+        assert email not in admin_api_client.pool.groups
+
+
+class TestDeleteUserLastAdminProtection:
+    def test_delete_refuses_when_the_target_is_the_sole_real_admin(
+        self, admin_api_client, admin_user
+    ):
+        """Same drift construction as
+        ``TestDisableUserAuthorization::test_disable_refuses_when_the_target_is_the_sole_real_admin``
+        — a distinct-actor path for delete's SAME ``is_last_admin`` guard."""
+        admin_id, token = admin_user
+        headers = {"Authorization": f"Bearer {token}"}
+
+        session = admin_api_client.SessionLocal()
+        try:
+            from app.models.user import User
+
+            drifted = User(
+                id="drifted-admin-2",
+                email="drifted2@example.com",
+                cognito_sub=admin_api_client.fake_auth.sub_for("drifted2@example.com"),
+                tier="enterprise",
+                is_admin=True,
+            )
+            session.add(drifted)
+            session.commit()
+            before = _snapshot_all_users(session)
+        finally:
+            session.close()
+
+        resp = admin_api_client.delete(
+            "/api/admin/users/drifted-admin-2", headers=headers
+        )
+        assert resp.status_code == 409
+
+        session = admin_api_client.SessionLocal()
+        try:
+            _assert_users_unchanged(session, before)
+        finally:
+            session.close()

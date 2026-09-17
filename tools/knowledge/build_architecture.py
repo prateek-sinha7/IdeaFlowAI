@@ -158,7 +158,7 @@ def scan_source_files() -> list[str]:
         for p in backend.rglob("*.py"):
             if PY_EXCLUDE & set(p.relative_to(REPO_ROOT).parts):
                 continue
-            files.append(str(p.relative_to(REPO_ROOT)))
+            files.append(p.relative_to(REPO_ROOT).as_posix())
 
     frontend_src = REPO_ROOT / "frontend" / "src"
     if frontend_src.is_dir():
@@ -167,7 +167,7 @@ def scan_source_files() -> list[str]:
                 continue
             if FE_EXCLUDE & set(p.relative_to(REPO_ROOT).parts):
                 continue
-            files.append(str(p.relative_to(REPO_ROOT)))
+            files.append(p.relative_to(REPO_ROOT).as_posix())
 
     return sorted(set(files))
 
@@ -515,7 +515,10 @@ def extract_frontend_edges(known: set[str]) -> tuple[dict[str, set], dict[str, s
     # alias imports are precisely the CROSS-module ones. Without it every
     # `@/components/...` import comes back unresolved and the module graph
     # collapses to intra-module relative imports only.
-    cmd = ["npx", "--no-install", "depcruise", "src", "--output-type", "json", "--no-config"]
+    # Windows exposes npx as a .cmd shim, which CreateProcess does not resolve
+    # when the executable is passed as a bare name.
+    npx_command = "npx.cmd" if os.name == "nt" else "npx"
+    cmd = [npx_command, "--no-install", "depcruise", "src", "--output-type", "json", "--no-config"]
     if (fe / "tsconfig.json").is_file():
         cmd += ["--ts-config", "tsconfig.json"]
     proc = subprocess.run(cmd, cwd=fe, capture_output=True, text=True)
@@ -738,7 +741,7 @@ def read_hand_authored(out_path: Path) -> str:
     """
     if not out_path.exists():
         return DEFAULT_HAND_AUTHORED
-    text = out_path.read_text()
+    text = out_path.read_text(encoding="utf-8")
     if not text.strip():
         return DEFAULT_HAND_AUTHORED
     m = FRONTMATTER_RE.match(text)
@@ -1460,7 +1463,7 @@ def live_watch_set(card: Path, files: list[str]) -> list[str]:
 def _tracked_files() -> list[str]:
     """Every tracked source file, from modules.json -- no extractor needed."""
     try:
-        data = json.loads((OUT_DIR / "modules.json").read_text())
+        data = json.loads((OUT_DIR / "modules.json").read_text(encoding="utf-8"))
         return [f for m in data["modules"] for f in m.get("files", [])]
     except (OSError, ValueError, KeyError):
         return scan_source_files()
@@ -1996,7 +1999,7 @@ def main() -> int:
         # extractors this flag exists to avoid -- so this answers the cheap
         # question: has a file been ADDED or REMOVED since the last scan?
         try:
-            prior = json.loads((OUT_DIR / "modules.json").read_text())
+            prior = json.loads((OUT_DIR / "modules.json").read_text(encoding="utf-8"))
             known_prior = {f for m in prior["modules"] for f in m.get("files", [])}
         except (OSError, ValueError, KeyError):
             print("modules.json missing or unreadable -- rebuild needed")

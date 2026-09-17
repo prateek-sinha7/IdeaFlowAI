@@ -574,6 +574,11 @@ class TestConciergeRevisionPath:
                     run_id=parent_run,
                     message_id=str(uuid.uuid4()),
                     current_user=fake_user,
+                    # The caller's EFFECTIVE tier, forwarded to the revision
+                    # entitlement gate (Cognito-only auth migration, Decision 3).
+                    # Enterprise because this test is about the analyzer call,
+                    # not about entitlement.
+                    caller_tier="enterprise",
                     wr_status="completed",
                     wr_type="prototype",
                     gate_key=None,
@@ -645,6 +650,8 @@ class TestConciergeRevisionPath:
                     run_id=fake_run_id,
                     message_id=str(uuid.uuid4()),
                     current_user=fake_user,
+                    # See the note on the sibling call above (Decision 3).
+                    caller_tier="enterprise",
                     wr_status="completed",
                     wr_type="user_stories",
                     gate_key=None,

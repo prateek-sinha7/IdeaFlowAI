@@ -220,6 +220,18 @@ COPY --chown=flowin:flowin agents/ ./agents/
 COPY --chown=flowin:flowin alembic/ ./alembic/
 COPY --chown=flowin:flowin alembic.ini ./alembic.ini
 
+# Pre-migration deploy gate. `.github/scripts/remote-deploy.sh` runs this in a
+# one-off container from THIS image (compose run --entrypoint python) after
+# `compose pull` and before `up -d`:
+#   scripts/migrate_local_users_to_cognito.py --report --fail-on-unlinked
+# It is read-only. It has to be baked in because the gate must assert what THIS
+# image's migrations require — docker-entrypoint.sh runs `alembic upgrade head`
+# under `set -eu`, so a row migration 0038 rejects otherwise becomes a container
+# that never binds its port rather than a legible deploy failure. Copied as a
+# single file, not the whole scripts/ tree: nothing else in there is needed at
+# runtime and the rest carries operator-only tooling.
+COPY --chown=flowin:flowin scripts/migrate_local_users_to_cognito.py ./scripts/migrate_local_users_to_cognito.py
+
 # OpenDesign reference content (design-templates, design-systems, craft rules,
 # prompt-templates) that app/services/od_loader.py reads from disk. Supplied as
 # a NAMED build context (buildx: --build-context opendesign=skills/opendesign;

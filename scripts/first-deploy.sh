@@ -83,7 +83,6 @@ echo "==> building frontend -> $FRONTEND_REPO:$TAG"
 # its own build with its own FQDN.
 docker build \
     --build-arg "NEXT_PUBLIC_API_URL=https://$FQDN" \
-    --build-arg "NEXT_PUBLIC_WS_URL=wss://$FQDN/ws/chat" \
     -t "$FRONTEND_REPO:$TAG" \
     frontend/
 

@@ -1,12 +1,11 @@
 """FastAPI dependencies for authentication and authorization.
 
-Rewired for the Cognito Authentication & Authorization Migration
-(``.planning/COGNITO-MIGRATION-PLAN.md`` §7 Phase 2): ``_decode_and_load_user``
-now delegates to the single shared resolver in ``core/identity.py``
-(``verify_credential`` + ``resolve_principal``), which dual-accepts Cognito
-RS256 and legacy HS256 tokens. Every external signature in this module is
-UNCHANGED -- the 76 ``Depends(get_current_user)`` call sites across 21 files
-need no edits.
+``_decode_and_load_user`` delegates to the single shared resolver in
+``core/identity.py`` (``verify_credential`` + ``resolve_principal``), which
+verifies a Cognito RS256 access token -- the sole credential path since the
+Cognito-only auth migration (``.kiro/specs/login/prompt.md`` Phase 1). Every
+external signature in this module is UNCHANGED -- the many
+``Depends(get_current_user)`` call sites across the codebase need no edits.
 """
 
 import random
@@ -113,6 +112,32 @@ def _check_password_change_revocation(user: User, principal: Principal) -> None:
         )
 
 
+def _sync_role_projection(user: User, principal: Principal, db: Session) -> None:
+    """Bring the advisory ``tier``/``is_admin`` projection up to this token.
+
+    Decision 4 of the Cognito-only auth migration: the projection is refreshed
+    "at login and on any authenticated request whose token ``iat`` >
+    ``roles_synced_at``". The login half already existed; this is the second
+    half, and it closes a real staleness hole rather than a theoretical one.
+    ``POST /api/auth/refresh`` mints a token carrying FRESH ``cognito:groups``
+    but is not a login, so before this an admin tier change followed by
+    ``AdminUserGlobalSignOut`` + a silent client refresh left
+    ``GET /api/admin/users`` reporting the pre-change tier until the user
+    happened to sign in interactively again.
+
+    Not an authorization decision and not on the critical path for one: every
+    gate reads ``cognito:groups`` off the verified token via
+    ``core.identity.effective_tier``/``effective_is_admin`` regardless of what
+    this column says. Called after the revocation gates so a token that is
+    about to be rejected does not get to write anything, and a no-op (a single
+    integer comparison against an already-loaded column) on every request after
+    the first one that carries a given token.
+    """
+    from app.core.provisioning import refresh_projection_if_stale
+
+    refresh_projection_if_stale(user, principal.groups, principal.iat, db)
+
+
 def _maybe_run_lazy_gc(db: Session) -> None:
     """Lazy GC: ~1 in 1000 requests cleans up expired revoked-token rows."""
     if random.random() < 0.001:
@@ -157,6 +182,7 @@ def get_current_user_with_payload(
     # --- Generalized blanket revocation (password change OR role/tier change) ---
     _check_password_change_revocation(user, principal)
 
+    _sync_role_projection(user, principal, db)
     _maybe_run_lazy_gc(db)
 
     return user, _principal_as_payload(principal)
@@ -190,6 +216,7 @@ def get_current_principal(
         )
 
     _check_password_change_revocation(user, principal)
+    _sync_role_projection(user, principal, db)
     _maybe_run_lazy_gc(db)
 
     return user, principal
@@ -209,9 +236,7 @@ def get_current_user(
     - Token whose ``jti`` has been individually revoked (logout, legacy path)
     - Token issued before the user's most recent password OR role/tier change
 
-    Accepts either a Cognito RS256 access token or (while
-    ``AUTH_ALLOW_LEGACY_JWT``/break-glass applies) a legacy HS256 token — see
-    ``core.identity.verify_credential``.
+    Accepts a Cognito RS256 access token — see ``core.identity.verify_credential``.
 
     Args:
         credentials: The Bearer token from the Authorization header.

@@ -54,7 +54,13 @@ from sqlalchemy.pool import StaticPool
 from agents.authz import ScopedStore
 from app.api.run_stream import _iter_sse_frames, router as stream_router
 from app.core.config import settings
-from app.core.dependencies import get_current_user, get_current_user_with_payload
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.core.dependencies import (
+    bearer_scheme,
+    get_current_user,
+    get_current_user_with_payload,
+)
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
 from app.models.workflow import WorkflowRun
@@ -80,7 +86,6 @@ from tests.agents.characterization._sse_projection import (
 class _FakeUser:
     def __init__(self, id: str):
         self.id = id
-        self.auth_provider = "local"
 
 
 @pytest.fixture
@@ -139,6 +144,12 @@ def matrix(monkeypatch):
     app.dependency_overrides[get_current_user_with_payload] = lambda: (
         state["user"],
         {"jti": None, "iat": None},
+    )
+    # The raw bearer the periodic credential re-check needs (Phase 2). Never
+    # verified on these paths: they assert replay/attach wire parity, which
+    # completes before the live-drain re-check cadence.
+    app.dependency_overrides[bearer_scheme] = lambda: HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="stubbed-not-verified"
     )
     app.dependency_overrides[get_db] = lambda: (yield session)
     client = TestClient(app)

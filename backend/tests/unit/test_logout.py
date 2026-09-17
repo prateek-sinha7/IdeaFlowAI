@@ -7,12 +7,16 @@ Covers:
 - A second login produces a fresh ``jti`` whose token still works after the
   first one is revoked.
 - Changing the password blanket-revokes every JWT whose ``iat`` predates the
-  rotation (the ``password_changed_at`` path).
+  rotation (the ``tokens_valid_from`` path).
 - Logging out twice with the same ``jti`` is idempotent — both calls 204.
 
 These tests stand up a real FastAPI ``TestClient`` against the auth router
 backed by an in-memory SQLite database, with the production ``get_db``
-dependency overridden so each test gets a fresh schema.
+dependency overridden so each test gets a fresh schema. Cognito is the sole
+authentication authority (Cognito-only auth migration,
+``.kiro/specs/login/prompt.md`` Phase 1): ``FakeCognitoAuth`` mints real
+RS256 tokens the offline verifier accepts, with no network call — see
+``tests/fixtures/user_factory.py``.
 """
 
 import time
@@ -26,7 +30,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.auth import router as auth_router
-from app.core.security import decode_access_token
+from app.core import cognito
 from app.models.database import Base, get_db
 
 # Ensure RevokedToken's table is registered with Base.metadata before
@@ -35,11 +39,11 @@ from app.models.revoked_token import RevokedToken  # noqa: F401
 from app.models.user import User  # noqa: F401  (registers the table on Base.metadata)
 from app.models.chat import ChatSession, Message  # noqa: F401
 from app.models.workflow import WorkflowRun  # noqa: F401
-from tests.fixtures.user_factory import create_user
+from tests.fixtures.user_factory import FakeCognitoAuth, create_user
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     """Build a TestClient backed by a fresh in-memory SQLite DB."""
     # StaticPool keeps the in-memory database alive across the multiple
     # SQLAlchemy connections that get checked out per request — without it,
@@ -64,10 +68,20 @@ def client():
     app.include_router(auth_router)
     app.dependency_overrides[get_db] = override_get_db
 
+    fake_auth = FakeCognitoAuth(monkeypatch)
+    fake_auth.configure_settings()
+    # revoke_token / decrypt path: /logout best-effort revokes a stored
+    # refresh token, which these tests never populate, so no-op it.
+    monkeypatch.setattr(cognito, "revoke_token", lambda *_a, **_k: None)
+    # change_password always "succeeds" — password verification is Cognito's
+    # job, not something these JWT/logout-focused tests exercise.
+    monkeypatch.setattr(cognito, "change_password", lambda *_a, **_k: None)
+
     with TestClient(app) as test_client:
         # Exposed so _register can create users directly (self-registration
         # is disabled — see app/api/auth.py) against this test's own engine.
         test_client.SessionLocal = TestingSession
+        test_client.fake_auth = fake_auth
         yield test_client
 
     app.dependency_overrides.clear()
@@ -75,29 +89,34 @@ def client():
     engine.dispose()
 
 
+def decode_access_token(token: str) -> dict:
+    """Decode a Cognito-shaped test token without re-verifying it (the
+    signature was already proven by the real login/verify round-trip)."""
+    from jose import jwt as jose_jwt
+
+    return jose_jwt.get_unverified_claims(token)
+
+
 def _register(
     client, email: str = "alice@example.com", password: str = "password123"
 ) -> dict:
-    """Create a local ("break-glass"-shaped) user directly in the test DB, then
-    log in and return the parsed AuthResponse JSON.
+    """Create a Cognito-linked user directly in the test DB, then log in and
+    return the parsed AuthResponse JSON.
 
     ``POST /api/auth/register`` is a permanent 403 (self-registration is
-    admin-only by design), so this helper can no longer exercise it. It inserts
-    directly instead — the same shape as the real bootstrap path
-    (``app/scripts/bootstrap_admin.py`` / ``backend/scripts/seed_test_users.py``),
-    which also inserts rather than going through an HTTP registration endpoint.
-    The row is an ``auth_provider="local"`` user (the column's model default),
-    which is what account creation for a local user is at any point in the
-    codebase's history — pre- and post-Cognito.
+    admin-only by design), so this helper can no longer exercise it. It
+    inserts directly instead, with a ``cognito_sub`` that matches what
+    ``FakeCognitoAuth`` will mint for this email — see
+    ``tests/fixtures/user_factory.py``.
 
     These tests are about JWT/logout behaviour, not account creation, so the
     insert goes through the shared ``tests.fixtures.user_factory.create_user``
-    helper (one hashing path, shared with every other auth suite) and the token
-    comes from the real ``/api/auth/login`` flow — the part under test.
+    helper (shared with every other auth suite) and the token comes from the
+    real ``/api/auth/login`` flow — the part under test.
     """
     session = client.SessionLocal()
     try:
-        create_user(session, email, password)
+        create_user(session, email, password, cognito_sub=client.fake_auth.sub_for(email))
     finally:
         session.close()
     return _login(client, email=email, password=password)

@@ -52,8 +52,9 @@ from agents.capabilities.model_pricing import estimate_cost_usd
 from app.agents.chat_runner import ChatRunner
 from app.agents.modes import get_mode_prompt
 from app.core.config import settings
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_principal, get_current_user
 from app.core.entitlements import can_run_pipeline
+from app.core.identity import Principal, effective_tier
 from app.models.chat import ChatSession, Message
 from app.models.user import User
 from app.models.workflow import WorkflowRun
@@ -607,7 +608,11 @@ async def cancel_run(
 @router.post("/{run_id}/resume")
 async def resume_run_endpoint(
     run_id: str,
-    current_user: User = Depends(get_current_user),
+    # get_current_principal — see the note on ``launch_run``. Resume re-drives the
+    # same pipeline, so it must deny on the same live-token entitlement a fresh
+    # launch would; a downgraded user must not keep a restricted pipeline alive
+    # by resuming it.
+    auth: tuple[User, Principal] = Depends(get_current_principal),
 ):
     """Resume a terminal-FAILED or CANCELLED run over HTTP (RESUME-18 / KAN-120).
 
@@ -636,6 +641,7 @@ async def resume_run_endpoint(
       7. Spawn ``_drive_user_resume`` + register the task (closes the mutex window).
       8. Return 200 ``{"run_id": run_id}``.
     """
+    current_user, principal = auth
 
     db = _get_db()
     try:
@@ -672,7 +678,7 @@ async def resume_run_endpoint(
         # tier no longer entitles them to it (e.g. downgraded after launch), resume
         # must deny exactly as a fresh launch would — never a way to route around
         # the launch-time gate.
-        _require_tier_entitlement(current_user, wr.type)
+        _require_tier_entitlement(current_user, principal, wr.type)
 
         # specs/014: resume re-drives new agent work exactly like a fresh launch —
         # gated at the same point, same as the tier check immediately above.
@@ -1299,6 +1305,11 @@ async def _dispose_concierge_proposal(
     run_id: str,
     message_id: str,
     current_user: "User",
+    # The caller's EFFECTIVE tier (``core.identity.effective_tier``), forwarded to
+    # ``_mint_revision_row``'s entitlement gate. A Concierge-proposed revision is
+    # subject to exactly the same tier check a directly-requested one is — the
+    # proposal path must not become a way around it (Decision 3).
+    caller_tier: str,
     wr_status: str,
     wr_type: str,
     gate_key: str | None,
@@ -1540,6 +1551,7 @@ async def _dispose_concierge_proposal(
             _mint_revision_row(
                 rdb,
                 user=current_user,
+                caller_tier=caller_tier,
                 parent_run_id=run_id,
                 target_artifact_type=target,
                 instruction=instruction,
@@ -1574,7 +1586,10 @@ async def _dispose_concierge_proposal(
 async def post_message(
     run_id: str,
     body: MessageCommand,
-    current_user: User = Depends(get_current_user),
+    # get_current_principal — the revision and concierge channels below reach
+    # ``_mint_revision_row``'s tier gate, which reads the EFFECTIVE tier off this
+    # request's verified token (Decision 3).
+    auth: tuple[User, Principal] = Depends(get_current_principal),
 ):
     """Persist + deliver one up-channel chat turn (CHAT-01/02/05, 29-09).
 
@@ -1583,6 +1598,9 @@ async def post_message(
     (IDOR → 404, never 403). The turn persists as an idempotent ``chat_message`` row
     (D-01), then the mechanical router (Task 3 wiring) delivers it by run state.
     """
+    current_user, principal = auth
+    caller_tier = effective_tier(current_user, principal)
+
     from agents.authz import ScopedStore
 
     from app.api.chat_router import (
@@ -1811,6 +1829,7 @@ async def post_message(
             child_run_id, _ = _mint_revision_row(
                 rdb,
                 user=current_user,
+                caller_tier=caller_tier,
                 parent_run_id=run_id,
                 target_artifact_type=target_artifact_type,
                 instruction=dispatch.instruction or "",
@@ -1881,6 +1900,7 @@ async def post_message(
                 run_id=run_id,
                 message_id=body.message_id,
                 current_user=current_user,
+                caller_tier=caller_tier,
                 wr_status=wr_status,
                 wr_type=wr_type,
                 gate_key=resolved_gate_key,
@@ -2115,6 +2135,7 @@ async def post_message(
                         run_id=run_id,
                         message_id=body.message_id,
                         current_user=current_user,
+                        caller_tier=caller_tier,
                         wr_status=wr_status,
                         wr_type=wr_type,
                         gate_key=resolved_gate_key,
@@ -2328,30 +2349,44 @@ def _reject(
     )
 
 
-def _require_tier_entitlement(current_user: User, pipeline_type: str) -> None:
-    """P1 fix (COGNITO-AUTH-QA-BUGS.md "REST Pipeline Launch Has No Tier
-    Check"): enforce ``can_run_pipeline(tier, pipeline_type)`` before a run
-    (or revision, or resume) is minted/driven. Previously ``launch_run``,
-    ``create_revision``, and ``resume_run_endpoint`` never called this at
-    all — the entitlement helper existed and was used at save-time in
-    ``user_workflows.py`` but was completely absent from every REST launch
-    codepath, so any authenticated user could run a tier-restricted pipeline
-    regardless of their subscription tier.
+def _require_tier_entitlement(
+    current_user: User, principal: Principal, pipeline_type: str
+) -> None:
+    """Enforce ``can_run_pipeline(tier, pipeline_type)`` before a run (or
+    revision, or resume) is minted/driven.
 
-    Reads ``current_user.tier`` — the SAME source ``user_workflows.py``'s
-    save-time gate already uses. This is the DB column, which is advisory on
-    the Cognito path relative to a live token's ``cognito:groups`` (see
-    ``core.identity``'s precedence rule) but is refreshed on every login
-    (``_refresh_role_projection``) and re-stamped synchronously on every
-    admin tier-change write (``admin.py::update_user_tier``, which also
-    forces ``AdminUserGlobalSignOut`` so a stale token cannot outlive the
-    change) — the same one-cycle staleness window ``admin.py::require_admin``
-    already documents accepting for the analogous ``is_admin`` check. Closing
-    that residual window to a per-request live-token read is a further
-    hardening step, deferred like ``require_admin``'s, not a gap this fix
-    reintroduces.
+    P1 fix (COGNITO-AUTH-QA-BUGS.md "REST Pipeline Launch Has No Tier Check"):
+    ``launch_run``, ``create_revision`` and ``resume_run_endpoint`` once never
+    called this at all — the helper existed and was used at save-time in
+    ``user_workflows.py`` but was absent from every REST launch codepath, so any
+    authenticated user could run a tier-restricted pipeline regardless of their
+    subscription tier.
+
+    Reads the EFFECTIVE tier (Cognito-only auth migration,
+    ``.kiro/specs/login/prompt.md`` Decision 3: "No gate may read the projection
+    alone; ``_require_tier_entitlement`` must use ``effective_tier()``"). Until
+    Phase 2 it read ``current_user.tier`` — the DB column — and its own docstring
+    argued the resulting staleness was acceptable because the column is refreshed
+    at login and re-stamped by ``admin.py::update_user_tier``, "the same
+    one-cycle window ``require_admin`` already accepts".
+
+    That argument did not hold up. ``require_admin`` does NOT read the column: it
+    calls ``effective_is_admin`` with a live principal. This gate had no
+    principal available at all — it was handed only a ``User`` — so its window
+    was not the same one, and it was not bounded by anything. Two ways it opened:
+    a token minted before an admin write still carries the OLD
+    ``cognito:groups``, and until Phase 2 the projection was refreshed only on
+    interactive login, so a session kept alive purely by silent
+    ``POST /api/auth/refresh`` calls could run on a stale column indefinitely.
+
+    Now the token IS the authority: ``effective_tier`` resolves
+    ``cognito:groups`` off the verified credential presented with THIS request,
+    so a group change takes effect on the very next request rather than at the
+    next login — and the DB column cannot grant anything on its own.
     """
-    allowed, reason = can_run_pipeline(current_user.tier, pipeline_type)
+    allowed, reason = can_run_pipeline(
+        effective_tier(current_user, principal), pipeline_type
+    )
     if not allowed:
         raise _reject(
             "tier_not_entitled",
@@ -2542,7 +2577,11 @@ def _clean_run_title(content: str | None, pipeline_type: str) -> str:
 @router.post("")
 async def launch_run(
     body: LaunchCommand,
-    current_user: User = Depends(get_current_user),
+    # get_current_principal, not get_current_user: the tier gate below resolves
+    # entitlement from this request's verified `cognito:groups`, which needs the
+    # Principal (Decision 3). Same verification + revocation checks either way —
+    # the only difference is that the principal is returned instead of discarded.
+    auth: tuple[User, Principal] = Depends(get_current_principal),
 ):
     """Launch a run over REST (mirrors WS ``run_pipeline``).
 
@@ -2551,6 +2590,8 @@ async def launch_run(
     execute), then mints the run + spawns the background driver onto the per-run
     queue and returns ``{run_id}``. The SSE stream (29-02) attaches to that queue.
     """
+    current_user, principal = auth
+
     from agents.loader import load_agent_spec
     from agents.registry import (
         PIPELINE_AGENTS,
@@ -2708,7 +2749,7 @@ async def launch_run(
     # "od_prototype" and "prototype" as DISTINCT keys, and WorkflowRun.type is
     # stamped from pipeline_type too. Checking the alias-collapsed base would
     # silently mis-key the lookup for every od_prototype launch.
-    _require_tier_entitlement(current_user, pipeline_type)
+    _require_tier_entitlement(current_user, principal, pipeline_type)
 
     # ── Capacity gate (specs/014) — checked right beside the entitlement gate, at
     # the same "deny before mint" point, before any registry lookup or DB row. ──
@@ -3463,6 +3504,7 @@ def _mint_revision_row(
     db,
     *,
     user: User,
+    caller_tier: str,
     parent_run_id: str,
     target_artifact_type: str,
     instruction: str,
@@ -3480,6 +3522,15 @@ def _mint_revision_row(
     ``pipeline_run_id``: optional pre-generated run ID. When provided, used as
     the row ID directly instead of generating a new UUID. Allows the caller to
     pre-create the event queue before calling this function.
+
+    ``caller_tier``: the caller's EFFECTIVE tier, resolved by the endpoint from
+    the verified token's ``cognito:groups`` (``core.identity.effective_tier``).
+    Required, not derived from ``user.tier`` — the whole point of Decision 3 of
+    the Cognito-only auth migration is that the DB column cannot be the input to
+    an entitlement decision. It is passed as a resolved string rather than as a
+    ``Principal`` because that is genuinely all this function needs: it makes no
+    identity decision, and a parameter it could accidentally use for one would
+    be a wider contract than the job justifies.
     """
     from agents.registry import get_pipeline_agents
 
@@ -3515,9 +3566,13 @@ def _mint_revision_row(
     # Single insertion covers all 3 production call sites (create_revision,
     # CHANNEL_REVISION in post_message, Concierge "revision" disposal). Fails fast
     # BEFORE any registry lookup or DB row is minted, matching the fail-fast
-    # pattern in user_workflows.py. user.tier is available — the full User object
-    # is threaded to every caller already.
-    _rev_allowed, _rev_reason = can_run_pipeline(user.tier, revision_pipeline_type)
+    # pattern in user_workflows.py.
+    #
+    # Reads ``caller_tier`` — the EFFECTIVE tier off this request's verified token
+    # — not ``user.tier``. Until Phase 2 this was the DB projection, so a
+    # revision could be minted on an entitlement the caller's live
+    # ``cognito:groups`` no longer granted (Decision 3).
+    _rev_allowed, _rev_reason = can_run_pipeline(caller_tier, revision_pipeline_type)
     if not _rev_allowed:
         raise _reject(
             "pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN
@@ -3694,7 +3749,10 @@ async def _classify_revision_tier(
 async def create_revision(
     run_id: str,
     body: RevisionCommand,
-    current_user: User = Depends(get_current_user),
+    # get_current_principal — see the note on ``launch_run``. A revision is new
+    # agent work, so it is gated on the caller's EFFECTIVE tier exactly as a
+    # fresh launch is (Decision 3).
+    auth: tuple[User, Principal] = Depends(get_current_principal),
 ):
     """Dispatch a child revision run over REST (mirrors WS ``run_revision``).
 
@@ -3703,6 +3761,9 @@ async def create_revision(
     child run (parent_run_id + owner_id) and spawns the WS-agnostic revision
     driver onto the per-run queue; the SSE stream (29-02) attaches.
     """
+    current_user, principal = auth
+    caller_tier = effective_tier(current_user, principal)
+
     # Parent-link ownership: resolve the parent by id AND owner (user_id) — a
     # missing or cross-owner parent is indistinguishable (both 404).
     db = _get_db()
@@ -3758,6 +3819,7 @@ async def create_revision(
         _mint_revision_row(
             db,
             user=current_user,
+            caller_tier=caller_tier,
             parent_run_id=run_id,
             target_artifact_type=effective_target,
             instruction=body.instruction,

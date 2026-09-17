@@ -100,8 +100,31 @@ ADMIN_GROUP = "flowin-admins"
 # Lower precedence number wins (Cognito's own convention, mirrored here).
 # Order matters: the first matching entry in iteration order is NOT what
 # decides precedence -- the explicit `precedence` value is what's compared.
+#
+# `flowin-tier-hexaware` at precedence 15 (Cognito-only auth migration,
+# ``.kiro/specs/login/prompt.md`` Decision 5). Until Phase 2 `hexaware` was a
+# fully-wired tier in TIER_PIPELINES/TIER_LABELS/UPGRADE_PATH with NO Cognito
+# group anywhere -- harmless only while the entitlement gates still read the
+# ``users.tier`` DB column. Phase 2 makes ``cognito:groups`` the sole authority
+# for those gates, at which point a missing group is silently an entitlement
+# DOWNGRADE: every hexaware user would resolve to DEFAULT_TIER and lose the
+# prototype family. The group must therefore land in the SAME change that
+# switches the gates over. Precedence 15 places hexaware between enterprise
+# (10) and pro (20) because it is a scoped tier, not a subset of pro: it grants
+# the prototype family (which pro also has) but deliberately excludes the ppt
+# and app_builder families (which pro has and hexaware must not). Neither tier
+# is a superset of the other, so any relative order is a judgement call;
+# hexaware wins over pro so that a deployment that deliberately scopes a user
+# down to hexaware is not silently widened back to pro by a leftover
+# `flowin-tier-pro` membership.
+#
+# The Terraform group resource is added in Phase 4
+# (``infra/terraform/modules/cognito``). Until then this entry resolves nothing
+# in a real pool -- it cannot, because no token can carry a group the pool does
+# not have -- so shipping it early is inert rather than a live grant.
 _TIER_GROUP_PRECEDENCE: dict[str, tuple[Tier, int]] = {
     "flowin-tier-enterprise": ("enterprise", 10),
+    "flowin-tier-hexaware": ("hexaware", 15),
     "flowin-tier-pro": ("pro", 20),
     "flowin-tier-basic": ("basic", 30),
 }
@@ -113,6 +136,13 @@ DEFAULT_TIER: Tier = "basic"
 _TIER_TO_GROUP: dict[str, str] = {
     tier: group for group, (tier, _precedence) in _TIER_GROUP_PRECEDENCE.items()
 }
+
+#: Every group name that grants a tier. Exported for the admin write path's
+#: stale-group sweep (``api/admin.py::update_user_tier`` removes every tier
+#: group the account actually holds except the target one), which previously
+#: kept its OWN hardcoded tier->group dict and so could not see a group this
+#: table gained -- exactly how `hexaware` came to be missing from it.
+TIER_GROUPS: frozenset[str] = frozenset(_TIER_GROUP_PRECEDENCE)
 
 
 def group_for_tier(tier: str) -> str:

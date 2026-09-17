@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Users, Shield, ChevronDown, Search, Plus, Trash2,
-  RefreshCw, CheckCircle2, AlertCircle, X, LogOut,
+  RefreshCw, CheckCircle2, AlertCircle, X, LogOut, Ban, PlayCircle, Key,
 } from "lucide-react";
 import {
   getToken, getMe, logout,
   adminListUsers, adminUpdateTier, adminCreateUser, adminDeleteUser,
-  adminUpdateRole,
+  adminUpdateRole, adminDisableUser, adminEnableUser, adminResetUserPassword, ApiError,
+  onAdminMfaRequired,
 } from "@/lib/api";
 import type { AdminUser } from "@/lib/api";
 import { buildLoginRedirect } from "@/lib/authRedirect";
@@ -119,7 +120,6 @@ function TierDropdown({ userId, currentTier, onUpdate }: {
 
 export default function AdminPage() {
   const router = useRouter();
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -132,9 +132,10 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"users" | "machines">("users");
   const capacityState = useCapacityMatrix(getToken());
 
-  // Create user form
+  // Create user form -- invitation-only (Cognito migration Phase 3): no
+  // password field. Cognito emails a temporary password directly to the new
+  // account; this admin panel never sees or sets one.
   const [newEmail, setNewEmail] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [newTier, setNewTier] = useState<Tier>("basic");
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -143,6 +144,25 @@ export default function AdminPage() {
     setToast({ type, text });
     setTimeout(() => setToast(null), 3500);
   }, []);
+
+  // An admin who holds no second factor is refused by `require_admin` on every
+  // route this page needs, so there is nothing here worth rendering — send them
+  // to the enrolment view the server named instead of leaving them on a page
+  // that can only show "Failed to load users".
+  //
+  // The subscription is on the ApiError seam rather than on any single call:
+  // `loadUsers` swallows its error to render that generic message, so a
+  // per-call handler would never see the 403 that matters most.
+  //
+  // `replace`, not `push`: the blocked admin page is not a step worth keeping in
+  // history — going Back from enrolment would land on the same 403.
+  useEffect(() => {
+    return onAdminMfaRequired((detail) => {
+      router.replace(
+        `/settings/security?enroll=${encodeURIComponent(detail.enroll_path)}`,
+      );
+    });
+  }, [router]);
 
   // Declared BEFORE the effect that calls it, and memoized, so the effect can
   // list it as a real dependency. Previously it was a plain function declared
@@ -175,7 +195,6 @@ export default function AdminPage() {
     // back through login (they ARE authenticated, just not authorized here).
     getMe(token).then(user => {
       if (!user.is_admin) { router.replace("/dashboard"); return; }
-      setCurrentUserId(user.id);
       loadUsers(token);
     }).catch(() => router.replace(buildLoginRedirect()));
   }, [router, loadUsers]);
@@ -201,26 +220,71 @@ export default function AdminPage() {
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_admin: updated.is_admin } : u));
       showToast("success", isAdmin ? "Admin access granted" : "Admin access removed");
     } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 409) {
+        const detail = err.detail as { code?: string } | string;
+        if (typeof detail === "object" && detail.code === "last_admin") {
+          showToast("error", "Cannot remove the last administrator.");
+          return;
+        }
+      }
       const msg = err instanceof Error ? err.message : "Failed to update role";
       showToast("error", msg);
     }
   };
 
   const handleCreateUser = async () => {
-    if (!newEmail || !newPassword) return;
+    if (!newEmail) return;
     const token = getToken();
     if (!token) return;
     setCreating(true);
     try {
-      const created = await adminCreateUser(token, newEmail, newPassword, newTier, newIsAdmin);
+      const created = await adminCreateUser(token, newEmail, newTier, newIsAdmin);
       setUsers(prev => [created, ...prev]);
       setShowCreate(false);
-      setNewEmail(""); setNewPassword(""); setNewTier("basic"); setNewIsAdmin(false);
-      showToast("success", `User ${created.email} created`);
+      setNewEmail(""); setNewTier("basic"); setNewIsAdmin(false);
+      showToast("success", `Invited ${created.email}`);
     } catch (err: unknown) {
       showToast("error", err instanceof Error ? err.message : "Failed to create user");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDisableUser = async (userId: string) => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const updated = await adminDisableUser(token, userId);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: updated.status } : u));
+      showToast("success", "User disabled");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to disable user";
+      showToast("error", msg);
+    }
+  };
+
+  const handleEnableUser = async (userId: string) => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const updated = await adminEnableUser(token, userId);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: updated.status } : u));
+      showToast("success", "User re-enabled");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to enable user";
+      showToast("error", msg);
+    }
+  };
+
+  const handleResetPassword = async (userId: string) => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      await adminResetUserPassword(token, userId);
+      showToast("success", "Temporary password issued; user must change it at next login.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to reset password";
+      showToast("error", msg);
     }
   };
 
@@ -231,8 +295,22 @@ export default function AdminPage() {
       await adminDeleteUser(token, userId);
       setUsers(prev => prev.filter(u => u.id !== userId));
       setDeleteConfirm(null);
-      showToast("success", "User deleted");
-    } catch {
+      showToast("success", "User removed. Cognito deletion is pending and will be retried automatically.");
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          const detail = err.detail as { code?: string } | string;
+          if (typeof detail === "object" && detail.code === "last_admin") {
+            showToast("error", "Cannot remove the last administrator.");
+            return;
+          }
+        }
+        if (err.status === 202) {
+          showToast("success", "User removed. Cognito deletion is pending and will be retried automatically.");
+          setDeleteConfirm(null);
+          return;
+        }
+      }
       showToast("error", "Failed to delete user");
     }
   };
@@ -251,6 +329,7 @@ export default function AdminPage() {
     basic: users.filter(u => u.tier === "basic").length,
     pro: users.filter(u => u.tier === "pro").length,
     enterprise: users.filter(u => u.tier === "enterprise").length,
+    hexaware: users.filter(u => u.tier === "hexaware").length,
     admins: users.filter(u => u.is_admin).length,
   };
 
@@ -305,12 +384,13 @@ export default function AdminPage() {
         ) : (
         <>
         {/* Stat cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
           {[
             { label: "Total Users",  value: stats.total,      color: "text-ink-900" },
             { label: "Basic",        value: stats.basic,      color: "text-ink-500" },
             { label: "Pro",          value: stats.pro,        color: "text-brand" },
             { label: "Enterprise",   value: stats.enterprise, color: "text-ink-900" },
+            { label: "Hexaware",     value: stats.hexaware,   color: "text-ink-900" },
             { label: "Admins",       value: stats.admins,     color: "text-brand" },
           ].map((s, i) => (
             <motion.div
@@ -381,18 +461,21 @@ export default function AdminPage() {
                   <th className="text-left text-[10px] font-semibold text-ink-400 uppercase tracking-wider px-4 py-2.5">Plan</th>
                   <th className="text-center text-[10px] font-semibold text-ink-400 uppercase tracking-wider px-4 py-2.5">Runs</th>
                   <th className="text-center text-[10px] font-semibold text-ink-400 uppercase tracking-wider px-4 py-2.5">Role</th>
+                  <th className="text-center text-[10px] font-semibold text-ink-400 uppercase tracking-wider px-4 py-2.5">Status</th>
                   <th className="text-left text-[10px] font-semibold text-ink-400 uppercase tracking-wider px-4 py-2.5">Joined</th>
                   <th className="text-right text-[10px] font-semibold text-ink-400 uppercase tracking-wider px-5 py-2.5">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((user, i) => (
+                {filtered.map((user, i) => {
+                  const isDisabled = user.status === "disabled";
+                  return (
                   <motion.tr
                     key={user.id}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.02 }}
-                    className="border-t border-line-divider hover:bg-surface-warm transition-colors"
+                    className={`border-t border-line-divider hover:bg-surface-warm transition-colors ${isDisabled ? "opacity-60" : ""}`}
                   >
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2.5">
@@ -420,16 +503,9 @@ export default function AdminPage() {
                     <td className="px-4 py-3.5 text-center">
                       <button
                         onClick={() => handleUpdateRole(user.id, !user.is_admin)}
-                        disabled={user.id === currentUserId && user.is_admin}
                         aria-label={user.is_admin ? `Remove admin access from ${user.email}` : `Grant admin access to ${user.email}`}
-                        className="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-60"
-                        title={
-                          user.id === currentUserId && user.is_admin
-                            ? "You cannot remove your own admin access"
-                            : user.is_admin
-                              ? "Click to remove admin access"
-                              : "Click to grant admin access"
-                        }
+                        className="inline-flex items-center"
+                        title={user.is_admin ? "Click to remove admin access" : "Click to grant admin access"}
                       >
                         {user.is_admin ? (
                           <Pill className="!bg-brand-fill !border-brand-border !text-brand text-[9px] font-bold uppercase px-1.5 py-0.5">
@@ -440,24 +516,64 @@ export default function AdminPage() {
                         )}
                       </button>
                     </td>
+                    <td className="px-4 py-3.5 text-center">
+                      {isDisabled ? (
+                        <Pill className="!bg-[var(--status-failed-fill)] !border-[var(--status-failed-border)] !text-status-failed text-[9px] font-bold uppercase px-1.5 py-0.5">
+                          Disabled
+                        </Pill>
+                      ) : (
+                        <Pill className="text-[9px] font-bold uppercase px-1.5 py-0.5">
+                          Active
+                        </Pill>
+                      )}
+                    </td>
                     <td className="px-4 py-3.5">
                       <span className="text-[11px] text-ink-400">
                         {new Date(user.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      {!user.is_admin && (
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleResetPassword(user.id)}
+                          aria-label={`Reset password for ${user.email}`}
+                          title="Issue temporary password"
+                          className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-brand hover:bg-brand-fill transition-colors"
+                        >
+                          <Key className="h-3.5 w-3.5" />
+                        </button>
+                        {isDisabled ? (
+                          <button
+                            onClick={() => handleEnableUser(user.id)}
+                            aria-label={`Enable ${user.email}`}
+                            title="Re-enable this account"
+                            className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-status-done hover:bg-[var(--status-done-fill)] transition-colors"
+                          >
+                            <PlayCircle className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleDisableUser(user.id)}
+                            aria-label={`Disable ${user.email}`}
+                            title="Disable this account (reversible)"
+                            className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-colors"
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setDeleteConfirm(user.id)}
                           aria-label={`Delete ${user.email}`}
-                          className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors ml-auto"
+                          title="Permanently delete this account"
+                          className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                      )}
+                      </div>
                     </td>
                   </motion.tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -498,12 +614,6 @@ export default function AdminPage() {
                     placeholder="user@example.com" />
                 </div>
                 <div>
-                  <label htmlFor="new-user-password" className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Password</label>
-                  <input id="new-user-password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                    className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-ink-400"
-                    placeholder="At least 8 characters" />
-                </div>
-                <div>
                   <label htmlFor="new-user-tier" className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Plan</label>
                   <select id="new-user-tier" value={newTier} onChange={e => setNewTier(e.target.value as Tier)}
                     aria-label="Select plan tier"
@@ -519,12 +629,20 @@ export default function AdminPage() {
                     className="h-4 w-4 rounded border-line-control accent-brand focus:ring-brand" />
                   <span className="text-[12px] text-ink-700">Grant admin access</span>
                 </label>
+                {/* Invitation-only creation (Cognito migration Phase 3, Decision
+                    6): there is no password field. A temporary password is
+                    generated and emailed directly to the new account -- this
+                    admin panel never sees or sets it. */}
+                <p className="text-[11px] text-ink-500 leading-relaxed bg-surface-warm rounded-[var(--radius-button)] px-3 py-2.5">
+                  This creates an invitation. The new user receives a temporary
+                  password by email and sets their own password on first sign-in.
+                </p>
                 <Button
                   onClick={handleCreateUser}
-                  disabled={creating || !newEmail || !newPassword}
+                  disabled={creating || !newEmail}
                   className="w-full mt-1"
                 >
-                  {creating ? "Creating..." : "Create User"}
+                  {creating ? "Sending invite..." : "Send Invitation"}
                 </Button>
               </div>
             </motion.div>
@@ -553,7 +671,11 @@ export default function AdminPage() {
                 <Trash2 className="h-5 w-5 text-status-failed" />
               </div>
               <h3 className="text-[14px] font-semibold text-ink-900 mb-1 font-sans">Delete user?</h3>
-              <p className="text-[12px] text-ink-500 mb-5">This will permanently delete the user and all their data. This cannot be undone.</p>
+              <p className="text-[12px] text-ink-500 mb-5">
+                This will permanently delete the user and all their data. This cannot be undone.
+                The account is disabled immediately; if the identity-provider cleanup can&apos;t
+                complete right away it finishes automatically in the background.
+              </p>
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={() => setDeleteConfirm(null)} className="flex-1">
                   Cancel

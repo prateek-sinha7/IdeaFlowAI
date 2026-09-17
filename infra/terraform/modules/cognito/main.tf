@@ -242,6 +242,15 @@ resource "aws_cognito_user_group" "tier_enterprise" {
   description  = "tier = enterprise"
 }
 
+# Added Phase 4 of the Cognito-only auth migration (Decision 5) -- see the
+# extended rationale on the group_names variable in variables.tf.
+resource "aws_cognito_user_group" "tier_hexaware" {
+  name         = var.group_names.tier_hexaware
+  user_pool_id = aws_cognito_user_pool.this.id
+  precedence   = 15
+  description  = "tier = hexaware"
+}
+
 resource "aws_cognito_user_group" "tier_pro" {
   name         = var.group_names.tier_pro
   user_pool_id = aws_cognito_user_pool.this.id

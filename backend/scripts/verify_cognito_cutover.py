@@ -1,40 +1,57 @@
-"""Verify a Cognito cutover, and reconcile the two identity stores.
+"""Verify the Cognito-only cutover, and reconcile the two identity stores.
 
-Part of the Cognito Authentication & Authorization Migration
-(``.planning/COGNITO-MIGRATION-PLAN.md`` §7 Phase 5 steps 5-6, plus the
-reconciliation report the risk register calls for at R7).
-
-This is the gate that decides whether an environment is safe to advance to
-step 7 (``AUTH_ALLOW_LEGACY_JWT=false``). It exits non-zero if ANY check
-fails, so it can be dropped straight into a pipeline as a release gate.
+Part of the Cognito-only auth migration (``.kiro/specs/login/prompt.md``
+Phase 1). Cognito is the sole authentication authority now — there is no
+local/break-glass admin and no ``AUTH_PROVIDER``/``AUTH_ALLOW_LEGACY_JWT``
+dual-accept window to gate on. This script's checks were rewritten to match:
+the break-glass and residual-password-hash checks are gone (there is no
+local credential path for either to find), and C1 now simply asserts every
+row has a linked ``cognito_sub``.
 
 CHECKS
 ------
-  C1  Zero unmapped Cognito users
-        SELECT count(*) FROM users WHERE auth_provider='cognito'
-                                     AND cognito_sub IS NULL   -> 0
-      A Cognito-provider row without a ``cognito_sub`` can never be resolved
-      by ``core/identity.py::resolve_principal`` — that user simply cannot log
+  C1  Zero unmapped users   (DATA)
+        SELECT count(*) FROM users WHERE cognito_sub IS NULL   -> 0
+      A row without a ``cognito_sub`` can never be resolved by
+      ``core/identity.py::resolve_principal`` — that user simply cannot log
       in. This is the single most important post-provisioning assertion.
 
-  C2  Exactly one local (break-glass) admin
-      The break-glass design (§5.6) is only worth its retained attack surface
-      if there is exactly one of it. Zero means no recovery path from a
-      Cognito outage; more than one means several standing weaknesses.
+  C2  Local-credential columns are gone   (SCHEMA, Phase 2)
+      ``users`` no longer has ``password_hash`` or ``auth_provider``,
+      ``cognito_sub`` is NOT NULL, and ``status`` exists. C1 is a data check
+      and passes happily against a schema that still carries the local-auth
+      columns — which is precisely the state of a box whose image was updated
+      but whose ``alembic upgrade head`` did not run. In that state the ORM
+      model and the table disagree and C1 has verified nothing.
 
-  C3  No Cognito user retains a local password hash
-      A leftover ``password_hash`` on a Cognito row is a second, unmanaged
-      credential for that identity, outside the pool's policy/MFA/lockout.
+  C3  Alembic head matches this code   (Phase 2)
+      Exactly one stamped revision, equal to ``EXPECTED_ALEMBIC_HEAD``. Makes
+      C2's failure actionable by naming the revision the database is parked on,
+      and independently catches the two-heads condition that crash-loops the
+      container (``docker-entrypoint.sh`` runs the upgrade under ``set -eu``).
+
+  C6  Every tier round-trips through a Cognito group   (Phase 2)
+      Phase 2 made ``cognito:groups`` the sole entitlement authority, so a tier
+      with no group of its own is no longer a latent inconsistency — it is a
+      silent entitlement DOWNGRADE to the fail-closed default. ``hexaware`` was
+      in exactly that state (``MERGE_NOTES.md`` §2).
 
   C4  Local-store -> pool reconciliation  (requires --check-pool)
-      Every ``auth_provider='cognito'`` row has a live pool user, and its
-      ``cognito_sub`` still matches. Catches the R14 delete/recreate case
-      (``sub`` reuse) and orphaned local rows.
+      Every row has a live pool user, and its ``cognito_sub`` still matches.
+      Catches the sub-reuse case (pool user deleted and recreated) and
+      orphaned local rows.
 
   C5  Pool -> local-store reconciliation  (requires --check-pool)
-      Every pool user has a local row. An orphaned POOL user can authenticate
-      against Cognito but has no local identity, so it 401s at
-      ``resolve_principal`` — invisible unless you look.
+      Every pool user has a local row.
+
+      NOTE (Phase 2): this is now INFORMATIONAL in nature, though still
+      reported as a failure by this script because a cutover gate should be
+      strict. Just-in-time provisioning (``core/provisioning.py``) creates the
+      missing row on the user's first successful sign-in, so a pool user
+      without one is no longer permanently locked out — the state is
+      self-healing. For ONGOING monitoring prefer
+      ``app/scripts/reconcile_cognito_users.py``, which classifies this case as
+      informational and does not fail on it.
 
 USAGE (from backend/)
 ---------------------
@@ -86,77 +103,202 @@ class Report:
         print(f"  [{status}] {check}: {detail}")
 
 
+#: The Alembic head this build of the application expects. Restated here rather
+#: than derived from ``alembic/versions/`` on disk: the point of C3 is to catch a
+#: box running MIGRATIONS that do not match its CODE, and reading the head off
+#: the same checkout the code came from would make the check tautological — it
+#: would agree with itself no matter what the database says.
+EXPECTED_ALEMBIC_HEAD = "0040"
+
+
 def _check_db(db, report: Report) -> None:
     print("\nDatabase checks")
 
-    # --- C1: zero unmapped Cognito users ---
-    unmapped = (
-        db.query(User)
-        .filter(User.auth_provider == "cognito", User.cognito_sub.is_(None))
-        .all()
-    )
-    if unmapped:
-        report.record(
-            _FAIL,
-            "C1 unmapped-cognito-users",
-            f"{len(unmapped)} row(s) have auth_provider='cognito' but no cognito_sub "
-            f"and therefore CANNOT log in: {', '.join(u.email for u in unmapped)}",
-        )
-    else:
-        report.record(_PASS, "C1 unmapped-cognito-users", "0 unmapped rows")
+    # SCHEMA checks run BEFORE the data check, and the ordering is load-bearing
+    # rather than cosmetic. C1 queries through the ORM, whose `User` model
+    # includes post-0038 columns (`status`, and a NOT NULL `cognito_sub`). Run
+    # against a database that has NOT been migrated, that SELECT raises
+    # OperationalError on the missing column — so the operator would get
+    # "ERROR during verification" plus a stack trace instead of C2's actionable
+    # "migration 0038 has not been applied". The unmigrated database is exactly
+    # the case this script exists to diagnose, so it must not be the case that
+    # crashes it.
+    schema_ok = _check_schema(db, report)
 
-    # --- C2: exactly one local admin ---
-    local_admins = (
-        db.query(User)
-        .filter(User.auth_provider == "local", User.is_admin.is_(True))
-        .all()
-    )
-    if len(local_admins) == 1:
+    # --- C1: zero unmapped users (data) ---
+    if not schema_ok:
         report.record(
-            _PASS,
-            "C2 break-glass-admin",
-            f"exactly one local admin ({local_admins[0].email})",
-        )
-    elif not local_admins:
-        report.record(
-            _FAIL,
-            "C2 break-glass-admin",
-            "NO local admin exists — there is no recovery path if Cognito is "
-            "unreachable. Run scripts/create_break_glass_admin.py.",
+            _SKIP,
+            "C1 unmapped-users",
+            "skipped — the schema checks above failed, so the ORM cannot query "
+            "this database. Fix the schema first.",
         )
     else:
-        report.record(
-            _FAIL,
-            "C2 break-glass-admin",
-            f"{len(local_admins)} local admins exist, expected exactly 1: "
-            f"{', '.join(u.email for u in local_admins)}",
-        )
+        unmapped = db.query(User).filter(User.cognito_sub.is_(None)).all()
+        if unmapped:
+            report.record(
+                _FAIL,
+                "C1 unmapped-users",
+                f"{len(unmapped)} row(s) have no cognito_sub and therefore CANNOT "
+                f"log in: {', '.join(u.email for u in unmapped)}",
+            )
+        else:
+            report.record(_PASS, "C1 unmapped-users", "0 unmapped rows")
 
-    # --- C3: no Cognito user retains a local password ---
-    with_hash = (
-        db.query(User)
-        .filter(User.auth_provider == "cognito", User.password_hash.isnot(None))
-        .all()
-    )
-    if with_hash:
-        report.record(
-            _FAIL,
-            "C3 residual-password-hash",
-            f"{len(with_hash)} Cognito row(s) still carry a local password_hash "
-            f"(a second credential outside pool policy): "
-            f"{', '.join(u.email for u in with_hash)}",
-        )
-    else:
-        report.record(_PASS, "C3 residual-password-hash", "0 residual hashes")
+    _check_tier_groups(report)
 
     # --- Informational inventory ---
-    total = db.query(User).count()
-    cognito_count = db.query(User).filter(User.auth_provider == "cognito").count()
-    local_count = db.query(User).filter(User.auth_provider == "local").count()
-    print(
-        f"\n  inventory: {total} users total "
-        f"({cognito_count} cognito, {local_count} local)"
+    if schema_ok:
+        total = db.query(User).count()
+        disabled = db.query(User).filter(User.status != "active").count()
+        print(f"\n  inventory: {total} users total ({disabled} not active)")
+
+
+def _check_schema(db, report: Report) -> bool:
+    """C2/C3. Returns whether the schema is migrated far enough for ORM queries.
+
+    Reflection, not queries: asking about the SHAPE is the point, and a SELECT
+    against a dropped or missing column raises rather than reports.
+    """
+    import sqlalchemy as sa
+
+    inspector = sa.inspect(db.get_bind())
+    schema_ok = True
+
+    # --- C2: the local-credential columns are GONE (schema) ---
+    # Phase 2 addition. C1 is a DATA check and passes happily on a schema that
+    # still carries the local-auth columns — which is not a hypothetical
+    # mismatch: it is exactly the state of a box whose image was updated but
+    # whose `alembic upgrade head` did not run. A surviving `password_hash`
+    # column means the migration did not apply, so the ORM model and the table
+    # disagree and nothing else here has actually been verified.
+    if "users" not in inspector.get_table_names():
+        report.record(_FAIL, "C2 local-credential-columns", "the users table is absent")
+        schema_ok = False
+    else:
+        columns = {c["name"] for c in inspector.get_columns("users")}
+        residual = sorted({"password_hash", "auth_provider"} & columns)
+        if residual:
+            report.record(
+                _FAIL,
+                "C2 local-credential-columns",
+                f"users still has {', '.join(residual)} — migration 0038 has NOT "
+                f"been applied to this database, so the schema does not match the "
+                f"code that is running.",
+            )
+            # Any C2 failure means the table predates 0038, so the ORM model
+            # (which has post-0038 columns) cannot query it. Flag it so C1 is
+            # SKIPPED with an explanation rather than raising -- see the ordering
+            # note in _check_db.
+            schema_ok = False
+        else:
+            report.record(
+                _PASS,
+                "C2 local-credential-columns",
+                "password_hash and auth_provider are gone",
+            )
+
+        # `cognito_sub` NOT NULL is the schema-level counterpart to C1: C1 proves
+        # no such row exists TODAY, this proves none can be created tomorrow.
+        sub_column = next(
+            (c for c in inspector.get_columns("users") if c["name"] == "cognito_sub"),
+            None,
+        )
+        if sub_column is None:
+            report.record(
+                _FAIL, "C2b cognito-sub-not-null", "users has no cognito_sub column"
+            )
+            schema_ok = False
+        elif sub_column.get("nullable", True):
+            report.record(
+                _FAIL,
+                "C2b cognito-sub-not-null",
+                "cognito_sub is still NULLABLE — 0038 has not been applied, so a "
+                "row that can never log in can still be inserted.",
+            )
+            schema_ok = False
+        else:
+            report.record(_PASS, "C2b cognito-sub-not-null", "cognito_sub is NOT NULL")
+
+        if "status" not in columns:
+            report.record(
+                _FAIL,
+                "C2c status-column",
+                "users has no status column — the disabled-account gate in "
+                "core/identity.py::resolve_principal cannot be enforced.",
+            )
+            schema_ok = False
+        else:
+            report.record(_PASS, "C2c status-column", "status column present")
+
+    # --- C3: Alembic head matches what this code expects ---
+    # Phase 2 addition, and the check that makes C2's failure message actionable:
+    # C2 can only say "the migration did not run", this says which revision the
+    # database is actually parked on.
+    stamped = db.execute(
+        sa.text("SELECT version_num FROM alembic_version")
+    ).scalars().all()
+    if len(stamped) != 1:
+        report.record(
+            _FAIL,
+            "C3 alembic-head",
+            f"expected exactly one stamped revision, found {len(stamped)}: "
+            f"{stamped or '(none)'}. Two heads make `alembic upgrade head` fail, "
+            f"which crash-loops the container (docker-entrypoint.sh runs it under "
+            f"`set -eu`).",
+        )
+    elif stamped[0] != EXPECTED_ALEMBIC_HEAD:
+        report.record(
+            _FAIL,
+            "C3 alembic-head",
+            f"database is at {stamped[0]}, this code expects "
+            f"{EXPECTED_ALEMBIC_HEAD}. Run `alembic upgrade head`.",
+        )
+    else:
+        report.record(_PASS, "C3 alembic-head", f"at {EXPECTED_ALEMBIC_HEAD}")
+
+    return schema_ok
+
+
+def _check_tier_groups(report: Report) -> None:
+    """C6. Every tier in the catalog must round-trip through a Cognito group.
+
+    Phase 2 made ``cognito:groups`` the sole entitlement authority, which turns a
+    missing tier->group mapping from a latent inconsistency into a silent
+    entitlement DOWNGRADE: a user on a group-less tier resolves to the
+    fail-closed default and loses everything that tier was supposed to grant.
+    ``hexaware`` was in exactly that state before Phase 2 (``MERGE_NOTES.md``
+    §2), so this is worth an assertion rather than a comment.
+
+    Purely a code-level check — no database involved — which is why it runs even
+    when the schema checks fail.
+    """
+    from app.core.entitlements import (
+        TIER_PIPELINES,
+        group_for_tier,
+        resolve_tier_from_groups,
     )
+
+    unmappable = [
+        tier
+        for tier in TIER_PIPELINES
+        if resolve_tier_from_groups([group_for_tier(tier)]) != tier
+    ]
+    if unmappable:
+        report.record(
+            _FAIL,
+            "C6 tier-group-round-trip",
+            f"tier(s) {', '.join(sorted(unmappable))} have no Cognito group of "
+            f"their own, so a user on them resolves to the default tier. Add the "
+            f"group to entitlements._TIER_GROUP_PRECEDENCE AND to "
+            f"infra/terraform/modules/cognito.",
+        )
+    else:
+        report.record(
+            _PASS,
+            "C6 tier-group-round-trip",
+            f"all {len(TIER_PIPELINES)} tiers round-trip through a group",
+        )
 
 
 def _check_pool(db, report: Report) -> None:
@@ -176,8 +318,8 @@ def _check_pool(db, report: Report) -> None:
 
     from app.core import cognito
 
-    # --- C4: every local Cognito row resolves to a live pool user ---
-    local_rows = db.query(User).filter(User.auth_provider == "cognito").all()
+    # --- C4: every local row resolves to a live pool user ---
+    local_rows = db.query(User).all()
     missing_in_pool: list[str] = []
     sub_mismatch: list[str] = []
 
@@ -190,7 +332,7 @@ def _check_pool(db, report: Report) -> None:
                 continue
             raise
         if user.cognito_sub and pool_sub != user.cognito_sub:
-            # R14: the pool user was deleted and recreated, so the local row
+            # The pool user was deleted and recreated, so the local row
             # points at a principal that no longer exists.
             sub_mismatch.append(user.email)
 
@@ -256,9 +398,6 @@ def main() -> int:
     args = parser.parse_args()
 
     print("Cognito cutover verification")
-    print(f"  AUTH_PROVIDER         = {settings.AUTH_PROVIDER}")
-    print(f"  AUTH_ALLOW_LEGACY_JWT = {settings.AUTH_ALLOW_LEGACY_JWT}")
-    print(f"  BREAK_GLASS_ENABLED   = {settings.BREAK_GLASS_ENABLED}")
     print(f"  COGNITO_USER_POOL_ID  = {settings.COGNITO_USER_POOL_ID or '(unset)'}")
 
     report = Report()
@@ -278,16 +417,10 @@ def main() -> int:
 
     print("")
     if report.failed:
-        print("RESULT: FAILED — do NOT set AUTH_ALLOW_LEGACY_JWT=false yet.")
+        print("RESULT: FAILED")
         return EXIT_FAILED
 
-    print("RESULT: PASSED — steps 5 and 6 satisfied.")
-    if settings.AUTH_ALLOW_LEGACY_JWT:
-        print(
-            "  Next: once outstanding legacy tokens have aged out "
-            "(<= ACCESS_TOKEN_EXPIRE_HOURS), set AUTH_ALLOW_LEGACY_JWT=false "
-            "for this environment (step 7)."
-        )
+    print("RESULT: PASSED")
     return EXIT_OK
 
 

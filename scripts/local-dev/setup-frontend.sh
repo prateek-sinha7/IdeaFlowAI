@@ -30,7 +30,6 @@ if [[ ! -f "$ENV_LOCAL" ]]; then
   log "Creating frontend/.env.local..."
   cat > "$ENV_LOCAL" <<'EOF'
 NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/chat
 EOF
 else
   log "frontend/.env.local already exists, leaving it untouched."

@@ -1,13 +1,12 @@
-"""Authentication API endpoints for registration, login, and user info.
+"""Authentication API endpoints for login and user info.
 
-Rewired for the Cognito Authentication & Authorization Migration
-(``.planning/COGNITO-MIGRATION-PLAN.md`` §7 Phase 3). ``login`` branches on
-``user.auth_provider``: ``"local"`` (break-glass) keeps the original bcrypt +
-local-JWT path unchanged; ``"cognito"`` calls ``AdminInitiateAuth`` and
-handles the NEW_PASSWORD_REQUIRED / SOFTWARE_TOKEN_MFA / EMAIL_OTP /
-SELECT_MFA_TYPE challenges via the ``/login/challenge`` endpoint.
-``AuthResponse`` shape is UNCHANGED for the happy path -- 122 ``getToken()``
-call sites across 57 frontend files need no edits (Decision 3).
+Cognito is the sole authentication authority (Cognito-only auth migration,
+``.kiro/specs/login/prompt.md`` Phase 1). ``login`` calls
+``AdminInitiateAuth`` and handles the NEW_PASSWORD_REQUIRED /
+SOFTWARE_TOKEN_MFA / EMAIL_OTP / SELECT_MFA_TYPE challenges via the
+``/login/challenge`` endpoint. There is no local bcrypt/HS256 path.
+``AuthResponse`` shape is UNCHANGED for the happy path -- frontend
+``getToken()`` call sites need no edits.
 
 MFA surface
 -----------
@@ -29,7 +28,6 @@ an MFA factor (see ``infra/terraform/modules/cognito``).
 
 import json
 import logging
-import uuid as uuid_module
 from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
@@ -49,9 +47,13 @@ from app.core.dependencies import (
     get_current_user_with_payload,
     get_user_for_logout,
 )
-from app.core.entitlements import resolve_is_admin_from_groups, resolve_tier_from_groups
 from app.core.identity import Principal, effective_is_admin, effective_tier
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.provisioning import (
+    STATUS_DISABLED,
+    ProvisioningRefused,
+    provision_from_login,
+    refresh_projection,
+)
 from app.models.database import get_db
 from app.models.revoked_token import RevokedToken
 from app.models.schemas import (
@@ -61,7 +63,6 @@ from app.models.schemas import (
     LoginRequest,
     MfaStatusResponse,
     RefreshResponse,
-    RegisterRequest,
     UserResponse,
 )
 from app.models.user import User
@@ -70,80 +71,133 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = logging.getLogger("app.api.auth")
 
 
-@router.post("/register", status_code=status.HTTP_403_FORBIDDEN)
-def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    """Self-registration is disabled.
-
-    Account creation is administrator-only. The endpoint still exists so
-    that legacy clients receive a clear, documented error rather than a
-    404 — they should redirect their user to the login screen. The
-    ``request`` and ``db`` parameters are kept for backwards-compatible
-    request validation (so malformed bodies still 422 rather than 403,
-    which is the more helpful failure mode for the client).
-    """
-    _ = request, db  # Pydantic still validates the body shape.
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Self-registration is disabled. Contact your administrator for an account.",
-    )
-
-
 def _principal_from_payload(user: User, payload: dict) -> Principal:
     """Rebuild the Principal from a dependency's projected payload.
 
-    Needed wherever a route has to ask an authorization question that depends on
-    the EFFECTIVE role (``cognito:groups`` on the Cognito path) rather than the
-    advisory DB column -- see core/identity.py's precedence rule.
+    Needed wherever a route has to ask an authorization question that depends
+    on the EFFECTIVE role (``cognito:groups``) rather than the advisory DB
+    column -- see core/identity.py's precedence rule. ``user`` is accepted
+    (and otherwise unused) to keep this helper's signature stable for
+    existing callers.
     """
+    del user
     return Principal(
-        provider="cognito" if user.auth_provider == "cognito" else "local",
-        sub=payload.get("sub", user.id),
+        provider="cognito",
+        sub=payload.get("sub", ""),
         jti=payload.get("jti"),
         iat=payload.get("iat"),
         groups=payload.get("groups", []),
     )
 
 
-def _refresh_role_projection(user: User, groups: list[str], db: Session) -> None:
-    """Refresh the advisory tier/is_admin projection from cognito:groups.
+def _identity_from_minted_token(access_token: str) -> tuple[str, list[str], int | None]:
+    """Read ``sub`` + ``cognito:groups`` + ``iat`` off a token Cognito JUST issued.
 
-    Called on every successful Cognito login (migration plan §5.4): the DB
-    columns are never the input to an authorization decision on the Cognito
-    path (that's always `effective_tier`/`effective_is_admin` off the live
-    token), but keeping the projection fresh is what lets
-    `GET /api/admin/users` list tier/role without an AdminListGroupsForUser
-    call per row.
+    Uses the UNVERIFIED claims, deliberately. This token did not come from a
+    client: it is the body of the ``AdminInitiateAuth`` /
+    ``AdminRespondToAuthChallenge`` response we received over TLS from the AWS
+    endpoint moments ago, so its provenance is the same thing a signature check
+    would be establishing. Re-verifying it here would only re-derive a fact
+    already known.
+
+    ``sub`` is required rather than defaulted, because Phase 2 promoted it from
+    "a claim used to seed a display projection" to "the identity a local row is
+    created against" (Decision 4a). The previous code swallowed ANY decode
+    failure into ``groups = []``, which on the projection-refresh path silently
+    rewrote the caller's tier down to ``basic`` -- a latent bug that a
+    provisioning path would have upgraded into creating a row under the wrong
+    identity. A token we minted that we cannot read is a broken invariant, so it
+    raises and the caller returns 503.
+
+    Raises ``ValueError`` when the token cannot be decoded or carries no ``sub``.
     """
-    user.tier = resolve_tier_from_groups(groups)
-    user.is_admin = resolve_is_admin_from_groups(groups)
-    user.roles_synced_at = datetime.now(timezone.utc)
-    db.commit()
+    from jose import jwt as _jwt
+
+    try:
+        claims = _jwt.get_unverified_claims(access_token)
+    except Exception as exc:  # noqa: BLE001 - any malformed-token failure
+        raise ValueError(f"could not decode the access token Cognito issued: {exc}")
+
+    sub = claims.get("sub")
+    if not sub:
+        raise ValueError("the access token Cognito issued carries no sub claim")
+
+    raw_iat = claims.get("iat")
+    iat = int(raw_iat) if raw_iat is not None else None
+
+    return sub, list(claims.get("cognito:groups", []) or []), iat
 
 
 def _cognito_auth_result_to_response(
-    user: User, auth_result: dict, db: Session
+    email: str, auth_result: dict, db: Session, *, mfa_proved: bool = False
 ) -> AuthResponse:
-    """Persist the refresh token + refresh the role projection, return AuthResponse."""
-    access_token = auth_result["AccessToken"]
-    refresh_token = auth_result.get("RefreshToken")
+    """Resolve-or-provision the local row, persist the refresh token, respond.
 
-    if refresh_token:
-        user.encrypted_cognito_refresh_token = encrypt_cognito_refresh_token(
-            refresh_token
+    Takes the submitted ``email`` rather than a ``User``, because Phase 2 of the
+    Cognito-only auth migration removed the requirement that a local row exist
+    BEFORE authentication (Decision 4a). A user created straight in the Cognito
+    console now gets their row here, on their first successful sign-in, instead
+    of being permanently unable to log in -- see ``core/provisioning.py``.
+
+    ``mfa_proved`` stamps ``mfa_verified_at`` from the token's OWN ``iat``. Set it
+    only when the caller just answered a real MFA challenge; see the extended
+    note on the write below.
+
+    The returned ``UserResponse`` carries the freshly-synced projection, which on
+    this path is equal to the effective values by construction (it was just
+    computed from the same token's groups).
+    """
+    access_token = auth_result["AccessToken"]
+
+    try:
+        sub, groups, token_iat = _identity_from_minted_token(access_token)
+    except ValueError as exc:
+        logger.error("Cognito returned an unreadable access token: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
         )
 
-    # Decode the access token's groups without a network round-trip -- we
-    # just minted it, so a full offline JWKS verify is redundant; only the
-    # unverified claims are needed to seed the projection immediately.
     try:
-        from jose import jwt as _jwt
+        user = provision_from_login(db, email=email, sub=sub, groups=groups)
+    except ProvisioningRefused:
+        # Fail closed and say nothing specific: the only way to reach this is an
+        # email already mapped to a DIFFERENT Cognito identity, which is pool
+        # state an unauthenticated caller must not be able to probe.
+        auth_events.emit(
+            AuthEvent.LOGIN_FAILURE,
+            email=email,
+            provider="cognito",
+            reason="identity_mapping_conflict",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
 
-        claims = _jwt.get_unverified_claims(access_token)
-        groups = list(claims.get("cognito:groups", []) or [])
-    except Exception:  # noqa: BLE001 - projection refresh is best-effort
-        groups = []
+    if auth_result.get("RefreshToken"):
+        user.encrypted_cognito_refresh_token = encrypt_cognito_refresh_token(
+            auth_result["RefreshToken"]
+        )
 
-    _refresh_role_projection(user, groups, db)
+    if mfa_proved and token_iat is not None:
+        # Stamped from the TOKEN's `iat`, not `datetime.now()`.
+        #
+        # core.identity.enforce_admin_mfa asks `principal.iat >=
+        # mfa_verified_at`, so the stamp must not land after the instant the
+        # token it is vouching for was minted. Using wall-clock `now()` (as this
+        # did before Phase 2) means the stamp is always a few milliseconds LATER
+        # than the token, and the comparison only passed because both sides get
+        # truncated to whole seconds -- so an admin whose challenge happened to
+        # straddle a second boundary was handed a token that instantly failed
+        # its own MFA gate, with the only remedy being to log in again and hope
+        # for better timing. Phase 2 made that race materially likelier by
+        # moving provisioning (a DB insert + commit) in between, so the honest
+        # fix is to stop racing: `iat` IS the instant the second factor was
+        # proven, and it is what the gate compares against.
+        user.mfa_verified_at = datetime.fromtimestamp(token_iat, tz=timezone.utc)
+
+    refresh_projection(user, groups, db)
 
     return AuthResponse(
         token=access_token,
@@ -193,14 +247,6 @@ def _challenge_response(resp: dict) -> AuthChallengeResponse:
     )
 
 
-#: A pre-computed bcrypt hash of a value no real password will ever equal.
-#: Used ONLY to pay the same bcrypt cost a real ``verify_password`` call
-#: would, for an unknown email, on the local-auth path (P2 timing fix).
-#: Generated once at import time — a fresh `hash_password` call per request
-#: would itself be the expensive operation we are trying to bound.
-_DUMMY_PASSWORD_HASH = hash_password(str(uuid_module.uuid4()))
-
-
 # --- Audit `reason` values for a login attempt with no local row -------------
 #
 # These are ``reason`` strings on LOGIN_FAILURE rather than new AuthEvent
@@ -215,233 +261,80 @@ _DUMMY_PASSWORD_HASH = hash_password(str(uuid_module.uuid4()))
 #: probe. The pre-existing value; unchanged so existing queries keep working.
 _REASON_UNKNOWN_USER = "unknown_user"
 
-#: The account EXISTS in the Cognito pool but has no local row, so login can
-#: never succeed for it. This is the real-time counterpart to check C5 in
-#: scripts/verify_cognito_cutover.py ("every pool user has a local row"), which
-#: until now was the ONLY way to discover an orphan — a batch reconciliation
-#: script nobody runs while staring at a failed login. Almost always means the
-#: user was created out-of-band (AWS console / CLI / raw boto3) instead of
-#: through POST /api/admin/users, which provisions both stores in lockstep.
-_REASON_ORPHANED_POOL_USER = "orphaned_pool_user"
-
-#: We could not determine which of the two above applies, because Cognito was
-#: unreachable/throttled or credentials were missing. Distinct on purpose: "we
-#: don't know" must not be silently recorded as "definitely absent".
-_REASON_PROVIDER_UNAVAILABLE = "unknown_user_provider_unavailable"
-
-#: A /login/challenge call for an account whose local row is not Cognito-backed
-#: (break-glass). There is no Cognito session for such an account to echo back,
-#: so this is a client bug or a probe — either way previously invisible.
-_REASON_CHALLENGE_NON_COGNITO = "challenge_for_non_cognito_account"
-
-
-def _classify_pool_presence(email: str) -> str:
-    """Is this email present in the Cognito pool? Returns an audit ``reason``.
-
-    Uses ``AdminGetUser``, NOT the outcome of the ``AdminInitiateAuth`` call the
-    caller just made. That distinction is the whole point of this function and
-    must not be "simplified" away:
-
-    AWS documents that ``ADMIN_USER_PASSWORD_AUTH`` (the flow
-    ``cognito.admin_initiate_auth`` uses) returns ``NotAuthorizedException`` for
-    a NONEXISTENT user whenever the app client has
-    ``prevent_user_existence_errors = ENABLED`` — which this pool's client does
-    (``infra/terraform/modules/cognito``), and which the pool reinforces by
-    using ``username_attributes = ["email"]``, an alias attribute AWS says is
-    fully existence-suppressed on that flow. So a wrong password and a missing
-    account are INDISTINGUISHABLE on the auth call by design, and classifying
-    from it would label every typo'd email an orphan.
-
-    ``AdminGetUser`` is an admin READ API, outside the scope of that setting: it
-    raises ``UserNotFoundException`` when the user genuinely is not in the pool.
-    The rest of this codebase already relies on exactly that
-    (``cognito.admin_get_user``'s contract, and checks C4/C5 in
-    ``scripts/verify_cognito_cutover.py``).
-
-    Never raises — an unclassifiable probe reports
-    ``_REASON_PROVIDER_UNAVAILABLE`` rather than turning an audit detail into a
-    500 on the login path.
-    """
-    try:
-        cognito.admin_get_user(email)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code == "UserNotFoundException":
-            return _REASON_UNKNOWN_USER
-        logger.warning(
-            "Could not classify a login attempt for an email with no local row: "
-            "Cognito AdminGetUser returned %s",
-            code,
-        )
-        return _REASON_PROVIDER_UNAVAILABLE
-    except Exception as exc:  # noqa: BLE001 - no creds / endpoint / DNS failure
-        logger.warning(
-            "Could not classify a login attempt for an email with no local row: %s",
-            exc,
-        )
-        return _REASON_PROVIDER_UNAVAILABLE
-
-    return _REASON_ORPHANED_POOL_USER
-
-
-def _probe_unknown_email(email: str) -> str:
-    """Burn login-equivalent latency for an email with no local row, AND report
-    why it had none. Returns the ``reason`` to record on LOGIN_FAILURE.
-
-    Two jobs. The second is a byproduct of the first, which is why they live
-    together rather than in separate helpers the caller has to remember to pair.
-
-    **Job 1 — latency (P2 fix, behaviour unchanged).** Branches on
-    ``AUTH_PROVIDER`` exactly like the real login path does for a known account:
-    local auth pays a bcrypt verify against a fixed dummy hash (the same cost
-    class as ``verify_password`` against a real hash); Cognito pays a REAL
-    ``AdminInitiateAuth`` call against the submitted email, doing the same
-    network/provider work a known email's wrong-password attempt does. Without
-    this, an unknown email returned in ~ms off a bare indexed DB miss while a
-    known one cost hundreds of ms — a ~100x oracle for enumerating registered
-    addresses one request at a time.
-
-    **Job 2 — classification (observability fix).** Previously this call's
-    outcome was discarded by a bare ``except Exception: pass``, so a user who
-    exists in the pool but has no local row (an orphan — unable to log in, ever)
-    produced a LOGIN_FAILURE identical to a typo. An operator who had just
-    created a user in the AWS console got no signal telling those two apart. The
-    reason recorded is now specific; see the ``_REASON_*`` constants.
-
-    Client-visible behaviour is UNCHANGED: the caller still raises the same
-    generic 401 regardless of what this returns, so nothing here is an
-    enumeration oracle. Neither is the added ``AdminGetUser`` call: it happens
-    only on the ambiguous branch, only when there is no local row (so never for
-    legitimate traffic), and its result is written to the server-side audit log
-    only. Both branches also reach the same 401 after doing provider work, so
-    the latency envelope Job 1 establishes is preserved.
-    """
-    if settings.AUTH_PROVIDER.lower() != "cognito":
-        verify_password("not-a-real-password", _DUMMY_PASSWORD_HASH)
-        # Local auth has no second store to be out of sync with, so "no local
-        # row" is the complete explanation.
-        return _REASON_UNKNOWN_USER
-
-    try:
-        cognito.admin_initiate_auth(email, str(uuid_module.uuid4()))
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code == "UserNotFoundException":
-            # The client is on LEGACY prevent_user_existence_errors, so the auth
-            # call itself is authoritative and no second round-trip is needed.
-            return _REASON_UNKNOWN_USER
-        if code == "NotAuthorizedException":
-            # Ambiguous under ENABLED (this pool): either the account is absent,
-            # or it exists and our deliberately-random password was wrong. Only
-            # this branch pays for a classifying read.
-            return _classify_pool_presence(email)
-        logger.warning("Cognito AdminInitiateAuth probe returned %s", code)
-        return _REASON_PROVIDER_UNAVAILABLE
-    except Exception as exc:  # noqa: BLE001 - no creds / endpoint / DNS failure
-        logger.warning("Cognito AdminInitiateAuth probe failed: %s", exc)
-        return _REASON_PROVIDER_UNAVAILABLE
-
-    # Authentication SUCCEEDED against a random UUID password. Cryptographically
-    # implausible rather than impossible, and it proves the pool user exists
-    # while no local row does — the orphan case, confirmed without a second call.
-    return _REASON_ORPHANED_POOL_USER
+# Two sibling reasons (``orphaned_pool_user``, ``unknown_user_provider_unavailable``)
+# and the two helpers that produced them (``_classify_pool_presence``,
+# ``_probe_unknown_email``) were REMOVED in Phase 2 of the Cognito-only auth
+# migration. Both existed to serve a state that can no longer occur:
+#
+#   * ``orphaned_pool_user`` described an account present in the pool with no
+#     local row — permanently unable to log in. Decision 4a provisions that row
+#     on first successful sign-in (``core/provisioning.py``), so the condition
+#     is now healed automatically instead of being classified and reported.
+#   * ``_probe_unknown_email`` burned a deliberately-doomed ``AdminInitiateAuth``
+#     against a random password so that an unknown email cost the same as a known
+#     one, closing a ~100x timing oracle. ``/login`` no longer short-circuits on a
+#     missing local row at all — every attempt now makes the SAME real
+#     ``AdminInitiateAuth`` call with the SAME submitted password — so the
+#     latency envelope is uniform BY CONSTRUCTION rather than by paying for a
+#     decoy round-trip. That is a strictly stronger position than the probe
+#     achieved: there is no longer a branch to balance.
+#
+# If a CloudWatch Logs Insights query or metric filter references either
+# removed reason, it will report no-data (which looks healthy) — see the
+# published-interface warning in core/auth_events.py.
 
 
 @router.post("/login", response_model=AuthResponse | AuthChallengeResponse)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate a user and return a bearer token.
 
-    Branches on ``user.auth_provider``:
-
-    - ``"local"`` (break-glass, Decision 12): unchanged bcrypt verify +
-      ``create_access_token`` (HS256).
-    - ``"cognito"``: ``AdminInitiateAuth`` (``ADMIN_USER_PASSWORD_AUTH``).
-      On success returns the normal ``AuthResponse``. If Cognito responds
-      with a challenge (NEW_PASSWORD_REQUIRED / MFA_SETUP /
-      SOFTWARE_TOKEN_MFA) returns an ``AuthChallengeResponse`` instead; the
-      client completes it via ``POST /api/auth/login/challenge``.
+    Cognito is the sole authentication authority: ``AdminInitiateAuth``
+    (``ADMIN_USER_PASSWORD_AUTH``). On success returns the normal
+    ``AuthResponse``. If Cognito responds with a challenge
+    (NEW_PASSWORD_REQUIRED / MFA_SETUP / SOFTWARE_TOKEN_MFA) returns an
+    ``AuthChallengeResponse`` instead; the client completes it via
+    ``POST /api/auth/login/challenge``.
 
     Returns a generic 401 on failure — does not distinguish between
     wrong email and wrong password (also true of a Cognito
     NotAuthorizedException, which maps to the same 401).
 
-    P2 fix (COGNITO-AUTH-QA-BUGS.md "Login Timing Enumeration"): an unknown
-    email used to return immediately after a single indexed local lookup
-    (~ms), while a known email incurred either a bcrypt verify (local) or a
-    full Cognito network round-trip (~hundreds of ms) — a ~100x timing
-    difference an attacker could use to enumerate registered emails one
-    request at a time even under the per-IP rate limit. An unknown email now
-    pays the SAME cost class as a known one before returning: a dummy bcrypt
-    check when this deployment is local-auth, or a REAL (deliberately
-    doomed) Cognito ``AdminInitiateAuth`` call against the submitted email
-    when Cognito is active — so the attacker observes materially the same
-    latency distribution either way. This does not need to be
-    cryptographically constant-time; it only needs to remove the
-    order-of-magnitude gap that made the oracle cheap to exploit.
+    **A local ``users`` row is NOT a precondition** (Cognito-only auth
+    migration, Decision 4a). This endpoint used to load the local row FIRST and
+    return 401 when it was absent, which made an account created directly in the
+    Cognito console permanently unable to sign in no matter how correct its
+    credentials were. Authentication is now attempted against Cognito
+    unconditionally, and the local row is created from the resulting token on
+    success (``core/provisioning.py`` via
+    :func:`_cognito_auth_result_to_response`).
 
-    Observability fix: that same doomed probe now also CLASSIFIES the miss, so
-    an account present in the pool but missing its local row (an orphan, which
-    can never log in) is distinguishable in the audit log from a plain typo. It
-    was not before — both emitted ``reason="unknown_user"``, leaving
-    ``scripts/verify_cognito_cutover.py --check-pool`` as the only way to find
-    an orphan. See :func:`_probe_unknown_email` and the ``_REASON_*`` constants.
-    The client response is unchanged in every case.
+    That change also SUBSUMES the P2 timing fix (COGNITO-AUTH-QA-BUGS.md "Login
+    Timing Enumeration") rather than discarding it. The oracle it closed came
+    from an unknown email returning in ~ms off a bare indexed DB miss while a
+    known one paid a full Cognito round-trip (~hundreds of ms) — a ~100x gap.
+    The old remedy was to burn an equivalent decoy ``AdminInitiateAuth`` on the
+    miss branch. There is now no miss branch to balance: every attempt, known
+    email or not, makes the same real ``AdminInitiateAuth`` call with the
+    submitted password and returns the same generic 401 on rejection. Uniform by
+    construction beats uniform by compensation — nothing has to be kept in sync
+    for it to stay true.
+
+    The local lookup is retained purely so the audit trail can carry
+    ``user_id`` for a known account instead of only a hashed email; it is not a
+    gate, and its outcome does not change control flow.
     """
+    # NOT a gate — see the docstring. Used only to enrich the audit events below
+    # with a user_id when one already exists. A miss is the ordinary first-login
+    # case for a console-created account, not a failure.
     user = db.query(User).filter(User.email == request.email).first()
-    if not user:
-        # Burns login-equivalent latency AND reports WHY there was no local row
-        # (typo vs. an orphaned pool user vs. Cognito unreachable). The 401
-        # below is identical in every case — the distinction is server-side only.
-        reason = _probe_unknown_email(request.email)
-        # Email is included here precisely BECAUSE no user_id exists — without
-        # it a credential-stuffing run would be invisible in the audit trail.
-        # (auth_events hashes it; the plaintext never reaches the log line.)
-        auth_events.emit(AuthEvent.LOGIN_FAILURE, email=request.email, reason=reason)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
+    # Email is passed on the no-row branch precisely BECAUSE no user_id exists —
+    # without it a credential-stuffing run against never-provisioned addresses
+    # would be invisible in the audit trail. (auth_events hashes it; the
+    # plaintext never reaches the log line.)
+    audit_identity: dict[str, str | None] = (
+        {"user_id": user.id} if user else {"email": request.email}
+    )
 
-    if user.auth_provider == "local":
-        if not settings.BREAK_GLASS_ENABLED:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
-            )
-        if not user.password_hash or not verify_password(
-            request.password, user.password_hash
-        ):
-            auth_events.emit(
-                AuthEvent.LOGIN_FAILURE,
-                user_id=user.id,
-                provider="local",
-                reason="invalid_password",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
-            )
-        token = create_access_token(user.id)
-        # A successful local-admin login IS the break-glass event. This is the
-        # literal the CloudWatch metric filter + SNS alarm key on (§5.6) — an
-        # unalarmed break-glass account is an unaudited backdoor.
-        if user.is_admin:
-            auth_events.emit(
-                AuthEvent.BREAK_GLASS_LOGIN,
-                user_id=user.id,
-                email=user.email,
-                provider="local",
-            )
-        else:
-            auth_events.emit(AuthEvent.LOGIN_SUCCESS, user_id=user.id, provider="local")
-        return AuthResponse(
-            token=token,
-            user=UserResponse(
-                id=user.id, email=user.email, tier=user.tier, is_admin=user.is_admin
-            ),
-        )
-
-    # Cognito path.
     try:
         resp = cognito.admin_initiate_auth(request.email, request.password)
     except ClientError as exc:
@@ -449,9 +342,10 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         if code in ("NotAuthorizedException", "UserNotFoundException"):
             auth_events.emit(
                 AuthEvent.LOGIN_FAILURE,
-                user_id=user.id,
                 provider="cognito",
-                reason="not_authorized",
+                reason="not_authorized" if user else _REASON_UNKNOWN_USER,
+                provider_error_code=code,
+                **audit_identity,
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -460,9 +354,9 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         logger.error("Cognito AdminInitiateAuth failed: %s", code)
         auth_events.emit(
             AuthEvent.LOGIN_FAILURE,
-            user_id=user.id,
             provider="cognito",
             reason=f"provider_error:{code}",
+            **audit_identity,
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -472,14 +366,23 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     if "ChallengeName" in resp:
         auth_events.emit(
             AuthEvent.LOGIN_CHALLENGE,
-            user_id=user.id,
             provider="cognito",
             challenge=resp["ChallengeName"],
+            **audit_identity,
         )
         return _challenge_response(resp)
 
-    auth_events.emit(AuthEvent.LOGIN_SUCCESS, user_id=user.id, provider="cognito")
-    return _cognito_auth_result_to_response(user, resp["AuthenticationResult"], db)
+    # Provisioning happens inside here, so LOGIN_SUCCESS is emitted AFTER it
+    # rather than before: on a first sign-in there is no user_id to log until
+    # the row exists, and an event claiming success for an identity that then
+    # failed to provision would be worse than a slightly later one.
+    response = _cognito_auth_result_to_response(
+        request.email, resp["AuthenticationResult"], db
+    )
+    auth_events.emit(
+        AuthEvent.LOGIN_SUCCESS, user_id=response.user.id, provider="cognito"
+    )
+    return response
 
 
 #: Maps a challenge name to the ``ChallengeResponses`` key carrying its one-time
@@ -520,35 +423,21 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
     while ``mfa_configuration`` is OPTIONAL. Rather than send a response Cognito
     will reject, this returns an actionable error -- see the guard below.
     """
+    # As on /login, a missing local row is NOT a rejection any more (Decision
+    # 4a) — and it matters MORE here than there. NEW_PASSWORD_REQUIRED is the
+    # first step of the invitation flow every admin-created and every
+    # console-created account starts in, so "no local row yet" is the NORMAL
+    # state for this endpoint's most common challenge, not an anomaly. Rejecting
+    # it made the invitation flow unusable for exactly the users JIT
+    # provisioning exists to serve. The row is created from the resulting token
+    # by _cognito_auth_result_to_response once the challenge succeeds.
+    #
+    # Still not an enumeration oracle: reaching Cognito at all additionally
+    # requires a valid provider-issued `session`, which only /login can mint.
     user = db.query(User).filter(User.email == request.email).first()
-    # Both rejections below previously returned a bare 401 and emitted NOTHING,
-    # so a challenge that could never succeed left no trace at all — the same
-    # blind spot the unknown-email path had on /login. Deliberately does NOT
-    # probe Cognito: unlike /login there is no password here to burn latency
-    # with, and this endpoint is not an enumeration oracle (it additionally
-    # requires a valid provider-issued `session`). The 401 is unchanged.
-    if not user:
-        auth_events.emit(
-            AuthEvent.LOGIN_FAILURE,
-            email=request.email,
-            reason=_REASON_UNKNOWN_USER,
-            challenge=request.challenge,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
-        )
-    if user.auth_provider != "cognito":
-        auth_events.emit(
-            AuthEvent.LOGIN_FAILURE,
-            user_id=user.id,
-            provider=user.auth_provider,
-            reason=_REASON_CHALLENGE_NON_COGNITO,
-            challenge=request.challenge,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
-        )
-
+    audit_identity: dict[str, str | None] = (
+        {"user_id": user.id} if user else {"email": request.email}
+    )
     challenge_responses: dict[str, str] = {}
     if request.challenge == "NEW_PASSWORD_REQUIRED":
         if not request.new_password:
@@ -576,20 +465,16 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
         challenge_responses["ANSWER"] = request.selected_factor
     elif request.challenge == "MFA_SETUP":
         # Reachable only if the pool is switched to mfa_configuration = "ON"
-        # while users hold no factor. Say so precisely: a generic "unsupported"
-        # here would send an operator hunting through client code for a bug that
-        # is actually a pool setting.
-        logger.error(
-            "Received an MFA_SETUP challenge, which requires pool-wide required MFA. "
-            "This endpoint cannot complete it (needs an AssociateSoftwareToken "
-            "session chain). Check mfa_configuration on the user pool."
-        )
+        # while users hold no factor. MFA_SETUP requires a three-call session
+        # chain (AssociateSoftwareToken -> VerifySoftwareToken ->
+        # RespondToAuthChallenge) that this endpoint cannot express. Direct the
+        # user to the enrollment endpoints instead.
         raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=(
-                "This account must finish setting up two-factor authentication "
-                "before signing in. Contact your administrator."
-            ),
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "mfa_enrollment_required",
+                "enroll_path": "/api/auth/mfa/totp/associate",
+            },
         )
     else:
         raise HTTPException(
@@ -611,6 +496,11 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
             )
+        if code == "InvalidPasswordException":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password does not meet the password policy.",
+            )
         logger.error("Cognito AdminRespondToAuthChallenge failed: %s", code)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -622,26 +512,102 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
         # surface it the same way /login does rather than special-casing.
         auth_events.emit(
             AuthEvent.LOGIN_CHALLENGE,
-            user_id=user.id,
             provider="cognito",
             challenge=resp["ChallengeName"],
+            **audit_identity,
         )
         return _challenge_response(resp)
 
+    # The challenge succeeded, so a token exists and the row can be provisioned
+    # (or resolved) from it. On the invitation flow THIS is the request that
+    # first creates the row, so there is no `user` object to write to until now
+    # -- which is why the mfa_verified_at stamp moved inside, where the row and
+    # the token's claims are both in hand.
+    #
     # P0 fix (COGNITO-AUTH-QA-BUGS.md "Admin MFA is Off by Default and
-    # Bypassable"): stamp mfa_verified_at ONLY when the challenge just
-    # completed was an actual MFA proof (SOFTWARE_TOKEN_MFA / EMAIL_OTP), not
-    # NEW_PASSWORD_REQUIRED or a SELECT_MFA_TYPE selection step. This is the
+    # Bypassable"): the stamp is applied ONLY when the challenge just completed
+    # was an actual MFA proof (SOFTWARE_TOKEN_MFA / EMAIL_OTP), never
+    # NEW_PASSWORD_REQUIRED or a SELECT_MFA_TYPE selection step. It is the
     # session-bound proof core.identity.enforce_admin_mfa compares a bearer's
-    # `iat` against -- it is never stamped by the enrolment endpoints
-    # (mfa/totp/verify, mfa/email/enable), so enrolling a factor alone (with
-    # no reauthentication) does not satisfy the admin gate.
-    if request.challenge in _CODE_RESPONSE_KEY:
-        user.mfa_verified_at = datetime.now(timezone.utc)
-        db.commit()
+    # `iat` against, and it is never stamped by the enrolment endpoints
+    # (mfa/totp/verify, mfa/email/enable) -- so enrolling a factor alone, with
+    # no reauthentication, does not satisfy the admin gate.
+    response = _cognito_auth_result_to_response(
+        request.email,
+        resp["AuthenticationResult"],
+        db,
+        mfa_proved=request.challenge in _CODE_RESPONSE_KEY,
+    )
 
-    auth_events.emit(AuthEvent.LOGIN_SUCCESS, user_id=user.id, provider="cognito")
-    return _cognito_auth_result_to_response(user, resp["AuthenticationResult"], db)
+    auth_events.emit(
+        AuthEvent.LOGIN_SUCCESS, user_id=response.user.id, provider="cognito"
+    )
+    return response
+
+
+def _reconcile_status_on_refresh_rejection(user: User, db: Session) -> None:
+    """Mark a row disabled ONLY when Cognito confirms the account is gone/off.
+
+    A refresh rejection is deliberately NOT treated as proof of anything. AWS
+    returns ``NotAuthorizedException`` for a whole family of causes that have
+    nothing to do with the account's standing: the refresh token was revoked by
+    an ordinary logout, it aged past the app client's refresh-token validity
+    window, an ``AdminUserGlobalSignOut`` was issued for a routine tier change,
+    or the stored ciphertext is simply stale. Flipping ``status`` to
+    ``disabled`` on that signal would let any of those normal events lock a user
+    out of the application permanently -- ``resolve_principal`` rejects a
+    non-active row outright, so it would not even be recoverable by logging in
+    again.
+
+    So the mutation requires a second, authoritative answer:
+    ``AdminGetUser`` -- a read API, outside the scope of
+    ``prevent_user_existence_errors`` -- must report the pool user as absent
+    (``UserNotFoundException``) or explicitly ``Enabled=false``. Anything else,
+    including Cognito being unreachable, leaves the row untouched and the caller
+    gets the same 401 either way. The asymmetry is the point: a 401 costs the
+    user one sign-in, a wrongly-persisted ``disabled`` costs them their account
+    until an operator intervenes.
+
+    Never raises. Reconciliation is a side effect of an already-decided 401.
+    """
+    try:
+        result = cognito.admin_get_user(user.cognito_sub)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code != "UserNotFoundException":
+            logger.warning(
+                "Could not confirm pool state for %s after a refresh rejection: %s",
+                user.id,
+                code,
+            )
+            return
+        confirmed_reason = "missing_at_provider"
+    except Exception as exc:  # noqa: BLE001 - no creds / endpoint / DNS failure
+        logger.warning(
+            "Could not confirm pool state for %s after a refresh rejection: %s",
+            user.id,
+            exc,
+        )
+        return
+    else:
+        if result.get("Enabled", True):
+            return
+        confirmed_reason = "disabled_at_provider"
+
+    try:
+        user.status = STATUS_DISABLED
+        db.commit()
+    except Exception as exc:  # noqa: BLE001 - the 401 stands regardless
+        logger.warning("Could not persist disabled status for %s: %s", user.id, exc)
+        db.rollback()
+        return
+
+    auth_events.emit(
+        AuthEvent.TOKEN_REFRESH_FAILURE,
+        user_id=user.id,
+        provider="cognito",
+        reason=confirmed_reason,
+    )
 
 
 @router.post("/refresh", response_model=RefreshResponse)
@@ -664,21 +630,13 @@ def refresh(
     SAME expired bearer and failed identically. Every other check (signature,
     issuer, per-jti revocation, password/role-change blanket revocation)
     still applies in full; only the expiry clock is relaxed, and only within
-    the bounded grace window. Break-glass/local users have no Cognito refresh
-    token and get a 501 -- their session simply lives out
-    ``ACCESS_TOKEN_EXPIRE_HOURS``.
+    the bounded grace window.
 
     Response shape is exactly ``{"token": "..."}`` -- the contract
     ``frontend/src/hooks/useRunStream.ts::attemptSilentRefresh`` already
     parses, so no frontend change is required.
     """
     user, _payload = auth
-
-    if user.auth_provider != "cognito":
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Token refresh is not available for this account type.",
-        )
 
     if not user.encrypted_cognito_refresh_token:
         raise HTTPException(
@@ -708,6 +666,7 @@ def refresh(
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
         if code in ("NotAuthorizedException", "UserNotFoundException"):
+            _reconcile_status_on_refresh_rejection(user, db)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token is no longer valid; please log in again.",
@@ -749,10 +708,9 @@ def logout(
 ):
     """Revoke the bearer credential used to make this request.
 
-    Inserts a row in ``revoked_tokens`` keyed by the token's ``jti`` (both
-    providers -- see the R3 note in core/dependencies.py). For a Cognito
-    user, ALSO revokes the stored refresh token at Cognito (``RevokeToken``)
-    so a stolen refresh token cannot mint further access tokens; the stored
+    Inserts a row in ``revoked_tokens`` keyed by the token's ``jti``. ALSO
+    revokes the stored refresh token at Cognito (``RevokeToken``) so a
+    stolen refresh token cannot mint further access tokens; the stored
     encrypted copy is cleared either way.
 
     Idempotent: hitting this endpoint with an already-revoked token still
@@ -765,7 +723,7 @@ def logout(
     jti = payload.get("jti")
     exp = payload.get("exp")
 
-    if user.auth_provider == "cognito" and user.encrypted_cognito_refresh_token:
+    if user.encrypted_cognito_refresh_token:
         try:
             refresh_token = decrypt_cognito_refresh_token(
                 user.encrypted_cognito_refresh_token
@@ -782,7 +740,7 @@ def logout(
     # Defence in depth: if the token somehow has no jti, there's nothing we
     # can revoke at the per-token level. The blanket-revoke on password/role
     # change still protects the user; treat this as a successful no-op.
-    auth_events.emit(AuthEvent.LOGOUT, user_id=user.id, provider=user.auth_provider)
+    auth_events.emit(AuthEvent.LOGOUT, user_id=user.id, provider="cognito")
 
     if not jti or not exp:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -837,11 +795,6 @@ def associate_totp(
     complete until ``POST /api/auth/mfa/totp/verify`` proves possession.
     """
     user, _payload = auth
-    if user.auth_provider != "cognito":
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="TOTP enrolment is not available for this account type.",
-        )
     try:
         secret = cognito.associate_software_token(credentials.credentials)
     except ClientError as exc:
@@ -876,11 +829,6 @@ def verify_totp(
     protected, rather than holding a verified-but-unused device.
     """
     user, _payload = auth
-    if user.auth_provider != "cognito":
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="TOTP enrolment is not available for this account type.",
-        )
     try:
         result = cognito.verify_software_token(
             credentials.credentials, request.code, request.device_name
@@ -947,16 +895,6 @@ def get_mfa_status(
     user, payload = auth
     principal = _principal_from_payload(user, payload)
 
-    if user.auth_provider != "cognito":
-        return MfaStatusResponse(
-            enabled=False,
-            factors=[],
-            email_available=False,
-            totp_available=False,
-            required=False,
-            supported=False,
-        )
-
     try:
         factors = cognito.get_confirmed_mfa_factors(user.email)
     except Exception as exc:  # noqa: BLE001 - see docstring: degrade, don't 503
@@ -971,14 +909,6 @@ def get_mfa_status(
         required=settings.ADMIN_MFA_REQUIRED and effective_is_admin(user, principal),
         supported=True,
     )
-
-
-def _require_cognito_user(user: User) -> None:
-    if user.auth_provider != "cognito":
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Two-factor authentication is not available for this account type.",
-        )
 
 
 @router.post("/mfa/email/enable", status_code=status.HTTP_200_OK)
@@ -997,7 +927,6 @@ def enable_email_mfa(
     OWN factors. Any existing TOTP device is preserved.
     """
     user, _payload = auth
-    _require_cognito_user(user)
 
     if not settings.AUTH_EMAIL_MFA_ENABLED:
         raise HTTPException(
@@ -1046,7 +975,6 @@ def disable_email_mfa(
     fails closed and explains what to do instead.
     """
     user, payload = auth
-    _require_cognito_user(user)
     principal = _principal_from_payload(user, payload)
 
     mfa_required = settings.ADMIN_MFA_REQUIRED and effective_is_admin(user, principal)
@@ -1135,9 +1063,6 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
     email = request.email.strip().lower()
     generic = {"message": "If that account exists, a reset code has been sent."}
 
-    if settings.AUTH_PROVIDER.lower() != "cognito":
-        return generic
-
     if settings.AUTH_EMAIL_MFA_ENABLED:
         # Not an enumeration risk: the answer is a property of the DEPLOYMENT,
         # identical for every address including ones that do not exist, so it
@@ -1150,15 +1075,6 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
                 "administrator to reset your password."
             ),
         )
-
-    user = db.query(User).filter(User.email == email).first()
-    # Break-glass accounts deliberately have NO self-service reset path: the
-    # whole point is that it is administered out-of-band from a secret store.
-    if user is not None and user.auth_provider == "local":
-        logger.warning(
-            "Password reset requested for the local/break-glass account; ignored."
-        )
-        return generic
 
     try:
         cognito.forgot_password(email)
@@ -1191,12 +1107,6 @@ def confirm_forgot_password(
     would defeat the purpose of the reset.
     """
     email = request.email.strip().lower()
-
-    if settings.AUTH_PROVIDER.lower() != "cognito":
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Self-service password reset is not enabled.",
-        )
 
     if settings.AUTH_EMAIL_MFA_ENABLED:
         # Mirrors the guard on /forgot-password. No code can have been issued in
@@ -1266,46 +1176,22 @@ def change_password(
 ):
     """Change the authenticated user's password.
 
-    Branches on ``auth_provider``:
+    Calls Cognito ``ChangePassword`` with the caller's own access token (no
+    password re-entry needed server-side beyond what Cognito itself
+    requires); stamps ``tokens_valid_from`` so the generalized revocation
+    check (§5.3) rejects any access token issued before this instant, and
+    revokes the stored refresh token so the old session cannot silently
+    refresh past the change.
 
-    - ``"local"`` (break-glass): unchanged bcrypt verify + rehash + stamp
-      ``password_changed_at`` (blanket-revokes outstanding local tokens).
-    - ``"cognito"``: calls Cognito ``ChangePassword`` with the caller's own
-      access token (no password re-entry needed server-side beyond what
-      Cognito itself requires); stamps ``tokens_valid_from`` so the
-      generalized revocation check (§5.3) rejects any access token issued
-      before this instant, and revokes the stored refresh token so the old
-      session cannot silently refresh past the change.
-
-    New password must be at least 8 characters on the local path (unchanged
-    floor); the Cognito path defers entirely to the pool's own password
+    New password requirements defer entirely to the pool's own password
     policy (12+ chars, mixed case/digits/symbols per the Terraform module).
     """
-    user, payload = auth
+    user, _payload = auth
 
-    if user.auth_provider == "local":
-        if not user.password_hash or not verify_password(
-            request.current_password, user.password_hash
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Current password is incorrect",
-            )
-        if len(request.new_password) < 8:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New password must be at least 8 characters",
-            )
-        user.password_hash = hash_password(request.new_password)
-        user.password_changed_at = datetime.now(timezone.utc)
-        db.commit()
-        auth_events.emit(AuthEvent.PASSWORD_CHANGED, user_id=user.id, provider="local")
-        return {"message": "Password changed successfully"}
-
-    # Cognito path. get_current_user_with_payload's dependency chain already
-    # verified the credential; the raw bearer string is what Cognito's
-    # (non-admin) ChangePassword API needs, obtained via the same
-    # HTTPBearer scheme FastAPI already parsed for this request.
+    # get_current_user_with_payload's dependency chain already verified the
+    # credential; the raw bearer string is what Cognito's (non-admin)
+    # ChangePassword API needs, obtained via the same HTTPBearer scheme
+    # FastAPI already parsed for this request.
     try:
         cognito.change_password(
             credentials.credentials, request.current_password, request.new_password

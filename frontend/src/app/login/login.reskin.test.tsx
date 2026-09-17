@@ -184,10 +184,20 @@ describe("LoginPage reskin — brand panel + selector-preservation contract", ()
     expect(panel.textContent).toMatch(/VelocityAI/);
   });
 
-  it("does NOT render SSO / Forgot identity traps (dropped — no backend)", () => {
+  it("does NOT render an SSO identity trap (dropped — no backend)", () => {
     render(<LoginPage />);
     expect(screen.queryByRole("button", { name: /sso/i })).toBeNull();
     expect(screen.queryByText(/continue with sso/i)).toBeNull();
-    expect(screen.queryByText(/forgot/i)).toBeNull();
+  });
+
+  // Cognito migration (Phase 5): "Forgot password?" is no longer a trap — the
+  // backend implements /api/auth/forgot-password[/confirm] (Decision 8) and
+  // frontend/src/app/forgot-password/page.tsx now exists to call it. This
+  // inverts the prior 35-06 assertion that forgot-password had "no backend".
+  it('renders a "Forgot password?" link routing to /forgot-password', () => {
+    render(<LoginPage />);
+    const link = screen.getByRole("button", { name: /forgot password/i });
+    fireEvent.click(link);
+    expect(pushMock).toHaveBeenCalledWith("/forgot-password");
   });
 });

@@ -853,11 +853,11 @@ def _review_gate_advertises_update_specs(gate_key: str) -> bool:
 def _authenticate_token(token: str, db: Session) -> User | None:
     """Validate a bearer credential and return the user, or None if invalid.
 
-    Rewired (Cognito migration, Phase 2) onto the single shared resolver in
-    ``core/identity.py`` — the same one ``core.dependencies.get_current_user``
-    uses — closing the protocol-drift risk between the HTTP and
-    WebSocket/handoff validators (migration plan R8). Dual-accepts Cognito
-    RS256 and legacy HS256 (see ``core.identity.verify_credential``).
+    Delegates to the single shared resolver in ``core/identity.py`` — the
+    same one ``core.dependencies.get_current_user`` uses — closing the
+    protocol-drift risk between the HTTP and WebSocket/handoff validators.
+    Verifies a Cognito RS256 access token (see
+    ``core.identity.verify_credential``); there is no other credential path.
 
     Called from both the open-time auth gate and the per-message
     re-validation in the handoff WebSocket; the latter is what catches a

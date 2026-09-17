@@ -25,17 +25,20 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
   hexaware: new Set([
     "user_stories", "user_stories_revision",
     "prototype", "prototype_revision",
+    "prototype_large_revision", "prototype_feature_revision",
   ]),
   pro: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
+    "prototype_large_revision", "prototype_feature_revision",
     "app_builder", "app_builder_revision",
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
+    "prototype_large_revision", "prototype_feature_revision",
     "app_builder", "app_builder_revision",
     "custom", "custom_revision",
     // `migration` is a UI meta-grouping, not a launchable pipeline: the card

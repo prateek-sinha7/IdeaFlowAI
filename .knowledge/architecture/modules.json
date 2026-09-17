@@ -1,17 +1,48 @@
 {
-  "generated_at": "2026-08-20",
+  "generated_at": "2026-09-16",
   "modules": [
     {
       "id": "MOD-backend",
       "path": "backend",
       "language": "python",
-      "file_count": 1,
+      "file_count": 28,
       "files": [
-        "backend/init_db.py"
+        "backend/init_db.py",
+        "backend/migration_helpers.py",
+        "backend/tools/__init__.py",
+        "backend/tools/ci/__init__.py",
+        "backend/tools/ci/aggregate_truth.py",
+        "backend/tools/ci/auxiliary_registry.py",
+        "backend/tools/ci/ci_gate.py",
+        "backend/tools/ci/concurrency_policy.py",
+        "backend/tools/ci/evaluation_identity.py",
+        "backend/tools/ci/evidence_aggregator.py",
+        "backend/tools/ci/evidence_manifest.py",
+        "backend/tools/ci/execution_recorder.py",
+        "backend/tools/ci/inventory.py",
+        "backend/tools/ci/inventory_cli.py",
+        "backend/tools/ci/npm_audit_accepts.py",
+        "backend/tools/ci/offline_guards.py",
+        "backend/tools/ci/pin_authority.py",
+        "backend/tools/ci/pin_contracts.py",
+        "backend/tools/ci/record_parser.py",
+        "backend/tools/ci/report_merger.py",
+        "backend/tools/ci/report_merger_cli.py",
+        "backend/tools/ci/report_parsers.py",
+        "backend/tools/ci/run_checks.py",
+        "backend/tools/ci/scanner_parsers.py",
+        "backend/tools/ci/scanner_policy.py",
+        "backend/tools/ci/scanner_verdict.py",
+        "backend/tools/ci/scope_guard.py",
+        "backend/tools/ci/signal_registry.py"
       ],
       "imports": [],
       "imported_by": [],
-      "external_deps": []
+      "external_deps": [
+        "pytest",
+        "requests",
+        "yaml"
+      ]
     },
     {
       "id": "MOD-backend-agents",
@@ -154,9 +185,12 @@
       ],
       "external_deps": [
         "botocore",
+        "frontmatter",
         "langchain_anthropic",
+        "langchain_aws",
         "langchain_core",
         "opentelemetry",
+        "sqlalchemy",
         "yaml"
       ]
     },
@@ -176,7 +210,7 @@
       "id": "MOD-backend-alembic-versions",
       "path": "backend/alembic/versions",
       "language": "python",
-      "file_count": 31,
+      "file_count": 39,
       "files": [
         "backend/alembic/versions/0001_initial_schema.py",
         "backend/alembic/versions/0002_handoff_tables.py",
@@ -207,8 +241,16 @@
         "backend/alembic/versions/0028_repair_0024_0025_drift.py",
         "backend/alembic/versions/0029_enforce_seq_uniqueness_after_repair.py",
         "backend/alembic/versions/0030_workflow_runs_user_created_index.py",
-        "backend/alembic/versions/0031_composed_workflow_execution.py",
-        "backend/alembic/versions/0032_collapse_od_prototype_label.py"
+        "backend/alembic/versions/0031_cognito_identity_and_token_validity.py",
+        "backend/alembic/versions/0032_cognito_refresh_token_storage.py",
+        "backend/alembic/versions/0033_user_api_key_expiry.py",
+        "backend/alembic/versions/0034_mfa_verified_at.py",
+        "backend/alembic/versions/0035_timezone_aware_auth_timestamps.py",
+        "backend/alembic/versions/0036_composed_workflow_execution.py",
+        "backend/alembic/versions/0037_collapse_od_prototype_label.py",
+        "backend/alembic/versions/0038_cognito_only_users.py",
+        "backend/alembic/versions/0039_user_fk_cascades.py",
+        "backend/alembic/versions/0040_api_key_expiry_backfill.py"
       ],
       "imports": [],
       "imported_by": [],
@@ -228,7 +270,8 @@
         "MOD-backend-app-agents",
         "MOD-backend-app-api",
         "MOD-backend-app-core",
-        "MOD-backend-app-models"
+        "MOD-backend-app-models",
+        "MOD-backend-app-services"
       ],
       "imported_by": [
         "MOD-backend-agents",
@@ -240,14 +283,15 @@
         "MOD-backend-app-services"
       ],
       "external_deps": [
-        "fastapi"
+        "fastapi",
+        "sqlalchemy"
       ]
     },
     {
       "id": "MOD-backend-app-agents",
       "path": "backend/app/agents",
       "language": "python",
-      "file_count": 38,
+      "file_count": 39,
       "files": [
         "backend/app/agents/__init__.py",
         "backend/app/agents/cached_invoke.py",
@@ -272,6 +316,7 @@
         "backend/app/agents/render_check.py",
         "backend/app/agents/repo_index/__init__.py",
         "backend/app/agents/repo_index/index.py",
+        "backend/app/agents/revision_analyzer.py",
         "backend/app/agents/route_table.py",
         "backend/app/agents/runtime/__init__.py",
         "backend/app/agents/runtime/local.py",
@@ -291,6 +336,7 @@
       "imports": [
         "MOD-backend-agents",
         "MOD-backend-app",
+        "MOD-backend-app-api",
         "MOD-backend-app-core",
         "MOD-backend-app-models"
       ],
@@ -304,20 +350,31 @@
         "boto3",
         "botocore",
         "deepagents",
+        "frontmatter",
         "langchain",
         "langchain_anthropic",
+        "langchain_aws",
         "langchain_core",
-        "langgraph"
+        "langchain_mcp_adapters",
+        "langgraph",
+        "playwright",
+        "psycopg_pool",
+        "sqlalchemy",
+        "tree_sitter",
+        "tree_sitter_javascript",
+        "tree_sitter_python",
+        "tree_sitter_typescript"
       ]
     },
     {
       "id": "MOD-backend-app-api",
       "path": "backend/app/api",
       "language": "python",
-      "file_count": 30,
+      "file_count": 31,
       "files": [
         "backend/app/api/__init__.py",
         "backend/app/api/admin.py",
+        "backend/app/api/admin_capacity.py",
         "backend/app/api/agents.py",
         "backend/app/api/analytics.py",
         "backend/app/api/api_key_auth.py",
@@ -356,13 +413,19 @@
         "MOD-backend-app-services"
       ],
       "imported_by": [
-        "MOD-backend-app"
+        "MOD-backend-app",
+        "MOD-backend-app-agents"
       ],
       "external_deps": [
+        "botocore",
         "fastapi",
         "httpx",
+        "jose",
+        "langchain_core",
         "pptx",
         "pydantic",
+        "sqlalchemy",
+        "sse_starlette",
         "yaml"
       ]
     },
@@ -370,15 +433,22 @@
       "id": "MOD-backend-app-core",
       "path": "backend/app/core",
       "language": "python",
-      "file_count": 7,
+      "file_count": 14,
       "files": [
         "backend/app/core/__init__.py",
+        "backend/app/core/auth_events.py",
+        "backend/app/core/cognito.py",
+        "backend/app/core/cognito_admin.py",
         "backend/app/core/config.py",
         "backend/app/core/crypto.py",
         "backend/app/core/dependencies.py",
         "backend/app/core/entitlements.py",
+        "backend/app/core/identity.py",
         "backend/app/core/logging.py",
-        "backend/app/core/security.py"
+        "backend/app/core/parsing.py",
+        "backend/app/core/provisioning.py",
+        "backend/app/core/security.py",
+        "backend/app/core/user_deletion.py"
       ],
       "imports": [
         "MOD-backend-app",
@@ -390,21 +460,26 @@
         "MOD-backend-app-agents",
         "MOD-backend-app-api",
         "MOD-backend-app-models",
-        "MOD-backend-app-scripts"
+        "MOD-backend-app-scripts",
+        "MOD-backend-app-services"
       ],
       "external_deps": [
-        "bcrypt",
+        "boto3",
+        "botocore",
         "cryptography",
         "fastapi",
+        "httpx",
+        "jose",
         "pydantic",
-        "pydantic_settings"
+        "pydantic_settings",
+        "sqlalchemy"
       ]
     },
     {
       "id": "MOD-backend-app-models",
       "path": "backend/app/models",
       "language": "python",
-      "file_count": 24,
+      "file_count": 25,
       "files": [
         "backend/app/models/__init__.py",
         "backend/app/models/artifact_ref.py",
@@ -415,6 +490,7 @@
         "backend/app/models/handoff.py",
         "backend/app/models/hook_runs.py",
         "backend/app/models/mcp_credential.py",
+        "backend/app/models/pending_cognito_deletion.py",
         "backend/app/models/repository.py",
         "backend/app/models/revoked_token.py",
         "backend/app/models/run_capabilities.py",
@@ -444,17 +520,19 @@
         "MOD-backend-app-scripts"
       ],
       "external_deps": [
-        "pydantic"
+        "pydantic",
+        "sqlalchemy"
       ]
     },
     {
       "id": "MOD-backend-app-scripts",
       "path": "backend/app/scripts",
       "language": "python",
-      "file_count": 2,
+      "file_count": 3,
       "files": [
         "backend/app/scripts/__init__.py",
-        "backend/app/scripts/bootstrap_admin.py"
+        "backend/app/scripts/reconcile_cognito_users.py",
+        "backend/app/scripts/retry_cognito_deletions.py"
       ],
       "imports": [
         "MOD-backend-app",
@@ -462,29 +540,37 @@
         "MOD-backend-app-models"
       ],
       "imported_by": [],
-      "external_deps": []
+      "external_deps": [
+        "botocore"
+      ]
     },
     {
       "id": "MOD-backend-app-services",
       "path": "backend/app/services",
       "language": "python",
-      "file_count": 5,
+      "file_count": 7,
       "files": [
         "backend/app/services/__init__.py",
+        "backend/app/services/capacity_state.py",
         "backend/app/services/handoff_github.py",
         "backend/app/services/handoff_pipeline.py",
+        "backend/app/services/host_metrics.py",
         "backend/app/services/od_loader.py",
         "backend/app/services/pptx_export.py"
       ],
       "imports": [
         "MOD-backend-app",
-        "MOD-backend-app-agents"
+        "MOD-backend-app-agents",
+        "MOD-backend-app-core"
       ],
       "imported_by": [
         "MOD-backend-agents",
+        "MOD-backend-app",
         "MOD-backend-app-api"
       ],
       "external_deps": [
+        "boto3",
+        "botocore",
         "httpx",
         "yaml"
       ]
@@ -513,14 +599,19 @@
       "id": "MOD-backend-scripts",
       "path": "backend/scripts",
       "language": "python",
-      "file_count": 6,
+      "file_count": 11,
       "files": [
         "backend/scripts/audit_lost_run_events.py",
+        "backend/scripts/ci_cache_determinism.py",
+        "backend/scripts/coverage_report.py",
         "backend/scripts/cutover_legacy_runs.py",
         "backend/scripts/derive_compatible_agents.py",
         "backend/scripts/generate_template_thumbnails.py",
+        "backend/scripts/migrate_local_users_to_cognito.py",
+        "backend/scripts/migration_guard.py",
         "backend/scripts/seed_test_users.py",
-        "backend/scripts/skills_audit.py"
+        "backend/scripts/skills_audit.py",
+        "backend/scripts/verify_cognito_cutover.py"
       ],
       "imports": [],
       "imported_by": [],
@@ -530,7 +621,7 @@
       "id": "MOD-frontend-src",
       "path": "frontend/src",
       "language": "typescript",
-      "file_count": 32,
+      "file_count": 33,
       "files": [
         "frontend/src/store/GlobalPreloadIndicator.tsx",
         "frontend/src/store/StoreProvider.tsx",
@@ -559,39 +650,24 @@
         "frontend/src/store/index.ts",
         "frontend/src/store/listenerMiddleware.ts",
         "frontend/src/store/slices/agentsSlice.ts",
+        "frontend/src/store/slices/authSlice.test.ts",
         "frontend/src/store/slices/authSlice.ts",
         "frontend/src/store/slices/globalSlice.test.ts",
         "frontend/src/store/slices/globalSlice.ts",
         "frontend/src/store/slices/hooksSlice.ts",
         "frontend/src/store/slices/skillsSlice.ts"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks"
-      ],
-      "external_deps": [
-        "@reduxjs/toolkit",
-        "axios",
-        "lucide-react",
-        "react",
-        "react-redux",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-app",
       "path": "frontend/src/app",
       "language": "typescript",
-      "file_count": 25,
+      "file_count": 29,
       "files": [
+        "frontend/src/app/admin/admin.actions.test.tsx",
         "frontend/src/app/admin/admin.reskin.test.tsx",
         "frontend/src/app/admin/page.tsx",
         "frontend/src/app/dashboard/attachRunOnOpen.source.test.ts",
@@ -606,6 +682,8 @@
         "frontend/src/app/dashboard/reviseGuard.source.test.ts",
         "frontend/src/app/dashboard/revisionFamilyLinkage.source.test.ts",
         "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts",
+        "frontend/src/app/forgot-password/forgot-password.test.tsx",
+        "frontend/src/app/forgot-password/page.tsx",
         "frontend/src/app/handoff/[token]/page.tsx",
         "frontend/src/app/handoff/settings/page.tsx",
         "frontend/src/app/layout.tsx",
@@ -613,36 +691,28 @@
         "frontend/src/app/login/page.tsx",
         "frontend/src/app/page.tsx",
         "frontend/src/app/preview-fullscreen/page.tsx",
-        "frontend/src/app/register/page.tsx",
+        "frontend/src/app/settings/security/page.tsx",
+        "frontend/src/app/settings/security/security.test.tsx",
         "frontend/src/app/test-preview/page.tsx",
         "frontend/src/app/workflow/create/page.tsx",
         "frontend/src/app/workflow/page.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-handoff",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers",
-        "MOD-frontend-src-types"
-      ],
+      "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "fs",
-        "lucide-react",
-        "motion",
-        "next",
-        "path",
-        "react",
-        "vitest"
-      ]
+      "external_deps": []
+    },
+    {
+      "id": "MOD-frontend-src-components",
+      "path": "frontend/src/components",
+      "language": "typescript",
+      "file_count": 2,
+      "files": [
+        "frontend/src/components/admin/CapacityMatrix.test.tsx",
+        "frontend/src/components/admin/CapacityMatrix.tsx"
+      ],
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-analytics",
@@ -657,20 +727,9 @@
         "frontend/src/components/analytics/charts/DonutChart.test.tsx",
         "frontend/src/components/analytics/charts/DonutChart.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-catalog",
@@ -683,26 +742,9 @@
         "frontend/src/components/catalog/HomeLaunchGrid.tsx",
         "frontend/src/components/catalog/NameWorkflowModal.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-workflow"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-chat",
@@ -749,31 +791,9 @@
         "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.test.ts",
         "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "fs",
-        "lucide-react",
-        "motion",
-        "path",
-        "react",
-        "react-dom",
-        "react-markdown",
-        "remark-gfm",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-handoff",
@@ -790,19 +810,9 @@
         "frontend/src/components/handoff/types.ts",
         "frontend/src/components/handoff/useHandoffPipelineState.ts"
       ],
-      "imports": [
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app"
-      ],
-      "external_deps": [
-        "lucide-react",
-        "motion",
-        "next",
-        "react"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-history",
@@ -822,26 +832,9 @@
         "frontend/src/components/history/WorkflowHistory.test.tsx",
         "frontend/src/components/history/WorkflowHistory.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-types"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-home",
@@ -851,16 +844,9 @@
       "files": [
         "frontend/src/components/home/CreationHub.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
+      "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "lucide-react",
-        "motion",
-        "next",
-        "react"
-      ]
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-layout",
@@ -876,37 +862,9 @@
         "frontend/src/components/layout/DashboardLayout.launchLatch.test.tsx",
         "frontend/src/components/layout/DashboardLayout.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-analytics",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-settings",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-library",
@@ -918,27 +876,9 @@
         "frontend/src/components/library/LibraryPage.test.tsx",
         "frontend/src/components/library/LibraryPage.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@/test",
-        "@reduxjs/toolkit",
-        "@testing-library/react",
-        "lucide-react",
-        "motion",
-        "react",
-        "react-redux",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-preview",
@@ -965,28 +905,9 @@
         "frontend/src/components/preview/UserStoryPreview.tsx",
         "frontend/src/components/preview/__tests__/PreviewPanel.switcher.test.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-results"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "lucide-react",
-        "motion",
-        "react",
-        "react-markdown",
-        "remark-gfm",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-results",
@@ -1022,26 +943,9 @@
         "frontend/src/components/results/artifactPreview.test.tsx",
         "frontend/src/components/results/artifactPreview.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-preview"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "lucide-react",
-        "motion",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-savedworkflows",
@@ -1052,47 +956,24 @@
         "frontend/src/components/savedworkflows/SavedWorkflowsPage.test.tsx",
         "frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-settings",
       "path": "frontend/src/components/settings",
       "language": "typescript",
-      "file_count": 3,
+      "file_count": 4,
       "files": [
         "frontend/src/components/settings/AccountSettings.render.test.tsx",
         "frontend/src/components/settings/AccountSettings.test.tsx",
-        "frontend/src/components/settings/AccountSettings.tsx"
+        "frontend/src/components/settings/AccountSettings.tsx",
+        "frontend/src/components/settings/SecuritySection.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-sidebar",
@@ -1103,57 +984,33 @@
         "frontend/src/components/sidebar/ChatSessionItem.tsx",
         "frontend/src/components/sidebar/Sidebar.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
+      "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "lucide-react",
-        "motion",
-        "react"
-      ]
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-ui",
       "path": "frontend/src/components/ui",
       "language": "typescript",
-      "file_count": 11,
+      "file_count": 13,
       "files": [
         "frontend/src/components/ui/Badge.tsx",
         "frontend/src/components/ui/Button.tsx",
         "frontend/src/components/ui/Card.tsx",
         "frontend/src/components/ui/CompletionToast.tsx",
         "frontend/src/components/ui/ErrorBoundary.tsx",
+        "frontend/src/components/ui/Modal.tsx",
         "frontend/src/components/ui/NotificationPanel.a11y.test.tsx",
         "frontend/src/components/ui/NotificationPanel.fix195.test.tsx",
         "frontend/src/components/ui/NotificationPanel.tsx",
         "frontend/src/components/ui/Pill.tsx",
         "frontend/src/components/ui/Tabs.tsx",
+        "frontend/src/components/ui/__tests__/modal.test.tsx",
         "frontend/src/components/ui/__tests__/primitives.test.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-settings",
-        "MOD-frontend-src-components-workflow"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-workflow",
@@ -1218,34 +1075,9 @@
         "frontend/src/components/workflow/prototype/TemplateGallery.reskin.test.tsx",
         "frontend/src/components/workflow/prototype/TemplateGallery.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-lib"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "fs",
-        "lucide-react",
-        "motion",
-        "next",
-        "path",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-context",
@@ -1256,28 +1088,24 @@
         "frontend/src/context/SkillsHooksContext.tsx"
       ],
       "imports": [],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-workflow"
-      ],
-      "external_deps": [
-        "react"
-      ]
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-hooks",
       "path": "frontend/src/hooks",
       "language": "typescript",
-      "file_count": 32,
+      "file_count": 36,
       "files": [
         "frontend/src/hooks/__fixtures__/reducerHarness.ts",
         "frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts",
         "frontend/src/hooks/__tests__/useWorkflow.pipelineCancelled.test.ts",
         "frontend/src/hooks/useAgentLibrary.ts",
+        "frontend/src/hooks/useCapacityMatrix.test.ts",
+        "frontend/src/hooks/useCapacityMatrix.ts",
         "frontend/src/hooks/useChatAttachments.test.ts",
         "frontend/src/hooks/useChatAttachments.ts",
+        "frontend/src/hooks/useHandoffSocket.test.ts",
         "frontend/src/hooks/useHandoffSocket.ts",
         "frontend/src/hooks/useHooksCatalog.ts",
         "frontend/src/hooks/useNotifications.fix202.test.tsx",
@@ -1295,6 +1123,7 @@
         "frontend/src/hooks/useTabDeepLink.test.ts",
         "frontend/src/hooks/useTabDeepLink.ts",
         "frontend/src/hooks/useTextToSpeech.ts",
+        "frontend/src/hooks/useTheme.test.ts",
         "frontend/src/hooks/useTheme.ts",
         "frontend/src/hooks/useWorkflow.accumulators.test.ts",
         "frontend/src/hooks/useWorkflow.clarifyRetention.test.ts",
@@ -1305,54 +1134,34 @@
         "frontend/src/hooks/useWorkflow.ts",
         "frontend/src/hooks/useWorkflowMetadata.ts"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers",
-        "MOD-frontend-src-types"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-handoff",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "fs",
-        "path",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-lib",
       "path": "frontend/src/lib",
       "language": "typescript",
-      "file_count": 39,
+      "file_count": 48,
       "files": [
         "frontend/src/lib/__tests__/wsRunScope.test.ts",
+        "frontend/src/lib/api-handoff.test.ts",
         "frontend/src/lib/api-handoff.ts",
         "frontend/src/lib/api.getRunArtifacts.test.ts",
         "frontend/src/lib/api.getRunFamily.test.ts",
+        "frontend/src/lib/api.refreshRetry.test.ts",
         "frontend/src/lib/api.requestTimeout.test.ts",
         "frontend/src/lib/api.test.ts",
         "frontend/src/lib/api.ts",
+        "frontend/src/lib/authRedirect.test.ts",
+        "frontend/src/lib/authRedirect.ts",
         "frontend/src/lib/clarifications.test.ts",
         "frontend/src/lib/clarifications.ts",
         "frontend/src/lib/constants.ts",
         "frontend/src/lib/design-system-colors.ts",
         "frontend/src/lib/design-system-preview.ts",
         "frontend/src/lib/entitlements.ts",
+        "frontend/src/lib/env.test.ts",
         "frontend/src/lib/env.ts",
         "frontend/src/lib/exporters/auditExporter.ts",
         "frontend/src/lib/exporters/pptExporter.ts",
@@ -1360,8 +1169,11 @@
         "frontend/src/lib/exporters/storyExporter.ts",
         "frontend/src/lib/launchDraft.parity.test.ts",
         "frontend/src/lib/launchDraft.ts",
+        "frontend/src/lib/parseFailedAgents.test.ts",
         "frontend/src/lib/parseFailedAgents.ts",
+        "frontend/src/lib/parsers/pptParser.test.ts",
         "frontend/src/lib/parsers/pptParser.ts",
+        "frontend/src/lib/parsers/streamParser.test.ts",
         "frontend/src/lib/parsers/streamParser.ts",
         "frontend/src/lib/parsers/userStoryParser.ts",
         "frontend/src/lib/ppt-api.ts",
@@ -1370,6 +1182,7 @@
         "frontend/src/lib/resizeImage.ts",
         "frontend/src/lib/runInput.test.ts",
         "frontend/src/lib/runInput.ts",
+        "frontend/src/lib/runStats.test.ts",
         "frontend/src/lib/runStats.ts",
         "frontend/src/lib/skillIcons.ts",
         "frontend/src/lib/sseFrame.test.ts",
@@ -1380,60 +1193,24 @@
         "frontend/src/lib/wsReplayState.test.ts",
         "frontend/src/lib/wsReplayState.ts"
       ],
-      "imports": [
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks"
-      ],
-      "imported_by": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-analytics",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-handoff",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-home",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-settings",
-        "MOD-frontend-src-components-sidebar",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-providers"
-      ],
-      "external_deps": [
-        "lucide-react",
-        "pptxgenjs",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-providers",
       "path": "frontend/src/providers",
       "language": "typescript",
-      "file_count": 2,
+      "file_count": 4,
       "files": [
         "frontend/src/providers/RunConnectionProvider.test.tsx",
-        "frontend/src/providers/RunConnectionProvider.tsx"
+        "frontend/src/providers/RunConnectionProvider.tsx",
+        "frontend/src/providers/ServiceBusyProvider.test.tsx",
+        "frontend/src/providers/ServiceBusyProvider.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-hooks"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-styles",
@@ -1446,11 +1223,7 @@
       ],
       "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "fs",
-        "path",
-        "vitest"
-      ]
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-types",
@@ -1462,14 +1235,8 @@
         "frontend/src/types/index.ts"
       ],
       "imports": [],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-hooks"
-      ],
-      "external_deps": [
-        "vitest"
-      ]
+      "imported_by": [],
+      "external_deps": []
     }
   ]
 }

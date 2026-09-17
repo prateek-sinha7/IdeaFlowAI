@@ -37,10 +37,11 @@ import logging
 from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.dependencies import get_current_user_with_payload
+from app.core.dependencies import bearer_scheme, get_current_user_with_payload
 from app.models.database import get_db
 from app.models.user import User
 from app.models.workflow import WorkflowRun
@@ -58,6 +59,99 @@ from app.api.run_engine import (  # noqa: E402
 )
 
 router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
+
+
+def recheck_stream_credential(token: str) -> str | None:
+    """Re-verify an established stream's credential IN FULL. Reason, or ``None``.
+
+    Called on a cadence for the whole life of an attached SSE stream (see
+    ``stream_run_events``). Returns a short machine-readable reason string when
+    the session must be terminated, else ``None``.
+
+    P1 fix (COGNITO-AUTH-QA-BUGS.md "Stream Revocation: Logout/Password/Role
+    Changes Don't Terminate Established Connections"): an established stream used
+    to never look at auth state again, so logout, password change, role/tier
+    downgrade and token expiry all left it running untouched for its full
+    duration.
+
+    **Phase 2 of the Cognito-only auth migration re-runs the FULL verifier here,
+    not a subset of it.** The previous implementation lived inside the endpoint as
+    a closure over the claims REMEMBERED at attach time (``jti``, ``iat``, the
+    local user id) and re-checked only what those claims could support: the
+    per-jti denylist and the ``max(password_changed_at, tokens_valid_from)``
+    cutoff. It then RECONSTRUCTED a ``Principal`` from them. Two gaps followed,
+    both of which the brief names:
+
+    * **``exp`` was never re-checked.** The attach-time dependency validated it
+      once and nothing did again, so a stream outlived its own credential
+      indefinitely -- a run lasting hours kept streaming on a token that expired
+      in its first minute. ``/ws/handoff`` never had that problem because it
+      re-runs ``run_engine._authenticate_token`` per message.
+    * **The signature was never re-checked**, so a stream kept running past a
+      pool key rotation that had invalidated its token.
+
+    Verifying the raw token closes both, and closes them by CALLING the one real
+    verifier rather than by bolting two more checks onto a hand-maintained subset
+    -- the same protocol-drift argument that put the HTTP and WebSocket paths
+    behind ``core/identity.py`` to begin with. The reconstructed principal goes
+    away with it: the principal now comes from the token, so its ``sub`` and
+    ``groups`` are real rather than approximated (the old one passed the LOCAL
+    user id as ``sub``, which happened not to matter only because nothing read
+    it).
+
+    Lives at module scope, not as a closure, so it can be tested directly against
+    real minted tokens (``tests/unit/test_stream_credential_recheck.py``) instead
+    of through a 30-second live stream. A test that had to re-create the closure
+    would be asserting its own copy of the logic.
+
+    Uses a FRESH, short-lived session: FastAPI tears the request-scoped one down
+    before the streaming body runs (see the BUG-004 note in ``stream_run_events``).
+    Cheap enough for the cadence -- verification is an offline signature check
+    against the in-process JWKS cache, plus one indexed row read.
+    """
+    from app.core.identity import (
+        CredentialInvalid,
+        is_revoked_by_token_validity,
+        resolve_principal,
+        verify_credential,
+    )
+    from app.core.security import is_token_revoked
+    from app.models.database import SessionLocal
+
+    try:
+        principal = verify_credential(token)
+    except CredentialInvalid:
+        # Covers expiry, signature failure, a rotated pool key, and a token that
+        # no longer matches the configured app client. Deliberately ONE reason:
+        # the client's remedy is identical in every case (refresh, or
+        # re-authenticate), and splitting them would put verifier detail on the
+        # wire for no operational gain.
+        return "credential_expired"
+
+    rdb = SessionLocal()
+    try:
+        if principal.jti and is_token_revoked(principal.jti, rdb):
+            return "logged_out"
+
+        # Through the shared resolver, so a row DELETED mid-stream and a row
+        # DISABLED mid-stream both terminate the stream -- resolve_principal
+        # returns None for either (Decision 6). Reading the row directly, as this
+        # used to, saw the deletion but not the disable.
+        #
+        # The resolver's JIT hook cannot resurrect a deleted account here: the
+        # admin delete path disables the pool user BEFORE removing the local row,
+        # and provisioning refuses a disabled pool user. That ordering is the
+        # invariant this relies on ("a user cannot exist as enabled in Cognito
+        # while deleted in the DB"), not an accident.
+        fresh_user = resolve_principal(principal, rdb)
+        if fresh_user is None:
+            return "account_removed"
+
+        if is_revoked_by_token_validity(fresh_user, principal):
+            return "credentials_changed"
+        return None
+    finally:
+        rdb.close()
 
 # Terminal / gate-resolution event types: a ``review_gate_ready`` FOLLOWED by any of
 # these in the durable log means the gate is no longer open (do NOT re-arm, D-14g).
@@ -386,6 +480,12 @@ async def stream_run_events(
     request: Request,
     last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
     auth: tuple[User, dict] = Depends(get_current_user_with_payload),
+    # The RAW credential, captured so the periodic re-check can re-run the FULL
+    # verifier (signature + exp) rather than only the parts derivable from the
+    # projected payload -- see ``_revocation_check`` below. Resolved by the same
+    # ``bearer_scheme`` ``get_current_user_with_payload`` already depends on, so
+    # this adds no new authentication surface and cannot disagree with it.
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ):
     """Stream a run's events as SSE, resumable via ``Last-Event-ID`` (CHAT-07, D-13).
@@ -406,10 +506,12 @@ async def stream_run_events(
     downgrade/expiry/per-jti revocation all left an already-open stream
     running untouched for its full duration.
     """
-    current_user, auth_payload = auth
-    _revocation_user_id = current_user.id
-    _revocation_jti = auth_payload.get("jti")
-    _revocation_iat = auth_payload.get("iat")
+    current_user, _auth_payload = auth
+    # The ONLY thing the periodic re-check needs to carry into the streaming
+    # generator. The remembered `jti`/`iat`/user-id it used to capture are gone:
+    # re-verifying the raw token re-derives all three from the credential itself,
+    # which is both fewer moving parts and impossible to leave stale.
+    _revocation_token = credentials.credentials
     # Layer 1: owner-scoped ORM filter (cross-owner / missing → 404, never 403).
     workflow_run = (
         db.query(WorkflowRun)
@@ -486,40 +588,7 @@ async def stream_run_events(
         )
 
     async def _revocation_check() -> str | None:
-        """P1 fix: re-verify the attaching credential is still valid.
-
-        Runs the SAME checks ``get_current_user_with_payload`` runs on every
-        ordinary request (per-jti revocation, then the generalized blanket
-        revocation keyed on ``max(password_changed_at, tokens_valid_from)``),
-        but against a FRESH, short-lived session/row read rather than the
-        request-scoped ``db`` (which is torn down before the streaming body
-        runs, per the BUG-004 note above). Returns a short machine-readable
-        reason string when the session should be terminated, else ``None``.
-        """
-        from app.core.identity import Principal, is_revoked_by_token_validity
-        from app.core.security import is_token_revoked
-        from app.models.database import SessionLocal
-
-        rdb = SessionLocal()
-        try:
-            if _revocation_jti and is_token_revoked(_revocation_jti, rdb):
-                return "logged_out"
-            fresh_user = rdb.query(User).filter(User.id == _revocation_user_id).first()
-            if fresh_user is None:
-                return "account_removed"
-            principal = Principal(
-                provider="cognito"
-                if fresh_user.auth_provider == "cognito"
-                else "local",
-                sub=_revocation_user_id,
-                jti=_revocation_jti,
-                iat=_revocation_iat,
-            )
-            if is_revoked_by_token_validity(fresh_user, principal):
-                return "credentials_changed"
-            return None
-        finally:
-            rdb.close()
+        return recheck_stream_credential(_revocation_token)
 
     # D11 (KAN-139): log every stream open/close so A1's 429 storm, A2's event
     # theft, and D7's pool drops are diagnosable from the application layer.

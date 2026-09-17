@@ -3,6 +3,7 @@ import Script from "next/script";
 import { Manrope, Heebo } from "next/font/google";
 import "./globals.css";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import { AuthSessionProvider } from "@/providers/AuthSessionProvider";
 import { RunConnectionProvider } from "@/providers/RunConnectionProvider";
 import { ServiceBusyProvider } from "@/providers/ServiceBusyProvider";
 import { StoreProvider } from "@/store/StoreProvider";
@@ -40,30 +41,32 @@ export default function RootLayout({
         <Script id="theme-init" strategy="beforeInteractive">
           {`try{var t=localStorage.getItem('velocity-theme');if(t==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}`}
         </Script>
-        <StoreProvider>
-          <GlobalPreloadIndicator />
-          {/*
-            specs/014: mounted ABOVE RunConnectionProvider (and every route) so
-            a capacity-gate rejection from ANY authenticated call — a run
-            launch, a handoff start, an admin action — shows the SAME busy
-            modal regardless of which page or provider issued the request.
-            Owns no run state itself; it only subscribes to lib/api.ts's
-            onCapacityRejected pub/sub.
-          */}
-          <ServiceBusyProvider>
-            <SkillsHooksProvider>
-              {/*
-                43-06 (A.2): mount the app-level SSE run connection ABOVE the router
-                so per-run streams survive route changes (D-14a). SSE is the sole,
-                unconditional run transport (44-06 hard cutoff) — the provider always
-                attaches; there is no transport flag and no legacy WS path.
-              */}
-              <RunConnectionProvider>
-                {children}
-              </RunConnectionProvider>
-            </SkillsHooksProvider>
-          </ServiceBusyProvider>
-        </StoreProvider>
+        <AuthSessionProvider>
+          <StoreProvider>
+            <GlobalPreloadIndicator />
+            {/*
+              specs/014: mounted ABOVE RunConnectionProvider (and every route) so
+              a capacity-gate rejection from ANY authenticated call — a run
+              launch, a handoff start, an admin action — shows the SAME busy
+              modal regardless of which page or provider issued the request.
+              Owns no run state itself; it only subscribes to lib/api.ts's
+              onCapacityRejected pub/sub.
+            */}
+            <ServiceBusyProvider>
+              <SkillsHooksProvider>
+                {/*
+                  43-06 (A.2): mount the app-level SSE run connection ABOVE the router
+                  so per-run streams survive route changes (D-14a). SSE is the sole,
+                  unconditional run transport (44-06 hard cutoff) — the provider always
+                  attaches; there is no transport flag and no legacy WS path.
+                */}
+                <RunConnectionProvider>
+                  {children}
+                </RunConnectionProvider>
+              </SkillsHooksProvider>
+            </ServiceBusyProvider>
+          </StoreProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   );

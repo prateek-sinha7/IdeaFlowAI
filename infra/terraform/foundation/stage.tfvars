@@ -30,15 +30,5 @@ cognito_enabled = true
 # throwaway dev box but a leaked stage refresh token should still die early.
 cognito_refresh_token_validity_days = 14
 
-# CUTOVER SWITCHES — see foundation/dev.tfvars for the full explanation.
-#
-#   auth_provider = "local"   -> the pool EXISTS but is not yet the credential
-#                                authority; login still uses the local bcrypt
-#                                path. This is Phase 5 step 1 and is the
-#                                correct value until scripts/bootstrap_admin.py
-#                                has seeded the admin INTO the stage pool and a
-#                                Cognito login has been verified end to end.
-#   auth_provider = "cognito" -> flip only after that verification.
-auth_provider         = "local"
-auth_allow_legacy_jwt = true
-break_glass_enabled   = true
+# auth_provider, auth_allow_legacy_jwt, and break_glass_enabled were REMOVED
+# in Phase 4 of the Cognito-only auth migration — see foundation/dev.tfvars.

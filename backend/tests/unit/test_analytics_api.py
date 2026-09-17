@@ -116,7 +116,7 @@ def _seed_user(env) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"analytics-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()

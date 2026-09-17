@@ -41,10 +41,10 @@ fastapi, httpx, pydantic
 REST endpoints backing the OpenDesign-style prototype flow: a read-only catalogue of templates and design systems (list/detail/preview/thumbnail/asset serving) plus the endpoint that streams a prototype generation run as NDJSON, and a URL-fetch proxy so the frontend can pull a pasted website's HTML without hitting CORS.
 
 ## Shape
-- `list_templates` / `get_template` / `get_template_preview` / `get_template_thumbnail` / `get_template_asset` — catalogue reads delegating to `app.services.od_loader`; the preview/thumbnail/asset routes are intentionally unauthenticated so a sandboxed iframe can load them without JWT propagation, and are constrained to their template's directory by the loader (no path traversal).
-- `list_design_systems` / `get_design_system` / `get_design_system_preview` — the design-system counterpart catalogue.
-- `run_prototype` (`POST /run`) — validates the template/design-system ids exist, then streams `run_od_prototype_pipeline`'s events as NDJSON (`application/x-ndjson`) with buffering disabled so chunks reach the browser incrementally.
-- `fetch_url_for_template` (`GET /fetch-url`) + `_is_private_url` — an SSRF-guarded proxy fetch (blocks localhost/private/loopback IPs, 10s timeout, 2MB cap) used by the custom-template-from-URL upload flow.
+- `list_templates` / `get_template` / `get_template_preview` / `get_template_thumbnail` / `get_template_asset` â€” catalogue reads delegating to `app.services.od_loader`; the preview/thumbnail/asset routes are intentionally unauthenticated so a sandboxed iframe can load them without JWT propagation, and are constrained to their template's directory by the loader (no path traversal).
+- `list_design_systems` / `get_design_system` / `get_design_system_preview` â€” the design-system counterpart catalogue.
+- `run_prototype` (`POST /run`) â€” validates the template/design-system ids exist, then streams `run_od_prototype_pipeline`'s events as NDJSON (`application/x-ndjson`) with buffering disabled so chunks reach the browser incrementally.
+- `fetch_url_for_template` (`GET /fetch-url`) + `_is_private_url` â€” an SSRF-guarded proxy fetch (blocks localhost/private/loopback IPs, 10s timeout, 2MB cap) used by the custom-template-from-URL upload flow.
 - Pydantic response models (`TemplateListItem`/`TemplateDetail`, `DesignSystemListItem`/`DesignSystemDetail`, `RunRequest`).
 
 ## Why this shape

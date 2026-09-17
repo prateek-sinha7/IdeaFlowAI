@@ -38,7 +38,6 @@ def _build_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str):
         "AWS_REGION",
         "DATABASE_URL",
         "CORS_ORIGINS",
-        "ACCESS_TOKEN_EXPIRE_HOURS",
         "LANGSMITH_TRACING",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -59,11 +58,24 @@ _SHIPPED_DEFAULT = "dev-secret-key-change-in-production"
 _STRONG = "x" * 64
 
 
+def _build_cognito_configured_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str):
+    """Like ``_build_settings``, but also supplies the Cognito settings the
+    boot guard requires outside development (unrelated to SECRET_KEY, but
+    ``_validate_cognito_config`` runs as part of the same model_validator
+    chain and would otherwise raise first and mask the SECRET_KEY check)."""
+    overrides.setdefault("COGNITO_USER_POOL_ID", "eu-central-1_testpool")
+    overrides.setdefault("COGNITO_CLIENT_ID", "test-client-id")
+    overrides.setdefault("COGNITO_CLIENT_SECRET", "test-client-secret")
+    return _build_settings(monkeypatch, **overrides)
+
+
 class TestSecretKeyValidator:
     def test_default_key_in_production_aborts_boot(self, monkeypatch):
         """The shipped default in any non-dev environment is a hard fail."""
         with pytest.raises(Exception) as exc_info:
-            _build_settings(monkeypatch, ENV="production", SECRET_KEY=_SHIPPED_DEFAULT)
+            _build_cognito_configured_settings(
+                monkeypatch, ENV="production", SECRET_KEY=_SHIPPED_DEFAULT
+            )
         assert "SECRET_KEY" in str(exc_info.value)
         assert (
             "production" in str(exc_info.value).lower()
@@ -73,7 +85,9 @@ class TestSecretKeyValidator:
     def test_default_key_in_staging_aborts_boot(self, monkeypatch):
         """Staging is non-dev too — same rule."""
         with pytest.raises(Exception) as exc_info:
-            _build_settings(monkeypatch, ENV="staging", SECRET_KEY=_SHIPPED_DEFAULT)
+            _build_cognito_configured_settings(
+                monkeypatch, ENV="staging", SECRET_KEY=_SHIPPED_DEFAULT
+            )
         assert "SECRET_KEY" in str(exc_info.value)
 
     def test_default_key_in_development_is_allowed(self, monkeypatch, caplog):
@@ -88,7 +102,7 @@ class TestSecretKeyValidator:
         """Empty SECRET_KEY in any environment is a fail."""
         for env in ("development", "production", "ci"):
             with pytest.raises(Exception) as exc_info:
-                _build_settings(monkeypatch, ENV=env, SECRET_KEY="")
+                _build_cognito_configured_settings(monkeypatch, ENV=env, SECRET_KEY="")
             assert "empty" in str(exc_info.value).lower() or "SECRET_KEY" in str(
                 exc_info.value
             )
@@ -96,7 +110,9 @@ class TestSecretKeyValidator:
     def test_short_key_in_production_aborts_boot(self, monkeypatch):
         """Below-floor keys in non-dev environments are a fail."""
         with pytest.raises(Exception) as exc_info:
-            _build_settings(monkeypatch, ENV="production", SECRET_KEY="abc123")
+            _build_cognito_configured_settings(
+                monkeypatch, ENV="production", SECRET_KEY="abc123"
+            )
         assert "SECRET_KEY" in str(exc_info.value)
         assert "32" in str(exc_info.value) or "short" in str(exc_info.value).lower()
 
@@ -107,7 +123,7 @@ class TestSecretKeyValidator:
         assert config_module.settings.SECRET_KEY == "abc123"
 
     def test_strong_key_in_production_boots(self, monkeypatch):
-        config_module = _build_settings(
+        config_module = _build_cognito_configured_settings(
             monkeypatch, ENV="production", SECRET_KEY=_STRONG
         )
         assert config_module.settings.SECRET_KEY == _STRONG

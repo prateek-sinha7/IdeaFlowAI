@@ -27,10 +27,6 @@ class User(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String, unique=True, index=True, nullable=False)
-    # Nullable (Cognito migration, 0031): a Cognito-native user has no local
-    # bcrypt hash. Non-null ONLY for the single break-glass local-admin
-    # account (auth_provider == "local") and for any pre-migration row.
-    password_hash = Column(String, nullable=True)
     # Set to "now" whenever the password changes. Any JWT whose ``iat`` is
     # before this value is treated as revoked — the cheap, enumeration-free
     # "revoke all this user's outstanding tokens" pattern. Nullable so users
@@ -44,19 +40,20 @@ class User(Base):
     is_admin = Column(Boolean, nullable=False, default=False, server_default="0")
     preferred_model = Column(String, nullable=True, default=None)
 
-    # --- Cognito identity mapping (0031) ---
+    # --- Cognito identity mapping ---
     # Cognito `sub` claim. NEVER the identity key -- `id` (above) stays the
     # local UUID every foreign key references (WorkflowRun.user_id etc.); this
-    # is a mapping column only, unique + indexed so `resolve_principal` can
-    # look a Cognito-authenticated principal up by it.
+    # is a mapping column only. NOT NULL + unique + indexed as of migration
+    # 0038 (Cognito-only auth migration): every row is Cognito-native now, so
+    # `resolve_principal` can always look a principal up by it.
     # Uniqueness + index are declared in __table_args__ above (see the note
-    # there) so this model and migration 0031 render identical DDL.
-    cognito_sub = Column(String, nullable=True)
-    # "cognito" | "local" (break-glass). Drives the login-endpoint branch and
-    # which credential-verification path applies.
-    auth_provider = Column(
-        String, nullable=False, default="local", server_default="local"
-    )
+    # there) so this model and the migration render identical DDL.
+    cognito_sub = Column(String, nullable=False)
+    # "active" | "disabled" (migration 0038). Disabled accounts are rejected
+    # by the credential verifier regardless of token validity -- set when an
+    # admin disables a user or `reconcile_cognito_users.py --fix-disabled`
+    # confirms the pool user is gone/disabled.
+    status = Column(String(20), nullable=False, default="active", server_default="active")
     # Generalizes password_changed_at: any JWT/Cognito-token whose `iat` is
     # before max(password_changed_at, tokens_valid_from) is rejected. A role
     # or tier change stamps this to force re-authentication with fresh groups.
@@ -80,8 +77,8 @@ class User(Base):
     # Fernet-encrypted Cognito refresh token (0032), stored so
     # POST /api/auth/refresh can call REFRESH_TOKEN_AUTH server-side -- the
     # browser only ever holds one bearer value (the access token), per the
-    # getToken()/setToken() seam (Decision 3). NULL for local/break-glass
-    # users, who have no Cognito refresh token.
+    # getToken()/setToken() seam. NULL until the user's first successful
+    # login (or after logout/password-change revokes it).
     encrypted_cognito_refresh_token = Column(Text, nullable=True)
     # timezone=True (0035) -- see password_changed_at above; kept consistent
     # with the other users.* timestamp columns.

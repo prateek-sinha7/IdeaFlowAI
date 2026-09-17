@@ -77,12 +77,20 @@ def env(monkeypatch):
     store = store_mod.get_artifact_store()
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # post_message depends on get_current_principal: its revision/concierge
+    # channels reach the tier gate, which reads cognito:groups (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
 
     yield {
         "ws": ws_module,
@@ -105,7 +113,7 @@ def _seed_user(env, tag: str) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"iss053-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -332,6 +340,10 @@ async def _dispose_gate_action(env, gate_key, *, art):
         run_id=gate_key.split(":", 1)[0],
         message_id="m-1",
         current_user=env["state"]["user"],
+        # The caller's EFFECTIVE tier, which the disposal forwards to the revision
+        # entitlement gate (Decision 3). Enterprise here because this test is
+        # about the update_specs gate fence, not about entitlement.
+        caller_tier="enterprise",
         wr_status="waiting_for_user",
         wr_type="prototype",
         gate_key=gate_key,

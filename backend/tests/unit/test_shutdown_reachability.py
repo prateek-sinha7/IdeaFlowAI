@@ -301,6 +301,15 @@ def test_production_leaves_shutdown_stop_runs_off():
         _env_file=None,
         ENV="production",
         SECRET_KEY="p" * 64,
+        # Cognito-only auth migration (.kiro/specs/login/prompt.md Phase 1):
+        # _validate_cognito_config is unconditional outside development, so
+        # constructing a "production" Settings without these three now
+        # raises CognitoMisconfigured before SHUTDOWN_STOP_RUNS is ever
+        # reached -- unrelated to what this test actually pins, but a
+        # precondition of building Settings("production", ...) at all.
+        COGNITO_USER_POOL_ID="eu-central-1_testpool",
+        COGNITO_CLIENT_ID="test-client-id",
+        COGNITO_CLIENT_SECRET="test-client-secret",
     )
     assert prod.SHUTDOWN_STOP_RUNS is False
 
@@ -331,11 +340,26 @@ def test_explicit_shutdown_stop_runs_always_wins(env_name, explicit, expected):
     """The env-differentiated default must never override an operator's explicit value."""
     from app.core.config import Settings
 
+    # See the comment on test_production_leaves_shutdown_stop_runs_off: any
+    # non-development ENV now requires the Cognito trio to construct Settings
+    # at all (Cognito-only auth migration Phase 1). Harmless for the
+    # "development" parametrization, which never reaches that check.
+    cognito_kwargs = (
+        {}
+        if env_name == "development"
+        else {
+            "COGNITO_USER_POOL_ID": "eu-central-1_testpool",
+            "COGNITO_CLIENT_ID": "test-client-id",
+            "COGNITO_CLIENT_SECRET": "test-client-secret",
+        }
+    )
+
     settings_obj = Settings(
         _env_file=None,
         ENV=env_name,
         SECRET_KEY="p" * 64,
         SHUTDOWN_STOP_RUNS=explicit,
+        **cognito_kwargs,
     )
     assert settings_obj.SHUTDOWN_STOP_RUNS is expected
 

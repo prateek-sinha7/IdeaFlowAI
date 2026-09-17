@@ -198,8 +198,10 @@ def test_stream_endpoint_returns_connections(monkeypatch):
     import uvicorn
     from fastapi import FastAPI
 
+    from fastapi.security import HTTPAuthorizationCredentials
+
     from app.api.run_stream import router
-    from app.core.dependencies import get_current_user_with_payload
+    from app.core.dependencies import bearer_scheme, get_current_user_with_payload
     from app.models.database import get_db
 
     engine = _make_queuepool_engine()
@@ -227,6 +229,12 @@ def test_stream_endpoint_returns_connections(monkeypatch):
             db.close()
 
     app.dependency_overrides[get_current_user_with_payload] = override_user
+    # The raw bearer the periodic credential re-check needs (Phase 2). Never
+    # verified here: this is the finished-run replay path, which returns before
+    # the live-drain re-check cadence.
+    app.dependency_overrides[bearer_scheme] = lambda: HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="stubbed-not-verified"
+    )
     app.dependency_overrides[get_db] = override_db
 
     # The run is NOT registered in run_engine._PIPELINE_QUEUES → live_queue is None →

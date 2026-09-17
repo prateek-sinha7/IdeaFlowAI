@@ -66,7 +66,7 @@ def _seed_user(ws_module, email_tag: str):
         u = User(
             id=str(uuid.uuid4()),
             email=f"cr01-{email_tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()

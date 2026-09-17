@@ -120,12 +120,20 @@ def rest_env(ws_env, monkeypatch):
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # launch_run depends on get_current_principal so its tier gate can read the
+    # token's cognito:groups (Cognito-only auth migration, Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
     return {
         "client": client,

@@ -823,12 +823,20 @@ while IFS= read -r param_json; do
                 PUBLIC_BASE_URL_SET=1
             fi
             ;;
-        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT|HANDOFF_MAX_TRANSCRIPT_BYTES|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_CLIENT_SECRET|COGNITO_REGION|AUTH_PROVIDER|AUTH_ALLOW_LEGACY_JWT|BREAK_GLASS_ENABLED|ADMIN_MFA_REQUIRED|AUTH_EMAIL_MFA_ENABLED)
+        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT|HANDOFF_MAX_TRANSCRIPT_BYTES|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_CLIENT_SECRET|COGNITO_REGION|ADMIN_MFA_REQUIRED|AUTH_EMAIL_MFA_ENABLED)
             # ADMIN_MFA_REQUIRED (P0 fix, COGNITO-AUTH-QA-BUGS.md) and
             # AUTH_EMAIL_MFA_ENABLED were published to SSM by the secrets module
             # but omitted here, so both parameters existed in Parameter Store yet
             # never reached /etc/velocityai/app.env on any deployed host — an
             # operator flipping either one in Terraform saw no effect at all.
+            #
+            # AUTH_PROVIDER / AUTH_ALLOW_LEGACY_JWT / BREAK_GLASS_ENABLED removed
+            # from this allowlist in Phase 4 of the Cognito-only auth migration
+            # (.kiro/specs/login/prompt.md) -- the secrets module no longer
+            # creates those SSM parameters at all (see modules/secrets/main.tf),
+            # so nothing can arrive under those names any more; leaving them here
+            # would be a dead allowlist entry for a parameter that can never
+            # exist, matching no writer.
             emit "$rel" "$value" ;;
         HOST_CAPACITY_*)
             # specs/014 — host capacity matrix + admission gate. Every
@@ -864,25 +872,20 @@ while IFS= read -r param_json; do
             # than falling through to the WARN below on every app start.
             ;;
         bootstrap/*)
-            # One-shot initial-administrator credentials
-            # (bootstrap/admin-email, bootstrap/admin-password), consumed by
-            # remote-deploy.sh §12 and streamed straight into
-            # `python -m app.scripts.bootstrap_admin --password-stdin` inside
-            # the backend container.
+            # Historical one-shot initial-administrator credentials
+            # (bootstrap/admin-email, bootstrap/admin-password). The mechanism
+            # that produced and consumed them (remote-deploy.sh §12,
+            # `app.scripts.bootstrap_admin`) was REMOVED in Phase 4 of the
+            # Cognito-only auth migration (.kiro/specs/login/prompt.md) --
+            # nothing pushes new values under this prefix anymore.
             #
-            # These must NOT reach app.env. Doing so would put the bootstrap
-            # password into the long-running container's environment — visible
-            # via `docker inspect` and inherited by every subprocess the app
-            # spawns — for the entire life of the deployment, to serve a step
-            # that runs at most once. The deploy script fetches them from SSM
-            # on demand instead.
-            #
-            # Explicit skip rather than falling through to the WARN below:
-            # unknown-parameter warnings fire on every single app start, and a
-            # recurring warning for an expected parameter trains operators to
-            # ignore the one that matters. Note the WARN prints only the
-            # parameter NAME, never $value, so the previous behaviour was noisy
-            # rather than leaky.
+            # Kept as an explicit skip, not a functional path: an account that
+            # ran an older deploy may still have a leftover bootstrap/* SSM
+            # parameter sitting around until an operator deletes it by hand,
+            # and this arm's only remaining job is to make sure that leftover
+            # never reaches app.env (visible via `docker inspect`, inherited by
+            # every subprocess) and never trains operators to ignore the WARN
+            # below by making it fire on every app start for an expected name.
             ;;
         *)
             echo "[velocityai-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;

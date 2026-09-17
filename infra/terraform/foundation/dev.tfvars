@@ -32,22 +32,8 @@ cognito_enabled = true
 # refresh token should die sooner, and dev sessions are disposable.
 cognito_refresh_token_validity_days = 7
 
-# CUTOVER SWITCHES — read these together:
-#
-#   auth_provider = "local"       -> Cognito EXISTS but is not yet the
-#                                    credential authority. Login still uses the
-#                                    local bcrypt path. This is Phase 5 step 1
-#                                    ("deploy with dual-accept"), and it is the
-#                                    correct value until the admin has been
-#                                    bootstrapped INTO the pool and verified.
-#   auth_provider = "cognito"     -> flip AFTER running
-#                                    scripts/bootstrap_admin.py against the
-#                                    pool and confirming a successful Cognito
-#                                    login (Phase 5 steps 2-6).
-#
-#   auth_allow_legacy_jwt = true  -> dual-accept; zero forced logouts. Flip to
-#                                    false only at step 7, after legacy tokens
-#                                    have aged out (<= ACCESS_TOKEN_EXPIRE_HOURS).
-auth_provider         = "local"
-auth_allow_legacy_jwt = true
-break_glass_enabled   = true
+# auth_provider, auth_allow_legacy_jwt, and break_glass_enabled were REMOVED
+# in Phase 4 of the Cognito-only auth migration (.kiro/specs/login/prompt.md)
+# — Cognito is the sole authentication authority; the backend no longer
+# declares any of these settings, and dev was the first environment cut over.
+# See foundation/variables.tf's Phase 4 note.

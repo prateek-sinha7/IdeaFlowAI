@@ -50,6 +50,10 @@ from app.models.subagent_run import SubagentRun  # noqa: F401
 # Phase 12 per-wave audit model (0020) — imported here so Base.metadata sees it for
 # Alembic autogenerate/check (Pitfall 5).
 from app.models.wave_run import WaveRun  # noqa: F401
+
+# Cognito-only auth migration (0038) — imported here so Base.metadata sees it
+# for Alembic autogenerate/check (Pitfall 5).
+from app.models.pending_cognito_deletion import PendingCognitoDeletion  # noqa: F401
 from app.models.handoff import (
     HandoffSession,
     UserApiKey,
@@ -69,7 +73,6 @@ from app.models.schemas import (
     FinalOutputModel,
     LoginRequest,
     MessageResponse,
-    RegisterRequest,
     StreamMessageModel,
     UserResponse,
 )
@@ -94,6 +97,7 @@ __all__ = [
     "SubagentRun",
     "RevokedToken",
     "cleanup_expired_revocations",
+    "PendingCognitoDeletion",
     "HandoffSession",
     "UserApiKey",
     "UserGithubCredential",
@@ -110,7 +114,6 @@ __all__ = [
     "FinalOutputModel",
     "LoginRequest",
     "MessageResponse",
-    "RegisterRequest",
     "StreamMessageModel",
     "UserResponse",
 ]

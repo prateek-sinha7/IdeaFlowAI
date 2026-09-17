@@ -84,7 +84,6 @@ services:
         # runtime). CI populates these from the deployment FQDN. Empty
         # defaults are fine for local dev (relative URLs via nginx).
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
-        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"

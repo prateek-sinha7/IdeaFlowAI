@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 # scripts/local-dev/run-backend.sh
 #
-# Starts the FastAPI backend dev server (assumes setup-backend.sh has
-# already been run at least once).
-#
-# app/main.py does `from app.api... import ...` (absolute imports rooted at
-# the `app` package), so this must run with cwd = backend/ as `app.main:app`
-# — NOT from the repo root as `backend.app.main:app` (that import path
-# resolves `app` to nothing and fails with ModuleNotFoundError).
+# Starts the FastAPI backend with the supported uv-managed environment.
+# Run setup-backend.sh first to create and validate backend/.env.
 #
 # Usage:
 #   scripts/local-dev/run-backend.sh
@@ -15,14 +10,17 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BACKEND_DIR="$REPO_ROOT/backend"
 
-if [[ ! -d "$REPO_ROOT/venv" ]]; then
-  echo "ERROR: venv not found. Run scripts/local-dev/setup-backend.sh first." >&2
+if ! command -v uv >/dev/null 2>&1; then
+  echo "ERROR: uv is required. Install it, then rerun this script." >&2
   exit 1
 fi
 
-# shellcheck disable=SC1091
-source "$REPO_ROOT/venv/bin/activate"
+if [[ ! -f "$BACKEND_DIR/.env" ]]; then
+  echo "ERROR: backend/.env is missing. Copy backend/.env.example and configure PostgreSQL/Cognito first." >&2
+  exit 1
+fi
 
-cd "$REPO_ROOT/backend"
-exec uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd "$BACKEND_DIR"
+exec uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

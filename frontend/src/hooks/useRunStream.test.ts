@@ -24,6 +24,9 @@ import { useRunStream } from "./useRunStream";
 // Let connect() pass its token guard; env stays real (ENV.API_URL only shapes the URL).
 vi.mock("@/lib/api", () => ({
   getToken: () => "t.t.t",
+  getTokenExpiryMs: () => null,
+  refreshOnce: vi.fn(),
+  expireSession: vi.fn(),
   setToken: vi.fn(),
   clearToken: vi.fn(),
 }));

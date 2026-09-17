@@ -53,6 +53,7 @@ import agents.execution_engine.engine as engine_mod
 from app.models.database import Base
 from app.models.user import User
 from app.models.workflow import WorkflowRun
+from tests.fakes.principal import principal_for
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -126,12 +127,20 @@ def env(monkeypatch):
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: stub)
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # The resume route's tier gate reads the token's cognito:groups, so it
+    # depends on get_current_principal (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {
@@ -157,7 +166,7 @@ def _seed_user(env, tag="u") -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"res50-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -302,7 +311,14 @@ async def test_resume_double_post_second_409(env):
 
     async def _call():
         try:
-            return await rc.resume_run_endpoint(run_id, current_user=owner)
+            # The endpoint now takes the (user, principal) pair produced by
+            # get_current_principal, so its tier gate can read the token's
+            # cognito:groups (Decision 3). Called directly here — bypassing the
+            # TestClient — because this test drives two concurrent coroutines to
+            # prove the no-preemption atomicity of the overlap mutex.
+            return await rc.resume_run_endpoint(
+                run_id, auth=(owner, principal_for(owner))
+            )
         except HTTPException as exc:
             return exc
 

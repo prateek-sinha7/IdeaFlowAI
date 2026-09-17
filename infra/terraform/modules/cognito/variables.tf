@@ -97,12 +97,23 @@ variable "email_mfa_enabled" {
     condition     = !var.email_mfa_enabled || var.mfa_configuration != "OFF"
     error_message = "email_mfa_enabled requires mfa_configuration to be OPTIONAL or ON."
   }
+
+  validation {
+    condition     = var.email_mfa_enabled == false || var.account_recovery_admin_only_acknowledged == true
+    error_message = "Enabling email MFA forces admin-only account recovery; set account_recovery_admin_only_acknowledged = true to confirm."
+  }
 }
 
 variable "email_mfa_subject" {
   description = "Subject line for the email carrying the MFA one-time code. Only used when email_mfa_enabled is true."
   type        = string
   default     = "Your Flowin verification code"
+}
+
+variable "account_recovery_admin_only_acknowledged" {
+  description = "Acknowledge that enabling email MFA forces admin-only account recovery (users cannot reset their own passwords)."
+  type        = bool
+  default     = false
 }
 
 variable "email_mfa_message" {
@@ -180,13 +191,13 @@ variable "ses_reply_to_email_address" {
 variable "access_token_validity_minutes" {
   description = "Access token lifetime in minutes (A-3: 30-60 min recommended)."
   type        = number
-  default     = 60
+  default     = 30
 }
 
 variable "id_token_validity_minutes" {
   description = "ID token lifetime in minutes — matched to the access token by default."
   type        = number
-  default     = 60
+  default     = 30
 }
 
 variable "refresh_token_validity_days" {
@@ -231,21 +242,40 @@ variable "deletion_protection" {
 
 # --- Groups ------------------------------------------------------------------
 # Fixed precedence table per the migration plan §5.1. Not made configurable —
-# these four names + precedences are a locked decision (Decision 6), and the
+# these names + precedences are a locked decision (Decision 6), and the
 # application's resolve_tier_from_groups/resolve_is_admin_from_groups read
 # these exact literal names.
-
+#
+# `hexaware` (precedence 15, added Phase 4 of the Cognito-only auth migration,
+# .kiro/specs/login/prompt.md Decision 5): a scoped tier for deployments that
+# need the prototype family without ppt/app_builder (e.g. Hexaware internal
+# tooling — see backend/app/core/entitlements.py's TIER_PIPELINES comment).
+# The backend already carries `flowin-tier-hexaware` in
+# entitlements._TIER_GROUP_PRECEDENCE as of Phase 2 -- adding it here is what
+# makes a real token able to actually carry that group; until this change no
+# pool had it, so the entry was inert (a token cannot carry a group the pool
+# does not have). Slotted between tier_enterprise (10) and tier_pro (20)
+# because hexaware is a SIBLING scoped tier, not a subset of either: it grants
+# the prototype family (which pro also has) while deliberately excluding the
+# ppt and app_builder families (which pro has and hexaware must not) — neither
+# tier is a superset of the other, so the relative order is a judgement call.
+# Hexaware wins over pro so a deployment deliberately scoped down to hexaware
+# is not silently widened back to pro by a leftover `flowin-tier-pro`
+# membership (mirrors the backend's own precedence rationale in
+# entitlements.py).
 variable "group_names" {
-  description = "The four fixed Cognito groups this module creates, keyed by precedence (lower = higher priority). DO NOT change these names without updating backend/app/core/entitlements.py in lockstep."
+  description = "The five fixed Cognito groups this module creates, keyed by precedence (lower = higher priority). DO NOT change these names without updating backend/app/core/entitlements.py in lockstep."
   type = object({
     admins          = string
     tier_enterprise = string
+    tier_hexaware   = string
     tier_pro        = string
     tier_basic      = string
   })
   default = {
     admins          = "flowin-admins"
     tier_enterprise = "flowin-tier-enterprise"
+    tier_hexaware   = "flowin-tier-hexaware"
     tier_pro        = "flowin-tier-pro"
     tier_basic      = "flowin-tier-basic"
   }

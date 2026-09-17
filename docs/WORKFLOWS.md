@@ -781,7 +781,23 @@ That `onStartPipeline` is `useWorkflow.startPipeline` (`frontend/src/hooks/useWo
 
 ## 4. Backend traces per workflow
 
-### B1 — Auth backend trace (W01–W07)
+### B1 — Auth backend trace (W01–W07) — SUPERSEDED as of 2026-09-12
+
+> This entire B1 section describes the pre-Cognito local bcrypt/HS256 auth
+> stack. The Cognito-only auth migration (`.kiro/specs/login/prompt.md`)
+> removed every element of it in Phase 1: `POST /api/auth/register` is
+> permanently 403 (self-registration disabled), `password_hash`/
+> `auth_provider` columns are dropped, `security.py`'s `create_access_token`/
+> `decode_access_token`/`hash_password`/`verify_password` are deleted, and
+> HS256 signing no longer exists anywhere in this application. Cognito
+> RS256 is the sole authentication authority; JIT provisioning replaces
+> registration; `cognito:groups` (not a DB column) drives every
+> tier/admin gate. See `docs/runbooks/cognito-cutover.md` and
+> `docs/runbooks/admin-recovery.md` for the current design, and
+> `.kiro/specs/login/MERGE_NOTES.md` for the full migration record. The body
+> below is retained unedited as a historical trace of the design that
+> predated the migration — treat every claim in it as describing that
+> earlier state, not the current one.
 
 **Stack.** FastAPI + SQLAlchemy 2.0 + python-jose (HS256 JWT) + bcrypt (raw `bcrypt` package, not `passlib`). DB default `sqlite:///./dev.db` (`backend/app/core/config.py:74`); Postgres in production via `DATABASE_URL`. Auth router mounted at app root in `backend/app/main.py:125`.
 

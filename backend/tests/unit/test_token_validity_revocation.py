@@ -38,7 +38,6 @@ def _user(**kwargs) -> User:
         email="u@example.com",
         tier="pro",
         is_admin=False,
-        auth_provider=kwargs.pop("auth_provider", "cognito"),
         **kwargs,
     )
 
@@ -93,11 +92,13 @@ class TestTokensValidFromTrigger:
         user = _user(tokens_valid_from=NOW)
         assert is_revoked_by_token_validity(user, _principal(NOW_EPOCH)) is False
 
-    def test_applies_to_the_local_break_glass_path_too(self):
-        """Revocation is provider-agnostic — break-glass is not exempt."""
-        user = _user(auth_provider="local", tokens_valid_from=NOW)
+    def test_applies_regardless_of_principal_provider_label(self):
+        """Revocation logic itself doesn't branch on provider -- it's a pure
+        timestamp comparison, so it holds regardless of the Principal's
+        `provider` field value."""
+        user = _user(tokens_valid_from=NOW)
         assert (
-            is_revoked_by_token_validity(user, _principal(NOW_EPOCH - 1, "local"))
+            is_revoked_by_token_validity(user, _principal(NOW_EPOCH - 1, "cognito"))
             is True
         )
 

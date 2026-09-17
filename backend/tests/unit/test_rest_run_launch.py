@@ -97,12 +97,22 @@ def env(monkeypatch):
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RecordingEngine())
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # launch_run/resume/revisions/messages depend on get_current_principal so their
+    # tier gate can read the token's cognito:groups (Cognito-only auth migration,
+    # Decision 3). principal_for derives the groups a real token for this user
+    # would carry, so the fixture still expresses intent as "this caller is <tier>".
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {"ws": ws_module, "client": client, "state": state, "Session": TestingSession}
@@ -119,7 +129,7 @@ def _seed_user(env) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"launch-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()

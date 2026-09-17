@@ -260,7 +260,16 @@ function LoginForm() {
               </div>
 
               <div>
-                <label htmlFor="password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">Password</label>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label htmlFor="password" className="block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/forgot-password")}
+                    className="text-[11px] font-medium text-ink-400 hover:text-brand hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <div className="input-focus relative rounded-[var(--radius-button)] border border-line-control bg-surface-card transition-colors">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
                   <input

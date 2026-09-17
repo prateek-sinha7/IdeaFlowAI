@@ -166,7 +166,7 @@ def load_state():
     """
     path = KNOWLEDGE / "state.yaml"
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         raise MissingInput(
             f"{path.relative_to(ROOT)} does not exist yet.\n"
@@ -202,7 +202,7 @@ def load_modules():
     """
     path = ARCH_DIR / "modules.json"
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         raise MissingInput(
             f"{path.relative_to(ROOT)} does not exist yet.\n"
@@ -343,7 +343,7 @@ def build_section_4():
         mod_card = ARCH_DIR / f"{mod_id}.md"
         purpose = ""
         if mod_card.exists():
-            text = mod_card.read_text()
+            text = mod_card.read_text(encoding="utf-8")
             end = text.find("\n---", 3)
             body = text[end + 4:] if end != -1 else text
             m = re.search(r"## Purpose\s*\n\n(.+?)(?:\n\n|\Z)", body, re.S)
@@ -423,7 +423,7 @@ def main():
         if prior.replace(f"built_at: {built_at}", "") == body.replace(f"built_at: {built_at}", ""):
             print(f"Wrote {OUT_PATH} (unchanged)")
             return
-    OUT_PATH.write_text(body)
+    OUT_PATH.write_text(body, encoding="utf-8")
 
     approx_tokens = len(body) // 4
     print(f"Wrote {OUT_PATH} ({len(body)} chars, ~{approx_tokens} tokens)")

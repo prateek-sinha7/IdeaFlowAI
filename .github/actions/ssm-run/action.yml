@@ -2,15 +2,19 @@
 #
 # F-05: replaces the ~60-line "aws ssm send-command" + "Poll SSM command
 # status" pair that was triplicated verbatim across deploy.yml's `deploy`
-# job, provision.yml's `provision` job, and admin-recovery.yml's `recover`
-# job (each one ported from the previous with only comment-level notes about
-# what was copied from where). All three payload-size guard, poll interval,
+# job, provision.yml's `provision` job, and the now-deleted
+# admin-recovery.yml's `recover` job (Cognito-only auth migration Phase 4 --
+# .kiro/specs/login/prompt.md -- removed that workflow entirely, since it
+# recovered a local break-glass admin that no longer exists). Each of the
+# three was ported from the previous with only comment-level notes about
+# what was copied from where. The remaining two callers' payload-size guard, poll interval,
 # InvocationDoesNotExist handling, and both-streams-on-every-terminal-branch
 # logic (FIX-SSM-02 / FIX-SSM-04) now live in exactly one place.
 #
 # The caller is responsible for building the actual script content (each of
-# the three callers assembles a different literal-shell "prelude + cat
-# some-script.sh" payload) and writing it to a FILE on disk, passed here as
+# the three current callers -- deploy.yml, provision.yml, cognito-reconcile.yml --
+# assembles a different literal-shell "prelude + cat some-script.sh" payload)
+# and writing it to a FILE on disk, passed here as
 # `script-path`. A file path (rather than passing the script body itself
 # through a `with:` string) avoids YAML/GITHUB_OUTPUT multiline-escaping
 # entirely — every caller already builds its payload with a `{ echo ...; cat

@@ -3,17 +3,10 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr
 
 
 # --- Auth Schemas ---
-
-
-class RegisterRequest(BaseModel):
-    """Registration request body."""
-
-    email: EmailStr
-    password: str = Field(..., min_length=8)
 
 
 class LoginRequest(BaseModel):

@@ -37,9 +37,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.user_workflows import router
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_principal, get_current_user
 from app.models.database import Base, get_db
 from app.models.workflow_definition import WorkflowDefinition
+from tests.fakes.principal import principal_for
 
 # A valid custom composition (custom needs enterprise tier).
 # CWF-001 D1: _AGENT_B is swot-analyst (consumes market-research-agent == _AGENT_A's
@@ -87,10 +88,19 @@ def api(db_session):
     def override_user():
         return state["user"]
 
+    def override_principal():
+        # create_user_workflow depends on get_current_principal so its entitlement
+        # gate can read the token's cognito:groups rather than the users.tier
+        # column (Cognito-only auth migration, Decision 3). principal_for derives
+        # the groups a real token for state["user"] would carry, so switching
+        # `state["user"].tier` still switches the tier under test.
+        return state["user"], principal_for(state["user"])
+
     def override_db():
         yield db_session
 
     app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_current_principal] = override_principal
     app.dependency_overrides[get_db] = override_db
     return TestClient(app), state
 

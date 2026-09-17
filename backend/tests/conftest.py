@@ -122,6 +122,22 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
 
 
 @pytest.fixture(autouse=True)
+def _reset_provisioning_refusal_cache():
+    """Clear the module-level refusal cache between tests.
+
+    ``app.core.provisioning._refusal_cache`` is a module-level dict that caches
+    provisioning refusals for 60 seconds to avoid repeated Cognito calls. Without
+    clearing it between tests, one test's cached refusal would affect the next
+    test's expectations.
+    """
+    from app.core import provisioning
+
+    provisioning._refusal_cache.clear()
+    yield
+    provisioning._refusal_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_checkpointer_shutdown_latch():
     """Release the checkpointer's one-way ``_closed`` latch between tests.
 

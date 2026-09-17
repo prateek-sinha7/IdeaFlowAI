@@ -1,0 +1,26 @@
+﻿# Declared DISPLAY-ONLY reads of users.is_admin / users.tier.
+#
+# Format:  <path>::<enclosing scope>::<attr>  # why this read decides nothing
+#
+# Keyed on the enclosing function, not a line number, so ordinary edits above a
+# hit do not silently invalidate the entry. A reason is mandatory.
+#
+# Before adding: if the value influences what the caller is ALLOWED to do, this
+# is not a display read. Use effective_is_admin() / effective_tier() instead —
+# the columns are a projection of Cognito groups and can be stale.
+
+app/api/admin.py::_to_response::tier  # response field on AdminUserResponse; gates nothing
+app/api/admin.py::_to_response::is_admin  # response field on AdminUserResponse; gates nothing
+
+# Read on the line after refresh_projection(user, groups, db), so these are the
+# values just written FROM the verified token's cognito:groups — the freshest the
+# projection ever is, and echoed to the client rather than acted on.
+app/api/auth.py::_cognito_auth_result_to_response::tier  # response field on UserResponse, post-refresh
+app/api/auth.py::_cognito_auth_result_to_response::is_admin  # response field on UserResponse, post-refresh
+
+# The ONE intentional decision-context read, and it is fail-SAFE in the only
+# direction that matters: it is OR'd with live Cognito group membership, so it can
+# only ever ADD last-admin protection to a row whose projection is stale. It can
+# never grant a privilege — a `True` here at most REFUSES a demotion. Removing it
+# would let a stale is_admin=False row defeat the lockout guard.
+app/core/cognito_admin.py::is_last_admin::is_admin  # OR'd fallback; can only add lockout protection, never grant

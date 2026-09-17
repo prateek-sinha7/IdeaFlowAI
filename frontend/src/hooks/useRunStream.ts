@@ -35,7 +35,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearToken, getToken, refreshAccessToken } from "@/lib/api";
+import { expireSession, getToken, getTokenExpiryMs, refreshOnce, SESSION_REFRESH_SKEW_MS } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { parseSseBlock } from "@/lib/sseFrame";
 import { STREAM_TERMINAL_TYPES } from "@/types";
@@ -97,37 +97,13 @@ export interface UseRunStreamReturn {
 
 const BASE_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 30000; // cap backoff at 30s — never give up (WS parity)
-const REFRESH_SKEW_MS = 60000; // silently refresh the JWT 60s before it expires
-
-/** Decode a JWT's `exp` (seconds) into an absolute ms timestamp; null if absent. */
-function jwtExpiryMs(token: string | null): number | null {
-  if (!token) return null;
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) return null;
-    const json = JSON.parse(
-      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
-    ) as { exp?: number };
-    return typeof json.exp === "number" ? json.exp * 1000 : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
- * Attempt a SILENT token refresh (D-14f). Best-effort: returns true only when a
- * fresh token was obtained. Any failure (4xx, network, a local/break-glass user
- * with no Cognito refresh token) resolves false so the caller falls back to the
- * natural-expiry path — never throwing, never logging the user out on its own.
- *
- * Delegates to the shared `refreshAccessToken()` in `lib/api` rather than
- * re-implementing the call: the REST client now runs the same refresh on a 401
- * (Cognito Phase 4), and two copies would drift — and would defeat the
- * single-flight coalescing that keeps a burst of simultaneous 401s from minting
- * one refresh each.
+ * Attempt one shared silent refresh. The API client coalesces simultaneous
+ * refreshes from the app-wide session owner, REST requests, and SSE streams.
  */
 async function attemptSilentRefresh(): Promise<boolean> {
-  return (await refreshAccessToken()) !== null;
+  return (await refreshOnce()) !== null;
 }
 
 export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
@@ -202,28 +178,54 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
     };
 
     const handleAuthExpiry = () => {
-      // Mirror the WS path's 4001 close: clear the token and bounce to /login.
-      // Reached only after a silent refresh already failed — so this is a true
-      // expiry, not a transient blip (no mid-run logout, T-29-07-2).
-      clearToken();
+      // The browser-session owner clears the credential and performs the safe
+      // login redirect. This hook only owns its local connection state.
       setPhase("disconnected");
       setLastError("Your session has expired. Please log in again.");
-      if (typeof window !== "undefined") {
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.href = "/login";
-      }
+      expireSession();
     };
 
     const scheduleRefresh = () => {
       if (refreshTimerRef.current !== null) clearTimeout(refreshTimerRef.current);
-      const expMs = jwtExpiryMs(getToken());
-      if (expMs == null) return;
-      const fireIn = expMs - Date.now() - REFRESH_SKEW_MS;
-      if (fireIn <= 0) return; // already inside the skew window — reactive path covers it
+      const expMs = getTokenExpiryMs(getToken());
+      if (expMs === null) return;
+
+      const refreshAndReconnect = async (): Promise<void> => {
+        const refreshed = await attemptSilentRefresh();
+        if (stoppedRef.current) return;
+
+        if (refreshed) {
+          connect();
+          return;
+        }
+
+        // A transient network failure before true expiry must not force an
+        // early logout. Re-attempt at expiry, then terminate only if refresh
+        // still cannot recover the Cognito session.
+        if (getTokenExpiryMs(getToken()) !== expMs) {
+          scheduleRefresh();
+          return;
+        }
+
+        const remainingLifetime = expMs - Date.now();
+        if (remainingLifetime > 0) {
+          refreshTimerRef.current = setTimeout(() => {
+            void refreshAndReconnect();
+          }, remainingLifetime);
+          return;
+        }
+
+        handleAuthExpiry();
+      };
+
+      const fireIn = expMs - Date.now() - SESSION_REFRESH_SKEW_MS;
+      if (fireIn <= 0) {
+        void refreshAndReconnect();
+        return;
+      }
+
       refreshTimerRef.current = setTimeout(() => {
-        void attemptSilentRefresh().then((ok) => {
-          if (ok && !stoppedRef.current) connect(); // re-attach with the fresh token
-        });
+        void refreshAndReconnect();
       }, fireIn);
     };
 

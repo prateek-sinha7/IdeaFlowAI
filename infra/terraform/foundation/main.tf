@@ -166,15 +166,15 @@ module "secrets" {
   cognito_client_secret = var.cognito_enabled ? module.cognito[0].client_secret : ""
   cognito_region        = var.cognito_enabled ? module.account_guard.region : ""
 
-  # Auth cutover flags (Phase 5). Only published once Cognito exists for this
-  # environment — publishing AUTH_PROVIDER=cognito without a pool would trip
-  # the application's own boot guard.
-  auth_provider         = var.cognito_enabled ? var.auth_provider : ""
-  auth_allow_legacy_jwt = var.cognito_enabled ? tostring(var.auth_allow_legacy_jwt) : ""
-  break_glass_enabled   = var.cognito_enabled ? tostring(var.break_glass_enabled) : ""
-  # P0 fix (COGNITO-AUTH-QA-BUGS.md): published only once Cognito exists for this
-  # environment -- the app-layer gate is a no-op without a Cognito principal anyway,
-  # so there is nothing to enable on a "local" environment.
+  # auth_provider / auth_allow_legacy_jwt / break_glass_enabled REMOVED in
+  # Phase 4 of the Cognito-only auth migration -- the backend no longer
+  # declares any of the three settings (core/config.py), so publishing them
+  # would be dead SSM parameters nobody reads. See MERGE_NOTES.md §18.
+  #
+  # admin_mfa_required stays gated on cognito_enabled even though that
+  # variable is now pinned to `true` by its own validation -- the ternary
+  # documents the real dependency (the app-layer gate is a no-op without a
+  # Cognito principal) rather than assuming today's pinned value forever.
   admin_mfa_required = var.cognito_enabled ? tostring(var.admin_mfa_required) : ""
 
   # Sourced from the module's DERIVED output, not from var.cognito_email_mfa_enabled:

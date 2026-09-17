@@ -245,12 +245,27 @@ variable "object_lock_retention_days" {
   default     = 35
 }
 
-# --- Cognito (COGNITO-MIGRATION-PLAN Phase 1) -------------------------------
-
+# --- Cognito (mandatory as of Phase 4 of the Cognito-only auth migration) --
+# Cognito is the sole authentication authority — there is no code path left
+# that runs without a pool (backend/app/core/config.py's
+# `_validate_cognito_config()` is unconditional outside development). The
+# variable is KEPT rather than deleted outright: `module.cognito`'s `count`
+# expression, `module.secrets`'s Cognito-parameter ternaries, and
+# `module.iam`'s ARN plumbing all still read it, and forcing the value with a
+# validation block is a smaller, more reviewable diff than rewriting every
+# `var.cognito_enabled ? X : ""` conditional across three modules into an
+# unconditional value in the same change that also drops three unrelated
+# flags. The `false` escape hatch is gone: a plan that tries to set this to
+# `false` fails validation instead of silently producing a Cognito-less stack.
 variable "cognito_enabled" {
-  description = "Create the Cognito User Pool + app client + groups for this environment. Default false — an operator opts in per-environment (COGNITO-MIGRATION-PLAN §7 Phase 1). Creating a pool is not something to do by accident on a plan."
+  description = "Create the Cognito User Pool + app client + groups for this environment. MUST be true — Cognito is the sole authentication authority as of Phase 4 of the Cognito-only auth migration (.kiro/specs/login/prompt.md); there is no supported deployment without it."
   type        = bool
-  default     = false
+  default     = true
+
+  validation {
+    condition     = var.cognito_enabled == true
+    error_message = "cognito_enabled must be true. Cognito is the sole authentication authority; the application has no local-credential fallback to fall back to."
+  }
 }
 
 variable "cognito_mfa_configuration" {
@@ -358,36 +373,26 @@ variable "cognito_threat_protection_mode" {
   }
 }
 
-# --- Auth cutover flags (COGNITO-MIGRATION-PLAN §7 Phase 5) -----------------
-# Only take effect when cognito_enabled = true (see main.tf). Published to SSM
-# so step 7 of the cutover checklist (flip AUTH_ALLOW_LEGACY_JWT to false) is a
-# parameter change + restart per environment, not a code change.
-
-variable "auth_provider" {
-  description = "Active credential authority for NEW logins: \"local\" or \"cognito\". Stays \"local\" until this environment is actually cut over (Phase 5 step 1 deploys the code with Cognito available but not yet authoritative)."
-  type        = string
-  default     = "local"
-
-  validation {
-    condition     = contains(["local", "cognito"], var.auth_provider)
-    error_message = "auth_provider must be \"local\" or \"cognito\"."
-  }
-}
-
-variable "auth_allow_legacy_jwt" {
-  description = "Dual-accept window (Decision 11): accept BOTH legacy HS256 and Cognito RS256 tokens so cutover forces zero logouts. Flip to false only after step 8 (legacy tokens aged out)."
-  type        = bool
-  default     = true
-}
-
-variable "break_glass_enabled" {
-  description = "Keep the single local-password break-glass admin reachable (Decision 12). Leave true unless you have a specific reason to close that path."
-  type        = bool
-  default     = true
-}
-
+# --- Admin MFA (Cognito-only auth migration Phase 4) -----------------------
+# auth_provider, auth_allow_legacy_jwt, and break_glass_enabled were REMOVED
+# here in Phase 4 (.kiro/specs/login/prompt.md). Cognito is now the sole
+# authentication authority — the backend's Settings class no longer declares
+# AUTH_PROVIDER, AUTH_ALLOW_LEGACY_JWT, or BREAK_GLASS_ENABLED at all
+# (backend/app/core/config.py), so publishing them to SSM would have been
+# dead configuration nobody could read. See MERGE_NOTES.md §18 for the removal
+# record and .planning/COGNITO-MIGRATION-PLAN.md's Amendment A1 for the
+# decision (Decision 12 revoked).
+#
+# admin_mfa_required now DEFAULTS TO TRUE (Phase 4; it defaulted to false
+# through Phase 1-3 so shipping the app-layer gate could not lock out admins
+# who had not yet enrolled a factor). Every environment's admins have had the
+# chance to enroll and complete a real MFA challenge by this phase — the gate
+# is session-bound (core/identity.py::enforce_admin_mfa), so enrolling alone
+# does not satisfy it; each admin must have signed in at least once through
+# the challenge. An environment that genuinely still needs the old default
+# sets `admin_mfa_required = false` explicitly in its own tfvars.
 variable "admin_mfa_required" {
-  description = "Require a confirmed second factor for admin operations (Phase 6 item 1 / P0 fix COGNITO-AUTH-QA-BUGS.md). Default false so shipping this cannot lock out admins who have not enrolled + re-authenticated through an MFA challenge yet. Enable per-environment only after verifying every admin has completed the challenge at least once (enrolling alone does not satisfy the session-bound gate)."
+  description = "Require a confirmed second factor for admin operations (Phase 6 item 1 / P0 fix COGNITO-AUTH-QA-BUGS.md). Defaults to true as of Phase 4 of the Cognito-only auth migration — every admin is expected to have enrolled and completed a real MFA challenge (enrolling alone does not satisfy the session-bound gate; core/identity.py::enforce_admin_mfa checks iat against a stamp set only by a completed challenge). Set to false in a specific environment's tfvars only while its admins are still enrolling."
   type        = bool
-  default     = false
+  default     = true
 }

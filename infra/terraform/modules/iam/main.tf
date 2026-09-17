@@ -237,13 +237,20 @@ resource "aws_iam_role_policy" "capacity_read" {
   policy = data.aws_iam_policy_document.capacity_read.json
 }
 
-# --- Cognito admin (COGNITO-MIGRATION-PLAN Phase 1) -------------------------
-# Scoped to exactly one pool ARN (least privilege — never Resource "*"). No
-# statement is created when cognito_user_pool_arn is empty, so environments
-# that haven't enabled Cognito yet see zero policy change.
+# --- Cognito admin (Cognito-only auth migration Phase 3) -------------------
+# Scoped to exactly one pool ARN (least privilege — never Resource "*").
+#
+# UNCONDITIONAL as of Phase 3 (".kiro/specs/login/prompt.md": "remove the
+# count gate (Cognito is mandatory)"). Cognito is the sole authentication
+# authority now — every environment that runs this application needs this
+# policy, so a plan-time opt-out no longer describes a real deployment
+# topology; every dev/stage/prod.tfvars already sets `cognito_enabled = true`.
+# The `cognito_enabled`/`cognito_user_pool_arn` VARIABLES stay for now (Phase 4
+# removes them at the foundation level, per the brief's own phase split) —
+# only the count gate on THIS resource is removed here, so the ARN plumbing
+# one layer up does not have to change in the same commit that fixes the
+# grant list.
 resource "aws_iam_role_policy" "cognito_admin" {
-  count = var.cognito_enabled ? 1 : 0
-
   name = "${var.name_prefix}-cognito-admin"
   role = aws_iam_role.instance.id
 
@@ -298,22 +305,19 @@ resource "aws_iam_instance_profile" "instance" {
 
 resource "aws_iam_role_policies_exclusive" "instance" {
   role_name = aws_iam_role.instance.name
-  policy_names = concat(
-    [
-      aws_iam_role_policy.bedrock_invoke.name,
-      aws_iam_role_policy.ssm_read.name,
-      aws_iam_role_policy.kms_decrypt.name,
-      aws_iam_role_policy.cloudwatch_write.name,
-      aws_iam_role_policy.s3_backup_rw.name,
-      aws_iam_role_policy.s3_config_read.name,
-      aws_iam_role_policy.ecr_pull.name,
-      aws_iam_role_policy.cw_agent.name,
-      aws_iam_role_policy.capacity_read.name,
-    ],
-    # count-guarded resource — [*] flattens to [] when the count is 0, so the
-    # exclusive list stays correct whether or not Cognito is enabled.
-    aws_iam_role_policy.cognito_admin[*].name,
-  )
+  policy_names = [
+    aws_iam_role_policy.bedrock_invoke.name,
+    aws_iam_role_policy.ssm_read.name,
+    aws_iam_role_policy.kms_decrypt.name,
+    aws_iam_role_policy.cloudwatch_write.name,
+    aws_iam_role_policy.s3_backup_rw.name,
+    aws_iam_role_policy.s3_config_read.name,
+    aws_iam_role_policy.ecr_pull.name,
+    aws_iam_role_policy.cw_agent.name,
+    aws_iam_role_policy.capacity_read.name,
+    # cognito_admin is unconditional as of Phase 3 (no longer count-guarded).
+    aws_iam_role_policy.cognito_admin.name,
+  ]
 }
 
 resource "aws_iam_role_policy_attachments_exclusive" "instance" {

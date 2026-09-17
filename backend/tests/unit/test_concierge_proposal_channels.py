@@ -100,6 +100,10 @@ def _dispose(intent, **overrides):
         run_id="run-1",
         message_id="m-1",
         current_user=_User(),
+        # The caller's EFFECTIVE tier, forwarded to the revision entitlement gate
+        # (Decision 3). Overridable per-test via `overrides` for the cases that
+        # want to assert a proposal is DENIED on tier.
+        caller_tier="enterprise",
         wr_status="running",
         wr_type="prototype",
         gate_key=None,
@@ -397,12 +401,20 @@ def env(monkeypatch):
     store = store_mod.get_artifact_store()
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # post_message depends on get_current_principal: its revision/concierge
+    # channels reach the tier gate, which reads cognito:groups (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {"store": store, "client": client, "state": state, "Session": TestingSession}
@@ -426,7 +438,7 @@ def _seed_user(env, tag):
         u = User(
             id=str(uuid.uuid4()),
             email=f"conc-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()

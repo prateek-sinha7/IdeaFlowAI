@@ -10,15 +10,17 @@ export const adminApi = {
     const { data } = await http.patch<AdminUser>(`/api/admin/users/${userId}/tier`, { tier });
     return data;
   },
+  // Invitation-only (Cognito migration Phase 3, Decision 6) -- no password
+  // parameter. The backend's CreateUserRequest is extra=forbid and rejects
+  // one entirely; Cognito emails a temporary password directly to the new
+  // account.
   createUser: async (
     email: string,
-    password: string,
     tier: string,
     is_admin: boolean
   ): Promise<AdminUser> => {
     const { data } = await http.post<AdminUser>("/api/admin/users", {
       email,
-      password,
       tier,
       is_admin,
     });
@@ -26,5 +28,13 @@ export const adminApi = {
   },
   deleteUser: async (userId: string): Promise<void> => {
     await http.delete(`/api/admin/users/${userId}`);
+  },
+  disableUser: async (userId: string): Promise<AdminUser> => {
+    const { data } = await http.post<AdminUser>(`/api/admin/users/${userId}/disable`);
+    return data;
+  },
+  enableUser: async (userId: string): Promise<AdminUser> => {
+    const { data } = await http.post<AdminUser>(`/api/admin/users/${userId}/enable`);
+    return data;
   },
 };

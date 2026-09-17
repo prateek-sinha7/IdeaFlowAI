@@ -47,9 +47,7 @@ COPY . .
 # URLs", which works fine when the app is served behind nginx that proxies
 # both `/` and `/api`.
 ARG NEXT_PUBLIC_API_URL=""
-ARG NEXT_PUBLIC_WS_URL=""
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 
 # Disable Next.js anonymous telemetry to Vercel.
 ENV NEXT_TELEMETRY_DISABLED=1

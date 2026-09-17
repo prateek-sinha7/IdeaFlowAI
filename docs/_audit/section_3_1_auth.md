@@ -17,15 +17,21 @@ The body of this report below is everything new.
 > telemetry gap are **CLOSED on the Cognito path** by the migration described in
 > `.planning/COGNITO-MIGRATION-PLAN.md`. See the per-finding notes below.
 >
-> The one deliberate carve-out: `create_access_token`/`decode_access_token` (HS256,
-> local `SECRET_KEY`) are **permanently retained** for the single break-glass
-> local admin (Decision 12 / plan §5.6). C1 and C2 therefore still describe that
-> ONE account accurately. That is an accepted, documented trade of a small
-> retained attack surface for recoverability from a Cognito outage, and it is
-> compensated by: a hard single-row invariant enforced fail-closed at credential
-> resolution (`core/identity.py::_local_admin_credential_is_permitted`), a
-> `BREAK_GLASS_ENABLED` kill switch, and a CloudWatch/SNS alarm on **every** use
-> (`infra/terraform/modules/monitoring` → `*-auth-break-glass-login`).
+> The one deliberate carve-out below — `create_access_token`/`decode_access_token`
+> (HS256, local `SECRET_KEY`) **"permanently retained"** for a single break-glass
+> local admin (Decision 12 / plan §5.6) — is **SUPERSEDED as of 2026-09-12** by
+> `.kiro/specs/login/prompt.md` (the Cognito-only auth migration brief). Decision
+> 12 is **revoked**, not merely amended: `create_access_token`, `decode_access_token`,
+> `hash_password`, `verify_password`, the local-admin invariant, and
+> `BREAK_GLASS_ENABLED` were all **deleted** in that migration's Phase 1 (commit
+> `06c29d71`). There is no break-glass account, no local credential path, and no
+> HS256 signing anywhere in this application any more — C1 and C2 are now CLOSED
+> for every account, not just regular users. `backend/tests/ci/
+> test_auth_algorithm_verification.py::TestNoLocalHs256Fallback` is the regression
+> guard pinning this. Recovery when Cognito is unreachable is now AWS-IAM-side —
+> see `docs/runbooks/admin-recovery.md` — not an application feature. The rest of
+> this file's per-finding notes below still describe the break-glass carve-out as
+> live; treat every such passage as superseded by this note, not as current state.
 
 ## CRITICAL
 

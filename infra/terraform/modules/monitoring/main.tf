@@ -2099,81 +2099,16 @@ resource "aws_cloudwatch_metric_alarm" "inode_low" {
 # a dedicated /auth group already exists for host-level auth (sshd/sudo), so the
 # application auth events are matched on `app` rather than `auth`.
 
-# --- Break-glass login: the control Decision 12 depends on -------------------
-# The break-glass account's entire justification (plan §5.6) is that every use
-# is noticed. threshold = 0 / evaluation_periods = 1 means ANY single occurrence
-# pages. There is no "acceptable rate" of break-glass logins.
-resource "aws_cloudwatch_log_metric_filter" "auth_break_glass_login" {
-  name           = "${var.name_prefix}-auth-break-glass-login"
-  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
-  pattern        = "{ $.auth_event = \"break_glass_login\" }"
-
-  metric_transformation {
-    name          = "AuthBreakGlassLogin"
-    namespace     = var.cw_metric_namespace
-    value         = "1"
-    default_value = "0"
-  }
-}
-
-resource "aws_cloudwatch_metric_alarm" "auth_break_glass_login" {
-  alarm_name          = "${var.name_prefix}-auth-break-glass-login"
-  alarm_description   = "A break-glass local admin login occurred. This is an incident signal by design (COGNITO-MIGRATION-PLAN section 5.6) - confirm it was an authorised operator."
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "AuthBreakGlassLogin"
-  namespace           = var.cw_metric_namespace
-  period              = 60
-  statistic           = "Sum"
-  threshold           = 0
-  # Do NOT treat missing data as breaching: no break-glass logins is the normal,
-  # healthy steady state and must not page anyone.
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.alerts.arn]
-  ok_actions         = []
-
-  tags = {
-    Component = "monitoring"
-    Concern   = "auth"
-  }
-}
-
-# --- Break-glass invariant violation ----------------------------------------
-# Should be impossible in a healthy system (more than one local admin row), and
-# when it happens the local-admin credential path is already refusing requests
-# fail-closed. Page immediately: either an operator error or an unauthorised
-# INSERT into `users`.
-resource "aws_cloudwatch_log_metric_filter" "auth_break_glass_invariant" {
-  name           = "${var.name_prefix}-auth-break-glass-invariant"
-  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
-  pattern        = "{ $.auth_event = \"break_glass_invariant_violated\" }"
-
-  metric_transformation {
-    name          = "AuthBreakGlassInvariantViolated"
-    namespace     = var.cw_metric_namespace
-    value         = "1"
-    default_value = "0"
-  }
-}
-
-resource "aws_cloudwatch_metric_alarm" "auth_break_glass_invariant" {
-  alarm_name          = "${var.name_prefix}-auth-break-glass-invariant-violated"
-  alarm_description   = "More than one local-password admin exists. The break-glass credential path is now refusing requests fail-closed. Investigate immediately - this is either operator error or an unauthorised users-table INSERT."
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "AuthBreakGlassInvariantViolated"
-  namespace           = var.cw_metric_namespace
-  period              = 60
-  statistic           = "Sum"
-  threshold           = 0
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-
-  tags = {
-    Component = "monitoring"
-    Concern   = "auth"
-  }
-}
+# Break-glass login / invariant-violation alarms were REMOVED in Phase 4 of
+# the Cognito-only auth migration (.kiro/specs/login/prompt.md). Decision 12
+# (permanent break-glass local admin) is revoked -- there is no local-password
+# admin left to alarm on, and the application no longer emits
+# `break_glass_login`/`break_glass_invariant_violated` auth events at all
+# (auth_events.py's AuthEvent enum has neither member). An alarm with a metric
+# filter matching an event the application can never emit again would report
+# "no data" forever, which the header comment above warns looks healthy but
+# means nothing -- so it is deleted rather than left in that state. See
+# MERGE_NOTES.md §18 and .planning/COGNITO-MIGRATION-PLAN.md's Amendment A1.
 
 # --- Login-failure spike: credential stuffing -------------------------------
 # The pool deliberately runs prevent_user_existence_errors = ENABLED, which

@@ -83,12 +83,20 @@ def env(monkeypatch):
     store = store_mod.get_artifact_store()
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # post_message depends on get_current_principal: its revision/concierge
+    # channels reach the tier gate, which reads cognito:groups (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {"store": store, "client": client, "state": state, "Session": TestingSession}
@@ -106,7 +114,7 @@ def _seed_user(env, tag: str) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"img30-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()

@@ -57,10 +57,13 @@ checksum forward without re-verifying it against the new artifact.
 
 ## The SSM RunCommand heredoc incident (why payloads are built, not inlined)
 
-`deploy.yml`, `provision.yml`, and `admin-recovery.yml` each send a shell
-script to an EC2 instance via `aws ssm send-command`. All three build that
-script as **a prelude of literal shell variable assignments, followed by the
-target script file catted in verbatim** — e.g.:
+`deploy.yml`, `provision.yml`, and `cognito-reconcile.yml` (originally
+`admin-recovery.yml`, deleted in Phase 4 of the Cognito-only auth migration —
+`.kiro/specs/login/prompt.md` — since it recovered a local break-glass admin
+that no longer exists) each send a shell script to an EC2 instance via
+`aws ssm send-command`. All three build that script as **a prelude of literal
+shell variable assignments, followed by the target script file catted in
+verbatim** — e.g.:
 
 ```bash
 {
@@ -90,11 +93,13 @@ The fix, still in force: the payload is written to `remote.sh` on the
 **runner's** filesystem first, entirely through `echo` statements whose
 `${VAR}` expansions are the *runner's* env vars (explicit, single-purpose,
 never collision-prone names like `ECR_REGISTRY`), and the target script
-(`remote-deploy.sh`, `remote-bootstrap.sh`, `remote-admin-recovery.sh`) is
-appended with `cat`, completely unparsed by anything until it reaches the
-box. Nothing in the target script's body is ever subject to runner-side
-shell expansion, because the runner's shell never opens a heredoc containing
-that body — it only ever sees `cat some-file.sh` as an opaque command.
+(`remote-deploy.sh`, `remote-bootstrap.sh`, `remote-cognito-reconcile.sh` —
+originally `remote-admin-recovery.sh`, deleted alongside `admin-recovery.yml`
+in Phase 4 of the Cognito-only auth migration) is appended with `cat`,
+completely unparsed by anything until it reaches the box. Nothing in the
+target script's body is ever subject to runner-side shell expansion, because
+the runner's shell never opens a heredoc containing that body — it only ever
+sees `cat some-file.sh` as an opaque command.
 
 **Rule for any future SSM payload:** never inline a target script's body as
 a YAML block scalar or heredoc in a workflow `run:` step. Keep it as a
@@ -1338,7 +1343,9 @@ Phase 9 hardens GitHub Actions workflows against credential leakage, injection a
 - ci.yml: `permissions: { contents: read }` (read-only)
 - deploy.yml: `permissions: { contents: read }` (read-only)
 - provision.yml: `permissions: { contents: read }` (read-only)
-- admin-recovery.yml: `permissions: { contents: read }` (read-only)
+- cognito-reconcile.yml: `permissions: { contents: read }` (read-only)
+  (supersedes `admin-recovery.yml`, deleted in Phase 4 of the Cognito-only
+  auth migration)
 
 **Per-job grants** (where needed):
 - AWS jobs: `permissions: { id-token: write }` (request OIDC token)

@@ -49,12 +49,9 @@ cognito_refresh_token_validity_days = 30
 #   cognito_feature_plan           = "PLUS"
 #   cognito_threat_protection_mode = "AUDIT"
 
-# CUTOVER SWITCHES — see foundation/dev.tfvars for the full explanation.
-# prod is the LAST environment cut over (dev -> stage -> prod), so these stay
-# at the pre-cutover values until stage has been verified end to end.
-auth_provider         = "local"
-auth_allow_legacy_jwt = true
-break_glass_enabled   = true
+# auth_provider, auth_allow_legacy_jwt, and break_glass_enabled were REMOVED
+# in Phase 4 of the Cognito-only auth migration — see foundation/dev.tfvars.
+# prod finished cutover (dev -> stage -> prod) by the time Phase 4 landed.
 
 # Network — non-overlapping CIDR per environment (dev 10.40 / stage 10.30 / prod 10.20).
 availability_zone  = "eu-central-1a"

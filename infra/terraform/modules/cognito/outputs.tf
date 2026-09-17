@@ -25,7 +25,7 @@ output "client_secret" {
 }
 
 output "group_names" {
-  description = "The four fixed group names created, for reference by callers/tests."
+  description = "The five fixed group names created, for reference by callers/tests."
   value       = var.group_names
 }
 

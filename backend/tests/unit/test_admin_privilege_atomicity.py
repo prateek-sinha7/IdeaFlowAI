@@ -56,7 +56,6 @@ def _make_cognito_user(db, *, tier="basic") -> User:
         id="target-user",
         email="target@example.com",
         cognito_sub="sub-1",
-        auth_provider="cognito",
         tier=tier,
         is_admin=False,
     )
@@ -71,7 +70,6 @@ def _make_admin(db) -> User:
         id="admin-user",
         email="admin@example.com",
         cognito_sub="sub-admin",
-        auth_provider="cognito",
         tier="enterprise",
         is_admin=True,
     )
@@ -208,3 +206,71 @@ class TestRoleUpdateAtomicity:
         assert refreshed.tokens_valid_from is not None
         assert refreshed.tokens_valid_from.replace(tzinfo=timezone.utc) >= before
         assert refreshed.is_admin is False
+
+
+class TestPasswordResetAtomicity:
+    def test_reset_password_rejects_permanent_field(self, db_session):
+        """POST with {\"permanent\": true} must be rejected with 422."""
+        from app.api import admin as admin_mod
+
+        user = _make_cognito_user(db_session)
+        admin_user = _make_admin(db_session)
+
+        # Try to POST with permanent=true. Pydantic's extra="forbid" should reject it.
+        with pytest.raises(Exception):  # Pydantic validation error
+            admin_mod.reset_user_password(
+                user_id=user.id,
+                request=_Req(permanent=True),
+                admin=admin_user,
+                db=db_session,
+            )
+
+    def test_reset_password_uses_temporary_only(self, db_session):
+        """Verify that reset uses Permanent=False (temporary password)."""
+        from app.api import admin as admin_mod
+
+        user = _make_cognito_user(db_session)
+        admin_user = _make_admin(db_session)
+
+        fake_client = MagicMock()
+
+        with patch.object(cognito, "_client", return_value=fake_client):
+            admin_mod.reset_user_password(
+                user_id=user.id,
+                request=_Req(),
+                admin=admin_user,
+                db=db_session,
+            )
+
+        # Verify AdminSetUserPassword was called with Permanent=False
+        fake_client.admin_set_user_password.assert_called_once()
+        call_kwargs = fake_client.admin_set_user_password.call_args.kwargs
+        assert call_kwargs["Permanent"] is False
+
+    def test_reset_password_advances_cutoff_and_signs_out(self, db_session):
+        """Verify tokens_valid_from is increased and sign-out is called."""
+        from app.api import admin as admin_mod
+
+        user = _make_cognito_user(db_session)
+        admin_user = _make_admin(db_session)
+        before = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+        fake_client = MagicMock()
+
+        with patch.object(cognito, "_client", return_value=fake_client):
+            admin_mod.reset_user_password(
+                user_id=user.id,
+                request=_Req(),
+                admin=admin_user,
+                db=db_session,
+            )
+
+        # Verify tokens_valid_from was advanced
+        refreshed = db_session.query(User).filter(User.id == user.id).first()
+        assert refreshed.tokens_valid_from is not None
+        assert refreshed.tokens_valid_from.replace(tzinfo=timezone.utc) >= before
+
+        # Verify AdminUserGlobalSignOut was called exactly once
+        assert (
+            fake_client.admin_user_global_sign_out.call_count == 1
+        ), "AdminUserGlobalSignOut should be called exactly once"

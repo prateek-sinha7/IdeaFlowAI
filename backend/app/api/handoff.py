@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from app.api.api_key_auth import get_user_via_api_key
 from app.core.config import settings
 from app.core.crypto import decrypt_pat
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_with_payload
 from app.models.database import SessionLocal, get_db
 from app.models.handoff import (
     HANDOFF_MODE_AUTO,
@@ -44,6 +44,7 @@ from app.models.handoff import (
     UserGithubCredential,
 )
 from app.models.user import User
+from app.core.identity import Principal, effective_is_admin
 from app.services.handoff_pipeline import run_handoff_pipeline
 
 logger = logging.getLogger("app.api.handoff")
@@ -269,10 +270,19 @@ def get_handoff(
 @router.post("/{token}/start", response_model=HandoffStartResponse)
 async def start_handoff(
     token: str,
-    user: User = Depends(get_current_user),
+    auth: tuple[User, dict] = Depends(get_current_user_with_payload),
     db: Session = Depends(get_db),
 ) -> HandoffStartResponse:
     """Kick the pipeline. Returns immediately; events flow over the WS."""
+    user, payload = auth
+    principal = Principal(
+        provider="cognito",
+        sub=payload.get("sub", user.id),
+        jti=payload.get("jti"),
+        iat=payload.get("iat"),
+        groups=payload.get("groups", []),
+    )
+    
     sess = db.query(HandoffSession).filter(HandoffSession.token == token).first()
     if sess is None or sess.issuer_user_id != user.id:
         raise HTTPException(status_code=404, detail="Handoff not found")
@@ -300,7 +310,7 @@ async def start_handoff(
     if settings.HOST_CAPACITY_GATE_ENABLED:
         from app.services.capacity_state import should_block_new_work
 
-        _capacity_decision = should_block_new_work(is_admin=bool(user.is_admin))
+        _capacity_decision = should_block_new_work(is_admin=effective_is_admin(user, principal))
         if _capacity_decision is not None:
             _retry_after = settings.HOST_CAPACITY_RETRY_AFTER_SECONDS
             raise HTTPException(

@@ -26,6 +26,7 @@ and CI never calls AWS (same posture as test_cognito_verifier.py).
 
 from unittest.mock import MagicMock, patch
 
+from botocore.exceptions import ClientError
 import pytest
 from fastapi import HTTPException
 
@@ -45,7 +46,6 @@ def cognito_settings(monkeypatch):
     monkeypatch.setattr(settings, "COGNITO_CLIENT_SECRET", "test-client-secret")
     monkeypatch.setattr(settings, "COGNITO_USER_POOL_ID", POOL_ID)
     monkeypatch.setattr(settings, "COGNITO_REGION", "eu-central-1")
-    monkeypatch.setattr(settings, "AUTH_PROVIDER", "cognito")
 
 
 def _client_with_factors(*factors: str) -> MagicMock:
@@ -60,7 +60,6 @@ def _cognito_user(**overrides) -> User:
         "id": "local-uuid",
         "email": EMAIL,
         "cognito_sub": "cognito-sub-uuid",
-        "auth_provider": "cognito",
         "tier": "basic",
         "is_admin": False,
     }
@@ -223,9 +222,18 @@ class TestLoginChallengeMapping:
             return {"AuthenticationResult": {"AccessToken": "tok"}}
 
         monkeypatch.setattr(cognito, "admin_respond_to_auth_challenge", fake_respond)
+        # Signature changed in Phase 2 of the Cognito-only auth migration: this
+        # takes the submitted EMAIL rather than a User (a local row is no longer a
+        # precondition — it may be created here from the token), and it owns the
+        # mfa_verified_at stamp via `mfa_proved`. Stubbed out entirely because this
+        # class is about the ChallengeResponses keys reaching Cognito; the
+        # provisioning and stamping behaviour is covered in
+        # test_jit_provisioning.py.
         monkeypatch.setattr(
             "app.api.auth._cognito_auth_result_to_response",
-            lambda user, auth_result, db: MagicMock(token=auth_result["AccessToken"]),
+            lambda email, auth_result, db, **kw: MagicMock(
+                token=auth_result["AccessToken"], user=MagicMock(id="u-1")
+            ),
         )
 
         request = LoginChallengeRequest(
@@ -233,6 +241,35 @@ class TestLoginChallengeMapping:
         )
         login_challenge(request, db=self._db_with(_cognito_user()))
         return captured
+
+    def test_login_challenge_returns_policy_error_when_cognito_rejects_password(
+        self, cognito_settings, monkeypatch
+    ):
+        """A rejected permanent password is caller input, not a Cognito outage."""
+        from app.api.auth import login_challenge
+        from app.models.schemas import LoginChallengeRequest
+
+        def reject_password(*_args, **_kwargs):
+            raise ClientError(
+                {"Error": {"Code": "InvalidPasswordException"}},
+                "AdminRespondToAuthChallenge",
+            )
+
+        monkeypatch.setattr(
+            cognito, "admin_respond_to_auth_challenge", reject_password
+        )
+        request = LoginChallengeRequest(
+            email=EMAIL,
+            session="sess",
+            challenge="NEW_PASSWORD_REQUIRED",
+            new_password="123456789012",
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            login_challenge(request, db=self._db_with(_cognito_user()))
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "New password does not meet the password policy."
 
     def test_email_otp_uses_the_email_otp_code_key(self, cognito_settings, monkeypatch):
         captured = self._respond(monkeypatch, "EMAIL_OTP", mfa_code="123456")
@@ -274,15 +311,18 @@ class TestLoginChallengeMapping:
             )
         assert exc.value.status_code == 400
 
-    def test_mfa_setup_reports_501_rather_than_sending_a_doomed_response(
+    def test_mfa_setup_redirects_to_enrollment(
         self, cognito_settings, monkeypatch
     ):
         """MFA_SETUP needs a three-call session chain this endpoint cannot express.
         Answering it with a TOTP code would be rejected by Cognito and surface as a
-        confusing credential error, so it is refused explicitly instead."""
+        confusing credential error, so it is refused explicitly instead with a 409
+        directing the client to the enrollment endpoints."""
         with pytest.raises(HTTPException) as exc:
             self._respond(monkeypatch, "MFA_SETUP", mfa_code="123456")
-        assert exc.value.status_code == 501
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "mfa_enrollment_required"
+        assert "enroll_path" in exc.value.detail
 
 
 class TestChallengeProjection:
@@ -403,16 +443,6 @@ class TestEmailMfaEnrolmentGuards:
         with pytest.raises(HTTPException) as exc:
             enable_email_mfa(credentials=credentials, auth=(_cognito_user(), {}))
         assert exc.value.status_code == 409
-
-    def test_break_glass_account_is_refused(self, cognito_settings, monkeypatch):
-        monkeypatch.setattr(settings, "AUTH_EMAIL_MFA_ENABLED", True)
-        from app.api.auth import enable_email_mfa
-
-        local_user = _cognito_user(auth_provider="local", cognito_sub=None)
-        credentials = MagicMock(credentials=ACCESS_TOKEN)
-        with pytest.raises(HTTPException) as exc:
-            enable_email_mfa(credentials=credentials, auth=(local_user, {}))
-        assert exc.value.status_code == 501
 
     def test_admin_cannot_disable_their_only_factor(
         self, cognito_settings, monkeypatch

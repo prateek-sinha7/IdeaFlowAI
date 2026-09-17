@@ -36,7 +36,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.crypto import decrypt_pat, encrypt_pat
 from app.models.database import Base, get_db
-from tests.fixtures.user_factory import create_user
+from tests.fixtures.user_factory import FakeCognitoAuth, create_user
 
 
 # --- Test fixtures ------------------------------------------------------
@@ -48,6 +48,10 @@ def app_client(monkeypatch, tmp_path):
 
     We monkeypatch ``settings.DATABASE_URL`` and the engine before
     importing the app so the lifespan check sees a migrated schema.
+    Cognito is the sole authentication authority (Cognito-only auth
+    migration, ``.kiro/specs/login/prompt.md`` Phase 1) — ``FakeCognitoAuth``
+    fakes the boto3-client boundary so ``/api/auth/login`` succeeds with no
+    network call.
     """
     db_path = tmp_path / "test.db"
     db_url = f"sqlite:///{db_path}"
@@ -57,6 +61,9 @@ def app_client(monkeypatch, tmp_path):
     from app.core.config import settings
 
     settings.DATABASE_URL = db_url
+
+    fake_auth = FakeCognitoAuth(monkeypatch)
+    fake_auth.configure_settings()
 
     # Recreate the engine pointed at the new URL.
     test_engine = create_engine(db_url, connect_args={"check_same_thread": False})
@@ -99,6 +106,7 @@ def app_client(monkeypatch, tmp_path):
         # Exposed so _register_and_login can create users directly
         # (self-registration is disabled — see app/api/auth.py).
         client.SessionLocal = TestSession
+        client.fake_auth = fake_auth
         yield client
 
     app.dependency_overrides.clear()
@@ -118,7 +126,7 @@ def _register_and_login(
     """
     session = client.SessionLocal()
     try:
-        create_user(session, email, password)
+        create_user(session, email, password, cognito_sub=client.fake_auth.sub_for(email))
     finally:
         session.close()
     resp = client.post("/api/auth/login", json={"email": email, "password": password})

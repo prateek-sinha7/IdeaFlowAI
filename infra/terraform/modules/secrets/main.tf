@@ -63,18 +63,6 @@ resource "aws_ssm_parameter" "cors_origins" {
   }
 }
 
-resource "aws_ssm_parameter" "access_token_expire_hours" {
-  name        = "${local.prefix}/ACCESS_TOKEN_EXPIRE_HOURS"
-  description = "JWT lifetime in hours."
-  type        = "String"
-  value       = tostring(var.access_token_expire_hours)
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
-
 resource "aws_ssm_parameter" "llm_region" {
   name        = "${local.prefix}/llm/region"
   description = "Region in which Bedrock is invoked. Loader maps to AWS_REGION."
@@ -309,39 +297,13 @@ resource "aws_ssm_parameter" "cognito_region" {
   }
 }
 
-# --- Auth cutover flags (COGNITO-MIGRATION-PLAN §7 Phase 5) -----------------
-# SSM-managed so the cutover flag flip is an operational change + restart, not
-# a redeploy. All three are count-guarded on a non-empty value so an
-# environment that hasn't started the migration gets no new parameters and the
-# application keeps its own safe defaults.
-
-resource "aws_ssm_parameter" "auth_provider" {
-  count = length(var.auth_provider) > 0 ? 1 : 0
-
-  name        = "${local.prefix}/AUTH_PROVIDER"
-  description = "Active credential authority for new logins: local | cognito."
-  type        = "String"
-  value       = var.auth_provider
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
-
-resource "aws_ssm_parameter" "auth_allow_legacy_jwt" {
-  count = length(var.auth_allow_legacy_jwt) > 0 ? 1 : 0
-
-  name        = "${local.prefix}/AUTH_ALLOW_LEGACY_JWT"
-  description = "Dual-accept window: accept legacy HS256 tokens alongside Cognito RS256. Set false after cutover."
-  type        = "String"
-  value       = var.auth_allow_legacy_jwt
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
+# --- Auth flags -------------------------------------------------------------
+# SSM-managed so a flag flip is an operational change + restart, not a
+# redeploy. auth_provider, auth_allow_legacy_jwt, and break_glass_enabled were
+# REMOVED in Phase 4 of the Cognito-only auth migration
+# (.kiro/specs/login/prompt.md) -- the backend's Settings class no longer
+# declares any of the three (core/config.py), so these parameters would be
+# dead configuration. See MERGE_NOTES.md §18.
 
 resource "aws_ssm_parameter" "auth_email_mfa_enabled" {
   count = length(var.auth_email_mfa_enabled) > 0 ? 1 : 0
@@ -350,20 +312,6 @@ resource "aws_ssm_parameter" "auth_email_mfa_enabled" {
   description = "Pool has email OTP as a second factor, so email is disqualified for account recovery and self-service password reset is unavailable."
   type        = "String"
   value       = var.auth_email_mfa_enabled
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
-
-resource "aws_ssm_parameter" "break_glass_enabled" {
-  count = length(var.break_glass_enabled) > 0 ? 1 : 0
-
-  name        = "${local.prefix}/BREAK_GLASS_ENABLED"
-  description = "Kill switch for the single local-password break-glass admin."
-  type        = "String"
-  value       = var.break_glass_enabled
   tier        = "Standard"
 
   tags = {

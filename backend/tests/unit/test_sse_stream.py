@@ -40,8 +40,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from agents.authz import ScopedStore
+from fastapi.security import HTTPAuthorizationCredentials
+
 from app.api.run_stream import _STREAM_TERMINAL_TYPES, _iter_sse_frames, router
-from app.core.dependencies import get_current_user_with_payload
+from app.core.dependencies import bearer_scheme, get_current_user_with_payload
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
 from app.models.workflow import WorkflowRun
@@ -53,7 +55,6 @@ from app.models.workflow import WorkflowRun
 class _FakeUser:
     def __init__(self, id: str):
         self.id = id
-        self.auth_provider = "local"
 
 
 @pytest.fixture
@@ -86,6 +87,15 @@ def api(db_session, monkeypatch):
         yield db_session
 
     app.dependency_overrides[get_current_user_with_payload] = override_user
+    # stream_run_events also captures the RAW bearer so its periodic re-check can
+    # re-run the full verifier (Cognito-only auth migration Phase 2). With auth
+    # itself stubbed out above, the value is never verified on these paths -- they
+    # are durable-replay and owner-scope tests, which return before the live-drain
+    # loop's re-check cadence is ever reached. The expiry behaviour that DOES
+    # depend on a real token is covered in test_stream_credential_recheck.py.
+    app.dependency_overrides[bearer_scheme] = lambda: HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="stubbed-not-verified"
+    )
     app.dependency_overrides[get_db] = override_db
 
     # BUG-004: stream_run_events now backs the streaming generator with a SESSION-LESS

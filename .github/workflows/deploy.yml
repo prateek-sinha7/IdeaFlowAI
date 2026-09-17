@@ -741,7 +741,7 @@ jobs:
           # Secrets
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-          BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
+          # Bootstrap-admin step removed: Cognito-only. See docs/architecture/authentication-and-authorization.md.
           # Cognito app-client secret — a SECRET, not a variable: it is a live
           # credential used to compute SECRET_HASH on AdminInitiateAuth
           # (backend/app/core/cognito.py compute_secret_hash). Read it out of
@@ -761,32 +761,40 @@ jobs:
           BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
           BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
           BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
-          BOOTSTRAP_ADMIN_EMAIL: ${{ vars.BOOTSTRAP_ADMIN_EMAIL }}
-          # ── Cognito + auth cutover flags (COGNITO-MIGRATION-PLAN §6.3/§11) ──
-          # The nine keys the application actually reads (Settings fields in
-          # backend/app/core/config.py:449-510) and that the on-host loader
-          # allowlist already recognises (infra/scripts/bootstrap-ec2.sh:826) —
-          # so this block needs NO host-script change to take effect.
+          # Bootstrap-admin step removed: Cognito-only. See docs/architecture/authentication-and-authorization.md.
+          # ── Cognito + auth flags ────────────────────────────────────────────
+          # The six keys the application actually reads (Settings fields in
+          # backend/app/core/config.py) and that the on-host loader allowlist
+          # already recognises (infra/scripts/bootstrap-ec2.sh) — so this block
+          # needs NO host-script change to take effect.
           #
-          # DUAL OWNERSHIP, DELIBERATELY NON-DESTRUCTIVE. Every one of these is
-          # also published by Terraform's foundation layer
-          # (infra/terraform/modules/secrets/main.tf:246-386). They are pushed
+          # AUTH_PROVIDER, AUTH_ALLOW_LEGACY_JWT, and BREAK_GLASS_ENABLED were
+          # REMOVED in Phase 4 of the Cognito-only auth migration: the backend's
+          # Settings class no longer declares any of the three, Cognito is the
+          # sole authentication authority unconditionally, and there is no
+          # local-password fallback left to gate or dual-accept toward. See
+          # MERGE_NOTES.md §18.
+          #
+          # DUAL OWNERSHIP, DELIBERATELY NON-DESTRUCTIVE, for what remains.
+          # Every one of these six is also published by Terraform's foundation
+          # layer (infra/terraform/modules/secrets/main.tf). They are pushed
           # here with the `preserve-if-empty` policy, NOT `delete-if-empty`: an
           # unset GitHub value means "the pipeline does not manage this key",
           # never "delete whatever Terraform wrote". Using delete-if-empty here
           # would make the first deploy after this block landed erase a live
-          # pool config, and any environment on AUTH_PROVIDER=cognito would then
-          # crash-loop at boot on CognitoMisconfigured (config.py:549).
+          # pool config and crash-loop the backend at boot on
+          # CognitoMisconfigured (config.py) — Cognito being unconditional now
+          # makes that failure mode reachable on EVERY environment, not only one
+          # that opted into AUTH_PROVIDER=cognito.
           #
           # So there are two supported postures per environment, and both work:
-          #   * Terraform-owned (default): leave all nine unset in GitHub. Deploy
+          #   * Terraform-owned (default): leave all six unset in GitHub. Deploy
           #     touches nothing; `terraform apply` on foundation stays the single
           #     writer. This is the recommended posture for the pool identifiers
           #     and the client secret.
           #   * Pipeline-owned: set them on the GitHub Environment. Useful for
-          #     the cutover FLAGS (AUTH_PROVIDER, AUTH_ALLOW_LEGACY_JWT,
-          #     ADMIN_MFA_REQUIRED, BREAK_GLASS_ENABLED), which an operator
-          #     flips per environment far more often than the pool is recreated.
+          #     ADMIN_MFA_REQUIRED, which an operator may flip per environment
+          #     more often than the pool is recreated.
           # Mixing is fine — ownership is per key, not per block.
           COGNITO_USER_POOL_ID: ${{ vars.COGNITO_USER_POOL_ID }}
           COGNITO_CLIENT_ID: ${{ vars.COGNITO_CLIENT_ID }}
@@ -794,9 +802,6 @@ jobs:
           # _region), so it only needs setting when the pool lives outside the
           # deploy region.
           COGNITO_REGION: ${{ vars.COGNITO_REGION }}
-          AUTH_PROVIDER: ${{ vars.AUTH_PROVIDER }}
-          AUTH_ALLOW_LEGACY_JWT: ${{ vars.AUTH_ALLOW_LEGACY_JWT }}
-          BREAK_GLASS_ENABLED: ${{ vars.BREAK_GLASS_ENABLED }}
           ADMIN_MFA_REQUIRED: ${{ vars.ADMIN_MFA_REQUIRED }}
           # Mirrors a CONSTRAINT AWS imposes, not a feature toggle: a pool with
           # email OTP as a second factor cannot also use email for account
@@ -993,7 +998,7 @@ jobs:
           # loudly, not silently wipe the running app's signing key).
           put_param "SECRET_KEY"              "$SECRET_KEY"              "SecureString" "required"
           put_param "LANGSMITH_API_KEY"       "$LANGSMITH_API_KEY"       "SecureString" "delete-if-empty"
-          put_param "bootstrap/admin-password" "$BOOTSTRAP_ADMIN_PASSWORD" "SecureString" "delete-if-empty"
+          # Bootstrap-admin step removed: Cognito-only. See docs/architecture/authentication-and-authorization.md.
 
           # String params (plain config) — all optional/defaulted on the host
           # loader, so an empty GitHub value deletes the SSM override and lets
@@ -1004,47 +1009,30 @@ jobs:
           put_param "HANDOFF_MAX_TRANSCRIPT_BYTES" "$HANDOFF_MAX_TRANSCRIPT_BYTES" "String" "delete-if-empty"
           put_param "LANGSMITH_TRACING"            "$LANGSMITH_TRACING"            "String" "delete-if-empty"
           put_param "LANGSMITH_PROJECT"             "$LANGSMITH_PROJECT"            "String" "delete-if-empty"
-          put_param "bootstrap/admin-email"        "$BOOTSTRAP_ADMIN_EMAIL"        "String" "delete-if-empty"
+          # Bootstrap-admin step removed: Cognito-only. See docs/architecture/authentication-and-authorization.md.
 
-          # ── Cognito + auth cutover flags ─────────────────────────────
+          # ── Cognito + auth flags ─────────────────────────────────────
           # See the long note in this step's `env:` block for the dual-ownership
-          # rationale. All nine are preserve-if-empty, so an environment that
-          # leaves them unset in GitHub keeps Terraform as the sole writer and
-          # this section is a no-op for it.
+          # rationale. All are preserve-if-empty, so an environment that leaves
+          # them unset in GitHub keeps Terraform as the sole writer and this
+          # section is a no-op for it.
           #
-          # Coherence gate FIRST: AUTH_PROVIDER=cognito without the pool trio is
-          # the one combination that produces a container which cannot boot
-          # (CognitoMisconfigured, config.py:549 — a crash-loop under
-          # docker-entrypoint.sh's `set -eu`, so the deploy fails at the health
-          # gate with a far less obvious message than this one). The workflow
-          # cannot verify what SSM already holds — the deploy role has no
-          # ssm:GetParameter — so if the pipeline is going to assert
-          # "provider = cognito", it must also supply the config that claim
-          # implies rather than hoping Terraform got there first.
+          # AUTH_PROVIDER's coherence gate (asserting the pool trio is present
+          # whenever the pipeline claims "provider = cognito") was removed in
+          # Phase 4 along with the variable itself: Cognito is now
+          # unconditionally the sole authentication authority, so there is no
+          # provider SWITCH left to validate — the backend's own
+          # `_validate_cognito_config()` (core/config.py) already refuses to
+          # boot outside development without a configured pool, which is the
+          # real fail-fast guard now. This workflow still cannot verify what SSM
+          # already holds (the deploy role has no ssm:GetParameter), so a
+          # missing pool remains a health-gate failure rather than a deploy-time
+          # one — that trade-off is unchanged from before this removal.
           #
           # Explicit if/then throughout this block, never `[[ test ]] && x=y`:
           # that form evaluates to the test's status, which is a latent `set -e`
           # trap — the same reasoning already recorded on `resolve_digest` in the
           # build job.
-          AUTH_PROVIDER_LOWER="$(printf '%s' "${AUTH_PROVIDER:-}" | tr '[:upper:]' '[:lower:]')"
-          if [[ "$AUTH_PROVIDER_LOWER" == "cognito" ]]; then
-            AUTH_MISSING=""
-            if [[ -z "${COGNITO_USER_POOL_ID:-}" ]]; then
-              AUTH_MISSING="${AUTH_MISSING} COGNITO_USER_POOL_ID(var)"
-            fi
-            if [[ -z "${COGNITO_CLIENT_ID:-}" ]]; then
-              AUTH_MISSING="${AUTH_MISSING} COGNITO_CLIENT_ID(var)"
-            fi
-            if [[ -z "${COGNITO_CLIENT_SECRET:-}" ]]; then
-              AUTH_MISSING="${AUTH_MISSING} COGNITO_CLIENT_SECRET(secret)"
-            fi
-            if [[ -n "$AUTH_MISSING" ]]; then
-              echo "::error::vars.AUTH_PROVIDER is 'cognito' on the '${DEPLOY_ENV}' environment, but these are not set:${AUTH_MISSING}"
-              echo "::error::The backend refuses to boot in that state (CognitoMisconfigured), so the deploy would fail at the health gate instead."
-              echo "::error::Either set all three on the '${DEPLOY_ENV}' GitHub Environment, or clear AUTH_PROVIDER and let the foundation layer's terraform apply own the whole Cognito block."
-              exit 1
-            fi
-          fi
 
           # Shape checks on the two identifiers — a typo here reaches the app as
           # a pool that does not exist, and the first symptom is every login
@@ -1058,30 +1046,19 @@ jobs:
             exit 1
           fi
 
-          # AUTH_PROVIDER is compared as `!= "cognito"` in the app
-          # (config.py _validate_cognito_config, core/identity.py), so ANY other
-          # string silently means "local". A typo therefore does not fail — it
-          # quietly leaves the environment on legacy auth after an operator
-          # believed they had cut over. Allow-list it.
-          if [[ -n "$AUTH_PROVIDER_LOWER" && "$AUTH_PROVIDER_LOWER" != "local" && "$AUTH_PROVIDER_LOWER" != "cognito" ]]; then
-            echo "::error::AUTH_PROVIDER must be 'local' or 'cognito' (got '${AUTH_PROVIDER}'). Anything else is treated as 'local' by the backend, which would silently leave '${DEPLOY_ENV}' on legacy auth."
-            exit 1
-          fi
-          AUTH_PROVIDER="$AUTH_PROVIDER_LOWER"
-
-          # The four flags land on `bool` Settings fields. pydantic v2 coerces a
-          # known set of strings ('1/on/t/true/y/yes' and '0/off/f/false/n/no',
-          # case-insensitive) and raises ValidationError on anything else — and
-          # because that error is raised while constructing the module-level
-          # `settings` object, it takes the whole app down at import time over a
-          # typo in a GitHub variable. Validate against exactly that set, then
-          # normalise to true/false so the SSM tree reads uniformly regardless of
-          # what an operator typed.
+          # The two remaining flags land on `bool` Settings fields. pydantic v2
+          # coerces a known set of strings ('1/on/t/true/y/yes' and
+          # '0/off/f/false/n/no', case-insensitive) and raises ValidationError on
+          # anything else — and because that error is raised while constructing
+          # the module-level `settings` object, it takes the whole app down at
+          # import time over a typo in a GitHub variable. Validate against
+          # exactly that set, then normalise to true/false so the SSM tree reads
+          # uniformly regardless of what an operator typed.
           #
           # `declare -g` (not bare `declare`) is required: inside this loop we
           # are at script scope, but bare `declare` would still be the wrong
           # habit to copy into a function, where it creates a local.
-          for flag_name in AUTH_ALLOW_LEGACY_JWT BREAK_GLASS_ENABLED ADMIN_MFA_REQUIRED AUTH_EMAIL_MFA_ENABLED; do
+          for flag_name in ADMIN_MFA_REQUIRED AUTH_EMAIL_MFA_ENABLED; do
             flag_value="${!flag_name:-}"
             if [[ -z "$flag_value" ]]; then
               continue
@@ -1102,9 +1079,6 @@ jobs:
           put_param "COGNITO_CLIENT_ID"      "${COGNITO_CLIENT_ID:-}"      "String"       "preserve-if-empty"
           put_param "COGNITO_CLIENT_SECRET"  "${COGNITO_CLIENT_SECRET:-}"  "SecureString" "preserve-if-empty"
           put_param "COGNITO_REGION"         "${COGNITO_REGION:-}"         "String"       "preserve-if-empty"
-          put_param "AUTH_PROVIDER"          "${AUTH_PROVIDER:-}"          "String"       "preserve-if-empty"
-          put_param "AUTH_ALLOW_LEGACY_JWT"  "${AUTH_ALLOW_LEGACY_JWT:-}"  "String"       "preserve-if-empty"
-          put_param "BREAK_GLASS_ENABLED"    "${BREAK_GLASS_ENABLED:-}"    "String"       "preserve-if-empty"
           put_param "ADMIN_MFA_REQUIRED"     "${ADMIN_MFA_REQUIRED:-}"     "String"       "preserve-if-empty"
           put_param "AUTH_EMAIL_MFA_ENABLED" "${AUTH_EMAIL_MFA_ENABLED:-}" "String"       "preserve-if-empty"
 

@@ -186,12 +186,20 @@ def launch_env(monkeypatch):
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RecordingEngine())
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # launch/resume/revision/messages depend on get_current_principal so their
+    # tier gate can read the token's cognito:groups (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {"client": client, "state": state, "Session": TestingSession}
@@ -206,7 +214,7 @@ def _seed_user(session_factory, *, tier="enterprise", is_admin=False) -> _FakeUs
         u = User(
             id=str(uuid.uuid4()),
             email=f"capgate-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -314,12 +322,20 @@ def answers_cancel_env(monkeypatch):
     ws_module._PIPELINE_TASKS.clear()
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # launch/resume/revision/messages depend on get_current_principal so their
+    # tier gate can read the token's cognito:groups (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {"client": client, "state": state, "Session": TestingSession}
@@ -367,7 +383,11 @@ class TestCancelAndAnswersAreExempt:
         db = answers_cancel_env["Session"]()
         try:
             db.add(
-                User(id=owner.id, email=f"{owner.id}@example.com", password_hash="x")
+                User(
+                    id=owner.id,
+                    email=f"{owner.id}@example.com",
+                    cognito_sub=str(uuid.uuid4()),
+                )
             )
             db.commit()
         finally:
@@ -388,7 +408,11 @@ class TestCancelAndAnswersAreExempt:
         db = answers_cancel_env["Session"]()
         try:
             db.add(
-                User(id=owner.id, email=f"{owner.id}@example.com", password_hash="x")
+                User(
+                    id=owner.id,
+                    email=f"{owner.id}@example.com",
+                    cognito_sub=str(uuid.uuid4()),
+                )
             )
             db.commit()
         finally:
@@ -439,12 +463,20 @@ def resume_env(monkeypatch):
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _ResumeStubEngine())
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # launch/resume/revision/messages depend on get_current_principal so their
+    # tier gate can read the token's cognito:groups (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {"client": client, "state": state, "Session": TestingSession}
@@ -529,12 +561,20 @@ def revision_env(monkeypatch):
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
 
     from app.api.run_commands import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_principal, get_current_user
+
+    from tests.fakes.principal import principal_for
 
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": None}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    # launch/resume/revision/messages depend on get_current_principal so their
+    # tier gate can read the token's cognito:groups (Decision 3).
+    app.dependency_overrides[get_current_principal] = lambda: (
+        state["user"],
+        principal_for(state["user"]),
+    )
     client = TestClient(app)
 
     yield {"client": client, "state": state, "Session": TestingSession}

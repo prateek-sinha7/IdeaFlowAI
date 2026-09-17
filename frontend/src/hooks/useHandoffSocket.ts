@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamMessage } from "@/types/index";
-import { clearToken, getToken } from "@/lib/api";
+import { expireSession, getToken, refreshOnce } from "@/lib/api";
 
 export type ConnectionStatus =
   | "connecting"
@@ -159,14 +159,21 @@ export function useHandoffSocket(
       wsRef.current = null;
 
       if (event.code === JWT_EXPIRED_CODE) {
-        // JWT expired — clear token and redirect to login
-        clearToken();
-        setConnectionStatus("disconnected");
-        setLastError("Your session has expired. Please log in again.");
-        if (typeof window !== "undefined") {
-          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-          window.location.href = "/login";
-        }
+        // JWT expired (4001) — try to refresh once. If successful, reconnect;
+        // otherwise clear token and redirect to login.
+        refreshOnce().then((newToken) => {
+          if (newToken) {
+            // Refresh succeeded — attempt reconnection with fresh token
+            retryCountRef.current = 0;
+            connectRef.current();
+          } else {
+            // Session expiry is centralized so handoff uses the same safe
+            // redirect and token cleanup as REST and SSE.
+            setConnectionStatus("disconnected");
+            setLastError("Your session has expired. Please log in again.");
+            expireSession();
+          }
+        });
         return;
       }
 
