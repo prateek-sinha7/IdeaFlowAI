@@ -33,25 +33,8 @@ from app.core.identity import (
     effective_is_admin,
     enforce_admin_mfa,
 )
-from app.models.artifact_ref import ArtifactRef
-from app.models.chat import ChatSession, Message
 from app.models.database import get_db
-from app.models.exec_runs import ExecRun
-from app.models.gate_events import GateEvent
-from app.models.handoff import HandoffSession, UserApiKey, UserGithubCredential
-from app.models.hook_runs import HookRun
-from app.models.revoked_token import RevokedToken
-from app.models.run_capabilities import RunCapabilities
-from app.models.run_event import RunEvent
-from app.models.subagent_run import SubagentRun
 from app.models.user import User
-from app.models.user_agent import UserAgent
-from app.models.validation_results import ValidationResult
-from app.models.wave_run import WaveRun
-from app.models.workflow import WorkflowRun
-from app.models.workflow_clarification import WorkflowClarification
-from app.models.workflow_definition import WorkflowDefinition
-from app.models.workflow_memory import WorkflowMemory
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = logging.getLogger("app.api.admin")
@@ -652,13 +635,18 @@ def delete_user(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Delete a user (including self).
+    """Delete a user. Admin cannot delete themselves.
 
     Cognito path: ``AdminDeleteUser`` first, tolerating
     ``UserNotFoundException`` (the pool user may already be absent -- an
     inconsistent-but-recoverable prior state, not a reason to block the
     local delete); then the local row.
     """
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account.",
+        )
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -680,76 +668,6 @@ def delete_user(
                 )
 
     deleted_id, deleted_provider = user.id, user.auth_provider
-
-    # Get all workflow run IDs for this user
-    workflow_run_ids = [
-        wr[0]
-        for wr in db.query(WorkflowRun.id).filter(WorkflowRun.user_id == user_id).all()
-    ]
-
-    # Delete all dependent records before deleting workflow_runs
-    # This prevents foreign key constraint violations
-    if workflow_run_ids:
-        db.query(ArtifactRef).filter(ArtifactRef.run_id.in_(workflow_run_ids)).delete()
-        db.query(ExecRun).filter(ExecRun.run_id.in_(workflow_run_ids)).delete()
-        db.query(GateEvent).filter(GateEvent.run_id.in_(workflow_run_ids)).delete()
-        db.query(HookRun).filter(HookRun.run_id.in_(workflow_run_ids)).delete()
-        db.query(RunCapabilities).filter(RunCapabilities.run_id.in_(workflow_run_ids)).delete()
-        db.query(RunEvent).filter(RunEvent.run_id.in_(workflow_run_ids)).delete()
-        db.query(ValidationResult).filter(
-            ValidationResult.run_id.in_(workflow_run_ids)
-        ).delete(synchronize_session=False)
-        db.query(WaveRun).filter(WaveRun.run_id.in_(workflow_run_ids)).delete()
-        db.query(WorkflowClarification).filter(
-            WorkflowClarification.workflow_run_id.in_(workflow_run_ids)
-        ).delete()
-        db.query(SubagentRun).filter(SubagentRun.parent_run_id.in_(workflow_run_ids)).delete()
-        db.query(WorkflowRun).filter(
-            WorkflowRun.parent_run_id.in_(workflow_run_ids)
-        ).update({WorkflowRun.parent_run_id: None}, synchronize_session=False)
-
-    # Delete all workflow runs owned by this user.
-    db.query(WorkflowRun).filter(WorkflowRun.user_id == user_id).delete(
-        synchronize_session=False
-    )
-
-    # Remove every remaining direct user dependency before the parent row.
-    # Chat messages must be removed before their chat sessions.
-    chat_session_ids = [
-        chat_session_id
-        for (chat_session_id,) in db.query(ChatSession.id)
-        .filter(ChatSession.user_id == user_id)
-        .all()
-    ]
-    if chat_session_ids:
-        db.query(Message).filter(Message.chat_session_id.in_(chat_session_ids)).delete(
-            synchronize_session=False
-        )
-    db.query(ChatSession).filter(ChatSession.user_id == user_id).delete(
-        synchronize_session=False
-    )
-    db.query(HandoffSession).filter(HandoffSession.issuer_user_id == user_id).delete(
-        synchronize_session=False
-    )
-    db.query(UserApiKey).filter(UserApiKey.user_id == user_id).delete(
-        synchronize_session=False
-    )
-    db.query(UserGithubCredential).filter(
-        UserGithubCredential.user_id == user_id
-    ).delete(synchronize_session=False)
-    db.query(RevokedToken).filter(RevokedToken.user_id == user_id).delete(
-        synchronize_session=False
-    )
-    db.query(UserAgent).filter(UserAgent.user_id == user_id).delete(
-        synchronize_session=False
-    )
-    db.query(WorkflowDefinition).filter(WorkflowDefinition.user_id == user_id).delete(
-        synchronize_session=False
-    )
-    db.query(WorkflowMemory).filter(WorkflowMemory.user_id == user_id).delete(
-        synchronize_session=False
-    )
-
     db.delete(user)
     db.commit()
     auth_events.emit(
