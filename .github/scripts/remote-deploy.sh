@@ -79,7 +79,7 @@ if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
 # ── Inputs (injected as literal assignments above this file) ─────────────────
-# The three *_GZ values are gzip-then-base64 of the corresponding repo file.
+# The four *_GZ values are gzip-then-base64 encoded repository files.
 # Plain base64 put the whole payload at ~85 KB, close enough to SendCommand's
 # request-size ceiling that a future edit to reconcile-host-config.sh (37 KB of
 # it) could push a deploy over. gzip -9 brings the same content in at roughly a
@@ -93,6 +93,7 @@ set -euo pipefail
 : "${COMPOSE_GZ:?COMPOSE_GZ was not injected by deploy.yml}"
 : "${COMPOSE_PROD_GZ:?COMPOSE_PROD_GZ was not injected by deploy.yml}"
 : "${RECONCILE_GZ:?RECONCILE_GZ was not injected by deploy.yml}"
+: "${SECRETS_LOADER_GZ:?SECRETS_LOADER_GZ was not injected by deploy.yml}"
 
 APP_DIR=/opt/velocityai
 ETC_DIR=/etc/velocityai
@@ -200,7 +201,7 @@ fi
 mkdir -p "$APP_DIR" "$ETC_DIR"
 
 # ── 3. Ship the repo's config onto the box ──────────────────────────────────
-# These three files are byte-for-byte repo content. CodeBuild read them from
+# These four files are byte-for-byte repo content. CodeBuild read them from
 # s3://<backup-bucket>/config/ where the Terraform app layer had uploaded them;
 # with Terraform out of the pipeline they travel inline instead, which also
 # removes a whole failure mode (deploying a compose file from a stale apply).
@@ -227,6 +228,14 @@ chmod 0644 "${APP_DIR}/docker-compose.yml" "${APP_DIR}/docker-compose.prod.yml"
 
 unpack "$RECONCILE_GZ" "${APP_DIR}/reconcile-host-config.sh"
 chmod 0755 "${APP_DIR}/reconcile-host-config.sh"
+
+# The loader is host code, not mutable bootstrap state. Refresh it atomically
+# from this deploy before it materializes SSM values, so supported parameters
+# can never be dropped merely because the instance predates an allowlist change.
+unpack "$SECRETS_LOADER_GZ" "${APP_DIR}/velocityai-load-secrets.sh"
+LOADER_TMP="$(mktemp /usr/local/bin/velocityai-load-secrets.XXXXXX)"
+install -o root -g root -m 0755 "${APP_DIR}/velocityai-load-secrets.sh" "$LOADER_TMP"
+mv "$LOADER_TMP" /usr/local/bin/velocityai-load-secrets
 
 # ── 4. Bind-mount ownership ─────────────────────────────────────────────────
 # Both containers run as the non-root numeric uid:gid 10001 and write into

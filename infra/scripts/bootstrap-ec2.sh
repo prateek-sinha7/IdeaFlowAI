@@ -916,6 +916,16 @@ chmod 0640 "$OUT"; chown root:velocityai "$OUT"
 EOF
 chmod +x /usr/local/bin/velocityai-load-secrets
 
+# The loader itself is also a versioned config artifact. Keep the legacy
+# heredoc above only as a compatibility fallback for old artifact buckets; a
+# current bootstrap always replaces it with the same canonical file that a
+# normal deploy installs before it reads SSM.
+aws s3 cp "s3://${BACKUP_BUCKET}/config/velocityai-load-secrets.sh" \
+    /opt/velocityai/velocityai-load-secrets.sh --region "$REGION"
+install -o root -g root -m 0755 \
+    /opt/velocityai/velocityai-load-secrets.sh \
+    /usr/local/bin/velocityai-load-secrets
+
 # ── 13/14. Host configuration (nginx + CloudWatch agent) ───────────────
 #
 # The declarative half of this script now lives in

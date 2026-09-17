@@ -37,6 +37,7 @@ module "compute" {
     aws_s3_object.deploy_env,
     aws_s3_object.bootstrap_script,
     aws_s3_object.reconcile_script,
+    aws_s3_object.secrets_loader_script,
   ]
 
   name_prefix               = local.name_prefix
@@ -119,6 +120,28 @@ resource "aws_s3_object" "reconcile_script" {
 
   tags = {
     Name      = "${local.name_prefix}-reconcile-script"
+    Component = "compute"
+  }
+}
+
+# --- Secrets loader hosted in S3 ---------------------------------------------
+# This is a first-boot peer of bootstrap-ec2.sh and reconcile-host-config.sh.
+# A normal GitHub deploy ships it inline, while a newly created host downloads
+# it from this object before its first app start. Keeping one source file for
+# both paths prevents bootstrap-only loader versions from silently drifting.
+resource "aws_s3_object" "secrets_loader_script" {
+  bucket = local.fnd.backup_bucket_name
+  key    = "config/velocityai-load-secrets.sh"
+
+  source      = "${path.root}/../../scripts/velocityai-load-secrets.sh"
+  source_hash = filemd5("${path.root}/../../scripts/velocityai-load-secrets.sh")
+
+  content_type           = "text/x-shellscript"
+  server_side_encryption = "aws:kms"
+  kms_key_id             = local.fnd.kms_key_arn
+
+  tags = {
+    Name      = "${local.name_prefix}-secrets-loader-script"
     Component = "compute"
   }
 }

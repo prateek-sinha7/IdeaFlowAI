@@ -383,12 +383,12 @@ data "aws_iam_policy_document" "github_deploy" {
   }
 
   # ── Config artifact upload — .github/workflows/provision.yml ────────────
-  # Lets the deploy role push bootstrap-ec2.sh, reconcile-host-config.sh and
-  # both docker-compose files to s3://<this env's backup bucket>/config/,
-  # replacing what Terraform's user_data used to do (aws_s3_object.*_script /
-  # .compose_yaml in app/main.tf) for a hand-created EC2 that never ran that
-  # apply. Scoped to config/* only — NOT config/deploy.env and NOT the
-  # postgres/ or skills/ prefixes the on-host backup scripts own — so a
+  # Lets the deploy role push bootstrap-ec2.sh, reconcile-host-config.sh,
+  # velocityai-load-secrets.sh, and both docker-compose files to
+  # s3://<this env's backup bucket>/config/, replacing what Terraform's
+  # user_data used to do (aws_s3_object.*_script / .compose_yaml in app/main.tf)
+  # for a hand-created EC2 that never ran that apply. Scoped to config/* only
+  # — NOT config/deploy.env and NOT the postgres/ or skills/ prefixes the
   # compromised deploy role cannot touch backup data, only redeploy config
   # objects a human can diff against this repo.
   #

@@ -226,10 +226,10 @@ resource "aws_ssm_parameter" "langsmith_project" {
 # All four are count-guarded on `cognito_user_pool_id` being non-empty, so an
 # environment that hasn't run the cognito module yet gets none of these
 # parameters — same "empty means opt-out" pattern as the LangSmith block
-# above. IMPORTANT: these four names must ALSO be added to the secrets-loader
-# allowlist in infra/scripts/bootstrap-ec2.sh (a name NOT on that allowlist is
-# silently dropped from /etc/velocityai/app.env even though the SSM parameter
-# exists — this is R2 in the migration plan's risk register).
+# above. The canonical loader allowlist lives in
+# infra/scripts/velocityai-load-secrets.sh. It is delivered on every normal
+# deploy and during first boot, so a change reaches existing hosts without a
+# provisioning run; names outside it are intentionally excluded from app.env.
 
 resource "aws_ssm_parameter" "cognito_user_pool_id" {
   count = var.cognito_enabled ? 1 : 0
@@ -323,7 +323,7 @@ resource "aws_ssm_parameter" "admin_mfa_required" {
   count = length(var.admin_mfa_required) > 0 ? 1 : 0
 
   name        = "${local.prefix}/ADMIN_MFA_REQUIRED"
-  description = "Require a confirmed second factor for admin operations (P0 fix). IMPORTANT: must ALSO be added to the secrets-loader allowlist in infra/scripts/bootstrap-ec2.sh, or this parameter is silently dropped from /etc/velocityai/app.env."
+  description = "Require a confirmed second factor for admin operations (P0 fix). The canonical loader allowlist is infra/scripts/velocityai-load-secrets.sh and is refreshed by every normal deploy."
   type        = "String"
   value       = var.admin_mfa_required
   tier        = "Standard"

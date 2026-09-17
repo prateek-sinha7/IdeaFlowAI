@@ -704,6 +704,7 @@ jobs:
             docker-compose.yml
             docker-compose.prod.yml
             infra/scripts/reconcile-host-config.sh
+            infra/scripts/velocityai-load-secrets.sh
             .github/scripts/remote-deploy.sh
             .github/actions/ssm-run/
           sparse-checkout-cone-mode: false
@@ -764,9 +765,10 @@ jobs:
           # Bootstrap-admin step removed: Cognito-only. See docs/architecture/authentication-and-authorization.md.
           # ── Cognito + auth flags ────────────────────────────────────────────
           # The six keys the application actually reads (Settings fields in
-          # backend/app/core/config.py) and that the on-host loader allowlist
-          # already recognises (infra/scripts/bootstrap-ec2.sh) — so this block
-          # needs NO host-script change to take effect.
+          # backend/app/core/config.py) and the canonical loader allowlist
+          # in infra/scripts/velocityai-load-secrets.sh. The deploy installs
+          # that exact loader before it reads SSM, so no provisioning run is
+          # needed when an allowlist change ships.
           #
           # AUTH_PROVIDER, AUTH_ALLOW_LEGACY_JWT, and BREAK_GLASS_ENABLED were
           # REMOVED in Phase 4 of the Cognito-only auth migration: the backend's
@@ -1191,14 +1193,13 @@ jobs:
             fi
           done
 
-          # gzip -9 before base64: plain base64 of these three files is ~85 KB,
-          # which is close enough to SendCommand's request-size ceiling that a
-          # future edit to reconcile-host-config.sh (37 KB on its own) could
-          # push a deploy over it. Compressed they are roughly a quarter of
-          # that. The box reverses this with `base64 -d | gunzip -c`.
+          # gzip -9 before base64: the deploy payload contains only versioned
+          # host config from this commit. The box reverses this with
+          # `base64 -d | gunzip -c` before installing it.
           COMPOSE_GZ="$(gzip -9 -c docker-compose.yml | base64 -w 0)"
           COMPOSE_PROD_GZ="$(gzip -9 -c docker-compose.prod.yml | base64 -w 0)"
           RECONCILE_GZ="$(gzip -9 -c infra/scripts/reconcile-host-config.sh | base64 -w 0)"
+          SECRETS_LOADER_GZ="$(gzip -9 -c infra/scripts/velocityai-load-secrets.sh | base64 -w 0)"
 
           {
             echo '#!/bin/bash'
@@ -1212,6 +1213,7 @@ jobs:
             echo "COMPOSE_GZ='${COMPOSE_GZ}'"
             echo "COMPOSE_PROD_GZ='${COMPOSE_PROD_GZ}'"
             echo "RECONCILE_GZ='${RECONCILE_GZ}'"
+            echo "SECRETS_LOADER_GZ='${SECRETS_LOADER_GZ}'"
             cat .github/scripts/remote-deploy.sh
           } > remote.sh
 

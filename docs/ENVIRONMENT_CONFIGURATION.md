@@ -224,7 +224,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 /flowin/production/BEDROCK_MODEL_ID
 ```
 
-See `infra/scripts/bootstrap-ec2.sh` for the loader allowlist (which variables are accepted).
+See `infra/scripts/velocityai-load-secrets.sh` for the loader allowlist (which variables are accepted). The normal deploy refreshes this script on the host before it materializes SSM values.
 
 ### Deployment Gate
 

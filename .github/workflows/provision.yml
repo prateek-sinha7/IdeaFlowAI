@@ -2,7 +2,7 @@
 # VelocityAI Provision — CI/CD replacement for Terraform's user_data.sh.tpl.
 # =============================================================================
 # Takes a HAND-CREATED (non-Terraform) EC2 instance from bare to fully
-# provisioned: uploads the four config artifacts to S3 (the half Terraform's
+# provisioned: uploads the five config artifacts to S3 (the half Terraform's
 # app layer normally does via aws_s3_object.*), then runs
 # .github/scripts/remote-bootstrap.sh over SSM RunCommand, which writes
 # /etc/velocityai/bootstrap.env, installs velocityai-firstboot.service (so a
@@ -102,6 +102,7 @@ jobs:
           sparse-checkout: |
             infra/scripts/bootstrap-ec2.sh
             infra/scripts/reconcile-host-config.sh
+            infra/scripts/velocityai-load-secrets.sh
             docker-compose.yml
             docker-compose.prod.yml
             .github/scripts/remote-bootstrap.sh
@@ -178,7 +179,7 @@ jobs:
           echo "  force         : ${{ inputs.force }}"
           echo "  dry_run       : ${{ inputs.dry_run }}"
 
-      # ── Upload the four config artifacts to s3://<bucket>/config/ ─────────
+      # ── Upload the five config artifacts to s3://<bucket>/config/ ─────────
       # Replaces the Terraform app layer's aws_s3_object.bootstrap_script /
       # .reconcile_script / .compose_yaml / .compose_prod_yaml for a box that
       # never had that apply run against it. `config/deploy.env` is
@@ -225,11 +226,12 @@ jobs:
 
           upload_one infra/scripts/bootstrap-ec2.sh          bootstrap-ec2.sh          text/x-shellscript
           upload_one infra/scripts/reconcile-host-config.sh  reconcile-host-config.sh  text/x-shellscript
+          upload_one infra/scripts/velocityai-load-secrets.sh velocityai-load-secrets.sh text/x-shellscript
           upload_one docker-compose.yml                      docker-compose.yml        text/yaml
           upload_one docker-compose.prod.yml                 docker-compose.prod.yml   text/yaml
 
-          echo "Verifying all four objects landed..."
-          for key in bootstrap-ec2.sh reconcile-host-config.sh docker-compose.yml docker-compose.prod.yml; do
+          echo "Verifying all five objects landed..."
+          for key in bootstrap-ec2.sh reconcile-host-config.sh velocityai-load-secrets.sh docker-compose.yml docker-compose.prod.yml; do
             if ! aws s3api head-object --bucket "$BACKUP_BUCKET" --key "config/${key}" --region "$AWS_REGION" >/dev/null; then
               echo "::error::config/${key} is missing from s3://${BACKUP_BUCKET}/ immediately after upload."
               exit 1
