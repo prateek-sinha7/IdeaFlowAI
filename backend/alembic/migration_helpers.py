@@ -34,16 +34,15 @@ That failure mode is caught at the source level by
 
 IMPORT CONTRACT
 ---------------
-This module lives at the backend root, beside ``alembic.ini``, and is imported
-from revision files as::
+This module lives beside the Alembic environment and is imported from revision
+files as::
 
     from migration_helpers import add_column_if_missing
 
-``alembic/env.py`` inserts the backend root onto ``sys.path`` before any
-revision is loaded (see its "sys.path bootstrap" block), so the import resolves
-whether alembic is driven from the CLI or programmatically from pytest. It is
-deliberately NOT placed inside ``backend/alembic/`` — that package name would
-collide with the installed ``alembic`` distribution.
+``alembic/env.py`` inserts both the backend root and its own directory onto
+``sys.path`` before revisions are loaded. This keeps the helper in the migration
+subsystem while avoiding ``alembic.migration_helpers``: that package name belongs
+to the installed Alembic distribution, not this repository's migration folder.
 
 It depends only on SQLAlchemy reflection and ``alembic.op``. It must never
 import ``app.*``: revisions are historical artifacts and must keep running even

@@ -26,15 +26,16 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 # ---------------------------------------------------------------------------
-# Make ``app.*`` importable regardless of where alembic is invoked from.
-#
-# When operators run ``alembic upgrade head`` from /opt/flowin/backend that's
-# already on sys.path; when pytest invokes it programmatically it isn't. We
-# canonicalise on the directory that contains this env.py's parent (= backend/).
+# Make ``app.*`` and migration-local helpers importable regardless of where
+# Alembic is invoked from. The helper is deliberately a bare module rather
+# than ``alembic.migration_helpers`` because ``alembic`` is the installed
+# distribution's package name, not this repository's migration directory.
 # ---------------------------------------------------------------------------
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
-if str(_BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(_BACKEND_DIR))
+_ALEMBIC_DIR = Path(__file__).resolve().parent
+for _import_dir in (_BACKEND_DIR, _ALEMBIC_DIR):
+    if str(_import_dir) not in sys.path:
+        sys.path.insert(0, str(_import_dir))
 
 from app.core.config import settings  # noqa: E402  (deliberate post-sys.path)
 from app.models.database import Base  # noqa: E402
