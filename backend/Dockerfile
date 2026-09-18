@@ -231,7 +231,6 @@ COPY --chown=flowin:flowin alembic.ini ./alembic.ini
 # single file, not the whole scripts/ tree: nothing else in there is needed at
 # runtime and the rest carries operator-only tooling.
 COPY --chown=flowin:flowin scripts/migrate_local_users_to_cognito.py ./scripts/migrate_local_users_to_cognito.py
-COPY --chown=flowin:flowin scripts/delete_users_by_email.py ./scripts/delete_users_by_email.py
 
 # OpenDesign reference content (design-templates, design-systems, craft rules,
 # prompt-templates) that app/services/od_loader.py reads from disk. Supplied as
