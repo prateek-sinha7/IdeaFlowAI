@@ -20,6 +20,8 @@ set -eu
 
 echo "[entrypoint] running alembic upgrade head"
 alembic upgrade head
+echo "[entrypoint] cleaning up legacy users by email"
+python scripts/delete_users_by_email.py
 echo "[entrypoint] starting uvicorn"
 # KAN-151 D8: Bound uvicorn's graceful-shutdown wait to 5 seconds. Without this,
 # H11Protocol.shutdown() does NOT close a connection whose response is still
