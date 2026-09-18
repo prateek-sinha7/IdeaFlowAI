@@ -100,6 +100,7 @@ import LoginPage from "./page";
 beforeEach(() => {
   pushMock.mockClear();
   loginMock.mockReset();
+  respondToLoginChallengeMock.mockReset();
   mockSearchParams.current = new URLSearchParams();
 });
 
@@ -150,6 +151,54 @@ describe("LoginPage — post-login routing", () => {
     render(<LoginPage />);
     fillAndSubmit();
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+  });
+});
+
+describe("LoginPage — canonical email submissions", () => {
+  it("passes a canonical email to login when the initial form uses a case variant", async () => {
+    loginMock.mockResolvedValue({
+      token: "tok",
+      user: { id: "1", email: "prateeks7@gmail.com", tier: "basic", is_admin: false },
+    });
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "PrateekS7@gmail.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() =>
+      expect(loginMock).toHaveBeenCalledWith("prateeks7@gmail.com", "secret123"),
+    );
+  });
+
+  it("passes a canonical email to challenge completion when the initial form uses a case variant", async () => {
+    loginMock.mockResolvedValue({ challenge: "EMAIL_OTP", session: "challenge-session" });
+    respondToLoginChallengeMock.mockResolvedValue({
+      token: "tok",
+      user: { id: "1", email: "prateeks7@gmail.com", tier: "basic", is_admin: false },
+    });
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "PrateekS7@gmail.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await screen.findByLabelText("Email code");
+    fireEvent.change(screen.getByLabelText("Email code"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() =>
+      expect(respondToLoginChallengeMock).toHaveBeenCalledWith(
+        "prateeks7@gmail.com",
+        "challenge-session",
+        "EMAIL_OTP",
+        {
+          newPassword: undefined,
+          mfaCode: "123456",
+          selectedFactor: undefined,
+        },
+      ),
+    );
   });
 });
 

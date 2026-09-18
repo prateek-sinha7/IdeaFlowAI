@@ -25,11 +25,13 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import auth_events, cognito_admin
 from app.core.auth_events import AuthEvent
+from app.core.email_identity import canonicalize_email
 from app.core.cognito_admin import (
     ConflictError,
     LastAdminError,
@@ -46,6 +48,7 @@ from app.core.identity import (
 )
 from app.core.user_deletion import delete_user_dependents
 from app.models.database import get_db
+from app.models.schemas import CanonicalEmail
 from app.models.pending_cognito_deletion import PendingCognitoDeletion
 from app.models.user import User
 
@@ -186,7 +189,7 @@ class CreateUserRequest(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    email: EmailStr
+    email: CanonicalEmail
     tier: str = "basic"
     is_admin: bool = False
 
@@ -422,7 +425,8 @@ def create_user(
     a local-insert failure, the pool user is deleted to avoid an orphan
     (compensating ``AdminDeleteUser``) -- unchanged from before.
     """
-    existing = db.query(User).filter(User.email == request.email).first()
+    email = canonicalize_email(request.email)
+    existing = db.query(User).filter(func.lower(User.email) == email).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -438,7 +442,7 @@ def create_user(
 
     try:
         created = cognito_admin.invite_user(
-            request.email, tier=request.tier, is_admin=request.is_admin
+            email, tier=request.tier, is_admin=request.is_admin
         )
     except Exception as exc:  # noqa: BLE001 - re-raised as HTTPException below
         _raise_for(exc)
@@ -459,10 +463,10 @@ def create_user(
         # Compensating delete: don't leave an orphaned pool user with no
         # local row (migration plan R7).
         try:
-            cognito_admin.try_delete_pool_user(request.email)
+            cognito_admin.try_delete_pool_user(email)
         except Exception:  # noqa: BLE001 - best-effort cleanup
             logger.error(
-                "Failed to compensate-delete orphaned Cognito user %s", request.email
+                "Failed to compensate-delete orphaned Cognito user %s", email
             )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

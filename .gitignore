@@ -143,3 +143,5 @@ graphify-out/
 # Do not ignore the directory itself — a negation cannot re-include a file whose
 # parent directory is excluded, so users.example.json would disappear with it.
 /tools/loadtest/
+
+unit-test-prompt

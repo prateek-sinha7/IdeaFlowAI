@@ -34,12 +34,14 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import auth_events, cognito
 from app.core.auth_events import AuthEvent
 from app.core.config import settings
+from app.core.email_identity import canonicalize_email
 from app.core.crypto import decrypt_cognito_refresh_token, encrypt_cognito_refresh_token
 from app.core.dependencies import (
     bearer_scheme,
@@ -59,6 +61,7 @@ from app.models.revoked_token import RevokedToken
 from app.models.schemas import (
     AuthChallengeResponse,
     AuthResponse,
+    CanonicalEmail,
     LoginChallengeRequest,
     LoginRequest,
     MfaStatusResponse,
@@ -326,7 +329,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     # NOT a gate — see the docstring. Used only to enrich the audit events below
     # with a user_id when one already exists. A miss is the ordinary first-login
     # case for a console-created account, not a failure.
-    user = db.query(User).filter(User.email == request.email).first()
+    user = db.query(User).filter(func.lower(User.email) == request.email).first()
     # Email is passed on the no-row branch precisely BECAUSE no user_id exists —
     # without it a credential-stuffing run against never-provisioned addresses
     # would be invisible in the audit trail. (auth_events hashes it; the
@@ -434,7 +437,7 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
     #
     # Still not an enumeration oracle: reaching Cognito at all additionally
     # requires a valid provider-issued `session`, which only /login can mint.
-    user = db.query(User).filter(User.email == request.email).first()
+    user = db.query(User).filter(func.lower(User.email) == request.email).first()
     audit_identity: dict[str, str | None] = (
         {"user_id": user.id} if user else {"email": request.email}
     )
@@ -1029,11 +1032,11 @@ def disable_email_mfa(
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: str
+    email: CanonicalEmail
 
 
 class ConfirmForgotPasswordRequest(BaseModel):
-    email: str
+    email: CanonicalEmail
     code: str
     new_password: str
 
@@ -1060,7 +1063,7 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
     be a lie that costs the user a support ticket to discover, so this reports
     the situation directly -- see the 409 branch below.
     """
-    email = request.email.strip().lower()
+    email = canonicalize_email(request.email)
     generic = {"message": "If that account exists, a reset code has been sent."}
 
     if settings.AUTH_EMAIL_MFA_ENABLED:
@@ -1106,7 +1109,7 @@ def confirm_forgot_password(
     token. A password reset that left the attacker's existing session alive
     would defeat the purpose of the reset.
     """
-    email = request.email.strip().lower()
+    email = canonicalize_email(request.email)
 
     if settings.AUTH_EMAIL_MFA_ENABLED:
         # Mirrors the guard on /forgot-password. No code can have been issued in
@@ -1146,7 +1149,7 @@ def confirm_forgot_password(
             detail="Authentication service unavailable",
         )
 
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).filter(func.lower(User.email) == email).first()
     if user is not None:
         now = datetime.now(timezone.utc)
         user.password_changed_at = now

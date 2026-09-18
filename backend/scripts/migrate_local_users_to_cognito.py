@@ -74,6 +74,7 @@ import sqlalchemy as sa  # noqa: E402
 from botocore.exceptions import ClientError  # noqa: E402
 
 from app.core import cognito  # noqa: E402
+from app.core.email_identity import canonicalize_email  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.core.entitlements import ADMIN_GROUP, group_for_tier  # noqa: E402
 from app.models.database import engine  # noqa: E402
@@ -147,7 +148,7 @@ def _assert_pool_configured() -> str | None:
 def _find_pool_sub_by_email(email: str) -> str | None:
     """Look up an existing pool user's sub by email, or None if absent."""
     try:
-        return cognito.admin_get_user_sub(email)
+        return cognito.admin_get_user_sub(canonicalize_email(email))
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") == "UserNotFoundException":
             return None
@@ -274,7 +275,8 @@ def cmd_invite(apply: bool) -> int:
     invited = 0
     failures: list[tuple[str, str]] = []
     for row in still_unlinked:
-        existing_sub = _find_pool_sub_by_email(row["email"])
+        login_email = canonicalize_email(row["email"])
+        existing_sub = _find_pool_sub_by_email(login_email)
         if existing_sub is not None:
             print(
                 f"  SKIP (already in pool, run --link instead): {row['email']} "
@@ -292,7 +294,7 @@ def cmd_invite(apply: bool) -> int:
 
         try:
             resp = cognito.admin_create_user(
-                row["email"], desired_delivery_mediums=["EMAIL"]
+                login_email, desired_delivery_mediums=["EMAIL"]
             )
             sub = next(
                 attr["Value"]
@@ -300,7 +302,7 @@ def cmd_invite(apply: bool) -> int:
                 if attr["Name"] == "sub"
             )
             for group in groups:
-                cognito.admin_add_user_to_group(row["email"], group)
+                cognito.admin_add_user_to_group(login_email, group)
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
             failures.append((row["email"], f"Cognito {code}"))

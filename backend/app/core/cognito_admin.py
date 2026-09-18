@@ -54,6 +54,7 @@ from botocore.exceptions import ClientError
 from sqlalchemy.orm import Session
 
 from app.core import auth_events, cognito
+from app.core.email_identity import canonicalize_email
 from app.core.entitlements import ADMIN_GROUP, TIER_GROUPS, group_for_tier
 from app.models.user import User
 
@@ -319,6 +320,7 @@ def invite_user(
     ``ConflictError`` for a duplicate email, ``ProviderUnavailableError``
     otherwise.
     """
+    email = canonicalize_email(email)
     try:
         create_resp = _retry_on_throttle(
             "AdminCreateUser",

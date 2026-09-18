@@ -403,3 +403,31 @@ def _assert_no_provider_credentials_when_offline() -> None:
             "must require zero provider credentials, so their presence means the "
             "job is not actually offline. Unset them in the workflow."
         )
+
+
+_CANONICAL_SUITE_MARKERS = frozenset(
+    {
+        "unit",
+        "integration",
+        "contract",
+        "e2e",
+        "performance",
+        "security",
+        "property",
+        "smoke",
+    }
+)
+
+
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001
+    """Apply a canonical suite marker from a recognized test-folder name.
+
+    Legacy folders outside the canonical layout remain untouched until their
+    separately planned migration; tests already under a canonical suite receive
+    exactly one suite marker without requiring per-test decorators.
+    """
+    for item in items:
+        path = str(getattr(item, "path", item.fspath)).replace("\\", "/")
+        suites = _CANONICAL_SUITE_MARKERS.intersection(path.split("/"))
+        if len(suites) == 1:
+            item.add_marker(getattr(pytest.mark, next(iter(suites))))

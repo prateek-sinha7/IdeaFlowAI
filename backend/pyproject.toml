@@ -140,6 +140,14 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short --strict-markers"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
+    "unit: fast, isolated tests with no real I/O",
+    "integration: tests requiring real PostgreSQL or other managed infrastructure",
+    "contract: API schema and consumer contract tests",
+    "e2e: full-stack user journeys",
+    "performance: opt-in latency or throughput tests",
+    "security: adversarial authentication and hardening tests",
+    "property: generated-input invariant tests",
+    "smoke: deployed-environment liveness checks",
     "requires_api_key: test requires a live LLM provider (Bedrock/Anthropic) — skipped in CI without credentials",
     "eval: issue-scoped eval suite (evals/hybrid) — offline scripted-model tests; select with -m eval",
     "requires_postgres: test requires a live PostgreSQL service — skipped without a DB (SQLite-default suites exclude this marker)",

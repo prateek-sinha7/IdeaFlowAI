@@ -78,6 +78,13 @@ resource "aws_cognito_user_pool" "this" {
   # not exposed anywhere yet.
   username_attributes = ["email"]
 
+  # Make the application's case-insensitive email identity policy explicit for
+  # newly-created pools. Existing case-sensitive pools require a deliberate
+  # Cognito migration; `prevent_destroy` below prevents accidental replacement.
+  username_configuration {
+    case_sensitive = false
+  }
+
   auto_verified_attributes = ["email"]
 
   admin_create_user_config {

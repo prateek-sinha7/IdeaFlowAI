@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { resolveRedirectTarget } from "@/lib/authRedirect";
+import { canonicalizeEmail } from "@/lib/emailIdentity";
 
 function LoginForm() {
   const router = useRouter();
@@ -60,8 +61,11 @@ function LoginForm() {
     setError("");
     setIsLoading(true);
 
+    const canonicalEmail = canonicalizeEmail(email);
+    setEmail(canonicalEmail);
+
     try {
-      const result = await login(email, password);
+      const result = await login(canonicalEmail, password);
       if (isAuthChallenge(result)) {
         setChallenge(result);
         return;
@@ -102,9 +106,11 @@ function LoginForm() {
       return;
     }
 
+    const canonicalEmail = canonicalizeEmail(email);
+    setEmail(canonicalEmail);
     setIsLoading(true);
     try {
-      const result = await respondToLoginChallenge(email, challenge.session, challenge.challenge, {
+      const result = await respondToLoginChallenge(canonicalEmail, challenge.session, challenge.challenge, {
         newPassword: challenge.challenge === "NEW_PASSWORD_REQUIRED" ? newPassword : undefined,
         mfaCode:
           challenge.challenge === "SOFTWARE_TOKEN_MFA" || challenge.challenge === "EMAIL_OTP"

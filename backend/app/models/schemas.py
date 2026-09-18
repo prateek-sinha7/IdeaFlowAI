@@ -1,9 +1,14 @@
 """Pydantic request/response schemas for the API."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import AfterValidator, BaseModel, EmailStr
+
+from app.core.email_identity import canonicalize_email
+
+
+CanonicalEmail = Annotated[EmailStr, AfterValidator(canonicalize_email)]
 
 
 # --- Auth Schemas ---
@@ -12,7 +17,7 @@ from pydantic import BaseModel, EmailStr
 class LoginRequest(BaseModel):
     """Login request body."""
 
-    email: EmailStr
+    email: CanonicalEmail
     password: str
 
 
@@ -57,7 +62,7 @@ class AuthChallengeResponse(BaseModel):
 class LoginChallengeRequest(BaseModel):
     """Request body for responding to a Cognito auth challenge."""
 
-    email: EmailStr
+    email: CanonicalEmail
     session: str
     challenge: str
     # NEW_PASSWORD_REQUIRED

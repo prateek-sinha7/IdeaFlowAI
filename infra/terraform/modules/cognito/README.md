@@ -212,3 +212,43 @@ that points at the client secret rather than the username. The backend passes
   own enrolment UI (AWS does not provide one without the hosted UI). See the
   migration plan §5.5 for the backend/frontend challenge-handling this
   requires from Phase 3 onward, even while MFA stays optional.
+
+
+## Email case-sensitivity migration — mandatory for existing pools
+
+This module declares `username_configuration { case_sensitive = false }` so a
+**new** pool treats capitalization variants of an email alias as one sign-in
+identity. That setting is a pool-creation choice: it must not be treated as an
+in-place fix for an existing case-sensitive pool.
+
+`prevent_destroy = true` is deliberate protection here. Do **not** remove it to
+force Terraform to replace a production pool: replacement changes every
+Cognito `sub`, invalidates refresh tokens, and can turn case-variant legacy
+accounts into an ambiguous identity mapping.
+
+Before deploying backend canonical email handling to an environment with an
+existing case-sensitive pool, complete an operator-approved migration:
+
+1. Record the live pool's case-sensitivity setting and export an auditable user
+   inventory. Separately identify every duplicate group by canonical email in
+   both Cognito and the local `users` projection.
+2. Resolve each collision that has more than one Cognito `sub` manually. Never
+   select an owner or merge local rows by email alone; `users.id` owns runs,
+   chats, artifacts, API keys, and other history.
+3. Create a separate replacement pool with `case_sensitive = false`; do not
+   replace the old pool in place. Migrate users with an explicit, reviewed
+   old-`sub` to new-`sub` mapping. A Cognito migrate-user trigger may help
+   authenticate a user into the replacement pool, but it does not authorize an
+   automatic local ownership remap.
+4. Update each approved local mapping transactionally, revoke existing refresh
+   state, and require fresh authentication. The backend continues to use the
+   new `cognito_sub` as the durable identity key; canonical email is only an
+   alias lookup key.
+5. Point the application to the replacement pool only after a non-production
+   smoke check proves that one account can sign in with two capitalization
+   variants, receives the same `sub`, and resolves to one local user. Retain
+   the old pool until the cutover is verified and rollback is no longer needed.
+
+The application intentionally fails closed if a canonical email alias is already
+associated with a different `cognito_sub`; resolve that condition through the
+migration process, not by changing the runtime code to relink it automatically.

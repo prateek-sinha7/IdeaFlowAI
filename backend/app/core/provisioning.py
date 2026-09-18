@@ -52,10 +52,12 @@ import uuid
 from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import cognito
+from app.core.email_identity import canonicalize_email
 from app.core.entitlements import resolve_is_admin_from_groups, resolve_tier_from_groups
 from app.models.user import User
 
@@ -169,7 +171,7 @@ def _link_or_refuse(db: Session, *, email: str, sub: str) -> User | None:
     operator to resolve deliberately (``scripts/reconcile_cognito_users.py
     --report`` surfaces it). Returns ``None`` when there is no collision.
     """
-    existing = db.query(User).filter(User.email == email).first()
+    existing = db.query(User).filter(func.lower(User.email) == email).first()
     if existing is None:
         return None
 
@@ -244,6 +246,7 @@ def provision_from_login(
     ``Enabled`` is not re-checked here: Cognito refuses to authenticate a
     disabled user at all, so a successful auth result IS the enabled proof.
     """
+    email = canonicalize_email(email)
     user = db.query(User).filter(User.cognito_sub == sub).first()
     if user is not None:
         return user
