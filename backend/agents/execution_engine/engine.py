@@ -7810,11 +7810,17 @@ class ExecutionEngine:
                     workspace_id=original.workspace_id,
                     kind=target_artifact_type,
                     producer_step="revision",
-                    # Derived from the resolved spec list (IN-05 spirit, SC-001 —
-                    # no agent-id literal): revision pipelines are 1-2 single_shot
-                    # steps and the LAST agent's streamed output is the declared
-                    # deliverable.
-                    producer_agent=agents[-1].id,
+                    # Derived from the COMPILED MANIFEST steps (IN-05 spirit,
+                    # SC-001 — no agent-id literal): the LAST declared step's
+                    # streamed output is the declared deliverable.
+                    # revision-pipeline-refactor: ``agents`` is deliberately []
+                    # here (execute() builds the roster from compiled.steps), so
+                    # the producer MUST come from the manifest — reading
+                    # ``agents[-1]`` raised IndexError and silently sank every
+                    # revision lineage ref into the state_restoration_failed arm.
+                    producer_agent=compile_for_run(
+                        revision_pipeline_type
+                    ).steps[-1].agent_id,
                     task_id=None,
                     content=final_output,
                     location=f"artifact_refs/{target_artifact_type}",

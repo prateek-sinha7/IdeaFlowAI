@@ -24,13 +24,14 @@ forward build carrying a stray ``parent_run_id`` can no longer trigger an
 unintended cross-run seed.
 
 CRITICAL ownership gate (V4 / INV-8 / L16 — Highest-Risk Behavior 4):
-``ScopedStore.assert_owns`` is called on the parent run BEFORE seeding ANY parent
-context. An owner may only seed from a parent run it OWNS; a cross-owner
-``PermissionError`` PROPAGATES out of ``load`` and is NEVER swallowed (the L16
-ratchet, ``test_parent_run_ownership.py``). Any OTHER error during seeding (a
-TTL-swept parent dir, an unreadable file) degrades gracefully — a missing parent
-must never break a revision (CTX-05 parity) — but the ownership denial is the one
-error that always wins.
+``ScopedStore.assert_owns`` is called on the parent run BEFORE reading or seeding ANY
+parent context — including the existing-artifact helper's Concierge fallback, which
+reads the parent run's deliverable and is therefore gated on ``parent_authorized``. An
+owner may only seed from a parent run it OWNS; a cross-owner ``PermissionError``
+PROPAGATES out of ``load`` and is NEVER swallowed (the L16 ratchet,
+``test_parent_run_ownership.py``). Any OTHER error during seeding (a TTL-swept parent
+dir, an unreadable file) degrades gracefully — a missing parent must never break a
+revision (CTX-05 parity) — but the ownership denial is the one error that always wins.
 
 Import purity (import-linter): the store is reached via ``ctx.scoped_store`` (the
 object-typed field) and the parent files via the ``ctx.runner`` handle — no
@@ -148,47 +149,69 @@ class PreviousRunProvider:
             # assert_owns (no parent context belongs in a forward build).
             return {}
 
+        parent_run_id = getattr(ctx, "parent_run_id", None)
+
+        # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE any parent READ ───────
+        # The cross-owner PermissionError PROPAGATES; it is NEVER swallowed. A
+        # cross-owner parent must never be silently seeded (Highest-Risk Behavior 4).
+        #
+        # ORDER IS LOAD-BEARING. This gate used to sit AFTER
+        # ``_seed_existing_artifact``, justified by that helper being message-only
+        # and "independent of a parent_run_id". That premise stopped holding when the
+        # Concierge fallback was added to it: the helper now calls
+        # ``runner.read_parent_file(parent_run_id, <deliverable>)`` when the user
+        # message carries no EXISTING-artifact markers. With the old ordering a caller
+        # could pass SOMEONE ELSE'S ``parent_run_id`` and have that run's deliverable
+        # read out and written into their own sandbox before ownership was ever
+        # checked. The gate therefore runs FIRST, and the helper only consults the
+        # parent when ownership is confirmed.
+        parent_authorized = False
+        if parent_run_id:
+            scoped_store = getattr(ctx, "scoped_store", None)
+            if scoped_store is None:
+                # No store on ctx — nothing to check against; preserves the prior
+                # (pre-gate) behavior for callers that never wire a scoped_store.
+                parent_authorized = True
+            else:
+                try:
+                    await scoped_store.assert_owns(parent_run_id)
+                    parent_authorized = True
+                except PermissionError:
+                    raise  # cross-owner denial — propagate (L16, never swallow)
+                except Exception as authz_exc:  # noqa: BLE001 — WR-04: fail CLOSED
+                    # WR-04 (fail-closed): an UNEXPECTED store error (DB outage,
+                    # schema mismatch, transient store bug) means the ownership check
+                    # could NOT be completed. We must NOT read or seed ANY parent data
+                    # on an unconfirmed ownership check — degrading OPEN here risks
+                    # cross-run data exposure (the blast radius is authz, not
+                    # cosmetic). The message-based existing-artifact seed below still
+                    # runs: that content came from the caller's OWN request, not from
+                    # the parent run. Only the cross-owner PermissionError ever
+                    # propagates (L16); every other error fails closed (no parent read).
+                    logger.warning(
+                        "previous_run: assert_owns lookup failed for parent %s (%s) — "
+                        "FAILING CLOSED: skipping parent-run seed (ownership unconfirmed)",
+                        parent_run_id,
+                        authz_exc,
+                    )
+                    parent_authorized = False
+
         # ── Seed the EXISTING artifact as an in-place-editable file (CR-06) ──────
         # Relocated from the kernel's "DELIBERATE EXCEPTION" block. Parameterized by
-        # ``deliverable.name`` (NOT a hardcoded const). Works off the user message
-        # (independent of a parent_run_id), so it runs BEFORE the parent-seed gate.
+        # ``deliverable.name`` (NOT a hardcoded const). Primarily works off the user
+        # message; its parent-sandbox fallback is gated on ``parent_authorized``.
         # Byte-identical to the legacy inline block: same extraction, same slimmed
         # message, same stashed ``revision_original_html`` / ``revision_instruction``.
-        self._seed_existing_artifact(ctx)
+        self._seed_existing_artifact(ctx, parent_authorized=parent_authorized)
 
-        parent_run_id = getattr(ctx, "parent_run_id", None)
         if not parent_run_id:
             # No parent (a declared revision with no recorded parent) — nothing to
             # seed (same-owner graceful-degrade path).
             return {}
 
-        # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE any seed ──────────────
-        # The cross-owner PermissionError PROPAGATES; it is NEVER swallowed. A
-        # cross-owner parent must never be silently seeded (Highest-Risk Behavior 4).
-        scoped_store = getattr(ctx, "scoped_store", None)
-        if scoped_store is not None:
-            try:
-                await scoped_store.assert_owns(parent_run_id)
-            except PermissionError:
-                raise  # cross-owner denial — propagate (L16, never swallow)
-            except Exception as authz_exc:  # noqa: BLE001 — WR-04: fail CLOSED
-                # WR-04 (fail-closed): an UNEXPECTED store error (DB outage, schema
-                # mismatch, transient store bug) means the ownership check could NOT
-                # be completed. We must NOT proceed to seed the parent run's
-                # spec/design/tasks on an unconfirmed ownership check — degrading OPEN
-                # here risks cross-run data exposure (the blast radius is authz, not
-                # cosmetic). Skip the parent seed entirely; a genuinely-absent parent
-                # is already handled by the `if not parent_run_id` graceful path above,
-                # and individual unreadable / TTL-swept parent files still degrade
-                # per-file in the seed loop below. Only the cross-owner PermissionError
-                # ever propagates (L16); every other error fails closed (no seed).
-                logger.warning(
-                    "previous_run: assert_owns lookup failed for parent %s (%s) — "
-                    "FAILING CLOSED: skipping parent-run seed (ownership unconfirmed)",
-                    parent_run_id,
-                    authz_exc,
-                )
-                return {}
+        if not parent_authorized:
+            # Ownership unconfirmed (WR-04 fail-closed) — no parent reads at all.
+            return {}
 
         # ── Seed the parent run's reference files into this run's sandbox ────────
         # Reach the parent files + the current sandbox through the handle (no app.*
@@ -275,7 +298,7 @@ class PreviousRunProvider:
 
     # ── Existing-artifact seed (relocated from the kernel, CR-06) ───────────────
     @staticmethod
-    def _seed_existing_artifact(ctx: Any) -> None:
+    def _seed_existing_artifact(ctx: Any, *, parent_authorized: bool = False) -> None:
         """Seed the prior artifact as an in-place-editable sandbox file.
 
         Byte-identical to the deleted inline kernel block: extract the artifact
@@ -294,6 +317,12 @@ class PreviousRunProvider:
         artifact is read directly from the parent run's sandbox via the runner handle.
         This prevents the task_loop builder from writing the full prototype from
         scratch on every Task 1 invocation.
+
+        ``parent_authorized`` gates that fallback: it reads the PARENT run's
+        deliverable, so it may only run once ``load`` has cleared
+        ``ScopedStore.assert_owns`` for ``parent_run_id`` (L16 / INV-8). It defaults to
+        ``False`` so any future caller that forgets to pass it gets the safe,
+        message-only behavior rather than an unchecked cross-run read.
         """
         runner = getattr(ctx, "runner", None)
         if runner is None:
@@ -314,7 +343,11 @@ class PreviousRunProvider:
             artifact_name_inner = (
                 getattr(deliverable_inner, "name", None) or _DEFAULT_ARTIFACT_NAME
             )
-            if parent_run_id and hasattr(runner, "read_parent_file"):
+            if (
+                parent_run_id
+                and parent_authorized
+                and hasattr(runner, "read_parent_file")
+            ):
                 try:
                     existing = (
                         runner.read_parent_file(parent_run_id, artifact_name_inner)

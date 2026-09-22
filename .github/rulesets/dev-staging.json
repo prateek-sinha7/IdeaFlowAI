@@ -1,6 +1,6 @@
 {
   "name": "dev-staging-protection",
-  "description": "Deploying branches (dev, staging): prevent accidental deletion and force push, and require the `ci-required` aggregate status check. Approvals are not required and the status-check policy is deliberately loose here, so routine iteration does not need a rebase for every upstream push; main.json is the strict gate. For pull requests `ci-required` is published solely by the publish-ci-required job in .github/workflows/ci-authoritative.yml. Before adding a context here, confirm that publisher exists and has been seen succeeding — a required context nothing can emit blocks every pull request. backend/tests/ci/test_ruleset_workflow_contract.py enforces the reachability and self-consistency of this file.",
+  "description": "Deploying branches (dev, staging): prevent accidental deletion and force push, and require the `ci-required` aggregate status check. Approvals are not required and the status-check policy is deliberately loose here, so routine iteration does not need a rebase for every upstream push; main.json is the strict gate. For pull requests `ci-required` is published solely by the publish-ci-required job in .github/workflows/ci-authoritative.yml. Before adding a context here, confirm that publisher exists and has been seen succeeding — a required context nothing can emit blocks every pull request. backend/tests/unit/tools/ci/test_ruleset_workflow_contract.py enforces the reachability and self-consistency of this file.",
   "target": "branch",
   "enforcement": "active",
   "bypass_actors": [],

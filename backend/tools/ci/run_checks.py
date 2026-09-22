@@ -266,7 +266,10 @@ class BoundedCheckRunner:
                 check.command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                shell=False,  # Critical: never use shell=True
+                # Critical: never enable shell execution — argv-list only. The
+                # IN-02 ledger ratchet greps backend/ for the literal enabled form,
+                # so do not spell it out here (even in prose) or the guard trips.
+                shell=False,
                 text=True,
             )
 
@@ -281,8 +284,13 @@ class BoundedCheckRunner:
 
             except subprocess.TimeoutExpired:
                 proc.kill()
+                # Reap with communicate(), NOT wait(): communicate() already started
+                # reader threads on the stdout/stderr pipes, and wait() does not drain
+                # or join them — it blocked for the full 5s grace on every timeout
+                # (observed: a 1s-timeout check reporting ~6s). communicate() closes the
+                # pipes and joins those threads, so a killed child is reaped promptly.
                 try:
-                    proc.wait(timeout=5)
+                    proc.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
                     proc.kill()
                 result.status = CheckStatus.TIMEOUT

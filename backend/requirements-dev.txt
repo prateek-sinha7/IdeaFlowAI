@@ -72,3 +72,10 @@ pip-audit==2.10.1
 # incidental edge into a declared one that a pip-audit bump cannot silently
 # remove. Dev-only: nothing under app/ imports tools.ci.
 defusedxml==0.7.1
+testcontainers==4.9.0
+
+# Parallel test execution and the per-test wall-clock bound used by the pytest
+# shards in CI. Mirrors [dependency-groups].dev in pyproject.toml, which is the
+# resolution authority; both pins are exact so a fresh resolve cannot drift.
+pytest-xdist==3.8.0
+pytest-timeout==2.4.0

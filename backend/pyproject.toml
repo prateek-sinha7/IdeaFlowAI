@@ -54,6 +54,11 @@ dependencies = [
     # --with-deps chromium` in backend/Dockerfile fetches that separately.
     # Version is owned by tools/ci/pin_authority.py::playwright_package_version.
     "playwright==1.60.0",
+    # NOTE: testcontainers is NOT here — it is a TEST-only dependency (the
+    # integration suite's Postgres container) and lives in
+    # [dependency-groups].dev alongside its mirror in requirements-dev.txt.
+    # Declaring it as a runtime dependency shipped a test library into the
+    # production image and put it out of sync with requirements-prod.txt.
 ]
 
 # ---------------------------------------------------------------------------
@@ -123,6 +128,12 @@ dev = [
     # isolated environment with `uv tool run --from checkov==<version>`, taking
     # the version from tools/ci/pin_authority.py. That keeps one version
     # authority without dragging a conflicting dependency graph into the project.
+    # Exactly pinned like every other entry here: a `>=` range lets a fresh
+    # resolution move underneath the lock, which is what these contracts forbid.
+    "pytest-xdist==3.8.0",
+    "pytest-timeout==2.4.0",
+    # Postgres container for the integration suite — test-only, never shipped.
+    "testcontainers==4.9.0",
 ]
 
 [tool.uv]
@@ -137,22 +148,25 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+norecursedirs = ["fixtures", "fakes", "factories", "plugins", ".*", "build", "dist"]
 markers = [
-    "unit: fast, isolated tests with no real I/O",
-    "integration: tests requiring real PostgreSQL or other managed infrastructure",
-    "contract: API schema and consumer contract tests",
-    "e2e: full-stack user journeys",
-    "performance: opt-in latency or throughput tests",
-    "security: adversarial authentication and hardening tests",
-    "property: generated-input invariant tests",
-    "smoke: deployed-environment liveness checks",
+    "unit: fast, fully isolated tests (ms, zero real I/O) — marker applied automatically by folder hook",
+    "integration: requires real Postgres/containers; LLM and 3rd-party HTTP faked — marker applied automatically",
+    "contract: API schema and consumer contract tests — marker applied automatically",
+    "e2e: full-stack user journeys over HTTP — marker applied automatically",
+    "performance: opt-in latency/throughput budget tests — marker applied automatically",
+    "security: adversarial authentication and hardening tests — marker applied automatically",
+    "property: hypothesis-based invariants over generated inputs — marker applied automatically",
+    "smoke: deployed-environment liveness checks — marker applied automatically",
     "requires_api_key: test requires a live LLM provider (Bedrock/Anthropic) — skipped in CI without credentials",
-    "eval: issue-scoped eval suite (evals/hybrid) — offline scripted-model tests; select with -m eval",
-    "requires_postgres: test requires a live PostgreSQL service — skipped without a DB (SQLite-default suites exclude this marker)",
-    "requires_postgres_populated_migration: test requires a live PostgreSQL service with migration chain testing from 0014 to head",
+    "requires_postgres: test requires a live PostgreSQL service — skipped without a DB",
+    "requires_postgres_populated_migration: test requires a live PostgreSQL service with migration chain from 0014 to head",
+    "allow_io: unit test deliberately performs I/O — must state why (audit these regularly)",
     "live: test makes a live network/provider call — excluded from default offline runs",
+    "slow: test takes more than 10 seconds (integration categorization)",
 ]
 
 # Coverage configuration for pytest-cov
@@ -163,6 +177,8 @@ markers = [
 # denominator that `fail_under` is judged against. ci.yml's two pytest shards
 # pass a matching `--cov=tools`.
 source = ["app", "agents", "tools"]
+# Enable branch coverage to measure decision coverage in addition to line coverage
+branch = true
 # Store and report RELATIVE file paths instead of absolute ones.
 #
 # Two reasons, both load-bearing in CI:
@@ -529,3 +545,4 @@ skips = [
 # positionally, so a real migration has to move those too. Doing it as a
 # drive-by alongside a pin cleanup would risk the coverage chain for no gain.
 # ---------------------------------------------------------------------------
+

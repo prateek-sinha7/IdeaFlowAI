@@ -34,16 +34,20 @@ from __future__ import annotations
 import functools
 import importlib
 import os
+import tempfile
+from pathlib import Path
 
 import pytest
+
+# Register plugin modules that provide shared fixtures
+pytest_plugins = [
+    "tests.plugins.agents_fixtures",
+]
 
 # Register inventory collection hook early
 from tools.ci.inventory import pytest_collection_finish  # noqa: F401
 
 import app.models  # noqa: F401 — importing the package registers every model on Base.metadata
-import os
-import tempfile
-from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # This MUST run before ``app.core.config`` / ``app.models.database`` are
@@ -415,19 +419,32 @@ _CANONICAL_SUITE_MARKERS = frozenset(
         "security",
         "property",
         "smoke",
+        "agents",  # legacy, to be removed in Batch 6
+        "ci",      # legacy, to be removed in Batch 6
     }
 )
 
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
-    """Apply a canonical suite marker from a recognized test-folder name.
+    """Apply a canonical suite marker from the first path segment under tests/.
 
-    Legacy folders outside the canonical layout remain untouched until their
-    separately planned migration; tests already under a canonical suite receive
-    exactly one suite marker without requiring per-test decorators.
+    Tests must live under exactly one suite folder (e.g., tests/unit/, tests/integration/).
+    This hook applies the marker based on the first directory level below tests/ where the
+    test file resides. Legacy folders (agents, ci) are supported during migration and will
+    be removed in Batch 6.
+
+    Raises an error if a test file is not under a recognized suite folder.
     """
+    tests_root = config.rootpath / "tests"
+
     for item in items:
-        path = str(getattr(item, "path", item.fspath)).replace("\\", "/")
-        suites = _CANONICAL_SUITE_MARKERS.intersection(path.split("/"))
-        if len(suites) == 1:
-            item.add_marker(getattr(pytest.mark, next(iter(suites))))
+        rel_path = item.path.relative_to(tests_root)
+        suite = rel_path.parts[0] if len(rel_path.parts) > 1 else None
+
+        if suite not in _CANONICAL_SUITE_MARKERS:
+            raise pytest.UsageError(
+                f"{item.path}: not under a suite folder ({suite!r}). "
+                f"Recognized suites: {sorted(_CANONICAL_SUITE_MARKERS)}"
+            )
+
+        item.add_marker(getattr(pytest.mark, suite))

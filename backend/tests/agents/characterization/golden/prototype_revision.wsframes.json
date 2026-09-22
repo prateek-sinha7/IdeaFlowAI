@@ -2,8 +2,15 @@
   {
     "chunk": null,
     "data": {
-      "agent_count": 2,
+      "agent_count": 3,
       "agents": [
+        {
+          "icon": "🔍",
+          "id": "prototype-revision-analyzer",
+          "name": "Prototype Revision Analyzer",
+          "order": 1,
+          "role": "analyzer"
+        },
         {
           "icon": "✏️",
           "id": "prototype-revision-agent",
@@ -13,14 +20,13 @@
         },
         {
           "icon": "✅",
-          "id": "prototype-revision-validate",
-          "name": "Revision Validation Agent",
-          "order": 2,
+          "id": "prototype-validate",
+          "name": "Validation Agent",
+          "order": 5,
           "role": "Structural Validation & Delivery"
         }
       ],
-      "pipeline_type": "prototype_revision",
-      "resume_offset": 0
+      "pipeline_type": "prototype_revision"
     },
     "section": "prototype_revision",
     "type": "pipeline_start"
@@ -72,7 +78,7 @@
     "chunk": null,
     "data": {
       "agent_id": "prototype-revision-agent",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
       "tool_calls": []
     },
     "section": "prototype_revision",
@@ -83,12 +89,12 @@
     "data": {
       "agent_id": "prototype-revision-agent",
       "duration": "<normalized>",
-      "index": 0,
+      "index": 1,
       "input_tokens": "<normalized>",
       "name": "Revision Specialist Agent",
       "output_length": 28,
       "output_tokens": "<normalized>",
-      "total": 2,
+      "total": 3,
       "total_tokens": "<normalized>"
     },
     "section": "prototype_revision",
@@ -99,10 +105,10 @@
     "data": {
       "agent_id": "prototype-revision-agent",
       "icon": "✏️",
-      "index": 0,
+      "index": 1,
       "name": "Revision Specialist Agent",
       "role": "Targeted UI Refinement",
-      "total": 2
+      "total": 3
     },
     "section": "prototype_revision",
     "type": "agent_start"
@@ -120,7 +126,7 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-revision-analyzer",
       "attached_hooks": [],
       "attached_skills": [],
       "estimated_tokens": 0,
@@ -132,7 +138,7 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-revision-analyzer",
       "chunk": "<normalized>"
     },
     "section": "prototype_revision",
@@ -141,8 +147,8 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.",
+      "agent_id": "prototype-revision-analyzer",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context",
       "tool_calls": []
     },
     "section": "prototype_revision",
@@ -151,14 +157,14 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-revision-analyzer",
       "duration": "<normalized>",
-      "index": 1,
+      "index": 0,
       "input_tokens": "<normalized>",
-      "name": "Revision Validation Agent",
-      "output_length": 44,
+      "name": "Prototype Revision Analyzer",
+      "output_length": 144,
       "output_tokens": "<normalized>",
-      "total": 2,
+      "total": 3,
       "total_tokens": "<normalized>"
     },
     "section": "prototype_revision",
@@ -167,12 +173,12 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
-      "icon": "✅",
-      "index": 1,
-      "name": "Revision Validation Agent",
-      "role": "Structural Validation & Delivery",
-      "total": 2
+      "agent_id": "prototype-revision-analyzer",
+      "icon": "🔍",
+      "index": 0,
+      "name": "Prototype Revision Analyzer",
+      "role": "analyzer",
+      "total": 3
     },
     "section": "prototype_revision",
     "type": "agent_start"
@@ -180,8 +186,68 @@
   {
     "chunk": null,
     "data": {
-      "agents_completed": 2,
-      "agents_total": 2,
+      "agent_id": "prototype-validate",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "section": "prototype_revision",
+    "type": "agent_skills"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-validate",
+      "chunk": "<normalized>"
+    },
+    "section": "prototype_revision",
+    "type": "agent_chunk"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-validate",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "tool_calls": []
+    },
+    "section": "prototype_revision",
+    "type": "agent_input"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-validate",
+      "duration": "<normalized>",
+      "index": 2,
+      "input_tokens": "<normalized>",
+      "name": "Validation Agent",
+      "output_length": 32,
+      "output_tokens": "<normalized>",
+      "total": 3,
+      "total_tokens": "<normalized>"
+    },
+    "section": "prototype_revision",
+    "type": "agent_complete"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-validate",
+      "icon": "✅",
+      "index": 2,
+      "name": "Validation Agent",
+      "role": "Structural Validation & Delivery",
+      "total": 3
+    },
+    "section": "prototype_revision",
+    "type": "agent_start"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agents_completed": 3,
+      "agents_total": 3,
       "final_output": "<!doctype html><html><body>revised</body></html>",
       "pipeline_type": "prototype_revision",
       "total_input_tokens": "<normalized>",
@@ -198,7 +264,7 @@
         {
           "artifact_type": "prototype-revision-agent",
           "from": "prototype-revision-agent",
-          "to": "prototype-revision-validate"
+          "to": "prototype-validate"
         }
       ],
       "satisfiable": true,

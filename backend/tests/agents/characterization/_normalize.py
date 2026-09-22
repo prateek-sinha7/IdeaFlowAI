@@ -52,7 +52,7 @@ from tests.agents.characterization import GOLDEN_DIR, SNAPSHOT_UPDATE
 # so _normalize() can never silently diverge from the contract the engine must honour
 # (T-02-01). If the engine adds/removes a documented type or required key, it changes
 # THERE and flows through here automatically.
-from tests.agents.test_phase3_cutover_verify import (  # noqa: E402
+from tests.unit.agents.test_phase3_cutover_verify import (  # noqa: E402
     _DOCUMENTED_EVENT_TYPES,
     _REQUIRED_DATA_KEYS,
 )

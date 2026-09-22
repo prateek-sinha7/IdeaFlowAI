@@ -160,6 +160,43 @@ def _subprocess_supported() -> bool:
     return isinstance(loop, asyncio.ProactorEventLoop)
 
 
+# Playwright failures that mean "the browser/connection went away", NOT "the
+# prototype is broken". They must degrade to a SKIP (``available=False``) exactly
+# like an absent Chromium binary.
+#
+# Routing them into ``page_errors`` instead reports an infrastructure death as an
+# uncaught PAGE exception, which manufactures a CRITICAL ``html_render`` issue and
+# blocks the validation gate for a prototype that was never actually rendered. That
+# is a false negative on a machine whose browser happened to die, and it is
+# environment-dependent — so it also makes the characterization event stream
+# non-deterministic across machines (INV-3).
+_BROWSER_LIFECYCLE_MARKERS = (
+    "target page, context or browser has been closed",
+    "target closed",
+    "browser has been closed",
+    "browser closed",
+    "browser has disconnected",
+    "connection closed",
+    "pipe closed",
+    "playwright has been closed",
+)
+
+
+def _is_browser_lifecycle_error(exc: BaseException) -> bool:
+    """True when ``exc`` means the browser died, not that the page under test is broken.
+
+    Matches on the exception's TYPE NAME (Playwright raises ``TargetClosedError``)
+    and on its message, so a driver that only carries the text is still classified as
+    infrastructure. Substring matching is deliberate: Playwright prefixes the message
+    with the failing API call, e.g. ``Browser.new_page: Target page, context or
+    browser has been closed``.
+    """
+    if type(exc).__name__ in {"TargetClosedError", "BrowserClosedError"}:
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _BROWSER_LIFECYCLE_MARKERS)
+
+
 async def render_check(
     html_path: str | Path,
     *,
@@ -220,54 +257,64 @@ async def render_check(
                 return RenderResult(
                     ok=True, available=False, note=f"Chromium unavailable: {exc}"
                 )
-        try:
-            page = await browser.new_page()
-            page.on(
-                "console",
-                lambda m: console_errors.append(m.text) if m.type == "error" else None,
-            )
-            page.on("pageerror", lambda e: page_errors.append(str(e)))
-            await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
-            if check_nav:
-                # Parse the app's route table ONCE (from the file source) so each
-                # exercised route's expected section can be resolved through it. A
-                # table-less / href-valued-object prototype parses to None → the
-                # per-route expected falls back to _first_path_segment (INV-3).
-                try:
-                    table = parse_routes_table(path.read_text(encoding="utf-8"))
-                except OSError:
-                    table = None
-                nav_results, discovered = await _check_nav(
-                    page, table=table, nav_settle_ms=nav_settle_ms
+            try:
+                page = await browser.new_page()
+                page.on(
+                    "console",
+                    lambda m: console_errors.append(m.text) if m.type == "error" else None,
                 )
-                # Nav COVERAGE: a multi-section SPA that exercised ZERO nav targets
-                # is the fail-open blind spot (the old ``nav_results=0`` silent OK).
-                # Base the "exercised" argument on the count of DISCOVERED candidates
-                # (real + concrete-malformed + skipped-``${…}``) so that skipping a
-                # template-literal route from browser exercise can never manufacture a
-                # false coverage-0 (a page whose only nav is ``#/x/${id}`` is covered).
-                try:
-                    # EXCLUDE nav/anchor controls from the coverage denominator so a
-                    # nav ``<a data-page>`` is never counted as a page SECTION (a broken
-                    # unscoped router can carry ``data-page`` on the nav anchors). Inert
-                    # in practice — coverage only fires when ``discovered == 0`` and any
-                    # nav-carrying-data-page page has ``discovered > 0`` — but keeps the
-                    # section count honest. (Measure-gated: reverts to broad ``[data-page]``
-                    # if any golden/fixture/pin drifts.)
-                    section_count = await page.eval_on_selector_all(
-                        "[data-page]:not(a):not(.nav-link):not(.nav-item)"
-                        ":not(.nav-submenu-link)",
-                        "els => els.length",
+                page.on("pageerror", lambda e: page_errors.append(str(e)))
+                await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
+                if check_nav:
+                    # Parse the app's route table ONCE (from the file source) so each
+                    # exercised route's expected section can be resolved through it. A
+                    # table-less / href-valued-object prototype parses to None → the
+                    # per-route expected falls back to _first_path_segment (INV-3).
+                    try:
+                        table = parse_routes_table(path.read_text(encoding="utf-8"))
+                    except OSError:
+                        table = None
+                    nav_results, discovered = await _check_nav(
+                        page, table=table, nav_settle_ms=nav_settle_ms
                     )
-                except Exception:  # noqa: BLE001 — a query failure ⇒ no coverage finding
-                    section_count = 0
-                finding = _coverage_finding(int(section_count or 0), discovered)
-                if finding:
-                    coverage_errors.append(finding)
-        except Exception as exc:  # noqa: BLE001
-            page_errors.append(f"render harness error: {exc}")
-        finally:
-            await browser.close()
+                    # Nav COVERAGE: a multi-section SPA that exercised ZERO nav targets
+                    # is the fail-open blind spot (the old ``nav_results=0`` silent OK).
+                    # Base the "exercised" argument on the count of DISCOVERED candidates
+                    # (real + concrete-malformed + skipped-``${…}``) so that skipping a
+                    # template-literal route from browser exercise can never manufacture a
+                    # false coverage-0 (a page whose only nav is ``#/x/${id}`` is covered).
+                    try:
+                        # EXCLUDE nav/anchor controls from the coverage denominator so a
+                        # nav ``<a data-page>`` is never counted as a page SECTION (a broken
+                        # unscoped router can carry ``data-page`` on the nav anchors). Inert
+                        # in practice — coverage only fires when ``discovered == 0`` and any
+                        # nav-carrying-data-page page has ``discovered > 0`` — but keeps the
+                        # section count honest. (Measure-gated: reverts to broad ``[data-page]``
+                        # if any golden/fixture/pin drifts.)
+                        section_count = await page.eval_on_selector_all(
+                            "[data-page]:not(a):not(.nav-link):not(.nav-item)"
+                            ":not(.nav-submenu-link)",
+                            "els => els.length",
+                        )
+                    except Exception:  # noqa: BLE001 — a query failure ⇒ no coverage finding
+                        section_count = 0
+                    finding = _coverage_finding(int(section_count or 0), discovered)
+                    if finding:
+                        coverage_errors.append(finding)
+            except Exception as exc:  # noqa: BLE001
+                # A browser/connection death is INFRASTRUCTURE, not a page defect —
+                # degrade to a skip instead of reporting it as an uncaught page
+                # exception (which would falsely block the validation gate).
+                if _is_browser_lifecycle_error(exc):
+                    logger.warning(
+                        "render_check: browser closed mid-check (%s) — skipping", exc
+                    )
+                    return RenderResult(
+                        ok=True, available=False, note=f"browser unavailable: {exc}"
+                    )
+                page_errors.append(f"render harness error: {exc}")
+            finally:
+                await browser.close()
     except Exception as exc:  # noqa: BLE001 — any other async_playwright() failure
         logger.warning(
             "render_check: async_playwright context failed (%s) — skipping", exc

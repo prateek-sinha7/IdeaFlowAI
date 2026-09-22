@@ -126,7 +126,15 @@ def get_pipeline(
             name=a.name,
             role=a.role,
             description=a.description,
-            pipeline_type=a.pipeline_type,
+            # The REQUESTED pipeline, not ``a.pipeline_type``. An AGENT.md may
+            # declare pipeline_type as a LIST (shared agents such as
+            # ``prototype-validate`` enumerate every pipeline they belong to), and
+            # this response field is a ``str`` the frontend compares directly — so
+            # passing the raw spec value made pydantic reject the list and this
+            # endpoint 500 for any pipeline containing a shared agent. Reporting the
+            # pipeline the caller asked about is also the correct answer: the agent
+            # is being listed AS A MEMBER of ``pipeline_type``.
+            pipeline_type=pipeline_type,
             order=a.order,
             icon=a.icon,
             estimated_duration=a.estimated_duration,

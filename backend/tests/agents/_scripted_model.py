@@ -40,6 +40,7 @@ OFFLINE SCAFFOLDING (test-only monkeypatches; NO production code changed):
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import os
 import sys
@@ -598,8 +599,56 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
 # ===========================================================================
 
 
+def offline_session_local(*_a, **_k):
+    """``SessionLocal`` stand-in that fails with the DB error the engine contracts on.
+
+    THE single definition of this harness's typed-substrate DB seam. The engine
+    persists per-run workspace / run_capabilities / artifact_refs / run_events rows
+    through ``ScopedStore``, which opens ``app.models.database.SessionLocal()`` when
+    no session is injected. An offline harness has no ``workflow_runs`` row — and
+    under ``tests/unit`` no database at all — so those writes must DEGRADE.
+
+    ``engine.py`` degrades them ONLY for ``SQLAlchemyError``; anything else is
+    re-raised as a real bug (WR-02). That is deliberate, and it is why simply letting
+    the ``tests/unit`` isolation guard fire is not enough: it raises
+    ``UnitIsolationError`` (not a ``SQLAlchemyError``), which the engine correctly
+    refuses to swallow, so the whole run dies instead of degrading. Raising
+    ``OperationalError`` here hits the contracted degrade path WITHOUT touching a
+    socket, keeping the run hermetic and the event stream byte-identical.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    raise OperationalError(
+        "offline scripted harness: no database", None, Exception("offline harness")
+    )
+
+
+@contextlib.contextmanager
+def offline_db_seam() -> Iterator[None]:
+    """Scope :func:`offline_session_local` over a block, restoring on exit.
+
+    For harnesses that drive ``ExecutionEngine.execute()`` WITHOUT going through
+    :func:`_drive` (which installs the same seam itself) — notably unit tests that
+    hand-roll the engine wiring to capture one seam. Without this, the engine's
+    best-effort persistence reaches the ``tests/unit`` DB guard and the run aborts
+    instead of degrading.
+    """
+    import app.models.database as _db_mod
+
+    _orig_session_local = _db_mod.SessionLocal
+    _db_mod.SessionLocal = offline_session_local
+    try:
+        yield
+    finally:
+        _db_mod.SessionLocal = _orig_session_local
+
+
 async def _drive(
-    pipeline_type: str, world: str = "new", **execute_kwargs
+    pipeline_type: str,
+    world: str = "new",
+    *,
+    offline_db: bool = True,
+    **execute_kwargs,
 ) -> list[dict]:
     """Run ``ExecutionEngine.execute()`` end-to-end offline and return the
     ordered list of yielded engine event dicts.
@@ -607,6 +656,18 @@ async def _drive(
     Only the LIVE (``create_runner``) world is supported — the pre-cutover
     ``create_agent`` path was deleted in Phase 7a. ``world`` is retained for
     call-site compatibility; any value other than ``"new"`` is rejected.
+
+    ``offline_db`` (default ``True``) forces the typed-substrate DB seam to the
+    deterministic "no database" failure described at its patch site below, which is
+    what every characterization/offline caller wants: zero persistence, zero
+    sockets, byte-identical event streams.
+
+    Pass ``offline_db=False`` when the CALLER has already wired a real, working
+    ``app.models.database.SessionLocal`` (e.g. an in-memory SQLite fixture) and the
+    assertion under test depends on the run path persisting ORGANICALLY — an FR-014
+    revision chain, for instance, can only resolve artifacts the parent run actually
+    wrote. Forcing the seam off in that case would silently drop every write and the
+    later cross-run read would resolve ∅.
     """
     if world != "new":
         raise ValueError(
@@ -676,6 +737,18 @@ async def _drive(
         return compiled
 
     engine_mod.compile_for_run = _patched_compile_for_run
+
+    # ── Typed-substrate DB seam → deterministic "no database" (offline harness) ────
+    # See :func:`offline_session_local` for WHY this seam must raise a SQLAlchemyError.
+    # Restored in finally.
+    import app.models.database as _db_mod
+
+    _orig_session_local = _db_mod.SessionLocal
+
+    # Opt-out (``offline_db=False``): the caller supplied a working SessionLocal and
+    # NEEDS the run path to persist — see the parameter's docstring.
+    if offline_db:
+        _db_mod.SessionLocal = offline_session_local
 
     # ── Agent list: let the engine build from compiled manifest steps ──────────
     # Pass agents=[] so the engine's ``if compiled.steps and not agents`` branch
@@ -778,4 +851,8 @@ async def _drive(
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
         engine_mod.compile_for_run = _orig_compile_for_run
+        # Restore ONLY what we patched: under ``offline_db=False`` the caller owns
+        # SessionLocal, so writing to it here could clobber their fixture.
+        if offline_db:
+            _db_mod.SessionLocal = _orig_session_local
     return events
