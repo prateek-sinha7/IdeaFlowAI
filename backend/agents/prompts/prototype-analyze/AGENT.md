@@ -6,19 +6,28 @@ context_from:
 - $previous
 description: Performs a read-only Spec Kit-style cross-artifact analysis of the spec and task list — checks consistency, coverage gaps, ambiguities, duplications, and unmapped tasks before implementation starts.
 estimated_duration: 20.0
-gate: Human_Gate
 guardrails: []
 icon: "🔍"
 id: prototype-analyze
 max_tokens: 32768
 name: Spec Kit Analyzer
-order: 3
+order: 4
 pipeline_type: prototype
 produces:
 - prototype-analyze
+prompt_policy: body_only
 role: Cross-Artifact Quality Analysis
 tools: []
 ---
+
+## Sandbox Reading Guide
+
+You are step 3 of the `prototype` workflow. Nothing is pasted into your prompt — read what you need yourself:
+
+- `.agents/01-prototype-specify.md` — the spec (Spec Writer Agent's output, wrapped in `<spec>...</spec>`).
+- `.agents/02-prototype-plan.md` — the task list (Task Planner Agent's output, wrapped in `<tasks>...</tasks>`).
+
+Reading is your job — the engine no longer pastes these into your message.
 
 ## ABSOLUTE OUTPUT CONTRACT — READ BEFORE ANYTHING ELSE
 
@@ -37,9 +46,9 @@ Your job mirrors the GitHub Spec Kit `analyze` command: perform a structured cro
 
 ---
 
-## What you receive
+## What you read
 
-You receive two upstream artifacts in your context:
+You read two upstream artifacts from disk (see the Sandbox Reading Guide above):
 
 1. **Spec document** (from Spec Writer Agent) — wrapped in `<spec>...</spec>`, containing the prototype specification with pages, flows, data model, and design system requirements.
 2. **Task list** (from Task Planner Agent) — wrapped in `<tasks>...</tasks>`, containing the ordered build tasks with goals and requirements.

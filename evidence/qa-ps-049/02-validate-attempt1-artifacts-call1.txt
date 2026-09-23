@@ -1,0 +1,29 @@
+#89 [GET] http://localhost:8000/api/runs/8088430c-32aa-4551-ad24-f5fd806e872b/artifacts
+
+  General
+    status:    [200] OK
+    duration:  138ms
+    type:      fetch
+    mimeType:  application/json
+
+  Request headers
+    sec-ch-ua-platform: "macOS"
+    authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNmI5YjYxZi0xODNkLTQ2NjItYWU4NC1kN2ZkNWEwNTI1NzEiLCJleHAiOjE3OTAxNzk4MTksImlhdCI6MTc5MDA5MzQxOSwianRpIjoiMjhlZmE1ZmEtMWU1OC00MTRkLWI1NDctYmVlM2Q4MTdiZmQwIn0.Q8ykwasBQmnnMfAvkOCwfOqp_Bq78MVPk6vXk13VMbY
+    referer: http://localhost:3000/
+    user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36
+    sec-ch-ua: "Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"
+    content-type: application/json
+    sec-ch-ua-mobile: ?0
+
+  Response headers
+    x-request-id: 7a7fc358f1c8488094f20848daa40e28
+    access-control-expose-headers: X-Total-Count
+    access-control-allow-credentials: true
+    access-control-allow-origin: http://localhost:3000
+    content-length: 5466
+    date: Tue, 22 Sep 2026 16:37:50 GMT
+    content-type: application/json
+    vary: Origin
+    server: uvicorn
+
+Call browser_network_request with part="response-body" to read the response body.

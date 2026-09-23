@@ -62,7 +62,8 @@ def _bedrock_cache_control(model: Any) -> dict[str, Any] | None:
 
     Identical gating + payload to
     :class:`app.agents.deep_agent_runner._BedrockCachePointsMiddleware` (INV-12: ONE
-    mechanism). Bedrock-only and ``settings.BEDROCK_PROMPT_CACHE_ENABLED``-gated (read
+    mechanism) — including the spec-020 capability gate, without which every GPT
+    call through this helper returns AccessDeniedException. Bedrock-only and ``settings.BEDROCK_PROMPT_CACHE_ENABLED``-gated (read
     at CALL time so tests can monkeypatch the flag). Returns ``None`` — a no-op — on
     ChatAnthropic / a scripted-fake model (they never see ``cache_control``, so
     ChatAnthropic keeps deepagents' own built-in caching with no double-apply).
@@ -77,6 +78,22 @@ def _bedrock_cache_control(model: Any) -> dict[str, Any] | None:
     except Exception:  # pragma: no cover — defensive; langchain_aws is a hard dep
         return None
     if not isinstance(model, ChatBedrockConverse):
+        return None
+    # ...but being a ChatBedrockConverse is a TRANSPORT fact, not a capability one
+    # (spec 020 / FR-21). This is the SECOND cache-point path — the middleware in
+    # deep_agent_runner.py is the first — and it was found the hard way: with
+    # BEDROCK_INFERENCE_PROFILE_ID=global.openai.gpt-5.6-luna, a real run logged
+    # "SmartPlanner failed: AccessDeniedException ... did not allow prompt caching"
+    # and planning was silently skipped, because gating only the middleware left
+    # SmartPlanner / ClarifyEngine / the two handoff agents uncovered.
+    #
+    # Same fail-open rule as the middleware: an id absent from the catalog keeps
+    # caching ON, so nothing uncatalogued loses caching it was relying on.
+    from agents.capabilities.model_catalog import ModelCatalog  # noqa: PLC0415
+    from app.agents.model_factory import model_identifier  # noqa: PLC0415
+
+    entry = ModelCatalog().get(model_identifier(model))
+    if entry is not None and not entry.supports_prompt_caching:
         return None
     return {"type": "ephemeral", "ttl": settings.BEDROCK_PROMPT_CACHE_TTL}
 
@@ -126,6 +143,7 @@ async def cached_invoke(
     model: "str | Any | None" = None,
     max_tokens: int | None = None,
     usage_sink: UsageSink | None = None,
+    enable_cache: bool = True,
 ) -> tuple[str, Usage]:
     """Invoke a chat model with Bedrock prompt-caching + token counting (ISS-033).
 
@@ -148,6 +166,13 @@ async def cached_invoke(
         usage_sink: optional callable; receives the call's :data:`Usage` so the tokens
             are COUNTED in the caller's run accounting (closes the ISS-033/034 counting
             half). Guarded — a raising sink never breaks the model call.
+        enable_cache: per-call OPT-OUT of Bedrock prompt caching (ISS-120). A cache
+            entry bills at 1.25x the input rate, so a short single-turn call that
+            writes a cache point nothing later re-reads pays a pure surcharge; such a
+            caller passes ``False`` to suppress the cache point on THIS call only,
+            leaving the process-wide ``BEDROCK_PROMPT_CACHE_ENABLED`` — and every
+            other concurrent call — untouched. Opt-OUT only: ``True`` never re-enables
+            caching that the global flag has turned off.
 
     Returns:
         ``(text, usage)`` — the response text and the :data:`Usage` dict
@@ -172,8 +197,9 @@ async def cached_invoke(
         msg_list.extend(messages)
 
     # ── Cache points: pass the Bedrock ``cache_control`` per-call kwarg (the
-    #    direct-invoke equivalent of the middleware). No-op on non-Bedrock / flag-off.
-    cc = _bedrock_cache_control(llm)
+    #    direct-invoke equivalent of the middleware). No-op on non-Bedrock / flag-off /
+    #    a caller that opted THIS call out (``enable_cache=False``, ISS-120).
+    cc = _bedrock_cache_control(llm) if enable_cache else None
     invoke_kwargs: dict[str, Any] = {"cache_control": cc} if cc else {}
 
     resp = await llm.ainvoke(msg_list, **invoke_kwargs)

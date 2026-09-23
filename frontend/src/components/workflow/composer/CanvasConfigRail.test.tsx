@@ -1,7 +1,7 @@
 /**
  * 51-07 (FANOUT-01 / D6/D7/D9) — the Canvas config-rail fan-out control.
  *
- * The rail gains a "Fan out over a list" toggle + a "Source list from" picker
+ * The rail gains a "Fan out over a list" toggle + a "Task source agent" picker
  * (§4b), reusing the SHARED `applyLeverPatch` reducer (via the rail's `patch()`)
  * and the SHARED `KNOWN_PRODUCERS` allow-list — NO forked lever logic, NO
  * redefined type/allow-list (they are imported from AgentsPopup). These tests
@@ -20,7 +20,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
-import { renderWithProviders, screen, within, waitFor } from "@/test/renderWithProviders";
+import { renderWithProviders, screen, within, waitFor, fireEvent } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import type { CapabilitiesPalette } from "@/lib/api";
 import type { AgentDef } from "@/types/index";
@@ -54,6 +54,14 @@ const PALETTE: CapabilitiesPalette = {
   capabilities: [
     { kind: "validator", name: "code_test", user_allowed: true, description: "Runs the tests.", security_gated: false, config_schema: {} },
     { kind: "gate", name: "approval", user_allowed: true, description: "Human approval gate.", security_gated: false, config_schema: {} },
+    { kind: "gate", name: "human", user_allowed: true, description: "Post-step human review.", security_gated: false, config_schema: {} },
+    { kind: "gate", name: "before-human", user_allowed: true, description: "Pre-step human review.", security_gated: false, config_schema: {} },
+    { kind: "gate", name: "conditional", user_allowed: true, description: "Branch on a decision.", security_gated: false, config_schema: {} },
+    { kind: "gate", name: "validation", user_allowed: true, description: "Coupled to the Validator lever.", security_gated: false, config_schema: {} },
+    { kind: "task_parser", name: "heading_tasks", user_allowed: true, description: "Parses `## Task N:` headings from the source step's output.", security_gated: false, config_schema: {} },
+    { kind: "task_parser", name: "screen_plan", user_allowed: true, description: "Expands a screens.json plan into one task per screen.", security_gated: false, config_schema: {} },
+    { kind: "mechanical", name: "publish", user_allowed: true, description: "Code step: copy the highest publish_from_glob match onto the deliverable — no model.", security_gated: false, config_schema: {} },
+    { kind: "mechanical", name: "assemble_prototype", user_allowed: true, description: "Code step: assemble parts/*.html into the fixed shell — no model.", security_gated: false, config_schema: {} },
   ],
   model_catalog: [
     { id: "model-opus", label: "Opus 4.5", description: "Most capable.", tier: "powerful", cost_class: "premium", provider: "anthropic", context_window: 200000, user_allowed: true },
@@ -139,7 +147,7 @@ describe("CanvasConfigRail — 51-07 fan-out control (FANOUT-01)", () => {
       },
     });
     await openTab(/config/i);
-    const source = screen.getByLabelText(/source list from/i);
+    const source = screen.getByLabelText(/task source agent/i);
     expect(within(source).getByText("Plan")).toBeInTheDocument();
     expect(within(source).getByText("Researcher")).toBeInTheDocument();
     expect(within(source).queryByText("Writer")).not.toBeInTheDocument();
@@ -198,9 +206,9 @@ describe("CanvasConfigRail — 51-07 fan-out control (FANOUT-01)", () => {
     });
     await openTab(/config/i);
     // `researcher` is not on the known-producer allow-list → steer the user.
-    expect(screen.getByText(/fans out one worker per/i)).toBeInTheDocument();
+    expect(screen.getByText(/make sure .* is prompted to/i)).toBeInTheDocument();
     // Still persists the strategy (non-blocking) — the source picker is present.
-    expect(screen.getByLabelText(/source list from/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/task source agent/i)).toBeInTheDocument();
   });
 
   it("no warning renders when the chosen source IS a known producer", async () => {
@@ -211,7 +219,7 @@ describe("CanvasConfigRail — 51-07 fan-out control (FANOUT-01)", () => {
       },
     });
     await openTab(/config/i);
-    expect(screen.queryByText(/fans out one worker per/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/make sure .* is prompted to/i)).not.toBeInTheDocument();
   });
 });
 
@@ -330,6 +338,418 @@ describe("CanvasConfigRail — sub-agent strategy selector (R-04/R-36)", () => {
   });
 });
 
+describe("CanvasConfigRail — conditional-gate loop cap (DEFECT D / R-07)", () => {
+  it("a backward-jump outcome displays the loop_max_iterations control", async () => {
+    const checker = mkAgent({
+      id: "check",
+      name: "Check",
+      route: {
+        outcomes: { outcome_1: { trigger: "step", target: "greet" } },
+      },
+    });
+    const allSteps = [
+      mkAgent({ id: "greet", name: "Greet" }),
+      checker,
+    ];
+    renderRail({
+      agent: checker,
+      index: 1,
+      priorAgents: [allSteps[0]],
+      allSteps,
+      selection: { gates: ["conditional"] },
+    });
+    await openTab(/config/i);
+    // Backward-jump outcomes render a "Max loop count" control.
+    expect(screen.getByLabelText("Max loop count")).toBeInTheDocument();
+  });
+
+  it("editing the loop_max_iterations control calls onRouteChange with the updated value", async () => {
+    const onRouteChange = vi.fn();
+    const checker = mkAgent({
+      id: "check",
+      name: "Check",
+      route: {
+        outcomes: { outcome_1: { trigger: "step", target: "greet" } },
+      },
+    });
+    const allSteps = [
+      mkAgent({ id: "greet", name: "Greet" }),
+      checker,
+    ];
+    renderRail({
+      agent: checker,
+      index: 1,
+      priorAgents: [allSteps[0]],
+      allSteps,
+      selection: { gates: ["conditional"] },
+      onRouteChange,
+    });
+    await openTab(/config/i);
+    const loopCountInput = screen.getByLabelText("Max loop count") as HTMLInputElement;
+    expect(loopCountInput.value).toBe("5"); // engine default
+    // Trigger onChange via fireEvent.
+    fireEvent.change(loopCountInput, { target: { value: "3" } });
+    // Verify onRouteChange was called with the updated loop cap.
+    expect(onRouteChange).toHaveBeenCalledWith(
+      "check",
+      expect.objectContaining({ loop_max_iterations: 3 }),
+    );
+  });
+
+  it("the loop_max_iterations value persists when the route is saved", async () => {
+    const onRouteChange = vi.fn();
+    const checker = mkAgent({
+      id: "check",
+      name: "Check",
+      route: {
+        outcomes: { outcome_1: { trigger: "step", target: "greet" } },
+        loop_max_iterations: 7,
+      },
+    });
+    const allSteps = [
+      mkAgent({ id: "greet", name: "Greet" }),
+      checker,
+    ];
+    renderRail({
+      agent: checker,
+      index: 1,
+      priorAgents: [allSteps[0]],
+      allSteps,
+      selection: { gates: ["conditional"] },
+      onRouteChange,
+    });
+    await openTab(/config/i);
+    // Existing loop_max_iterations value is displayed.
+    const loopCountInput = screen.getByLabelText("Max loop count") as HTMLInputElement;
+    expect(loopCountInput.value).toBe("7");
+  });
+
+  it("clearing the field does not emit NaN or null to the route (DEFECT D regression fix)", async () => {
+    const onRouteChange = vi.fn();
+    const checker = mkAgent({
+      id: "check",
+      name: "Check",
+      route: {
+        outcomes: { outcome_1: { trigger: "step", target: "greet" } },
+        loop_max_iterations: 5,
+      },
+    });
+    const allSteps = [
+      mkAgent({ id: "greet", name: "Greet" }),
+      checker,
+    ];
+    renderRail({
+      agent: checker,
+      index: 1,
+      priorAgents: [allSteps[0]],
+      allSteps,
+      selection: { gates: ["conditional"] },
+      onRouteChange,
+    });
+    await openTab(/config/i);
+    const loopCountInput = screen.getByLabelText("Max loop count") as HTMLInputElement;
+    onRouteChange.mockClear();
+    // Simulate clearing the field.
+    fireEvent.change(loopCountInput, { target: { value: "" } });
+    // Verify onRouteChange was NOT called with NaN or null.
+    expect(onRouteChange).not.toHaveBeenCalled();
+    // The input itself can show the empty string while editing (not synced back).
+    // This allows the user to freely clear and retype without the field fighting them.
+  });
+
+  it("invalid input is not persisted to the route", async () => {
+    const onRouteChange = vi.fn();
+    const checker = mkAgent({
+      id: "check",
+      name: "Check",
+      route: {
+        outcomes: { outcome_1: { trigger: "step", target: "greet" } },
+        loop_max_iterations: 5,
+      },
+    });
+    const allSteps = [
+      mkAgent({ id: "greet", name: "Greet" }),
+      checker,
+    ];
+    renderRail({
+      agent: checker,
+      index: 1,
+      priorAgents: [allSteps[0]],
+      allSteps,
+      selection: { gates: ["conditional"] },
+      onRouteChange,
+    });
+    await openTab(/config/i);
+    const loopCountInput = screen.getByLabelText("Max loop count") as HTMLInputElement;
+    onRouteChange.mockClear();
+    // Try typing a non-numeric value.
+    fireEvent.change(loopCountInput, { target: { value: "abc" } });
+    expect(onRouteChange).not.toHaveBeenCalled();
+    // Try a negative value (violates min="1").
+    fireEvent.change(loopCountInput, { target: { value: "-5" } });
+    expect(onRouteChange).not.toHaveBeenCalled();
+  });
+
+  it("valid edits (e.g., 3) still persist correctly after the regression fix", async () => {
+    const onRouteChange = vi.fn();
+    const checker = mkAgent({
+      id: "check",
+      name: "Check",
+      route: {
+        outcomes: { outcome_1: { trigger: "step", target: "greet" } },
+        loop_max_iterations: 5,
+      },
+    });
+    const allSteps = [
+      mkAgent({ id: "greet", name: "Greet" }),
+      checker,
+    ];
+    renderRail({
+      agent: checker,
+      index: 1,
+      priorAgents: [allSteps[0]],
+      allSteps,
+      selection: { gates: ["conditional"] },
+      onRouteChange,
+    });
+    await openTab(/config/i);
+    const loopCountInput = screen.getByLabelText("Max loop count") as HTMLInputElement;
+    onRouteChange.mockClear();
+    // Set a valid value.
+    fireEvent.change(loopCountInput, { target: { value: "3" } });
+    // Verify it persists to the route with the correct value, not NaN or null.
+    expect(onRouteChange).toHaveBeenCalledWith(
+      "check",
+      expect.objectContaining({ loop_max_iterations: 3 }),
+    );
+  });
+});
+
 // Workflow-level internet/run-settings toggles moved to CanvasView (they live
 // under the Brief instruction now, not the per-node rail) — see
 // CanvasView.test.tsx for their coverage.
+
+describe("CanvasConfigRail — the Gate select and Prompt User (ADR-0013)", () => {
+  // A step whose route is already drawn: the Prompt User toggle only appears
+  // once there are outcomes to route on.
+  const ROUTER = mkAgent({
+    id: "pick",
+    name: "Pick",
+    route: { outcomes: { english: { trigger: "step", target: "writer" } } },
+  });
+
+  it("offers Human and Conditional, and never before-human — Prompt User owns that gate", async () => {
+    renderRail({ agent: ROUTER, index: 2, priorAgents: [PLAN, RESEARCHER] });
+    await openTab(/config/i);
+    const select = await screen.findByLabelText("Gate");
+    const options = within(select).getAllByRole("option").map((o) => o.textContent);
+    expect(options).toContain("Human gate");
+    expect(options).toContain("Conditional gate");
+    // `before-human` and `human` both label as "Human gate", so count rather
+    // than match: two rows would mean before-human leaked back into the select.
+    expect(options.filter((o) => o === "Human gate")).toHaveLength(1);
+    // `validation` is the Validator lever's, not this control's.
+    expect(options).not.toContain("Validation gate");
+  });
+
+  it("choosing Conditional writes gates: [conditional] and leaves the coupled validation gate alone", async () => {
+    const { onSelection } = renderRail({
+      agent: ROUTER,
+      index: 2,
+      priorAgents: [PLAN, RESEARCHER],
+      selection: { validators: ["code_test"], gates: ["validation"] },
+    });
+    await openTab(/config/i);
+    await userEvent.selectOptions(await screen.findByLabelText("Gate"), "conditional");
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.gates).toEqual(["validation", "conditional"]);
+  });
+
+  it("Prompt User is the only writer of before-human: ON emits [before-human, conditional] and points condition_agent at the previous step", async () => {
+    const onRouteChange = vi.fn();
+    const { onSelection } = renderRail({
+      agent: ROUTER,
+      index: 2,
+      priorAgents: [PLAN, RESEARCHER],
+      selection: { gates: ["conditional"] },
+      onRouteChange,
+    });
+    await openTab(/config/i);
+    await userEvent.click(screen.getByRole("switch", { name: /Prompt User/i }));
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    // before-human FIRST — ex_A4_human_gate's shape byte-for-byte.
+    expect(sel?.gates).toEqual(["before-human", "conditional"]);
+    // The human's edit rewrites the PREVIOUS step's artifact, so that step —
+    // not this one — is mechanically the decision source.
+    expect(onRouteChange).toHaveBeenCalledWith(
+      "pick",
+      expect.objectContaining({ condition_agent: RESEARCHER.id }),
+    );
+  });
+
+  it("Prompt User OFF drops before-human and clears condition_agent", async () => {
+    const onRouteChange = vi.fn();
+    const wired = mkAgent({
+      id: "pick",
+      name: "Pick",
+      route: {
+        condition_agent: RESEARCHER.id,
+        outcomes: { english: { trigger: "step", target: "writer" } },
+      },
+    });
+    const { onSelection } = renderRail({
+      agent: wired,
+      index: 2,
+      priorAgents: [PLAN, RESEARCHER],
+      selection: { gates: ["before-human", "conditional"] },
+      onRouteChange,
+    });
+    await openTab(/config/i);
+    const toggle = screen.getByRole("switch", { name: /Prompt User/i });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(toggle);
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.gates).toEqual(["conditional"]);
+    expect(onRouteChange).toHaveBeenCalledWith(
+      "pick",
+      expect.objectContaining({ condition_agent: undefined }),
+    );
+  });
+
+  it("switching the gate to Human drops before-human — two HITL gates share one durable slot", async () => {
+    const { onSelection } = renderRail({
+      agent: ROUTER,
+      index: 2,
+      priorAgents: [PLAN, RESEARCHER],
+      selection: { gates: ["before-human", "conditional"] },
+    });
+    await openTab(/config/i);
+    await userEvent.selectOptions(await screen.findByLabelText("Gate"), "human");
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.gates).toEqual(["human"]);
+  });
+
+  it("Prompt User is hidden until the gate is Conditional", async () => {
+    renderRail({
+      agent: ROUTER,
+      index: 2,
+      priorAgents: [PLAN, RESEARCHER],
+      selection: { gates: ["human"] },
+    });
+    await openTab(/config/i);
+    await screen.findByLabelText("Gate");
+    expect(screen.queryByRole("switch", { name: /Prompt User/i })).not.toBeInTheDocument();
+  });
+
+  it("Prompt User is disabled on the first step — a gate edit needs a previous artifact to land in", async () => {
+    renderRail({
+      agent: ROUTER,
+      index: 0,
+      priorAgents: [],
+      selection: { gates: ["conditional"] },
+    });
+    await openTab(/config/i);
+    expect(screen.getByRole("switch", { name: /Prompt User/i })).toBeDisabled();
+  });
+});
+
+// ── Config tab: code-step kind + task-list parser (engine capabilities, selectable) ──
+describe("CanvasConfigRail — Config tab capabilities", () => {
+  it("renders the 'Node type' control on the Config tab; the parser control only when fanning out", async () => {
+    renderRail();
+    await openTab(/config/i);
+    await screen.findByLabelText(/^node type$/i);
+    expect(screen.getByText(/node type/i, { selector: "p" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^code step$/i)).toBeNull();
+    expect(screen.queryByLabelText(/^task source type$/i)).toBeNull();
+  });
+
+  it("the 'Task source type' select lists 'Screen list — build/screens.json'; selecting it patches task_source.parser and target", async () => {
+    const { onSelection } = renderRail({
+      selection: {
+        strategy: "fanout_batch",
+        task_source: { kind: "parsed", parser: "heading_tasks", source_step: "prototype-plan" },
+      },
+    });
+    await openTab(/config/i);
+    const select = await screen.findByLabelText(/^task source type$/i);
+    expect(within(select).getByText("Screen list — build/screens.json")).toBeInTheDocument();
+    await userEvent.selectOptions(select, "screen_plan");
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.task_source?.parser).toBe("screen_plan");
+    expect(sel?.task_source?.target).toBe("build/screens.json");
+  });
+
+  it('"Node type" → Code picks the first code step; the radios then switch to "Assemble the prototype"', async () => {
+    const onMechanicalChange = vi.fn();
+    renderRail({ onMechanicalChange });
+    await openTab(/config/i);
+    const select = await screen.findByLabelText(/^node type$/i);
+    await userEvent.selectOptions(select, "code");
+    expect(onMechanicalChange).toHaveBeenCalledWith("writer", "publish");
+  });
+
+  it("a code step shows the 'Code step' dropdown; picking another kind calls onMechanicalChange", async () => {
+    const onMechanicalChange = vi.fn();
+    renderRail({ onMechanicalChange, agent: { ...WRITER, mechanical: "publish" } });
+    await openTab(/config/i);
+    const select = await screen.findByLabelText(/^code step$/i);
+    expect(select).toHaveValue("publish");
+    expect(within(select).getByText("Assemble the prototype")).toBeInTheDocument();
+    await userEvent.selectOptions(select, "assemble_prototype");
+    expect(onMechanicalChange).toHaveBeenCalledWith("writer", "assemble_prototype");
+  });
+
+
+  it("changing the fan-out source keeps an already-selected screen_plan", async () => {
+    const { onSelection } = renderRail({
+      selection: {
+        strategy: "fanout_batch",
+        task_source: {
+          kind: "parsed",
+          parser: "screen_plan",
+          target: "build/screens.json",
+          source_step: "prototype-plan",
+        },
+      },
+    });
+    await openTab(/config/i);
+    await userEvent.selectOptions(screen.getByLabelText(/task source agent/i), "researcher");
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.task_source?.parser).toBe("screen_plan");
+    expect(sel?.task_source?.target).toBe("build/screens.json");
+    expect(sel?.task_source?.source_step).toBe("researcher");
+  });
+
+  it("renders three 'Design context' checkboxes for an AI agent", async () => {
+    renderRail();
+    await openTab(/config/i);
+    await screen.findByLabelText(/^node type$/i);
+
+    // AI agent should show all three checkboxes
+    expect(screen.getByLabelText(/^Design context: Design system$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Design context: Template$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Design context: Template example$/i)).toBeInTheDocument();
+  });
+
+  it("no 'Design context' checkboxes render for a code step", async () => {
+    renderRail({ agent: { ...WRITER, mechanical: "publish" } });
+    await openTab(/config/i);
+    await screen.findByLabelText(/^code step$/i);
+    expect(screen.queryByLabelText(/^Design context:/i)).toBeNull();
+  });
+
+  it("ticking 'Template' on an agent with injects: ['design_system'] calls onInjectsChange with both in order", async () => {
+    const onInjectsChange = vi.fn();
+    renderRail({ agent: { ...WRITER, injects: ["design_system"] }, onInjectsChange });
+    await openTab(/config/i);
+    await screen.findByLabelText(/^node type$/i);
+
+    const templateCheckbox = screen.getByLabelText(/^Design context: Template$/i) as HTMLInputElement;
+    expect(templateCheckbox.checked).toBe(false);
+
+    await userEvent.click(templateCheckbox);
+
+    expect(onInjectsChange).toHaveBeenCalledWith("writer", ["design_system", "template"]);
+  });
+});

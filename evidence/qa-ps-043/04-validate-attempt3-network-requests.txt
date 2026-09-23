@@ -1,0 +1,13 @@
+64. [GET] http://localhost:8000/api/runs?limit=6 => [200] OK
+65. [GET] http://localhost:8000/api/auth/me => [200] OK
+66. [GET] http://localhost:8000/api/runs?limit=50 => [200] OK
+67. [GET] http://localhost:8000/api/workflows/user_stories => [200] OK
+68. [GET] http://localhost:8000/api/runs?limit=50 => [200] OK
+69. [GET] http://localhost:8000/api/workflows => [200] OK
+70. [GET] http://localhost:8000/api/workflows/user_stories => [200] OK
+72. [GET] http://localhost:8000/api/workflows => [200] OK
+73. [GET] http://localhost:8000/api/agents/library => [200] OK
+74. [GET] http://localhost:8000/api/skills/library => [200] OK
+75. [GET] http://localhost:8000/api/hooks/library => [200] OK
+
+Note: 64 static requests not shown, run with "static" option to see them.

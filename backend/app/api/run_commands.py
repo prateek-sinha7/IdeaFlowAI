@@ -38,10 +38,16 @@ import json
 import logging
 import time
 import uuid as _uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from app.agents.sandbox import LegacySelection, ReadOnlySandbox
+    from agents.execution_engine.finalization import FinalizationRecord
+    from sqlalchemy.orm import Session
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -51,6 +57,7 @@ from agents.workflows.plan import CompiledWorkflow
 from agents.capabilities.model_pricing import estimate_cost_usd
 from app.agents.chat_runner import ChatRunner
 from app.agents.modes import get_mode_prompt
+from app.agents.sandbox import FamilyLockTimeout, family_lock
 from app.core.config import settings
 from app.core.dependencies import get_current_principal, get_current_user
 from app.core.entitlements import can_run_pipeline
@@ -665,7 +672,13 @@ async def resume_run_endpoint(
         # rather than reusing TERMINAL_RUN_STATUSES directly (API-001 unified the
         # SEPARATE stray duplicate of this exact set that used to live in
         # ``_review_gate_run_is_terminal``, not this deliberately-different one).
-        _RESUMABLE_STATUSES = frozenset(TERMINAL_RUN_STATUSES) - {"completed"}
+        # "diverted" (014-conditional-gates R-13/R-14) is likewise excluded: a diverted
+        # run stopped by DESIGN — it handed off to a second, independent WorkflowRun —
+        # not by failure, so there is nothing to retry; v1 has no wait/resume for it.
+        _RESUMABLE_STATUSES = frozenset(TERMINAL_RUN_STATUSES) - {
+            "completed",
+            "diverted",
+        }
         if wr.status not in _RESUMABLE_STATUSES:
             raise _reject(
                 "run_not_resumable",
@@ -691,6 +704,13 @@ async def resume_run_endpoint(
         # no-preemption ⇒ a concurrent double-POST resuming after step 4 sees the entry
         # → 409). ``_is_run_live`` is a plain ``def`` precisely to preserve that.
         if _is_run_live(run_id):
+            # A20 (STABILIZATION.md): forensic trail for a refused duplicate
+            # dispatch — the double-drive scenario this mutex exists to prevent.
+            logger.warning(
+                "duplicate dispatch REFUSED: run=%s already live — "
+                "resume_run_endpoint declined to spawn a second driver",
+                run_id,
+            )
             raise _reject(
                 "pipeline_already_running",
                 "Run is already live",
@@ -776,12 +796,18 @@ async def _reconcile_terminal_status(run_id: str) -> None:
     The resume tier writes no status, so the app layer reconciles it here — reading the
     run's OWNER-SCOPED durable tail (the SAME event→status decision the launch driver
     applies at ``_drive_launch_to_queue:1470-1491``, but read from the durable tail rather
-    than a live stream): terminal ``pipeline_cancelled`` → ``cancelled``; a
+    than a live stream): terminal ``pipeline_cancelled`` → ``cancelled``; the LATEST
     ``pipeline_complete`` carrying ``status=="degraded"`` → ``degraded``; a clean
     ``pipeline_complete`` with no ``pipeline_failed`` → ``completed``; anything else /
     no clean terminal → ``failed`` (the D2 fail-safe). Best-effort: the offline harness /
     a read error degrades to leaving the prior status (INV-3) — the arm-failure path owns
     the honest-state guarantee, so a reconcile no-op never strands a genuinely-failed run.
+
+    Also reconciles ``WorkflowRun.error`` so it describes THIS reconcile, not a stale prior
+    attempt: a ``completed`` verdict clears it; a ``degraded``/``failed`` verdict derives it
+    from the latest attempt's own events (mirroring ``_drive_launch_to_queue``'s
+    ``first_agent_error_msg``/``degraded_reason_msg``) when the tail carries one, else leaves
+    the existing value untouched rather than inventing a message.
     """
     from agents.authz import ScopedStore
 
@@ -806,10 +832,21 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         cancelled = any(e.type == "pipeline_cancelled" for e in events)
         failed = any(e.type == "pipeline_failed" for e in events)
         completes = [e for e in events if e.type == "pipeline_complete"]
-        degraded = any(
-            isinstance(e.payload_json, dict)
-            and e.payload_json.get("status") == "degraded"
-            for e in completes
+        # FIX-247: the degraded verdict must track only the LATEST pipeline_complete, not
+        # "was ANY completion ever degraded". A run completes at most once per attempt, so
+        # last-by-seq IS the latest attempt's verdict — the same attempt-scoping idea the
+        # ``resume_supersedes`` check just below already applies to ``cancelled``, minus the
+        # extra boundary lookup (that one needs a boundary because a cancellation and a
+        # completion can interleave within or across attempts; two completions can't — the
+        # highest seq is always the newest one). The old unscoped ``any()`` let ONE degraded
+        # completion from an EARLIER attempt permanently outrank a later clean completion —
+        # run 4bdf9398 failed, a resume degraded on credential expiry, the NEXT resume
+        # completed all 11 steps cleanly, and the run still read "degraded" forever.
+        _latest_complete = max(completes, key=lambda e: e.seq) if completes else None
+        degraded = bool(
+            _latest_complete is not None
+            and isinstance(_latest_complete.payload_json, dict)
+            and _latest_complete.payload_json.get("status") == "degraded"
         )
         # KAN-120: a resumed run has BOTH pipeline_cancelled (from the original
         # cancellation) AND pipeline_complete (from the resume) in the durable tail.
@@ -839,22 +876,73 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         reattempt_seqs = [
             e.seq for e in events if e.type in ("run_resuming", "pipeline_start")
         ]
+        # ISS-316: a later attempt that genuinely FAILS supersedes the earlier
+        # cancellation exactly as a later clean completion does. Keyed on
+        # complete_seqs alone, a "Run again" whose pipeline emits pipeline_failed
+        # (no pipeline_complete in its tail) left the run reporting "cancelled"
+        # forever. The FIX-229 attempt-boundary guard is unchanged, so a
+        # pipeline_failed in the SAME attempt as the cancellation still loses to it.
+        #
+        # ISS-435: a later attempt that ends DEGRADED (a pipeline_complete whose
+        # status=="degraded") must also supersede an earlier cancellation. Degraded
+        # completions were excluded from complete_seqs (intentionally — they are NOT
+        # clean completions) but were never added to terminal_seqs. Including them
+        # here means a cancelled→resumed→degraded run is correctly reported
+        # "degraded" instead of permanently stuck "cancelled". The attempt-boundary
+        # guard below is the same for all three outcome types.
+        degraded_complete_seqs = [
+            e.seq
+            for e in completes
+            if isinstance(e.payload_json, dict)
+            and e.payload_json.get("status") == "degraded"
+        ]
+        terminal_seqs = (
+            complete_seqs
+            + degraded_complete_seqs
+            + [e.seq for e in events if e.type == "pipeline_failed"]
+        )
         resume_supersedes = (
             cancelled
-            and complete_seqs
-            and max(complete_seqs) > max(cancelled_seqs)
+            and terminal_seqs
+            and max(terminal_seqs) > max(cancelled_seqs)
             and any(
-                max(cancelled_seqs) < s < max(complete_seqs) for s in reattempt_seqs
+                max(cancelled_seqs) < s < max(terminal_seqs) for s in reattempt_seqs
             )
         )
         if cancelled and not resume_supersedes:
             new_status = "cancelled"
-        elif degraded:
-            new_status = "degraded"
-        elif completes and not failed:
-            new_status = "completed"
         else:
-            new_status = "failed"
+            # ISS-436/ISS-437: scope the degraded and failed flags to the LAST
+            # reattempt boundary so that a run resumed after an earlier degraded
+            # or failed attempt does not inherit the old flag when its latest
+            # attempt succeeded or otherwise terminated differently.
+            # The last reattempt boundary seq is the highest run_resuming /
+            # pipeline_start seq; events before that boundary belong to a prior
+            # attempt and must not poison the current attempt's outcome.
+            last_reattempt_seq = max(reattempt_seqs) if reattempt_seqs else 0
+            # Only pipeline_complete and pipeline_failed events AT OR AFTER the
+            # last reattempt boundary are from the current attempt.
+            current_attempt_completes = [
+                e for e in completes if e.seq >= last_reattempt_seq
+            ]
+            degraded_current = any(
+                isinstance(e.payload_json, dict)
+                and e.payload_json.get("status") == "degraded"
+                for e in current_attempt_completes
+            )
+            failed_current = any(
+                e.type == "pipeline_failed" and e.seq >= last_reattempt_seq
+                for e in events
+            )
+            # Use the scoped flags for the status ladder, but keep the unscoped
+            # variables for backwards-compat with the _persist_resume_output_columns
+            # call below (which needs the full event tail).
+            if degraded_current:
+                new_status = "degraded"
+            elif current_attempt_completes and not failed_current:
+                new_status = "completed"
+            else:
+                new_status = "failed"
         # BUG-R03: feed the SAME durable tail to the shared output-column mapping so a
         # USER-resumed completion persists output/agent_outputs/token_usage/duration/
         # deliverable_* — the columns _drive_launch_to_queue writes on the launch path,
@@ -862,11 +950,69 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         # machine wrote status). App-layer, always runs on the user-resume drive regardless
         # of whether the engine _resume_output_persist_sink hook is armed (INV-12 mapping).
         _persist_resume_output_columns(run_id, events)
+
+        # A clean reconcile clears a stale error a PRIOR attempt left behind (run
+        # 4bdf9398's header chip kept naming a step that had since succeeded, because
+        # ``_persist_resume_status`` was never called with ``error=`` on this path —
+        # see its docstring for the ``_UNSET_ERROR`` sentinel this needed). A
+        # degraded/failed reconcile instead derives THIS attempt's message, scoped to
+        # events after the latest ``run_resuming``/``pipeline_start`` boundary — the
+        # same "first_agent_error_msg" / "degraded_reason_msg" precedence
+        # ``_drive_launch_to_queue`` uses for a fresh launch (there is only ever one
+        # attempt there; here there can be several, so the boundary is required).
+        new_error: object = _UNSET_ERROR
+        if new_status == "completed":
+            new_error = None
+        elif new_status in ("degraded", "failed"):
+            attempt_boundary = max(reattempt_seqs) if reattempt_seqs else 0
+            this_attempt = [e for e in events if e.seq > attempt_boundary]
+            first_agent_error_msg = next(
+                (
+                    e.payload_json.get("error")
+                    for e in this_attempt
+                    if e.type == "agent_error"
+                    and isinstance(e.payload_json, dict)
+                    and e.payload_json.get("error")
+                ),
+                None,
+            )
+            if new_status == "degraded":
+                _payload = (
+                    _latest_complete.payload_json
+                    if isinstance(_latest_complete.payload_json, dict)
+                    else {}
+                )
+                degraded_agents = _payload.get("agents_failed")
+                derived = (
+                    first_agent_error_msg
+                    or _payload.get("degraded_reason")
+                    or (
+                        "degraded: agent(s) failed: " + ", ".join(degraded_agents)
+                        if degraded_agents
+                        else None
+                    )
+                )
+            else:
+                pipeline_failed_msg = next(
+                    (
+                        e.payload_json.get("error")
+                        for e in this_attempt
+                        if e.type == "pipeline_failed"
+                        and isinstance(e.payload_json, dict)
+                        and e.payload_json.get("error")
+                    ),
+                    None,
+                )
+                derived = first_agent_error_msg or pipeline_failed_msg
+            if derived is not None:
+                new_error = derived
+            # else: nothing to derive from this attempt's own events — leave the
+            # existing ``.error`` value untouched rather than invent one.
     except Exception as exc:  # noqa: BLE001 — best-effort reconcile (offline degrade)
         logger.warning("_reconcile_terminal_status(%s) failed: %s", run_id, exc)
         return
 
-    _persist_resume_status(run_id, new_status)
+    _persist_resume_status(run_id, new_status, error=new_error)
 
 
 def _flip_back_to_failed(run_id: str, err: str) -> None:
@@ -876,18 +1022,28 @@ def _flip_back_to_failed(run_id: str, err: str) -> None:
     _persist_resume_status(run_id, "failed", error=err)
 
 
+# Sentinel distinguishing "caller passed nothing" from "caller wants .error cleared to
+# NULL" — plain ``None`` could not carry that distinction (FIX-247: _reconcile_terminal_status
+# needs to CLEAR a stale prior-attempt error on a clean reconcile, not just leave it alone).
+_UNSET_ERROR = object()
+
+
 def _persist_resume_status(
-    run_id: str, new_status: str, *, error: str | None = None
+    run_id: str, new_status: str, *, error: str | None | object = _UNSET_ERROR
 ) -> None:
     """The shared terminal-status persist idiom (``_persist_terminal_status:1707``):
     ``_get_db``/query/``.status=``/``completed_at``/commit/``finally close``. Best-effort —
-    a schemaless / offline session degrades without perturbing the drive (INV-3)."""
+    a schemaless / offline session degrades without perturbing the drive (INV-3).
+
+    ``error`` defaults to the ``_UNSET_ERROR`` sentinel — leave ``.error`` untouched, every
+    pre-existing caller's behavior (``_flip_back_to_failed`` always passes a real string).
+    Pass an explicit ``None`` to CLEAR it."""
     sdb = _get_db()
     try:
         swr = sdb.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
         if swr:
             swr.status = new_status
-            if error is not None:
+            if error is not _UNSET_ERROR:
                 swr.error = error
             swr.completed_at = datetime.now(timezone.utc)
             sdb.commit()
@@ -1122,10 +1278,16 @@ def _build_attached_files_block(file_contents: list[dict] | None) -> str:
     """FIX-218 (KAN-170): render pre-extracted file texts into a prompt block.
 
     ``file_contents`` is the ``body.file_contents`` list — each entry:
-    ``{name: str, text: str, error?: str}``. Builds a multi-file block capped
-    per-file at ``_ATTACHED_FILE_TEXT_CAP`` chars. Returns ``""`` when the list is
-    absent or all entries have extraction errors (so the Concierge prompt is
-    byte-identical to the pre-fix behaviour — INV-3).
+    ``{name: str, text: str, truncated?: bool, error?: str}``. Builds a multi-file
+    block capped per-file at ``_ATTACHED_FILE_TEXT_CAP`` chars. Returns ``""`` when
+    the list is absent or all entries have extraction errors (so the Concierge prompt
+    is byte-identical to the pre-fix behaviour — INV-3).
+
+    ISS-422: reads ``entry["truncated"]`` (set by the FE for both the client-side
+    text-slice path and the server-side extract-text path) in addition to the
+    backend-side cap check. The FE caps text to ``TEXT_CLIENT_CAP`` (6 000 chars)
+    before sending, so ``len(text) > _ATTACHED_FILE_TEXT_CAP`` alone would never
+    fire on a truncated-but-already-capped entry — the FE flag is the reliable signal.
 
     Payload-transient (ND-10): the block is used solely in the live Concierge ctx
     and the ``ectx.steering_notes`` carry; it is NEVER persisted to the DB.
@@ -1147,9 +1309,15 @@ def _build_attached_files_block(file_contents: list[dict] | None) -> str:
             )
         elif text:
             capped = text[:_ATTACHED_FILE_TEXT_CAP]
+            # ISS-422: honour the FE-computed truncated flag (set when client-side
+            # text was sliced to TEXT_CLIENT_CAP=6000, or when the extract-text
+            # server endpoint capped a binary file). The backend-side cap check
+            # `len(text) > _ATTACHED_FILE_TEXT_CAP` is kept as a fallback for any
+            # caller that sends a raw un-capped entry without the flag.
+            fe_truncated = bool(entry.get("truncated"))
             suffix = (
                 "\n[Content truncated — showing first portion]"
-                if len(text) > _ATTACHED_FILE_TEXT_CAP
+                if (fe_truncated or len(text) > _ATTACHED_FILE_TEXT_CAP)
                 else ""
             )
             parts.append(
@@ -1480,19 +1648,13 @@ async def _dispose_concierge_proposal(
         # entitlements, and the persisted rows), so the derivation below needs no
         # correction and both entry points agree by construction.
         target = params.get("target") or f"{base_type}_output"
-        # Guard: if the target looks like a run ID (UUID) rather than an artifact type
-        # (which must end with "_output"), discard it and use the derived default.
-        # The LLM sometimes passes a run_id as target when confused by the docstring.
-        import re as _re_uuid
-
-        _UUID_RE = _re_uuid.compile(
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-            _re_uuid.IGNORECASE,
-        )
-        if target and not target.endswith("_output") and _UUID_RE.match(target):
+        # Guard: artifact types must end with "_output". Any other value (UUID run IDs,
+        # bare names like "html", partial labels, etc.) is discarded in favour of the
+        # derived default so it never leaks into pipeline lookup as an unknown type.
+        if target and not target.endswith("_output"):
             logger.warning(
-                "_dispose_concierge_proposal: target %r looks like a run ID, not an "
-                "artifact type — discarding and using derived default %r",
+                "_dispose_concierge_proposal: target %r is not a valid artifact type "
+                "(must end with '_output') — discarding and using derived default %r",
                 target,
                 f"{base_type}_output",
             )
@@ -1542,9 +1704,6 @@ async def _dispose_concierge_proposal(
             instruction = file_section
 
         child_run_id = str(_uuid.uuid4())
-        cancel_event = asyncio.Event()
-        _CANCEL_EVENTS[child_run_id] = cancel_event
-        event_queue = _get_or_create_queue(child_run_id)
 
         rdb = _get_db()
         try:
@@ -1560,6 +1719,9 @@ async def _dispose_concierge_proposal(
             )
         finally:
             rdb.close()
+        cancel_event = asyncio.Event()
+        _CANCEL_EVENTS[child_run_id] = cancel_event
+        event_queue = _get_or_create_queue(child_run_id)
         task = asyncio.create_task(
             _drive_revision_to_queue(
                 workflow_run_id=child_run_id,
@@ -2304,6 +2466,18 @@ class LaunchCommand(BaseModel):
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
     gate_agent_ids: list[str] | None = None
+    # An UNSAVED composition, sent inline. The Composer builds a manifest tree whose
+    # steps are dynamic `custom-agent:<instance_id>` instances; those ids can never
+    # appear in the static allow-list `agent_ids` is checked against, so before this
+    # existed the ONLY way to launch one was to save it first and pass
+    # `user_workflow_id` — "Run once" on an edited composition simply 400'd.
+    #
+    # Not a new trust surface: the identical manifest can already be POSTed to
+    # /api/user_workflows and then launched, so the same bytes were always reachable.
+    # It compiles at trust="user" (STRICTER than the saved row's trust="db"), so the
+    # compiler's own per-step capability checks — which reject exec/network/secrets
+    # grants outright for a non-file manifest — remain the security boundary.
+    manifest: dict | None = None
     model_overrides: dict | None = None
     selections: dict | None = None
     template_id: str | None = None
@@ -2323,6 +2497,10 @@ class LaunchCommand(BaseModel):
     planner: str | None = None
     clarify: dict | None = None
     capabilities: dict | None = None
+    # UPLD-05: stage ids from POST /api/runs/uploads/stage — raw documents parked
+    # before a run id existed, ingested into the new run's `.uploads/` after mint
+    # and BEFORE the engine drives the first agent (no read-before-upload race).
+    staged_upload_ids: list[str] | None = None
 
 
 def _reject(
@@ -2448,7 +2626,7 @@ def _require_host_capacity(current_user: User) -> None:
     )
 
 
-def _resolve_launch_agents(body: "LaunchCommand"):
+def _resolve_launch_agents(body: "LaunchCommand", compiled=None):
     """Resolve + validate a launch payload's pipeline + od_context, returning
     ``(base_pipeline_type, od_context)`` or raising the matching HTTPException.
 
@@ -2482,6 +2660,17 @@ def _resolve_launch_agents(body: "LaunchCommand"):
                 custom_ds_body=body.custom_ds_body,
                 custom_template_body=body.custom_template_body,
                 fatal=True,
+                # A COMPOSED workflow (Case 3) has no file behind its label — its
+                # pipeline_type is the generic "custom", whose workflow.yaml
+                # declares no providers. The composition itself was already
+                # compiled a few lines above, so hand its DECLARED providers to
+                # the seam instead of letting it peek the wrong (file) manifest.
+                # None for every other launch shape ⇒ the file peek, unchanged.
+                context_providers=(
+                    list(compiled.context_providers or [])
+                    if compiled is not None
+                    else None
+                ),
             )
         except LookupError as exc:
             raise _reject("template_not_found", str(exc))
@@ -2574,6 +2763,451 @@ def _clean_run_title(content: str | None, pipeline_type: str) -> str:
     return title[:60].strip() or "Untitled"
 
 
+def _seed_from_prior_run(
+    *, user_id: str, run_id: str, manifest_json: dict | None
+) -> list[str]:
+    """TODO: Remove — temporary local-dev hack, same category as the ``.latest``
+    symlink in ``RunSandbox._repoint_latest`` (app/agents/sandbox.py). Both exist
+    only so local iteration is cheap; neither is a product feature.
+
+    Copies the files named in ``seed_files.from_run`` out of the sandbox of the
+    run named in ``seed_files.run_id`` into the freshly-minted run's sandbox, so
+    an expensive phase (a readers wave producing ``synthesis.md``) runs ONCE and
+    later runs start from its output instead of re-reading every page::
+
+        seed_files: {"from_run": ["synthesis.md"], "run_id": "<prior run id>"}
+
+    The declared mechanism is the ``previous_run`` provider, which needs a
+    ``parent_run_id`` and therefore a ``*_revision`` pipeline (KAN-116) — a chained
+    custom run must NOT join the source's revision family, hence this copy.
+    Same owner only: both sandboxes resolve under the launching user's RUNS_ROOT
+    segment, so a foreign run id is simply a missing file. Best-effort per file —
+    a seed problem never strands the minted run. Runs BEFORE the driver spawns, so
+    the file is on disk before any agent's step-entry filesystem snapshot.
+    """
+    seed = (manifest_json or {}).get("seed_files")
+    if not isinstance(seed, dict):
+        return []
+    prior = seed.get("run_id")
+    names = seed.get("from_run")
+    if not prior or not isinstance(names, list):
+        return []
+    from app.agents.sandbox import RunSandbox
+
+    src = RunSandbox(user_id, str(prior))
+    dst = RunSandbox(user_id, run_id)
+    seeded: list[str] = []
+    for name in names:
+        try:
+            content = src.read(str(name))
+            if content is None:
+                logger.warning(
+                    "seed_from_prior_run: %s absent in run %s — skipped", name, prior
+                )
+                continue
+            dst.write(str(name), content)
+            seeded.append(str(name))
+        except Exception as exc:  # noqa: BLE001 — never strand the minted run
+            logger.warning(
+                "seed_from_prior_run: %s from run %s failed (%s)", name, prior, exc
+            )
+    logger.info(
+        "seed_from_prior_run: run %s seeded %s from run %s",
+        run_id,
+        ", ".join(seeded) or "(nothing)",
+        prior,
+    )
+    return seeded
+
+
+async def _launch_run_core(
+    *,
+    content: str,
+    pipeline_type: str,
+    agents: "list | None",
+    compiled: "CompiledWorkflow | None",
+    od_context: dict | None,
+    validated_images: list,
+    model_overrides: dict,
+    user: User,
+    source_workflow_run_id: str | None,
+    selections: dict | None,
+    gate_agent_ids: list | None,
+    attached_skills: list | None,
+    attached_hooks: list | None,
+    chain_selection: "V2Selection | LegacySelection | None" = None,
+    parent_run_id_override: str | None = None,
+    owner_id_override: str | None = None,
+    workspace_id_override: str | None = None,
+    trigger_depth: int = 0,
+    staged_upload_ids: list[str] | None = None,
+    manifest_json: dict | None = None,
+    # Task 9.3 / Requirement 21 AC 10: the ORIGINAL request-body source run id,
+    # used exclusively for the duplicate-context strip guard and its audit row.
+    # Distinct from ``source_workflow_run_id`` (the ADMITTED id, which may be
+    # None after the declaration gate) so the strip fires even when the
+    # admission gate zeroes out the admitted id.  Defaults to the admitted id
+    # so every non-HTTP caller (run_trigger_workflow) is unaffected.
+    request_source_workflow_run_id: str | None = None,
+) -> dict:
+    """Mint the WorkflowRun + spawn the WS-agnostic background driver onto the
+    per-run queue (mirrors websocket.py:1912-1966).
+
+    This is the ``launch_run`` JOIN POINT (see ``LaunchSource``'s docstring) —
+    where all 3 launch shapes reconverge — pulled out into a plain async
+    function. Everything ABOVE the join point (launch-shape detection,
+    entitlement/agent/template/model-override/image ingress validation) is
+    HTTP-request-shape-specific and stays inline in ``launch_run`` below, which
+    is now a thin wrapper over this core.
+
+    No FastAPI coupling (no ``Depends``, no ``LaunchCommand``) — so this is also
+    callable by a future kernel delegate (``run_trigger_workflow``, spec 014
+    Phase 4) that has already resolved its own agents/compiled plan and just
+    needs a run minted + driven, not by an inbound HTTP request.
+
+    ``parent_run_id_override``/``owner_id_override``/``workspace_id_override``
+    (spec 014 R-15/R-16): the ONLY additions this task makes to this function.
+    ``None`` for every existing (HTTP) caller — the ``parent_run_id`` resolution
+    and the (previously implicit, DB-default) ``owner_id``/``workspace_id`` stay
+    byte-identical. ``run_trigger_workflow`` (``kernel_services.py``) is the one
+    caller that passes all three, unconditionally, from its own triggering
+    ``ExecutionContext`` (R-15 — never independently specified, never left
+    null) — mirroring the existing ``_mint_revision_row`` precedent, which
+    already inherits ``workspace_id`` from its parent row the same way.
+
+    ``trigger_depth`` (spec 014 R-18/R-19): the cross-workflow trigger-chain depth
+    the NEW run starts at. ``0`` for every HTTP caller (a user-initiated launch is
+    the root of its own chain) — the dataclass default, so the HTTP path is
+    unchanged. ``run_trigger_workflow`` passes ``ectx.trigger_depth + 1``; this
+    function only FORWARDS it (to ``_drive_launch_to_queue`` → ``engine.execute``
+    → ``ExecutionContext``), it never computes it. Without this thread the depth
+    guard in ``run_trigger_workflow`` reads a permanently-``0`` counter and a real
+    trigger chain mints unboundedly.
+    """
+    # ═══ JOIN POINT ═════════════════════════════════════════════════════════
+    # A4 (STABILIZATION.md): reject BEFORE any WorkflowRun is minted when the
+    # configured model provider is not usable right now (e.g. an expired
+    # Bedrock bearer token) — otherwise every agent independently discovers the
+    # same dead credential, each burning its own model-call round-trip before
+    # the run is visibly failed. Cheapest-first check; see
+    # app.agents.model_factory.preflight_check_provider's docstring for why
+    # only the Bedrock bearer-token path is checked here.
+    from app.agents.model_factory import preflight_check_provider
+
+    _preflight_ok, _preflight_message = preflight_check_provider()
+    if not _preflight_ok:
+        raise _reject(
+            "model_provider_unavailable",
+            _preflight_message,
+            http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    # `compiled` is only non-None for Case 3 (USER_WORKFLOW_MANIFEST) —
+    # CompiledWorkflow.steps is already FLAT (the compiler flattens the tree;
+    # parent/child is encoded per-step via `dispatched_by`, not nesting), so
+    # counting it needs no recursion.
+
+    # ── Task 9.3: duplicate-context guard ────────────────────────────────────
+    # A launch that carries BOTH an authorized source_workflow_run_id (the v2
+    # chain mechanism) AND a legacy "=== CONTEXT FROM PREVIOUS PIPELINE ==="
+    # block in the message body has the block stripped server-side.
+    #
+    # This must be server-side: an older frontend may still send the block after
+    # the v2 upgrade, so we cannot trust the client to omit it.  The strip is
+    # recorded as a `legacy_context_block_stripped` provenance audit row so the
+    # event is auditable (Requirement 13 AC 10 / Requirement 21 AC 10).
+    #
+    # Task 11.8 (Req 21 AC 9): mixed-deploy — "Older FE + new BE" case.
+    # An older frontend that still assembles the context block will have it
+    # stripped here so the two delivery mechanisms are never combined.  The
+    # `chain_v2_accepted` flag in the response (added below) is NOT present for
+    # a launch that had no source_workflow_run_id, so an older FE that never
+    # sent one will simply not see the field — a safe no-op for legacy launches.
+    #
+    # The guard fires when the ORIGINAL REQUEST carried a source_workflow_run_id
+    # (v2 chain edge present in the request body).  Use request_source_workflow_run_id
+    # (the raw body value) so the strip fires even when the admission gate has
+    # zeroed out source_workflow_run_id (e.g. declaration_gate → admitted=False).
+    # A plain legacy run that only has the context block keeps its content intact,
+    # since the block IS its chain mechanism.
+    _LEGACY_CONTEXT_MARKER = "=== CONTEXT FROM PREVIOUS PIPELINE"
+    # Resolve which source id to use for the strip check: prefer the original
+    # request value, fall back to the admitted id (covers non-HTTP callers that
+    # pass only source_workflow_run_id).
+    _strip_trigger_id = request_source_workflow_run_id or source_workflow_run_id
+    if _strip_trigger_id and content and _LEGACY_CONTEXT_MARKER in content:
+        _stripped_content = content.split(_LEGACY_CONTEXT_MARKER)[0].rstrip()
+        logger.info(
+            "_launch_run_core: stripped legacy context block from chained launch "
+            "strip_trigger_id=%s (Requirement 13 AC 10)",
+            _strip_trigger_id,
+        )
+        # Record the strip as a best-effort provenance audit row.  A failure here
+        # must never abort the launch — the strip itself has already happened.
+        _strip_db = _get_db()
+        try:
+            from app.models.run_provenance_audit import RunProvenanceAudit as _PA  # noqa: PLC0415
+
+            _strip_row = _PA(
+                owner_id=user.id,
+                workspace_id=workspace_id_override or "",
+                run_id="pending",  # run not yet minted — updated below after mint
+                operation="legacy_context_block_stripped",
+                source_ref=_strip_trigger_id,
+                outcome="stripped",
+            )
+            _strip_db.add(_strip_row)
+            _strip_db.commit()
+            _strip_db.refresh(_strip_row)
+            _pending_strip_audit_id: str | None = _strip_row.id
+        except Exception:  # noqa: BLE001
+            _pending_strip_audit_id = None
+            try:
+                _strip_db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            _strip_db.close()
+        content = _stripped_content if _stripped_content else content
+    else:
+        _pending_strip_audit_id = None
+
+    agent_count = len(compiled.steps) if compiled is not None else len(agents)
+    pipeline_run_id = str(_uuid.uuid4())
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[pipeline_run_id] = cancel_event
+    workflow_run_id = None
+    db = _get_db()
+    try:
+        # KAN-116 (Bug 2): only set parent_run_id for REVISION pipelines (type ends in
+        # "_revision"). Chained pipelines (different base type) must NOT inherit parent_run_id
+        # — that would place them in the source workflow's revision family (BFS in
+        # _owned_family_members has no type filter). A chain is NOT a revision; chained runs
+        # should appear as SEPARATE entries in history, never as vN of the source family.
+        # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
+        parent_run_id = (
+            parent_run_id_override
+            if parent_run_id_override is not None
+            else (
+                _resolve_owned_parent_run_id(db, source_workflow_run_id, user.id)
+                if pipeline_type.endswith("_revision")
+                else None
+            )
+        )
+        workflow_run = WorkflowRun(
+            id=pipeline_run_id,
+            user_id=user.id,
+            title=_clean_run_title(content, pipeline_type),
+            type=pipeline_type,
+            status="running",
+            input=content or f"Run {pipeline_type} pipeline",
+            agent_count=agent_count,
+            session_id=user.id,
+            parent_run_id=parent_run_id,
+            owner_id=owner_id_override,
+            workspace_id=workspace_id_override,
+            selections_json=selections,
+            # KAN-120: persist the launch-time od_context so resume_run can
+            # reconstruct it without a template_id round-trip (the template
+            # body is large; re-loading from disk at resume is the alternative
+            # but requires storing template_id separately). od_context is None
+            # for non-OD runs → od_context_json stays NULL (INV-3 parity).
+            od_context_json=od_context,
+            # Persist the per-run gate selection (migration 0031) for the same
+            # reason as the two above: resume_run rebuilds the context from this
+            # row. Without it a gate that exists only via this override vanishes
+            # on restart and a pending redo is silently dropped. None (the
+            # "use static AGENT.md gates" default) stays NULL.
+            gate_agent_ids_json=gate_agent_ids,
+            # Migration 0040 — resume fidelity: the raw manifest a composed run
+            # executes (None for registry/file pipelines). resume_run recompiles
+            # this so a restart never substitutes the generic `custom` roster.
+            manifest_json=manifest_json,
+            # Requirement 22 AC1/AC2: write source_run_id for chained launches.
+            # source_workflow_run_id is the owner-validated chain source passed in
+            # the request body (LaunchCommand.source_workflow_run_id).  For a
+            # non-revision chained pipeline, parent_run_id is None and this is the
+            # sole lineage pointer — _find_chain_root walks it to locate the shared
+            # sandbox.  None for every ordinary (non-chained) launch → no behaviour
+            # change on existing runs (INV-3 parity).  Revision runs routed through
+            # _mint_revision_row write source_run_id there; those arriving via
+            # _launch_run_core directly (e.g. run_trigger_workflow) carry
+            # source_workflow_run_id=None so this field stays NULL as expected.
+            source_run_id=source_workflow_run_id or None,
+        )
+        db.add(workflow_run)
+        db.commit()
+        db.refresh(workflow_run)
+        workflow_run_id = workflow_run.id
+        # ── Task 6.5: write chain_source_selected audit row in the same session ──
+        # Scoped to the RECEIVING run (workflow_run.id), not the source.  This is
+        # what makes Requirement 19 AC 6's forward direction answerable: "which ref
+        # fed this run?" is answerable from the receiving run's own audit row.
+        # Best-effort — a failure must never abort the mint.
+        if source_workflow_run_id and chain_selection is not None:
+            try:
+                from app.models.run_provenance_audit import RunProvenanceAudit  # noqa: PLC0415
+
+                _audit_ref = (
+                    getattr(chain_selection, "ref", None) or source_workflow_run_id
+                )
+                _audit_row = RunProvenanceAudit(
+                    owner_id=user.id,
+                    workspace_id=workflow_run.workspace_id or "",
+                    run_id=workflow_run.id,
+                    operation="chain_source_selected",
+                    source_ref=_audit_ref,
+                    outcome=getattr(chain_selection, "reason_class", "selected"),
+                )
+                db.add(_audit_row)
+                db.commit()
+            except Exception:  # noqa: BLE001 — best-effort; must never abort the mint
+                try:
+                    db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                logger.warning(
+                    "_launch_run_core: failed to write chain_source_selected audit "
+                    "run_id=%s source=%s",
+                    workflow_run.id,
+                    source_workflow_run_id,
+                )
+        # ── Task 9.3: back-fill run_id on the pending strip audit row ────────────
+        # The audit row was written before the mint with run_id="pending"; update
+        # it now that we have the real run id.  Best-effort — never aborts the mint.
+        if _pending_strip_audit_id is not None:
+            _upd_db = _get_db()
+            try:
+                from app.models.run_provenance_audit import RunProvenanceAudit as _PA2  # noqa: PLC0415
+
+                _upd_db.query(_PA2).filter(_PA2.id == _pending_strip_audit_id).update(
+                    {_PA2.run_id: workflow_run.id},
+                    synchronize_session=False,
+                )
+                _upd_db.commit()
+            except Exception:  # noqa: BLE001
+                try:
+                    _upd_db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                logger.warning(
+                    "_launch_run_core: failed to backfill strip audit row %s for run %s",
+                    _pending_strip_audit_id,
+                    workflow_run.id,
+                )
+            finally:
+                _upd_db.close()
+    finally:
+        db.close()
+
+    # ── UPLD-09: mint workspace BEFORE ingest_staged_uploads so _persist_documents
+    #    receives non-None workspace_id and can write the durable mirror. Otherwise
+    #    uploads live only in sandbox and are lost on wiped-sandbox resume (RESUME-12).
+    #    The engine receives workspace_id_override and reuses it (spec 014 R-15) rather
+    #    than minting fresh, so early creation does not orphan a workspace row (INV-3).
+    minted_workspace_id = workspace_id_override
+    if not workspace_id_override:
+        from agents.authz import ScopedStore
+
+        scoped_store = ScopedStore(owner_id=user.id)
+        try:
+            minted_workspace_id = await scoped_store.create_workspace(pipeline_run_id)
+            scoped_store._workspace_id = minted_workspace_id
+            try:
+                await scoped_store.set_run_scope(
+                    pipeline_run_id, user.id, minted_workspace_id
+                )
+            except Exception as _stamp_exc:  # noqa: BLE001 — DB-only degrade
+                from sqlalchemy.exc import SQLAlchemyError
+
+                if not isinstance(_stamp_exc, SQLAlchemyError):
+                    raise
+                logger.warning(
+                    "_launch_run_core(): workspace scope stamping failed for %s "
+                    "(%s) — proceeding",
+                    pipeline_run_id,
+                    _stamp_exc,
+                )
+        except Exception as _ws_exc:  # noqa: BLE001 — DB-only degrade
+            from sqlalchemy.exc import SQLAlchemyError
+
+            if not isinstance(_ws_exc, SQLAlchemyError):
+                raise
+            logger.warning(
+                "_launch_run_core(): workspace creation failed for %s "
+                "(%s) — proceeding with no durable mirror",
+                pipeline_run_id,
+                _ws_exc,
+            )
+
+    # ── UPLD-05: ingest staged documents BEFORE the driver spawns, so the run's
+    #    `.uploads/` (+ sidecars + manifest.json) is complete before any agent's
+    #    first file_info()/read. Best-effort per stage; never fails the launch.
+    if staged_upload_ids:
+        from app.api.run_files import ingest_staged_uploads
+
+        try:
+            await ingest_staged_uploads(
+                user_id=user.id,
+                workspace_id=minted_workspace_id,
+                run_id=pipeline_run_id,
+                stage_ids=staged_upload_ids,
+            )
+        except Exception:  # noqa: BLE001 — an upload problem must not strand the minted run
+            logger.exception("staged upload ingest failed for run %s", pipeline_run_id)
+
+    # TODO: Remove — temporary local-dev hack (see _seed_from_prior_run; paired with
+    # the .latest symlink in RunSandbox._repoint_latest). Seeds a prior run's files
+    # into this sandbox before the driver spawns.
+    _seed_from_prior_run(
+        user_id=user.id, run_id=pipeline_run_id, manifest_json=manifest_json
+    )
+
+    # ── Spawn the WS-agnostic background driver onto the per-run queue ─────────
+    event_queue = _get_or_create_queue(pipeline_run_id)
+    task = asyncio.create_task(
+        _drive_launch_to_queue(
+            workflow_run_id=workflow_run_id,
+            pipeline_run_id=pipeline_run_id,
+            agents=agents,
+            content=content,
+            pipeline_type=pipeline_type,
+            cancel_event=cancel_event,
+            user=user,
+            attached_skills=attached_skills or [],
+            attached_hooks=attached_hooks or [],
+            compiled_override=compiled,
+            od_context=od_context,
+            validated_images=validated_images,
+            gate_agent_ids=gate_agent_ids,
+            parent_run_id=parent_run_id,
+            model_overrides=model_overrides,
+            selections=selections,
+            event_queue=event_queue,
+            trigger_depth=trigger_depth,
+            workspace_id_override=minted_workspace_id,
+            # Task 6.5: thread the chain lineage onto the driver so the engine
+            # can assign them to ExecutionContext and install_chain_context
+            # (task 6.6) can consume them before agent 1.  None for every
+            # non-chained run ⇒ DORMANT / byte-identical (INV-3 parity).
+            chain_source_run_id=source_workflow_run_id or None,
+            chain_selection=chain_selection,
+        )
+    )
+    _PIPELINE_TASKS[pipeline_run_id] = task
+
+    # Task 11.8 (sandbox-git-versioning-v2, Req 21 AC 9): mixed-deploy signal.
+    # Include `chain_v2_accepted: true` when the v2 chain mechanism processed a
+    # `source_workflow_run_id`.  A new frontend against an older backend will not
+    # see this field and can detect the mismatch to surface a
+    # `chain_context_unavailable` notice rather than silently launching without
+    # provenance (Requirement 21 AC 9 / Requirement 20 AC 4).
+    response_body: dict[str, object] = {"run_id": pipeline_run_id}
+    if source_workflow_run_id:
+        response_body["chain_v2_accepted"] = True
+    return response_body
+
+
 @router.post("")
 async def launch_run(
     body: LaunchCommand,
@@ -2598,12 +3232,14 @@ async def launch_run(
         allowed_custom_agent_ids,
         get_pipeline_agents,
     )
+    from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX
     from app.api.user_workflows import _owned
 
     # ── Detect which of the 3 launch shapes this request is (see LaunchSource) ─
     launch_source = LaunchSource.FILE_PIPELINE
     user_workflow_row = None
     compiled = None  # set only in the USER_WORKFLOW_MANIFEST branch (TODO #3)
+    persisted_manifest = None  # migration 0040 — set alongside `compiled`
     if body.user_workflow_id is not None:
         # Row is the sole source of truth from here on — any client-sent
         # agent_ids/pipeline_type gets overwritten below (TODO #2/#3), never merged.
@@ -2635,6 +3271,9 @@ async def launch_run(
             launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
         else:
             launch_source = LaunchSource.USER_WORKFLOW_FLAT
+    elif body.manifest and "steps" in body.manifest:
+        # An unsaved composition sent inline — same shape as Case 3, no row behind it.
+        launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
 
     if launch_source is LaunchSource.FILE_PIPELINE:
         # Case 1 — unchanged, nothing to do here.
@@ -2673,8 +3312,18 @@ async def launch_run(
         )
         from agents.workflows.compiler import CompilerError
 
-        raw_manifest = dict(user_workflow_row.manifest_json)
-        raw_manifest.setdefault("id", f"user-workflow-{user_workflow_row.id}")
+        # Saved row, or an unsaved composition sent inline. Same shape either way;
+        # they differ only in provenance, which is what picks the trust level below.
+        _inline = user_workflow_row is None
+        raw_manifest = dict(
+            body.manifest if _inline else user_workflow_row.manifest_json
+        )
+        raw_manifest.setdefault(
+            "id",
+            "user-workflow-inline"
+            if _inline
+            else f"user-workflow-{user_workflow_row.id}",
+        )
         # Request body (this run's live Composer settings) wins over the row's
         # last-saved manifest_json, which in turn wins over the hardcoded
         # fallback — so Run once reflects whatever the Workflow-tab rail shows
@@ -2696,10 +3345,16 @@ async def launch_run(
 
         try:
             parsed_manifest = build_manifest_from_dict(
-                raw_manifest, f"workflow:{user_workflow_row.id}"
+                raw_manifest,
+                "workflow:inline" if _inline else f"workflow:{user_workflow_row.id}",
             )
+            # trust="user" for an inline manifest — the client authored it this
+            # request, so it gets the compiler's most restrictive level. A saved row
+            # keeps trust="db" (unchanged), since it was already validated on save.
             compiled = _WORKFLOW_COMPILER.compile(
-                parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+                parsed_manifest,
+                _CAPABILITY_REGISTRY,
+                trust="user" if _inline else "db",
             )
         except (ManifestValidationError, CompilerError) as exc:
             raise _reject(
@@ -2708,10 +3363,67 @@ async def launch_run(
                 http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        body.pipeline_type = user_workflow_row.base_pipeline_type
+        # Persisted on the run row (migration 0040) so resume_run can recompile
+        # the SAME workflow. `trust` rides along so the resume recompile is
+        # exactly as restrictive as the launch compile.
+        persisted_manifest = dict(raw_manifest)
+        persisted_manifest["_trust"] = "user" if _inline else "db"
+
+        # A saved row dictates its own base type; an inline manifest keeps whatever
+        # the client asked for (the Composer sends its fixed-at-entry base, "custom").
+        if not _inline:
+            body.pipeline_type = user_workflow_row.base_pipeline_type
 
     pipeline_type = body.pipeline_type
     content = body.message
+
+    # ── Task 9.3 / Requirement 21 AC 10: duplicate-context guard (endpoint level)
+    # An older frontend may still send BOTH a `source_workflow_run_id` (v2 chain
+    # mechanism) AND a legacy "=== CONTEXT FROM PREVIOUS PIPELINE ===" block in
+    # the message.  Strip the block here — before the admission gate — so the
+    # two delivery mechanisms are never combined regardless of whether the workflow
+    # declares chaining.  The admission gate may zero out `source_workflow_run_id`
+    # (declaration_gate) but the duplicate-context was still sent by the client.
+    #
+    # Guard fires ONLY when `body.source_workflow_run_id` is set (v2 edge present
+    # in the request).  A plain legacy run keeps its context block intact.
+    _DUPLICATE_CTX_MARKER = "=== CONTEXT FROM PREVIOUS PIPELINE"
+    _pending_endpoint_strip_audit_id: str | None = None
+    if body.source_workflow_run_id and content and _DUPLICATE_CTX_MARKER in content:
+        _stripped = content.split(_DUPLICATE_CTX_MARKER)[0].rstrip()
+        logger.info(
+            "create_run: stripped legacy context block (duplicate-context guard) "
+            "source_workflow_run_id=%s",
+            body.source_workflow_run_id,
+        )
+        # Persist the strip audit row best-effort — never aborts the launch.
+        _ep_strip_db = _get_db()
+        try:
+            from app.models.run_provenance_audit import RunProvenanceAudit as _EPA  # noqa: PLC0415
+
+            _ep_strip_row = _EPA(
+                owner_id=current_user.id,
+                workspace_id=getattr(body, "workspace_id", None) or "",
+                run_id="pending",  # backfilled after mint in _launch_run_core
+                operation="legacy_context_block_stripped",
+                source_ref=body.source_workflow_run_id,
+                outcome="stripped",
+            )
+            _ep_strip_db.add(_ep_strip_row)
+            _ep_strip_db.commit()
+            _ep_strip_db.refresh(_ep_strip_row)
+            _pending_endpoint_strip_audit_id = _ep_strip_row.id
+        except Exception:  # noqa: BLE001
+            _pending_endpoint_strip_audit_id = None
+            try:
+                _ep_strip_db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            _ep_strip_db.close()
+        # Use the stripped content going forward; fallback to original if strip
+        # produced an empty string (edge case: message IS the context block).
+        content = _stripped if _stripped else content
 
     # ── Empty-brief gate (ISS-155) ─────────────────────────────────────────────
     # A run with no brief has nothing to build, and the spend is committed HERE —
@@ -2736,7 +3448,7 @@ async def launch_run(
             "make sure the source run's context could be loaded.",
         )
 
-    base_pipeline_type, od_context = _resolve_launch_agents(body)
+    base_pipeline_type, od_context = _resolve_launch_agents(body, compiled)
 
     # ── Entitlement gate (tier) — KAN-161 / ISS-055 + P1 REST tier-gate fix ────
     # MERGE NOTE: both branches added a launch-time tier gate here, calling the
@@ -2766,9 +3478,27 @@ async def launch_run(
             allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
             rejected = [aid for aid in agent_ids if aid not in allowed_ids]
             if rejected:
+                # ISS-182: a rejected `custom-agent:<instance_id>` was never typed
+                # by the caller — it is a blank custom-agent step that an override
+                # saved before FIX-306 stopped the composer offering the template.
+                # It has no AGENT.md, so it can never reach this allow-list, and
+                # FIX-306 repaired only NEW saves: existing rows still 400 on every
+                # launch. Name the step and where to fix it instead of a bare id
+                # dump, which reads as "you sent something malformed".
+                _stale = [
+                    aid for aid in rejected if aid.startswith(CUSTOM_AGENT_PREFIX)
+                ]
+                _error = f"Invalid agent_ids for {pipeline_type!r}: {rejected}"
+                if _stale:
+                    _error += (
+                        f". {_stale} came from a blank custom-agent step in your "
+                        f"saved override of {base_pipeline_type!r} — it has no agent "
+                        "file to run. Open the workflow in Advanced, remove or "
+                        "replace that step, and save."
+                    )
                 raise _reject(
                     "invalid_agent_ids",
-                    f"Invalid agent_ids for {pipeline_type!r}: {rejected}",
+                    _error,
                     rejected_agent_ids=rejected,
                 )
             agents = [load_agent_spec(aid) for aid in agent_ids]
@@ -2792,6 +3522,28 @@ async def launch_run(
                     str(exc),
                     http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
+        elif base_pipeline_type == "custom":
+            # ISS-234: `custom` is the ONE type whose roster IS the caller's
+            # composition, so an absent/empty `agent_ids` means "nothing
+            # selected" — never "use this type's default membership". The `else`
+            # below cannot tell the two apart (`None` and `[]` are equally
+            # falsy), and resolving them the same way silently substituted the
+            # whole 9-agent custom pool (`custom/workflow.yaml`'s own steps) for
+            # a composition the caller never assembled — a real Bedrock spend on
+            # an unrelated workflow, with no UI indication it would happen.
+            #
+            # Every 0-agent composer state routes here: the dead-link
+            # `/workflows/<bad-id>/canvas` (ISS-234), any other swallowed
+            # `getWorkflowDetail` failure on a REAL workflow (ISS-334), a
+            # brand-new "Compose a custom workflow" canvas (ISS-333), and a
+            # legacy USER_WORKFLOW_FLAT row with no `agents` (pre-WR-02). Deny
+            # PRE-MINT, like every other ingress denial here — no WorkflowRun
+            # row, no driver, no spend.
+            raise _reject(
+                "no_agents_selected",
+                "This workflow has no agents. Add at least one agent before running it.",
+                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
         else:
             agents = get_pipeline_agents(base_pipeline_type)
             if not agents and base_pipeline_type == "ppt":
@@ -2803,15 +3555,83 @@ async def launch_run(
             # legitimately returns [] for them. Fall back to the compiled plan —
             # the same single source of roster truth the engine now uses — before
             # rejecting as no_agents.
-            if not agents:
-                from agents.execution_engine.engine import compile_for_run
+            #
+            # ALSO taken when the registry is INCOMPLETE rather than empty. It is
+            # derived from each AGENT.md's own `pipeline_type`, which is a single
+            # value, so a workflow REUSING an agent from another pipeline gets a
+            # partial roster: ppt_v2 reuses ppt's brief-analyst and composer, and
+            # `get_pipeline_agents("ppt_v2")` returns only the two authored for it.
+            # The run then minted with agent_count=2 for a four-step plan, and the
+            # progress chip read "0/2" for a run that executes four.
+            from agents.execution_engine.engine import (
+                compile_for_run,
+                get_execution_engine,
+            )
 
-                try:
-                    _plan = compile_for_run(base_pipeline_type)
-                except Exception:
-                    _plan = None
-                if _plan is not None and _plan.steps:
-                    agents = [load_agent_spec(s.agent_id) for s in _plan.steps]
+            try:
+                _plan = compile_for_run(base_pipeline_type)
+            except Exception:
+                _plan = None
+            if _plan is not None and _plan.steps and len(agents) < len(_plan.steps):
+                agents = get_execution_engine()._specs_from_plan(_plan.steps)
+
+        # ── Spec 016: this caller's saved override of a BUILT-IN ───────────────
+        # Stays inside FILE_PIPELINE — no fourth LaunchSource (ADR-0020's locked
+        # constraint), and correctly so: the file manifest still supplies the
+        # plan. Only `steps` is overlaid, exactly as `_apply_selections` already
+        # overlays per-step levers within this same shape.
+        #
+        # `resolve_override` returns None unless the caller saved one AND left it
+        # enabled, so for everyone else this block is a single indexed query and
+        # a `None` check — the launch is byte-identical.
+        #
+        # Both `compiled` and `agents` are set together. Setting only `compiled`
+        # would leave the roster as the FILE's agents while the plan carried the
+        # override's steps, and the two would disagree about what is running.
+        # Own session + snapshot, mirroring the user_workflow_row block above:
+        # `close()` detaches the instance, so the id and the steps are read out
+        # while the session is open rather than off a detached ORM object.
+        from app.api._workflow_override import (
+            override_steps as _override_steps,
+            resolve_override as _resolve_override,
+        )
+
+        _ov_db = _get_db()
+        try:
+            _ov_row = _resolve_override(_ov_db, current_user, base_pipeline_type)
+            _ov_steps = _override_steps(_ov_row)
+            _ov_id = _ov_row.id if _ov_row is not None else None
+        finally:
+            _ov_db.close()
+
+        if _ov_steps:
+            from agents.execution_engine.engine import (
+                _CAPABILITY_REGISTRY,
+                compile_for_run,
+                get_execution_engine,
+            )
+            from agents.execution_engine.overrides import merge_override_steps
+
+            try:
+                _base_plan = compile_for_run(base_pipeline_type)
+            except Exception:
+                _base_plan = None
+            if _base_plan is not None:
+                _merged = merge_override_steps(
+                    _base_plan, _ov_steps, _CAPABILITY_REGISTRY
+                )
+                # merge_override_steps returns the SAME object when it refused the
+                # override (malformed row, a not-user-allowed capability). Only
+                # switch the run over when it actually applied.
+                if _merged is not _base_plan and _merged.steps:
+                    compiled = _merged
+                    agents = get_execution_engine()._specs_from_plan(_merged.steps)
+                    logger.info(
+                        "override: run launching %s from user %s's saved override %s",
+                        base_pipeline_type,
+                        current_user.id,
+                        _ov_id,
+                    )
     else:
         # `agents` stays None on purpose — Case 3 has no flat agent list.
         # `compiled` (set above) carries the roster instead; it reaches
@@ -2913,90 +3733,118 @@ async def launch_run(
             raise _reject("invalid_image_input", _image_error)
         validated_images = images
 
-    # ── Mint the WorkflowRun (mirror websocket.py:1912-1966) ───────────────────
-    # ═══ JOIN POINT ═════════════════════════════════════════════════════════
-    # All 3 LaunchSource branches reconverge HERE.
-    # `compiled` is only non-None for Case 3 (set in the USER_WORKFLOW_MANIFEST
-    # branch, TODO #3) — CompiledWorkflow.steps is already FLAT (the compiler
-    # flattens the tree; parent/child is encoded per-step via `dispatched_by`,
-    # not nesting), so counting it needs no recursion.
-    agent_count = len(compiled.steps) if compiled is not None else len(agents)
-    pipeline_run_id = str(_uuid.uuid4())
-    cancel_event = asyncio.Event()
-    _CANCEL_EVENTS[pipeline_run_id] = cancel_event
-    workflow_run_id = None
-    db = _get_db()
+    # ── Pre-mint chain-launch admission gate (task 6.3 / Requirement 6, 7, 2) ─
+    # Runs BEFORE _launch_run_core mints the WorkflowRun row so that a refused
+    # chain never leaves a persisted source_run_id edge (Requirement 6 AC 16).
+    #
+    # When chains_from=False or source_workflow_run_id is None the gate returns
+    # ChainAdmission(active=False, refusal_reason="declaration_gate") immediately
+    # with ZERO cross-run reads — the normal fast-path for every non-chained launch.
+    #
+    # A 404 from the IDOR check propagates directly (HTTPException is not caught).
+    # Any other ChainRefused with a non-degradable reason raises HTTPException(422)
+    # from inside admit_chain_launch.
+    _chain_db = _get_db()
     try:
-        # KAN-116 (Bug 2): only set parent_run_id for REVISION pipelines (type ends in
-        # "_revision"). Chained pipelines (different base type) must NOT inherit parent_run_id
-        # — that would place them in the source workflow's revision family (BFS in
-        # _owned_family_members has no type filter). A chain is NOT a revision; chained runs
-        # should appear as SEPARATE entries in history, never as vN of the source family.
-        # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
-        parent_run_id = (
-            _resolve_owned_parent_run_id(
-                db, body.source_workflow_run_id, current_user.id
-            )
-            if pipeline_type.endswith("_revision")
-            else None
-        )
-        workflow_run = WorkflowRun(
-            id=pipeline_run_id,
-            user_id=current_user.id,
-            title=_clean_run_title(content, pipeline_type),
-            type=pipeline_type,
-            status="running",
-            input=content or f"Run {pipeline_type} pipeline",
-            agent_count=agent_count,
-            session_id=current_user.id,
-            parent_run_id=parent_run_id,
-            selections_json=body.selections,
-            # KAN-120: persist the launch-time od_context so resume_run can
-            # reconstruct it without a template_id round-trip (the template
-            # body is large; re-loading from disk at resume is the alternative
-            # but requires storing template_id separately). od_context is None
-            # for non-OD runs → od_context_json stays NULL (INV-3 parity).
-            od_context_json=od_context,
-            # Persist the per-run gate selection (migration 0031) for the same
-            # reason as the two above: resume_run rebuilds the context from this
-            # row. Without it a gate that exists only via this override vanishes
-            # on restart and a pending redo is silently dropped. None (the
-            # "use static AGENT.md gates" default) stays NULL.
-            gate_agent_ids_json=body.gate_agent_ids,
-        )
-        db.add(workflow_run)
-        db.commit()
-        db.refresh(workflow_run)
-        workflow_run_id = workflow_run.id
-    finally:
-        db.close()
-
-    # ── Spawn the WS-agnostic background driver onto the per-run queue ─────────
-    event_queue = _get_or_create_queue(pipeline_run_id)
-    task = asyncio.create_task(
-        _drive_launch_to_queue(
-            workflow_run_id=workflow_run_id,
-            pipeline_run_id=pipeline_run_id,
-            agents=agents,
-            content=content,
+        _chain_admission = admit_chain_launch(
+            _chain_db,
+            compiled,
+            body.source_workflow_run_id,
+            current_user,
             pipeline_type=pipeline_type,
-            cancel_event=cancel_event,
-            user=current_user,
-            attached_skills=body.attached_skills or [],
-            attached_hooks=body.attached_hooks or [],
-            compiled_override=compiled,
-            od_context=od_context,
-            validated_images=validated_images,
-            gate_agent_ids=body.gate_agent_ids,
-            parent_run_id=parent_run_id,
-            model_overrides=model_overrides,
-            selections=body.selections,
-            event_queue=event_queue,
         )
-    )
-    _PIPELINE_TASKS[pipeline_run_id] = task
+    finally:
+        _chain_db.close()
+    # ── task 6.4: Route the admission result to _launch_run_core ────────────
+    #
+    # admit_chain_launch already raised HTTPException(422) for every non-
+    # degradable refusal (source_running, source_not_finalized,
+    # source_non_chainable, source_provenance_conflict) — and for a refused
+    # source_payload_missing when chain_policy != "degrade" — so execution
+    # only reaches here for three outcomes:
+    #
+    #   a) declaration_gate (active=False, source_id=None):
+    #      The workflow does not declare chaining, or no source_run_id was
+    #      supplied.  Zero cross-run reads were done.  Pass source_id=None so
+    #      the minted row has source_run_id=NULL — a stray body.source_workflow_run_id
+    #      MUST NOT leak into the row (Requirement 6 AC 16).
+    #
+    #   b) admitted with selection (active=True, source_id=<id>, selection≠None):
+    #      Full validated payload.  Mint with the edge (source_run_id=source_id).
+    #      The in-run provider (task 6.6) copies the bytes into .context/; the
+    #      chain_source_selected audit row and ExecutionContext.chain_selection are
+    #      both wired by task 6.5.
+    #
+    #   c) admitted under degrade (active=True, source_id=<id>, selection=None):
+    #      source_payload_missing + chain_policy="degrade".  Mint WITH the edge so
+    #      the lineage is durable; the in-run provider will emit
+    #      chain_context_unavailable (Requirement 20 AC 4).
+    #
+    # NOTE: _chain_admission.source_id, not body.source_workflow_run_id, is used
+    # so declaration-gated launches always produce source_run_id=NULL even when
+    # the request body carried a non-null source_workflow_run_id.
+    _admitted_source_id: str | None = (
+        _chain_admission.source_id
+    )  # None for declaration_gate
 
-    return {"run_id": pipeline_run_id}
+    # ── Mint the WorkflowRun + spawn the driver (mirror websocket.py:1912-1966) ─
+    # ═══ JOIN POINT ═════════════════════════════════════════════════════════
+    # All 3 LaunchSource branches reconverge HERE — delegates to the shared core
+    # (also callable by a future kernel delegate; see _launch_run_core's docstring).
+    _launch_result = await _launch_run_core(
+        content=content,
+        pipeline_type=pipeline_type,
+        agents=agents,
+        compiled=compiled,
+        od_context=od_context,
+        validated_images=validated_images,
+        model_overrides=model_overrides,
+        user=current_user,
+        source_workflow_run_id=_admitted_source_id,
+        # Task 6.5: pass the pre-validated selection so _launch_run_core can
+        # write the chain_source_selected audit row and thread the selection
+        # onto ExecutionContext for install_chain_context (task 6.6).
+        chain_selection=_chain_admission.selection,
+        selections=body.selections,
+        gate_agent_ids=body.gate_agent_ids,
+        attached_skills=body.attached_skills,
+        attached_hooks=body.attached_hooks,
+        staged_upload_ids=body.staged_upload_ids,
+        manifest_json=persisted_manifest,
+        # Task 9.3 / Requirement 21 AC 10: pass the ORIGINAL request source id
+        # so the inner duplicate-context strip guard fires even when the
+        # admission gate (declaration_gate) zeroed out _admitted_source_id.
+        request_source_workflow_run_id=body.source_workflow_run_id,
+    )
+
+    # ── Task 9.3: back-fill run_id on the endpoint-level strip audit row ─────
+    # The audit row was written with run_id="pending" before the mint; update it
+    # now that we have the real run id from the launch result.  Best-effort.
+    if _pending_endpoint_strip_audit_id is not None:
+        _minted_run_id = (
+            _launch_result.get("run_id") if isinstance(_launch_result, dict) else None
+        )
+        if _minted_run_id:
+            _ep_upd_db = _get_db()
+            try:
+                from app.models.run_provenance_audit import RunProvenanceAudit as _EPA2  # noqa: PLC0415
+
+                _ep_upd_db.query(_EPA2).filter(
+                    _EPA2.id == _pending_endpoint_strip_audit_id
+                ).update(
+                    {_EPA2.run_id: _minted_run_id},
+                    synchronize_session=False,
+                )
+                _ep_upd_db.commit()
+            except Exception:  # noqa: BLE001
+                try:
+                    _ep_upd_db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+            finally:
+                _ep_upd_db.close()
+
+    return _launch_result
 
 
 def _apply_terminal_output_columns(
@@ -3029,6 +3877,10 @@ def _apply_terminal_output_columns(
     final_output = ""
     deliverable_mimetype: str | None = None
     deliverable_filename: str | None = None
+    # ISS-418: pipeline_complete-level token totals (include aux spend — see below).
+    _pc_total_input: int | None = None
+    _pc_total_output: int | None = None
+    _pc_total_tokens: int | None = None
     for utype, data in events:
         if not isinstance(data, dict):
             data = {}
@@ -3101,6 +3953,18 @@ def _apply_terminal_output_columns(
             final_output = data.get("final_output", "")
             deliverable_mimetype = data.get("deliverable_mimetype")
             deliverable_filename = data.get("deliverable_filename")
+            # ISS-418: the engine folds aux-token spend (SmartPlanner, clarify
+            # one-shot, validation fix-loop sub-agent) into the pipeline_complete
+            # event's own total_input_tokens / total_output_tokens fields via
+            # aux_token_usage (engine.py:3712-3757). Those tokens NEVER appear in
+            # any agent_complete event, so re-summing agent_outputs_collector below
+            # structurally undercounts every run that used those code paths.
+            # Capture the event-level totals here; they will override the
+            # agent_outputs_collector re-sum when they are higher (which they
+            # always are when aux spend exists — never lower by construction).
+            _pc_total_input = data.get("total_input_tokens")
+            _pc_total_output = data.get("total_output_tokens")
+            _pc_total_tokens = data.get("total_tokens")
     if final_output:
         wr.output = final_output
     if deliverable_mimetype is not None:
@@ -3120,6 +3984,18 @@ def _apply_terminal_output_columns(
     total_cache_write = sum(
         a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector
     )
+    # ISS-418: prefer the pipeline_complete event's own totals when they are larger
+    # (aux tokens are already folded in there by the engine). The event-level totals
+    # are absent on durable tails from before the engine emitted them — fall back to
+    # the agent_outputs re-sum in that case (legacy behaviour, safe degrade).
+    try:
+        _pc_in = int(_pc_total_input or 0)
+        _pc_out = int(_pc_total_output or 0)
+        if _pc_in + _pc_out > total_input + total_output:
+            total_input = _pc_in
+            total_output = _pc_out
+    except (TypeError, ValueError):
+        pass  # bad/missing event fields — keep agent_outputs re-sum
     if total_input + total_output > 0:
         wr.token_usage = json.dumps(
             {
@@ -3262,11 +4138,21 @@ async def _drive_launch_to_queue(
     selections: dict | None,
     event_queue: asyncio.Queue,
     compiled_override: "CompiledWorkflow | None" = None,
+    trigger_depth: int = 0,
+    workspace_id_override: str | None = None,
+    chain_source_run_id: str | None = None,
+    chain_selection: object | None = None,
 ) -> None:
     """Run the engine and push every event into the per-run queue. Never touches a
     socket — the SSE stream drains the same queue (and the engine's durable
     run_events sink persists independently). A sanctioned duplication of the WS
-    ``_run_pipeline_to_queue`` closure body (websocket.py:2025-2279)."""
+    ``_run_pipeline_to_queue`` closure body (websocket.py:2025-2279).
+
+    ``trigger_depth`` (spec 014 R-18/R-19) / ``workspace_id_override`` (R-15):
+    forwarded verbatim to ``engine.execute`` so the new run's ``ExecutionContext``
+    carries the chain depth AND the workspace its minting parent inherited to it.
+    ``0`` / ``None`` for every non-triggered run — the engine's existing
+    mint-a-fresh-workspace default is unchanged."""
     from agents.execution_engine.engine import get_execution_engine
 
     engine = get_execution_engine()
@@ -3284,6 +4170,7 @@ async def _drive_launch_to_queue(
     first_agent_error_msg: str | None = None
     pipeline_complete_seen = False
     degraded_failed_agents: list | None = None
+    degraded_reason_msg: str | None = None
     pipeline_cancelled_seen = False
     # CWF-001 D2: track the generic ``error`` event + ``pipeline_failed`` so a run that
     # died at runtime is never persisted "completed". Mirrors the LOCK-B revision twin
@@ -3291,6 +4178,12 @@ async def _drive_launch_to_queue(
     pipeline_error_seen = False
     pipeline_failed_seen = False
     pipeline_error_msg: str | None = None
+    # spec 014 R-13/R-14/R-28: a ``trigger: workflow`` route outcome ends this run with
+    # ``pipeline_diverted`` and NOTHING else — no ``pipeline_complete``, no error. Without
+    # its own seen-flag + ladder branch below, the D2 fail-safe ``else`` would overwrite
+    # the ``"diverted"`` the engine's state_machine.transition already persisted with
+    # ``"failed"`` (AC-05).
+    pipeline_diverted_seen = False
     monotonic_start = time.monotonic()
 
     try:
@@ -3321,6 +4214,21 @@ async def _drive_launch_to_queue(
             # pair at Part C. unregister runs in the engine wrapper's finally — no leak.
             live_ectx_register=register_live_ectx,
             live_ectx_unregister=unregister_live_ectx,
+            # spec 014 R-18/R-19: the trigger-chain depth this run starts at (0 for
+            # every HTTP launch; parent+1 when minted by run_trigger_workflow).
+            trigger_depth=trigger_depth,
+            # spec 014 R-15: execute in the INHERITED workspace when this run was
+            # minted by a cross-workflow trigger, so the engine does not mint a
+            # fresh one over the id already stamped on the WorkflowRun row. None
+            # for every HTTP launch ⇒ unchanged mint-fresh behaviour.
+            workspace_id_override=workspace_id_override,
+            # Task 6.5 (sandbox-git-versioning-v2, Requirement 6/19): thread the
+            # admitted chain source id and pre-validated selection onto the
+            # ExecutionContext so install_chain_context (task 6.6) can byte-copy
+            # the payload into .context/ before agent 1.  None for every
+            # non-chained run ⇒ DORMANT / byte-identical (INV-3 parity).
+            chain_source_run_id=chain_source_run_id,
+            chain_selection=chain_selection,
             # A.4 (Phase 43, DEF-43-03-1): wire the narrator LIVE on the SSE/REST launch path —
             # the engine projects a chat_reply milestone card per generic lifecycle event, draws
             # its seq from the engine's own contiguous allocator (no durable-log gap), and yields
@@ -3349,8 +4257,12 @@ async def _drive_launch_to_queue(
                     degraded_failed_agents = list(
                         update["data"].get("agents_failed", [])
                     )
+                    if degraded_reason_msg is None:
+                        degraded_reason_msg = update["data"].get("degraded_reason")
             elif utype == "pipeline_cancelled":
                 pipeline_cancelled_seen = True
+            elif utype == "pipeline_diverted":
+                pipeline_diverted_seen = True
             elif utype == "error":
                 pipeline_error_seen = True
                 if pipeline_error_msg is None:
@@ -3379,10 +4291,28 @@ async def _drive_launch_to_queue(
                         wr.status = "cancelled"
                         if not wr.completed_at:
                             wr.completed_at = datetime.now(timezone.utc)
+                    elif pipeline_diverted_seen:
+                        # spec 014 R-13/R-14: a diverted run is TERMINAL and clean — it
+                        # handed off to a separate WorkflowRun and deliberately emitted no
+                        # pipeline_complete. Restate the status the engine's
+                        # state_machine.transition(run_id, "diverted") already persisted
+                        # rather than letting the D2 fail-safe below call it "failed".
+                        # Placed above the error/failed tiers on purpose: the divert IS the
+                        # outcome, and no error event can precede it (the engine returns
+                        # immediately after yielding it). completed_at is written by
+                        # _apply_terminal_output_columns below, like every other tier.
+                        wr.status = "diverted"
                     elif degraded_failed_agents is not None:
                         wr.status = "degraded"
-                        wr.error = first_agent_error_msg or (
-                            "degraded: agent(s) failed: "
+                        # [convergence-limit fix] a suppressed R-07 loop_iterations
+                        # abort carries its own ``degraded_reason`` (no agent failed,
+                        # so ``degraded_failed_agents`` is empty) — prefer it over
+                        # the generic agents-failed message so the UI shows the
+                        # honest, specific reason instead of "agent(s) failed: ".
+                        wr.error = (
+                            first_agent_error_msg
+                            or degraded_reason_msg
+                            or "degraded: agent(s) failed: "
                             + ", ".join(degraded_failed_agents)
                         )
                     elif (
@@ -3500,6 +4430,111 @@ class RevisionCommand(BaseModel):
     instruction: str
 
 
+def _revision_chain_root_id(db, run_id: str, user_id: str) -> str:
+    """Resolve the revision root via the canonical ``resolve_revision_root`` resolver.
+
+    Delegates to ``resolve_revision_root`` (runs.py) which walks ``parent_run_id``
+    only (V2-Q1 / Requirement 2 AC 1-2).
+
+    On a ``RevisionRootUnresolved`` outcome (cycle, missing ancestor, cross-owner
+    ancestry, DB error) raises ``HTTPException(404)`` — a generic non-enumerating
+    client error (Requirement 2 AC 11-12) — and logs the diagnostic fields
+    (``visited_count``, ``repeated_node``, ``reason``) server-side without
+    exposing another owner's data (Requirement 2 AC 12).
+
+    Task 3.3: upgraded from a degrading shim to a hard refusal so every route
+    handler that calls this function refuses identically on unresolved roots.
+    """
+    from app.api.runs import (
+        RevisionRootResolved,
+        RevisionRootUnresolved,
+        resolve_revision_root,
+    )
+
+    result = resolve_revision_root(db, run_id, user_id)
+    if isinstance(result, RevisionRootResolved):
+        return result.root_id
+    assert isinstance(result, RevisionRootUnresolved)
+    logger.warning(
+        "run_commands: revision root unresolved for run=%s reason=%s visited=%d repeated=%s"
+        " — refusing request",
+        run_id,
+        result.reason,
+        result.visited_count,
+        result.repeated_node,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Workflow run not found",
+    )
+
+
+def _has_active_chain_revision(db, parent_run_id: str, user_id: str) -> bool:
+    """Return True when a non-terminal revision run already exists anywhere in the
+    same revision family (keyed on the chain root — Requirement 3 AC3).
+
+    Design notes:
+    - Walks ``parent_run_id`` up to the root (OWNED, cycle-safe) to get the
+      family key, then performs a BFS via ``parent_run_id`` down from the root
+      to collect every family member, and finally checks whether any has a
+      non-terminal status.  All in the same DB session passed by the caller.
+    - Owner-scoped throughout: cross-owner rows are treated as walk terminators
+      (T-A-04 / IDOR).
+    - Best-effort: any exception returns False (never blocks a launch due to a
+      DB or code error — Requirement 3 AC2 graceful-degrade).
+    - Only non-terminal statuses (running / planning / clarifying / generating /
+      analyzing / revising / waiting_for_user) count as "active".  A completed,
+      failed, cancelled, degraded, or diverted revision does NOT block a new one.
+    """
+    try:
+        from agents.execution_engine.engine import NON_TERMINAL_RUN_STATUSES
+
+        # ── Step 1: walk parent_run_id UP to the chain root ──────────────────
+        root_id = _revision_chain_root_id(db, parent_run_id, user_id)
+
+        # ── Step 2: BFS DOWN from the root through parent_run_id links to
+        #    collect the full family, then query their statuses in one shot ──
+        visited: set[str] = {root_id}
+        frontier: set[str] = {root_id}
+        while frontier:
+            children = (
+                db.query(WorkflowRun.id)
+                .filter(
+                    WorkflowRun.parent_run_id.in_(frontier),
+                    WorkflowRun.user_id == user_id,
+                )
+                .all()
+            )
+            child_ids = {row.id for row in children} - visited
+            visited |= child_ids
+            frontier = child_ids
+
+        # ── Step 3: check for any non-terminal family member ─────────────────
+        # Exclude the root itself — it is the parent, not a concurrent revision.
+        descendant_ids = visited - {root_id}
+        if not descendant_ids:
+            return False
+
+        active = (
+            db.query(WorkflowRun.id)
+            .filter(
+                WorkflowRun.id.in_(descendant_ids),
+                WorkflowRun.user_id == user_id,
+                WorkflowRun.status.in_(NON_TERMINAL_RUN_STATUSES),
+            )
+            .first()
+        )
+        return active is not None
+    except Exception:  # noqa: BLE001 — best-effort; never block a launch
+        logger.warning(
+            "_has_active_chain_revision: check failed for parent=%s user=%s; "
+            "allowing the revision to proceed",
+            parent_run_id,
+            user_id,
+        )
+        return False
+
+
 def _mint_revision_row(
     db,
     *,
@@ -3523,6 +4558,14 @@ def _mint_revision_row(
     the row ID directly instead of generating a new UUID. Allows the caller to
     pre-create the event queue before calling this function.
 
+    Requirement 10 AC 1-2: the active-run check and row creation are ONE atomic
+    fail-closed operation under the cross-process family lock keyed on
+    ``(user_id, revision_root_id)``.  Resolving the root is a read-only step that
+    raises on failure; it happens outside the lock to keep the critical section as
+    tight as possible.  The fast, non-mutating existence and entitlement gates
+    run inside the lock so no caller can slip past the active-check and mint a row
+    between the check and the commit.
+
     ``caller_tier``: the caller's EFFECTIVE tier, resolved by the endpoint from
     the verified token's ``cognito:groups`` (``core.identity.effective_tier``).
     Required, not derived from ``user.tier`` — the whole point of Decision 3 of
@@ -3538,67 +4581,790 @@ def _mint_revision_row(
         pipeline_run_id = str(_uuid.uuid4())
     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
 
-    # ── Existence gate — BEFORE the entitlement gate, and that order matters ───
-    # Some pipelines have no revision implementation at all: `dotnet_to_azure` and
-    # `mulesoft_to_springboot` are launchable and produce a deliverable, but neither
-    # has a *_revision manifest, agents, or a tier entry. Reaching the entitlement
-    # gate first meant the user was told "This pipeline is not available on your
-    # current plan" — on enterprise, where UPGRADE_PATH is None and so no upgrade is
-    # even offered. The plan was never the problem and no plan change could fix it.
-    #
-    # Answer the question that is actually true first: the feature does not exist.
-    # A 400 (not 403) because this is not an authorization outcome.
-    #
-    # The predicate is ``get_pipeline_agents`` — the SAME one the engine uses for its
-    # own pre-dispatch guard (engine.py, "No revision pipeline is registered"). Using
-    # the registry rather than a directory probe keeps one definition of "this
-    # pipeline exists" and moves the engine's check earlier, before the row is minted.
-    _rev_agents = get_pipeline_agents(revision_pipeline_type)
-    if not _rev_agents:
+    # ── Resolve the revision root BEFORE acquiring the lock ──────────────────
+    # _revision_chain_root_id raises HTTPException(404) on an unresolved root,
+    # so any cycle / cross-owner / missing-ancestor failure is surfaced here,
+    # before any lock is taken.  The root id is the lock key (Requirement 10 AC 1).
+    revision_root_id = _revision_chain_root_id(db, parent_run_id, user.id)
+
+    # ── Acquire the cross-process family lock (Requirement 10 AC 1-2) ────────
+    # The active-run check, existence gate, entitlement gate, and the DB row
+    # creation are all performed inside one lock acquisition so concurrent
+    # revision launches against the same family are serialized and the check-then-
+    # act window is closed.  Lock order: family lock first (no manifest lock is
+    # held when this function runs — the documented single order is respected).
+    try:
+        with family_lock(user.id, revision_root_id):
+            # ── Concurrency guard (Requirement 10 AC 2) — keyed on family root ───
+            # Reject a second concurrent revision when the same family already has a
+            # non-terminal (active) revision run.  Now fail-closed: the lock ensures
+            # no other caller can slip past this check and mint a competing row.
+            if _has_active_chain_revision(db, parent_run_id, user.id):
+                raise _reject(
+                    "revision_already_in_progress",
+                    "a revision is already in progress",
+                    http_status=status.HTTP_409_CONFLICT,
+                    recoverable=False,
+                )
+
+            # ── Existence gate — BEFORE the entitlement gate, and that order matters ─
+            # Some pipelines have no revision implementation at all: `dotnet_to_azure`
+            # and `mulesoft_to_springboot` are launchable and produce a deliverable,
+            # but neither has a *_revision manifest, agents, or a tier entry. Reaching
+            # the entitlement gate first meant the user was told "This pipeline is not
+            # available on your current plan" — on enterprise, where UPGRADE_PATH is
+            # None and so no upgrade is even offered. The plan was never the problem and
+            # no plan change could fix it.
+            #
+            # Answer the question that is actually true first: the feature does not exist.
+            # A 400 (not 403) because this is not an authorization outcome.
+            #
+            # The predicate is ``get_pipeline_agents`` — the SAME one the engine uses for
+            # its own pre-dispatch guard (engine.py, "No revision pipeline is registered").
+            # Using the registry rather than a directory probe keeps one definition of
+            # "this pipeline exists" and moves the engine's check earlier, before the row
+            # is minted.
+            _rev_agents = get_pipeline_agents(revision_pipeline_type)
+            if not _rev_agents:
+                raise _reject(
+                    "revision_unsupported",
+                    f"Revisions aren't available for this workflow yet — {revision_pipeline_type!r} "
+                    f"has no pipeline behind it. Launch a new run instead.",
+                    http_status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # ── Entitlement gate (tier) — KAN-161 / ISS-055 ──────────────────────
+            # Single insertion covers all 3 production call sites (create_revision,
+            # CHANNEL_REVISION in post_message, Concierge "revision" disposal). Fails
+            # fast BEFORE any DB row is minted, matching the fail-fast pattern in
+            # user_workflows.py.
+            #
+            # Reads ``caller_tier`` — the EFFECTIVE tier off this request's verified
+            # token — not ``user.tier``. Until Phase 2 this was the DB projection, so
+            # a revision could be minted on an entitlement the caller's live
+            # ``cognito:groups`` no longer granted (Decision 3).
+            _rev_allowed, _rev_reason = can_run_pipeline(
+                caller_tier, revision_pipeline_type
+            )
+            if not _rev_allowed:
+                raise _reject(
+                    "pipeline_not_entitled",
+                    _rev_reason,
+                    http_status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # Inherit workspace_id from the parent run (required — run_events.workspace_id
+            # is NOT NULL; a revision row without it fails on the first event write).
+            parent_wr = (
+                db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()
+            )
+            parent_workspace_id = (
+                getattr(parent_wr, "workspace_id", None) if parent_wr else None
+            )
+            wr = WorkflowRun(
+                id=pipeline_run_id,
+                user_id=user.id,
+                owner_id=user.id,
+                workspace_id=parent_workspace_id,
+                parent_run_id=parent_run_id,
+                # Requirement 22 AC1/AC2: write source_run_id for the first time.
+                # For a revision, the parent being revised IS the chain source — this
+                # column has existed since migration 0014 and was never assigned before
+                # this task.  Writing it makes _find_chain_root resolve the shared
+                # sandbox directory correctly and the frontend "(Chained)" lineage
+                # indicator functional.
+                source_run_id=parent_run_id,
+                title=f"Revision: {instruction[:50]}",
+                type=revision_pipeline_type,
+                status="revising",
+                input=instruction,
+                agent_count=(len(_rev_agents) or 1) + extra_agent_count,
+            )
+            db.add(wr)
+            db.commit()
+    except FamilyLockTimeout:
+        logger.warning(
+            "_mint_revision_row: family lock timed out for user=%s root=%s",
+            user.id,
+            revision_root_id,
+        )
         raise _reject(
-            "revision_unsupported",
-            f"Revisions aren't available for this workflow yet — {revision_pipeline_type!r} "
-            f"has no pipeline behind it. Launch a new run instead.",
-            http_status=status.HTTP_400_BAD_REQUEST,
+            "family_lock_timeout",
+            "The workspace is busy; please retry in a moment.",
+            http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            recoverable=True,
         )
 
-    # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
-    # Single insertion covers all 3 production call sites (create_revision,
-    # CHANNEL_REVISION in post_message, Concierge "revision" disposal). Fails fast
-    # BEFORE any registry lookup or DB row is minted, matching the fail-fast
-    # pattern in user_workflows.py.
-    #
-    # Reads ``caller_tier`` — the EFFECTIVE tier off this request's verified token
-    # — not ``user.tier``. Until Phase 2 this was the DB projection, so a
-    # revision could be minted on an entitlement the caller's live
-    # ``cognito:groups`` no longer granted (Decision 3).
-    _rev_allowed, _rev_reason = can_run_pipeline(caller_tier, revision_pipeline_type)
-    if not _rev_allowed:
-        raise _reject(
-            "pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN
-        )
-
-    # Inherit workspace_id from the parent run (required — run_events.workspace_id
-    # is NOT NULL; a revision row without it fails on the first event write).
-    parent_wr = db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()
-    parent_workspace_id = (
-        getattr(parent_wr, "workspace_id", None) if parent_wr else None
-    )
-    wr = WorkflowRun(
-        id=pipeline_run_id,
-        user_id=user.id,
-        owner_id=user.id,
-        workspace_id=parent_workspace_id,
-        parent_run_id=parent_run_id,
-        title=f"Revision: {instruction[:50]}",
-        type=revision_pipeline_type,
-        status="revising",
-        input=instruction,
-        agent_count=(len(_rev_agents) or 1) + extra_agent_count,
-    )
-    db.add(wr)
-    db.commit()
     return pipeline_run_id, revision_pipeline_type
+
+
+# ---------------------------------------------------------------------------
+# Pre-mint chain-launch admission gate (task 6.3 / Requirement 6, 7, 2)
+# ---------------------------------------------------------------------------
+#
+# ``admit_chain_launch`` is called from ``launch_run`` BEFORE any ``WorkflowRun``
+# row is minted so that every non-degradable refusal produces NO run row and NO
+# persisted ``source_run_id`` edge (Requirement 6 AC 16).
+#
+# The admission order (V2-Q11) is critical:
+#  1. Declaration gate — zero cross-run reads when ``chains_from=False``.
+#  2. Owned-row fetch + 404 for missing/cross-owner (IDOR).
+#  3. Terminality — so ``source_running`` is reachable (a running source has no
+#     finalization record, so checking the record first would always report
+#     ``source_not_finalized``).
+#  4. Finalization record gates — readable from the record alone, BEFORE any
+#     disk/ref access (Requirement 6 AC 19).
+#  5. Open the source sandbox once (``open_or_refuse``).
+#  6. Payload selection and provenance validation (``select_source_payload``).
+#
+# ``is_legacy_source`` is the SINGLE feature predicate for both Requirement 7 AC 9
+# disjuncts:
+#   (a) ``refs/ideaflow/runs/{source_run_id}`` does NOT exist in the source sandbox,
+#   (b) ``record is None`` (no finalization record → pre-v2 run).
+# A DB-side twin is deliberately NOT added (no column for the internal ref —
+# task 1.5 / tasks.md "Explicit no-change surfaces").
+#
+# ``select_source_payload`` returns a ``V2Selection`` for v2 sources or a
+# ``LegacySelection`` (from ``sandbox.py``) for legacy ones.  The in-run provider
+# (task 6.6) will copy the admitted bytes; it does not re-decide provenance.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class V2Selection:
+    """A validated v2 flat chain payload selection (task 6.3 / Requirement 6).
+
+    Produced by ``select_source_payload`` and consumed by
+    ``install_chain_context`` (task 6.6).  Describes a pre-validated v2 chain
+    payload that is ready to be byte-copied into the receiving run's
+    ``.context/`` directory.
+
+    Attributes
+    ----------
+    ref:
+        The resolved git ref that points at the snapshot commit containing the
+        flat ``.chain/`` payload.  Either the visible git tag (e.g. ``v3``) or
+        the internal run ref (``refs/ideaflow/runs/{run_id}``), whichever the
+        finalization record supplies.  Never ``None`` for a v2 selection.
+    basename:
+        The workflow output file's safe basename inside ``.chain/``
+        (e.g. ``prototype.html``).  Exactly the third file in the flat three-file
+        payload set.
+    reason_class:
+        Provenance label emitted to the audit row.  Always ``"v2-exact-ref"``
+        for v2 flat payload selections.
+    is_legacy:
+        Always ``False``.  Discriminator used by ``install_chain_context`` so
+        the shared tail can tell the two selection types apart unambiguously.
+    """
+
+    ref: str  # resolved git ref (tag or internal ref)
+    basename: str  # safe output filename inside .chain/
+    reason_class: str = "v2-exact-ref"
+    is_legacy: bool = False
+
+
+class ChainRefused(Exception):
+    """Raised inside ``admit_chain_launch`` when the source is ineligible.
+
+    The ``reason`` attribute is a bounded reason code from the five defined in
+    Requirement 20 AC 4 and Requirement 6 AC 14-18:
+      ``source_running``
+      ``source_not_finalized``
+      ``source_non_chainable``
+      ``source_payload_missing``
+      ``source_provenance_conflict``
+
+    The launch handler translates this into either a ``chain_refused`` audit row
+    + HTTP 422 refusal (non-degradable reasons) or an admitted-with-degrade row
+    when ``chain_policy == "degrade"`` is declared.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+@dataclass
+class ChainAdmission:
+    """Result of ``admit_chain_launch``.
+
+    ``active=True`` means the launch is admitted; ``active=False`` means refused.
+    When ``active=True`` and ``selection is None``, the run was admitted under
+    ``chain_policy: degrade`` with no payload (the provider will emit
+    ``chain_context_unavailable``).
+
+    Attributes
+    ----------
+    active:
+        ``True`` = admitted; ``False`` = refused.
+    source_id:
+        The validated source run id when admitted, ``None`` when refused.
+    record:
+        The finalization record for the source run when present, ``None`` when
+        absent (legacy source) or refused.
+    selection:
+        A ``V2Selection`` or ``LegacySelection`` when a payload was validated;
+        ``None`` means degrade (no payload) or refused.
+    refusal_reason:
+        The bounded reason code when ``active=False``, ``None`` otherwise.
+    """
+
+    active: bool
+    source_id: str | None = None
+    record: "FinalizationRecord | None" = None
+    selection: "V2Selection | LegacySelection | None" = None
+    refusal_reason: str | None = None
+
+
+def is_legacy_source(
+    src: "ReadOnlySandbox", source_run_id: str, record: "FinalizationRecord | None"
+) -> bool:
+    """Return ``True`` when the source is a pre-v2 (legacy) run.
+
+    A source is legacy when EITHER of the two disjuncts from Requirement 7 AC 9
+    holds:
+      (a) ``refs/ideaflow/runs/{source_run_id}`` does NOT exist in the source
+          sandbox  — the internal ref was never created, meaning the finalizer
+          never ran step 7.
+      (b) ``record is None`` — no finalization row exists, which predates the v2
+          schema entirely.
+
+    Both disjuncts must agree.  Specifically, a v2 run that degraded before
+    step 7 has no internal ref and satisfies (a), but has a finalization record
+    that satisfies NOT (b) — so only (b) governs when a record is present and
+    the ref is absent.  The disjunct ordering is therefore: ``record is None``
+    first (a record-less run is definitionally legacy), then the ref check.
+
+    This is the SINGLE feature predicate — no DB-side twin, no column for the
+    internal ref (task 1.5 "no column for the internal run ref").
+
+    Parameters
+    ----------
+    src:
+        The source run's ``ReadOnlySandbox`` (already opened; no second open).
+    source_run_id:
+        The validated source run id (UUID string).
+    record:
+        The finalization record from ``read_finalization_record``, or ``None``
+        when no row exists.
+
+    Returns
+    -------
+    bool
+        ``True`` = legacy source; ``False`` = v2 source.
+    """
+    if record is None:
+        # No finalization row at all — definitionally pre-v2.
+        return True
+    # Record present: check for the internal ref.  If the ref is absent the run
+    # never reached step 7 — the degraded-before-ref case — and is NOT legacy
+    # (it is a non-finalized v2 run, handled by the record gate above).
+    return not src.resolve_ref_commit(f"refs/ideaflow/runs/{source_run_id}")
+
+
+def _select_v2_payload(
+    src: "ReadOnlySandbox",
+    source_run_id: str,
+    record: "FinalizationRecord",
+    declared_output_basename: str | None,
+) -> "V2Selection":
+    """Validate and select a v2 flat payload pre-mint.
+
+    Resolves the exact ref (visible tag or internal ref) from the finalization
+    record, proves tag/ref agreement when both are present, validates the payload
+    shape, and confirms ``summary.md`` identity fields match the source.
+
+    Raises ``ChainRefused`` on any provenance disagreement.  A missing payload
+    (swept or never committed) raises ``ChainRefused("source_payload_missing")``
+    which the caller maps to ``chain_policy``; structural mismatches raise
+    ``ChainRefused("source_provenance_conflict")`` which are never degradable.
+
+    Parameters
+    ----------
+    src:
+        The source run's ``ReadOnlySandbox``.
+    source_run_id:
+        The validated source run id.
+    record:
+        The complete finalization record for the source.
+    declared_output_basename:
+        The receiving workflow's declared output filename (``DeliverableSpec.name``),
+        used to identify the third file in the payload.
+    """
+    visible_tag: str | None = record.git_tag
+    internal_ref: str | None = record.internal_ref
+
+    # Resolve the ref we will read from.
+    # Prefer the visible tag (user-facing); fall back to the internal ref.
+    ref = visible_tag or internal_ref
+    if ref is None:
+        # Neither present — finalization incomplete; treat as missing payload.
+        raise ChainRefused("source_payload_missing")
+
+    # When BOTH are present, prove they resolve to the same commit (AC 3).
+    if visible_tag and internal_ref:
+        tag_sha = src.resolve_ref_commit(visible_tag)
+        iref_sha = src.resolve_ref_commit(internal_ref)
+        if tag_sha is None or iref_sha is None or tag_sha != iref_sha:
+            raise ChainRefused("source_provenance_conflict")
+
+    # Confirm the selected ref resolves at all.
+    if src.resolve_ref_commit(ref) is None:
+        # Ref has been swept or was never pushed — payload gone.
+        raise ChainRefused("source_payload_missing")
+
+    # Read the payload shape via ref.
+    try:
+        entries = src.list_files_at_ref(ref)
+    except Exception:  # noqa: BLE001
+        raise ChainRefused("source_payload_missing")
+
+    # Exactly the three flat .chain/ paths must be present.
+    chain_entries = [e for e in entries if e.startswith(".chain/") and e != ".chain/"]
+    if not chain_entries:
+        raise ChainRefused("source_payload_missing")
+
+    # Identify output basename: the entry that is neither logs.jsonl nor summary.md.
+    _FIXED = {".chain/logs.jsonl", ".chain/summary.md"}
+    output_entries = [e for e in chain_entries if e not in _FIXED]
+
+    if len(chain_entries) != 3 or len(output_entries) != 1:
+        # Wrong shape — structural provenance conflict, never degradable.
+        raise ChainRefused("source_provenance_conflict")
+
+    found_basename = output_entries[0][len(".chain/") :]  # strip ".chain/" prefix
+
+    # When the receiving workflow declares an output name, it must match.
+    if declared_output_basename and found_basename != declared_output_basename:
+        raise ChainRefused("source_provenance_conflict")
+
+    # Validate summary.md identity fields.
+    try:
+        summary_bytes = src.read_file_at_ref(ref, ".chain/summary.md")
+    except Exception:  # noqa: BLE001
+        raise ChainRefused("source_payload_missing")
+
+    # Parse run_id and output_filename from summary.md (simple line scan).
+    _summary_run_id: str | None = None
+    _summary_output: str | None = None
+    for raw_line in summary_bytes.decode("utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if line.startswith("run_id:"):
+            _summary_run_id = line[len("run_id:") :].strip()
+        elif line.startswith("output_filename:"):
+            _summary_output = line[len("output_filename:") :].strip()
+
+    if _summary_run_id != source_run_id or (
+        _summary_output is not None and _summary_output != found_basename
+    ):
+        raise ChainRefused("source_provenance_conflict")
+
+    return V2Selection(ref=ref, basename=found_basename)
+
+
+def _select_legacy_payload_or_refuse(
+    src: "ReadOnlySandbox",
+    source_row: "WorkflowRun",
+    declared_output_basename: str | None,
+) -> "LegacySelection":
+    """Select and validate a legacy nested chain payload pre-mint.
+
+    Delegates to ``select_legacy_payload`` from ``sandbox.py`` which locates and
+    validates the nested ``.chain/{run_id}/`` payload.  When a git tag is stored
+    on the source row it is validated against the sandbox's visible tag list
+    (Requirement 16 exact-match gate) before any Git subprocess sees it.
+
+    Raises ``ChainRefused("source_payload_missing")`` when no valid legacy payload
+    is found.  Raises ``ChainRefused("source_provenance_conflict")`` when the
+    stored tag fails the exact-match gate.
+    """
+    from app.agents.sandbox import (  # noqa: PLC0415
+        _validate_ref_against_tags,
+        select_legacy_payload,
+    )
+
+    stored_tag: str | None = getattr(source_row, "git_tag", None)
+    if stored_tag:
+        # Validate the stored tag against the owned sandbox's visible tag list
+        # BEFORE any Git subprocess receives it (Requirement 16).
+        try:
+            _validate_ref_against_tags(stored_tag, src)
+        except ValueError:
+            raise ChainRefused("source_provenance_conflict")
+
+    sel = select_legacy_payload(
+        src,
+        source_row.id,
+        declared_output_basename or "",
+    )
+    if sel is None:
+        raise ChainRefused("source_payload_missing")
+
+    # Attach the validated tag (or None for untagged legacy) to the selection.
+    # Replace the ref field with the validated stored_tag (or keep None for
+    # untagged legacy).  LegacySelection is frozen so we reconstruct it.
+    from app.agents.sandbox import LegacySelection as _LegacySelection  # noqa: PLC0415
+
+    return _LegacySelection(
+        ref=stored_tag,
+        base=sel.base,
+        files=sel.files,
+        reason_class=sel.reason_class,
+        is_legacy=True,
+    )
+
+
+def select_source_payload(
+    src: "ReadOnlySandbox",
+    source_row: "WorkflowRun",
+    record: "FinalizationRecord | None",
+    *,
+    declared_output_basename: str | None,
+) -> "V2Selection | LegacySelection":
+    """Resolve and validate the source payload selection — pre-mint.
+
+    Discriminates on ``is_legacy_source`` to pick the right read path:
+    - Legacy sources (no internal ref or no record): nested ``.chain/{id}/``.
+    - V2 sources (internal ref present + record complete): flat ``.chain/`` at
+      the resolved ref.
+
+    Both paths raise ``ChainRefused`` on any provenance disagreement rather than
+    returning a potentially-wrong selection.  All raises here predate the run row.
+
+    Parameters
+    ----------
+    src:
+        The source run's ``ReadOnlySandbox`` (opened once by the caller).
+    source_row:
+        The owned ``WorkflowRun`` DB row for the source.
+    record:
+        The finalization record, or ``None`` for pre-v2 / not-yet-finalized runs.
+    declared_output_basename:
+        The receiving workflow's declared output filename.  ``None`` when the
+        workflow has no declared deliverable name.
+    """
+    source_run_id = source_row.id
+    if is_legacy_source(src, source_run_id, record):
+        return _select_legacy_payload_or_refuse(
+            src, source_row, declared_output_basename
+        )
+    # V2 path — record is always present here (is_legacy_source returned False).
+    assert record is not None  # noqa: S101 — guaranteed by is_legacy_source logic
+    return _select_v2_payload(src, source_run_id, record, declared_output_basename)
+
+
+def _open_source_sandbox_or_refuse(
+    source_run_id: str,
+    user_id: str,
+) -> "ReadOnlySandbox":
+    """Open a read-only handle on the source run's revision-root sandbox.
+
+    This is the app-layer equivalent of ``KernelServices.open_source_sandbox``
+    used by the in-run provider (task 6.2).  It is separate because at pre-mint
+    time there is no ``ExecutionContext`` or ``KernelServices`` instance — we
+    open the handle directly via the canonical resolver.
+
+    Raises ``ChainRefused("source_provenance_conflict")`` when revision-root
+    resolution fails (cycle, missing ancestor, cross-owner ancestry, DB error).
+    """
+    from app.agents.sandbox import ReadOnlySandbox  # noqa: PLC0415
+    from app.api.runs import (  # noqa: PLC0415
+        RevisionRootResolved,
+        RevisionRootUnresolved,
+        resolve_revision_root,
+    )
+
+    db = _get_db()
+    try:
+        result = resolve_revision_root(db, source_run_id, user_id)
+    finally:
+        db.close()
+
+    if not isinstance(result, RevisionRootResolved):
+        assert isinstance(result, RevisionRootUnresolved)
+        logger.warning(
+            "admit_chain_launch: revision root unresolved for source=%s "
+            "user=%s reason=%s visited=%d repeated=%s — refusing as provenance_conflict",
+            source_run_id,
+            user_id,
+            result.reason,
+            result.visited_count,
+            result.repeated_node,
+        )
+        raise ChainRefused("source_provenance_conflict")
+
+    return ReadOnlySandbox(user_id, result.root_id)
+
+
+def _write_chain_refused_audit(
+    db: "Session",
+    *,
+    actor_id: str,
+    workspace_id: str,
+    source_run_id: str,
+    reason: str,
+) -> None:
+    """Write a ``chain_refused`` provenance audit row (Requirement 19 AC 2).
+
+    A refusal has no receiving run, so the row is scoped to the actor and the
+    source id — that asymmetry is the audit trail's own statement that this chain
+    was never granted a run (Requirement 6 AC 16).
+
+    Best-effort: a DB failure here must never block the refusal response.
+    """
+    from app.models.run_provenance_audit import RunProvenanceAudit  # noqa: PLC0415
+
+    try:
+        row = RunProvenanceAudit(
+            id=str(_uuid.uuid4()),
+            owner_id=actor_id,
+            workspace_id=workspace_id,
+            # run_id is scoped to the ACTOR (actor_id) + source.  The FK is
+            # nullable here because there is no receiving run; use source_run_id
+            # so the reverse query "which sources were refused for this actor?"
+            # works without a separate column.
+            run_id=source_run_id,
+            operation="chain_refused",
+            source_ref=source_run_id,
+            outcome=reason,
+        )
+        db.add(row)
+        db.commit()
+    except Exception:  # noqa: BLE001 — best-effort, must never raise
+        db.rollback()
+        logger.warning(
+            "admit_chain_launch: failed to write chain_refused audit for "
+            "actor=%s source=%s reason=%s",
+            actor_id,
+            source_run_id,
+            reason,
+        )
+
+
+def admit_chain_launch(
+    db: "Session",
+    compiled: "CompiledWorkflow | None",
+    source_run_id: str | None,
+    current_user: "User",
+    *,
+    pipeline_type: str,
+) -> "ChainAdmission":
+    """Pre-mint chain-launch admission gate (task 6.3 / Requirement 6, 7, 2).
+
+    Returns a ``ChainAdmission`` whose ``active`` flag indicates whether the
+    launch is admitted.  A ``ChainAdmission(active=False, ...)`` means the caller
+    MUST NOT mint a ``WorkflowRun`` row, so no persisted ``source_run_id`` edge
+    remains after a refusal (Requirement 6 AC 16).
+
+    Ordered checks (V2-Q11):
+
+    1. Declaration gate — a missing ``chains_from`` declaration means a stray
+       ``source_run_id`` in the body triggers ZERO cross-run reads.  Also gates
+       on ``source_run_id`` being non-null: a workflow that declares chaining but
+       receives no source id is admitted normally with no chain context.
+    2. Owned-row fetch + 404 on miss — IDOR gate (Requirement 6 AC 1).
+    3. Terminality — checked BEFORE the record so ``source_running`` is reachable.
+    4. Finalization record gates — decidable from the record alone, before any
+       disk or ref access (Requirement 6 AC 19).
+    5. Source sandbox open (``_open_source_sandbox_or_refuse``).
+    6. Payload selection and provenance validation (``select_source_payload``).
+
+    On any ``ChainRefused`` with a non-degradable reason the function writes a
+    ``chain_refused`` audit row and raises ``HTTPException(422)`` (no run row,
+    no edge).  On ``source_payload_missing`` with ``chain_policy == "degrade"``
+    it returns an admitted-with-no-payload ``ChainAdmission``.
+
+    Parameters
+    ----------
+    db:
+        An open DB session — the caller owns the session lifecycle.
+    compiled:
+        The compiled workflow plan for this launch, or ``None`` for flat-agent
+        pipelines (``chains_from`` defaults to ``False``, so they skip all checks).
+    source_run_id:
+        The source run id from the request body, or ``None``.
+    current_user:
+        The authenticated user.  Used for IDOR and audit scoping.
+    pipeline_type:
+        The effective pipeline type for this launch.  Used to load a compiled
+        plan when ``compiled`` is ``None``.
+
+    Returns
+    -------
+    ChainAdmission
+        ``active=True`` → proceed to mint; ``active=False`` → refused (this
+        function will have raised ``HTTPException`` before returning ``False``).
+    """
+    from agents.execution_engine.engine import compile_for_run as _compile_for_run  # noqa: PLC0415
+    from agents.execution_engine.finalization import read_finalization_record  # noqa: PLC0415
+
+    # ── Step 1: Declaration gate ─────────────────────────────────────────────
+    # Resolve the compiled plan to read ``deliverable.chains_from``.
+    # For flat-agent pipelines ``compiled`` may be None; load it via
+    # ``compile_for_run`` (cached).  FileNotFoundError means no manifest →
+    # ``chains_from`` defaults False, no cross-run reads.
+    effective_compiled = compiled
+    if effective_compiled is None:
+        try:
+            effective_compiled = _compile_for_run(pipeline_type)
+        except FileNotFoundError:
+            effective_compiled = None
+
+    chains_from: bool = (
+        effective_compiled.deliverable.chains_from
+        if effective_compiled is not None
+        else False
+    )
+    chain_policy: str = (
+        effective_compiled.deliverable.chain_policy
+        if effective_compiled is not None
+        else "refuse"
+    )
+    # B22-chain-fix: The receiving workflow's own deliverable.name must NOT
+    # be used to constrain the source payload's filename.  Cross-type chaining
+    # (e.g. prototype → user_stories) produces different deliverable names on
+    # each side and was being refused with source_provenance_conflict because
+    # "prototype.html" != "user_stories.md".  The payload identity is already
+    # verified via summary.md's run_id and output_filename fields; the
+    # declared_output_basename constraint is only meaningful when the caller
+    # explicitly knows the source's expected output name (e.g. a same-type
+    # revision chain).  Pass None so the file-name constraint is skipped and
+    # any single non-fixed file in .chain/ is accepted as the deliverable.
+    declared_output_basename: str | None = None
+
+    if not chains_from or not source_run_id:
+        # Workflow does not declare chaining — zero cross-run reads.
+        return ChainAdmission(active=False, refusal_reason="declaration_gate")
+
+    # ── Step 2: Owned-row fetch + IDOR gate ──────────────────────────────────
+    source_row = (
+        db.query(WorkflowRun)
+        .filter(
+            WorkflowRun.id == source_run_id,
+            WorkflowRun.user_id == current_user.id,
+        )
+        .first()
+    )
+    if source_row is None:
+        # Missing or cross-owner → 404 (IDOR by design, Requirement 6 AC 1).
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+
+    workspace_id: str = getattr(source_row, "workspace_id", None) or ""
+
+    # ── Steps 3-6 are guarded by ChainRefused; write audit on any failure ────
+    def _refuse(
+        reason: str, *, http_status_code: int = status.HTTP_422_UNPROCESSABLE_ENTITY
+    ) -> "HTTPException":
+        _write_chain_refused_audit(
+            db,
+            actor_id=current_user.id,
+            workspace_id=workspace_id,
+            source_run_id=source_run_id,
+            reason=reason,
+        )
+        return HTTPException(
+            status_code=http_status_code,
+            detail={
+                "code": reason,
+                "error": "Chain launch refused",
+                "recoverable": reason in ("source_running", "source_not_finalized"),
+            },
+        )
+
+    # ── Step 3: Terminality ──────────────────────────────────────────────────
+    # Checked BEFORE the record gate: a running source has no finalization record
+    # by definition, so checking the record first would produce ``source_not_finalized``
+    # for every running source and make ``source_running`` unreachable.
+    if source_row.status not in TERMINAL_RUN_STATUSES:
+        raise _refuse("source_running")
+
+    # ── Step 4: Finalization record gates ────────────────────────────────────
+    # Decidable from the record alone — no disk/ref access yet.
+    record = read_finalization_record(db, source_run_id)
+
+    # Note: ``record is None`` is the legacy signal and is handled at step 6
+    # via ``is_legacy_source`` / ``select_source_payload``; we ONLY raise
+    # ``source_not_finalized`` when the record is definitively absent AND the
+    # source does NOT qualify as a legacy run (legacy detection needs the sandbox,
+    # so we defer that decision to after the sandbox is opened).
+
+    if record is not None:
+        # Record present: apply both record gates.
+        if not record.payload_chainable:
+            raise _refuse("source_non_chainable")
+
+    # ── Step 5: Open the source sandbox ──────────────────────────────────────
+    # ONE handle opened once and threaded through legacy detection + selection,
+    # so both see the same sandbox (Requirement 6 / design "open_or_refuse").
+    try:
+        src = _open_source_sandbox_or_refuse(source_run_id, current_user.id)
+    except ChainRefused as exc:
+        raise _refuse(exc.reason)
+
+    # ── Step 4b: Deferred not-finalized check for v2 runs ────────────────────
+    # Now that we have the sandbox, check the is_legacy_source predicate.
+    # A v2 run with no record (degraded before step 7 of the finalizer) is
+    # NOT legacy — it failed to finalize.  Refuse as ``source_not_finalized``.
+    if record is None and not is_legacy_source(src, source_run_id, record):
+        raise _refuse("source_not_finalized")
+
+    # ── Step 6: Payload selection and provenance validation ──────────────────
+    try:
+        selection = select_source_payload(
+            src,
+            source_row,
+            record,
+            declared_output_basename=declared_output_basename,
+        )
+    except ChainRefused as exc:
+        if exc.reason == "source_payload_missing" and chain_policy == "degrade":
+            # B5 fix: this branch is now unreachable for all production manifests
+            # because chain_policy defaults to "refuse" and no manifest declares
+            # "degrade".  The guard is kept as dead code rather than removed to
+            # preserve the documented Departure N2 contract, but the degrade path
+            # is intentionally blocked by the owner's decision (2026-09-14):
+            # a missing/swept payload must refuse the launch so the user gets a
+            # clear error rather than silently starting a run with no context.
+            # See GIT_VERSIONING_BUGS.md B5.
+            #
+            # If a future manifest needs to opt into degrading launches
+            # (e.g. a resilience-focused workflow), it must explicitly set
+            # chain_policy: degrade AND this guard must be reinstated by removing
+            # the False override below.
+            if False:  # noqa: SIM210 — B5: owner decision, always refuse
+                logger.info(
+                    "admit_chain_launch: source payload missing for %s, degrading "
+                    "(chain_policy=degrade, user=%s)",
+                    source_run_id,
+                    current_user.id,
+                )
+                return ChainAdmission(
+                    active=True,
+                    source_id=source_run_id,
+                    record=record,
+                    selection=None,
+                    refusal_reason=None,
+                )
+        raise _refuse(exc.reason)
+
+    logger.info(
+        "admit_chain_launch: admitted source=%s user=%s is_legacy=%s ref=%s",
+        source_run_id,
+        current_user.id,
+        getattr(selection, "is_legacy", False),
+        getattr(selection, "ref", None),
+    )
+    return ChainAdmission(
+        active=True,
+        source_id=source_run_id,
+        record=record,
+        selection=selection,
+        refusal_reason=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3809,9 +5575,6 @@ async def create_revision(
 
     # Allocate the child run ID and queue now that the tier is known.
     child_run_id = str(_uuid.uuid4())
-    cancel_event = asyncio.Event()
-    _CANCEL_EVENTS[child_run_id] = cancel_event
-    event_queue = _get_or_create_queue(child_run_id)
 
     # Mint the revision row using the pre-generated child_run_id.
     db = _get_db()
@@ -3828,6 +5591,9 @@ async def create_revision(
         )
     finally:
         db.close()
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[child_run_id] = cancel_event
+    event_queue = _get_or_create_queue(child_run_id)
 
     task = asyncio.create_task(
         _drive_revision_to_queue(

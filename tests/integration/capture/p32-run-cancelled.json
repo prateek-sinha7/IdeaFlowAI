@@ -1,0 +1,32 @@
+{
+  "url": "http://localhost:3000/runs/8ff30d2e-c268-482a-bae8-26e5583686c4",
+  "status": "Cancelled",
+  "tabs": [
+    "Preview",
+    "Steps",
+    "Files",
+    "Workspace",
+    "Audit"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "Pitch an idea (v2) 0/4",
+    "@Notifications",
+    "@Account menu",
+    "Back to history",
+    "Answer in Steps",
+    "Open in Steps",
+    "Run Again",
+    "Version v1",
+    "Share",
+    "Download",
+    "Preview",
+    "Steps",
+    "Files",
+    "Workspace",
+    "Audit"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nBack to history\nPPT V2\nCancelled\nCreate a pitch deck to propose a bespoke facebook for a clie\nBefore I build, I need to lock a few things down.\nAnswer in Steps\nCancelled by you\nOpen in Steps\nCANCELLED\nCancelled by you\nThe run was stopped. Click Run Again to resume from where it left off.\nRun Again\nVersion v1\nShare\nDownload\nPreview\nSteps\nFiles\nWorkspace\nAudit\nThis run was cancelled\nThe run was stopped before producing a deliverable.\nOpen the Thinking tab to view details."
+}

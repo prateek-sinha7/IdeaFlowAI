@@ -1,0 +1,5 @@
+{
+  "url": "http://localhost:3000/preview-fullscreen?error=quota",
+  "text": "Project too large for full screen\nThe generated project exceeds the browser session storage limit (~5MB). Use the Download ZIP button in the preview panel to get all files.",
+  "btns": []
+}

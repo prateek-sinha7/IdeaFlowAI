@@ -15,18 +15,30 @@ Accepted shapes (all → a list of ``Task``):
 Validation (T-12-01-INPUT — untrusted agent-emitted JSON crosses into the scheduler):
   * malformed JSON raises a clear ``ValueError`` (no crash / bare stack);
   * a ``depends_on`` entry referencing an unknown task id raises a ``ValueError``
-    NAMING the offending task and the unknown dependency BEFORE any wave is built.
+    NAMING the offending task and the unknown dependency BEFORE any wave is built;
+  * a wrapper object's ``contract.task_count`` (if present) must match the actual task count.
 
-Import purity (import-linter): this module imports ONLY stdlib (``json``) + the
+``parse_preferring_target(reply_text, sandbox=, target=, fallback_targets=)`` (A2) is an
+ADDITIONAL entry point — ``parse(text)`` itself is unchanged for every existing caller. A
+producing agent (plan-lead / review-planner / review-verdict) sometimes narrates the
+finished plan instead of emitting the fence, even though it already wrote the SAME JSON to
+disk; this prefers that on-disk file (the declared ``task_source.target``, then
+``build/tasks.json``) over the reply text, so a perfect file on disk no longer loses to a
+narrating reply.
+
+Import purity (import-linter): this module imports ONLY stdlib (``json``, ``typing``) + the
 ``register`` decorator + the pure typed ``agents.workflows.plan`` (``Task``) — NEVER
-``agents.execution_engine`` or ``app.*``. The parser is pure ``text -> list[Task]``
-(no engine state, no I/O).
+``agents.execution_engine`` or ``app.*``. ``sandbox`` is accepted structurally (``Any``,
+duck-typed ``.read(name) -> str | None``) so this module never imports the concrete
+``RunSandbox`` class. The parser is pure ``text -> list[Task]`` (no engine state, no I/O of
+its own — ``sandbox.read`` is the caller's I/O, reached only through the passed-in handle).
 """
 
 from __future__ import annotations
 
 import json
 import re
+from typing import Any, Sequence
 
 from agents.capabilities.registry import register
 from agents.workflows.plan import Task
@@ -44,9 +56,27 @@ def _strip_json_fence(text: str) -> str:
     a fence is present (even amid prose) its inner content is returned for ``json.loads``.
     """
     stripped = (text or "").strip()
-    m = _FENCE_RE.search(stripped)
-    if m:
-        return m.group(1).strip()
+    # EVERY fence is a candidate, not just the first. `search` took only the
+    # leading fence, so a reply that opened with any other fenced block — an
+    # echoed example from its own prompt, a snippet of prose, a stray ``` run —
+    # handed that block to json.loads and failed with a perfect task list
+    # sitting further down the same reply. Try each fence in order and keep the
+    # first that actually parses; fall back to the first fence's content so the
+    # error message still quotes something the author can recognise.
+    first: str | None = None
+    for m in _FENCE_RE.finditer(stripped):
+        candidate = m.group(1).strip()
+        if first is None:
+            first = candidate
+        if not candidate:
+            continue
+        try:
+            json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        return candidate
+    if first is not None:
+        return first
     return stripped
 
 
@@ -54,7 +84,7 @@ def _strip_json_fence(text: str) -> str:
     "task_parser",
     "json_tasks",
     user_allowed=True,
-    description="Parse a structured JSON task list with dependencies (drives the wave scheduler).",
+    description="Uses the task list an agent wrote as JSON, including which tasks depend on which. Independent tasks run in parallel waves; dependent ones wait their turn.",
 )
 class JsonTasksParser:
     """Structured JSON task-list → ``list[Task]`` parser (depends_on/conflict_keys/targets).
@@ -143,4 +173,83 @@ class JsonTasksParser:
                         f"json_tasks: task '{t.id}' depends_on unknown task id '{dep}'"
                     )
 
+        # Live run 692ca4ad: the Planner wrote 11 of 58 tasks, the scheduler built on
+        # incomplete data. Check contract.task_count to catch partial plans at parse time.
+        # Backward-compatible: only validates when the wrapper has a contract dict with a task_count.
+        if isinstance(parsed, dict):
+            contract = parsed.get("contract")
+            if isinstance(contract, dict):
+                task_count = contract.get("task_count")
+                if task_count is not None:
+                    # Accept an int or a numeric string (e.g. "58"); a float or a bool
+                    # is not a count and is ignored rather than silently truncated.
+                    expected = None
+                    if isinstance(task_count, int) and not isinstance(task_count, bool):
+                        expected = task_count
+                    elif isinstance(task_count, str) and task_count.strip().isdigit():
+                        expected = int(task_count)
+                    if expected is not None and expected != len(tasks):
+                        raise ValueError(
+                            f"json_tasks: plan incomplete - contract.task_count={expected} "
+                            f"but {len(tasks)} task(s) present"
+                        )
+
         return tasks
+
+    def parse_preferring_target(
+        self,
+        reply_text: str,
+        *,
+        sandbox: Any = None,
+        target: str | None = None,
+        fallback_targets: Sequence[str] = ("build/tasks.json",),
+    ) -> list[Task]:
+        """Parse the task list, preferring the file already written to disk (A2).
+
+        The producing agent (plan-lead / review-planner / review-verdict) sometimes
+        narrates the finished plan in its reply instead of emitting the ```json
+        fence, even though it already wrote the SAME JSON to disk — the step's
+        declared ``task_source.target`` (e.g. ``repair-tasks.md``) or the documented
+        ``build/tasks.json``. A perfect file must not lose to a narrating reply.
+
+        Tries, in order: ``target``, each of ``fallback_targets``, then
+        ``reply_text`` (today's ``parse`` behaviour — unchanged for every existing
+        caller). The first source that both exists (a non-empty ``sandbox.read``)
+        and parses wins; each shape ``parse`` accepts (plain array / fenced / a
+        ``{"tasks": [...]}`` wrapper) is reused via ``parse`` itself.
+
+        Raises the same ``ValueError`` as ``parse`` once every source is
+        exhausted, but the message now NAMES every source tried and why each
+        failed — the plain ``parse`` error only ever reports the last one.
+        """
+        attempts: list[str] = []
+        seen: set[str] = set()
+        candidates: list[str] = []
+        for name in ([target] if target else []) + list(fallback_targets):
+            if name and name not in seen:
+                seen.add(name)
+                candidates.append(name)
+
+        if sandbox is not None:
+            for name in candidates:
+                try:
+                    content = sandbox.read(name)
+                except Exception as exc:  # noqa: BLE001 — a bad sandbox must never crash the parse
+                    attempts.append(f"{name}: could not read — {exc}")
+                    continue
+                if not content or not content.strip():
+                    attempts.append(f"{name}: absent or empty")
+                    continue
+                try:
+                    return self.parse(content)
+                except ValueError as exc:
+                    attempts.append(f"{name}: {exc}")
+
+        try:
+            return self.parse(reply_text)
+        except ValueError as exc:
+            attempts.append(f"reply text: {exc}")
+            raise ValueError(
+                "json_tasks: could not parse a task list from any source — "
+                + "; ".join(attempts)
+            ) from exc

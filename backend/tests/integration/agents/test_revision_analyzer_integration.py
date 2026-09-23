@@ -110,6 +110,7 @@ def app_client(monkeypatch, tmp_path):
 
     # Disable capacity gate for tests
     from app.core.config import settings
+
     monkeypatch.setattr(settings, "HOST_CAPACITY_GATE_ENABLED", False)
 
     with TestClient(app) as client:
@@ -136,7 +137,11 @@ def _register_and_login(
     session = client.SessionLocal()
     try:
         create_user(
-            session, email, password, tier="enterprise", cognito_sub=client.fake_auth.sub_for(email)
+            session,
+            email,
+            password,
+            tier="enterprise",
+            cognito_sub=client.fake_auth.sub_for(email),
         )
     finally:
         session.close()
@@ -318,28 +323,31 @@ class TestCreateRevisionEventOrdering:
         # We cannot easily intercept that from an endpoint test without running
         # the full engine, so we test the hook directly:
         from agents.execution_engine.context import ExecutionContext
-        
+
         ectx = ExecutionContext(run_id="test-analyzer-hook", owner_id="user-1")
-        
+
         # Verify the ectx has the analyzer_solution field
-        assert hasattr(ectx, "analyzer_solution"), "ExecutionContext must have analyzer_solution field"
-        assert ectx.analyzer_solution == "", "analyzer_solution defaults to empty string"
-        
+        assert hasattr(
+            ectx, "analyzer_solution"
+        ), "ExecutionContext must have analyzer_solution field"
+        assert (
+            ectx.analyzer_solution == ""
+        ), "analyzer_solution defaults to empty string"
+
         # Simulate what the post-step hook does: extract solution from last_streamed
         # and store it on ectx.analyzer_solution
         raw_output = """## Solution Plan
 Change the button color from gray to blue."""
-        
+
         ectx.last_streamed = raw_output
         ectx.analyzer_solution = "Changed button color from gray to blue"
-        
+
         # Verify it was set
         assert ectx.analyzer_solution == "Changed button color from gray to blue"
-        
+
         # This validates that the hook mechanism (post-step hook + field) exists
         # The full integration test (engine running the analyzer step + emitting events)
         # would require a full engine invocation with the manifest
-
 
     def test_agent_count_is_rev_agents_plus_one(
         self, app_client, auth_headers, parent_run
@@ -501,8 +509,8 @@ class TestConciergeRevisionPath:
         """The revision pipeline runs with the analyzer as step 0 of the manifest.
 
         Post-refactor: run_analyzer is dead code. The concierge no longer invokes it.
-        Instead, the engine dispatches step 0 (prototype-revision-analyzer) of the 
-        manifest with produces_solution_plan: true, and the post-step hook extracts 
+        Instead, the engine dispatches step 0 (prototype-revision-analyzer) of the
+        manifest with produces_solution_plan: true, and the post-step hook extracts
         the solution to ectx.analyzer_solution.
 
         This test validates that create_revision succeeds when called from the
@@ -532,12 +540,17 @@ class TestConciergeRevisionPath:
         assert resp.status_code == 200, f"create_revision must succeed: {resp.text}"
         assert "run_id" in resp.json()
         child_run_id = resp.json()["run_id"]
-        
+
         # Child run was minted with the instruction and parent
         from app.models.workflow import WorkflowRun
+
         session = app_client.SessionLocal()
         try:
-            child_run = session.query(WorkflowRun).filter(WorkflowRun.id == child_run_id).first()
+            child_run = (
+                session.query(WorkflowRun)
+                .filter(WorkflowRun.id == child_run_id)
+                .first()
+            )
             assert child_run is not None
             assert child_run.parent_run_id == parent_run
             assert revision_instruction in child_run.input
@@ -750,19 +763,27 @@ class TestFallbackChain:
                 headers=auth_headers,
             )
 
-        assert resp.status_code == 200, f"Endpoint must succeed even on fallback: {resp.text}"
-        
+        assert (
+            resp.status_code == 200
+        ), f"Endpoint must succeed even on fallback: {resp.text}"
+
         # Verify the run was minted for the large-revision pipeline
         child_run_id = resp.json()["run_id"]
         from app.models.workflow import WorkflowRun
-        
+
         session = app_client.SessionLocal()
         try:
-            child_run = session.query(WorkflowRun).filter(WorkflowRun.id == child_run_id).first()
+            child_run = (
+                session.query(WorkflowRun)
+                .filter(WorkflowRun.id == child_run_id)
+                .first()
+            )
             assert child_run is not None
             # The pipeline type should correspond to "large" tier
             expected_target = _REVISION_TIER_TARGET_MAP["large"]
-            assert child_run.type == expected_target.removesuffix("_output") + "_revision"
+            assert (
+                child_run.type == expected_target.removesuffix("_output") + "_revision"
+            )
         finally:
             session.close()
 
@@ -971,7 +992,13 @@ class TestTierToPipelineMapping:
         ],
     )
     def test_tier_drives_effective_target(
-        self, tier, expected_target, app_client, auth_headers, parent_run, tier_classifier
+        self,
+        tier,
+        expected_target,
+        app_client,
+        auth_headers,
+        parent_run,
+        tier_classifier,
     ):
         """Each classified tier selects the correct effective target.
 

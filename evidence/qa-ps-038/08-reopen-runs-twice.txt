@@ -1,0 +1,31 @@
+QA-PS-038 / ISS-840 — the history reopen runs TWICE per click
+=============================================================
+Measured 2026-09-22 ~20:26 local, same harness as 07-*.txt, FIX-624 in place.
+Counting starts after /runs has settled; every line is one fetch made after the
+row click, with the component frames that produced it.
+
+/api/runs/8088430c-…                <- ['DashboardPage.useCallback[handleSelectWorkflowRun]']
+/api/runs/8088430c-…/family         <- ['DashboardLayout.useEffect']
+/api/runs/8088430c-…/events?after=0 <- ['DashboardPage.useCallback[handleSelectWorkflowRun]']
+/api/runs/8088430c-…                <- ['DashboardPage.useCallback[handleSelectWorkflowRun]', 'DashboardPage.useEffect']
+/api/runs/8088430c-…/family         <- ['DashboardLayout.useEffect']
+/api/runs/8088430c-…/family         <- ['DashboardPage.useCallback[handleSelectWorkflowRun]']
+/api/runs/8088430c-…/events?after=0 <- ['DashboardPage.useCallback[handleSelectWorkflowRun]']
+/api/runs/8088430c-…/family         <- ['DashboardPage.useCallback[handleSelectWorkflowRun]']
+/api/runs/8088430c-…/events?after=150 <- ['DashboardPage.useCallback[handleWebSocketMessage]']
+/api/runs/8088430c-…/events?after=150 <- ['DashboardPage.useCallback[handleWebSocketMessage]']
+
+READING IT
+----------
+Line 4 is the tell: the SECOND `handleSelectWorkflowRun` is called from
+`DashboardPage.useEffect` — the deep-link reopen effect at page.tsx:3453-3552.
+It is supposed to skip a click-driven open (`if (runId === trackedRunIdRef.current)
+return;`, :3462, "Skipping here is what keeps a client-side nav from /runs from
+double-fetching (AC3)") but `trackedRunIdRef` is a useRef in the page component
+and the click's own router.push remounts that component — page.tsx:3480-3484
+says so in as many words — so the ref is null again by the time the effect runs.
+
+Consequence: the entire reopen (getWorkflow + events?after=0 + the chat-seed
+getRunFamily) runs twice, and DashboardLayout's contentSourceRunId effect
+(ISS-804's second /family call site) runs once per reopen. 2 mechanisms x 2
+reopens = the 4 /family calls above, and ISS-785's measured "/events x2".

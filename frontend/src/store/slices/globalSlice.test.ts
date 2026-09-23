@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { selectChainIntoIndex } from "./globalSlice";
+import globalReducer, { globalCleared, selectChainIntoIndex } from "./globalSlice";
 import type { WorkflowSummary } from "@/store/api/workflows";
 import type { RootState } from "@/store";
+import type { WorkflowRun } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────
 // selectChainIntoIndex (Plan 34-01)
@@ -78,5 +79,28 @@ describe("selectChainIntoIndex", () => {
     const index = selectChainIntoIndex(state);
     expect(index.prototype).toBeUndefined();
     expect(index.chat).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// QA-PS-035/036/038/041/046: the signedIn preload no longer fetches recent
+// runs; HomeLaunchGrid does, on its own mount, and only while the slice is
+// neither "loading" nor "succeeded". An account switch therefore relies on
+// globalCleared putting the seed back to "idle" — otherwise the next account's
+// home would keep the previous one's rows and never refetch.
+// ─────────────────────────────────────────────────────────────────
+
+describe("globalCleared", () => {
+  it("returns the recent-runs seed to idle, so HomeLaunchGrid's mount refetches it for the next account", () => {
+    const signedInState = {
+      ...globalReducer(undefined, { type: "@@init" }),
+      recentRuns: [{ id: "prior-account-run" } as WorkflowRun],
+      recentRunsStatus: "succeeded" as const,
+    };
+
+    const cleared = globalReducer(signedInState, globalCleared());
+
+    expect(cleared.recentRuns).toEqual([]);
+    expect(cleared.recentRunsStatus).toBe("idle");
   });
 });

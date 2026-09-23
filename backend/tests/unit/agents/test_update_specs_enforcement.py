@@ -4,7 +4,9 @@
 cycle, and ``_run_review_gate`` stamps that verdict onto ``review_gate_ready``. Until this
 suite, nothing ever read it back: the gate acted on the client-supplied ``action`` string
 alone, so a replayed or crafted POST ran the sub-pipeline at gates that advertised the
-affordance as unavailable. ``gate_key`` is ``f"{run_id}:{agent_id}"`` — a gate SLOT, not a
+affordance as unavailable. ``gate_key`` is ``f"{run_id}:{agent_id}:{visit_count}"`` (R-08
+folds the loop-revisit count in so a route jump cannot collide with the step's own prior
+firing; 0 is the first/only firing) — a gate SLOT, not a
 gate FIRING — so replaying a legitimate earlier click is enough; nothing need be crafted.
 
 What is proven here:
@@ -14,11 +16,12 @@ What is proven here:
     defence exists to close, and against WR-07's "HITL gates fail closed") and must not
     reject (that would cancel the run). The gate stays open. Test 1.
   * **Dormancy.** An ELIGIBLE ``update_specs`` behaves exactly as it always has. Test 2.
-  * **The three-gate verdict.** The eligibility values are HARVESTED from a real engine
-    drive rather than hardcoded, then fed into the real gate: honored at the OUTER analyze
-    gate, REFUSED at the IN-PASS one, honored again at the RE-OPENED one. This is the
-    reachability proof — enforcement must not make a second revision cycle unreachable.
-    Test 3.
+  * **The three-gate verdict.** The OUTER and RE-OPENED eligibility values are HARVESTED
+    from a real engine drive rather than hardcoded (the IN-PASS one comes from the rule
+    itself since ISS-072 suppressed that firing), then each is fed into the real gate:
+    honored at the OUTER analyze gate, REFUSED at the IN-PASS one, honored again at the
+    RE-OPENED one. This is the reachability proof — enforcement must not make a second
+    revision cycle unreachable. Test 3.
   * **The declared gates consume it.** ``gates/human.py`` / ``gates/approval.py`` handle
     ``_gate_rejected`` / ``_gate_redo`` / ``_gate_edited`` but had NO ``_gate_update_specs``
     branch, so it hit the ``yield event`` fall-through: an internal signal on the SSE wire
@@ -90,7 +93,11 @@ async def _post_update_specs_at_real_gate(engine, run_id: str, *, eligible: bool
     """
     store = engine._store
     agent_id = "gated-agent"
-    gate_key = f"{run_id}:{agent_id}"
+    # Must match engine.py:6925 exactly — `_run_review_gate` arms the event under
+    # this key and `visit_count` defaults to 0. Polling the un-suffixed key made
+    # `review_event_pending` never fire, so the client gave up and `_collect`
+    # waited on a gate nobody would answer, to the drive timeout.
+    gate_key = f"{run_id}:{agent_id}:0"
     posted: list[str] = []
 
     async def _client() -> None:
@@ -202,25 +209,44 @@ async def test_three_gate_vector_is_enforced_and_leaves_a_second_cycle_reachable
 ):
     """Outer analyze gate → honored, in-pass gate → REFUSED, re-opened gate → honored.
 
-    The eligibility values are HARVESTED from a real engine drive (``_drive_cycles``
-    records what ``_update_specs_eligible`` actually returned at each firing) rather than
-    hardcoded, then each is fed into the real ``_run_review_gate``. So this asserts the
-    rule and its enforcement together.
+    The outer and re-opened values are HARVESTED from a real engine drive
+    (``_drive_cycles`` records what ``_update_specs_eligible`` actually returned at each
+    firing) rather than hardcoded, then each is fed into the real ``_run_review_gate``. So
+    this asserts the rule and its enforcement together.
 
-    The third element is the load-bearing one: enforcement must not make a second revision
+    The in-pass value is no longer harvestable from a drive: ISS-072 SUPPRESSED that gate
+    firing outright, which is a strictly stronger fence than withholding the flag at it. It
+    is taken from the rule directly instead, so condition 2 of ``_update_specs_eligible``
+    — the FIX-218 fence, deliberately RETAINED as defence in depth rather than deleted
+    with the firing — stays under test instead of merely unreachable.
+
+    The last element is the load-bearing one: enforcement must not make a second revision
     cycle unreachable. If the re-opened gate ever stops advertising eligibility, this fails
     — which is the signal to STOP, not to loosen the rule (loosening it re-opens the
     nesting recursion ISS-051 closed).
     """
     from tests.unit.agents.test_spec_revision_cycles import _drive_cycles
 
-    records, _tids, _ectx, _ordered, _events = await _drive_cycles("iss053-vector", {0})
-    vector = [r["eligible"] for r in records]
+    records, _tids, ectx, _ordered, _events = await _drive_cycles("iss053-vector", {0})
+    harvested = [r["eligible"] for r in records]
 
-    assert vector == [True, False, True], (
-        "the eligibility rule changed — outer/in-pass/re-opened analyze gates must be "
-        f"True/False/True; got {vector}"
+    assert harvested == [True, True], (
+        "the eligibility rule changed — the outer and re-opened analyze gates must both "
+        f"be True; got {harvested}"
     )
+
+    # An ELIGIBLE artifact kind must still be refused while a pass is on the stack.
+    _rule_engine = _fresh_engine()
+    _eligible_kind = next(iter(_rule_engine._UPDATE_SPECS_ELIGIBLE_KINDS))
+    ectx.revision_attempt = 1
+    in_pass = _rule_engine._update_specs_eligible(_eligible_kind, ectx)
+
+    assert in_pass is False, (
+        "a gate firing INSIDE a revision pass must not advertise 'Update the Specs' — "
+        f"that is the one route that nests; got {in_pass}"
+    )
+
+    vector = [harvested[0], in_pass, harvested[1]]
 
     verdicts = []
     for n, eligible in enumerate(vector):

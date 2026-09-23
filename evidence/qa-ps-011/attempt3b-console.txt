@@ -1,0 +1,20 @@
+[     338ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[     527ms] [LOG] [Fast Refresh] done in 291ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[     736ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[     782ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[    1196ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[    1328ms] [LOG] [Fast Refresh] done in 232ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   10103ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   10107ms] [LOG] [Fast Refresh] done in 105ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   10212ms] [LOG] [wf] 5. AgentsPopup mount undefined {seededSelections: Object, agents: Array(3)} @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   10213ms] [LOG] [wf] 5. AgentsPopup mount undefined {seededSelections: Object, agents: Array(3)} @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   14827ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   14965ms] [LOG] [Fast Refresh] done in 242ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   23737ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   24186ms] [LOG] [Fast Refresh] done in 551ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   26752ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   28543ms] [LOG] [Fast Refresh] done in 1895ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   29335ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   29354ms] [LOG] [Fast Refresh] done in 121ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   36069ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   36319ms] [LOG] [Fast Refresh] done in 352ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431

@@ -1,0 +1,9 @@
+GET http://localhost:8000/api/runs?limit=50 -> 200 OK  (repeated on load, filter clicks, sort clicks; never offset/paginated)
+No request with offset= or limit>50 is ever fired, including after scrolling the list container
+(`.flex-1.overflow-y-auto`) to its scrollHeight (3964px, well past the 50th row).
+
+Backend truth (same qa-admin bearer token):
+GET /api/runs?limit=100&offset=0   -> 100 rows
+GET /api/runs?limit=100&offset=100 -> 100 rows
+GET /api/runs?limit=100&offset=200 -> 73 rows
+Total = 273 runs for this account.

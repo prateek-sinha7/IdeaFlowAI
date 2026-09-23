@@ -21,14 +21,21 @@
  * old `handleContinue` exactly:
  *   templateId, designSystemId, brief, [customDsBody], [customTemplateBody],
  *   [sourceRunId], [gateAgentIds], [modelOverrides], [selections], [images],
- *   agentIds
+ *   [stagedUploadIds], agentIds
  */
 
 import type { DiscoveryAnswers } from "@/components/workflow/prototype/DiscoveryForm";
 import { EMPTY_ANSWERS } from "@/components/workflow/prototype/DiscoveryForm";
 
-/** The deliverable family the launch targets. NOT a workflow-name branch. */
-export type LaunchMode = "prototype" | "ppt";
+/** The deliverable family the launch targets. NOT a workflow-name branch.
+ *
+ * `ppt_v2` is the deck family's second deliverable (spec 017: the same HTML deck
+ * PLUS a real .pptx). It rides the ppt launch pipe verbatim — same storage keys,
+ * same staging effects, same wizard steps — and is distinguished ONLY by the
+ * `pipelineType` field `buildLaunchDraft` appends below. Duplicating the key
+ * pair would mean duplicating four staging/fire effects in `[...view]/page.tsx`
+ * for a hand-off whose shape is identical. */
+export type LaunchMode = "prototype" | "prototype_v2" | "ppt" | "ppt_v2";
 
 /** An out-of-band image ride-along (D3): SEPARATE from brief-inlined file text. */
 export interface LaunchImage {
@@ -57,6 +64,12 @@ export interface LaunchDraftInputs {
   modelOverrides?: Record<string, string>;
   selections?: Record<string, Record<string, unknown>>;
   images?: LaunchImage[];
+  /** UPLD-05 stage ids from `POST /api/runs/uploads/stage`, in attach order.
+   *  The brief-inlined file text is a capped flat extraction; these are what put
+   *  the RAW documents in the run's `.uploads/`, which is the only thing a
+   *  file-reading workflow (prototype_v2's `fi-planner` reads
+   *  `.uploads/manifest.json`) can actually open. */
+  stagedUploadIds?: string[];
   agentIds: string[];
 }
 
@@ -69,10 +82,15 @@ export interface LaunchDraft {
   pendingKey: string;
 }
 
-/** The per-mode storage-key pair — the ONLY mode-driven difference. */
+/** The per-mode storage-key pair. `ppt_v2` deliberately SHARES ppt's pair — see
+ *  the LaunchMode note above; the draft's `pipelineType` field tells them apart. */
 const MODE_KEYS: Record<LaunchMode, { draftKey: string; pendingKey: string }> = {
   prototype: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
   ppt: { draftKey: "ppt.draft", pendingKey: "ppt.pending" },
+  ppt_v2: { draftKey: "ppt.draft", pendingKey: "ppt.pending" },
+  // `prototype_v2` SHARES prototype's pair for the same reason `ppt_v2` shares
+  // ppt's: one web family, one draft slot; `pipelineType` tells them apart.
+  prototype_v2: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
 };
 
 /**
@@ -94,6 +112,7 @@ export function buildLaunchDraft(mode: LaunchMode, inputs: LaunchDraftInputs): L
     modelOverrides,
     selections,
     images,
+    stagedUploadIds,
     agentIds,
   } = inputs;
 
@@ -108,7 +127,16 @@ export function buildLaunchDraft(mode: LaunchMode, inputs: LaunchDraftInputs): L
     ...(modelOverrides && Object.keys(modelOverrides).length > 0 ? { modelOverrides } : {}),
     ...(selections && Object.keys(selections).length > 0 ? { selections } : {}),
     ...(images && images.length > 0 ? { images } : {}),
+    // Length-guarded like `images` above, so a no-attachment draft stays
+    // byte-identical to the retired flow and the parity gate keeps proving it.
+    ...(stagedUploadIds && stagedUploadIds.length > 0 ? { stagedUploadIds } : {}),
     agentIds,
+    // Appended LAST and ONLY for a non-`ppt` deck launch, so the ppt and
+    // prototype drafts stay byte-identical to the retired flow and the
+    // launch-contract parity gate keeps proving it.
+    // Appended for every SECOND-deliverable family member (ppt_v2, prototype_v2)
+    // so the base `ppt`/`prototype` drafts stay byte-identical to the retired flow.
+    ...(mode === "ppt_v2" || mode === "prototype_v2" ? { pipelineType: mode } : {}),
   });
 
   return { ...MODE_KEYS[mode], draftJson };

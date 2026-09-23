@@ -79,7 +79,7 @@ _PARAMS = _DISPATCHABLE
 
 
 def test_dispatchable_count_is_13() -> None:
-    """Exactly 16 engine-dispatchable pipelines, minus chat + reverse_engineer.
+    """Exactly 31 engine-dispatchable pipelines, minus chat + reverse_engineer.
 
     Went 12 -> 13 when ``custom_revision`` was authored alongside the composed
     workflow builder. Went 13 -> 15 when ``prototype_large_revision`` and
@@ -87,6 +87,18 @@ def test_dispatchable_count_is_13() -> None:
     with shared agents (revision-pipeline-agent-reuse spec), making all their
     steps fully loadable via ``_every_step_agent_loads``.
 
+    Went 15 -> 23 with spec 014/015: the seven ``ex_A*`` conditional-gate example
+    workflows plus ``sc001-test-fixture``. They are real manifest-backed
+    workflows whose steps are ``custom-agent`` instances, so they satisfy
+    ``_every_step_agent_loads`` and join automatically — the same way
+    ``sample_subagents_parallel`` did.
+
+    Went 23 -> 24 with spec 017's ``ppt_v2``.
+
+    Went 24 -> 30 with file-extract support and new example workflows:
+    ``pdf_to_prototype`` (spec 019: document-driven prototype pipeline) and
+    additional conditional-gate example workflows. All manifest-backed with
+    custom-agent steps.
     Went 15 -> 16 when ``app_builder_revision`` was fixed from ``planner: run`` to
     ``planner: skip`` (commit ec1ea70f). That manifest was authored as ``run`` in
     f116c3aa by copying ``app_builder``'s own manifest, and the engine REFUSES to
@@ -107,7 +119,7 @@ def test_dispatchable_count_is_13() -> None:
     excludes them because they reference agent ids with no ``AGENT.md``. Give
     them their agents and they join automatically.
     """
-    assert len(_DISPATCHABLE) == 16
+    assert len(_DISPATCHABLE) == 31
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
     # The three agentless fixtures must stay out — they cannot be dispatched.
@@ -116,8 +128,8 @@ def test_dispatchable_count_is_13() -> None:
             f"{broken} references agents with no AGENT.md and cannot run; "
             "if it now has them, that is a real change — update this list"
         )
-    # Parametrized coverage = 16 dispatchable.
-    assert len(_PARAMS) == 16
+    # Parametrized coverage = 31 dispatchable.
+    assert len(_PARAMS) == 31
 
 
 @pytest.mark.asyncio
@@ -164,14 +176,32 @@ async def test_runs_from_compiled_plan(pipeline_type: str) -> None:
     # is byte-identical to pre-seam and is guarded by the characterization
     # snapshots, not asserted here. The build loop runs prototype-build once per
     # task, so it may start more than once — a set comparison absorbs that.)
-    assert set(started) == set(compiled_ids), (
-        f"{pipeline_type}: the agents that ran {sorted(set(started))} do not match "
-        f"the compiled plan membership {sorted(set(compiled_ids))} — the run did "
-        f"not source its agents from the CompiledWorkflow"
-    )
-    assert len(started) >= len(
-        compiled_ids
-    ), f"{pipeline_type}: fewer agents started than the compiled plan declares"
+    # A conditional-gate workflow (spec 014) compiles EVERY branch but runs only
+    # the one its route resolves to — ex_A2_branch declares say-hello/say-hola/
+    # say-hallo and runs exactly one. Equality is therefore the wrong shape for
+    # them, but the guard this test exists for still holds as a SUBSET: no agent
+    # may run that the compiled plan does not declare. Detected off the compiled
+    # plan's own `route` property, never a name list (SC-001, same rule as
+    # `_every_step_agent_loads` above) — a new conditional workflow is covered
+    # automatically, and a workflow that loses its routing goes back to strict
+    # equality on its own.
+    is_conditional = any(getattr(s, "route", None) for s in compiled.steps)
+    if is_conditional:
+        assert set(started) <= set(compiled_ids), (
+            f"{pipeline_type}: agents ran that the compiled plan does not declare: "
+            f"{sorted(set(started) - set(compiled_ids))} — the run did not source "
+            f"its agents from the CompiledWorkflow"
+        )
+        assert started, f"{pipeline_type}: no agent started at all"
+    else:
+        assert set(started) == set(compiled_ids), (
+            f"{pipeline_type}: the agents that ran {sorted(set(started))} do not match "
+            f"the compiled plan membership {sorted(set(compiled_ids))} — the run did "
+            f"not source its agents from the CompiledWorkflow"
+        )
+        assert len(started) >= len(
+            compiled_ids
+        ), f"{pipeline_type}: fewer agents started than the compiled plan declares"
 
 
 @pytest.mark.asyncio

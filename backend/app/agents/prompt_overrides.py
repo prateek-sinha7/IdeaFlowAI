@@ -3,17 +3,33 @@
 Storage layout (mirrors the skill-file namespace — skills.py):
     backend/skills/users/{user_id}/{agent_id}/PROMPT_OVERRIDE.md
 
-When a user saves a prompt override, the factory injects it at runtime instead
-of (or ahead of) the canonical AGENT.md prompt_body. The AGENT.md file itself
-is NEVER mutated — overrides are always user-scoped and reversible.
+**Override semantics — REPLACEMENT BODIES, not additive fragments.**
+
+A stored override is a COMPLETE REPLACEMENT of the system prompt body for the
+specified agent.  It is NOT an additive fragment that is injected ahead of or
+appended to the base body.  When an override is present the factory substitutes
+the override content for the ``prompt_body`` slot in full; the base AGENT.md
+body is not used at all for that agent.
+
+All other assembly blocks (guardrails, hooks, constitution, injects, skills) are
+composed around the override exactly as if the agent's own AGENT.md body were
+present.  The effective order follows the agent's declared ``prompt_policy``
+(Requirement 29 AC4).  Only the ``prompt_body`` slot is replaced.
+
+The AGENT.md file itself is NEVER mutated — overrides are always user-scoped
+and reversible by deleting the override file.
 
 The same structural prompt-injection defences used for skills apply here:
 ``MAX_PROMPT_OVERRIDE_BYTES`` caps the payload at the API layer; sanitisation
 is the caller's responsibility if the override is injected into a system prompt
 (the factory applies the same sanitize_user_skill_content guard it uses for
-skills). Note: the factory currently does NOT automatically apply prompt
-overrides — this module provides the storage layer only. The factory wiring
-is a separate step (KAN-76 follow-up); for now the feature is display + save.
+skills).
+
+**Production override migration is deferred.**
+Moving existing stored overrides from the current replacement-body model to any
+future per-section override API is NOT done by this module.  The trigger is the
+first production user saving an override under the new API, or GA (Requirement 37).
+This module documents the contract; it does not migrate stored overrides.
 """
 
 import logging
@@ -62,10 +78,20 @@ def has_user_prompt_override(agent_id: str, user_id: str) -> bool:
 def save_user_prompt_override(agent_id: str, content: str, user_id: str) -> str:
     """Persist a per-user prompt override.
 
+    The saved content is a REPLACEMENT BODY for the agent's ``prompt_body``
+    assembly slot.  It is NOT an additive fragment — the base AGENT.md body is
+    not used at all when an override is present.  All other assembly blocks
+    (guardrails, hooks, constitution, injects, skills) remain unchanged.
+
+    To revert an agent to its base AGENT.md body, delete the override via
+    ``delete_user_prompt_override`` — do not save an empty string.
+
     Args:
-        agent_id: The agent's ID.
-        content: Markdown prompt body.
-        user_id: The authenticated user's ID (required).
+        agent_id: The agent's ID (determines which agent's body slot is replaced).
+        content: Complete Markdown replacement body.  Must not exceed
+            ``MAX_PROMPT_OVERRIDE_BYTES`` bytes when UTF-8 encoded.
+        user_id: The authenticated user's ID (required; overrides are
+            user-scoped and never affect other users).
 
     Returns:
         Absolute path where the override was saved.

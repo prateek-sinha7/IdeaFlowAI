@@ -25,43 +25,22 @@ Scope guards:
 from __future__ import annotations
 
 import logging
-import re
 
-from agents.capabilities.model_catalog import ModelCatalog, Pricing
+from agents.capabilities.model_catalog import (
+    ModelCatalog,
+    Pricing,
+    normalize_model_id,
+)
 
 logger = logging.getLogger(__name__)
 
-# Leading geographic/provider prefix tokens stripped (iteratively) when
-# normalizing an id for the fallback match, so ``eu.anthropic.`` fully reduces.
-_PREFIXES = ("eu.", "us.", "apac.", "global.", "anthropic.")
-
 # Regional inference profiles carry a +10% premium; global./anthropic-direct/bare
-# do not.
+# do not. A PRICING concern, so it stays here — unlike the id normalizer, which
+# moved to model_catalog so the catalog and pricing lookups share one copy.
 _PREMIUM_PREFIXES = ("eu.", "us.", "apac.")
-
-# Version/date suffixes: ``-vN``, ``-vN:0``, ``-YYYYMMDD``, ``-YYYYMMDD-vN:0``.
-_SUFFIX_RE = re.compile(r"(-\d{8})?(-v\d+(?::\d+)?)?$")
 
 # Dedupe the warn-once-per-unknown-id log.
 _WARNED_UNKNOWN: set[str] = set()
-
-
-def _normalize(model_id: str) -> str:
-    """Reduce a full model id to its bare family form for fallback matching.
-
-    Iteratively strips any leading geo/provider prefix (so ``eu.anthropic.`` fully
-    strips), then strips a trailing version/date suffix. Carries NO model-id
-    literal — it only manipulates prefix/suffix tokens.
-    """
-    key = model_id
-    changed = True
-    while changed:
-        changed = False
-        for prefix in _PREFIXES:
-            if key.startswith(prefix):
-                key = key[len(prefix) :]
-                changed = True
-    return _SUFFIX_RE.sub("", key)
 
 
 def _cheap_pricing(catalog: ModelCatalog) -> Pricing:
@@ -87,10 +66,10 @@ def _resolve_pricing(model_id: str) -> Pricing:
     if exact is not None:
         return exact.pricing
 
-    normalized = _normalize(model_id)
+    normalized = normalize_model_id(model_id)
     if normalized:
         for entry in catalog.list():
-            if _normalize(entry.id) == normalized:
+            if normalize_model_id(entry.id) == normalized:
                 return entry.pricing
 
     if model_id not in _WARNED_UNKNOWN:

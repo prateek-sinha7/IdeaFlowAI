@@ -1,0 +1,141 @@
+
+  20 scenarios against http://localhost:3000
+  The first navigation can take a while — the dev server compiles on demand.
+
+  [1/20]  S-03-01  The presentation wizard renders its template gallery
+      1  When I cold-load "/create/ppt"                              1.3s  ok
+      2  And I see every category pill                               0.1s  ok
+     PASS  2 shots  20.8s
+.
+  [2/20]  S-03-02  Filtering the template gallery by category narrows it
+      1  When I click the category pill "Minimal"                    0.1s  ok
+         request failed: GET http://localhost:8000/api/ppt/templates/html-ppt-course-module/preview — net::ERR_ABORTED
+         request failed: GET http://localhost:8000/api/ppt/templates/html-ppt-hermes-cyber-terminal/preview — net::ERR_ABORTED
+         request failed: GET http://localhost:8000/api/ppt/templates/html-ppt-presenter-mode-reveal/preview — net::ERR_ABORTED
+     PASS  1 shot  2.7s
+.
+  [3/20]  S-03-03  Searching templates filters by name
+      1  When I type "keynote" into the template search              0.1s  ok
+         request failed: GET http://localhost:8000/api/ppt/templates/html-ppt-graphify-dark-graph/preview — net::ERR_ABORTED
+         request failed: GET http://localhost:8000/api/ppt/templates/html-ppt-hermes-cyber-terminal/preview — net::ERR_ABORTED
+         request failed: GET http://localhost:8000/api/ppt/templates/html-ppt-knowledge-arch-blueprint/preview — net::ERR_ABORTED
+     PASS  1 shot  2.3s
+.
+  [4/20]  S-03-04  The prototype wizard offers three tabs and a blank-canvas option
+      1  When I cold-load "/create/prototype"                        1.0s  ok
+      2  And a "No template" tile tagged BLANK CANVAS                0.0s  ok
+     PASS  2 shots  18.9s
+.
+  [5/20]  S-03-05  The prototype template search uses its own field name
+      1  Then a search input named template-search exists            1.2s  ok
+     PASS  1 shot  10.8s
+.
+  [6/20]  S-03-06  Scenario Outline: Each wizard tab reveals its own panel
+      1  When I click the tab "Template"                             0.0s  ok
+     PASS  1 shot  11.4s
+.
+  [7/20]  S-03-07  The user-stories panel names its own workflow
+      1  When I cold-load "/create/user-stories"                     1.2s  ok
+     PASS  1 shot  2.0s
+.
+  [8/20]  S-03-08  A catalog workflow cold-loads onto the right panel
+      1  When I cold-load "/create/ex_A2_branch"                     1.1s  ok
+     PASS  1 shot  2.0s
+.
+  [9/20]  S-03-09  Cold-loading /create/app shows the user-stories panel
+      1  When I cold-load "/create/app"                              1.1s  ok
+     PASS  1 shot  2.5s
+.
+  [10/20]  S-03-10  Run is disabled until the brief is long enough
+      1  Then "Run workflow" is disabled                             1.4s  ok
+      2  When I type a brief                                         0.0s  ok
+     PASS  2 shots  3.4s
+.
+  [11/20]  S-03-11  The Advanced control opens the agent roster
+      1  When I click "Advanced 7 agents"                            0.2s  ok
+      2  When I press Escape the modal does NOT close                0.0s  ok
+      3  When I click "Cancel" then the modal closes                 0.8s  ok
+     PASS  3 shots  3.6s
+.
+  [12/20]  S-03-12  Review gates can be set before launch
+      1  Then the review-gates control reads "no gates"              1.4s  ok
+      2  When I open the review-gates control                        0.1s  ok
+     PASS  2 shots  2.4s
+.
+  [13/20]  S-03-13  Attaching a file is offered on every launch panel
+      1  Then I see "+ Attach file"                                  1.2s  ok
+     PASS  1 shot  2.1s
+.
+  [14/20]  S-03-15  Save as my version creates a user override of a built-in
+      1  When I cold-load "/create/user-stories"                     1.0s  ok
+      2  And I click "Save as my version"                            0.0s  ok
+     PASS  2 shots  2.1s
+.
+  [15/20]  UNMARKED  ISS-247 — checking an agent in the "Review gates" checklist must be
+      1  Given a fresh "/create/app" load                            1.3s  ok
+      2  When I check "Domain Discovery Agent" in Review gates       0.1s  ok
+      3  Then its Advanced modal Gate combobox is not "No gate"      0.4s  FAILED
+     FAIL  3 shots  3.1s
+F
+  [16/20]  UNMARKED  ISS-306 — a manifest-seeded before-human gate must be visible in the
+      1  Given a fresh "/create/ex_A4_human_gate" load               1.5s  ok
+      2  Then "Pick Language" is checked in Review gates             0.1s  ok
+     PASS  2 shots  2.6s
+.
+  [17/20]  UNMARKED  ISS-306 — the "Prompt User" toggle, the control built to represent a
+      1  Given a fresh "/create/ex_A4_human_gate" load               1.1s  ok
+      2  When I open the Advanced modal on "Pick Language"           0.5s  ok
+      3  Then "Prompt User" is on                                    0.0s  ok
+     PASS  3 shots  4.1s
+.
+  [18/20]  S-03-06  Scenario Outline: Each wizard tab reveals its own panel
+      1  When I click the tab "Design System"                        0.2s  ok
+     PASS  1 shot  4.8s
+.
+  [19/20]  S-03-06  Scenario Outline: Each wizard tab reveals its own panel
+      1  When I click the tab "Discovery"                            0.1s  ok
+     PASS  1 shot  2.6s
+.                                                                        [100%]         report  /Users/bilala/Developer/Projects/VELOCITY-AI/tests/integration/test-runs/2026-08-29T02-11-local/0-report.html
+
+=================================== FAILURES ===================================
+_ test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal[chromium] _
+
+page = <Page url='http://localhost:3000/create/app'>
+shot = <framework.shot.Shooter object at 0x1077302d0>
+
+    @pytest.mark.issue("ISS-247")
+    def test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal(page, shot):
+        """ISS-247 — checking an agent in the "Review gates" checklist must be
+        reflected as that same agent's Gate in the Advanced modal's Config tab.
+    
+        ReviewGatesSection writes a separate `gateAgentIds` ref; CanvasConfigRail's
+        Gate combobox reads only `agent.gates`. The two never sync.
+        """
+        with shot("fresh", 'Given a fresh "/create/app" load'):
+            page.goto("/create/app")
+            expect(page.locator(L.REVIEW_GATES)).to_contain_text("no gates")
+    
+        with shot("checked", 'When I check "Domain Discovery Agent" in Review gates'):
+            page.click(L.REVIEW_GATES)
+            page.get_by_text("Domain Discovery Agent", exact=True).click()
+            expect(page.locator(L.REVIEW_GATES)).to_contain_text("1 agent")
+            page.keyboard.press("Escape")
+    
+        with shot("advanced-config", 'Then its Advanced modal Gate combobox is not "No gate"'):
+            page.click(L.ADVANCED)
+            page.click(C.node("domain-analyst"))
+            page.get_by_text("Config", exact=True).first.click()
+            gate = page.locator('select[aria-label="Gate"]')
+            expect(gate).to_be_visible()
+>           assert gate.input_value() != "", (
+                "Review gates checklist marked Domain Discovery Agent as gated, but "
+                "the Advanced modal's Config tab still shows Gate = 'No gate'"
+            )
+E           AssertionError: Review gates checklist marked Domain Discovery Agent as gated, but the Advanced modal's Config tab still shows Gate = 'No gate'
+E           assert '' != ''
+E            +  where '' = input_value()
+E            +    where input_value = <Locator frame=<Frame name= url='http://localhost:3000/create/app'> selector='select[aria-label="Gate"]'>.input_value
+
+suites/03_launch_panels/test_launch_panels.py:370: AssertionError
+=========================== short test summary info ============================
+FAILED suites/03_launch_panels/test_launch_panels.py::test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal[chromium]

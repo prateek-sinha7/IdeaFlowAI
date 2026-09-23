@@ -1,0 +1,12 @@
+Triple-clicking the "Sign in" button synchronously (valid credentials) fired
+THREE separate POST requests to the backend, all succeeding:
+
+32. [POST] http://localhost:8000/api/auth/login => [200] OK
+33. [POST] http://localhost:8000/api/auth/login => [200] OK
+34. [POST] http://localhost:8000/api/auth/login => [200] OK
+
+Reproduced twice in the same session with a fresh localStorage.clear() + /login
+reload between attempts; button.disabled remained `false` and button text
+remained "Sign in" throughout (checked via page.evaluate before/after the
+synchronous triple click), confirming no disabled/loading state is applied
+during the pending request.

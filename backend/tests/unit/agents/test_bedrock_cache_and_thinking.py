@@ -174,11 +174,19 @@ def test_build_model_anthropic_thinking_disabled(monkeypatch, cap):
 
 
 def test_build_model_bedrock_thinking_enabled(monkeypatch, cap):
+    """A budget-mode Claude model gets a `thinking` block at the configured budget.
+
+    The model is PINNED rather than taken from BEDROCK_INFERENCE_PROFILE_ID. This
+    test used to call `build_model()` bare, so it silently asserted that the
+    deployment default happens to be a Claude model — it went red the moment the
+    default was pointed at GPT-5.6 Luna to validate spec 020's FR-13, for no
+    reason connected to what it is testing.
+    """
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(settings, "THINKING_BUDGET_TOKENS", 3000)
     from app.agents.model_factory import build_model
 
-    build_model()
+    build_model("eu.anthropic.claude-haiku-4-5-20251001-v1:0")
 
     extra = cap.last["additional_model_request_fields"]
     assert extra["thinking"]["type"] == "enabled"
@@ -269,3 +277,94 @@ def test_extract_thinking_plain_string_content_yields_nothing():
 
 def test_extract_thinking_empty_list_yields_nothing():
     assert _extract_thinking([]) == ""
+
+
+# ---------------------------------------------------------------------------
+# PART A2 — capability gating of the cache middleware (spec 020 / FR-21, SC-12)
+#
+# The middleware used to decide on TRANSPORT alone (isinstance
+# ChatBedrockConverse). OpenAI's models ride that same client and support prompt
+# caching on the Responses API only: a cachePoint on Converse comes back
+# AccessDeniedException, measured against global.openai.gpt-5.6-luna while Claude
+# Haiku 4.5 accepted the identical call. With the flag defaulting ON that failed
+# 100% of GPT requests, so the gate now asks the catalog.
+# ---------------------------------------------------------------------------
+def _bedrock_instance_with_id(model_id: str):
+    """A ChatBedrockConverse test double carrying a model id.
+
+    ``object.__new__`` skips pydantic validation (no creds, no network) and the
+    id goes straight into ``__dict__``, which is where ``model_identifier``
+    reads ``.model_id`` from.
+    """
+    inst = _bedrock_instance()
+    inst.__dict__["model_id"] = model_id
+    return inst
+
+
+def _cache_control_for(model_id: str):
+    """Return the cache_control the middleware would send for ``model_id``."""
+    mw = _BedrockCachePointsMiddleware()
+    req = _FakeReq(_bedrock_instance_with_id(model_id), {})
+    handler, box = _recording_handler()
+    mw.wrap_model_call(req, handler)
+    return box["req"].model_settings.get("cache_control")
+
+
+def test_cache_middleware_skips_a_model_that_cannot_cache(monkeypatch):
+    """A catalog entry with supports_prompt_caching=False gets NO cachePoint."""
+    import dataclasses
+
+    from agents.capabilities import model_catalog as mc
+
+    claude_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    real = mc.ModelCatalog().get(claude_id)
+    assert real is not None and real.supports_prompt_caching is True
+
+    # Flip ONLY the capability, leaving every other field alone, so this pins the
+    # GATE rather than anything about a particular model.
+    no_cache = dataclasses.replace(real, supports_prompt_caching=False)
+    monkeypatch.setattr(
+        mc.ModelCatalog, "get", lambda self, mid: no_cache if mid == claude_id else None
+    )
+
+    assert _cache_control_for(claude_id) is None
+
+
+def test_cache_middleware_still_caches_a_model_that_can():
+    assert _cache_control_for("eu.anthropic.claude-haiku-4-5-20251001-v1:0") == {
+        "type": "ephemeral",
+        "ttl": settings.BEDROCK_PROMPT_CACHE_TTL,
+    }
+
+
+def test_cache_middleware_fails_open_for_an_uncatalogued_model():
+    """An id the catalog does not know keeps caching ON — today's behaviour.
+
+    Fail-closed would silently disable caching for any model missing from the
+    catalog, which is a parity break dressed up as a safety measure.
+    """
+    assert _cache_control_for("some.model.nobody.registered") == {
+        "type": "ephemeral",
+        "ttl": settings.BEDROCK_PROMPT_CACHE_TTL,
+    }
+
+
+# ── SC-12 — the one confirmed hard blocker ───────────────────────────────────
+# Sending a cachePoint to a GPT-5.6 model returns AccessDeniedException from
+# bedrock-runtime (verified live in eu-north-1, spec §12 — Claude passed as the
+# control in the same session). BEDROCK_PROMPT_CACHE_ENABLED defaults to true, so
+# without this gate every GPT run fails on its first call.
+
+@pytest.mark.parametrize(
+    "gpt_id", ["global.openai.gpt-5.6-luna", "global.openai.gpt-5.6-sol"]
+)
+def test_sc12_gpt_models_get_no_cache_control_with_caching_enabled(monkeypatch, gpt_id):
+    monkeypatch.setattr(settings, "BEDROCK_PROMPT_CACHE_ENABLED", True)
+    assert _cache_control_for(gpt_id) is None
+
+
+def test_sc12_claude_still_cached_in_the_same_configuration():
+    """The control for the test above: the gate must be keyed on the model's
+    capability, not on prompt caching having been switched off wholesale."""
+    assert settings.BEDROCK_PROMPT_CACHE_ENABLED is True
+    assert _cache_control_for("eu.anthropic.claude-haiku-4-5-20251001-v1:0") is not None

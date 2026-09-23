@@ -1,0 +1,12 @@
+{
+  "url": "http://localhost:3000/library/agents/material-analyzer",
+  "drawerPresent": true,
+  "dialogs": 1,
+  "drawerTabs": [
+    "Overview",
+    "Skills",
+    "Hooks",
+    "Config"
+  ],
+  "text": "AR\nArchitecture Agent\nSolution & System Design\nOverview\nSkills\nHooks\nConfig\n~6s\nApp Builder\nWHAT IT DOES\nAnalyzes your requirements and designs the complete application architecture.\nROLE IN PIPELINE\nApp Builder\nSolution & System Design\nSystem Prompt\nBase AGENT.md prompt"
+}

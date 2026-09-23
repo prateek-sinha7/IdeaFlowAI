@@ -1,0 +1,220 @@
+### Conditional Gate — forward branch (spec 014 example A2)
+#
+# Tests a conditional gate that picks ONE of THREE forward branches:
+#
+#   emoji -> language (conditional gate)
+#              |__ english -> say-hello   "Hello, world!"
+#              |__ spanish -> say-hola    "Hola, mundo!"
+#              |__ dutch   -> say-hallo   "Hallo, wereld!"
+#
+# "language" decides from the launch `message` field below — it is forwarded to every
+# step as the "ORIGINAL USER REQUEST" (engine.py), so this fixture uses that as real
+# input rather than fighting it. This variant sends 'Hi' and must land on say-hello.
+#
+# There are three runners over ONE manifest, generated from a single template so they
+# cannot drift: run.ex_A2_branch.http / _hola / _dutch. Only `message` and the expected
+# branch differ.
+#
+# Assertions (all on the EVENT STREAM — this workflow has no tools and writes no
+# files, so there is deliberately nothing to assert on an artifact):
+# 1. Exactly ONE branch target runs — never two, never none (R-09/R-10) — AND it is the
+#    one this variant's message should select. Asserting the SPECIFIC branch matters:
+#    an "exactly one ran" check alone passes when the router picks the wrong language.
+# 2. emoji and language each run exactly once
+# 3. BOTH untaken branches ARE reported agent_skipped — they never ran, so "skipped" is
+#    true. The loop fixture (ex_A1_loop) suppresses that event for a target that
+#    ALREADY ran; this pins that the guard does not over-fire on a forward branch.
+# 4. No step carries a visit_count — this fixture never loops
+# 5. pipeline_complete is reached
+# 6. The taken branch's exact line reached the run output
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.ex_A2_branch.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh ex_A2_branch
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch — forward branch workflow. No agent_ids.
+{{
+	const apiLine = require('./lib/api-line.js');
+	// No agent_ids here, deliberately: the launch endpoint validates any supplied agent_ids
+	// against allowed_custom_agent_ids(), which does not know the synthetic
+	// [instance_id]s used by these fixtures (emoji, language, say-hello, say-hola, say-hallo).
+	// Omitting the key makes the backend source the roster from the compiled plan instead
+	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
+	//
+	// message is real input, not filler: "language" reads it to pick the branch.
+	const payload = {
+		pipeline_type: "ex_A2_branch",
+		message: "Hi",
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('POST /api/runs -> ' + response.statusCode + ' run=' + exports.runId);
+	}
+}}
+
+### 3. Stream events over SSE, wait for completion
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+
+			const type = data.type;
+			const d = data.data || {};
+
+			if (type === 'agent_start') {
+				apiLine('agent_start: ' + d.agent_id);
+			} else if (type === 'agent_complete') {
+				apiLine('agent_complete: ' + d.agent_id);
+			} else if (type === 'pipeline_complete') {
+				apiLine('pipeline_complete reached');
+				finish();
+			} else if (['pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(type)) {
+				apiLine(type, 'error');
+				finish();
+			}
+		});
+
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 4. GET events history for assertions
+GET {{apiRoot}}/api/runs/{{runId}}/events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const events = response.parsedBody.events || [];
+
+	// What this variant's message must select.
+	const EXPECT = 'say-hello';
+	const WANT = 'Hello, world!';
+	const BRANCHES = ['say-hello', 'say-hola', 'say-hallo'];
+
+	// TWO shape traps, both of which have silently zeroed these counts before:
+	// 1. this REST endpoint nests the payload under `payload_json`, NOT `data` (only
+	//    the SSE stream uses `data`) — reading e.data.* yields undefined for every
+	//    event, which is what produced "say-hello ran 0 time(s)" on runs where it
+	//    plainly ran;
+	// 2. agent_ids carry the FULL composed id ("custom-agent:say-hello"), not the bare
+	//    instance_id.
+	const payloadOf = (e) => e.payload_json || e.data || {};
+	const isMine = (aid, id) => aid === id || (typeof aid === 'string' && aid.endsWith(':' + id));
+	const dispatches = (id) =>
+		events.filter(e => e.type === 'agent_start' && isMine(payloadOf(e).agent_id, id)).length;
+	const textOf = (id) => {
+		let buf = [], capturing = false, out = null;
+		for (const e of events) {
+			const p = payloadOf(e);
+			const mine = isMine(p.agent_id, id);
+			if (e.type === 'agent_start' && mine) { capturing = true; buf = []; }
+			else if (e.type === 'agent_chunk' && mine && capturing) buf.push(p.chunk || '');
+			else if (e.type === 'agent_complete' && mine && capturing) { capturing = false; out = buf.join('').trim(); }
+		}
+		return out;
+	};
+
+	// 1. EXACTLY ONE branch target runs, and it is the EXPECTed one (R-09/R-10).
+	const counts = BRANCHES.map(b => b + '=' + dispatches(b));
+	const taken = BRANCHES.filter(b => dispatches(b) > 0);
+	apiLine('branch dispatches: ' + counts.join(' '));
+	if (taken.length !== 1) {
+		apiLine('✗ expected exactly one branch to run, got ' + taken.length, 'error');
+	} else if (taken[0] !== EXPECT) {
+		apiLine('✗ wrong branch: expected ' + EXPECT + ', got ' + taken[0], 'error');
+	} else {
+		apiLine('✓ exactly one branch ran, and it is ' + EXPECT);
+	}
+
+	// 2. The non-branching prefix runs once each.
+	if (dispatches('emoji') === 1 && dispatches('language') === 1) {
+		apiLine('✓ emoji and language each ran once');
+	} else {
+		apiLine('✗ emoji/language dispatch counts wrong', 'error');
+	}
+
+	// 3. BOTH untaken branches must be reported skipped — they never ran, so "skipped"
+	//    is true here. (The loop fixture's guard suppresses this only for a target that
+	//    ALREADY ran; this asserts the guard did not over-fire on a forward branch.)
+	const skipped = events.filter(e => e.type === 'agent_skipped').map(e => payloadOf(e).agent_id);
+	const missing = BRANCHES.filter(b => b !== EXPECT && !skipped.some(a => isMine(a, b)));
+	if (missing.length === 0) {
+		apiLine('✓ both untaken branches reported skipped');
+	} else {
+		apiLine('✗ untaken branch(es) NOT reported skipped: ' + missing.join(', '), 'error');
+	}
+
+	// A blocked conditional gate does NOT halt the run (§8b: the terminate-on-block
+	// fix covered only the PRE-step loop), so the cursor just advances to the next
+	// step in sequence — which looks exactly like a correct forward branch and still
+	// reports pipeline_complete. Without this check a run where the gate never matched
+	// scored green: seen live when a model emitted
+	// '{"decision":"english"}Hello! How can I help you today?' and strict JSON parsing
+	// discarded it. If this fires, the branch below did NOT route — it fell through.
+	const blocked = events.filter(e => e.type === 'gate_blocked').map(e => payloadOf(e).step || '?');
+	if (blocked.length === 0) apiLine('✓ no gate_blocked — the conditional gate actually routed');
+	else apiLine('✗ conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run fell through instead of routing', 'error');
+
+	// 4. No loop here, so no step may carry a visit_count.
+	if (events.some(e => payloadOf(e).visit_count)) {
+		apiLine('✗ a visit_count appeared on a non-looping workflow', 'error');
+	} else {
+		apiLine('✓ no visit_count (correct — this fixture never loops)');
+	}
+
+	// 5. Terminal state.
+	if (events.some(e => e.type === 'pipeline_complete')) {
+		apiLine('✓ pipeline_complete event found');
+	} else {
+		apiLine('✗ pipeline_complete not found', 'error');
+	}
+
+	// 6. The taken branch's exact line reached the run output.
+	const got = textOf(EXPECT) || '';
+	if (got.includes(WANT)) {
+		apiLine('✓ branch output carries "' + WANT + '"');
+	} else {
+		apiLine('✗ branch output missing "' + WANT + '" (got: "' + got.slice(0, 60) + '")', 'error');
+	}
+}}

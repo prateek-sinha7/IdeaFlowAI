@@ -106,6 +106,15 @@ class AgentSpec:
     # only way to express that was to hardcode the id in the loader.
     template: bool = False
 
+    # ── Prompt assembly policy (sandbox-git-versioning / Requirement 29 AC4) ──
+    # Optional AGENT.md ``prompt_policy`` key.  Absent (the common case — all
+    # existing agents) → ``None``, which the factory maps to ``"default"`` so
+    # the composition stays byte-identical for every existing agent (INV-3).
+    # Set to ``"body_only"`` for migrated Seam-2 agents; ``"governance"`` for
+    # governed agents (those with guardrails, hooks, or a Constitution) that also
+    # migrate — the compiler warns when a governed agent picks ``"body_only"``.
+    prompt_policy: str | None = None
+
 
 class AgentSpecError(Exception):
     """Raised when an AGENT.md file has invalid or missing fields."""
@@ -135,7 +144,17 @@ def load_agent_spec(agent_id: str) -> AgentSpec:
         AgentSpecError: if a required field is missing or has an invalid value.
     """
     if agent_id in _SPEC_CACHE:
-        return _SPEC_CACHE[agent_id]
+        spec = _SPEC_CACHE[agent_id]
+        # A cache hit whose prompt_policy validation was deferred (see
+        # _validate_prompt_policy) gets one more attempt on every subsequent
+        # call — cheap once resolved (a dict lookup that finds nothing), and
+        # it is how a real AGENT.md scanned during this module's own bootstrap
+        # (before agents.capabilities.registry finished importing) still gets
+        # validated once that import has had a chance to settle.
+        if agent_id in _PENDING_PROMPT_POLICY_VALIDATION:
+            policy_name, policy_file_path = _PENDING_PROMPT_POLICY_VALIDATION[agent_id]
+            _validate_prompt_policy(agent_id, policy_name, policy_file_path)
+        return spec
 
     # ── Synthetic ids (custom-agent:<instance_id>) ──────────────────────────
     # Resolve the base spec through the normal path, then overlay the full
@@ -441,6 +460,21 @@ def _build_spec(
         )
     template: bool = raw_template
 
+    # ── prompt_policy (optional) ──────────────────────────────────────────
+    # Absent → None (factory maps None → "default"). Present → must be a
+    # string and MUST be a registered prompt-policy name from the registry.
+    raw_prompt_policy = metadata.get("prompt_policy")
+    if raw_prompt_policy is not None and not isinstance(raw_prompt_policy, str):
+        raise AgentSpecError(
+            f"Invalid field 'prompt_policy' in {file_path_str}: "
+            f"expected a string or null, got {type(raw_prompt_policy).__name__!r}"
+        )
+    prompt_policy: str | None = raw_prompt_policy if raw_prompt_policy else None
+
+    # Validate prompt_policy against registered prompt-policy names
+    if prompt_policy is not None:
+        _validate_prompt_policy(agent_id, prompt_policy, file_path_str)
+
     return AgentSpec(
         id=agent_id,
         name=name,
@@ -461,6 +495,7 @@ def _build_spec(
         injects=injects,
         model=model,
         template=template,
+        prompt_policy=prompt_policy,
     )
 
 
@@ -569,6 +604,53 @@ def _optional_list_of_str(
     return result
 
 
+# Prompt-policy checks that couldn't run yet (see _validate_prompt_policy),
+# keyed by agent_id -> (policy_name, file_path). ``agents.capabilities.registry``
+# imports ``agents.registry``, which imports names from THIS module — whichever
+# of these three modules happens to import first, some caller ends up asking
+# for ``agents.capabilities.registry._KNOWN`` while that module (or this one)
+# is still mid-import, which raises ImportError. There is no fixed point in
+# this file where retrying is guaranteed to work (it depends on which module
+# started the import), so a check that can't run yet is recorded here instead
+# of being dropped, and retried the next time its agent_id is looked up
+# (load_agent_spec's cache-hit path) or by the one-shot replay at the bottom
+# of this module — never retried in a loop from inside this function itself,
+# so an unresolved import can only ever return, never recurse or spin.
+_PENDING_PROMPT_POLICY_VALIDATION: dict[str, tuple[str, str]] = {}
+
+
+def _validate_prompt_policy(agent_id: str, policy_name: str, file_path: str) -> None:
+    """Validate that prompt_policy is a registered prompt-policy name.
+
+    Raises AgentSpecError if the policy name is not registered. If the
+    registry can't be imported right now (this module or one of its own
+    importers is still mid-import), records the check in
+    _PENDING_PROMPT_POLICY_VALIDATION for a later retry instead of treating
+    an unresolved import as "policy assumed valid" — the caller's AgentSpec
+    gets cached either way, and a cache hit alone never re-checks it.
+    """
+    try:
+        from agents.capabilities.registry import _KNOWN as registry_known
+    except ImportError:
+        _PENDING_PROMPT_POLICY_VALIDATION[agent_id] = (policy_name, file_path)
+        return
+
+    _PENDING_PROMPT_POLICY_VALIDATION.pop(agent_id, None)
+
+    # Extract all registered prompt policy names
+    registered_policies = {
+        name for kind, name in registry_known if kind == "prompt"
+    }
+
+    if policy_name not in registered_policies:
+        allowed_names = ", ".join(sorted(registered_policies))
+        raise AgentSpecError(
+            f"Invalid field 'prompt_policy' in {file_path}: "
+            f"'{policy_name}' is not a registered prompt policy. "
+            f"Allowed values: {allowed_names}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Supported pipeline types (derived from disk — spec 012, ADR-0005)
 # ---------------------------------------------------------------------------
@@ -634,3 +716,27 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = _discover_supported_pipeline_types()
 TEMPLATE_AGENT_IDS_BY_FLAG: frozenset[str] = frozenset(
     spec.id for spec in iter_agent_specs() if spec.template
 )
+
+
+# ---------------------------------------------------------------------------
+# One-shot replay of prompt_policy checks still pending after the bootstrap
+# scan above
+# ---------------------------------------------------------------------------
+#
+# Covers the case where THIS module is the root of the import (e.g. a bare
+# ``import agents.loader``): by now agents.registry's
+# `from agents.loader import (SUPPORTED_PIPELINE_TYPES, TEMPLATE_AGENT_IDS_BY_FLAG,
+# ...)` can resolve — both names are bound above — so agents.capabilities.registry's
+# import chain no longer circles back into a partially-initialized agents.loader,
+# and this replay raises AgentSpecError (failing this module's own import) for
+# any real AGENT.md scanned above with an unregistered prompt_policy, rather
+# than letting it load unchecked. Snapshotted with list(...) BEFORE iterating:
+# a nested load_agent_spec cache-hit re-check triggered from inside this same
+# replay (e.g. agents.registry's own PIPELINE_AGENTS scan re-entering this
+# module) can still re-populate _PENDING_PROMPT_POLICY_VALIDATION for a
+# different import order (see load_agent_spec) — iterating a fixed snapshot
+# instead of the live dict keeps this loop bounded rather than growing forever.
+for _pending_agent_id, (_pending_policy_name, _pending_file_path) in list(
+    _PENDING_PROMPT_POLICY_VALIDATION.items()
+):
+    _validate_prompt_policy(_pending_agent_id, _pending_policy_name, _pending_file_path)

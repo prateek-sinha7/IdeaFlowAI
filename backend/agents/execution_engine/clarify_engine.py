@@ -382,6 +382,7 @@ class ClarifyEngine:
                         "pipeline_run_id": pipeline_run_id,
                         "responses": responses,
                         "updated_gate": "PROCEED",
+                        "round": round_num,
                         "timestamp": _now_iso(),
                     },
                 }

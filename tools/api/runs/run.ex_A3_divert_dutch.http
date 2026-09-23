@@ -1,0 +1,231 @@
+### Conditional Gate — cross-workflow trigger (spec 014 example A3)
+#
+# ONE conditional gate carrying BOTH trigger types, so the engine must dispatch
+# per-OUTCOME, not per-gate:
+#
+#   emoji -> language
+#     |__ english (trigger: step) ____> a-english   stays in THIS run, runs to
+#     |                                             pipeline_complete / status=completed
+#     |__ spanish (trigger: workflow) _> NEW run ex_A3_b_spanish
+#     |__ dutch   (trigger: workflow) _> NEW run ex_A3_c_dutch
+#                                        parent STOPS: pipeline_diverted / status=diverted
+#
+# The terminal state DIFFERS by outcome — that is the test. Three runners over ONE
+# manifest, generated from a single template so they cannot drift.
+#
+# THIS VARIANT: message "Hallo" -> dutch -> trigger: workflow. Same as spanish but
+# into ex_A3_c_dutch.
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.ex_A3_divert_dutch.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh ex_A3_divert_dutch
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch ex_A3_divert. No agent_ids.
+{{
+	const apiLine = require('./lib/api-line.js');
+	// No agent_ids: the launch endpoint validates supplied ids against
+	// allowed_custom_agent_ids(), which does not know these fixtures' synthetic
+	// instance_ids. Omitting the key makes the backend source the roster from the
+	// compiled plan (backend/app/api/run_commands.py). Do not add agent_ids back.
+	const payload = {
+		pipeline_type: "ex_A3_divert",
+		message: "Hallo",
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('POST /api/runs -> ' + response.statusCode + ' run=' + exports.runId);
+	}
+}}
+
+### 3. Stream parent — must end on pipeline_diverted, NOT pipeline_complete
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			const d = data.data || {};
+			if (data.type === 'agent_start') apiLine('agent_start: ' + d.agent_id);
+			else if (data.type === 'agent_complete') apiLine('agent_complete: ' + d.agent_id);
+			else if (data.type === 'pipeline_diverted') {
+				apiLine('✓ pipeline_diverted received');
+				apiLine('  diverted_to_run_id: ' + d.diverted_to_run_id);
+				apiLine('  diverted_to_workflow: ' + d.diverted_to_workflow);
+				exports.childRunId = d.diverted_to_run_id;
+				if (d.diverted_to_workflow === 'ex_A3_c_dutch') apiLine('✓ diverted_to_workflow = ex_A3_c_dutch');
+				else apiLine('✗ expected diverted_to_workflow=ex_A3_c_dutch, got ' + d.diverted_to_workflow, 'error');
+				finish();
+			}
+			else if (['pipeline_complete','pipeline_failed','pipeline_cancelled','budget_aborted','error'].includes(data.type)) {
+				apiLine('✗ expected pipeline_diverted but got ' + data.type, 'error');
+				finish();
+			}
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 4. Parent run must be DIVERTED, stamped at the gate step
+GET {{apiRoot}}/api/runs/{{runId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const b = response.parsedBody || {};
+	if (b.status === 'diverted') apiLine('✓ status = diverted');
+	else apiLine('✗ expected status=diverted, got ' + b.status, 'error');
+
+	// engine.py stamps step.instance_id — the BARE authored id, not the composed
+	// "custom-agent:language". Asserting the bare form pins that.
+	if (b.diverted_at_step_id === 'language') apiLine('✓ diverted_at_step_id = language');
+	else apiLine('✗ expected diverted_at_step_id=language, got ' + b.diverted_at_step_id, 'error');
+}}
+
+### 5. Parent events — a-english must be neither dispatched NOR skipped
+GET {{apiRoot}}/api/runs/{{runId}}/events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const events = response.parsedBody.events || [];
+	const payloadOf = (e) => e.payload_json || e.data || {};
+	const isMine = (aid, id) => aid === id || (typeof aid === 'string' && aid.endsWith(':' + id));
+	const dispatches = (id) =>
+		events.filter(e => e.type === 'agent_start' && isMine(payloadOf(e).agent_id, id)).length;
+
+	const blocked = events.filter(e => e.type === 'gate_blocked').map(e => payloadOf(e).step || '?');
+	if (blocked.length === 0) apiLine('\u2713 no gate_blocked — the conditional gate actually routed');
+	else apiLine('\u2717 conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run fell through instead of routing', 'error');
+
+	if (dispatches('emoji') === 1 && dispatches('language') === 1) apiLine('✓ emoji and language each ran once');
+	else apiLine('✗ emoji/language dispatch counts wrong', 'error');
+
+	// The engine emits agent_skipped INSIDE the `trigger: step` arm only; the
+	// `elif trigger == "workflow"` arm returns before it. So on a divert the in-run
+	// branch target gets NEITHER agent_start NOR agent_skipped — correct, because the
+	// run stopped at the gate rather than routing past a sibling.
+	const ran = dispatches('a-english');
+	const wasSkipped = events.some(e => e.type === 'agent_skipped' && isMine(payloadOf(e).agent_id, 'a-english'));
+	if (ran === 0 && !wasSkipped) apiLine('✓ a-english neither dispatched nor skipped (run stopped at the gate)');
+	else apiLine('✗ a-english dispatched=' + ran + ' skipped=' + wasSkipped + ', expected neither', 'error');
+}}
+
+### 6. Child run is linked to this one
+GET {{apiRoot}}/api/runs/{{childRunId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const b = response.parsedBody || {};
+	if (b.parent_run_id === runId) apiLine('✓ child parent_run_id matches the diverting run');
+	else apiLine('✗ expected parent_run_id=' + runId + ', got ' + b.parent_run_id, 'error');
+
+	if (b.type === 'ex_A3_c_dutch') apiLine('✓ child pipeline_type = ex_A3_c_dutch');
+	else apiLine('✗ expected child type=ex_A3_c_dutch, got ' + b.type, 'error');
+}}
+
+### 7. Stream the child to completion
+SSE {{apiRoot}}/api/runs/{{childRunId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+	// Not racy: this endpoint is a durable REPLAY (run_stream.py) — a child that
+	// already finished still replays its full event history plus the terminal frame.
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			const d = data.data || {};
+			if (data.type === 'agent_start') apiLine('child: agent_start: ' + d.agent_id);
+			else if (data.type === 'pipeline_complete') { apiLine('✓ child pipeline_complete'); finish(); }
+			else if (['pipeline_failed','pipeline_cancelled','budget_aborted','error'].includes(data.type)) { apiLine('child: ' + data.type, 'error'); finish(); }
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 8. THE POINT: the parent's instruction reached the child
+GET {{apiRoot}}/api/runs/{{childRunId}}/events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const events = response.parsedBody.events || [];
+	const payloadOf = (e) => e.payload_json || e.data || {};
+
+	// R-28 parent->child. A triggered run is otherwise minted with content="" — it
+	// inherits parent_run_id/owner/workspace/budget but NOT the parent's message. The
+	// diverting outcome's `feedback` is the only channel, and it arrives as the child's
+	// user message, so it shows up inside the ORIGINAL USER REQUEST envelope.
+	//
+	// Deterministic — it reads what the child was HANDED, not what the model did with it.
+	//
+	// The marker is a phrase unique to the Dutch feedback string. The two outcomes carry
+	// instructions in different languages sharing no distinctive substring, so this also
+	// proves the RIGHT outcome's feedback reached this child — not merely that some
+	// feedback did.
+	const inputs = events.filter(e => e.type === 'agent_input')
+		.map(e => payloadOf(e).context_message || '');
+	const landed = inputs.some(m => m.includes('stak de kip'));
+	if (landed) apiLine('✓ the Dutch instruction reached the child\'s context_message');
+	else apiLine('✗ parent instruction did NOT reach the child (context_message: "' + (inputs[0] || '').slice(0, 120) + '")', 'error');
+
+	// End-to-end: the child ACTED on it. The child's own prompt says nothing about a
+	// joke, so a road-crossing joke here can only have come from the parent.
+	let buf = [], cap = false, out = '';
+	for (const e of events) {
+		const p = payloadOf(e);
+		const mine = typeof p.agent_id === 'string' && p.agent_id.endsWith(':greet');
+		if (e.type === 'agent_start' && mine) { cap = true; buf = []; }
+		else if (e.type === 'agent_chunk' && mine && cap) buf.push(p.chunk || '');
+		else if (e.type === 'agent_complete' && mine && cap) { cap = false; out = buf.join('').trim(); }
+	}
+	apiLine('child output: "' + out.replace(/\n/g, ' ').slice(0, 140) + '"');
+	const MARKERS = ['weg', 'straat', 'overst'];
+	if (MARKERS.some(m => out.toLowerCase().includes(m))) apiLine('✓ child output contains a road-crossing joke');
+	else apiLine('✗ child output has no joke — instruction landed but was not acted on', 'error');
+}}

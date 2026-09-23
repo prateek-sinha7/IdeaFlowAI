@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from agents.execution_engine.budget import (
@@ -68,6 +69,44 @@ logger = logging.getLogger(__name__)
 _ISOLATION_SHARED_READ = "shared_read"
 _ISOLATION_SUB_SANDBOX = "sub_sandbox"
 _ISOLATION_WORKTREE = "worktree"
+
+
+@dataclass
+class FanoutMergeState:
+    """Durable record of a fan-out merge outcome persisted to ``wave_runs``.
+
+    Written by ``_merge_fragments`` after a merge attempt (clean or conflicted) via
+    ``runner.update_wave_run_merge_state``. The ``wave_runs`` table has carried these
+    columns since migration 0045 (sandbox-git-versioning-v2 task 5.1); this dataclass
+    gives the caller a typed surface so the column assignment is never ad-hoc.
+
+    ``merge_state`` values (mirrors the ``wave_runs.merge_state`` free-String column):
+      ``"clean"``    — all fragments merged without conflict
+      ``"conflict"`` — one or more merge conflicts were detected
+      ``"partial"``  — some fragments applied, some did not (e.g. after a failed worker)
+      ``"aborted"``  — the merge strategy raised an unhandled exception (WR-02)
+
+    ``worker_index`` and ``step_id`` together key back to the ``wave_runs`` row so the
+    caller can locate the right row without a secondary lookup.
+
+    ``retained_state`` is populated by the ``partial`` policy (both refused-before-start
+    and started-and-conflicted situations) so the kept fragment set is inspectable rather
+    than implied.  It is a list of branch/worker descriptors for every fragment whose
+    merge commit is still intact after the conflict was adjudicated.  Empty for every
+    other policy.  (Requirement 12 AC 5 — Task 7.2.)
+    """
+
+    step_id: str
+    worker_index: int
+    merge_state: str  # "clean" | "conflict" | "partial" | "aborted"
+    merge_applied: list[str] = field(
+        default_factory=list
+    )  # branch names merged cleanly
+    merge_conflicts: list[dict] = field(default_factory=list)  # conflict details
+    merge_strategy: str = ""  # e.g. "git_3way", "copy_disjoint"
+    retained_state: list[str] = field(
+        default_factory=list
+    )  # fragment ids retained after partial
 
 
 class FanoutError(Exception):
@@ -146,6 +185,9 @@ def _select_workers(requests: list[dict], ctx: Any, step: Any) -> list[dict]:
                 # record site so each spawned subagent_runs row is stamped at SPAWN
                 # (before the crash window). None on legacy/non-wave fan-out (dormant).
                 "task_id": req.get("task_id"),
+                # The author's own id (s01) alongside the hashed task_id — display
+                # only, and dropped here would mean the UI never sees it.
+                "task_author_id": req.get("task_author_id"),
             }
         )
     return selected
@@ -460,11 +502,23 @@ async def run_fanout(
         # The worker's reported token usage (read off its agent_complete event) —
         # accumulated into the budget at the collect boundary (FANOUT-09 / CR-04).
         worker_tokens = 0
+        worker_error: str | None = None
+        # Provider failures (expired credentials, rate limits, etc.) are YIELDED as
+        # agent_error events, not raised. Track if we saw an error WITH NO agent_complete:
+        # that worker is failed. Timeouts yield BOTH agent_error + agent_complete — those
+        # stay complete (the best-available output was delivered).
+        saw_complete = False
+        agent_error_msg: str | None = None
         try:
             async for _child_event in runner.run_worker(
                 step,
                 ctx,
                 worker_index=idx,
+                # The worker's plan-global task id (s01…), so a NESTED fan-out this
+                # worker performs can name the parent it came from. None on
+                # non-wave fan-out → the whole chain stays dormant.
+                task_id=worker.get("task_id"),
+                task_author_id=worker.get("task_author_id"),
                 thread_id=thread_id,
                 agent_id=agent_id,
                 input=worker["input"],
@@ -475,15 +529,28 @@ async def run_fanout(
                 # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only);
                 # the terminal agent_complete carries the worker's token usage.
                 if _child_event.get("type") == "agent_complete":
+                    saw_complete = True
                     worker_tokens += int(
                         (_child_event.get("data") or {}).get("total_tokens") or 0
                     )
+                elif _child_event.get("type") == "agent_error":
+                    # Capture provider failures (credentials, rate limits, etc.).
+                    agent_error_msg = (_child_event.get("data") or {}).get(
+                        "error"
+                    ) or "agent_error"
 
                 # Optional side channel (additive, default-off): a caller that
                 # supplied event_queue gets this worker's raw per-agent event too.
                 # None for every existing caller — dead branch, zero behavior change.
+                # RESUME-06 companion: stamp worker identity at PUSH time (this loop is
+                # the only place that knows it) on a COPY — never mutate the dict
+                # ``run_worker`` yields, it may be re-read/re-yielded elsewhere.
                 if event_queue is not None:
-                    event_queue.put_nowait(_child_event)
+                    _data = dict(_child_event.get("data") or {})
+                    _data["worker_index"] = idx
+                    _data["task_id"] = worker.get("task_id")
+                    _data["task_author_id"] = worker.get("task_author_id")
+                    event_queue.put_nowait({**_child_event, "data": _data})
 
         except asyncio.CancelledError:
             # This worker's task was cancelled (the run was stopped mid-flight). Flip
@@ -497,6 +564,19 @@ async def run_fanout(
         except Exception as exc:  # noqa: BLE001 — a failed worker must not abort siblings
             logger.warning("fan-out worker %s (%s) failed: %s", idx, agent_id, exc)
             status = "failed"
+            # Carry WHY on the result event. Without it a failed row can only say
+            # "Failed", and the reader is left guessing between a budget refusal,
+            # a tool error and a model error — three very different problems.
+            worker_error = f"{type(exc).__name__}: {exc}"[:400]
+
+        # Provider failures are YIELDED as agent_error events, not raised. If we saw an
+        # error but NO agent_complete, the worker must be recorded failed (not complete).
+        # Timeouts yield both agent_error + agent_complete — those correctly stay complete
+        # (best-available output was delivered).
+        if agent_error_msg is not None and not saw_complete:
+            status = "failed"
+            worker_error = agent_error_msg[:400]
+
         if row_id is not None:
             open_rows.pop(idx, None)
             await runner.update_subagent_run(
@@ -512,17 +592,46 @@ async def run_fanout(
         # Commit a completed WORKTREE worker's edits on its per-worker branch
         # (CR-06): without this, merge_worktree's ``git merge`` sees nothing to
         # integrate and the uncommitted edits are destroyed by the worktree
-        # teardown — worker output silently lost. Best-effort via the workspace
-        # handle (the single git owner); a sub_sandbox worker has no branch.
+        # teardown — worker output silently lost.
+        # Task 4.3 (sandbox-git-versioning-v2, Req 11 AC 9): routed through the
+        # ONE security-gated commit primitive so the worker commit is subject to
+        # pre_commit hooks and the mandatory secret scan, exactly like every
+        # step-boundary commit.  ``audit_operation=None`` because a fan-out
+        # worker commit is not an audited operation class (the observer no-ops
+        # cleanly on None per the commit_in_sandbox contract, Req 19).
+        # A minimal SimpleNamespace step carries the agent_id so _fire_hooks and
+        # the audit trail can identify the worker; hooks and tools are None (no
+        # per-worker declared hooks to fire, no force-add allowlist needed).
         if status == "complete" and getattr(worker_ws, "_worktree_branch", None):
-            commit_fn = getattr(worker_ws, "commit_all", None)
-            if callable(commit_fn):
-                try:
-                    commit_fn(f"fanout: worker {idx} ({agent_id})")
-                except Exception as exc:  # noqa: BLE001 — a commit failure degrades to no fragment
+            try:
+                from agents.execution_engine.engine import commit_in_sandbox  # noqa: PLC0415
+                import types as _types  # noqa: PLC0415
+
+                _worker_step = _types.SimpleNamespace(
+                    agent_id=agent_id,
+                    hooks=[],
+                    tools=None,
+                )
+                _result = await commit_in_sandbox(
+                    worker_ws,
+                    f"fanout: worker {idx} ({agent_id})",
+                    ctx,
+                    _worker_step,
+                    audit_operation=None,
+                    registry=None,  # no per-worker declared hooks
+                )
+                if _result.blocked:
                     logger.warning(
-                        "fan-out worker %s worktree commit failed: %s", idx, exc
+                        "fan-out worker %s worktree commit BLOCKED (reason=%s) — "
+                        "worker output will not be merged",
+                        idx,
+                        _result.block_reason,
                     )
+                    # A blocked worker commit means the fragment is incomplete — flip
+                    # the status so it is not presented as a mergeable fragment.
+                    status = "failed"
+            except Exception as exc:  # noqa: BLE001 — commit failure degrades to no fragment
+                logger.warning("fan-out worker %s worktree commit failed: %s", idx, exc)
 
         # (5a) Fragment persistence BEFORE merge (FANOUT-06 / WR-03) — EVERY file the
         # worker wrote persists as a typed lineage-tracked fragment artifact (one ref
@@ -558,7 +667,16 @@ async def run_fanout(
             }
         )
 
-        result = {"worker": idx, "agent": agent_id, "row_id": row_id, "status": status}
+        result = {
+            "worker": idx,
+            "agent": agent_id,
+            "row_id": row_id,
+            "status": status,
+            "task_id": worker.get("task_id"),
+            "task_author_id": worker.get("task_author_id"),
+        }
+        if worker_error:
+            result["error"] = worker_error
         if artifact_refs:
             # Back-compat: artifact_ref carries the first (primary) ref; the full
             # multi-file set rides artifact_refs (WR-03 — nothing is dropped).
@@ -572,6 +690,7 @@ async def run_fanout(
     # CancelledError from a boundary check or an in-flight worker propagates OUT (the
     # kernel's outer handler emits pipeline_cancelled); the teardown still runs first.
     _depth_bumped = False
+    _fan_cancelled = False  # tracks cancel/abort path so teardown can retain branches
     try:
         # ── Depth propagation for the workers' execution scope (CR-05) ───────
         # A worker that itself triggers a fan-out (spawn_subagents → _derive_fanout,
@@ -603,6 +722,8 @@ async def run_fanout(
                         "agent": worker["agent_id"],
                         "isolation": isolation,
                         "depth": depth,
+                        "task_id": worker.get("task_id"),
+                        "task_author_id": worker.get("task_author_id"),
                     },
                 }
                 res = await _run_one(worker)
@@ -622,6 +743,8 @@ async def run_fanout(
                         "agent": worker["agent_id"],
                         "isolation": isolation,
                         "depth": depth,
+                        "task_id": worker.get("task_id"),
+                        "task_author_id": worker.get("task_author_id"),
                     },
                 }
 
@@ -731,7 +854,7 @@ async def run_fanout(
         # When no base/merge is reachable (offline / shared_read) the merge is a clean
         # no-op so the fan-out still completes.
         async for ev in _merge_fragments(
-            runner, base_workspace, step, isolation, fragments_meta
+            runner, base_workspace, step, isolation, fragments_meta, ctx
         ):
             yield ev
     finally:
@@ -743,11 +866,19 @@ async def run_fanout(
                 pass
         # Teardown EVERY allocated isolated workspace — the happy path AND the cancel
         # path AND the BudgetExceeded path all run this (Pitfall 5 / RESUME-01). Each
-        # ``worktree`` is removed (git worktree remove + branch delete); each
-        # ``sub_sandbox`` child dir is rmtree'd. Best-effort per workspace so a teardown
-        # failure never masks the original outcome. Zero-residue acceptance: no isolated
-        # workspace dirs / orphan ``git worktree list`` entries remain after cancel.
-        await _teardown_allocated(runner, base_workspace, allocated)
+        # ``worktree`` is removed (git worktree remove + branch delete on the happy
+        # path; branch RETAINED on cancel so completed worker work is never lost,
+        # Requirement 28 AC2); each ``sub_sandbox`` child dir is rmtree'd. Best-effort
+        # per workspace so a teardown failure never masks the original outcome.
+        # Zero-residue acceptance: no isolated workspace dirs / orphan
+        # ``git worktree list`` entries remain after cancel.
+        _cancel_active = _fan_cancelled or (
+            getattr(ctx, "cancel_event", None) is not None
+            and getattr(ctx.cancel_event, "is_set", lambda: False)()
+        )
+        await _teardown_allocated(
+            runner, base_workspace, allocated, delete_branch=not _cancel_active
+        )
 
 
 async def _gather_or_cancel(tasks: list, ctx: Any) -> list[dict]:
@@ -924,16 +1055,54 @@ class _BaseWriteView:
 
 
 class _WorktreeFragmentView:
-    """Adapts a worktree worker to the git_3way fragment shape (runner + branch)."""
+    """Adapts a worktree worker to the git_3way fragment shape (runner + branch).
 
-    def __init__(self, runner: Any, branch: str, base_commit: str) -> None:
+    ``commit_fn`` is an optional async callable ``(message: str) -> None`` that
+    routes the inter-fragment commit through the ONE security-gated primitive
+    (commit_in_sandbox).  None when no ectx/step is available (offline harness) —
+    the capability falls back to a plain ``commit_all`` in that case.
+    """
+
+    def __init__(
+        self,
+        runner: Any,
+        branch: str,
+        base_commit: str,
+        commit_fn: "Any | None" = None,
+    ) -> None:
         self.runner = runner
         self.branch = branch
         self.base_commit = base_commit
+        self.commit_fn = commit_fn
+
+
+def _persist_merge_state(runner: Any, state: "FanoutMergeState") -> None:
+    """Fire-and-forget helper: schedule persisting a ``FanoutMergeState`` to the wave_runs row.
+
+    Delegates to ``runner.update_wave_run_merge_state`` (a coroutine on
+    ``KernelServices``).  Uses ``asyncio.ensure_future`` so the caller — an async
+    generator — does not need to ``await`` here.  The call is best-effort: if the
+    runner has no such method (offline harness / tests that don't supply one) or if the
+    task raises, the failure is silently swallowed (audit must NEVER abort the run,
+    mirroring ``update_wave_run``'s BLE001 pattern).
+    """
+    update_fn = getattr(runner, "update_wave_run_merge_state", None)
+    if not callable(update_fn):
+        return
+    try:
+        coro = update_fn(state)
+        asyncio.ensure_future(coro)
+    except Exception:  # noqa: BLE001 — audit failure must not abort the run
+        pass
 
 
 async def _merge_fragments(
-    runner: Any, base_workspace: Any, step: Any, isolation: str, fragments_meta: list
+    runner: Any,
+    base_workspace: Any,
+    step: Any,
+    isolation: str,
+    fragments_meta: list,
+    ctx: Any = None,
 ) -> AsyncIterator[dict]:
     """Run the engine-selected merge over the completed fragments + resolve conflicts.
 
@@ -943,8 +1112,22 @@ async def _merge_fragments(
     the step's ``on_conflict`` (``_resolve_conflict``). The merge runs ONLY over the
     workers that completed (a failed worker contributes no fragment). When no base/merge
     handle is reachable the merge is a clean no-op (offline/shared_read parity).
+
+    ``ctx`` (optional, default None): the per-run ``ExecutionContext``; threaded in so
+    the ``_WorktreeFragmentView.commit_fn`` can call ``commit_in_sandbox`` for the
+    inter-fragment commit (Requirement 11 AC 9-10, Task 4.3).  None (offline harness)
+    keeps the fallback ``commit_all`` path active — byte/behavior-identical for tests
+    that supply no ``ctx``.
     """
-    completed = [m for m in fragments_meta if m.get("status") == "complete"]
+    # Sort by declared worker index so the merge sequence is deterministic regardless
+    # of which parallel worker finished first (Req 25 AC 1 / FANOUT-07 ordering).
+    # fragments_meta is populated by _run_one as workers complete — parallel workers
+    # append in arrival order.  Without this sort the strategy receives them in
+    # non-deterministic completion order, not declared order.
+    completed = sorted(
+        [m for m in fragments_meta if m.get("status") == "complete"],
+        key=lambda m: m.get("index", 0),
+    )
     strategy_name = _select_merge_strategy(isolation)
     step_id = getattr(step, "agent_id", "fanout")
 
@@ -972,12 +1155,61 @@ async def _merge_fragments(
                 "conflicts": 0,
             },
         }
+        _persist_merge_state(
+            runner,
+            FanoutMergeState(
+                step_id=step_id,
+                worker_index=0,
+                merge_state="clean",
+                merge_applied=[],
+                merge_conflicts=[],
+                merge_strategy=strategy_name,
+            ),
+        )
         return
 
     # Build the typed fragments for the selected strategy.
     if strategy_name == "git_3way":
+        # Task 4.3 (sandbox-git-versioning-v2, Req 11 AC 9-10): build a ``commit_fn``
+        # async callable for each fragment that routes the inter-fragment commit through
+        # ``commit_in_sandbox``.  The capability (git_3way.py) cannot import
+        # engine.py (import-linter boundary), so we pre-build the callable here
+        # (fanout.py IS in agents.execution_engine and CAN import it) and thread it
+        # through the fragment view.  None when no ctx is available (offline harness)
+        # — the capability falls back to plain ``commit_all`` (existing behavior).
+        import types as _types  # noqa: PLC0415
+
+        _merge_step = _types.SimpleNamespace(
+            agent_id=getattr(step, "agent_id", "fanout-merge"),
+            hooks=[],
+            tools=None,
+        )
+
+        def _make_commit_fn(ws: Any) -> "Any | None":
+            """Return an async commit_fn for the given workspace, or None."""
+            if ctx is None:
+                return None
+            from agents.execution_engine.engine import commit_in_sandbox  # noqa: PLC0415
+
+            async def _commit_fn(message: str) -> None:
+                await commit_in_sandbox(
+                    ws,
+                    message,
+                    ctx,
+                    _merge_step,
+                    audit_operation=None,
+                    registry=None,
+                )
+
+            return _commit_fn
+
         fragments = [
-            _WorktreeFragmentView(runner, m["branch"], m.get("base_commit", ""))
+            _WorktreeFragmentView(
+                runner,
+                m["branch"],
+                m.get("base_commit", ""),
+                commit_fn=_make_commit_fn(base_workspace),
+            )
             for m in completed
             if m.get("branch")
         ]
@@ -989,9 +1221,114 @@ async def _merge_fragments(
         ]
         base = _BaseWriteView(base_workspace)
 
+    # Dynamically import MergeRefusedError so this module keeps its stdlib-only import
+    # discipline at module level (import-linter kernel→ports scaffold stays green).
+    # The import is deferred into the try/except scope so it only executes when the
+    # merge strategy is about to run (not on every fan-out step).
     try:
-        merge_result = strategy.merge(base, fragments)
-    except Exception as exc:  # noqa: BLE001 — a merge crash must not abort the run
+        from app.agents.runtime.local import MergeRefusedError as _MergeRefusedError  # noqa: PLC0415
+    except ImportError:
+        _MergeRefusedError = None  # type: ignore[assignment,misc]
+
+    try:
+        # Task 4.3 (sandbox-git-versioning-v2, Req 11 AC 9-10): ``merge()`` is now
+        # ``async`` for the ``git_3way`` strategy so it can ``await`` the
+        # ``commit_fn`` between fragments.  ``copy_disjoint``, ``json``, and
+        # ``html_fragment`` do NOT need a between-fragment commit and keep a
+        # synchronous ``merge()`` that returns a plain ``MergeResult``.
+        # We ``await`` unconditionally here; a coroutine from an async strategy is
+        # awaited normally, and a plain ``MergeResult`` returned from a sync strategy
+        # is NOT awaitable — but since ``git_3way`` is the only strategy that commits,
+        # and it is the only one now async, ``await`` is safe: Python will raise if
+        # the object isn't awaitable, which would surface a programmer error immediately.
+        # For the non-git_3way strategies we keep the synchronous call via the existing
+        # ``merge()`` name (import boundary: they stay sync-only, no async protocol
+        # change required at the base Protocol level).
+        import inspect as _inspect  # noqa: PLC0415
+
+        _merge_coro = strategy.merge(base, fragments)
+        if _inspect.isawaitable(_merge_coro):
+            merge_result = await _merge_coro
+        else:
+            merge_result = _merge_coro
+    except BaseException as exc:  # noqa: BLE001
+        # Re-raise signals that must propagate (cancel, process exit).
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+
+        # ── Refused-before-start (Task 7.2, Requirement 12 AC 1-5) ──────────────
+        # A MergeRefusedError means git never started the merge — MERGE_HEAD was NOT
+        # written.  This is distinct from a started-and-conflicted merge.  The applied
+        # set is empty (nothing was integrated) and ``conflicts: []`` MUST NOT be
+        # returned (it would falsely imply a clean merge).  The per-policy outcome is
+        # the same four choices but the semantics differ: there is no conflict to
+        # resolve, so merge_agent does NOT invoke the resolver and falls through to
+        # human_gate.  A scan-blocked commit surfaces here as a refused merge for
+        # policy purposes (Requirement 11 AC 12).
+        if _MergeRefusedError is not None and isinstance(exc, _MergeRefusedError):
+            branch = getattr(exc, "branch", str(exc))
+            reason = getattr(exc, "reason", str(exc))
+            logger.warning(
+                "merge strategy %s refused to start for branch %r: %s",
+                strategy_name,
+                branch,
+                reason,
+            )
+            # Artifact-before-event: write the conflict artifact first, then emit the
+            # event (preserving the ordering rule from the started-and-conflicted path).
+            ref_id = None
+            write_conflict = getattr(runner, "write_merge_conflict_artifact", None)
+            refused_payload: dict = {
+                "step": step_id,
+                "strategy": strategy_name,
+                "refused": True,
+                "branch": branch,
+                "reason": reason,
+                "applied": [],
+                "conflicts": [],
+            }
+            if write_conflict is not None:
+                try:
+                    ref_id = await write_conflict(
+                        producer_step=step_id, conflicts=[], payload=refused_payload
+                    )
+                except Exception as _art_exc:  # noqa: BLE001
+                    logger.warning(
+                        "merge_conflict artifact write failed (refused path): %s",
+                        _art_exc,
+                    )
+            _persist_merge_state(
+                runner,
+                FanoutMergeState(
+                    step_id=step_id,
+                    worker_index=0,
+                    merge_state="conflict",  # a refused merge is a conflict-class outcome
+                    merge_applied=[],
+                    merge_conflicts=[
+                        {"refused": True, "branch": branch, "reason": reason}
+                    ],
+                    merge_strategy=strategy_name,
+                    retained_state=[],
+                ),
+            )
+            yield {
+                "type": "merge_failed",
+                "data": {
+                    "step": step_id,
+                    "strategy": strategy_name,
+                    "refused": True,
+                    "branch": branch,
+                    "artifact_ref": ref_id,
+                    "applied": [],
+                    "conflicts": 0,
+                },
+            }
+            async for ev in _resolve_refused(
+                runner, step, refused_payload, fragments_meta
+            ):
+                yield ev
+            return
+
         # WR-02: a crashed merge is FIRST-CLASS — never reported as a clean
         # merge_completed (consumers/audit would see success while nothing was
         # integrated). The distinct merge_failed event names the error; the run
@@ -1008,41 +1345,80 @@ async def _merge_fragments(
                 "conflicts": 0,
             },
         }
+        _persist_merge_state(
+            runner,
+            FanoutMergeState(
+                step_id=step_id,
+                worker_index=0,
+                merge_state="aborted",
+                merge_applied=[],
+                merge_conflicts=[],
+                merge_strategy=strategy_name,
+            ),
+        )
         return
 
     if not getattr(merge_result, "conflicts", None):
+        applied = list(getattr(merge_result, "applied", []) or [])
         yield {
             "type": "merge_completed",
             "data": {
                 "step": step_id,
                 "strategy": strategy_name,
-                "applied": list(getattr(merge_result, "applied", []) or []),
+                "applied": applied,
                 "conflicts": 0,
             },
         }
+        _persist_merge_state(
+            runner,
+            FanoutMergeState(
+                step_id=step_id,
+                worker_index=0,
+                merge_state="clean",
+                merge_applied=applied,
+                merge_conflicts=[],
+                merge_strategy=strategy_name,
+            ),
+        )
         return
 
     # ── Conflict path (FANOUT-08) — first-class, never a silent overwrite. ─────
     conflicts = list(merge_result.conflicts)
+    applied = list(getattr(merge_result, "applied", []) or [])
     payload = {
         "step": step_id,
         "strategy": strategy_name,
         "conflicts": conflicts,
-        "applied": list(getattr(merge_result, "applied", []) or []),
+        "applied": applied,
     }
     ref_id = None
     write_conflict = getattr(runner, "write_merge_conflict_artifact", None)
     if write_conflict is not None:
-        ref_id = await write_conflict(
-            producer_step=step_id, conflicts=conflicts, payload=payload
-        )
+        try:
+            ref_id = await write_conflict(
+                producer_step=step_id, conflicts=conflicts, payload=payload
+            )
+        except Exception as _art_exc:  # noqa: BLE001
+            logger.warning("merge_conflict artifact write failed: %s", _art_exc)
+    _persist_merge_state(
+        runner,
+        FanoutMergeState(
+            step_id=step_id,
+            worker_index=0,
+            merge_state="conflict",
+            merge_applied=applied,
+            merge_conflicts=conflicts,
+            merge_strategy=strategy_name,
+            retained_state=[],
+        ),
+    )
     yield {
         "type": "merge_conflict",
         "data": {
             "step": step_id,
             "strategy": strategy_name,
             "conflicts": conflicts,
-            "artifact_ref": ref_id,
+            "artifact_ref": ref_id if ref_id is not None else "",
         },
     }
 
@@ -1069,26 +1445,136 @@ def _resolve_strategy(runner: Any, name: str) -> Any:
         return None
 
 
+async def _resolve_refused(
+    runner: Any, step: Any, payload: dict, fragments_meta: list
+) -> AsyncIterator[dict]:
+    """Apply the per-policy outcome for a **refused-before-start** merge (Task 7.2).
+
+    A refused merge means git never began the operation — MERGE_HEAD was NOT written.
+    ``conflicts: []`` is therefore never returned (it would falsely imply a clean merge).
+    The per-policy outcomes differ from the started-and-conflicted table because there
+    is nothing to resolve — no conflict markers exist, no conflict artifact to feed a
+    merge agent.
+
+    Cross-policy invariant (Requirement 12 AC 5): prior successful fragment merge commits
+    stay intact under every policy.  A refusal means the current fragment was never
+    applied — no ``git merge --abort`` is needed because the merge never started.
+
+    Policies:
+      * ``abort``       — raise ``FanoutError``; the run fails.
+      * ``partial``     — mark the current fragment dropped; keep every previously
+                          applied fragment's commits intact; record ``retained_state``
+                          in the durable merge state; continue with subsequent fragments.
+      * ``merge_agent`` — no conflict to resolve; fall through to ``human_gate``
+                          immediately (Requirement 12 AC 7 — "does not invoke the
+                          resolver; there is no conflict to resolve").
+      * ``human_gate``  — route through the ONE durable HITL so the decision persists
+                          in ``gate_events`` and a resume re-enters at the recorded
+                          fragment.
+    """
+    policy = getattr(step, "on_conflict", "human_gate") or "human_gate"
+    step_id = payload.get("step", getattr(step, "agent_id", "fanout"))
+    strategy_name = payload.get("strategy", "")
+
+    if policy == "abort":
+        raise FanoutError(
+            f"fan-out merge refused before start (on_conflict=abort): "
+            f"branch={payload.get('branch')!r} reason={payload.get('reason')!r}"
+        )
+
+    if policy == "partial":
+        # Keep every previously applied fragment's commits intact; mark this fragment
+        # dropped.  The retained set is every fragment whose branch is already present
+        # in the base workspace's history — we record it explicitly so it is
+        # inspectable rather than implied (Requirement 12 AC 5).
+        retained = [
+            m.get("branch") or f"worker-{m.get('index', '?')}"
+            for m in fragments_meta
+            if m.get("status") == "complete"
+        ]
+        _persist_merge_state(
+            runner,
+            FanoutMergeState(
+                step_id=step_id,
+                worker_index=0,
+                merge_state="partial",
+                merge_applied=retained,
+                merge_conflicts=[
+                    {
+                        "refused": True,
+                        "branch": payload.get("branch"),
+                        "reason": payload.get("reason"),
+                    }
+                ],
+                merge_strategy=strategy_name,
+                retained_state=retained,
+            ),
+        )
+        yield {
+            "type": "merge_partial",
+            "data": {
+                "step": step_id,
+                "refused": True,
+                "applied": retained,
+                "dropped": [payload.get("branch")],
+            },
+        }
+        return
+
+    # merge_agent: no conflict to resolve → fall through to human_gate immediately.
+    # The merge_agent policy is for *resolving* conflict markers; a refused merge has
+    # none, so invoking the resolver would either fabricate a conflict or silently
+    # succeed having changed nothing.  Neither is acceptable.
+    if policy == "merge_agent":
+        logger.info(
+            "merge_agent policy on refused merge (branch=%r) — "
+            "no conflict to resolve; falling through to human_gate",
+            payload.get("branch"),
+        )
+        # Fall through to human_gate below (no return here).
+
+    # Default / human_gate / merge_agent-fallthrough — the ONE durable HITL.
+    async for ev in _run_human_gate_resolution(runner, step, payload):
+        yield ev
+
+
 async def _resolve_conflict(
     runner: Any, step: Any, merge_result: Any, payload: dict, fragments_meta: list
 ) -> AsyncIterator[dict]:
-    """Resolve a reported merge conflict per the step's ``on_conflict`` policy (§13).
+    """Apply the per-policy outcome for a **started-and-conflicted** merge (Task 7.2).
 
-    Four policies (the §13 set):
-      * ``human_gate`` (default) — delegate to ``ctx.runner.run_human_gate(...)`` → the
-        ONE durable HITL (``_run_review_gate``; NO sibling merge-specific gate). The
-        merge_conflict payload rides the generic ``review_gate_ready.data.output``
-        (the 10-03 approval-snapshot precedent); the gate pauses/resumes on resolution.
-      * ``merge_agent`` — spawn the designated merge worker bounded at
-        ``MERGE_AGENT_MAX_ATTEMPTS`` (=2); after 2 unresolved attempts FALL BACK to
-        ``human_gate`` (Pitfall 8 — no oscillation). The merge-agent worker is sourced
-        from the step's declared merge-agent worker; when none is designated, fall back
-        to human_gate immediately.
-      * ``partial`` — keep the non-conflicting fragments (already ``applied``), mark the
-        conflicted work failed, continue.
-      * ``abort`` — fail the run (raise, surfacing the conflict).
+    Called AFTER ``merge_worktree`` ran, found conflict markers, aborted the in-progress
+    merge (``git merge --abort`` — ``local.py`` already does this when MERGE_HEAD is
+    present), and returned a non-empty ``conflicts`` list.  The base working tree is
+    clean by the time this function is entered.
+
+    Cross-policy invariant (Requirement 12 AC 5): under EVERY policy and for BOTH a
+    refusal and a started-and-conflicted merge, prior successful fragment merge commits
+    stay intact.  Nothing here may unwind an already-committed fragment — that is the
+    v1 defect where ``git merge --abort`` destroyed fragment 1's work after fragment 2
+    was refused.  The ``partial`` policy ONLY aborts the conflicting fragment's merge
+    (already done by ``merge_worktree``); every earlier applied fragment's commits are
+    untouched.
+
+    Policies (Requirement 12 AC 6-8):
+      * ``abort``       — raise ``FanoutError``; the run fails.
+      * ``partial``     — retained state is every fragment whose merge already committed
+                          (``applied`` from the merge result), plus nothing from the
+                          conflicting fragment.  Record retained set in
+                          ``FanoutMergeState.retained_state`` and keep the conflicting
+                          fragment's artifacts in ``artifact_refs`` for recovery.
+                          Continue with subsequent fragments.
+      * ``merge_agent`` — invoke the manifest-declared resolver, bounded at
+                          ``MERGE_AGENT_MAX_ATTEMPTS`` (=2).  Each attempt must
+                          materialize a clean, verified result.  Exhaustion falls
+                          through to ``human_gate`` — no oscillation past the bound.
+      * ``human_gate``  — route through the ONE durable HITL (``_run_review_gate``);
+                          decision persists in ``gate_events`` so a resume re-enters
+                          at the recorded fragment.
     """
     policy = getattr(step, "on_conflict", "human_gate") or "human_gate"
+    step_id = payload.get("step", getattr(step, "agent_id", "fanout"))
+    strategy_name = payload.get("strategy", "")
 
     if policy == "abort":
         raise FanoutError(
@@ -1097,13 +1583,32 @@ async def _resolve_conflict(
         )
 
     if policy == "partial":
-        # Keep the applied (non-conflicting) fragments; mark conflicted work failed.
+        # Retained state: every fragment whose merge already committed (the ``applied``
+        # set from the merge strategy) plus nothing from the conflicting fragment.
+        # ``git merge --abort`` was already called by merge_worktree (local.py) when
+        # MERGE_HEAD was present — the conflicting fragment's work is already discarded.
+        # Fragment artifacts for the dropped fragment were already written pre-merge
+        # (FANOUT-06/WR-03) and remain in artifact_refs for operator recovery.
+        applied_set = list(getattr(merge_result, "applied", []) or [])
+        conflicts_list = list(getattr(merge_result, "conflicts", []) or [])
+        _persist_merge_state(
+            runner,
+            FanoutMergeState(
+                step_id=step_id,
+                worker_index=0,
+                merge_state="partial",
+                merge_applied=applied_set,
+                merge_conflicts=conflicts_list,
+                merge_strategy=strategy_name,
+                retained_state=applied_set,
+            ),
+        )
         yield {
             "type": "merge_partial",
             "data": {
-                "step": getattr(step, "agent_id", "fanout"),
-                "applied": list(getattr(merge_result, "applied", []) or []),
-                "dropped": [c.get("path") for c in merge_result.conflicts],
+                "step": step_id,
+                "applied": applied_set,
+                "dropped": [c.get("path") for c in conflicts_list],
             },
         }
         return
@@ -1113,7 +1618,7 @@ async def _resolve_conflict(
             yield ev
         return
 
-    # Default: human_gate — the ONE durable HITL.
+    # Default: human_gate — the ONE durable HITL (decision persists in gate_events).
     async for ev in _run_human_gate_resolution(runner, step, payload):
         yield ev
 
@@ -1198,7 +1703,7 @@ async def _run_human_gate_resolution(
 
 
 async def _teardown_allocated(
-    runner: Any, base_workspace: Any, allocated: list
+    runner: Any, base_workspace: Any, allocated: list, *, delete_branch: bool = True
 ) -> None:
     """Reclaim EVERY allocated isolated workspace — happy path AND cancel AND abort.
 
@@ -1207,18 +1712,19 @@ async def _teardown_allocated(
     5 / RESUME-01 — no leaks on any path). Prefers the ``teardown_isolated_workspace``
     handle (the cancel-path teardown entry point) and falls back to
     ``reclaim_isolated_workspace``; a ``worktree`` workspace is removed via
-    ``remove_worktree`` (git worktree remove + branch delete) and a ``sub_sandbox``
-    child via its own ``teardown`` (child-dir rmtree, which never touches the parent).
-    Each teardown is best-effort so an orphaned worktree/dir is logged, not fatal
-    (INV-3: cleanup must never break the run). The list is cleared after teardown so a
-    re-entry can never double-reclaim a workspace.
+    ``remove_worktree`` (git worktree remove; branch deleted when ``delete_branch=True``,
+    retained when ``False`` — Requirement 28) and a ``sub_sandbox`` child via its own
+    ``teardown`` (child-dir rmtree, which never touches the parent). Each teardown is
+    best-effort so an orphaned worktree/dir is logged, not fatal (INV-3: cleanup must
+    never break the run). The list is cleared after teardown so a re-entry can never
+    double-reclaim a workspace.
     """
     teardown = getattr(runner, "teardown_isolated_workspace", None)
     reclaim = getattr(runner, "reclaim_isolated_workspace", None)
     for ws in allocated:
         try:
             if teardown is not None:
-                await teardown(base_workspace, ws)
+                await teardown(base_workspace, ws, delete_branch=delete_branch)
             elif reclaim is not None:
                 await reclaim(base_workspace, ws)
         except Exception as exc:  # noqa: BLE001 — a teardown failure must not abort the run

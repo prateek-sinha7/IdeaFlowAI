@@ -28,27 +28,47 @@ const RUNS = vi.hoisted(() => [
   { id: "parked-B", status: "clarifying" },
 ]);
 
+// ISS-220/236/237 — captures each run's onMessage callback so a test can fire
+// a frame directly (simulating the backend, which the mocked transport never
+// does on its own) independent of whether a subscriber is currently attached.
+const onMessageByRunId = vi.hoisted(
+  () => new Map<string, (msg: { type: string; data: Record<string, unknown> }) => void>(),
+);
+
 vi.mock("@/hooks/useRunStream", () => ({
-  useRunStream: () => ({
-    phase: "live",
-    reconnect: () => {},
-    lastMessage: null,
-    lastError: null,
-    cursor: null,
-  }),
+  useRunStream: (opts: {
+    runId: string;
+    onMessage: (msg: { type: string; data: Record<string, unknown> }) => void;
+  }) => {
+    onMessageByRunId.set(opts.runId, opts.onMessage);
+    return {
+      phase: "live",
+      reconnect: () => {},
+      lastMessage: null,
+      lastError: null,
+      cursor: null,
+    };
+  },
 }));
+
+// The signed-in token; a test sets it to model a client-side sign-in or an
+// account switch. Reset to "tok" before every test.
+const tokenRef = vi.hoisted(() => ({ current: "tok" as string | null }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
-    getToken: () => "tok",
+    getToken: () => tokenRef.current,
     getWorkflows: vi.fn(async () => ({ runs: RUNS, total: RUNS.length })),
   };
 });
 
+import { getWorkflows } from "@/lib/api";
+
 beforeEach(() => {
   vi.clearAllMocks();
+  tokenRef.current = "tok";
   // Seed sessionStorage with the tab-launched run IDs for KAN-125 ownership filter.
   // The provider auto-attaches only runs that appear in this set, preventing
   // cross-tab interference. For test purposes, pre-populate with the building runs.
@@ -397,5 +417,304 @@ describe("RunConnectionProvider — sendCommand drains a streamed POST body (m0o
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// BUG-20260828-015930-runs-cancelled (ISS-220/236/237) — a resume's
+// router.push remounts page.tsx, which unsubscribe()s its old fan-out
+// listener and subscribe()s a fresh one. `fanout` (RunConnectionProvider.tsx
+// ~331-339) is a plain `subscribersRef.current.forEach`, with NO buffering:
+// any frame dispatched while zero subscribers are registered — precisely the
+// gap between the old page.tsx unmounting and the new one mounting — is lost
+// forever, never replayed to the resubscriber. Each test below exercises the
+// same confirmed mechanism for the run state named in its card, since
+// `attachRun`/`fanout` are agnostic to why the run was resumed.
+// ─────────────────────────────────────────────────────────────────
+describe("RunConnectionProvider — resume remount subscribe gap must not drop frames", () => {
+  it("ISS-220: a frame emitted while the cancelled-run resume's page remount has no subscriber is still delivered to the resubscriber", async () => {
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+    await waitFor(() => {
+      expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      result.current.attachRun("resumed-cancelled-run");
+    });
+
+    const received: { type: string; data: Record<string, unknown> }[] = [];
+    let unsubscribeOldPage: () => void = () => {};
+    act(() => {
+      unsubscribeOldPage = result.current.subscribe((m) => received.push(m));
+    });
+    // Old page.tsx instance unmounts (router.push remount cleanup).
+    act(() => {
+      unsubscribeOldPage();
+    });
+
+    // Backend fails the resumed pipeline WHILE no subscriber is registered —
+    // the exact remount gap ISS-220 confirmed at RunConnectionProvider.tsx:331-339.
+    act(() => {
+      onMessageByRunId.get("resumed-cancelled-run")?.({
+        type: "pipeline_failed",
+        data: {},
+      });
+    });
+
+    // New page.tsx instance mounts and resubscribes.
+    act(() => {
+      result.current.subscribe((m) => received.push(m));
+    });
+
+    // FAILS TODAY: fanout has no buffering, so the frame lost in the gap
+    // never reaches the resubscriber and the live view stays stuck.
+    expect(received.map((m) => m.type)).toContain("pipeline_failed");
+  });
+
+  it("ISS-236: a frame emitted during the same subscribe gap after a FAILED run's 'Reopen & fix' resume is still delivered to the resubscriber", async () => {
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+    await waitFor(() => {
+      expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      result.current.attachRun("resumed-failed-run");
+    });
+
+    const received: { type: string; data: Record<string, unknown> }[] = [];
+    let unsubscribeOldPage: () => void = () => {};
+    act(() => {
+      unsubscribeOldPage = result.current.subscribe((m) => received.push(m));
+    });
+    act(() => {
+      unsubscribeOldPage();
+    });
+
+    act(() => {
+      onMessageByRunId.get("resumed-failed-run")?.({
+        type: "pipeline_failed",
+        data: {},
+      });
+    });
+
+    act(() => {
+      result.current.subscribe((m) => received.push(m));
+    });
+
+    expect(received.map((m) => m.type)).toContain("pipeline_failed");
+  });
+
+  it("ISS-237: a frame emitted during the same subscribe gap after a DEGRADED run's 'Run again' resume is still delivered to the resubscriber", async () => {
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+    await waitFor(() => {
+      expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      result.current.attachRun("resumed-degraded-run");
+    });
+
+    const received: { type: string; data: Record<string, unknown> }[] = [];
+    let unsubscribeOldPage: () => void = () => {};
+    act(() => {
+      unsubscribeOldPage = result.current.subscribe((m) => received.push(m));
+    });
+    act(() => {
+      unsubscribeOldPage();
+    });
+
+    act(() => {
+      onMessageByRunId.get("resumed-degraded-run")?.({
+        type: "pipeline_degraded",
+        data: {},
+      });
+    });
+
+    act(() => {
+      result.current.subscribe((m) => received.push(m));
+    });
+
+    expect(received.map((m) => m.type)).toContain("pipeline_degraded");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// SGV2-GAP-005 / Requirement 21 AC 9 — mixed-deploy chain launch.
+//
+// "A new frontend against an older backend SHALL be supported by degrading to
+// no chain context with the Requirement 20 AC 4 reason rather than silently
+// launching without provenance."
+//
+// Detection lives HERE, in the `POST /api/runs` response handler
+// (RunConnectionProvider.tsx, "Task 11.8 … Req 21 AC 9"): the launch payload
+// carried `source_workflow_run_id` but the response came back without
+// `chain_v2_accepted`, so the run started with no chain context. The provider
+// synthesises a `chain_context_unavailable` frame through the SAME subscriber
+// fan-out the SSE frames use, and the notice renders from there.
+//
+// GIT_VERSIONING_TASKS row N3 named `LaunchWizard.test.tsx` for this case
+// (inherited from gap-closure-review.md's recommended-action prose).
+// `LaunchWizard.handleLaunch` writes a sessionStorage draft and navigates —
+// it never calls `POST /api/runs` and is unmounted before any response
+// arrives, so the case is untestable there without fabricating an input the
+// component never receives. Relocated by technical-lead review; see
+// gaps-run/journal/N3.md "fix attempt 3".
+// ─────────────────────────────────────────────────────────────────
+
+/** A plain JSON Response carrying a `POST /api/runs` launch body. */
+function launchResponse(body: Record<string, unknown>) {
+  return {
+    ok: true,
+    headers: {
+      get: (k: string) =>
+        k.toLowerCase() === "content-type" ? "application/json" : null,
+    },
+    body: null,
+    json: async () => body,
+  } as unknown as Response;
+}
+
+describe("RunConnectionProvider — mixed-deploy chain launch (SGV2 task 11.8 / Req 21 AC 9)", () => {
+  it("new FE + old BE: a chain launch answered without `chain_v2_accepted` fans out `incompatible_backend` instead of launching silently", async () => {
+    const fetchMock = vi.fn(async () => launchResponse({ run_id: "new-run" }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() => useRunConnection(), {
+        wrapper: RunConnectionProvider,
+      });
+      await waitFor(() => {
+        expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+      });
+
+      const received: { type: string; data: Record<string, unknown>; _sourceRunId?: string }[] = [];
+      act(() => {
+        result.current.subscribe((m) => received.push(m));
+      });
+
+      let ret: string | null = "unset";
+      await act(async () => {
+        ret = await result.current.sendCommand(null, {
+          workflow_type: "prototype",
+          source_workflow_run_id: "src-run",
+        });
+      });
+
+      // A null runId means the launch endpoint, not a per-run /messages url.
+      expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/runs$/);
+      // The run DID start — the degradation is announced, not swallowed, and the
+      // caller still gets the id to attach.
+      expect(ret).toBe("new-run");
+
+      const notices = received.filter((m) => m.type === "chain_context_unavailable");
+      expect(notices).toHaveLength(1);
+      expect(notices[0].data.reason).toBe("incompatible_backend");
+      expect(notices[0].data.run_id).toBe("new-run");
+      // Stamped like every other frame so the notice is run-scopable downstream.
+      expect(notices[0]._sourceRunId).toBe("new-run");
+      expect(String(notices[0].data.message)).toMatch(/without chain context/i);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("new FE + new BE: the same chain launch with `chain_v2_accepted: true` fans out no notice", async () => {
+    const fetchMock = vi.fn(async () =>
+      launchResponse({ run_id: "new-run", chain_v2_accepted: true }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() => useRunConnection(), {
+        wrapper: RunConnectionProvider,
+      });
+      await waitFor(() => {
+        expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+      });
+
+      const received: { type: string; data: Record<string, unknown> }[] = [];
+      act(() => {
+        result.current.subscribe((m) => received.push(m));
+      });
+
+      let ret: string | null = "unset";
+      await act(async () => {
+        ret = await result.current.sendCommand(null, {
+          workflow_type: "prototype",
+          source_workflow_run_id: "src-run",
+        });
+      });
+
+      expect(ret).toBe("new-run");
+      expect(received.filter((m) => m.type === "chain_context_unavailable")).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// QA-PS-035/036/038/041/046 — the run list refreshLiveRuns fetches is the app
+// shell's ONE run-list fetch. It is kept as `recentRuns` (page.tsx hands it to
+// AppHeader's "N Running" badge) instead of page.tsx fetching the same 50 rows
+// again a few ticks later.
+// ─────────────────────────────────────────────────────────────────
+
+describe("RunConnectionProvider — the shell's one run-list fetch (QA-PS-035/036/038/041/046)", () => {
+  it("keeps the fetched rows as recentRuns, and still fetches when this tab owns no runs — attaching none", async () => {
+    // A fresh tab: nothing launched here, so nothing to auto-attach. ISS-782
+    // skipped the query in this case; the badge now depends on it.
+    vi.spyOn(window.sessionStorage, "getItem").mockReturnValue(null);
+
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+
+    await waitFor(() => expect(result.current.recentRunsLoaded).toBe(true));
+    expect(result.current.recentRuns).toEqual(RUNS);
+    expect(result.current.liveRunIds).toEqual([]);
+    expect(getWorkflows).toHaveBeenCalledTimes(1);
+    expect(getWorkflows).toHaveBeenCalledWith("tok", { limit: 50 });
+  });
+
+  it("loadRecentRuns reuses this token's list, loads after a client-side sign-in, and never shows one token's runs to another", async () => {
+    tokenRef.current = null; // booted on /login
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+    expect(getWorkflows).not.toHaveBeenCalled();
+
+    tokenRef.current = "tok"; // signed in via router.push — the provider does not remount
+    act(() => result.current.loadRecentRuns());
+    await waitFor(() => expect(result.current.recentRunsLoaded).toBe(true));
+    expect(result.current.recentRuns).toEqual(RUNS);
+
+    act(() => result.current.loadRecentRuns()); // a page remount
+    expect(getWorkflows).toHaveBeenCalledTimes(1);
+
+    tokenRef.current = "other-account"; // logged out, another account signed in
+    vi.mocked(getWorkflows).mockReturnValueOnce(new Promise<never>(() => {}));
+    act(() => result.current.loadRecentRuns());
+    expect(result.current.recentRuns).toEqual([]);
+    expect(result.current.recentRunsLoaded).toBe(false);
+  });
+
+  it("a failed first load settles as loaded, and the next loadRecentRuns retries it", async () => {
+    vi.mocked(getWorkflows).mockRejectedValueOnce(new Error("backend down"));
+
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+
+    await waitFor(() => expect(result.current.recentRunsLoaded).toBe(true));
+    expect(result.current.recentRuns).toEqual([]);
+
+    act(() => result.current.loadRecentRuns()); // the next page mount
+    await waitFor(() => expect(result.current.recentRuns).toEqual(RUNS));
+    expect(getWorkflows).toHaveBeenCalledTimes(2);
   });
 });

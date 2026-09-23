@@ -1,0 +1,25 @@
+{
+  "url": "http://localhost:3000/workflows/new",
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "Pitch an idea (v2) 0/4",
+    "@Notifications",
+    "@Account menu",
+    "@Back",
+    "Simple",
+    "Canvas",
+    "Run once",
+    "Save workflow",
+    "+ Attach file",
+    "Add agent",
+    "Add hook"
+  ],
+  "tid": [
+    "composer-header-summary",
+    "composer-deliverable-type",
+    "composer-summary-rail"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nCUSTOM · COMPOSER\n0 agents\n0 review gates\n~1m\nSimple\nCanvas\nRun once\nSave workflow\nWORKFLOW\nName\nDeliverable type\nCustom\nDescription\nBrief\nWhat should this run build? Attach PDFs, docs, or images — text is extracted and included automatically.\n+ Attach file\nAgent pipeline\n0 agents · runs sequential · drag to reorder\nAdd agent\nNo agents yet — add one from the catalogue to start composing.\nHooks\nInject domain instructions and pre/post behaviours across the whole workflow.\nHooks\nAdd hook\nNo hooks attached · click \"Add hook\" to browse\nSkills inject domain-specific instructions into agent prompts. Hooks define pre/post behaviours that guide agent execution.\nSUMMARY\n0\nAgents\n0\nReview gates\nStrategy\nsequential\nEst. duration\n~1m"
+}

@@ -1,0 +1,29 @@
+{
+  "url": "http://localhost:3000/settings/security",
+  "h": [
+    "H1:Account Settings"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "@Notifications",
+    "@Account menu",
+    "@",
+    "Profile",
+    "AI Model",
+    "Usage & Limits",
+    "Constitution",
+    "Security"
+  ],
+  "tab": [
+    "Profile",
+    "AI Model",
+    "Usage & Limits",
+    "Constitution",
+    "Security"
+  ],
+  "sw": [],
+  "inp": [],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nAccount Settings\nProfile, model preference, usage limits, your agent constitution and sign-in security.\nProfile\nAI Model\nUsage & Limits\nConstitution\nSecurity\nAdd a second step to sign-in so a stolen password isn't enough on its own.\nNot available for this account\nThis account's credentials are managed outside the application, so two-factor authentication is configured separately."
+}

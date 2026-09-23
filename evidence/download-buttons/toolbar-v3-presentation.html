@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subsea Fibre Splice Operations</title>
+    <style>
+        /* ========== Base Reset & Typography ========== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f0f0f;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+
+        /* ========== Deck Container & Carousel ========== */
+        .deck {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .stage {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
+        }
+
+        .slide {
+            min-width: 100%;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 4rem 5rem;
+            background: #ffffff;
+            position: relative;
+            overflow-y: auto;
+        }
+
+        /* ========== Slide Type Specific ========== */
+
+        /* Title Slide */
+        .slide.slide-title {
+            background: linear-gradient(135deg, #003d5c 0%, #0d5a7f 100%);
+            color: #ffffff;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 4rem;
+        }
+
+        .slide.slide-title h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            letter-spacing: -1px;
+        }
+
+        .slide.slide-title .subtitle {
+            font-size: 1.5rem;
+            font-weight: 300;
+            opacity: 0.95;
+            max-width: 800px;
+        }
+
+        /* Agenda Slide */
+        .slide.slide-agenda {
+            background: #f5f7fa;
+            justify-content: flex-start;
+            padding-top: 5rem;
+        }
+
+        .slide.slide-agenda h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+        }
+
+        .slide.slide-agenda ul {
+            list-style: none;
+            font-size: 1.1rem;
+            line-height: 2;
+        }
+
+        .slide.slide-agenda li {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 0.8rem;
+        }
+
+        .slide.slide-agenda li:before {
+            content: "•";
+            color: #0d5a7f;
+            font-weight: bold;
+            font-size: 1.5rem;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+
+        /* Content Slide */
+        .slide.slide-content {
+            background: #ffffff;
+            justify-content: flex-start;
+            padding-top: 3rem;
+            text-align: left;
+        }
+
+        .slide.slide-content h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+        }
+
+        .slide.slide-content .content-body {
+            max-width: 900px;
+            font-size: 1rem;
+            line-height: 1.8;
+            color: #2a2a2a;
+        }
+
+        .slide.slide-content ul,
+        .slide.slide-content ol {
+            margin-left: 2rem;
+            margin-top: 1rem;
+            font-size: 1rem;
+        }
+
+        .slide.slide-content li {
+            margin-bottom: 1rem;
+        }
+
+        /* Data Slide */
+        .slide.slide-data {
+            background: #f5f7fa;
+            justify-content: flex-start;
+            padding-top: 3rem;
+        }
+
+        .slide.slide-data h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+        }
+
+        .metric-card {
+            background: white;
+            border-left: 5px solid #0d5a7f;
+            padding: 1.5rem;
+            margin-bottom: 1.2rem;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #0d5a7f;
+        }
+
+        .data-body {
+            max-width: 900px;
+            font-size: 0.95rem;
+            line-height: 1.7;
+            color: #2a2a2a;
+        }
+
+        /* Split Slide */
+        .slide.slide-split {
+            background: #ffffff;
+            justify-content: flex-start;
+            padding-top: 3rem;
+            align-items: flex-start;
+        }
+
+        .slide.slide-split h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+            width: 100%;
+        }
+
+        .split-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        .split-column {
+            font-size: 0.95rem;
+            line-height: 1.8;
+            color: #2a2a2a;
+        }
+
+        .split-column h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #0d5a7f;
+            margin-bottom: 1.2rem;
+        }
+
+        .split-column ul {
+            list-style: none;
+            margin-left: 0;
+        }
+
+        .split-column li {
+            margin-bottom: 0.8rem;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .split-column li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #0d5a7f;
+            font-weight: bold;
+        }
+
+        /* Closing Slide */
+        .slide.slide-closing {
+            background: linear-gradient(135deg, #003d5c 0%, #0d5a7f 100%);
+            color: #ffffff;
+            justify-content: flex-start;
+            padding-top: 3rem;
+            text-align: left;
+        }
+
+        .slide.slide-closing h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #ffffff;
+        }
+
+        .slide.slide-closing .takeaways {
+            margin-bottom: 2rem;
+        }
+
+        .slide.slide-closing .takeaway-item {
+            margin-bottom: 1rem;
+            font-size: 1rem;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .slide.slide-closing .takeaway-item:before {
+            content: "✓";
+            color: #4db8ff;
+            font-weight: bold;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+
+        .slide.slide-closing .next-steps {
+            background: rgba(255,255,255,0.1);
+            padding: 1.5rem;
+            border-radius: 4px;
+            margin-top: 2rem;
+        }
+
+        .slide.slide-closing .next-steps h3 {
+            color: #4db8ff;
+            margin-bottom: 1rem;
+        }
+
+        .slide.slide-closing .next-step-item {
+            margin-bottom: 0.8rem;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .slide.slide-closing .next-step-item:before {
+            content: "→";
+            color: #4db8ff;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+
+        .slide.slide-closing .footer {
+            margin-top: 3rem;
+            font-size: 0.9rem;
+            opacity: 0.8;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            padding-top: 1.5rem;
+        }
+
+        /* ========== Navigation Chrome ========== */
+        .nav-bar {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            z-index: 1000;
+        }
+
+        .nav-button {
+            width: 2.8rem;
+            height: 2.8rem;
+            border: none;
+            border-radius: 50%;
+            background: #0d5a7f;
+            color: #ffffff;
+            font-size: 1.2rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(13, 90, 127, 0.3);
+        }
+
+        .nav-button:hover {
+            background: #003d5c;
+            transform: scale(1.05);
+        }
+
+        .nav-button:active {
+            transform: scale(0.95);
+        }
+
+        .slide-counter {
+            color: #666;
+            font-size: 0.9rem;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        /* ========== Accessibility & Print ========== */
+        @media print {
+            .nav-bar {
+                display: none;
+            }
+            .slide {
+                page-break-after: always;
+                height: auto;
+                min-height: 100vh;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .slide {
+                padding: 2rem 3rem;
+            }
+            .slide.slide-title h1 {
+                font-size: 2.5rem;
+            }
+            .split-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ========== Utility Classes ========== */
+        .text-accent {
+            color: #0d5a7f;
+            font-weight: 600;
+        }
+
+        .bg-light {
+            background: #f5f7fa;
+        }
+
+        .success-check:before {
+            content: "✓";
+            color: #0d5a7f;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+
+        .warning-icon:before {
+            content: "⚠";
+            color: #c44536;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="deck">
+        <div class="stage">
+            <!-- Slide 1: Title -->
+            <section class="slide slide-title active">
+                <h1>Subsea Fibre Splice Operations</h1>
+                <p class="subtitle">Technical Guide to Offshore Cable Installation and Splicing Procedures</p>
+            </section>
+
+            <!-- Slide 2: Agenda -->
+            <section class="slide slide-agenda">
+                <h2>Agenda</h2>
+                <ul>
+                    <li>Overview of subsea fibre splicing</li>
+                    <li>Pre-splice inspection and preparation</li>
+                    <li>Core splicing techniques and equipment</li>
+                    <li>Quality assurance and testing</li>
+                    <li>Post-splice operations and recovery</li>
+                    <li>Safety protocols and risk mitigation</li>
+                    <li>Case study: successful deep-water deployment</li>
+                </ul>
+            </section>
+
+            <!-- Slide 3: Overview -->
+            <section class="slide slide-content">
+                <h2>Overview of Subsea Fibre Splicing</h2>
+                <div class="content-body">
+                    <p><strong>Subsea fibre splicing is the critical process of permanently joining optical cable segments on the seafloor or during installation operations.</strong></p>
+                    <p style="margin-top: 1.5rem;"><strong>Key objectives:</strong></p>
+                    <ul>
+                        <li>Maintain optical signal integrity across junction points</li>
+                        <li>Achieve low splice loss (typically &lt;0.1 dB)</li>
+                        <li>Ensure mechanical strength matching parent cable</li>
+                        <li>Provide environmental protection and pressure resistance</li>
+                        <li>Enable efficient cable deployment and repair workflows</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Slide 4: Performance Metrics -->
+            <section class="slide slide-data">
+                <h2>Splice Loss Targets and Performance Metrics</h2>
+                <div class="data-body">
+                    <p style="margin-bottom: 1.5rem;"><strong>Standard performance benchmarks for subsea splice operations:</strong></p>
+                    <div class="metric-card">
+                        <div class="metric-label">Splice Loss Target</div>
+                        <div class="metric-value">&lt;0.1 dB per joint</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Return Loss</div>
+                        <div class="metric-value">&gt;50 dB</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Mechanical Strength</div>
+                        <div class="metric-value">≥95% of parent cable tensile rating</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Environmental Seal</div>
+                        <div class="metric-value">Pressure-rated to 600+ bar</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Mean Time Between Failures</div>
+                        <div class="metric-value">&gt;25 years</div>
+                    </div>
+                    <p style="margin-top: 1.5rem; font-size: 0.9rem; color: #666;">These metrics ensure cable reliability over the operational lifetime and accommodate environmental stressors including hydrostatic pressure, thermal cycling, and corrosion.</p>
+                </div>
+            </section>
+
+            <!-- Slide 5: Pre-Splice Inspection -->
+            <section class="slide slide-content">
+                <h2>Pre-Splice Inspection and Preparation</h2>
+                <div class="content-body">
+                    <p style="margin-bottom: 1.5rem;"><strong>Critical pre-operation steps:</strong></p>
+                    <p style="margin-bottom: 1rem;"><strong>1. Cable segment verification</strong></p>
+                    <ul>
+                        <li>Visual inspection for damage, coating integrity, kinks</li>
+                        <li>Measure cable dimensions and confirm type/spec compatibility</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><strong>2. Fiber end preparation</strong></p>
+                    <ul>
+                        <li>Remove protective layers and buffer tubes</li>
+                        <li>Cleave fiber ends at precise 90° angle using mechanical cleaver</li>
+                        <li>Inspect cleave surfaces under magnification (100× minimum)</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><strong>3. Environmental controls</strong></p>
+                    <ul>
+                        <li>Minimize dust and contamination in splice chamber</li>
+                        <li>Monitor temperature and humidity (typically 18–28°C, &lt;60% RH)</li>
+                        <li>Verify lighting and work station ergonomics</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Slide 6: Splicing Techniques -->
+            <section class="slide slide-content">
+                <h2>Core Splicing Techniques</h2>
+                <div class="content-body">
+                    <p style="margin-bottom: 1.5rem;"><strong>Two primary subsea splicing methods:</strong></p>
+                    <p style="margin-bottom: 1rem;"><strong style="color: #0d5a7f;">Fusion Splicing (preferred for reliability)</strong></p>
+                    <ul>
+                        <li>Electrodes heat fiber ends to melting point (1,300–2,000°C)</li>
+                        <li>Automated alignment and welding within fusion splicer</li>
+                        <li>Splice loss typically 0.02–0.05 dB</li>
+                        <li>Permanent, low-maintenance joint</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><strong style="color: #0d5a7f;">Mechanical Splicing (field repair/temporary)</strong></p>
+                    <ul>
+                        <li>Precision alignment sleeves and clamps</li>
+                        <li>No heat required; manual positioning</li>
+                        <li>Splice loss typically 0.1–0.2 dB</li>
+                        <li>Faster deployment; reversible</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem;"><strong>Recommendation:</strong> Fusion splicing standard for new installations; mechanical available for emergency repairs.</p>
+                </div>
+            </section>
+
+            <!-- Slide 7: Equipment & Protection -->
+            <section class="slide slide-split">
+                <h2>Splice Equipment and Preparation</h2>
+                <div class="split-container">
+                    <div class="split-column">
+                        <h3>Essential Equipment Checklist</h3>
+                        <ul>
+                            <li>Fusion splicer (automated arc-discharge type)</li>
+                            <li>Precision fiber cleaver</li>
+                            <li>Magnification inspection system (100–400×)</li>
+                            <li>Protective splicing sleeves (heat-shrink or mechanical)</li>
+                            <li>Optical power meter and continuity tester</li>
+                            <li>Grounding and static-protection equipment</li>
+                        </ul>
+                    </div>
+                    <div class="split-column">
+                        <h3>In-Field Splice Protection</h3>
+                        <ul>
+                            <li>Heat-shrink sleeves (primary mechanical protection)</li>
+                            <li>Reinforced buffer tubes for secondary isolation</li>
+                            <li>Pressure-rated splice boxes for subsea recovery</li>
+                            <li>Epoxy gel for water-blocking and elasticity</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 8: Quality Assurance -->
+            <section class="slide slide-data">
+                <h2>Quality Assurance and Testing</h2>
+                <div class="data-body">
+                    <p style="margin-bottom: 1.5rem;"><strong>Post-splice validation checklist:</strong></p>
+                    <ul style="margin-bottom: 2rem;">
+                        <li><span class="success-check"></span>Optical loss verification (OTDR or power meter method)</li>
+                        <li><span class="success-check"></span>Visual inspection of splice geometry and alignment</li>
+                        <li><span class="success-check"></span>Mechanical tensile strength test (if protocol requires, up to 500 kg pull force)</li>
+                        <li><span class="success-check"></span>Environmental chamber cycling (thermal/pressure shock simulation)</li>
+                        <li><span class="success-check"></span>Continuity and impedance measurement</li>
+                        <li><span class="success-check"></span>Documentation and batch traceability records</li>
+                    </ul>
+                    <p><strong>Acceptance Criteria:</strong></p>
+                    <ul>
+                        <li>Loss within specification (&lt;0.1 dB for production, &lt;0.2 dB for field repairs)</li>
+                        <li>No visible defects, cracks, or voids in protective layers</li>
+                        <li>Tensile strength &gt;95% baseline</li>
+                        <li>All test records archived for 25+ year lifecycle</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Slide 9: Post-Splice Operations -->
+            <section class="slide slide-content">
+                <h2>Post-Splice Operations and Cable Recovery</h2>
+                <div class="content-body">
+                    <p style="margin-bottom: 1rem;"><strong>1. Protective layer assembly</strong></p>
+                    <ul>
+                        <li>Seal splice chamber with pressure-tested housing</li>
+                        <li>Apply hydrophobic gel for water exclusion</li>
+                        <li>Apply secondary mechanical protection (armoring if required)</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><strong>2. Cable routing and stability</strong></p>
+                    <ul>
+                        <li>Position spliced section in stable lay orientation</li>
+                        <li>Secure cable to seabed if required by design (burial, trenching, or weight)</li>
+                        <li>Verify cable path alignment and strain relief</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><strong>3. Final deployment verification</strong></p>
+                    <ul>
+                        <li>Confirm optical continuity across full system</li>
+                        <li>Document splice location and coordinates</li>
+                        <li>Establish handoff to operations and maintenance teams</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><strong>4. Maintenance planning</strong></p>
+                    <ul>
+                        <li>Schedule periodic re-testing at 1, 5, 10, 25-year intervals</li>
+                        <li>Monitor optical performance trends</li>
+                        <li>Plan contingency repair procedures</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Slide 10: Safety Protocols -->
+            <section class="slide slide-content">
+                <h2>Safety Protocols and Risk Mitigation</h2>
+                <div class="content-body">
+                    <p style="margin-bottom: 1.5rem;"><strong>Critical safety practices:</strong></p>
+                    <p style="margin-bottom: 1rem;"><span class="warning-icon"></span><strong>High-voltage hazards</strong></p>
+                    <ul>
+                        <li>Fusion splicer operates at 5–10 kV; use grounding protocols</li>
+                        <li>Never work on live circuits; verify circuit isolation first</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><span class="warning-icon"></span><strong>Pressurized equipment</strong></p>
+                    <ul>
+                        <li>Subsea splice housings rated to &gt;600 bar; handle carefully</li>
+                        <li>Use certified pressure test equipment only</li>
+                        <li>Train personnel on hyperbaric environments if on-site work required</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><span class="warning-icon"></span><strong>Environmental factors</strong></p>
+                    <ul>
+                        <li>Monitor weather windows for surface or nearshore operations</li>
+                        <li>Use anti-static mats and grounding straps in work area</li>
+                        <li>Maintain clean fiber handling protocols to prevent contamination</li>
+                    </ul>
+                    <p style="margin-top: 1.5rem; margin-bottom: 1rem;"><span class="warning-icon"></span><strong>Emergency procedures</strong></p>
+                    <ul>
+                        <li>Establish repair protocols for failed splices (backup splicer on-site)</li>
+                        <li>Maintain redundant communication systems</li>
+                        <li>Document all incidents and near-misses</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Slide 11: Closing -->
+            <section class="slide slide-closing">
+                <h2>Successful Subsea Fibre Splicing</h2>
+                <div class="takeaways">
+                    <p style="margin-bottom: 1.5rem;"><strong>Key Takeaways:</strong></p>
+                    <div class="takeaway-item">Rigorous preparation and inspection prevent costly failures</div>
+                    <div class="takeaway-item">Fusion splicing delivers lowest loss and highest reliability</div>
+                    <div class="takeaway-item">Quality assurance and testing validate every joint</div>
+                    <div class="takeaway-item">Safety protocols protect personnel and infrastructure</div>
+                    <div class="takeaway-item">Comprehensive documentation enables long-term asset management</div>
+                </div>
+                <div class="next-steps">
+                    <h3>Next Steps</h3>
+                    <div class="next-step-item">Verify all personnel are certified in fusion splicing and safety procedures</div>
+                    <div class="next-step-item">Conduct pre-deployment equipment validation and calibration</div>
+                    <div class="next-step-item">Schedule training and competency assessments</div>
+                    <div class="next-step-item">Review project-specific safety plans with offshore teams</div>
+                </div>
+                <div class="footer">
+                    For questions or technical support, contact the Cable Engineering team.
+                </div>
+            </section>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="nav-bar">
+            <button class="nav-button" data-prev title="Previous slide">&#8592;</button>
+            <span class="slide-counter"><span id="slide-num">1</span> / 11</span>
+            <button class="nav-button" data-next title="Next slide">&#8594;</button>
+        </nav>
+    </div>
+
+    <script>
+        (function() {
+            const slides = document.querySelectorAll('.slide');
+            const stage = document.querySelector('.stage');
+            let current = 0;
+
+            function go(n) {
+                current = Math.max(0, Math.min(n, slides.length - 1));
+                slides.forEach((s, i) => s.classList.toggle('active', i === current));
+                if (stage) {
+                    stage.style.transform = 'translateX(-' + (current * 100) + 'vw)';
+                }
+                document.getElementById('slide-num').textContent = (current + 1);
+            }
+
+            // Keyboard navigation
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    go(current + 1);
+                }
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    go(current - 1);
+                }
+            });
+
+            // Button click navigation
+            document.querySelectorAll('[data-next]').forEach(btn => {
+                btn.addEventListener('click', () => go(current + 1));
+            });
+
+            document.querySelectorAll('[data-prev]').forEach(btn => {
+                btn.addEventListener('click', () => go(current - 1));
+            });
+
+            // Initialize
+            go(0);
+        })();
+    </script>
+</body>
+</html>

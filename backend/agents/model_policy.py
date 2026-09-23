@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 
-from agents.capabilities.model_catalog import ModelCatalog
+from agents.capabilities.model_catalog import ModelCatalog, ModelEntry, normalize_model_id
 from agents.workflows.plan import ModelPolicy
 
 logger = logging.getLogger(__name__)
@@ -278,6 +278,31 @@ class ModelResolver:
         # catalog), and the normalized value is what reaches build_model.
         return _normalize_geo_prefix(resolved, _region_override=self._region_override)
 
+    # ── Reasoning effort (spec 020) ──────────────────────────────────────────────────
+    def resolve_effort(self, step=None) -> str | None:
+        """Return the effective reasoning effort, or ``None``.
+
+        A deliberately SHORTER precedence than ``resolve()``: step.model.effort
+        (tier 2), then workflow.model.effort (tier 4). There is no tier-1
+        override, no AGENT.md tier and no session tier, because effort is
+        authored on the step in the canvas and nothing else writes it — the
+        other three would be untested code paths for a value nothing sets.
+
+        Takes only ``step``: unlike ``resolve()`` there is no spec tier, so a
+        ``spec`` parameter would be one that no branch reads.
+
+        ``None`` means "send no reasoning field", which is NOT the level
+        ``"none"`` (explicitly off). That distinction is what keeps an unset
+        step byte-identical to its pre-effort behaviour.
+
+        The value is NOT family-checked here — the kernel does not know which
+        models accept which levels. ``model_factory.reasoning_fields`` is the
+        single place that decides, and it drops a level the model cannot take.
+        """
+        step_effort = step.model.effort if step is not None and step.model else None
+        workflow_effort = self._workflow_model.effort if self._workflow_model else None
+        return step_effort or workflow_effort
+
     # ── Fallback chain derivation (N11 / D-05) ───────────────────────────────────────
     def chain_for(self, model_id: str, policy: ModelPolicy | None = None) -> list[str]:
         """Return the ordered fallback chain for ``model_id``.
@@ -342,11 +367,36 @@ class ModelResolver:
 
 # ---------------------------------------------------------------------------
 # Throttle classification (D-06) — co-located so the engine retry (06-05) and
-# the unit test import ONE predicate. Defensive, layered: type-name OR
-# HTTP-status OR error-code / message substring. Non-matching → False (re-raise).
+# the unit test import ONE predicate. Defensive, layered, FAIL-OPEN for
+# provider faults: error-code (case-insensitive) OR HTTP-status OR
+# EventStreamError OR message substring. Non-matching → False (re-raise).
 # ---------------------------------------------------------------------------
 
+# Defensive import — botocore is a real runtime dependency (langchain-aws /
+# app.agents.model_factory already require it), but this module has carried
+# none so far; guard so a stripped install degrades to "never an
+# EventStreamError" rather than an ImportError at module load.
+try:
+    from botocore.exceptions import EventStreamError as _EventStreamError
+except ImportError:  # pragma: no cover - botocore always present in prod/dev
+    _EventStreamError = None  # type: ignore[assignment]
+
 # Bedrock / botocore transient ClientError codes (prod, ChatBedrockConverse).
+# Compared via ``.casefold()`` below: Bedrock's EVENT-STREAM error frame
+# (``ConverseStream``) carries the LOWER-camel ``:exception-type`` header value
+# (``internalServerException``), not the PascalCase shape name botocore uses for
+# a regular (non-streaming) ``ClientError`` (``InternalServerException``) — a
+# case-sensitive membership test silently missed the streaming shape. This is
+# the exact incident this predicate exists to catch.
+# ``ModelStreamErrorException`` / ``ModelErrorException`` are confirmed
+# retryable by TWO independent in-repo sources, not guessed: (1) the real
+# bedrock-runtime botocore service model (2023-09-30) documents
+# ModelStreamErrorException as "An error occurred while streaming the
+# response. Retry your request." — the streaming sibling of
+# InternalServerException, same "try again" contract as the incident; (2)
+# ``app/agents/llm_errors.py._BEDROCK_CODE_MAP`` (the free-chat path's
+# already-reviewed Bedrock error classifier) marks BOTH
+# ``recoverable=True`` from real-incident experience (STABILIZATION.md A4).
 _TRANSIENT_ERROR_CODES: frozenset[str] = frozenset(
     {
         "ThrottlingException",
@@ -355,8 +405,81 @@ _TRANSIENT_ERROR_CODES: frozenset[str] = frozenset(
         "InternalServerException",
         "ModelTimeoutException",
         "ServiceQuotaExceededException",
+        "ModelStreamErrorException",
+        "ModelErrorException",
     }
 )
+_TRANSIENT_ERROR_CODES_CF: frozenset[str] = frozenset(c.casefold() for c in _TRANSIENT_ERROR_CODES)
+
+# Permanent (genuinely OUR fault) error codes — checked FIRST and also
+# case-insensitively; a match returns False immediately, before the
+# EventStreamError fail-open below gets a chance to flip it transient.
+# Confirmed against the real bedrock-runtime botocore service model
+# (2023-09-30: AccessDeniedException/ValidationException/ResourceNotFoundException,
+# all ``error.senderFault: true``), ``app/agents/llm_errors.py._BEDROCK_CODE_MAP``
+# (same four codes mapped ``recoverable=False``, plus the credential-family
+# codes below), and ``app/agents/model_factory.py`` (STABILIZATION.md A4):
+# "verified against botocore's own retry classifiers... that
+# AccessDeniedException, UnrecognizedClientException and ExpiredTokenException
+# ... are NOT retried" / "no modeled retryable trait". UnauthorizedException /
+# InvalidSignatureException join the same generic AWS SigV4 credential/signature
+# family — never service-specific (they precede the request ever reaching
+# Bedrock), always a local credentials/clock problem, never transient.
+#
+# Deliberately NOT here (stays transient — "preserve every currently-True
+# behaviour" + the llm_errors.py precedent, despite ``senderFault: true``):
+#   - ModelTimeoutException / ServiceQuotaExceededException: already
+#     transient before this change.
+#   - ModelNotReadyException: HTTP 429 + senderFault, but ITS OWN AWS doc says
+#     "The AWS SDK will automatically retry the operation up to 5 times" —
+#     officially retryable; already covered by the existing 429 HTTP-status
+#     check when ResponseMetadata is present.
+#   - ModelStreamErrorException / ModelErrorException: see the transient-set
+#     comment above.
+# Not added despite being a real bedrock-runtime exception shape:
+#   - ConflictException: no production evidence it is ever raised by
+#     Converse/ConverseStream (absent from llm_errors.py's reviewed map) —
+#     not enumerated here rather than guessed.
+# No Bedrock exception shape exists for a content/guardrail rejection — a
+# guardrail intervention is a NORMAL response field (Converse API
+# ``stopReason: "guardrail_intervened"`` / ``GuardrailAction``), never a raised
+# exception (confirmed by scanning every ``Guardrail*`` shape in the
+# bedrock-runtime service model: none is flagged ``"exception": true``).
+_PERMANENT_ERROR_CODES: frozenset[str] = frozenset(
+    {
+        "AccessDeniedException",
+        "UnauthorizedException",
+        "UnrecognizedClientException",
+        "ExpiredTokenException",
+        "InvalidSignatureException",
+        "ValidationException",
+        "ResourceNotFoundException",
+    }
+)
+_PERMANENT_ERROR_CODES_CF: frozenset[str] = frozenset(c.casefold() for c in _PERMANENT_ERROR_CODES)
+
+# Models that have ALREADY streamed successfully in this process. A permanent code
+# means "genuinely our fault" — true for an ARN that never resolved, false for one
+# that served traffic minutes ago. Bedrock intermittently answers ConverseStream with
+# ResourceNotFoundException ("Inference Profile ARN not found") for a profile that is
+# demonstrably present: run 353bb0af lost pb-validate that way on
+# eu.anthropic.claude-sonnet-4-6 while pb-spec and pb-design had just used the SAME id
+# successfully, and a direct probe right after returned OK. Because this predicate is
+# the single gate for the runner's same-model retry, the runner's re-raise AND the
+# engine's model-fallback loop, one permanent verdict kills all three defences at once.
+_PROVEN_MODELS: set[str] = set()
+
+# Permanent codes that flip to transient once the model is proven. ONLY resource
+# lookup: an auth/validation/signature failure stays permanent forever — those are
+# never provider lies, and a proven model must not launder them into a retry.
+_PROVABLY_TRANSIENT_CODES_CF: frozenset[str] = frozenset({"resourcenotfoundexception"})
+
+
+def mark_model_proven(model_id: str) -> None:
+    """Record that ``model_id`` served at least one successful stream here."""
+    if model_id:
+        _PROVEN_MODELS.add(model_id)
+
 # Transient HTTP statuses: 429 throttle, 503 ServiceUnavailable, 500 InternalServer,
 # 529 Anthropic overloaded.
 _TRANSIENT_STATUS: frozenset[int] = frozenset({429, 500, 503, 529})
@@ -372,42 +495,138 @@ _TRANSIENT_SUBSTRINGS: tuple[str, ...] = (
     "overloaded",  # anthropic 529 overloaded_error
     "modeltimeout",
     "servicequotaexceeded",
+    "internal server",    # EventStreamError message text / generic wrapping
+    "internalserver",     # the lower-camel event-stream code, stringified
 )
 
 
-def _is_transient_throttle(exc: BaseException) -> bool:
+def _is_transient_throttle(exc: BaseException, model_id: str | None = None) -> bool:
     """Return ``True`` iff ``exc`` is a transient throttle / overload worth a model switch.
 
-    Layered, defensive classifier (the exact wrapped type depends on langchain-aws /
-    langchain-anthropic internals — A2):
+    FAIL-OPEN for provider faults, not fail-closed: Bedrock's ``ConverseStream``
+    can put an event-stream error frame on an otherwise-open stream (surfaced by
+    botocore as ``EventStreamError``) carrying a ``response`` dict with NO
+    ``ResponseMetadata``/``HTTPStatusCode`` (botocore's event-stream parser never
+    attaches one) and a LOWER-camel ``:exception-type`` code
+    (``internalServerException``) that a case-sensitive PascalCase whitelist
+    misses entirely. Classification order:
 
-      1. botocore-shaped ``ClientError``: ``exc.response["Error"]["Code"]`` ∈ the transient
-         set, OR ``ResponseMetadata.HTTPStatusCode`` ∈ the transient statuses.
-      2. A ``status_code`` / ``http_status`` attribute ∈ the transient statuses (Anthropic
-         clients expose this).
-      3. The exception type name OR its stringified message contains a known transient
-         substring (``Throttling`` / ``RateLimit`` / ``overloaded`` / …).
-
-    Non-matching errors (``ValidationException``, ``AccessDeniedException``, generic
-    ``ValueError``, ``ModelConfigurationError``) return ``False`` so the caller re-raises and
-    does NOT switch models.
+      1. A PERMANENT code (case-insensitive) → ``False`` immediately — genuinely
+         our fault (bad auth/signature/ARN/input), never worth a retry.
+      2. A known TRANSIENT code (case-insensitive) → ``True``.
+      3. botocore-shaped ``ClientError``/``EventStreamError`` response dict:
+         ``ResponseMetadata.HTTPStatusCode`` ∈ the transient statuses → ``True``.
+      4. A ``status_code`` / ``http_status`` attribute ∈ the transient statuses
+         (Anthropic clients expose this) → ``True``.
+      5. ``exc`` is a ``botocore.exceptions.EventStreamError`` whose code (if
+         any) was not caught by step 1 → ``True``. A mid-stream provider fault
+         is, by construction, something that happened on Bedrock's side of an
+         already-accepted request — fail OPEN for the one exception family this
+         predicate cannot otherwise enumerate exhaustively, rather than fail
+         CLOSED on an unrecognized code.
+      6. The exception type name OR its stringified message contains a known
+         transient substring (``Throttling`` / ``RateLimit`` / ``overloaded`` /
+         ``internal server`` / …) → ``True``.
+      7. Otherwise → ``False`` so the caller re-raises and does NOT switch
+         models (a generic ``ValueError``, ``ModelConfigurationError``, or a
+         permanent code already ruled out above).
     """
-    # 1. botocore-shaped ClientError (response dict).
+    # botocore-shaped ClientError / EventStreamError response dict — both carry
+    # ``{"Error": {"Code": ..., "Message": ...}}``; only ClientError also carries
+    # ``ResponseMetadata``.
     response = getattr(exc, "response", None)
+    code = None
     if isinstance(response, dict):
-        code = response.get("Error", {}).get("Code")
-        if isinstance(code, str) and code in _TRANSIENT_ERROR_CODES:
+        raw_code = response.get("Error", {}).get("Code")
+        if isinstance(raw_code, str):
+            code = raw_code
+
+    # 1 + 2. Error code, case-insensitive: permanent first, then transient.
+    if code is not None:
+        folded = code.casefold()
+        if folded in _PERMANENT_ERROR_CODES_CF:
+            # A resource-lookup failure on a model that already worked in this
+            # process is the provider contradicting itself, not our configuration error.
+            if (
+                model_id
+                and folded in _PROVABLY_TRANSIENT_CODES_CF
+                and model_id in _PROVEN_MODELS
+            ):
+                return True
+            return False
+        if folded in _TRANSIENT_ERROR_CODES_CF:
             return True
+
+    # 3. HTTP status (ClientError only — EventStreamError never has this key).
+    if isinstance(response, dict):
         status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         if isinstance(status, int) and status in _TRANSIENT_STATUS:
             return True
 
-    # 2. Explicit status attribute (Anthropic-style clients).
+    # 4. Explicit status attribute (Anthropic-style clients).
     for attr in ("status_code", "http_status"):
         status_attr = getattr(exc, attr, None)
         if isinstance(status_attr, int) and status_attr in _TRANSIENT_STATUS:
             return True
 
-    # 3. Type-name / message substring (defensive — covers wrapped exceptions).
+    # 5. Fail-open for a mid-stream provider fault: an EventStreamError whose
+    # code (if any) already cleared the permanent check in step 1.
+    if _EventStreamError is not None and isinstance(exc, _EventStreamError):
+        return True
+
+    # 6. Type-name / message substring (defensive — covers wrapped exceptions).
     haystack = f"{type(exc).__name__} {exc}".lower()
     return any(token in haystack for token in _TRANSIENT_SUBSTRINGS)
+
+
+# ---------------------------------------------------------------------------
+# Selectable models (spec 020) — the USER-FACING projection of the catalog.
+# ---------------------------------------------------------------------------
+def selectable_models() -> list[ModelEntry]:
+    """Return the catalog with the geo-prefix duplicates collapsed, one per model.
+
+    The catalog deliberately carries BOTH ``us.`` and ``eu.`` rows for some
+    models, because catalog validation runs on the RAW declared id: an AGENT.md
+    or a saved step may name either prefix and must still validate (see
+    ``resolve()``'s GEO-01 note). That is a resolution concern, not a choice.
+
+    Offering both to a user is offering a choice that does not exist —
+    ``_normalize_geo_prefix`` rewrites the prefix to match ``AWS_REGION`` before
+    the request is built, so picking "(US)" on an EU deployment silently yields
+    the EU profile. Verified live 2026-09-22: ``eu-north-1`` publishes no ``us.``
+    inference profile at all.
+
+    So: one entry per normalized family, preferring the one whose prefix already
+    matches the deployment region (cosmetic — both resolve identically).
+
+    Sorted alphabetically by label. "Default" is not in here — every picker
+    prepends it as its own first option, so the list below is what follows it.
+    ``_ENTRIES`` order is authoring order and reads as noise (Haiku 4.5, GPT,
+    Sonnet 4.5, 4.6, 5, 4, Opus...); alphabetical is the order a reader can
+    predict without knowing the catalog.
+
+    The catalog itself is deliberately NOT re-sorted: its order is load-bearing,
+    since ``model_pricing`` bills an unknown model at the FIRST
+    ``cost_class="cheap"`` entry. Sorting here is free because pricing reads
+    ``ModelCatalog().list()``, never this projection.
+
+    This is a PROJECTION for pickers only. ``ModelCatalog.ids()`` /
+    ``is_allowed()`` stay complete, so nothing this hides becomes invalid.
+    """
+    # Same lazy config import _normalize_geo_prefix uses, and the same
+    # degrade-quietly contract: no config, no preference, just catalog order.
+    try:
+        from app.core.config import settings as _settings  # noqa: PLC0415
+        region = _settings.AWS_REGION or ""
+    except Exception:  # noqa: BLE001
+        region = ""
+    region_prefix = _REGION_TO_GEO_PREFIX.get(region, "")
+    chosen: dict[str, ModelEntry] = {}
+    for entry in ModelCatalog().list():
+        key = normalize_model_id(entry.id)
+        incumbent = chosen.get(key)
+        if incumbent is None:
+            chosen[key] = entry
+        elif region_prefix and entry.id.startswith(region_prefix) and not incumbent.id.startswith(region_prefix):
+            chosen[key] = entry  # same slot, better prefix
+    return sorted(chosen.values(), key=lambda e: e.label)

@@ -99,78 +99,88 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(prototypeAgents.length);
   });
 
-  it("pre-checks ONLY prototype-specify + prototype-plan + prototype-analyze", async () => {
+  it("starts with NO checkboxes pre-checked", async () => {
     await renderExpanded();
-    // Checkboxes render in pipeline order; map them back to ids.
+    // Checkboxes render in pipeline order; none should be pre-checked.
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     const checkedById: Record<string, boolean> = {};
     prototypeAgents.forEach((agent, i) => {
       checkedById[agent.id] = checkboxes[i].checked;
     });
     expect(checkedById).toEqual({
-      "prototype-specify": true,
-      "prototype-plan": true,
-      "prototype-analyze": true,
+      "prototype-specify": false,
+      "prototype-plan": false,
+      "prototype-analyze": false,
       "prototype-build": false,
       "prototype-validate": false,
     });
   });
 
-  it("the pre-checked set equals the gate===Human_Gate set", async () => {
+  it("the initial checked set is empty (user opts in explicitly)", async () => {
     await renderExpanded();
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     const checkedIds = prototypeAgents
       .filter((_, i) => checkboxes[i].checked)
       .map((a) => a.id);
-    const humanGateIds = prototypeAgents.filter(isHumanGate).map((a) => a.id);
-    expect(checkedIds).toEqual(humanGateIds);
+    expect(checkedIds).toEqual([]);
   });
 
-  it("first onChange reports the default gate ids with touched=false", () => {
+  it("first onChange reports empty gate ids with touched=false (no pre-selection by default)", () => {
     const onChange = vi.fn();
     render(<ReviewGatesSection agents={prototypeAgents} onChange={onChange} />);
     // The initial report fires on mount (no expand needed).
     expect(onChange).toHaveBeenCalled();
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
-    expect(ids).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze"]);
+    expect(ids).toEqual([]);
     expect(touched).toBe(false);
   });
 
-  it("toggling a checkbox fires onChange with touched=true and the new set", async () => {
+  it("toggling checkboxes fires onChange with touched=true, in pipeline order", async () => {
     const { user, onChange } = await renderExpanded();
     onChange.mockClear();
 
-    // Check prototype-build (index 3) → it joins the gated set.
+    // Checked OUT of pipeline order — build (index 3) first, then specify (index 0)
+    // — because the reported array is ordered by the pipeline, not by click order.
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     await user.click(checkboxes[3]);
-
-    const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
-    expect(touched).toBe(true);
-    // Reported in pipeline order: specify, plan, analyze, build.
-    expect(ids).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build"]);
-  });
-
-  it("unchecking a default gate fires onChange(touched=true) without it", async () => {
-    const { user, onChange } = await renderExpanded();
-    onChange.mockClear();
-
-    // Uncheck prototype-specify (index 0).
-    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     await user.click(checkboxes[0]);
 
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(touched).toBe(true);
-    expect(ids).toEqual(["prototype-plan", "prototype-analyze"]);
+    expect(ids).toEqual(["prototype-specify", "prototype-build"]);
   });
 
-  it("unchecking ALL gates yields onChange([], true) — the no-gates payload", async () => {
+  // FIX-323 removed the pre-checked defaults, so there is no longer a "default
+  // gate" to uncheck. The guarantee that survives — and the one this test now
+  // covers — is that unchecking a gate the user checked drops it back out.
+  it("unchecking a gate the user checked fires onChange(touched=true) without it", async () => {
     const { user, onChange } = await renderExpanded();
-    onChange.mockClear();
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    await user.click(checkboxes[0]); // uncheck specify
-    await user.click(checkboxes[1]); // uncheck plan
-    await user.click(checkboxes[2]); // uncheck analyze
+    await user.click(checkboxes[0]); // check specify
+    await user.click(checkboxes[1]); // check plan
+    onChange.mockClear();
+    await user.click(checkboxes[0]); // and uncheck specify again
+
+    const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
+    expect(touched).toBe(true);
+    expect(ids).toEqual(["prototype-plan"]);
+  });
+
+  // The payload FIX-323 turns on: [] WITH touched=true. An empty selection has to
+  // reach the backend as an explicit "no gates" — `touched=false` would omit
+  // `gate_agent_ids` entirely and let the backend fall back to its own defaults.
+  it("unchecking every gate again yields onChange([], true) — the no-gates payload", async () => {
+    const { user, onChange } = await renderExpanded();
+
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    await user.click(checkboxes[0]); // check specify
+    await user.click(checkboxes[1]); // check plan
+    await user.click(checkboxes[2]); // check analyze
+    onChange.mockClear();
+    await user.click(checkboxes[0]); // then take all three back off
+    await user.click(checkboxes[1]);
+    await user.click(checkboxes[2]);
 
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(touched).toBe(true);
@@ -192,5 +202,58 @@ describe("ReviewGatesSection — edge cases", () => {
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(ids).toEqual([]);
     expect(touched).toBe(false);
+  });
+});
+
+// ISS-419 — checkedIds' seed (`isSeedGated`) reads ONLY the two human-review
+// gate names (`human`, `before-human`) out of `selections[id].gates`. A
+// `custom-agent` step has no AGENT.md and so no static `gate` field at all —
+// the manifest's `gates: [...]` array is its ONLY declaration of ANY gate,
+// yet a declared `approval` or `security` gate renders this checklist with
+// that step unchecked and with NO other on-load indicator anywhere in the
+// checklist that the step carries a gate at all. `it.fails` is vitest's
+// xfail(strict=True) — it must fail now and flip to a loud failure the
+// moment isSeedGated (or an equivalent indicator) starts reflecting these
+// gate values, per the project's xfail-strict convention.
+describe("ReviewGatesSection — ISS-419 non-human-review manifest gates", () => {
+  // A custom-agent step: no AGENT.md, so `gate` is null and the manifest's
+  // `selections[id].gates` is its only declaration (ISS-247/ISS-306 shape).
+  const CUSTOM_AGENT_STEP: AgentDef = {
+    id: "custom-agent:reviewer",
+    name: "Reviewer",
+    role: "Sign-off",
+    description: "Custom-agent step with a manifest-declared gate.",
+    pipeline_type: "custom",
+    order: 1,
+    icon: "🔏",
+    estimated_duration: 10,
+    has_skill: false,
+    gate: null,
+  };
+
+  it.fails("ISS-419 — a step with a manifest-declared approval gate renders checked on fresh load", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReviewGatesSection
+        agents={[CUSTOM_AGENT_STEP]}
+        onChange={vi.fn()}
+        selections={{ "custom-agent:reviewer": { gates: ["approval"] } }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /review gates/i }));
+    expect(screen.getByRole("checkbox")).toBeChecked();
+  });
+
+  it.fails("ISS-419 — a step with a manifest-declared security gate renders checked on fresh load", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReviewGatesSection
+        agents={[CUSTOM_AGENT_STEP]}
+        onChange={vi.fn()}
+        selections={{ "custom-agent:reviewer": { gates: ["security"] } }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /review gates/i }));
+    expect(screen.getByRole("checkbox")).toBeChecked();
   });
 });

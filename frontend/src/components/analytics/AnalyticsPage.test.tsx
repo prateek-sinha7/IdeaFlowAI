@@ -28,6 +28,22 @@ const mockGetPreferences = vi.fn(() =>
   Promise.resolve({ preferred_model: null, available_models: [] }),
 );
 const mockGetWorkflows = vi.fn(() => Promise.resolve([]));
+// RFN-002b — getCapabilities is called on mount to build the model catalog map.
+// Return an empty catalog so model-label lookups degrade to raw id (not under test here).
+const mockGetCapabilities = vi.fn(() =>
+  Promise.resolve({ model_catalog: [] }),
+);
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => ({
+    get: vi.fn(() => null),
+  }),
+}));
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
@@ -35,6 +51,7 @@ vi.mock("@/lib/api", () => ({
     mockGetAnalyticsSummary(token, range),
   getPreferences: () => mockGetPreferences(),
   getWorkflows: () => mockGetWorkflows(),
+  getCapabilities: () => mockGetCapabilities(),
 }));
 
 const STRIPPED_MOTION_PROPS = new Set([
@@ -74,6 +91,8 @@ function summary(overrides: Partial<AnalyticsSummary>): AnalyticsSummary {
     models: [
       { model_id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0", count: 5, total_tokens: 500, cost: 0.5 },
     ],
+    // RFN-002 — agents defaults to empty; individual tests can override via spread.
+    agents: [],
     spend: 1.23,
     // ISS-034 default: spend_full === spend → a ZERO delta, so the prompt-cache
     // line renders nothing and the pre-existing cases stay untouched.
@@ -260,5 +279,296 @@ describe("AnalyticsPage — signed prompt-cache delta (ISS-034)", () => {
     expect(
       screen.getByText(/handoff runs are not metered/),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * ISS-369 — Daily Activity chart tooltip formatting parity.
+ *
+ * Every other number on the page is routed through formatTokens() (K/M
+ * abbreviation) before display. The Daily Activity bar chart's per-bar
+ * tooltip is the one series AnalyticsPage never assigns a `tip` to, so it
+ * falls through to BarChart's raw-number default and renders the bare JS
+ * integer instead.
+ */
+describe("AnalyticsPage — Daily Activity tooltip number formatting (ISS-369)", () => {
+  it("ISS-369 — formats the per-bar tooltip with K/M abbreviation, not the raw integer", async () => {
+    mockGetAnalyticsSummary.mockReset();
+    mockGetAnalyticsSummary.mockResolvedValue(
+      summary({
+        daily: [
+          {
+            date: "2026-08-24",
+            total: 3,
+            completed: 3,
+            failed: 0,
+            input_tokens: 1_500_000,
+            output_tokens: 864_478,
+            total_tokens: 2_364_478,
+          },
+        ],
+      }),
+    );
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+
+    // Expected: formatTokens(2364478) === "2.4M", matching every other number
+    // on the page (KPI tiles, By Pipeline Type, By Model).
+    expect(await screen.findByText("Aug 24: 2.4M")).toBeInTheDocument();
+    // The raw unformatted integer must NOT appear anywhere.
+    expect(screen.queryByText(/2364478/)).not.toBeInTheDocument();
+  });
+});
+
+
+/**
+ * ISS-643 — By Agent section pipeline workflow chips.
+ *
+ * Each agent row must render a coloured chip for every entry in
+ * pipeline_types, using the PIPELINE_LABELS map.  An empty pipeline_types
+ * array renders the agent name only — no chip.  A multi-pipeline agent
+ * renders one chip per type.
+ */
+/**
+ * QA-PS-009 — Analytics Model Details reasoning row wording.
+ *
+ * ISS-667: Sonnet 5 DOES run with adaptive thinking (locked product decision,
+ * 2026-09-17) — the row stays, but the app never sends an `effort` parameter,
+ * so "(effort: max)" is a fabricated qualifier. Fix is the label text only:
+ * "Adaptive", not "Adaptive (effort: max)".
+ *
+ * ISS-668: Opus 4.5 / Opus 4.6 matched `_THINKING_FRAGMENTS` ("opus-4") in
+ * capabilities.py but NOT `_ADAPTIVE_THINKING_MODEL_FRAGMENTS` in
+ * model_factory.py, so their real runtime thinking type was "enabled" while
+ * this row claimed "adaptive". CLOSED by spec 020, which deleted both tuples:
+ * the row now reads `reasoning_mode` off the same catalog capability the
+ * runtime maps from, so the two cannot disagree again. The xfail marker is
+ * gone with it.
+ *
+ * Spec 020 also renamed the row "Thinking" → "Reasoning" and its budget-mode
+ * value "Enabled" → "Budget": the row can now read "Effort (none–max)" for a
+ * GPT model, and GPT's effort is not extended thinking.
+ */
+describe("AnalyticsPage — Model Details Thinking row wording (QA-PS-009)", () => {
+  beforeEach(() => {
+    mockGetAnalyticsSummary.mockReset();
+  });
+
+  async function renderWithModel(modelId: string, catalogEntry: Record<string, unknown>) {
+    // mockResolvedValueOnce — leaves the module-level empty-catalog default
+    // (mockGetCapabilities) intact for every other describe block in this file.
+    mockGetCapabilities.mockResolvedValueOnce({
+      model_catalog: [{ id: modelId, ...catalogEntry }],
+    });
+    mockGetAnalyticsSummary.mockResolvedValue(
+      summary({
+        models: [{ model_id: modelId, count: 1, total_tokens: 100, cost: 0.01 }],
+      }),
+    );
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+    // Mirrors the component's own shortLabel(): strips "Claude " and a
+    // trailing "(EU)"/"(US)" region suffix before rendering the card header.
+    const shortName = (catalogEntry.label as string)
+      .replace(/^Claude\s+/i, "")
+      .replace(/\s*\((EU|US|APAC|Global)\)\s*$/i, "")
+      .trim();
+    // The single/top model card auto-expands on load (no click needed) —
+    // see the "Seed the first catalog-matched model as expanded" effect.
+    const detailsHeading = await screen.findByText("Model Details");
+    const panel = detailsHeading.closest("div.bg-surface-card") as HTMLElement;
+    const nameSpan = await within(panel).findByText(shortName);
+    const toggle = nameSpan.closest("button") as HTMLElement;
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"));
+  }
+
+  it("ISS-667 — Sonnet 5 shows 'Adaptive' with no fabricated effort qualifier", async () => {
+    await renderWithModel("eu.anthropic.claude-sonnet-5", {
+      label: "Claude Sonnet 5 (EU)",
+      tier: "standard",
+      context_window: 200000,
+      reasoning_mode: "adaptive",
+      reasoning_levels: ["none", "on"],
+    });
+
+    const thinkingLabel = await screen.findByText("Reasoning");
+    const row = thinkingLabel.closest("div") as HTMLElement;
+    expect(within(row).getByText("Adaptive")).toBeInTheDocument();
+    expect(screen.queryByText(/effort: max/)).not.toBeInTheDocument();
+  });
+
+  it("ISS-668 — Opus 4.5 shows 'Budget', not 'Adaptive', matching its real runtime reasoning mode", async () => {
+    await renderWithModel("eu.anthropic.claude-opus-4-5-20251101-v1:0", {
+      label: "Claude Opus 4.5 (EU)",
+      tier: "premium",
+      context_window: 200000,
+      reasoning_mode: "budget",
+      reasoning_levels: ["none", "on"],
+    });
+
+    const thinkingLabel = await screen.findByText("Reasoning");
+    const row = thinkingLabel.closest("div") as HTMLElement;
+    expect(within(row).getByText("Budget")).toBeInTheDocument();
+    expect(within(row).queryByText(/Adaptive/)).not.toBeInTheDocument();
+  });
+
+  it("a GPT model shows its effort range, not a thinking type", async () => {
+    await renderWithModel("global.openai.gpt-5.6-luna", {
+      label: "GPT-5.6 Luna",
+      tier: "fast",
+      context_window: 1000000,
+      reasoning_mode: "effort",
+      reasoning_levels: ["none", "low", "medium", "high", "xhigh", "max"],
+    });
+
+    const thinkingLabel = await screen.findByText("Reasoning");
+    const row = thinkingLabel.closest("div") as HTMLElement;
+    expect(within(row).getByText("Effort (none–max)")).toBeInTheDocument();
+    expect(within(row).queryByText(/Adaptive|Budget/)).not.toBeInTheDocument();
+  });
+
+  it("renders no reasoning row for a model that has no reasoning control", async () => {
+    // Synthetic: no catalog model has reasoning_mode "none" since Haiku 3.5 was
+    // removed (2026-09-22), but the row must still not render for one.
+    await renderWithModel("eu.anthropic.claude-no-reasoning-v1:0", {
+      label: "No-Reasoning Model",
+      tier: "fast",
+      context_window: 200000,
+      reasoning_mode: "none",
+      reasoning_levels: [],
+    });
+
+    expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
+  });
+});
+
+describe("AnalyticsPage — By Agent pipeline chips (ISS-643)", () => {
+  beforeEach(() => {
+    mockGetAnalyticsSummary.mockReset();
+  });
+
+  it("renders a workflow chip for a single-pipeline agent", async () => {
+    mockGetAnalyticsSummary.mockResolvedValue(
+      summary({
+        agents: [
+          {
+            agent_id: "build-agent",
+            agent_name: "Build Agent",
+            count: 3,
+            total_tokens: 900,
+            input_tokens: 450,
+            output_tokens: 450,
+            cost: 0.09,
+            pipeline_types: ["prototype"],
+          },
+        ],
+      }),
+    );
+
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+
+    // Agent name visible.
+    expect(await screen.findByText("BUILD AGENT")).toBeInTheDocument();
+    // Pipeline chip shows the friendly label from PIPELINE_LABELS.
+    expect(screen.getByText("PROTOTYPE")).toBeInTheDocument();
+  });
+
+  it("renders no pipeline chip when pipeline_types is empty", async () => {
+    mockGetAnalyticsSummary.mockResolvedValue(
+      summary({
+        agents: [
+          {
+            agent_id: "legacy-agent",
+            agent_name: "Legacy Agent",
+            count: 1,
+            total_tokens: 200,
+            input_tokens: 100,
+            output_tokens: 100,
+            cost: 0.02,
+            pipeline_types: [],
+          },
+        ],
+      }),
+    );
+
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+
+    expect(await screen.findByText("LEGACY AGENT")).toBeInTheDocument();
+    // No chip elements for this agent beyond the name.
+    // "User Stories", "Prototype", "Presentation" etc. must be absent.
+    expect(screen.queryByText("PROTOTYPE")).not.toBeInTheDocument();
+    expect(screen.queryByText("PRESENTATION")).not.toBeInTheDocument();
+    expect(screen.queryByText("USER STORIES")).not.toBeInTheDocument();
+  });
+
+  it("renders one chip per pipeline for a multi-pipeline agent", async () => {
+    mockGetAnalyticsSummary.mockResolvedValue(
+      summary({
+        agents: [
+          {
+            agent_id: "shared-agent",
+            agent_name: "Shared Agent",
+            count: 5,
+            total_tokens: 2000,
+            input_tokens: 1000,
+            output_tokens: 1000,
+            cost: 0.20,
+            pipeline_types: ["ppt", "prototype", "user_stories"],
+          },
+        ],
+      }),
+    );
+
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+
+    expect(await screen.findByText("SHARED AGENT")).toBeInTheDocument();
+    // All three pipeline labels rendered — one chip each.
+    expect(screen.getByText("PRESENTATION")).toBeInTheDocument();
+    expect(screen.getByText("PROTOTYPE")).toBeInTheDocument();
+    expect(screen.getByText("USER STORIES")).toBeInTheDocument();
+  });
+
+  it("uses PIPELINE_LABELS friendly name and normalises revision variants", async () => {
+    mockGetAnalyticsSummary.mockResolvedValue(
+      summary({
+        agents: [
+          {
+            agent_id: "ppt-agent",
+            agent_name: "PPT Agent",
+            count: 2,
+            total_tokens: 500,
+            input_tokens: 250,
+            output_tokens: 250,
+            cost: 0.05,
+            // ppt_revision should normalise to "Presentation" via normalizeType.
+            pipeline_types: ["ppt_revision"],
+          },
+        ],
+      }),
+    );
+
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+
+    expect(await screen.findByText("PPT AGENT")).toBeInTheDocument();
+    // ppt_revision normalises to ppt → PIPELINE_LABELS["ppt"] = "Presentation".
+    expect(screen.getByText("PRESENTATION")).toBeInTheDocument();
+    // The raw "ppt_revision" string must not appear as a chip label.
+    expect(screen.queryByText("PPT_REVISION")).not.toBeInTheDocument();
   });
 });

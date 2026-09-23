@@ -1,0 +1,22 @@
+{
+  "url": "/runs/00000000-0000-0000-0000-000000000000",
+  "headings": ["Page not found.", "Not found"],
+  "sameAs": "p51 — byte-identical to the generic unknown-route 404",
+  "actions": [
+    {"text": "Back to dashboard", "href": "/dashboard"},
+    {"text": "Create a workflow", "href": "/create"},
+    {"text": "Sign in", "href": "/login"}
+  ],
+  "hasAppNav": false,
+  "network": "GET http://localhost:8000/api/runs/{id} → 404, twice",
+  "console": [
+    "Failed to load resource: 404 (x2)",
+    "Failed to load workflow output: ApiError: Workflow run not found (x2)"
+  ],
+  "notes": [
+    "a well-formed but nonexistent run id resolves to the SAME generic 404 as an unparseable URL — the user is not told the run is missing, only that the page is",
+    "the fetch fires twice (React StrictMode double-invoke in dev); a test asserting request count must tolerate this or run against a prod build",
+    "no error boundary — the failure surfaces only in the console"
+  ],
+  "screenshot": "screenshots/11-errors/p52-run-not-found.png"
+}

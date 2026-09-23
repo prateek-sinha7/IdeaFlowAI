@@ -134,14 +134,20 @@ export function ResultCard({ message, onRequestOpenTab }: ResultCardProps) {
   // The active gate UI lives in the Steps panel (StepsOverviewSpine GateAwaitingCard)
   // which is the authoritative affordance for approving/rejecting. Showing a second
   // "Review required" box in the chat lane is redundant and was confusing.
-  // Resolved: shows "Review approved — build continues".
-  // Active (unresolved): shows plain "Review required" with "Open in Steps" link.
+  // Resolved: shows "<Agent> review approved — build continues" (QA-PS-004 / ISS-650),
+  // or plain "Review approved — build continues" when the card names no agent.
+  // Active (unresolved): shows "<Agent> review required" (QA-PS-006 / ISS-653), or plain
+  // "Review required" when the card names no agent, with "Open in Steps" link.
   if (kind === "clarify" || kind === "pipeline" || kind === "deliverable" || kind === "gate") {
     const inlineText =
       kind === "gate" && message.resolved
-        ? "Review approved — build continues"
+        ? message.agentName
+          ? `${message.agentName} review approved — build continues`
+          : "Review approved — build continues"
         : kind === "gate"
-        ? "Review required"
+        ? message.agentName
+          ? `${message.agentName} review required`
+          : "Review required"
         : message.content;
     return (
       <div

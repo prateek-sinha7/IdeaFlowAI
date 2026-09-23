@@ -16,7 +16,7 @@
 import type { ReactNode } from "react";
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, X } from "lucide-react";
 
 import type { PipelineRunState } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
@@ -103,14 +103,29 @@ function laneStatus(
     case "gate":
       return { label: "Awaiting approval", tone: "running", variant: "pill" };
     case "complete":
+      // A14 — a review-loop cap absorbed with a resolved deliverable stays a
+      // clean "completed" run server-side (never degraded), but the cap
+      // message must still surface — an amber, non-failure variant of Done,
+      // never red/Failed (that word is reserved for an actual agent failure).
+      if (pipelineState?.warnings && pipelineState.warnings.length > 0) {
+        return { label: "Completed with warnings", tone: "amber", variant: "token" };
+      }
       return { label: "Done", tone: "done", variant: "token" };
     case "terminal":
+      // R-20/R-28 (014-conditional-gates): a diverted run is neither a
+      // cancellation nor a normal completion — read the divertedTo marker
+      // BEFORE the other terminal checks so it never falls through to
+      // "Ended"/"Completed" (contract guarantee #1, additive-never-repurposed).
+      if (pipelineState?.divertedTo)
+        return { label: "Diverted", tone: "neutral", variant: "token" };
       if (pipelineState?.cancelled)
         return { label: "Cancelled", tone: "neutral", variant: "token" };
-      if (pipelineState?.failed)
+      // One failed agent means the run failed. `degraded` stays a distinct persisted
+      // status — it records WHICH agents failed and the deliverable is still openable —
+      // but it is not a softer word to a reader, so it shares the failed token rather
+      // than an amber "Issues" of its own.
+      if (pipelineState?.failed || pipelineState?.degraded)
         return { label: "Failed", tone: "failed", variant: "token" };
-      if (pipelineState?.degraded)
-        return { label: "Issues", tone: "amber", variant: "token" };
       return { label: "Ended", tone: "neutral", variant: "token" };
     case "idle":
     default:
@@ -154,9 +169,38 @@ function StatusToken({ status }: { status: LaneStatus }) {
         <X className="h-3 w-3 text-status-failed" strokeWidth={2.2} />
       ) : status.tone === "done" ? (
         <Check className="h-3 w-3 text-ink-900" strokeWidth={2} />
+      ) : status.tone === "amber" ? (
+        <AlertTriangle className="h-3 w-3 text-status-amber" strokeWidth={2} />
       ) : null}
       {status.label}
     </span>
+  );
+}
+
+// A14 — the "N warning(s)" expander under the status row: native <details> (no
+// portal needed, unlike TitleWithTooltip — this renders in normal flow rather
+// than an overlay, so the left lane's overflow-hidden column never clips it).
+// Warning strings render verbatim, never reworded.
+function WarningsExpander({ warnings }: { warnings: string[] }) {
+  return (
+    <details className="mb-[9px]">
+      <summary
+        data-testid="lane-run-warnings-toggle"
+        className="cursor-pointer list-none text-[10.5px] font-medium text-status-amber underline decoration-dotted underline-offset-2"
+      >
+        {warnings.length} warning{warnings.length === 1 ? "" : "s"}
+      </summary>
+      <div
+        data-testid="lane-run-warnings-list"
+        className="mt-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-2.5 py-2 font-serif text-[11px] leading-[1.4] text-status-amber"
+      >
+        {warnings.map((w, i) => (
+          <p key={i} className={i > 0 ? "mt-1.5" : undefined}>
+            {w}
+          </p>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -294,6 +338,10 @@ export function LaneRunHeader({
           )}
           {status && <StatusToken status={status} />}
         </div>
+      )}
+
+      {status?.tone === "amber" && pipelineState?.warnings && pipelineState.warnings.length > 0 && (
+        <WarningsExpander warnings={pipelineState.warnings} />
       )}
 
       {runTitle && <TitleWithTooltip title={runTitle} fullText={runTitleFull ?? runTitle} />}

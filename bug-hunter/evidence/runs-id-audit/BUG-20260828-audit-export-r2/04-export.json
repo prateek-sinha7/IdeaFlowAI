@@ -1,0 +1,902 @@
+[
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — before step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Presentation Strategist Agent started",
+    "created_at": "2026-08-27T13:50:11.262990"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "Secret scan — scanned before write",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "{\"matched\":false}",
+    "created_at": "2026-08-27T13:51:14.758223"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — after step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Presentation Strategist Agent completed",
+    "created_at": "2026-08-27T13:51:14.782880"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — before step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent started",
+    "created_at": "2026-08-27T13:51:14.786729"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent used tool: write_todos",
+    "created_at": "2026-08-27T13:51:39.581854"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent tool result: write_todos",
+    "created_at": "2026-08-27T13:51:39.587294"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent used tool: write_file",
+    "created_at": "2026-08-27T13:53:05.545895"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent tool result: write_file",
+    "created_at": "2026-08-27T13:53:05.563382"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent used tool: write_todos",
+    "created_at": "2026-08-27T13:53:09.040915"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent tool result: write_todos",
+    "created_at": "2026-08-27T13:53:09.048687"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent used tool: write_todos",
+    "created_at": "2026-08-27T13:54:38.517488"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent tool result: write_todos",
+    "created_at": "2026-08-27T13:54:38.525864"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "Secret scan — scanned before write",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "{\"matched\":false}",
+    "created_at": "2026-08-27T13:54:40.159268"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — after step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck Engineer Agent completed",
+    "created_at": "2026-08-27T13:54:40.191202"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — before step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent started",
+    "created_at": "2026-08-27T13:54:40.194577"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: ls",
+    "created_at": "2026-08-27T13:54:43.755441"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: ls",
+    "created_at": "2026-08-27T13:54:43.766816"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: write_file",
+    "created_at": "2026-08-27T13:56:11.088974"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: write_file",
+    "created_at": "2026-08-27T13:56:11.137346"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: read_file",
+    "created_at": "2026-08-27T13:56:13.284230"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: read_file",
+    "created_at": "2026-08-27T13:56:13.295582"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: read_file",
+    "created_at": "2026-08-27T13:56:15.062713"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: read_file",
+    "created_at": "2026-08-27T13:56:15.075896"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: read_file",
+    "created_at": "2026-08-27T13:56:16.756673"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: read_file",
+    "created_at": "2026-08-27T13:56:16.766314"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_navigate",
+    "created_at": "2026-08-27T13:56:18.634095"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_navigate",
+    "created_at": "2026-08-27T13:56:20.627624"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:21.923470"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:22.192717"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:23.621654"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:23.628180"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:26.057311"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:26.069210"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:27.364818"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:27.559168"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:29.898501"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:29.919754"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:31.313747"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:31.538352"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:33.473607"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:33.479643"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:34.855402"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:35.026935"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:36.932494"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:36.939024"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:38.430755"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:38.602622"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:41.563568"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:41.571358"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:43.150711"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_take_screenshot",
+    "created_at": "2026-08-27T13:56:43.403443"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:46.355818"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:56:46.362326"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: read_file",
+    "created_at": "2026-08-27T13:56:48.133566"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: read_file",
+    "created_at": "2026-08-27T13:56:48.144871"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: grep",
+    "created_at": "2026-08-27T13:56:49.912350"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: grep",
+    "created_at": "2026-08-27T13:56:49.960489"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: grep",
+    "created_at": "2026-08-27T13:56:51.448819"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: grep",
+    "created_at": "2026-08-27T13:56:51.475296"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: grep",
+    "created_at": "2026-08-27T13:56:52.991839"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: grep",
+    "created_at": "2026-08-27T13:56:53.028884"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: grep",
+    "created_at": "2026-08-27T13:56:54.484562"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: grep",
+    "created_at": "2026-08-27T13:56:54.507941"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: grep",
+    "created_at": "2026-08-27T13:56:56.029088"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: grep",
+    "created_at": "2026-08-27T13:56:56.063555"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: grep",
+    "created_at": "2026-08-27T13:56:58.032927"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: grep",
+    "created_at": "2026-08-27T13:56:58.060727"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_evaluate",
+    "created_at": "2026-08-27T13:57:01.664239"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_evaluate",
+    "created_at": "2026-08-27T13:57:01.671826"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent used tool: playwright_close",
+    "created_at": "2026-08-27T13:57:03.177836"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent tool result: playwright_close",
+    "created_at": "2026-08-27T13:57:03.233486"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "Secret scan — scanned before write",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "{\"matched\":false}",
+    "created_at": "2026-08-27T13:57:06.114755"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — after step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "Deck QA Agent completed",
+    "created_at": "2026-08-27T13:57:06.139567"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — before step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator started",
+    "created_at": "2026-08-27T13:57:06.141956"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: extract_computed_styles",
+    "created_at": "2026-08-27T13:57:11.811671"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: extract_computed_styles",
+    "created_at": "2026-08-27T13:57:13.470692"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: read_file",
+    "created_at": "2026-08-27T13:57:14.803808"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: read_file",
+    "created_at": "2026-08-27T13:57:14.815096"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: read_file",
+    "created_at": "2026-08-27T13:57:17.095114"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: read_file",
+    "created_at": "2026-08-27T13:57:17.111285"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T13:58:31.362753"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T13:58:31.622498"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T13:59:42.206513"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T13:59:42.915599"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T14:00:40.833772"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T14:00:41.445466"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T14:01:40.752185"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T14:01:41.344822"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T14:02:37.420593"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T14:02:38.012867"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T14:03:35.088436"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T14:03:35.632841"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T14:04:31.858165"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T14:04:32.407033"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T14:05:28.698572"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T14:05:29.210733"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool call",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator used tool: render_pptx",
+    "created_at": "2026-08-27T14:06:25.921229"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — tool result",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator tool result: render_pptx",
+    "created_at": "2026-08-27T14:06:30.344598"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "Secret scan — scanned before write",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "{\"matched\":false}",
+    "created_at": "2026-08-27T14:07:39.939263"
+  },
+  {
+    "category": "gate",
+    "step": "",
+    "label": "audit logger — after step",
+    "outcome": "continue",
+    "severity": "",
+    "detail": "PPTX Code Generator completed",
+    "created_at": "2026-08-27T14:07:39.975184"
+  }
+]

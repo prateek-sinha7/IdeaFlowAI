@@ -1,0 +1,20 @@
+{
+  "url": "/this-route-does-not-exist",
+  "headings": ["Page not found.", "Not found"],
+  "eyebrow": "IT HAPPENS",
+  "chips": ["Lost?", "Typo?", "Moved.", "404"],
+  "body": "The page you're looking for doesn't exist or has been moved.",
+  "actions": [
+    {"text": "Back to dashboard", "href": "/dashboard"},
+    {"text": "Create a workflow", "href": "/create"},
+    {"text": "Sign in", "href": "/login"}
+  ],
+  "footer": "If you believe this is an error, check the URL for typos or contact support.",
+  "hasAppNav": false,
+  "notes": [
+    "rendered by the catch-all's `unknown` screen, HTTP 200 — not a Next.js not-found",
+    "offers Sign in even to an already-signed-in user",
+    "two headings say the same thing; assert on 'Page not found.' (with the period)"
+  ],
+  "screenshot": "screenshots/11-errors/p51-404-unknown-route.png"
+}

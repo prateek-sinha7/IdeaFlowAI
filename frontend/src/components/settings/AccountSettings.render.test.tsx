@@ -38,6 +38,22 @@ const mockEnableEmailMfa = vi.fn();
 const mockDisableEmailMfa = vi.fn();
 
 vi.mock("@/lib/api", () => ({
+  // FR-015: the constitution section now calls lib/api's `authedFetch` (global
+  // fetch + the shared 401 -> handleSessionExpiry() guard) instead of bare
+  // fetch. Delegate to the stubbed global so the assertion below still checks
+  // the same thing — that the section reads /api/settings/constitution with an
+  // auth header — rather than weakening it to a mock-call count.
+  authedFetch: (input: string, init?: RequestInit) => fetch(input, init),
+  // ISS-799: the constitution READ moved again, from this file's own
+  // `authedFetch` call to lib/api's `getConstitution` (same fetchWithAuth path,
+  // plus the shared GET cache that stops the mount effect fetching twice). Same
+  // delegation as `authedFetch` above and for the same reason — the assertion
+  // below still checks that the section reads /api/settings/constitution with an
+  // auth header, not that some mock was called.
+  getConstitution: (t: string) =>
+    fetch(`${ENV.API_URL}/api/settings/constitution`, {
+      headers: { Authorization: `Bearer ${t}` },
+    }).then((r: Response) => r.json()),
   getToken: () => mockGetToken(),
   getMe: (t: string) => mockGetMe(t),
   getPreferences: (t: string) => mockGetPreferences(t),
@@ -65,6 +81,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { AccountSettings } from "./AccountSettings";
+import { ENV } from "@/lib/env";
 
 // Click a settings-section nav control by its visible label, resolving the
 // enclosing <button> so this works whether the nav is a plain <button>
@@ -164,7 +181,7 @@ describe("AccountSettings — behavior parity (wired sections preserved)", () =>
     await clickNav(user, "Constitution");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/api/settings/constitution",
+        `${ENV.API_URL}/api/settings/constitution`,
         expect.objectContaining({ headers: expect.anything() }),
       ),
     );

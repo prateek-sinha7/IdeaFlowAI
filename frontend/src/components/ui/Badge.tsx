@@ -15,10 +15,15 @@ export type BadgeStatus =
   | "failed"
   | "cancelled"
   | "gate"
-  | "queued";
+  | "queued"
+  // Task 11.5 (sandbox-git-versioning-v2, Req 20): "degraded" is SEMANTICALLY
+  // DISTINCT from "done" — it uses the amber ramp with its own label so AT and
+  // sighted users both receive a different signal. Never a colour variant of success.
+  | "degraded";
 
-// Status key -> status-ramp token classes. Fill/border ramp vars live in :root
-// (not @theme), so they are consumed via arbitrary var() utilities.
+// Status key -> status-ramp token classes. The fill/border ramp is now registered in
+// @theme (globals.css), so `bg-status-failed-fill` would work here too; these arbitrary
+// var() utilities are kept because they are equivalent and churn-free.
 const STATUS_CLASS: Record<BadgeStatus, string> = {
   running:
     "text-status-running bg-[var(--status-running-fill)] border-[var(--status-running-border)]",
@@ -32,6 +37,10 @@ const STATUS_CLASS: Record<BadgeStatus, string> = {
     "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
   queued:
     "text-status-queued bg-[var(--status-queued-fill)] border-[var(--status-queued-border)]",
+  // degraded: amber ramp (not green/done). Normalised label is "Degraded" so
+  // the chip never reads "Done" or "Completed" — Req 20 distinctness requirement.
+  degraded:
+    "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
 };
 
 /** Normalize a free-string status into a canonical badge key (§B3). */
@@ -43,6 +52,8 @@ function normalizeStatus(status: string): BadgeStatus {
   if (s === "cancelled" || s === "canceled") return "cancelled";
   if (s === "gate" || s === "review" || s === "paused") return "gate";
   if (s === "queued" || s === "pending") return "queued";
+  // Task 11.5: "degraded" normalizes to its own key, not "queued".
+  if (s === "degraded") return "degraded";
   return "queued"; // unknown -> neutral-grey (never throws)
 }
 
@@ -54,6 +65,19 @@ export interface BadgeProps {
 
 export function Badge({ status, label, className = "" }: BadgeProps) {
   const key = normalizeStatus(status);
+  // LW-02 + Task 11.5: the fallback label is the CANONICAL key, not the raw
+  // status. "degraded" must not silently render as "queued". Each key has its
+  // own readable label so "Degraded" is visually and textually distinct from
+  // "Done" (completed) — Req 20 distinctness requirement.
+  const CANONICAL_LABEL: Record<BadgeStatus, string> = {
+    running: "Running",
+    done: "Done",
+    failed: "Failed",
+    cancelled: "Cancelled",
+    gate: "Review",
+    queued: "Queued",
+    degraded: "Degraded",
+  };
   return (
     <span
       className={[
@@ -64,10 +88,7 @@ export function Badge({ status, label, className = "" }: BadgeProps) {
         .filter(Boolean)
         .join(" ")}
     >
-      {/* LW-02: fall back to the NORMALIZED canonical key, never the raw
-          `status` — an unknown/free-string status renders the safe "queued"
-          default (not arbitrary text uppercased by the chip). */}
-      {label ?? key}
+      {label ?? CANONICAL_LABEL[key]}
     </span>
   );
 }

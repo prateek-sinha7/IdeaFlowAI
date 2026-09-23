@@ -1,0 +1,113 @@
+{
+  "sweep": "4 — post-commit audit, filling the gaps MANIFEST listed as open",
+  "capturedAt": "2026-08-26",
+  "user": "qa-admin@flowinqa.com",
+  "settle": "1.0–2.5s after every navigation and every overlay open",
+
+  "overlays": {
+    "76-modal-prototype-template-detail": {
+      "openedBy": "clicking a template tile on /create/prototype → Template tab",
+      "heading": "(none — the title is plain text)",
+      "text": "AI Coach Hub · DESKTOP · Saas-Product",
+      "buttons": ["Use this template", "Open in new tab (title)", "Fullscreen (title)", "Close (title)"],
+      "escapeCloses": true,
+      "notes": [
+        "the icon buttons have NO text and NO aria-label but DO carry a `title` — address them by title",
+        "each of the 46 gallery tiles renders a LIVE IFRAME of the template; the page mounts 46 iframes"
+      ]
+    },
+    "77-modal-prototype-custom-template": {
+      "openedBy": "'Upload custom' on /create/prototype → Template tab",
+      "heading": "Upload custom template",
+      "tabs": ["Upload HTML file", "From URL"],
+      "inputs": [{"type": "file", "accept": ".html,.htm"}, {"type": "text", "placeholder": "e.g. My Company Dashboard"}],
+      "buttons": ["Cancel", "Use this template"],
+      "limit": ".html or .htm, max 2 MB",
+      "escapeCloses": true
+    },
+    "78-modal-design-system-detail": {
+      "openedBy": "clicking a design-system tile on /create/prototype → Design System tab",
+      "text": "Design System Inspired by Claude (Anthropic) · AI & LLM",
+      "buttons": ["Use this system", "Open preview in new tab", "Fullscreen", "(unnamed close)"],
+      "content": "renders the full DESIGN.md for the system inline",
+      "escapeCloses": true
+    },
+    "79-modal-custom-design-system": {
+      "openedBy": "'Upload custom' on /create/prototype → Design System tab",
+      "heading": "Add custom design system",
+      "inputs": [{"type": "text", "placeholder": "e.g. Acme Corp, My Startup, Dark Minimal"}, {"type": "textarea", "limit": "0 / 80,000 chars"}],
+      "buttons": ["Load example", "Cancel", "Add design system"],
+      "schemaHint": "9-section DESIGN.md — Visual Theme, Color Palette, Typography, Component Stylings, Layout, Depth, Do's/Don'ts, Responsive, Agent Prompt Guide",
+      "escapeCloses": true
+    },
+    "80-modal-ppt-custom-template": {
+      "openedBy": "'Upload custom' on /create/ppt",
+      "sameComponentAs": "77 — byte-identical modal",
+      "note": "the PRESENTATION wizard's custom-template upload accepts only .html/.htm, not .pptx. It is the prototype modal reused."
+    },
+    "81-modal-admin-create-user": {
+      "openedBy": "'Add user' on /admin",
+      "heading": "Create New User",
+      "inputs": [
+        {"type": "email", "placeholder": "user@example.com"},
+        {"type": "password", "placeholder": "At least 8 characters"},
+        {"name": "new-user-tier", "tag": "SELECT", "options": ["basic", "pro", "enterprise", "hexaware"]},
+        {"name": "new-user-is-admin", "type": "checkbox"}
+      ],
+      "buttons": ["(unnamed close)", "Create User"],
+      "notes": [
+        "NO Cancel button — the only dismissal is the unnamed close control",
+        "the plan select exposes a FOURTH tier, `hexaware`, that no tier spec mentioned — see D-16"
+      ]
+    }
+  },
+
+  "correctionToManifest": {
+    "C12 composer/AgentSkillsPicker": "NOT an overlay — it renders inline in the config rail. The manifest classified it from a `fixed inset-0` match in the source, which is not what the component does at runtime."
+  },
+
+  "tabFamilies": {
+    "composerConfigRail": {
+      "route": "/workflows/ppt/canvas",
+      "topLevel": ["Workflow", "Agent"],
+      "agentSubTabs": ["Overview", "Skills", "Hooks", "Tools", "Config"],
+      "header": "Agent · step 1 of 3 · Slide Plan & Content Architecture",
+      "input": "input[name=\"agent-name\"]",
+      "note": "the manifest recorded '1 of 2'. It is 2 top-level tabs, and the Agent tab has 5 sub-tabs of its own."
+    },
+    "previewRenderer": {
+      "route": "/runs/{completed}",
+      "label": "RENDERS AS",
+      "modes": ["Auto", "HTML", "Markdown", "Bundle"],
+      "observedOn": "a .md deliverable (greeting.md)",
+      "behaviour": {
+        "Auto": "renders the content — resolves to Markdown for a .md",
+        "Markdown": "renders the content",
+        "HTML": "renders NOTHING — a blank pane, no message, no fallback (D-13)",
+        "Bundle": "renders 'No files generated yet'"
+      },
+      "note": "'Slides' is a fifth mode the manifest listed; it did not appear on this deliverable and presumably needs a deck."
+    },
+    "runHistoryFilters": {
+      "route": "/runs",
+      "chips": {"All": 50, "User Stories": 1, "Presentation": 7, "Prototype": 2, "App Builder": 1, "Custom": 39},
+      "countsSum": "1+7+2+1+39 = 50 = All ✓",
+      "deepLinkable": true,
+      "queryParam": "?type=",
+      "chipToParam": {"All": "(none)", "Presentation": "ppt", "Custom": "custom"},
+      "verified": "?type=custom renders exactly 39 cards, ?type=ppt exactly 7 — the filters do narrow correctly"
+    },
+    "runHistorySort": {
+      "options": ["Newest", "Longest", "Tokens"],
+      "queryParam": "?sort=",
+      "values": {"Newest": "(omitted — the default)", "Longest": "duration", "Tokens": "tokens"},
+      "note": "sort composes with type: /runs?type=custom&sort=duration"
+    }
+  },
+
+  "structuralFindings": {
+    "runHistoryHasNoTestIds": "document.querySelectorAll('[data-testid]').length === 0 on /runs — the entire run-history page has zero test hooks",
+    "runCardsAreNotLinks": "0 anchors to /runs/{id}; the cards are div[role=\"button\"] with click handlers (D-14)",
+    "escapeIsInconsistent": "Escape closes every prototype/ppt modal captured here, but does NOT close the add-agent modal (D-07). The dismissal contract is not uniform."
+  }
+}

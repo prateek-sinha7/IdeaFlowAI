@@ -1,0 +1,38 @@
+QA-PS-051 validation — /library/agents/material-analyzer (agent detail page)
+Account: qa-admin@flowinqa.com, cold navigation each cycle (about:blank -> URL, waited 2.5s),
+captured via performance.getEntriesByType('resource') filtered to /api/ so the count is per-navigation,
+not a cumulative browser-session log.
+
+Cycle 1:
+/api/runs?limit=6      x1
+/api/auth/me           x1
+/api/runs?limit=50     x2   <- duplicate
+/api/workflows         x2   <- duplicate
+/api/agents/library    x1
+/api/skills/library    x1
+/api/hooks/library     x1
+
+Cycle 2: identical multiset to cycle 1.
+Cycle 3: identical multiset to cycle 1.
+
+3/3 cold starts reproduced the identical duplicate-fetch signature.
+
+Comparison to original 2026-09-17 report claims ("capabilities x2", "me x2"):
+NOT reproduced — /api/auth/me fires 1x, and the catalog is now split into
+/api/agents/library, /api/skills/library, /api/hooks/library, each firing 1x
+(no duplication). The app's endpoint names/shape changed since the report was filed.
+
+What DOES reproduce, identically 3/3: /api/runs?limit=50 x2 and /api/workflows x2 fire
+on this Library agent-detail route, neither of which the detail panel displays
+(overview/system prompt/pipeline role/skills/hooks/config — no run history section).
+
+This is the EXACT signature already documented in ISS-787 (QA-PS-040, plain /library
+index page) and traced to its root cause in ISS-782: DashboardLayout.tsx statically
+imports every page component and RunConnectionProvider is mounted app-wide in
+app/layout.tsx, so RunConnectionProvider.tsx:289's refreshLiveRuns() fires
+GET /api/runs?limit=50 unconditionally on every route mount, doubled by a duplicate
+mount-effect call site (same shape ISS-782 nails down for /analytics and /settings).
+The library detail route (agent/skill/hook) inherits this because it renders through
+the same always-mounted DashboardLayout/RunConnectionProvider tree as every other route
+-- nothing about the detail panel itself adds new duplication beyond what /library's
+own index page already has (ISS-787).

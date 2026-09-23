@@ -39,7 +39,7 @@ Engine contract this class reproduces (verified against
 Construction (per plan §4 / Phase 1):
   ``create_deep_agent(model=build_model(model)|<instance>, tools=tools,
   system_prompt=system_prompt, subagents=None, <task-tool excluded>,
-  backend=FilesystemBackend(root_dir=<RunSandbox.root>, virtual_mode=True),
+  backend=ValidatingFilesystemBackend(root_dir=<RunSandbox.root>, virtual_mode=True),
   checkpointer=<Phase-0 factory>, interrupt_on=…)`` driven with
   ``config={"configurable":{"thread_id": run_id},
   "recursion_limit": settings.AGENT_RECURSION_LIMIT}``.
@@ -47,19 +47,29 @@ Construction (per plan §4 / Phase 1):
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
+import posixpath
 import re
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable
 
 from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import AIMessage, ToolMessage
 
+from agents.capabilities.model_catalog import ModelCatalog
 from app.agents.model_factory import build_model, model_identifier
+from app.agents.validating_backend import ValidatingFilesystemBackend
+from app.agents.sandbox import AGENT_READABLE_RESERVED, RESERVED_PATHS
 from app.core.config import settings
 
 if TYPE_CHECKING:
-    from langchain.agents.middleware.types import ModelRequest, ModelResponse
+    from langchain.agents.middleware.types import (
+        ModelRequest,
+        ModelResponse,
+        ToolCallRequest,
+    )
     from langchain_core.language_models import BaseChatModel
 
     from app.agents.sandbox import RunSandbox
@@ -73,6 +83,37 @@ def _one_line(text: str, limit: int) -> str:
     """Collapse whitespace and truncate — trace lines must stay one line."""
     flat = " ".join(str(text).split())
     return flat if len(flat) <= limit else flat[:limit] + "..."
+
+
+# ---------------------------------------------------------------------------
+# Same-model retry with backoff (the incident this fixes): AWS Bedrock put a
+# classified-transient error frame (``botocore.exceptions.EventStreamError``,
+# ``internalServerException`` — "Try your request again") on an OPEN
+# ``ConverseStream`` after 1173 thinking deltas / 98s. The engine's OWN
+# model-fallback loop (``agents/execution_engine/engine.py``) only ADVANCES TO
+# A CHEAPER MODEL and has no sleep/backoff — for a ``cost_class="cheap"`` model
+# (the builders' Haiku) the tier-descent chain is empty, so it exhausts on
+# attempt 1. Retrying the SAME model with backoff is exactly what "try your
+# request again" asks for, and only the runner (which owns the model call) can
+# do it. 3 total attempts (1 initial + 2 retries); full-jitter exponential
+# backoff so concurrent workers don't retry in lockstep.
+# ---------------------------------------------------------------------------
+_MAX_MODEL_CALL_ATTEMPTS: int = 3
+_RETRY_BASE_SECONDS: float = 2.0
+_RETRY_FACTOR: int = 2
+_RETRY_CAP_SECONDS: float = 30.0
+
+
+def _retry_delay_seconds(attempt: int) -> float:
+    """Full-jitter exponential backoff delay (seconds) for retry number ``attempt`` (0-indexed).
+
+    ``actual sleep = random.uniform(0, min(cap, base * factor**attempt))`` — the
+    AWS-recommended "full jitter" shape: bounded by an exponentially growing
+    ceiling, but uniformly random within it (not a fixed exponential delay), so
+    many workers retrying the same transient fault don't all wake up at once.
+    """
+    ceiling = min(_RETRY_CAP_SECONDS, _RETRY_BASE_SECONDS * (_RETRY_FACTOR**attempt))
+    return random.uniform(0, ceiling)
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +249,191 @@ class _ToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
     ) -> "ModelResponse":
         return await handler(self._filter(request))
 
+    # ── ISS-171: refuse the CALL, not just the offer ─────────────────────────
+    # ``_filter`` above only strips tools from the model REQUEST. That decides
+    # what the model is offered; it does not unregister anything from the graph,
+    # so a model that names an excluded tool anyway still reached a live
+    # implementation — and did: steps compiled with ``read_files: false`` were
+    # observed running ``ls`` and ``read_file`` against the run sandbox and
+    # getting real directory listings back (ISS-171).
+    #
+    # The model names them because deepagents' own built-in system prompt
+    # documents the filesystem tools; stripping the binding does not unsay that.
+    # ``request.tools`` filtering is therefore a UX narrowing, and a permission
+    # the manifest withheld needs an enforcement point at EXECUTION. This is it:
+    # the tool never runs, and the model is told plainly so it stops retrying.
+    def _refusal(self, request: "ToolCallRequest") -> ToolMessage | None:
+        """A denial ``ToolMessage`` when this call is excluded, else ``None``."""
+        call = getattr(request, "tool_call", None)
+        if not self._excluded or not isinstance(call, dict):
+            return None
+        name = call.get("name")
+        if name not in self._excluded:
+            return None
+        logger.warning(
+            "tool %r DENIED at execution — not granted by this step's permissions",
+            name,
+        )
+        return ToolMessage(
+            content=(
+                f"Tool '{name}' is not available to this step. Do not try to "
+                f"call it again; continue with what you already have."
+            ),
+            name=name,
+            tool_call_id=call.get("id") or "",
+            status="error",
+        )
+
+    def wrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else handler(request)
+
+    async def awrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else await handler(request)
+
+
+# ── Image-payload guard (run b0642e0f: prototype-validate "model rejected") ──
+# Nine 1280x720 PNG screenshots (744KB on disk, ~1MB as base64) accumulated in
+# ONE agent's conversation and the provider refused the request. The agent was
+# not misbehaving: `playwright_take_screenshot` deliberately returns only a PATH
+# (app/agents/tools/playwright.py — "the tool returns the relative path"), but the
+# same agent also holds the native `read_file`, and deepagents' filesystem
+# middleware turns any binary read into a base64 image CONTENT BLOCK
+# (middleware/filesystem.py:911-915). So `screenshot -> read_file(path)` re-inlines
+# the very bytes the path-return was avoiding, and every image then rides along in
+# EVERY subsequent turn — the cost is cumulative, not per-call.
+#
+# deepagents' own eviction cannot help: `_build_evicted_content`
+# (middleware/_message_eviction.py) replaces text blocks but deliberately PRESERVES
+# `media_blocks`, so images survive exactly the mechanism that bounds everything else.
+#
+# This keeps the N most recent images and replaces older ones with a one-line text
+# placeholder naming the file. Screenshots are looked at once, to decide the next
+# click; the 9th does not need the 1st still in frame. Dormant for every agent that
+# reads no binaries (the overwhelming majority) — the walk finds no media blocks and
+# returns the request unchanged.
+_MAX_RETAINED_IMAGE_BLOCKS = 2
+
+# Both placeholders state the image was ALREADY SEEN and must not be fetched
+# again. Wording is load-bearing — see the note in _prune about run 50df89da.
+_EVICTED_IMAGE_PLACEHOLDER = (
+    "[{path} — you already viewed this image earlier in this conversation; its "
+    "pixels were removed here to bound the request payload. Do NOT read it again "
+    "— work from what you already recorded about it.]"
+)
+_DUPLICATE_IMAGE_PLACEHOLDER = (
+    "[{path} — duplicate read; this image is still shown once later in this "
+    "conversation. Do NOT read it again.]"
+)
+
+
+def _media_blocks_in(message: Any) -> int:
+    """Count non-text content blocks on a ToolMessage (0 for plain-string content)."""
+    if not isinstance(getattr(message, "content", None), list):
+        return 0
+    try:
+        return sum(1 for b in message.content_blocks if b.get("type") != "text")
+    except Exception:  # noqa: BLE001 — a malformed block must never break a dispatch
+        return 0
+
+
+class _ImagePayloadGuardMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Bound the number of base64 image blocks carried in the model request.
+
+    Keyed purely on content SHAPE (a tool message carrying non-text blocks) — no
+    tool-name, agent-id or workflow literal (SC-001), so it applies wherever the
+    pattern arises rather than to the one agent that happened to hit it.
+    """
+
+    def __init__(self, *, keep: int = _MAX_RETAINED_IMAGE_BLOCKS) -> None:
+        self._keep = keep
+
+    def _prune(self, request: "ModelRequest") -> "ModelRequest":
+        messages = list(getattr(request, "messages", None) or [])
+        # Walk NEWEST-first so "keep the most recent N" needs one pass and no
+        # second reversal; collect indices to rewrite, then rebuild in order.
+        budget = self._keep
+        rewrite: dict[int, str] = {}
+        # Paths whose image is already retained NEWER in this walk. A model that
+        # re-reads the same file gets the block ONCE (the latest copy) and a
+        # placeholder for every older duplicate, so N repeat reads of one page
+        # cost one image, not N. Without this, run 50df89da's reader cycled
+        # pages 04→05→06 forty-one times and grew the request until the provider
+        # refused it — the loop below is what that dedupe stops paying for.
+        seen_paths: set[str] = set()
+        # Every ToolMessage AFTER the last AIMessage answers THAT turn's tool
+        # calls and has never been inside a request: the model has not seen it.
+        # Those are kept whole and cost no budget — evicting one would tell the
+        # model it "already viewed" a picture it never received. Run 8a992018:
+        # a reader called read_file on ten PNGs in one turn, the guard kept two,
+        # and the notes for the other eight said "Screenshot of clone action".
+        # The bound applies to images from EARLIER turns only.
+        last_ai = max(
+            (i for i, m in enumerate(messages) if isinstance(m, AIMessage)), default=-1
+        )
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if not isinstance(msg, ToolMessage):
+                continue
+            n = _media_blocks_in(msg)
+            if n == 0:
+                continue
+            path = (msg.additional_kwargs or {}).get("read_file_path") or "binary file"
+            # A newer read of the SAME path already carries this image — drop the
+            # older copy regardless of budget, and don't spend budget on it.
+            if path in seen_paths:
+                rewrite[i] = _DUPLICATE_IMAGE_PLACEHOLDER.format(path=path)
+                continue
+            seen_paths.add(path)
+            if i > last_ai:
+                continue  # unseen this turn — never evict, never charge
+            if budget > 0:
+                budget -= 1
+                continue
+            # NOTE: this text must NEVER invite a re-read. The first version said
+            # "re-read it if you need to look at it again", which livelocked run
+            # 50df89da: with keep=2 and three pages wanted, each new read evicted
+            # the oldest, the placeholder told the model to fetch it back, and the
+            # reader cycled the same three PNGs 122 times until the request was
+            # rejected. The model has already SEEN this image — point it at its own
+            # notes, not back at the file.
+            rewrite[i] = _EVICTED_IMAGE_PLACEHOLDER.format(path=path)
+        if not rewrite:
+            return request
+
+        pruned = list(messages)
+        for i, text in rewrite.items():
+            old = pruned[i]
+            pruned[i] = ToolMessage(
+                content=text,
+                tool_call_id=old.tool_call_id,
+                name=old.name,
+                id=old.id,
+                status=old.status,
+                additional_kwargs=dict(old.additional_kwargs or {}),
+            )
+        logger.info(
+            "image-payload guard: dropped %d stale image block(s), kept the %d most recent",
+            len(rewrite),
+            self._keep,
+        )
+        return request.override(messages=pruned)
+
+    def wrap_model_call(
+        self,
+        request: "ModelRequest",
+        handler: Callable[["ModelRequest"], "ModelResponse"],
+    ) -> "ModelResponse":
+        return handler(self._prune(request))
+
+    async def awrap_model_call(
+        self,
+        request: "ModelRequest",
+        handler: Callable[["ModelRequest"], Awaitable["ModelResponse"]],
+    ) -> "ModelResponse":
+        return await handler(self._prune(request))
+
 
 class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):
     """Inject a per-call ``cache_control`` dict on ChatBedrockConverse requests.
@@ -240,6 +466,21 @@ class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):
 
         if not isinstance(request.model, ChatBedrockConverse):
             return request
+        # ...but being a ChatBedrockConverse is a TRANSPORT fact, not a capability
+        # one (spec 020 / FR-21). OpenAI's models are served over this same client
+        # and support prompt caching on the Responses API ONLY — a `cachePoint` on
+        # Converse returns AccessDeniedException ("You invoked an unsupported model
+        # or your request did not allow prompt caching"), measured against
+        # global.openai.gpt-5.6-luna while Claude Haiku 4.5 accepted the identical
+        # call. With this flag defaulting ON that would fail 100% of GPT requests,
+        # so the second gate asks the catalog rather than the client class.
+        #
+        # An id absent from the catalog keeps caching ON: fail-open preserves
+        # today's behaviour for anything uncatalogued, where fail-closed would
+        # silently disable caching on a model that had been relying on it.
+        entry = ModelCatalog().get(model_identifier(request.model))
+        if entry is not None and not entry.supports_prompt_caching:
+            return request
         return request.override(
             model_settings={
                 **request.model_settings,
@@ -263,6 +504,182 @@ class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):
         handler: Callable[["ModelRequest"], Awaitable["ModelResponse"]],
     ) -> "ModelResponse":
         return await handler(self._maybe_apply(request))
+
+
+# ---------------------------------------------------------------------------
+# Reserved-path guard (Requirement 18 AC 3, V2-Q7 — SGV2-GAP-001/002 closure)
+# ---------------------------------------------------------------------------
+
+
+class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Intercept agent filesystem tool calls and enforce the reserved-path registry.
+
+    This middleware enforces two rules declared in Requirement 18 AC 3 and V2-Q7:
+
+    **WRITE guard** — tools that mutate the sandbox (``write_file``, ``edit_file``,
+    ``create_directory``) are **refused** when their target path's normalised prefix
+    falls under any entry in ``RESERVED_PATHS`` (imported from
+    ``app.agents.sandbox``).  The agent is told plainly and asked not to retry.
+
+    **READ guard** — tools that read from the sandbox (``read_file``, ``ls``,
+    ``glob``, ``grep``) are refused for any path under ``RESERVED_PATHS`` UNLESS the
+    normalised prefix is in ``AGENT_READABLE_RESERVED`` (i.e. ``.context/`` only).
+    ``.chain/`` is deliberately NOT in ``AGENT_READABLE_RESERVED``; an agent cannot
+    read it directly — only authorized Workspace surfaces may (Requirement 18 AC 8).
+
+    **What "normalised prefix" means here:** the tool argument is resolved to a
+    POSIX relative path (leading ``/`` and ``./`` stripped), then checked against
+    each registry entry (which all end with ``/`` or are bare names).  Both the
+    trailing-slash form and the bare name match.
+
+    The guard operates on EXECUTION (``wrap_tool_call`` / ``awrap_tool_call``), not
+    on the model-offer level: a model that hallucinates a reserved path is refused
+    at call time and told so, consistent with the ``_ToolFilterMiddleware`` pattern
+    (ISS-171).
+
+    Constants are imported from ``app.agents.sandbox``, the single canonical source
+    (V2-Q7).  This module is in ``app.*`` so the ``app.agents.sandbox`` import is
+    legal (the import-linter contract only forbids ``agents.capabilities`` → ``app``).
+    """
+
+    # Tools that write or mutate content in the sandbox.
+    _WRITE_TOOLS: frozenset[str] = frozenset(
+        {"write_file", "edit_file", "create_directory"}
+    )
+    # Tools that read from the sandbox (and therefore subject to the read guard).
+    _READ_TOOLS: frozenset[str] = frozenset({"read_file", "ls", "glob", "grep"})
+
+    def _extract_path(self, call: dict) -> str | None:
+        """Pull the first path-like argument from a tool call dict.
+
+        Deepagents tool arguments are passed as a dict under ``"args"``; the
+        primary path parameter is named ``"path"`` for ``read_file``, ``"file_path"``
+        for ``write_file``/``edit_file``, ``"directory"`` for ``ls``/``create_directory``,
+        and ``"pattern"`` for ``glob``/``grep``.  We check the common names in order
+        and return the first non-empty string found.
+        """
+        args = call.get("args") or {}
+        for key in ("path", "file_path", "directory", "pattern"):
+            val = args.get(key)
+            if isinstance(val, str) and val:
+                return val
+        return None
+
+    @staticmethod
+    def _normalise(path: str) -> str:
+        """Normalise a path so bypass attempts are collapsed before the prefix check.
+
+        Strips leading slashes and ``./`` (so ``/path`` == ``path`` == ``./path``),
+        then uses :func:`posixpath.normpath` to collapse embedded ``..`` segments
+        (so ``sub/../.chain/x`` → ``.chain/x``).  Without this step an agent
+        could reach any reserved prefix through a ``sub/../<reserved>/`` detour.
+
+        ``posixpath.normpath`` is used unconditionally — on Windows the guard
+        still operates on POSIX-style relative paths supplied by the agent tool
+        call, not on OS-native paths.
+        """
+        p = path.lstrip("/")
+        if p.startswith("./"):
+            p = p[2:]
+        # Collapse embedded .. so  sub/../.chain/x → .chain/x.
+        # normpath("") → "." and normpath(".") → "."; treat both as empty.
+        p = posixpath.normpath(p) if p and p != "." else ""
+        # normpath can reintroduce a leading "./" if the result starts with ".";
+        # strip it once more so the prefix check stays consistent.
+        if p.startswith("./"):
+            p = p[2:]
+        return p
+
+    def _is_reserved(self, path: str) -> bool:
+        """Return True when *path* falls under any entry in ``RESERVED_PATHS``."""
+        norm = self._normalise(path)
+        for entry in RESERVED_PATHS:
+            # Entries end with ``/`` (directory prefixes) or are bare names.
+            bare = entry.rstrip("/")
+            if norm == bare or norm.startswith(bare + "/") or norm.startswith(entry):
+                return True
+        return False
+
+    def _is_agent_readable(self, path: str) -> bool:
+        """Return True when *path* is under a prefix in ``AGENT_READABLE_RESERVED``."""
+        norm = self._normalise(path)
+        for entry in AGENT_READABLE_RESERVED:
+            bare = entry.rstrip("/")
+            if norm == bare or norm.startswith(bare + "/") or norm.startswith(entry):
+                return True
+        return False
+
+    def _refusal(self, request: "ToolCallRequest") -> "ToolMessage | None":
+        """Return a denial ToolMessage when this call violates the guard, else None."""
+        call = getattr(request, "tool_call", None)
+        if not isinstance(call, dict):
+            return None
+        name = call.get("name")
+        if name not in self._WRITE_TOOLS and name not in self._READ_TOOLS:
+            return None
+
+        path = self._extract_path(call)
+        if path is None:
+            return None
+
+        if name in self._WRITE_TOOLS:
+            if self._is_reserved(path):
+                logger.warning(
+                    "reserved-path WRITE DENIED: tool=%r path=%r (RESERVED_PATHS)",
+                    name,
+                    path,
+                )
+                return ToolMessage(
+                    content=(
+                        f"Tool '{name}' is not permitted to write to '{path}': "
+                        f"that path is engine-reserved and may not be modified by agents. "
+                        f"Do not attempt to write to reserved paths."
+                    ),
+                    name=name,
+                    tool_call_id=call.get("id") or "",
+                    status="error",
+                )
+        elif name in self._READ_TOOLS:  # noqa: RET505
+            if self._is_reserved(path) and not self._is_agent_readable(path):
+                logger.warning(
+                    "reserved-path READ DENIED: tool=%r path=%r (not in AGENT_READABLE_RESERVED)",
+                    name,
+                    path,
+                )
+                return ToolMessage(
+                    content=(
+                        f"Tool '{name}' is not permitted to read '{path}': "
+                        f"that path is engine-reserved. "
+                        f"Only paths under .context/ are readable by agents."
+                    ),
+                    name=name,
+                    tool_call_id=call.get("id") or "",
+                    status="error",
+                )
+        return None
+
+    def wrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else handler(request)
+
+    async def awrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else await handler(request)
+
+
+# Sentinel object returned by the factory when it resolves the
+# ``TOOL_RESERVED_PATH_GUARD`` key.  ``DeepAgentRunner.__init__`` checks for
+# this sentinel in the resolved tools list and activates the guard middleware;
+# the sentinel is then removed from the tool list so it is never handed to the
+# model.  Using a typed sentinel rather than a plain string keeps the resolution
+# type-safe and avoids accidental string collisions.
+class _ReservedPathGuardSentinel:
+    """Marker object — not a real tool, never passed to the model."""
+
+    name: str = "__reserved_path_guard__"
+
+
+_RESERVED_PATH_GUARD_SENTINEL = _ReservedPathGuardSentinel()
 
 
 class DeepAgentRunner:
@@ -312,6 +729,10 @@ class DeepAgentRunner:
         tools: list,
         *,
         model: "str | BaseChatModel | None" = None,
+        # Per-step reasoning level (spec 020). Ignored when ``model`` is already a
+        # BaseChatModel instance — that client is used verbatim and was built
+        # elsewhere, so there is nothing left to configure.
+        effort: str | None = None,
         max_tokens: int | None = None,
         run_sandbox: "RunSandbox | None" = None,
         checkpointer: Any = None,
@@ -341,10 +762,28 @@ class DeepAgentRunner:
         # exactly one place. We avoid importing BaseChatModel at module top
         # (heavy) — duck-type on it instead via the factory boundary.
         if isinstance(model, str) or model is None:
-            self._model = build_model(model, max_tokens=max_tokens)
+            self._model = build_model(model, max_tokens=max_tokens, effort=effort)
         else:
             self._model = model
-        self.model_id: str = model_identifier(self._model)
+        # Prefer the model string we already know (the caller-supplied ``model``
+        # or the settings default) over a post-hoc attribute probe — the LangChain
+        # object may not expose it reliably for every provider, and
+        # ``model_identifier`` falls back to the literal string "unknown" which
+        # then propagates into agent_complete.model_id and analytics.
+        if isinstance(model, str) and model:
+            self.model_id: str = model
+        else:
+            resolved = model_identifier(self._model)
+            if resolved == "unknown":
+                # Last resort: use the configured inference profile so the
+                # analytics "By Model" section shows a real model label rather
+                # than the sentinel.
+                resolved = (
+                    settings.BEDROCK_INFERENCE_PROFILE_ID
+                    or settings.BEDROCK_MODEL_ID
+                    or "unknown"
+                )
+            self.model_id = resolved
 
         # ── Tool exclusion: library sub-agents OFF (always), built-ins off
         #    for text-only agents (Task #25) ──────────────────────────────
@@ -402,9 +841,34 @@ class DeepAgentRunner:
         # ── Disk filesystem backend (per-run sandbox), when provided ──────
         backend = None
         if run_sandbox is not None:
-            backend = FilesystemBackend(
+            backend = ValidatingFilesystemBackend(
                 root_dir=str(run_sandbox.root), virtual_mode=True
             )
+
+        # ── Reserved-path guard (Requirement 18 AC 3, V2-Q7) ─────────────
+        # Detect the sentinel emitted by filesystem-capable tool providers
+        # (``TOOL_RESERVED_PATH_GUARD`` key resolved by the factory to
+        # ``_RESERVED_PATH_GUARD_SENTINEL``).  Remove the sentinel from the tool
+        # list (it is NOT a real tool and must never be passed to the model), and
+        # activate the guard middleware unconditionally when a sandbox is present:
+        # a sandbox-less agent has no filesystem to guard, but a sandboxed agent
+        # with fs tools bound must always have the guard active — even if the
+        # provider key was absent (defence in depth), since the middleware is
+        # cheap and harmless when the agent has no write tools.
+        #
+        # The guard activates when EITHER condition is true:
+        #   a) the provider explicitly emitted the guard sentinel, OR
+        #   b) a run_sandbox is present (every sandboxed agent should have it).
+        # This ensures that direct DeepAgentRunner construction with a sandbox
+        # (e.g. test paths that bypass the factory) also gets the guard.
+        _guard_requested = any(
+            isinstance(t, _ReservedPathGuardSentinel) for t in self.tools
+        )
+        # Remove sentinels from the tool list — they are metadata, not tools.
+        self.tools = [
+            t for t in self.tools if not isinstance(t, _ReservedPathGuardSentinel)
+        ]
+        _attach_path_guard: bool = _guard_requested or (run_sandbox is not None)
 
         # ── Assemble the graph ────────────────────────────────────────────
         # subagents=None + the tool-filter middleware together guarantee the
@@ -412,15 +876,28 @@ class DeepAgentRunner:
         # NOT sufficient — the auto-added GP sub-agent re-adds it). FilesystemMiddleware
         # and SubAgentMiddleware are mandatory and left in place; we only filter
         # the *tools* they would expose. Summarization stays on (base-stack default).
+        #
+        # ``_ReservedPathGuardMiddleware`` is appended AFTER ``_ToolFilterMiddleware``
+        # so that tools already excluded by permissions never reach the path check
+        # (defence in depth: an excluded tool cannot bypass the guard by accident).
+        _middleware: list = [
+            _ToolFilterMiddleware(excluded=excluded),
+            _ImagePayloadGuardMiddleware(),
+            _BedrockCachePointsMiddleware(),
+        ]
+        if _attach_path_guard:
+            _middleware.append(_ReservedPathGuardMiddleware())
+            logger.debug(
+                "reserved_path_guard ACTIVE for agent %s",
+                (thread_id or "?").split(":")[-1],
+            )
+
         self._graph = create_deep_agent(
             model=self._model,
             tools=self.tools,
             system_prompt=system_prompt,
             subagents=None,
-            middleware=[
-                _ToolFilterMiddleware(excluded=excluded),
-                _BedrockCachePointsMiddleware(),
-            ],
+            middleware=_middleware,
             backend=backend,
             checkpointer=checkpointer,
             interrupt_on=interrupt_on,
@@ -487,6 +964,85 @@ class DeepAgentRunner:
     # -----------------------------------------------------------------------
 
     async def astream_events(
+        self, user_message: "str | list"
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Drive the graph, retrying a SAME-model transient throttle with backoff.
+
+        Thin retry wrapper over :meth:`_astream_events_once` (the real
+        event-mapping implementation below — see its docstring for the full
+        LangGraph→engine event table). The incident this exists for: Bedrock
+        put a classified-transient fault (``internalServerException`` via
+        ``botocore.exceptions.EventStreamError`` — "Try your request again")
+        on an OPEN ``ConverseStream``. The engine's OWN model-fallback loop
+        (``agents/execution_engine/engine.py``) only steps DOWN to a cheaper
+        model with no backoff, and for a ``cost_class="cheap"`` model (the
+        builders' Haiku) the tier-descent chain is empty — it exhausts on
+        attempt 1. Retrying the SAME model with backoff, here, is what "try
+        your request again" actually asks for, and only the runner (which
+        owns the model call) can do it.
+
+        SAFETY — mid-stream duplicate events (deliberately narrow, read this
+        before widening it): ``_astream_events_once`` forwards
+        ``chunk``/``thinking``/``tool_call``/``tool_result`` events to the
+        caller AS THEY HAPPEN — the engine forwards them live over the
+        WebSocket and accumulates them into the agent's one authoritative
+        ``output_chunks`` list for THIS attempt
+        (``agents/execution_engine/engine.py`` ~5970-5987). Once anything has
+        been yielded, a silent re-run would DUPLICATE that content into the
+        same accumulator and re-send it live — the engine has no per-event
+        "discard this" signal for content already forwarded; its ONLY reset
+        mechanism is its own ``agent_model_fallback`` / ``reset_output``
+        event (~6227-6242), which fires at a DIFFERENT layer (a full
+        model-switch rebuild, not a same-model in-place retry) and is not
+        something this method can safely emit through the existing event
+        vocabulary. So this retries ONLY when the current attempt has
+        yielded NOTHING yet — the fault happened before the first
+        chunk/thinking/tool event reached the caller.
+
+        This is deliberately narrow: on its own it would NOT have retried the
+        exact production incident this fixes (1173 thinking deltas already
+        streamed before the fault) — that case still propagates to the
+        engine exactly as before, where Change 1 (the classifier fix) now
+        correctly marks it transient for the engine's OWN fallback loop. What
+        this DOES catch — per the engine's own "Pitfall 4" comment, the
+        common Bedrock case — is a fault before any token streams, without
+        even bothering the engine or stepping down to a cheaper model.
+        """
+        from agents.model_policy import mark_model_proven
+
+        attempt = 0
+        yielded_any = False
+        while True:
+            attempt += 1
+            try:
+                async for event in self._astream_events_once(user_message):
+                    if not yielded_any:
+                        # This model just resolved and produced output — remember it,
+                        # so a later "ARN not found" for it is read as a provider lie
+                        # rather than a permanent misconfiguration.
+                        mark_model_proven(self.model_id)
+                    yielded_any = True
+                    yield event
+                return
+            except Exception as exc:  # noqa: BLE001 — see _astream_events_once: only a
+                # classified transient throttle ever escapes it (everything else is
+                # swallowed internally into an {"type":"error"} yield), so reaching
+                # here always means a transient fault worth retrying if it's safe to.
+                if yielded_any or attempt >= _MAX_MODEL_CALL_ATTEMPTS:
+                    raise
+                delay = _retry_delay_seconds(attempt - 1)
+                logger.warning(
+                    "DeepAgentRunner.astream_events: transient throttle on attempt "
+                    "%d/%d (model=%s) — retrying same model in %.2fs: %s",
+                    attempt,
+                    _MAX_MODEL_CALL_ATTEMPTS,
+                    self.model_id,
+                    delay,
+                    exc,
+                )
+                await asyncio.sleep(delay)
+
+    async def _astream_events_once(
         self, user_message: "str | list"
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Drive the graph and re-emit the engine's event vocabulary.
@@ -726,7 +1282,7 @@ class DeepAgentRunner:
                     # engine forwards into the UI ``tool_result`` payload. ``getattr``
                     # falls back to the value itself if it is already a plain return.
                     output = event["data"].get("output", "")
-                    result_text = str(getattr(output, "content", output))
+                    result_text = _tool_result_text(getattr(output, "content", output))
                     tool_logger.debug(
                         "tool_result: %s -> %.120s", event["name"], result_text
                     )
@@ -791,7 +1347,7 @@ class DeepAgentRunner:
             # on every characterization golden — the runner's output bytes are unchanged.
             from agents.model_policy import _is_transient_throttle
 
-            if _is_transient_throttle(exc):
+            if _is_transient_throttle(exc, self.model_id):
                 logger.warning(
                     "DeepAgentRunner.astream_events: re-raising transient throttle "
                     "for engine fallback (model=%s): %s",
@@ -1031,6 +1587,36 @@ def _extract_text(content: Any) -> str:
             if isinstance(block, dict) and block.get("type") == "text"
         )
     return ""
+
+
+def _tool_result_text(content: Any) -> str:
+    """Stringify a tool result for the ``tool_result`` event.
+
+    A plain string passes through unchanged, and a block list with no media block
+    keeps the legacy ``str(list)`` — both byte-identical to before. Only a block
+    list carrying media (a binary ``read_file``: deepagents returns
+    ``{"type":"image","base64":...,"mime_type":...}``) is rewritten: text blocks
+    stay, every media block becomes a one-line marker with its type, mime and
+    size. The model still receives the pixels (that is the ``ToolMessage``, not
+    this string); this only keeps megabytes of base64 out of the SSE stream and
+    the persisted output, where the UI could not render it anyway.
+    """
+    if not isinstance(content, list) or not any(
+        isinstance(b, dict) and b.get("type") not in (None, "text") for b in content
+    ):
+        return content if isinstance(content, str) else str(content)
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            parts.append(str(block))
+        elif block.get("type") == "text":
+            parts.append(str(block.get("text", "")))
+        else:
+            data = block.get("base64") or block.get("data") or ""
+            kb = len(data) * 3 // 4 // 1024 if isinstance(data, str) else 0
+            mime = block.get("mime_type") or block.get("mimeType") or ""
+            parts.append(f"[{block.get('type')} {mime} {kb} KB]".replace("  ", " "))
+    return "\n".join(p for p in parts if p)
 
 
 def _extract_thinking(content: Any) -> str:

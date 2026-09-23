@@ -102,7 +102,7 @@ async def test_wave_requests_carry_task_id():
         async def update_wave_run(self, row_id, *, status):
             pass
 
-        async def run_fanout(self, requests, ctx, *, step=None):
+        async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
             captured.append([dict(r) for r in requests])
             return
             yield  # noqa: unreachable — makes this an async generator
@@ -165,7 +165,7 @@ def test_budget_module_constants_present():
     from agents.execution_engine import budget as b
 
     assert b.DEFAULT_MAX_SUBAGENTS == 8
-    assert b.DEFAULT_MAX_CONCURRENCY == 4
+    assert b.DEFAULT_MAX_CONCURRENCY == 5
     assert b.DEFAULT_MAX_DEPTH == 2
     assert b.DEFAULT_WALL_CLOCK_SECONDS == 900
     assert b.MERGE_AGENT_MAX_ATTEMPTS == 2

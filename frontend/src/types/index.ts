@@ -6,10 +6,18 @@
 //
 // This is a MIRROR, not a shared import: the backend is Python and cannot import
 // this file. The backend's own set is DERIVED at runtime as
-// `gate_pendency.REVIEW_RESOLUTIONS - {"review_gate_approved"}` in
+// `gate_pendency.REVIEW_RESOLUTIONS - {"review_gate_approved", "budget_aborted"}` in
 // `backend/app/api/run_stream.py::_STREAM_TERMINAL_TYPES` (review_gate_approved
 // resolves a gate but resumes the run on the same queue, so it does NOT close the
-// stream — BUG-016). The two sets are kept aligned by an explicit guard test,
+// stream — BUG-016). `budget_aborted` is likewise NOT a stream terminal: a
+// loop_iterations budget breach is a suppressed convergence limit that lets the run
+// keep going (its own `pipeline_failed`/`pipeline_complete` follows later); a fatal
+// budget dimension now emits its own `pipeline_failed` immediately after
+// `budget_aborted` rather than relying on `budget_aborted` itself to close the
+// stream. Closing on `budget_aborted` meant the client stopped receiving live
+// events (e.g. the assembler step, structure-check, story-layer, completion) the
+// moment a loop budget was hit, even though the run kept executing server-side. The
+// two sets are kept aligned by an explicit guard test,
 // `TestSSETerminalTypesSyncWithFrontend` in
 // `backend/tests/unit/test_sse_stream.py`, which fails if either side drifts.
 // If you change this list, change that test's `expected` set in the same commit.
@@ -17,8 +25,12 @@ export const STREAM_TERMINAL_TYPES: ReadonlySet<string> = new Set([
   "pipeline_complete",
   "pipeline_cancelled",
   "pipeline_failed",
-  "budget_aborted",
   "error",
+  // 014-conditional-gates R-13: a `trigger: workflow` route outcome ends the run
+  // with `pipeline_diverted` and no `pipeline_complete`. It was missing here (and
+  // on the backend), so the stream closed with no recognised terminal type and the
+  // client flashed "Reconnecting…" before the divert finally arrived via replay.
+  "pipeline_diverted",
 ]);
 
 export interface User {
@@ -70,17 +82,10 @@ export interface ChatAttachment {
 export interface DeepLinkTarget {
   /**
    * Generic panel tab id — present ONLY when the frame explicitly names one.
-   * Absent for engine-emitted cards (they carry `anchor` instead), so the card
-   * kind's own generic default tab decides where the deep-link lands.
+   * Absent for engine-emitted cards, so the card kind's own generic default tab
+   * decides where the deep-link lands.
    */
   tab?: string;
-  /**
-   * The narrator's milestone/artifact ANCHOR as emitted by the backend
-   * (`run:<id>` / `clarify:<id>` / `deliverable:<file>` / `spec_revision:<id>:<n>`
-   * / a `gate_key`). A semantic reference to WHAT the card reports — never a tab
-   * id, and never a workflow/agent name (SC-001).
-   */
-  anchor?: string;
   nonce: number;
 }
 
@@ -109,6 +114,12 @@ export interface ChatMessage {
    * Generic — keyed on message id, never on workflow/agent name (SC-001).
    */
   resolved?: boolean;
+  /**
+   * QA-PS-004 (ISS-650): the display name of the agent a gate card belongs to, from
+   * the narrator card's `agent_name`. Rendered as text only, never branched on
+   * (SC-001). Absent on cards persisted before the narrator stamped it.
+   */
+  agentName?: string;
   /** Family anchoring (D-02): the run/thread this turn belongs to. A child
    *  (revision) run's turns carry a different `runId` but stitch into the SAME
    *  transcript array so the family transcript accumulates, never swaps. */
@@ -127,7 +138,7 @@ export interface StreamMessage {
   // lifecycle events (statuses only, D-14). They flow through the same generic
   // backend WS forward and AgentDetailPanel's inline construction/wave tree reads
   // them; no existing event was renamed or removed.
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "agent_skills" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result" | "pipeline_failed";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "agent_skills" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "agent_skipped" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result" | "pipeline_failed" | "pipeline_diverted";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
@@ -180,6 +191,15 @@ export interface WaveWorker {
    * instead of collapsing into one flapping leaf (CR-06 FE half).
    */
   worker?: number;
+  /** The wave task this worker owns (`data.task_id`, e.g. "s01"). A nested child
+   *  names this value in its own `parentTaskId`, which is how the tree joins. */
+  taskId?: string;
+  /** Set ONLY on a task agent a wave member spawned via `spawn_subagents`
+   *  (`data.parent_task_id`). Absent on a wave member itself and on every
+   *  fan-out outside a wave — those stay top-level rows exactly as before. */
+  parentTaskId?: string;
+  /** Why this worker failed, verbatim from the backend. */
+  error?: string;
 }
 
 /**
@@ -198,6 +218,14 @@ export interface WaveGroup {
    */
   step?: string;
   taskIds: string[];
+  /**
+   * How many waves and tasks the PLAN holds, from `wave_started` (both
+   * optional — an older backend sends neither). Without them the panel could
+   * only count what it had already seen, so a 34-task build read "0 / 1 done"
+   * during its first wave with no way to tell that from a finished job.
+   */
+  waveTotal?: number;
+  taskTotal?: number;
   status: string;
   workers: WaveWorker[];
 }
@@ -362,13 +390,17 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_revision" | "prototype" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "app_builder" | "app_builder_revision" | "custom" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
 
 // Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
 // run (websocket.py), and the revision drainer can persist "revising". The raw
 // status is cast through this union at api.ts:288 (`raw.status as ...`); include
 // both so the cast is honest and the history-reopen comparisons type-check.
-export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing";
+// R-14 (014-conditional-gates): "diverted" is a new terminal status set when a
+// `trigger: workflow` route outcome fires — the run stops its own dispatch loop
+// and hands off to a newly-minted WorkflowRun (parent_run_id). R-20 renders it
+// as a distinct "Diverted to X" card treatment, never as "Completed".
+export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing" | "diverted";
 
 export interface WorkflowRun {
   id: string;
@@ -377,6 +409,11 @@ export interface WorkflowRun {
   status: WorkflowStatus;
   input: string;
   output?: string;
+  // A14 — non-fatal cap/degrade messages that did NOT flip the run to
+  // "degraded" (e.g. a review-loop cap absorbed with a resolved deliverable).
+  // Additive, absent (not null/[]) when no warning fired — mirrors the
+  // `pipeline_complete` event's own presence convention.
+  warnings?: string[];
   agentOutputs?: AgentThinkingEntry[];
   tokenUsage?: {
     total_input_tokens: number;
@@ -409,6 +446,28 @@ export interface WorkflowRun {
   // from a prior run's output (e.g. User Stories → Prototype chain).
   // Used to show "(Chained)" in the Jump Back In section.
   sourceRunId?: string | null;
+  // R-20 (014-conditional-gates, T41/T42): the instance_id of the conditional-gate
+  // step that diverted this run to another workflow. Set only on a run whose
+  // status is "diverted"; null/absent otherwise (including legacy pre-migration
+  // rows). Drives the "step {id}" clause on the target run's DivertBadge.
+  divertedAtStepId?: string | null;
+  // SGV2 task 11.3: chain-source projection — present only when this run was
+  // launched via v2 exact-ref chaining. Absent on legacy / non-chained runs.
+  // NEVER carries an internal ref name; `visibleTag` is null for untagged sources.
+  chainSource?: {
+    id: string;
+    shortId: string;
+    workflowId: string;
+    publishedStatus: string;
+    visibleTag: string | null;
+  };
+  // SGV2 task 11.3: finalization / payload-chainability fields. All optional so
+  // legacy runs (no finalization record) parse without coercion.
+  chainContextInstalled?: boolean;
+  payloadChainable?: boolean;
+  nonChainableReason?: string;
+  chainUnavailableReason?: string;
+  finalizationReason?: string;
   createdAt: string;
   completedAt?: string;
   duration?: number;
@@ -428,6 +487,20 @@ export interface FamilyMember {
   parent_run_id: string | null;
   created_at: string;
   completed_at: string | null;
+  git_tag?: string;  // task 6.4 — present on completed runs that received a tag (e.g. "v1"); absent otherwise
+  // SGV2 task 11.3: chain-source projection for family members — parallel subset
+  // of WorkflowRun.chainSource. Present only when the member was v2-chained.
+  chain_source_run_id?: string | null;
+  chain_source_short_id?: string | null;
+  chain_source_workflow_id?: string | null;
+  chain_source_published_status?: string | null;
+  chain_source_visible_tag?: string | null;
+  // SGV2 task 11.3: finalization / payload-chainability fields for family members.
+  payload_chainable?: boolean | null;
+  non_chainable_reason?: string | null;
+  chain_context_installed?: boolean | null;
+  chain_unavailable_reason?: string | null;
+  finalization_reason?: string | null;
 }
 
 export interface RunFamily {
@@ -542,6 +615,10 @@ export interface AgentToolGrants {
   write_files?: boolean;
   exec?: boolean;
   spawn_subagents?: boolean;
+  /** Named tool packs (registry set names, e.g. "file_extract", "playwright").
+   *  Cap-intersected server-side: only packs on the untrusted cap's allow-list
+   *  actually bind for a Composer workflow. */
+  tool_sets?: string[];
 }
 
 /** Top-level manifest capability switches (R-07). Only `internet` exists today
@@ -553,12 +630,13 @@ export interface WorkflowCapabilities {
 /** One step of the full `{"steps": [...]}` manifest shape the backend
  *  `_project` sniffs apart from the compact EMP-03 selections map (spec 012,
  *  `backend/app/api/user_workflows.py::_project`). Mirrors
- *  `agents/workflows/manifest.py`'s step schema (R-01..R-05). A built-in step
- *  carries `agent_id`; a custom-agent instance carries `agent: "custom-agent"`
- *  plus its own `instance_id`/`name`/`prompt` (R-02/R-03/R-03a). */
+ *  `agents/workflows/manifest.py`'s step schema (R-01..R-05). The compiler's
+ *  `_ALLOWED_STEP_KEYS` allow-list recognizes only `agent` as the step-identity
+ *  key (never `agent_id`, INV-5): a built-in step carries `agent: <builtin id>`;
+ *  a custom-agent instance carries `agent: "custom-agent"` plus its own
+ *  `instance_id`/`name`/`prompt` (R-02/R-03/R-03a). */
 export interface ManifestStep {
-  agent_id?: string;
-  agent?: "custom-agent";
+  agent?: string;
   /** Generated once at node creation; matches `^[a-z0-9][a-z0-9-]*$`; never
    *  regenerated on rename (R-03). Custom-agent steps only. */
   instance_id?: string;
@@ -578,18 +656,60 @@ export interface ManifestStep {
    *  no children. Parent steps (with `subagents`) never carry this; their
    *  strategy lives at `subagents.mode` instead. */
   strategy?: string;
+  /** A code step kind (e.g., `"publish"`, `"assemble_prototype"`). When set,
+   *  this step runs code, not a model — no prompt, model, or tools. Mirrors
+   *  the backend's `mechanical` code-step concept. */
+  mechanical?: string;
+  /** Per-step model policy (spec 020). A MAPPING, not a bare id — the backend
+   *  compiler's `_parse_model` accepts only
+   *  `{model, max_tokens, cost_class, fallback, effort}` and raises on anything
+   *  else. `effort` is the reasoning level for that model ("high"/"on"/...). */
+  model?: {
+    model?: string;
+    max_tokens?: number;
+    cost_class?: string;
+    fallback?: string[];
+    effort?: string;
+  };
+  /** OpenDesign context blocks to inject into this step's prompt. Values from
+   *  {"design_system", "template", "template_example"}. Absent or empty list
+   *  means no injection. Only used when the workflow's context provider is
+   *  opendesign. */
+  injects?: string[];
   /** Upstream data dependencies, as backend agent ids (`custom-agent:<instance_id>`
    *  for composed steps). DERIVED from position at serialise time — never stored
    *  per-node, so reordering/deleting can never leave it stale. The engine reads
    *  it to build each step's roster block (`_build_roster`), which is what tells a
    *  step where its upstream inputs actually live. */
   depends_on?: string[];
+  /** Conditional-gate branch spec (spec 014 / R-02), mirrors `RouteSpec` from
+   *  `backend/agents/workflows/plan.py` field-for-field. Only meaningful when
+   *  `"conditional"` is present in this step's `gates` list. */
+  route?: {
+    condition_agent?: string;
+    outcomes: Record<string, { trigger: "step" | "workflow"; target: string }>;
+    default_next?: string;
+    loop_max_iterations?: number;
+    trigger_max_depth?: number;
+  };
+  /** Typed-artifact kinds this step's output supplies (spec 014 / R-05b), mirroring
+   *  `Step.produces` in `backend/agents/workflows/plan.py`. Only `"route_decision"`
+   *  is meaningful today: R-27 requires a route's decision-source step to declare it.
+   *  DERIVED from the drawn routes at serialise time (`agentsToManifestSteps`), like
+   *  `depends_on` — there is no per-node authoring control for it. */
+  produces?: string[];
   subagents?: {
     mode: SubagentStrategy;
     max_parallel?: number;
-    task_source?: { kind: string; parser?: string | null; source_step?: string };
+    task_source?: { kind: string; parser?: string | null; source_step?: string; [key: string]: unknown };
     steps: ManifestStep[];
   };
+  /** Leaf-step fan-out task source (for steps without children). */
+  task_source?: { kind?: string; parser?: string | null; source_step?: string; target?: string; [key: string]: unknown };
+  /** Leaf-step fan-out configuration. */
+  fanout?: { agent?: "self"; mode?: "parallel"; max_parallel?: number };
+  /** Wave fan-out conflict resolution strategy. */
+  on_conflict?: "human_gate";
 }
 
 /** The full per-step manifest persisted into `workflows.manifest_json`
@@ -606,7 +726,26 @@ export interface WorkflowRunConfig {
   deliverable?: { strategy: string; name: string };
   planner?: "skip" | "run";
   clarify?: { mode: "skip" | "auto"; defaults: string[] };
+  /** The workflow-level context provider this composition declares. Persisted
+   *  as the manifest's `context_providers: [<name>]` list — run-wide, NOT a
+   *  per-step lever (it becomes `ectx.compiled_context_providers`). Absent /
+   *  null ⇒ no provider ⇒ byte-identical to a composition that never declared
+   *  one (the provider's own `if not od: return {}` makes it dormant). */
+  contextProvider?: ContextProviderName | null;
+  /** Which OpenDesign template family the design picker offers. Presentation
+   *  only — the launch boundary derives the LOADER profile from the chosen
+   *  template's own `mode`, never from this. */
+  designMode?: DesignMode;
 }
+
+/** The context providers a composed workflow may declare from the UI. Only
+ *  `opendesign` is offered: `uploaded_files` gates on `spec.injects` (which
+ *  `custom-agent` never declares), and `previous_run`/`repo`/`conversation`
+ *  need bindings the composer cannot supply — offering them would be four
+ *  options that silently do nothing. */
+export type ContextProviderName = "opendesign";
+
+export type DesignMode = "web" | "deck";
 
 export interface WorkflowManifest {
   steps: ManifestStep[];
@@ -614,6 +753,12 @@ export interface WorkflowManifest {
   deliverable?: { strategy: string; name: string };
   planner?: "skip" | "run";
   clarify?: { mode: "skip" | "auto"; defaults: string[] };
+  /** Mirrors `agents/workflows/manifest.py`'s `context_providers` — the run-wide
+   *  capability names the engine resolves into injected context blocks. */
+  context_providers?: ContextProviderName[];
+  /** Mirrors the manifest's `design_mode` — presentation only, alongside
+   *  `launch_surface`/`icon` in `_ALLOWED_TOP_KEYS`. */
+  design_mode?: DesignMode;
 }
 
 export interface AgentDef {
@@ -633,6 +778,19 @@ export interface AgentDef {
    *  (default-gated, pre-checked in the Review-gates toggle), a "Validation_Gate",
    *  or null/absent (no static gate). Sourced from the real backend registry. */
   gate?: string | null;
+  /** Authoring-only: this step lost its incoming connection (the route outcome
+   *  that targeted it was unbound or removed) and has NOT been re-attached.
+   *
+   *  Exists so removing a line LEAVES THE NODE WHERE IT IS instead of silently
+   *  re-joining it to whatever precedes it in the array. Structural edges are
+   *  otherwise derived purely from position (`ManifestStep.depends_on` is
+   *  computed at serialise time), which is what made an unbound node snap back
+   *  to an arbitrary neighbour.
+   *
+   *  Never persisted: Save is BLOCKED while any step carries it, so a saved
+   *  manifest can never contain one. That is what keeps the derive-from-
+   *  position invariant intact — the flag only ever lives in the editor. */
+  detached?: boolean;
   /** Full AGENT.md prompt body (markdown text after the YAML frontmatter).
    *  Populated when the agent is fetched from the /api/agents/library or
    *  /api/agents/pipelines/{type} endpoint (KAN-76). May be absent on
@@ -657,6 +815,22 @@ export interface AgentDef {
   /** Per-node tool grants (R-01 tools block). Absent means the compiler's
    *  least-privilege defaults apply. */
   tools?: AgentToolGrants;
+  /** Declared upstream dependencies — mirrors `ManifestStep.depends_on`.
+   *  Populated by `manifestStepsToAgents` when a step's manifest entry
+   *  declares explicit `depends_on` entries not derivable from array adjacency
+   *  or route outcomes (e.g. API-authored workflows). Used by `computeRootLayout`
+   *  (graphLayout.ts) as a third edge source so these steps rank at the correct
+   *  column instead of defaulting to column 0 (ISS-178). */
+  depends_on?: string[];
+  /** Conditional-gate branch spec (spec 014 / R-02), mirrors `RouteSpec` from
+   *  `backend/agents/workflows/plan.py` field-for-field. */
+  route?: {
+    condition_agent?: string;
+    outcomes: Record<string, { trigger: "step" | "workflow"; target: string }>;
+    default_next?: string;
+    loop_max_iterations?: number;
+    trigger_max_depth?: number;
+  };
   /** Child sub-agent nodes rendered below this node on the canvas (R-35). */
   children?: AgentDef[];
   /** The child group's run strategy (R-04/R-36). Present only when
@@ -664,6 +838,36 @@ export interface AgentDef {
   strategy?: SubagentStrategy;
   /** Bounds `parallel`/`fanout` concurrency (R-04); defaults to 3. */
   maxParallel?: number;
+  /** A code step kind (e.g., `"publish"`, `"assemble_prototype"`). When set,
+   *  this step runs code, not a model — no prompt, model, or tools. Mirrors
+   *  the backend's `mechanical` code-step concept. */
+  mechanical?: string;
+  /** Per-step model policy (spec 020). A MAPPING, not a bare id — the backend
+   *  compiler's `_parse_model` accepts only
+   *  `{model, max_tokens, cost_class, fallback, effort}` and raises on anything
+   *  else. `effort` is the reasoning level for that model ("high"/"on"/...). */
+  model?: {
+    model?: string;
+    max_tokens?: number;
+    cost_class?: string;
+    fallback?: string[];
+    effort?: string;
+  };
+  /** OpenDesign context blocks to inject into this step's prompt. Values from
+   *  {"design_system", "template", "template_example"}. Absent or undefined
+   *  means no injection. Only used when the workflow's context provider is
+   *  opendesign. */
+  injects?: string[];
+  /** Opaque passthrough of every `ManifestStep` key the canvas does not
+   *  model (e.g. a hand-authored `strategy: wave_scheduler`, `fanout`,
+   *  `task_source`, `produces`, `consumes`, `validators`, `redoable`,
+   *  `fix`, `compaction`, `on_conflict`, `require_render`, an
+   *  explicit `depends_on`, or any future key). Captured verbatim on load
+   *  (`manifestStepToAgent`) and re-spread FIRST on save
+   *  (`agentToManifestStep`), so a field the canvas has no editor for still
+   *  survives a save that never touched it — canvas-owned fields are
+   *  assigned after the spread and win on conflict. */
+  extra?: Record<string, unknown>;
 }
 
 export interface PipelineConfig {
@@ -687,7 +891,7 @@ export interface AttachedHook {
   description?: string;
 }
 
-export type AgentStatusType = "idle" | "thinking" | "running" | "done" | "error";
+export type AgentStatusType = "idle" | "thinking" | "running" | "done" | "error" | "skipped";
 
 export interface AgentRunState {
   id: string;
@@ -706,6 +910,12 @@ export interface AgentRunState {
   estimatedCostUsd?: number;
   // Phase 3 (T042) — Thinking tab fields
   inputPrompt?: string;
+  // Requirement 36: the agent's composed system prompt from the `agent_input`
+  // SSE event. When present the panel renders it as "System prompt" and shows
+  // inputPrompt (context_message / targeted retry) as a secondary "Task message"
+  // section. Absent on old SSE streams → falls back to current inputPrompt-only
+  // rendering (backward-compatible).
+  systemPrompt?: string;
   contextSources?: ContextSource[];
   toolCalls?: ToolCallEntry[];
   thinkingText?: string;
@@ -723,6 +933,96 @@ export interface AgentRunState {
   // of advertising them (464 + 66 × count, advisory).
   skillsLoadErrors?: string[];
   estimatedTokens?: number;
+  /** How many times a conditional route (or a resume) has RE-ENTERED this step.
+   *  0/undefined on a first dispatch. The engine has always stamped `visit_count`
+   *  on both `agent_start` and `agent_complete` (engine.py :4768 / :5754); until
+   *  now nothing in `frontend/src` read it, so a loop-back rendered as an earlier
+   *  step turning "running" underneath a LATER step still badged "done" — a state
+   *  a sequential pipeline can never actually be in. */
+  visitCount?: number;
+  /** How many times this step has been DISPATCHED; 1 on a first run. Counts EVERY
+   *  re-entry, where `visitCount` only ever sees a conditional loop-back: run
+   *  faba87c9's Task Planner ran seven times on spec-revision restarts and carried
+   *  `visit_count` on none of them, so the row rendered as a single 2m 23s pass.
+   *  Incremented on `agent_start`, not `agent_complete`, so a later pass is badged
+   *  while it is still in flight. */
+  passCount?: number;
+  /** Sum of `duration` over every pass. `duration` stays last-pass-only by design —
+   *  the row reports the pass you are looking at — but it was ALSO the only number
+   *  kept, so 29m 54s of re-run time was invisible in run faba87c9. This is the
+   *  figure that reconciles against the run header. */
+  cumulativeDuration?: number;
+  /** Wave worker children (a wave clones one agent N times, so every worker's
+   *  agent_start/agent_complete carries the SAME agent_id as this parent —
+   *  keyed here by `task_id` so the Steps list folds them under ONE parent
+   *  node instead of re-rendering it per worker). Absent on the parent's own
+   *  agent_start/agent_complete (no task_id) and on any event from a backend
+   *  that hasn't stamped the wave fields yet. */
+  waveWorkers?: WaveWorkerEntry[];
+  /** From a `wave_skipped` event — the wave ran but dispatched zero tasks, so
+   *  it did nothing. Distinct from `status: "done"`: without this flag a
+   *  no-op wave renders an identical green check to a wave that actually did
+   *  the work. */
+  waveSkipped?: { reason: string; sourceStep?: string };
+  /** From a `wave_repair` event — the engine detected and re-dispatched tasks
+   *  a prior wave pass dropped. Rendered as a warning row, not a failure. */
+  waveRepair?: { waveIndex: number; missingTaskIds: string[]; count: number };
+  // RFN-001 — resolved per-agent model id, set from the `model_id` field on the
+  // `agent_complete` SSE event (engine.py already emits it). Optional so every
+  // existing AgentRunState construction site is unaffected.
+  modelId?: string;
+}
+
+/** One worker clone inside a wave dispatch — a child row nested under its
+ *  parent step (see `AgentRunState.waveWorkers`). */
+export interface WaveWorkerEntry {
+  taskId: string;
+  /** "failed" — the worker reported agent_error. "stranded" — the parent step
+   *  reached a terminal state while this worker was still running, so no
+   *  outcome will ever arrive. A stranded row is NOT reported as done: the
+   *  work genuinely did not finish, and a spinner that never resolves says
+   *  the opposite of what happened. */
+  status: "running" | "done" | "failed" | "stranded";
+  workerIndex?: number;
+  waveIndex?: number;
+  waveTotal?: number;
+  /** The task id the plan's AUTHOR gave this worker — `layout`, `quote-01`,
+   *  `1-crimson-s01`, whatever that workflow calls its units of work. `taskId`
+   *  is a content hash: right for the resume cursor, unreadable on screen.
+   *  Display this when present. */
+  taskAuthorId?: string;
+  /** Why this worker failed, or why it has no result — verbatim from the
+   *  backend. Shown on the row so the reader never has to guess between a
+   *  budget refusal, a tool error and a model error. */
+  error?: string;
+  /** THIS member's own tool calls. A wave clones one agent N times and every
+   *  clone reports the parent's agent_id, so without splitting on task_id all
+   *  N members' calls pool into one undifferentiated list on the parent step —
+   *  which is exactly what made a wave impossible to investigate. */
+  toolCalls?: ToolCallEntry[];
+  /** THIS member's own final output text. */
+  output?: string;
+  /** THIS member's own reasoning. Available because fanout.py's side channel
+   *  pushes EVERY child event unfiltered — the "lifecycle-only" rule applies to
+   *  the outer yield, not the queue. */
+  thinking?: string;
+  /** The task body this member was given — its input prompt. */
+  inputPrompt?: string;
+  /** What was fed into THIS member, from its own agent_input. */
+  contextSources?: ContextSource[];
+  /** The remaining fields a STEP page shows, captured per member so its page is
+   *  the same page with this member's data — not a reduced version of it. */
+  estimatedCostUsd?: number;
+  attachedSkills?: AttachedSkillEntry[];
+  attachedHooks?: AttachedHookEntry[];
+  validationIssues?: ValidationIssue[];
+  validationPassed?: boolean;
+  /** Per-member usage and timing, off its own agent_complete. */
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  durationMs?: number;
+  startedAt?: number;
 }
 
 /** A source of context for an agent — either a summarized prior-agent output,
@@ -818,6 +1118,32 @@ export interface PipelineRunState {
   currentAgentIndex: number;
   totalDuration: number | null;
   completedCount: number;
+  /** ISS-722 — the run record's own `agent_count`, seeded from the fetched run
+   *  before any roster-building frame lands. `agents` is built from stream
+   *  events and stays empty during planning/early generating, so a surface that
+   *  renders in that window has no other honest total — which is why the run
+   *  detail header read "0 / 0" beside the bell panel's "0 of 5" for the same
+   *  run. Optional and ADDITIVE: absent until a caller seeds it, and every
+   *  reader prefers `agents.length` once the roster exists. */
+  agentCount?: number;
+  /** Wall-clock accounting for the run, accumulated from each event's own `ts` so a
+   *  reopened run — whose whole log arrives in one burst — accounts identically to a
+   *  live one.
+   *
+   *  `busySeconds` is the UNION of agent execution intervals, not their sum: the five
+   *  readers in run faba87c9 overlap by 199s, so a sum can never reconcile against the
+   *  header. `waitingSeconds` is time parked at a human review gate — 28m 29s of that
+   *  run, belonging to no step, which is the structural reason the rows could not add
+   *  up to the total no matter how the per-step numbers were fixed.
+   *
+   *  busy + waiting + a sub-second dispatch residual == totalDuration (measured: 1.7s
+   *  residual across 5,589s). */
+  busySeconds?: number;
+  waitingSeconds?: number;
+  /** Bookkeeping for the two above: the `ts` of the last timeline event folded in, and
+   *  whether a review gate was open across the interval that follows it. */
+  timelineTs?: string;
+  gateOpen?: boolean;
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalTokens?: number;
@@ -865,6 +1191,24 @@ export interface PipelineRunState {
   // ("Cancelled by you" ack + relaunch) from this flag instead of falling
   // through to idle. Absent on non-cancelled runs.
   cancelled?: boolean;
+  // Gap fix: the backend REST driver emits a top-level `{type: "error", data:
+  // {error, code, recoverable}}` frame on run failure (run_commands.py). Previously
+  // there was no `case "error"` in the reducer, so a user watching the run fail LIVE
+  // saw only the generic "run stopped" message — the real reason only surfaced after
+  // history re-fetched `WorkflowRun.error` from the DB on reopen. Verbatim message
+  // from that frame; a consumer should prefer a more specific per-agent `error` when
+  // one is present. Reset on `pipeline_start` / a live `pipeline_reconnected` so a
+  // stale error cannot leak into a fresh or resumed run.
+  pipelineError?: string;
+  // A14 — non-fatal cap/degrade messages carried on `pipeline_complete` that did
+  // NOT flip the run to "degraded" (e.g. a review-loop cap absorbed with a
+  // resolved deliverable). Additive; absent when no warning fired.
+  warnings?: string[];
+  // R-28/R-20 (014-conditional-gates, T38): set by the `pipeline_diverted`
+  // reducer case (mirrors `cancelled`) when a `trigger: workflow` route
+  // outcome ends this run's dispatch loop and hands off to a new run. The
+  // live run-view's terminal treatment reads this instead of "Completed".
+  divertedTo?: { runId: string; workflowId: string };
   // KAN-73 — live audit trail from hook_run WS events
   hookRuns?: HookRunEntry[];
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so
@@ -915,6 +1259,17 @@ export interface PipelineRunState {
   // re-announcement, so they never carry one run's high-water mark into the next (INV-2).
   lastAppliedSeq?: number;
   appliedUnsequencedIds?: string[];
+  // Task 9.2 (sandbox-git-versioning-v2, Req 20/19): durable projections for
+  // the two new event types.
+  // ``chainContextUnavailableReason`` — set by a ``chain_context_unavailable``
+  // event; one of the five bounded reason codes (source_running,
+  // source_not_finalized, source_non_chainable, source_payload_missing,
+  // source_provenance_conflict).  No PII, secrets, or internal paths.
+  chainContextUnavailableReason?: string;
+  // ``finalizationFailedReason`` — set by a ``run_finalization_failed`` event;
+  // a bounded reason code surfaced from the durable finalization record
+  // (degraded_reason).  No PII, secrets, or internal paths.
+  finalizationFailedReason?: string;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

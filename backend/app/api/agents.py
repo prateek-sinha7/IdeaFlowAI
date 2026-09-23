@@ -51,7 +51,12 @@ class AgentResponse(BaseModel):
     name: str
     role: str
     description: str
-    pipeline_type: str
+    # An agent shared across pipelines declares a list in its AGENT.md
+    # (loader._parse_pipeline_type); forward it as-is, exactly as the
+    # /agents/library dict endpoint already does. A `str`-only field made
+    # GET /agents/pipelines/prototype raise a pydantic ValidationError for
+    # prototype-plan / -build / -validate.
+    pipeline_type: str | list[str]
     order: int
     icon: str
     estimated_duration: float

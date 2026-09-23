@@ -123,3 +123,85 @@ def test_json_tasks_is_registered():
     discover()
     reg = CapabilityRegistry()
     assert reg.is_registered("task_parser", "json_tasks")
+
+
+# ── parse_preferring_target (A2: on-disk file wins over a narrating reply) ─────
+
+
+class _FakeSandbox:
+    """A minimal ``sandbox.read(name) -> str | None`` stand-in (no disk I/O)."""
+
+    def __init__(self, files: dict[str, str] | None = None) -> None:
+        self._files = files or {}
+
+    def read(self, relpath: str) -> str | None:
+        return self._files.get(relpath)
+
+
+_NARRATION = (
+    "I've finished planning the repairs. The task list covers the two open "
+    "defects and is ready for the wave scheduler to pick up."
+)
+
+
+def test_valid_target_file_wins_over_narrating_reply():
+    """The exact regression: a perfect file on disk beats a narrating reply."""
+    file_json = json.dumps([{"id": "a", "body": "fix a"}, {"id": "b", "body": "fix b"}])
+    sandbox = _FakeSandbox({"repair-tasks.md": file_json})
+    out = JsonTasksParser().parse_preferring_target(
+        _NARRATION, sandbox=sandbox, target="repair-tasks.md"
+    )
+    assert [t.id for t in out] == ["a", "b"]
+
+
+def test_target_absent_falls_back_to_fallback_target_then_reply_fence():
+    # target missing, but build/tasks.json (the documented fallback) is present.
+    file_json = json.dumps([{"id": "x"}])
+    sandbox = _FakeSandbox({"build/tasks.json": file_json})
+    out = JsonTasksParser().parse_preferring_target(
+        _NARRATION, sandbox=sandbox, target="repair-tasks.md"
+    )
+    assert [t.id for t in out] == ["x"]
+
+    # neither file present at all -> falls back to the reply's fenced block.
+    fenced_reply = "Here you go:\n```json\n" + json.dumps([{"id": "y"}]) + "\n```"
+    empty_sandbox = _FakeSandbox({})
+    out2 = JsonTasksParser().parse_preferring_target(
+        fenced_reply, sandbox=empty_sandbox, target="repair-tasks.md"
+    )
+    assert [t.id for t in out2] == ["y"]
+
+    # no sandbox at all (caller never had one) -> same fallback to the reply text.
+    out3 = JsonTasksParser().parse_preferring_target(fenced_reply, target="repair-tasks.md")
+    assert [t.id for t in out3] == ["y"]
+
+
+def test_both_target_and_reply_missing_raises_richer_named_error():
+    empty_sandbox = _FakeSandbox({})
+    with pytest.raises(ValueError) as exc:
+        JsonTasksParser().parse_preferring_target(
+            _NARRATION,
+            sandbox=empty_sandbox,
+            target="repair-tasks.md",
+            fallback_targets=("build/tasks.json",),
+        )
+    msg = str(exc.value)
+    # Names every source tried (not just the reply-text failure the old error hid).
+    assert "repair-tasks.md" in msg
+    assert "build/tasks.json" in msg
+    assert "reply text" in msg
+
+
+def test_malformed_target_file_falls_through_to_reply_and_names_both_failures():
+    """A file that exists but fails to parse is a tried-and-failed source, not a crash."""
+    bad_sandbox = _FakeSandbox({"repair-tasks.md": "{not: valid json,,,}"})
+    with pytest.raises(ValueError) as exc:
+        JsonTasksParser().parse_preferring_target(
+            "still just narrating, no fence here",
+            sandbox=bad_sandbox,
+            target="repair-tasks.md",
+            fallback_targets=(),
+        )
+    msg = str(exc.value)
+    assert "repair-tasks.md" in msg
+    assert "reply text" in msg

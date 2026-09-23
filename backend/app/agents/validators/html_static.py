@@ -81,10 +81,26 @@ class HtmlStaticValidator:
             return []
         result = runner.static_check(target.path)
 
+        # On a REVISION run, ``revision_baseline_static`` holds the parent artifact's
+        # pre-edit static issues. A defect the revision INHERITED is not a defect the
+        # revision committed, so it must not fail the step — it is recorded as
+        # advisory instead. This is the same rule the internal fix-loop already
+        # applies (``_select_issues_to_fix`` selects only NEW issues once a baseline
+        # is populated); without it the gate and the fix-loop disagree, and the
+        # residual the fix-loop deliberately left alone becomes a hard run failure.
+        # Empty/None (the BUILD default) → every issue is judged on its own merits.
+        baseline: frozenset[str] = frozenset(
+            getattr(target, "revision_baseline_static", None) or ()
+        )
+
         issues: list[Issue] = []
-        # static_check issues are fatal structural defects → P0 (CRITICAL).
+        # static_check issues are fatal structural defects → P0 (CRITICAL), unless
+        # they pre-existed in the parent artifact on a revision (→ P3, advisory).
         for msg in getattr(result, "issues", None) or []:
-            issues.append(Issue(severity="P0", message=str(msg)))
+            text = str(msg)
+            issues.append(
+                Issue(severity="P3" if text in baseline else "P0", message=text)
+            )
         # static_check warnings are advisory (orphan sections) → P3 (LOW).
         for msg in getattr(result, "warnings", None) or []:
             issues.append(Issue(severity="P3", message=str(msg)))

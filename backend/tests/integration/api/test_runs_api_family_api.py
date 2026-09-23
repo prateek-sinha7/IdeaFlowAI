@@ -261,3 +261,57 @@ class TestListGetFamilyFields:
         assert by_id["B"]["root_run_id"] == "A"
         assert by_id["C"]["root_run_id"] == "A"
         assert by_id["A"]["root_run_id"] == "A"
+
+
+# ---------------------------------------------------------------------------
+# /family — cross-type children stay in the family (FIX-173 guard removed)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossTypeChildrenAreMembers:
+    """FIX-173 dropped any child whose canonical base type differed from the
+    root's. That silently deleted members from legitimate families, and because
+    ``/runs/{root}/versions/N`` resolves the pin by INDEX into this list, the
+    dropped member shifted every later version to the wrong run.
+
+    Both shapes below are real rows observed in the local database, and both are
+    shipped product behaviour rather than the corrupted parentage FIX-173 was
+    written for — which a read-path type check cannot detect anyway, since the
+    race wrote ``parent_run_id`` and ``source_run_id`` from the same wrong value.
+    """
+
+    def test_deliberate_cross_type_revision_is_a_member(self, api, db_session):
+        """A ``custom`` run whose deliverable is prototype.html routes through
+        handleRevisePrototype (DashboardLayout's ``|| !!prototypeContent``), so
+        its revision is typed ``prototype_revision``. The user asked for it."""
+        client, _ = api
+        _seed_run(db_session, run_id="root", type="custom", created_offset=0)
+        _seed_run(
+            db_session, run_id="rev1", type="prototype_revision",
+            parent_run_id="root", created_offset=10,
+        )
+        _seed_run(
+            db_session, run_id="rev2", type="custom_revision",
+            parent_run_id="root", created_offset=20,
+        )
+
+        body = client.get("/api/runs/root/family").json()
+        members = body["members"]
+        assert [m["id"] for m in members] == ["root", "rev1", "rev2"], (
+            "a cross-type revision was dropped from its own family — "
+            "/versions/2 then resolves by index to the WRONG run"
+        )
+        assert [m["revision_index"] for m in members] == [1, 2, 3]
+
+    def test_diverted_child_is_a_member(self, api, db_session):
+        """A divert runs a DIFFERENT pipeline by design, so a base-type
+        comparison can never admit its child."""
+        client, _ = api
+        _seed_run(db_session, run_id="root", type="ex_A3_divert", created_offset=0)
+        _seed_run(
+            db_session, run_id="child", type="ex_A3_b_spanish",
+            parent_run_id="root", created_offset=10,
+        )
+
+        members = client.get("/api/runs/root/family").json()["members"]
+        assert [m["id"] for m in members] == ["root", "child"]

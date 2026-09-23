@@ -1,8 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Activity } from "lucide-react";
-import type { AgentRunState, PipelineRunState, ClarifyRound, WaveGroup } from "@/types/index";
+
+// ISS-387: safe wrapper — usePathname throws an invariant when mounted
+// outside a Next.js App Router context (e.g. in unit tests). We isolate the
+// call in a tiny hook so the component can call it unconditionally while tests
+// that don't provide a router context simply get an empty string back.
+function useSafePathname(): string {
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return usePathname();
+  } catch {
+    return "";
+  }
+}
+
+import type { AgentRunState, PipelineRunState, ClarifyRound, WaveGroup, RunFamily } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 // Phase 39 plan 02 — the three-level Steps navigation lives in these extracted
@@ -10,7 +25,7 @@ import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 // sub-sections (ToolCallsSection / InputPromptSection / OutputPreviewSection /
 // ContextSourcesRow) are RETIRED here and re-homed inside AgentDetailPanel
 // (INV-3 — single implementation, no dual list).
-import { StepsOverviewSpine } from "./StepsOverviewSpine";
+import { StepsOverviewSpine, type StepsDivertLink } from "./StepsOverviewSpine";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { StartingPointCard } from "./StartingPointCard";
@@ -21,13 +36,28 @@ import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 
 interface AgentThinkingTabProps {
   agents: AgentRunState[];
+  /** ISS-277 — the agent this tab should open ON, as named by the URL
+   *  (`/runs/{id}/steps/{agentId}`) and delivered through the deep-link seam.
+   *  An OPAQUE run-scoped id matched against `agents[].id`, never a workflow/
+   *  agent name literal (SC-001). Undefined ⇒ open on the overview spine. */
+  initialAgentId?: string;
   pipelineState?: PipelineRunState;
   waves?: WaveGroup[];
   runInput?: string;
   originalBriefRootRunId?: string;
   revisionParentVersion?: number;
+  /** ISS-853 (QA-PS-048) — the revision family the run screen already holds
+   *  (PreviewPanel's `runFamily`). The divert-link lookup reads this run, its
+   *  parent and its divert child from it; null/absent, or a family without
+   *  this run, falls back to fetching the family. */
+  runFamily?: RunFamily | null;
   clarifications?: ClarifyRound[];
   clarificationsLoading?: boolean;
+  /** ISS-752 (QA-PS-014) — true while the viewed run's own fetch is in flight.
+   *  agents/pipelineState/runInput are all empty for that whole window, so
+   *  without it `hasAnyData` is false and the EmptyState below tells the user to
+   *  "start a pipeline" for a run that has already finished running. */
+  isLoadingRunData?: boolean;
   laneGate?: import("@/components/chat/RunChatLane").GateContext;
   onApproveGate?: (gateKey: string, editedContent?: string) => void;
   onRejectGate?: (gateKey: string) => void;
@@ -46,9 +76,15 @@ interface AgentThinkingTabProps {
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
-function EmptyState() {
+// ISS-752 (QA-PS-014) — `loading` is the fetch-in-flight variant: same chrome, a
+// shimmer sweep for the missing motion cue, and copy that says the trace is on
+// its way instead of telling the user to start a pipeline that already ran.
+function EmptyState({ loading = false }: { loading?: boolean }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+    <div
+      className={`flex flex-col items-center justify-center h-full gap-4 text-center px-8${loading ? " shimmer-effect" : ""}`}
+      aria-busy={loading || undefined}
+    >
       <div className="relative">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand/8 to-brand/4 flex items-center justify-center">
           <Activity className="h-7 w-7 text-brand/30" />
@@ -60,7 +96,9 @@ function EmptyState() {
       <div>
         <p className="text-[13px] font-semibold text-ink-700 mb-1">Pipeline trace</p>
         <p className="text-[11px] text-ink-300 leading-relaxed max-w-[200px]">
-          Start a pipeline to see real-time agent reasoning, tool calls, and context flow.
+          {loading
+            ? "Loading this run's agent reasoning, tool calls, and context flow…"
+            : "Start a pipeline to see real-time agent reasoning, tool calls, and context flow."}
         </p>
       </div>
     </div>
@@ -74,15 +112,56 @@ function EmptyState() {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function AgentThinkingTab({
-  agents, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion,
-  clarifications, clarificationsLoading,
+  agents, initialAgentId, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion, runFamily,
+  clarifications, clarificationsLoading, isLoadingRunData,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
   specRevisionCount = 0,
 }: AgentThinkingTabProps) {
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(initialAgentId ?? null);
   const [selectedTaskIndex, setSelectedTaskIndex] = useState<number | null>(null);
+  // L3 for a wave step: ONE member of the wave, by its task_id. A wave clones one
+  // agent N times and every clone reports the parent's agent_id, so this is the
+  // only way to look at an individual member's own work.
+  const [selectedWorkerTaskId, setSelectedWorkerTaskId] = useState<string | null>(null);
+
+  // ISS-387: push a browser history entry when the user selects an agent or task
+  // so Back returns to the previous level (overview → agent → task) rather than
+  // skipping the Steps tab entirely.
+  //
+  // FIX (double-click / back-fluctuation): use window.history.pushState instead of
+  // router.push, and window.history.back() instead of router.back(). router.push
+  // causes the Next.js App Router to remount the whole page.tsx catch-all, which
+  // resets trackedRunIdRef, fires the cold-mount effect, and races the deep-link
+  // nonce against the page re-render — the detail view only appears on the second
+  // click because initialAgentId arrives late on the first remount. router.back()
+  // has the same remount problem in reverse, causing the visible "fluctuation".
+  // window.history.pushState is shallow (no remount), exactly like the run-tab
+  // navigation in DashboardLayout's handlePreviewPanelTabSelect. The state change
+  // is always applied regardless of whether the browser history API is available.
+  const pathname = useSafePathname();
+
+  // Track when the user intentionally closes an agent detail via the in-pane Back
+  // button so the initialAgentId effect does not immediately re-open it while the
+  // URL still carries that agent's id (the URL reverts asynchronously via
+  // window.history.back; until it does, initialAgentId keeps pointing at the same
+  // id). Without this guard, pressing Back would instantly re-select the agent.
+  const [userClosedAgentId, setUserClosedAgentId] = useState<string | null>(null);
+
+  // ISS-277 — a deep link that names an agent selects it. Seeded above for the
+  // mount that the deep link itself triggers, and re-applied here for a LATER
+  // one arriving while this tab is already mounted (a shallow run-tab nav or a
+  // back/forward). The userClosedAgentId guard prevents the Back button from
+  // being immediately overridden while the URL still names the closed agent.
+  // The id is held even when `agents` has not arrived yet: `selectedAgent` is
+  // resolved from it on every render, so the detail opens as soon as it does.
+  useEffect(() => {
+    if (initialAgentId && initialAgentId !== userClosedAgentId) {
+      setSelectedAgentId(initialAgentId);
+      setSelectedTaskIndex(null);
+    }
+  }, [initialAgentId, userClosedAgentId]);
 
   // ── Gate-events fetch (RUNUI-06) — the run's governance-gate rows drive the
   // "Review gate — {gate} · approved" strips interleaved in the overview spine.
@@ -105,12 +184,94 @@ export function AgentThinkingTab({
     return () => { cancelled = true; };
   }, [runId]);
 
+  // ── Divert-link fetch (R-20 adjacent) — same source/target relationship
+  // RevisionFamilyView's DivertBadge already renders as a Run-History
+  // breadcrumb; surfaced here as a spine row so it shows up wherever the
+  // relationship actually happened, not only in the list view. A diverting
+  // run's own record has no forward pointer to what it diverted into (only
+  // `diverted_at_step_id`), but its revision family does: the family walk
+  // admits divert children (runs.py `_owned_family_members`), so the source
+  // direction is the member whose `parent_run_id` is this run. The target
+  // direction is the member this run's `parent_run_id` points at; whether that
+  // parent's `status === "diverted"` is what distinguishes "continued from a
+  // divert" from an ordinary revision chain (parent_run_id serves both).
+  const [divertLink, setDivertLink] = useState<StepsDivertLink | null>(null);
+  // The LIVE divert marker, set by useWorkflow's `pipeline_diverted` case. This
+  // effect used to be keyed on [runId] alone — which never changes while a run is
+  // being watched — so a run that diverted in front of the user rendered no
+  // "Diverted to X" row at all: the relationship only appeared after a reload
+  // remounted the component. Keying on the marker too is what makes the row show
+  // up at the moment the handoff happens.
+  const liveDivertedToRunId = pipelineState?.divertedTo?.runId;
+  useEffect(() => {
+    if (!runId) { setDivertLink(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getWorkflow, getRunFamily, getWorkflowDefinitions, getToken } = await import("@/lib/api");
+        const token = getToken() || "";
+        // Label the link with the WORKFLOW's name, not the run's title. A run title is
+        // derived from its launch input, so the source row read "Diverted to Saludo
+        // también…" (the child is minted with the parent's feedback as its content) and
+        // the target row echoed back the user's own message. Neither identifies the
+        // workflow. The catalog is manifest-derived (SC-001) so this needs no hardcoded
+        // type→label map and picks up new fixtures automatically.
+        let defs: { id: string; name: string; display_name?: string | null; short_name?: string | null }[] = [];
+        // ISS-854 (QA-PS-048): only a link needs a label and most runs have none, so
+        // the catalog is fetched once a link is found, not on every Steps open.
+        const loadDefs = async () => { try { defs = await getWorkflowDefinitions(token); } catch { /* fall back to titles */ } };
+        const labelFor = (type: string, fallback: string) => {
+          const d = defs.find((w) => w.id === type);
+          return d?.short_name || d?.display_name || d?.name || fallback;
+        };
+        // Live path: the pipeline_diverted event already carried the child's run
+        // id, so no family lookup is needed — one fetch for the child's title is
+        // the whole cost. (The child row is committed before the event is emitted:
+        // run_trigger_workflow mints it, then the engine yields.)
+        if (liveDivertedToRunId) {
+          const child = await getWorkflow(token, liveDivertedToRunId);
+          await loadDefs();
+          if (cancelled) return;
+          setDivertLink({
+            direction: "source",
+            otherRunId: liveDivertedToRunId,
+            otherTitle: labelFor(child.type, child.title),
+          });
+          return;
+        }
+        // ISS-853 / ISS-855 (QA-PS-048): read the family the run screen already
+        // holds. This used to re-download this run's full record (829 KB on the
+        // reported run) on every Steps open, then scan the latest 100 runs for a
+        // diverted child, which silently lost the link once 100 newer runs existed.
+        // The family is fetched here only while it is not loaded yet or belongs to
+        // another run: a small read, single-flighted with DashboardLayout's own.
+        const family = runFamily?.members.some((m) => m.id === runId)
+          ? runFamily
+          : await getRunFamily(token, runId);
+        const self = family.members.find((m) => m.id === runId);
+        const source = self?.status === "diverted";
+        const other = source
+          ? family.members.find((m) => m.parent_run_id === runId)
+          : family.members.find((m) => m.id === self?.parent_run_id && m.status === "diverted");
+        if (other) await loadDefs();
+        if (cancelled) return;
+        setDivertLink(other ? { direction: source ? "source" : "target", otherRunId: other.id, otherTitle: labelFor(other.type, other.title) } : null);
+      } catch {
+        if (!cancelled) setDivertLink(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [runId, liveDivertedToRunId, runFamily]);
+
   const resolvedClarifications = clarifications ?? pipelineState?.clarifications;
   const hasAnyData = pipelineState?.plannerStatus ||
     agents.some(a => a.thinkingText || (a.toolCalls?.length ?? 0) > 0 || a.inputPrompt || a.status !== "idle") ||
     !!runInput || (resolvedClarifications?.length ?? 0) > 0;
 
-  if (!hasAnyData) return <EmptyState />;
+  // ISS-752 (QA-PS-014): hasAnyData is false for the WHOLE reopen fetch (empty
+  // agents, no runInput yet), so the fetch-in-flight flag is what separates
+  // "this run's trace is still loading" from "no pipeline has ever run here".
+  if (!hasAnyData) return <EmptyState loading={isLoadingRunData} />;
 
   // SC-001: no workflow-name gate. Every workflow renders through this generic
   // overview → detail drill-down (the former isPrototypePipeline branch is gone).
@@ -155,31 +316,115 @@ export function AgentThinkingTab({
   // The construction section (nested waves → tasks) belongs to the build/construct
   // agent's L2 detail — shown whenever that agent is selected, even before any wave
   // arrives (the block renders a "No subagents yet." empty affordance until then).
-  const isConstructionSelected = !!selectedAgent && constructionAgent?.id === selectedAgent.id;
+  // Does this pipeline actually REPORT task-loop progress? The construction block
+  // draws `task_progress` / `task_loop_progress` data: a running completed count,
+  // a planned total, and per-task titles. A wave-scheduled step emits none of
+  // that — it emits wave and subagent lifecycle instead, which WaveWorkersBlock
+  // already draws above with the real task ids and per-worker status.
+  //
+  // Without this the block was selected on an agent-id REGEX alone
+  // (/build|construct/i), so a wave step called `pb-build` matched, took the
+  // `waveTaskUniverse.size` fallback as its total, and rendered a SECOND panel
+  // over the same twelve tasks reading "0 / 12 done" with placeholder "Task N"
+  // rows — no titles, wrong count, and "sequential" for a parallel wave. Two
+  // panels for one thing, and the wrong one was the more confident.
+  //
+  // Keying on the data keeps every task_loop pipeline (od_prototype, ppt_v2)
+  // byte-identical: they all populate at least one of these before the block
+  // could be shown. It only withdraws the block where it had nothing to draw.
+  const hasTaskLoopProgress =
+    (pipelineState?.protoTotalTasks ?? 0) > 0 ||
+    completedTaskCount > 0 ||
+    (pipelineState?.protoPlannedTasks?.length ?? 0) > 0 ||
+    (pipelineState?.protoCompletedTasks?.length ?? 0) > 0;
+  const isConstructionSelected =
+    !!selectedAgent && constructionAgent?.id === selectedAgent.id && hasTaskLoopProgress;
 
   // ── L3 task status (KAN-99 N-1 cap, mirrors ConstructionBlock) ──
   const displayedDone = constructionComplete ? totalTasks : Math.min(completedTaskCount, Math.max(0, totalTasks - 1));
   const taskStatusFor = (i: number): "done" | "running" | "pending" =>
     i < displayedDone ? "done" : (!constructionComplete && i === displayedDone ? "running" : "pending");
   const showTaskDetail = selectedTaskIndex != null && isConstructionSelected;
+  // Resolved off the SELECTED agent, so a stale id from a previous step can never
+  // render another step's member.
+  const selectedWorker = selectedWorkerTaskId
+    ? selectedAgent?.waveWorkers?.find(w => w.taskId === selectedWorkerTaskId)
+    : undefined;
+  // A wave member IS an agent — it is one invocation of the step's agent. So it
+  // renders through the SAME AgentDetailPanel, with the same sections in the same
+  // places; only the breadcrumb says where you are. Building a second lookalike
+  // panel would drift from this one the first time either changed.
+  const selectedWorkerAsAgent = selectedWorker && selectedAgent
+    ? {
+        ...selectedAgent,
+        id: selectedWorker.taskId,
+        name: selectedWorker.taskAuthorId ?? selectedWorker.taskId,
+        role: `${selectedWorker.waveIndex != null ? `Wave ${selectedWorker.waveIndex + 1}` : "Wave"} member of ${selectedAgent.name}`,
+        status: selectedWorker.status === "done" ? ("done" as const)
+              : selectedWorker.status === "failed" ? ("error" as const)
+              : selectedWorker.status === "stranded" ? ("error" as const)
+              : ("running" as const),
+        // This member's OWN work — never the step's pooled totals.
+        output: selectedWorker.output ?? "",
+        thinking: "",
+        thinkingText: selectedWorker.thinking ?? "",
+        toolCalls: selectedWorker.toolCalls ?? [],
+        inputPrompt: selectedWorker.inputPrompt ?? "",
+        contextSources: selectedWorker.contextSources ?? [],
+        error: selectedWorker.error ?? null,
+        duration: selectedWorker.durationMs != null ? selectedWorker.durationMs / 1000 : null,
+        inputTokens: selectedWorker.inputTokens,
+        outputTokens: selectedWorker.outputTokens,
+        totalTokens: selectedWorker.totalTokens,
+        estimatedCostUsd: selectedWorker.estimatedCostUsd,
+        attachedSkills: selectedWorker.attachedSkills,
+        attachedHooks: selectedWorker.attachedHooks,
+        validationIssues: selectedWorker.validationIssues,
+        validationPassed: selectedWorker.validationPassed,
+        // A member has no wave of its own — drop the parent's, or the page would
+        // list its siblings as if they were its children.
+        waveWorkers: undefined,
+      }
+    : undefined;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        {showTaskDetail && selectedAgent ? (
+        {selectedWorkerAsAgent && selectedWorker && selectedAgent ? (
+          // ── L3 — one wave member, through the SAME panel a step uses ──
+          <AgentDetailPanel
+            agent={selectedWorkerAsAgent}
+            onBack={() => setSelectedWorkerTaskId(null)}
+            runId={runId ?? null}
+            breadcrumb={[
+              "Steps",
+              selectedAgent.name,
+              selectedWorker.waveIndex != null ? `Wave ${selectedWorker.waveIndex + 1}` : "Wave",
+              selectedWorker.taskAuthorId ?? selectedWorker.taskId,
+            ]}
+          />
+        ) : showTaskDetail && selectedAgent ? (
           // ── L3 — single construction task detail ──
           <TaskDetailPanel
             taskIndex={selectedTaskIndex!}
             agentName={selectedAgent.name}
             status={taskStatusFor(selectedTaskIndex!)}
             task={pipelineState?.protoCompletedTasks?.find(t => t.number === selectedTaskIndex! + 1)}
-            onBack={() => setSelectedTaskIndex(null)}
+            onBack={() => {
+              setSelectedTaskIndex(null);
+              if (typeof window !== "undefined") window.history.back();
+            }}
           />
         ) : selectedAgent ? (
           // ── L2 — agent detail ──
           <AgentDetailPanel
             agent={selectedAgent}
-            onBack={() => setSelectedAgentId(null)}
+            onBack={() => {
+              setUserClosedAgentId(selectedAgent.id);
+              setSelectedWorkerTaskId(null);
+              setSelectedAgentId(null);
+              if (typeof window !== "undefined") window.history.back();
+            }}
             // ISS-065 — lets the detail list this agent's earlier artifact versions.
             runId={runId ?? null}
             construction={isConstructionSelected ? {
@@ -201,7 +446,15 @@ export function AgentThinkingTab({
                 return planned.map(p => completedByNum.get(p.number) ?? { number: p.number, title: p.title, summary: "" });
               })(),
             } : undefined}
-            onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
+            onOpenTask={isConstructionSelected ? (i) => {
+              setSelectedTaskIndex(i);
+              // ISS-387: push a shallow history entry so Back returns to the agent detail.
+              if (typeof window !== "undefined") {
+                window.history.pushState(null, "", `${pathname}?agent=${encodeURIComponent(selectedAgent!.id)}&task=${i}`);
+              }
+            } : undefined}
+            waveGroups={resolvedWaves}
+            onOpenWorker={(taskId) => setSelectedWorkerTaskId(taskId)}
             agents={agents}
             agentIndex={agents.findIndex(a => a.id === selectedAgent.id)}
             dagEdges={pipelineState?.dagEdges}
@@ -214,7 +467,18 @@ export function AgentThinkingTab({
             pipelineState={pipelineState}
             clarifications={resolvedClarifications}
             clarificationsLoading={clarificationsLoading}
-            onOpenAgent={(id) => { setSelectedAgentId(id); setSelectedTaskIndex(null); }}
+            onOpenAgent={(id) => {
+              setUserClosedAgentId(null);
+              setSelectedAgentId(id);
+              setSelectedTaskIndex(null);
+              // ISS-387: push a shallow history entry so Back returns to the overview.
+              // Uses window.history.pushState (not router.push) to avoid remounting
+              // the page.tsx catch-all — router.push would reset trackedRunIdRef and
+              // race the deep-link nonce, causing the double-click symptom.
+              if (typeof window !== "undefined") {
+                window.history.pushState(null, "", `${pathname}?agent=${encodeURIComponent(id)}`);
+              }
+            }}
             gateEvents={gateEvents}
             topSlot={
               <StartingPointCard
@@ -233,6 +497,7 @@ export function AgentThinkingTab({
             onSkipClarify={onSkipClarify}
             onCancelWorkflow={onCancelWorkflow}
             specRevisionCount={specRevisionCount}
+            divertLink={divertLink}
           />
         )}
       </div>

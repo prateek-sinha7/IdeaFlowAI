@@ -129,6 +129,11 @@ describe("IdeaInputPage — image capture wiring (Wave 2)", () => {
 
     expect(onRun).toHaveBeenCalledTimes(1);
     const [, , , extraParams] = onRun.mock.calls[0];
-    expect(extraParams).toBeUndefined();
+    // FIX-323 — the wizard now ALWAYS sends `gate_agent_ids`, so an empty gate
+    // selection reaches the backend as an explicit "no gates" rather than an
+    // absent field it would fill from its own defaults. INV-3 still holds for
+    // every OTHER key, which is what this test guards: nothing else is added.
+    expect(extraParams).toEqual({ gate_agent_ids: [] });
+    expect(extraParams).not.toHaveProperty("images");
   });
 });

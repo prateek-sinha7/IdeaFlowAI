@@ -27,16 +27,17 @@ const initialState: GlobalState = {
 };
 
 // GET /api/workflows — the manifest-driven workflow catalog (see FIX-051).
-// Fetched once per sign-in via listenerMiddleware.ts, alongside fetchRecentRuns
-// (both feed the home landing's first paint) — agents/skills follow after.
+// Fetched once per sign-in via listenerMiddleware.ts (feeds the home landing's
+// first paint) — agents/skills follow after.
 export const fetchWorkflows = createAsyncThunk("global/fetchWorkflows", async () => {
   return workflowsApi.list();
 });
 
-// GET /api/runs — the "Jump back in" seed for HomeLaunchGrid's first paint.
-// dashboard/page.tsx keeps its own live-synced recentRuns (used for SSE run
-// lookups too) — this is only the instant-paint snapshot, superseded once
-// that live version arrives via the recentRuns prop.
+// GET /api/runs — the "Jump back in" seed for HomeLaunchGrid's first paint,
+// dispatched from HomeLaunchGrid's own mount (its only reader). The live-synced
+// list is RunConnectionProvider's recentRuns (used for SSE run lookups too) —
+// this is only the instant-paint snapshot, superseded once that live version
+// arrives via the recentRuns prop.
 export const fetchRecentRuns = createAsyncThunk("global/fetchRecentRuns", async () => {
   const token = getToken();
   if (!token) throw new Error("Not authenticated.");
@@ -148,6 +149,29 @@ export const selectWorkflowLabel = (type: string) => (state: RootState) => {
  * build its `(type) => label` resolver from a single selector subscription. */
 export { selectWorkflowLabelIndex, FALLBACK_WORKFLOW_LABELS };
 
+/** state.global.workflows indexed by id -> short_name (falling back to the
+ * catalog's plain `name`), memoized. Sibling to selectWorkflowLabelIndex —
+ * same slice, different field: short_name is the concise/technical label
+ * ("Dutch Target (Hello World)") fit for tight UI surfaces like run-history
+ * type badges, vs display_name's action-phrase framing ("Pitch an idea")
+ * meant for the catalog/launch surfaces. No static fallback map here (unlike
+ * selectWorkflowLabel) — a type absent from the live catalog has no
+ * shorter/nicer name to fall back to; callers handle the "unresolved" case
+ * (index[type] undefined) themselves. */
+const selectWorkflowShortNameIndex = createSelector(
+  (state: RootState) => state.global.workflows,
+  (workflows) => {
+    const index: Record<string, string> = {};
+    for (const w of workflows) {
+      const short = w.short_name ?? w.name;
+      if (short) index[w.id] = short;
+    }
+    return index;
+  },
+);
+
+export { selectWorkflowShortNameIndex };
+
 // ─────────────────────────────────────────────────────────────────────────
 // Workflow chaining — backend-owned (Plan 34-01), reducer-derived.
 //
@@ -195,7 +219,9 @@ const selectChainIntoIndex = createSelector(
   (workflows) => {
     const WIZARD_ROUTES: Record<string, string> = {
       ppt: "/workflow/create?mode=ppt",
+      ppt_v2: "/workflow/create?mode=ppt_v2",
       prototype: "/workflow/create?mode=prototype",
+      prototype_v2: "/workflow/create?mode=prototype_v2",
     };
     const index: Record<string, ChainTarget[]> = {};
     for (const target of workflows) {
@@ -224,6 +250,7 @@ const selectChainIntoIndex = createSelector(
   const selectWorkflowWizardPath = (id: string): string | undefined => {
     const routes: Record<string, string> = {
       ppt: "/workflow/create?mode=ppt",
+      ppt_v2: "/workflow/create?mode=ppt_v2",
       prototype: "/workflow/create?mode=prototype",
     };
     return routes[id];

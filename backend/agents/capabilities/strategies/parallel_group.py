@@ -42,11 +42,11 @@ Import purity (import-linter / INV-13): nothing from ``agents.execution_engine``
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, AsyncIterator
 
 from agents.capabilities.registry import register
+from agents.capabilities.strategies._fanout_stream import stream_fanout
 
 logger = logging.getLogger(__name__)
 
@@ -123,69 +123,15 @@ class ParallelGroupStrategy:
                 workers,
             )
 
-            # Live per-child streaming (agent_start/agent_chunk/tool_call/tool_result/
-            # agent_complete) rides a side-channel queue: run_fanout still yields its
-            # own lifecycle events (subagent_spawned/subagent_result) normally; the
-            # queue additionally receives each worker's raw per-agent events, which
-            # we merge in as they arrive rather than waiting for run_fanout to finish.
-            child_events: asyncio.Queue[dict] = asyncio.Queue()
-            fanout_iter = runner.run_fanout(
-                requests,
-                ctx,
-                step=step,
-                event_queue=child_events,
-            ).__aiter__()
+            # Live per-child streaming (agent_start/agent_chunk/tool_call/
+            # tool_result/agent_complete) rides a side-channel queue merged in by
+            # stream_fanout: run_fanout still yields its own lifecycle events
+            # (subagent_spawned/subagent_result) normally, and each worker's raw
+            # per-agent events are interleaved as they arrive rather than after
+            # the whole fan-out finishes.
+            async for event in stream_fanout(runner, requests, ctx, step=step):
+                yield event
 
-            next_fanout: asyncio.Task[dict] | None = asyncio.ensure_future(
-                fanout_iter.__anext__()
-            )
-            next_queued: asyncio.Task[dict] | None = asyncio.ensure_future(
-                child_events.get()
-            )
-            try:
-                # Loop while there is still a fanout event to come OR a queued-item
-                # wait in flight. next_queued is set to None only once fanout_iter
-                # is exhausted AND the queue has been fully drained — that's the
-                # ONLY way this loop ends (no other exit condition).
-                while next_fanout is not None or next_queued is not None:
-                    pending = {t for t in (next_fanout, next_queued) if t is not None}
-                    done, _ = await asyncio.wait(
-                        pending, return_when=asyncio.FIRST_COMPLETED
-                    )
-
-                    if next_fanout is not None and next_fanout in done:
-                        try:
-                            yield next_fanout.result()
-                            next_fanout = asyncio.ensure_future(fanout_iter.__anext__())
-                        except StopAsyncIteration:
-                            # No more workers will ever push to child_events after
-                            # this point (run_fanout doesn't exhaust until every
-                            # worker task is done) — safe to stop waiting on it.
-                            # But next_queued may have ALSO completed in this same
-                            # asyncio.wait() batch (same-tick race) — if so, its
-                            # result already came out of the queue and must be
-                            # yielded here, not discarded by cancelling it unread.
-                            next_fanout = None
-                            if next_queued is not None:
-                                if next_queued in done:
-                                    yield next_queued.result()
-                                else:
-                                    next_queued.cancel()
-                                next_queued = None
-                            while not child_events.empty():
-                                yield child_events.get_nowait()
-                            continue
-
-                    if next_queued is not None and next_queued in done:
-                        yield next_queued.result()
-                        next_queued = asyncio.ensure_future(child_events.get())
-
-            except asyncio.CancelledError:
-                for t in (next_fanout, next_queued):
-                    if t is not None:
-                        t.cancel()
-                await fanout_iter.aclose()
-                raise
         # Phase 2 — the parent's own single run, identical to single_shot. It runs
         # AFTER the fan-out completes (run_fanout does not return until every worker
         # has finished or been cancelled), so the children's artifacts are already

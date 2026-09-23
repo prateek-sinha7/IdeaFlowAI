@@ -1,0 +1,352 @@
+# Tasks: Sandbox Git Versioning
+
+## Overview
+
+Implementation follows the phase ordering defined in Requirement 46. Two tasks are hard ship-blockers that fix live defects in shipped code this feature exposes. Nothing gets has_git=True until both are complete and tested.
+
+Implementation language: **Python** (backend) + **TypeScript** (frontend)
+
+---
+
+## Tasks
+
+- [x] 1. Fix merge_worktree false-clean merge (SHIP-BLOCKER)
+  - [x] 1.1 Fix `backend/app/agents/runtime/local.py` `merge_worktree` to classify CalledProcessError as refused-to-start vs ran-and-found-conflicts
+    - A CalledProcessError with no --diff-filter=U output must NEVER return conflicts: []
+    - Raise MergeRefusedError when git refuses to start the merge
+    - Run git merge --abort only after classifying the error, never before
+    - _Requirements: 7_
+  - [x] 1.2 Fix `backend/agents/capabilities/merge/git_3way.py` fragment loop to commit between fragment merges
+    - After each successful merge_worktree call, call workspace.commit_all() before the next fragment
+    - This clears MERGE_HEAD so the next fragment can merge cleanly
+    - _Requirements: 7, 25_
+  - [x] 1.3 Write ship-blocker acceptance tests
+    - Test: two fan-out workers writing disjoint files — both files present in base tree after merge
+    - Test: a refused merge is reported as a failure, never as conflicts: []
+    - _Requirements: 7_
+
+- [x] 2. Add git init with initial commit and gitignore seeding (SHIP-BLOCKER)
+  - [x] 2.1 Add git init (idempotent) with an initial commit to `backend/app/agents/runtime/local.py` LocalWorkspace
+    - If .git/ already exists, skip silently
+    - Immediately after init make an initial commit: commit the seeded .gitignore or use git commit --allow-empty
+    - _Requirements: 6_
+  - [x] 2.2 Seed .gitignore covering exactly eight paths inside the same git init call
+    - Paths: .uploads/, .logs/, .verify/, .browser/, .agents/, .chain/, .context/, skills/
+    - Must be seeded in the same call as git init — never in a separate step
+    - _Requirements: 8_
+  - [x] 2.3 Write ship-blocker acceptance tests
+    - Test: git init is idempotent — calling it twice does not error
+    - Test: a fan-out on step 1 merges into the initial commit without unborn HEAD
+    - Test: git show --stat HEAD after provision contains none of the 8 gitignored paths
+    - _Requirements: 6, 8_
+
+- [x] 3. Implement .chain/ payload foundation
+  - [x] 3.1 Add _CHAIN_PREFIX constant to `backend/app/agents/sandbox.py` and update RunSandbox
+    - Exclude .chain/ from is_deliverable_relpath (deliverable walk)
+    - Add .chain/ to the listed-but-undelivered prefixes in list_files
+    - Add .chain/ to the single-file read allowlist
+    - Update sandbox.py docstring — .agents/ is no longer the only listed-but-undelivered prefix
+    - _Requirements: 20_
+  - [x] 3.2 Add post_run hook event and fire-once finalizer to `backend/agents/execution_engine/engine.py`
+    - Add post_run to the set of events _fire_hooks dispatches
+    - Implement fire-once finalizer keyed on run_id — second call is a no-op
+    - Wire the finalizer from existing finally blocks of _execute_impl and run() — NOT per terminal exit site
+    - _Requirements: 13_
+  - [x] 3.3 Implement .chain/{run_id}/ writer on the post_run event
+    - Write per run-id subdirectory, never a flat .chain/ directory
+    - Contents: summary.md (engine-rendered from ectx), final output copy, logs/ with a copy of .logs/{run_id}.jsonl and .agents/ transcripts
+    - Writer is best-effort, never-raising — write for every terminal status
+    - _Requirements: 13, 20_
+  - [x] 3.4 Add reserved-prefix guard to `backend/agents/capabilities/context_providers/previous_run.py`
+    - Reject any seed_files.from_run entry that names a reserved prefix
+    - Covers: .chain/, .context/, .uploads/, .logs/, .verify/, .browser/, .agents/, skills/
+    - _Requirements: 21_
+  - [x] 3.5 Add .chain/ section to `frontend/src/components/results/SandboxTab.tsx`
+    - Listed but not included in the deliverable zip
+    - _Requirements: 20_
+  - [x] 3.6 Write Phase 1 tests
+    - Test: .chain/{run_id}/ is written on the terminal path for all five terminal statuses
+    - Test: .chain/ is excluded from the deliverable walk; listed in list_files
+    - Test: post_run fires exactly once per run regardless of which terminal exit path is taken
+    - Test: reserved-prefix guard rejects .chain/ entries in previous_run.py
+    - _Requirements: 13, 20, 21_
+
+- [x] 4. Add git foundation to every sandbox
+  - [x] 4.1 Thread has_git=True as global default through RunSandbox and LocalWorkspace in `backend/app/agents/sandbox.py`
+    - has_git defaults to True for every RunSandbox
+    - sub_sandbox isolation and copy_disjoint merge become dormant, not deleted
+    - Flip the git permission in permission_caps.py in the same PR as the first declared git hook — the engine's own commit bypasses the cap, so no agent-callable git tool is built or added to the capability registry (Requirement 42)
+    - _Requirements: 11, 42_
+  - [x] 4.2 Add commit_all passthrough on RunSandbox with has_git guard and warning
+    - RunSandbox.commit_all() delegates to LocalWorkspace.commit_all()
+    - Log a warning when has_git=True but commit returns empty AND the directory is a git repo
+    - _Requirements: 10_
+  - [x] 4.3 Implement step-boundary commit in `engine.py` before routing decision
+    - After each step strategy returns and before the routing decision consumes the gate outcome, call RunSandbox.commit_all()
+    - Must NOT ride post_step — singular field already taken on four shipped manifests
+    - Routing passes and backward retry jumps must also produce a commit
+    - _Requirements: 10, 41_
+  - [x] 4.4 Add pre_commit and post_commit hook events; wire secret_scan.py
+    - pre_commit fires over staged diff before git commit; a declared hook MAY block it
+    - post_commit fires after the commit lands; observation only
+    - Wire secret_scan.py existing pre_commit binding — it currently fires nowhere in the backend
+    - A blocked commit: run ends degraded if this was the last commit, not tagged
+    - _Requirements: 12_
+  - [x] 4.5 Exclude .git/, .gitignore, and skills/ from deliverable walk and list_files in `sandbox.py`
+    - Add .git, .gitignore (bare filename), and skills to _DELIVERABLE_EXCLUDE
+    - Apply the same exclusions to list_files separately — it is not the same list as the deliverable walk
+    - _Requirements: 9_
+  - [x] 4.6 Add outputs and replaces step fields to `plan.py` and `compiler.py`
+    - Add outputs: list[str] and replaces: bool = False to Step dataclass
+    - Add "outputs" and "replaces" to _ALLOWED_STEP_KEYS
+    - Engine uses changed_since(spawn_point) at commit time to remove tracked paths under declared surface not written this pass
+    - _Requirements: 33_
+  - [x] 4.7 Add git gc --auto on post_run and instrument disk growth per terminal run
+    - Call git gc --auto in the post_run finalizer (task 3.2)
+    - Record per terminal run: sandbox on-disk size, .git directory size, chain depth
+    - _Requirements: 35_
+  - [x] 4.8 Assert fan-out ordering and all four on_conflict policies exercised by test
+    - Test: fan-out sequence — spawn_point, worker branches, merge commit per fragment with base commit between, boundary commit
+    - Test: all four on_conflict policies (human_gate, merge_agent, partial, abort) reachable and exercised
+    - _Requirements: 25_
+  - [x] 4.9 Write Phase 2 tests
+    - Test: git show --stat HEAD after a completed run never contains any of the 8 gitignored paths
+    - Test: sandbox listing contains neither .git/ nor .gitignore nor skills/
+    - Test: a pre_commit block causes the run to end degraded and untagged
+    - Test: routing step produces a commit before the gate outcome is consumed
+    - _Requirements: 8, 9, 10, 12, 25, 44_
+
+- [x] 5. Implement sandbox reuse — shared directory for revision families
+  - [x] 5.1 Implement chain-root walk with visited-set cycle guard in `engine.py` _execute_impl
+    - Walk parent_run_id to chain root mirroring _compute_root_ids in runs.py:211-260 (threat T-A-04)
+    - Follow parent_run_id ONLY — source_run_id is never followed
+    - _Requirements: 1_
+  - [x] 5.2 Update all seven RunSandbox construction sites to use the chain root
+    - engine.py _execute_impl (primary sandbox)
+    - engine.py run() RunTrace — built BEFORE _execute_impl; if missed, logs land in a dead directory
+    - factory.py create_runner — follows only if root resolution reassigns ctx.run_id
+    - run_files.py upload route, list route, zip route, read route
+    - _Requirements: 1_
+  - [x] 5.3 Fix TTL sweeper chain-awareness in `sandbox.py` sweep_expired and `main.py` — SAME PR as 5.1
+    - Protected set built from chain roots, not individual run ids
+    - A terminal parent plus a live child must not leave the shared directory unprotected
+    - _Requirements: 2_
+  - [x] 5.4 Add server-side revision concurrency lock in `run_commands.py` _mint_revision_row — SAME PR as 5.1
+    - Unique constraint or SELECT FOR UPDATE on the parent row at insert time
+    - Reject with "a revision is already in progress" when a parent has an active child run
+    - The existing LLM-prompt instruction in concierge.py is advisory only and is NOT a guard
+    - _Requirements: 3_
+  - [x] 5.5 Short-circuit redundant previous_run seeding in `context_providers/previous_run.py`
+    - Detect presence of files before copying; skip if already present
+    - .uploads/ accumulates by design — do not short-circuit uploads
+    - _Requirements: 4_
+  - [x] 5.6 Root-resolve cross-run reads in `previous_run.py` and `kernel_services.py`
+    - _seed_existing_artifact: root-resolve target id before constructing RunSandbox
+    - read_parent_file: root-resolve the target — raw parent_run_id is wrong at depth two or deeper
+    - _Requirements: 5_
+  - [x] 5.7 Rename run log, validator evidence, and browser artifacts to per-run paths
+    - run_log.py: .logs/run-logs.jsonl changes to .logs/{run_id}.jsonl
+    - Validator evidence changes to .verify/{run_id}/; browser artifacts change to .browser/{run_id}/
+    - All writers take the run-scoped path from one helper on RunSandbox
+    - _Requirements: 24_
+  - [x] 5.8 Disable version picker with explicit notice in `RunHeader.tsx` VersionMenu
+    - Show "Older versions available once this run is tagged" rather than pretending to switch
+    - Per-member zip download receives the same notice
+    - _Requirements: 19_
+  - [x] 5.9 Implement wip: commit on cancel/fail and dirty-tree reconciliation on resume
+    - Cancel/fail terminal path: commit dirty tree as "wip: cancelled at step {id}" via post_run; NEVER git reset --hard
+    - restore_non_terminal_runs() and shared-root open: check git status --porcelain; non-empty commits as "wip: recovered dirty tree at step {id}"
+    - _Requirements: 26, 27_
+  - [x] 5.10 Add revision_ordinal and chain_source_run_id fields to ExecutionContext in `context.py`
+    - revision_ordinal: int = 1 — set app-side at launch; engine reads it on post_run for tag naming
+    - chain_source_run_id: str or None = None — must NOT alias into parent_run_id
+    - _Requirements: 14, 22_
+  - [x] 5.11 Write Phase 3 tests
+    - Test: a revision writes into the same directory as its parent; Workspace, Files, and Preview tabs all render that directory
+    - Test: a revision held open past TTL (parent already terminal) is NOT swept
+    - Test: second create_revision against an already-active parent fails fast with the documented message
+    - Test: cancelled run leaves wip: commit and clean tree; next revision commits none of the abandoned work
+    - Test: run killed mid-step and resumed leaves "wip: recovered dirty tree" commit before step re-runs
+    - Re-baseline three revision characterization tests deliberately — expected behaviour change
+    - _Requirements: 1, 2, 3, 24, 26, 27, 43_
+
+- [x] 6. Implement version tagging
+  - [x] 6.1 Add create_tag and list_tags to `local.py` LocalWorkspace via duck-typing
+    - Reached by getattr duck-typing — same pattern as commit_all and allocate_worktree
+    - NOT added to the Workspace Protocol — three import-linter contracts hold that port shut
+    - _Requirements: 15_
+  - [x] 6.2 Add git_tag nullable column to WorkflowRun via one additive Alembic migration
+    - git_tag: Mapped[str or None]
+    - Verify Alembic head: cd backend && alembic heads must print exactly ONE head before adding
+    - _Requirements: 32_
+  - [x] 6.3 Implement tag creation on the terminal path via post_run in `engine.py`
+    - Tag fires on post_run after final status is known — NOT on a leaf post_step
+    - Tag name is v{revision_ordinal} (from ExecutionContext, set in task 5.10)
+    - Gated on status completed only — diverted, cancelled, failed, degraded receive no tag
+    - Write git_tag column on WorkflowRun after successful tag creation
+    - _Requirements: 14, 32_
+  - [x] 6.4 Add git_tag field to API response and frontend type
+    - runs.py FamilyMemberResponse: additive optional field
+    - frontend/src/types/index.ts FamilyMember: add optional git_tag field
+    - RunDetailPage.tsx and RevisionFamilyView.tsx: show tagged badge beside existing v{revision_index} chip
+    - _Requirements: 32_
+  - [x] 6.5 Add ref validation against list_tags() before any git subprocess call
+    - Any ref query parameter validated by exact match against list_tags() output
+    - A free-form revspec from user input must NEVER be passed to a git subprocess
+    - _Requirements: 16_
+  - [x] 6.6 Write Phase 4 tests
+    - Test: completed run carries a tag; diverted or failed run carries none
+    - Test: tag name vN matches the revision_index the UI shows
+    - Test: a pre_commit block on the last step results in degraded status and no tag
+    - Test: ref validation rejects arbitrary strings not in list_tags()
+    - _Requirements: 14, 15, 16, 32_
+
+- [x] 7. Implement file-based chaining
+  - [x] 7.1 Add declared chain flag to `compiler.py` and `plan.py`
+    - New manifest-level flag mirroring revises_existing
+    - Chain copy is gated on this declared flag — NEVER on the mere presence of source_run_id
+    - _Requirements: 22_
+  - [x] 7.2 Write source_run_id for the first time in `run_commands.py` _mint_revision_row and _launch_run_core
+    - This column has existed since migration 0014 and has never been assigned
+    - Writing it makes the frontend "(Chained)" lineage indicator functional for the first time
+    - _Requirements: 22_
+  - [x] 7.3 Implement chain_context context provider as new file `context_providers/chain_context.py`
+    - Modelled on previous_run.py: declared gate plus assert_owns fail-closed plus file-by-file copy plus graceful degradation
+    - Root-resolve source_run_id first — users chain from their most-refined revision, not the original
+    - Source path: chain_root/.chain/{source_run_id}/; destination: receiving sandbox .context/
+    - Missing, swept, or permission-error means empty chain payload; run never fails because of this
+    - _Requirements: 22_
+  - [x] 7.4 Retire or gate frontend enrichedInput assembly in `DashboardLayout.tsx` handleChainPipeline and handleChainFromHistory
+    - Without this, agent B receives the chain context twice — once from the frontend text block, once from .context/
+    - _Requirements: 22_
+  - [x] 7.5 Write Phase 5 tests
+    - Test: source_run_id is written on a chained run and the "(Chained)" indicator renders
+    - Test: chaining from a mid-family revision (not root) produces non-empty chain payload — root-only test passes while majority case is broken
+    - Test: chained run whose source was swept still completes (graceful degradation)
+    - Test: assert_owns is called; PermissionError is never swallowed
+    - Test: chained run's first agent receives the chain payload exactly once, not twice
+    - _Requirements: 5, 22_
+
+- [x] 8. Implement prompt policy, tag UI, and context files
+  - [x] 8.1 Write .context/ at sandbox open before step 1 in `launch_context.py` resolve_launch_od_context
+    - Add _CONTEXT_PREFIX = ".context/" to sandbox.py
+    - Write OpenDesign material to .context/design/ and selections.json to .context/ root
+    - Exclude .context/ from deliverable walk; list in Workspace tab; gitignore already covers it (task 2.2)
+    - _Requirements: 23_
+  - [x] 8.2 Fix resume_run to rebuild ectx.od_context from .context/ files — SAME change as 8.1
+    - Rebuild from .context/selections.json and .context/design/ instead of od_context_json
+    - All engine-side readers of ectx.od_context keep reading the in-memory dict
+    - _Requirements: 23_
+  - [x] 8.3 Register body-only and governance prompt policy orders in `capabilities/prompt/policy.py`
+    - Register ("prompt_body",) — body-only policy
+    - Register ("guardrails", "hooks", "constitution", "prompt_body") — governance policy for governed agents
+    - factory.py: read policy name from manifest instead of hardcoding "default"; default to "default"
+    - Compiler: warn when a governed agent selects the bare body-only order
+    - _Requirements: 29_
+  - [x] 8.4 Implement ref-scoped workspace browsing in `run_files.py` and `local.py`
+    - Optional ref query param on three read routes; new GET /{run_id}/sandbox/refs endpoint
+    - LocalWorkspace: add list_tags, ref-scoped read (git show ref:path), ref-scoped listing (git ls-tree -r ref), in-memory zip from git archive ref
+    - HEAD NEVER moves; restore action is a forward commit refused while any non-terminal run is active on this chain root
+    - frontend/src/lib/api.ts: optional ref on four sandbox functions; add getRunSandboxRefs
+    - SandboxTab.tsx: gain selectedRef state and tag picker
+    - Omitting ref is byte-identical to today — test_sandbox_deliverable.py pins this
+    - _Requirements: 16, 17, 18_
+  - [x] 8.5 Re-enable version picker on real git tags in `RunHeader.tsx`
+    - Show tag list from getRunSandboxRefs; selecting a tag renders ref-scoped file tree read-only
+    - Replaces the Phase 3 notice from task 5.8
+    - _Requirements: 19_
+  - [x] 8.6 Repoint agent input-prompt viewer in `AgentThinkingTab.tsx` and `AgentDetailPanel.tsx`
+    - Repoint inputPrompt at system prompt plus targeted retry payload
+    - After Seam 2 removal the context_message is just the agent's own task — the panel would go near-empty without this
+    - _Requirements: 36_
+  - [x] 8.7 Correct prompt_overrides.py API docstring and defer full override migration
+    - Docstring falsely claims override is injected ahead of the base body; correct it
+    - Full override migration is deferred: trigger is first production user saving an override, or GA
+    - _Requirements: 37_
+  - [x] 8.8 Add delete_branch: bool = True parameter to `local.py` remove_worktree
+    - Happy-path teardown after successful merge: delete_branch=True (default, unchanged)
+    - Cancel path: delete_branch=False — worker branches fanout/{step}/{i} are retained in git history
+    - Worker branches not in version picker (tags only) but visible to git branch
+    - _Requirements: 28_
+  - [x] 8.9 Write Phase 6 tests
+    - Test: migrated agent's system prompt is byte-identical to its AGENT.md
+    - Test: workflow still on default policy is byte-identical to today
+    - Test: version dropdown lists every tag; selecting one renders ref-scoped file tree read-only
+    - Test: opening v1 while v3 is running does not modify the working tree
+    - Test: restoring v1 is refused while a run is active; when allowed v2 and v3 stay browsable
+    - Test: resume_run after restart uses .context/ files, not od_context_json
+    - Test: cancelling mid-fan-out retains all worker branches
+    - _Requirements: 17, 18, 19, 23, 28, 29_
+
+- [x] 9. Seam 2 removal and per-workflow prompt migration
+  - [x] 9.1 Rewrite AGENT.md files per workflow and set manifests to new policy — cheapest workflows first, prototype last
+    - Each AGENT.md must state which sandbox paths hold what, that .agents/ is ordered by step, and that reading is the agent's own job
+    - Confirm first step writes a durable artifact before migrating — the first step is now load-bearing in a way it was not before
+    - Governed agents must use governance policy order to keep their Constitution
+    - Re-derive each workflow's characterization test deliberately — this is a real behaviour change being blessed, not a mechanical update
+    - _Requirements: 31, 45_
+  - [x] 9.2 Extend is_first_agent in `engine.py` _compose_context_message to gate the brief to agent 1 only
+    - Brief reaches agent 1 only; later agents carry the step's own task and nothing else
+    - _Requirements: 30_
+  - [x] 9.3 Retarget retry and HITL feedback in _compose_context_message to the retrying agent only
+    - Retry block injected into the retrying agent only, carrying the feedback and the user's prompt
+    - Every other agent is unaffected
+    - Removing this block wholesale would silently degrade every conditional-gate retry loop
+    - _Requirements: 30_
+  - [x] 9.4 Move PLANNER.md write to after clarify rounds merge in `engine.py`
+    - Today the write is at :2221, before clarify rounds merge at :2339 — agents read a plan without clarification answers
+    - Move the write to after :2339
+    - _Requirements: 30_
+  - [x] 9.5 Delete Seam 2 code once the last workflow is off the default policy
+    - Delete _compose_context_message block assembly after the last workflow's characterization test is re-derived
+    - prototype workflow is migrated last — it is the SC-001 anchor
+    - This is the trigger condition — not a date
+    - _Requirements: 30_
+  - [x] 9.6 Write Phase 7 tests
+    - Test: only the first agent receives the user's brief; agent 2's message does not contain it
+    - Test: a governed agent does NOT silently lose its Constitution when its workflow migrates
+    - Test: the first step of a migrated workflow writes a durable artifact; agent 2 derives its whole contract from that artifact without ever seeing the user's request
+    - Test: a conditional-gate retry loop still tells the agent why it was sent back, and ONLY that agent receives it
+    - Test: after step 1 of a migrated prototype run, every file in the 30-row inventory table exists on disk
+    - Test: git status --porcelain tests/agents/characterization/golden/ shows only intentionally re-baselined files
+    - _Requirements: 29, 30, 31, 40, 45_
+
+- [x] 10. Final checkpoint
+  - [x] 10.1 Run SC-001 and INV-1 banned-pattern checks
+    - grep -rn "if pipeline_type ==" backend/agents/execution_engine/ must return 0 matches
+    - grep -rn 'spec.id ==' backend/agents/execution_engine/ must return 0 matches
+    - All 11 test_banned_patterns.py tests pass
+    - _Requirements: 34_
+  - [x] 10.2 Run INV-3 golden suite with SNAPSHOT_UPDATE unset
+    - pytest tests/agents/test_characterization_*.py with SNAPSHOT_UPDATE unset
+    - git status --porcelain tests/agents/characterization/golden/ shows only intentionally re-baselined files
+    - _Requirements: 34, 45_
+  - [x] 10.3 Run full acceptance checklist from the design Testing Strategy section
+    - Ship-blocker tests: two workers both present after merge
+    - Sandbox identity: revision uses same directory; all tabs render correctly
+    - Versioning: completed run carries tag; diverted or failed carries none
+    - Chaining: "(Chained)" indicator renders; mid-family chain delivers non-empty payload
+    - Prompt migration: only agent 1 receives the brief; governed agents keep their Constitution
+    - Safety: cancelled run leaves wip: commit and clean tree
+    - Confirm all phase ordering constraints from Requirement 46 were honoured during implementation
+    - _Requirements: 1, 5, 7, 13, 14, 17, 22, 26, 29, 30, 31, 40, 43, 46_
+  - [x] 10.4 Run ruff, pyright, and lint-imports on all modified files
+    - ruff check passes; pyright passes; lint-imports boundaries remain green
+    - _Requirements: 34_
+  - [x] 10.5 Verify disk growth instrumentation is live
+    - Confirm per-terminal-run sandbox size, .git directory size, and chain depth are recorded
+    - _Requirements: 35_
+
+---
+
+## Notes
+
+- Tasks 1 and 2 are SHIP-BLOCKERS. Nothing gets has_git=True before both pass (Requirement 46 AC 1).
+- Task 3 is independent and may run in parallel with tasks 1 and 2.
+- Task 4 must NOT begin until tasks 1 and 2 are complete and tested (Requirement 46 AC 3).
+- Task 5 must include the TTL sweep fix (5.3) and the concurrency guard (5.4) in the same PR as 5.1 (Requirement 46 AC 4).
+- Tasks 8.1 and 8.2 must land in the same change (Requirement 23 AC 6).
+- Task 9 deletes code only after the last workflow is off the default policy; prototype migrated last (Requirement 46 AC 8 and 9).
+- Alembic head before this spec is 0046 — verify with cd backend && alembic heads before task 6.2; it must print exactly ONE head.
+- _extract_chain_context seven hardcoded pipeline_type branches must NOT be extended (Requirement 34 AC 5).
+

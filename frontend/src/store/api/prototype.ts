@@ -1,5 +1,5 @@
 import { http } from "./http";
-import { getToken } from "@/lib/api";
+import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 
 export interface PrototypeTemplateSummary {
@@ -64,11 +64,14 @@ export const prototypeApi = {
   /**
    * POST /api/prototype/run streams newline-delimited JSON, which axios's
    * browser (XHR) adapter cannot read incrementally — so this uses fetch
-   * directly and yields one parsed JSON object per NDJSON line.
+   * directly and yields one parsed JSON object per NDJSON line. Because it
+   * bypasses `http`, it also bypasses that instance's 401 interceptor, so it
+   * goes through authedFetch to keep FR-015's session-expiry redirect (the
+   * rest of store/api/ gets it from the interceptor).
    */
   run: async function* (body: PrototypeRunRequest): AsyncGenerator<unknown, void, unknown> {
     const token = getToken();
-    const response = await fetch(`${ENV.API_URL}/api/prototype/run`, {
+    const response = await authedFetch(`${ENV.API_URL}/api/prototype/run`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

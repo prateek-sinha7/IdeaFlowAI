@@ -115,6 +115,9 @@ export function ArtifactVersionPicker({
     (async () => {
       try {
         const { getRunArtifacts, getToken } = await import("@/lib/api");
+        // ISS-802: StrictMode's dev remount runs this cleanup before the import
+        // resolves — bail here, or both mounts fetch the same list.
+        if (cancelled) return;
         const resp = await getRunArtifacts(getToken() || "", runId);
         // The mocked e2e fixture answers every unmatched /api/** with `{}`, so
         // `artifacts` is genuinely absent there — not merely a defensive default.

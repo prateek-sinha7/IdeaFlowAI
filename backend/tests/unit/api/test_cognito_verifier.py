@@ -204,19 +204,19 @@ class TestSignatureIntegrity:
         """Flipping a byte in the signature invalidates it (deterministic test)."""
         token = make_token(signing_key)
         header, payload, signature = token.split(".")
-        
+
         # Decode the signature from base64url (no padding)
         sig = base64.urlsafe_b64decode(signature + "==")  # Add padding for decode
-        
+
         # Flip one byte in the MIDDLE of the signature
         sig = sig[:100] + bytes([sig[100] ^ 0xFF]) + sig[101:]
-        
+
         # Re-encode without padding
         tampered_sig = base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
-        
+
         # Reassemble the token
         forged = f"{header}.{payload}.{tampered_sig}"
-        
+
         with pytest.raises(CognitoVerificationError):
             cognito.verify_cognito_access_token(forged)
 
@@ -224,21 +224,27 @@ class TestSignatureIntegrity:
         """Changing the payload invalidates the signature over it."""
         token = make_token(signing_key)
         header, payload, signature = token.split(".")
-        
+
         # Decode the original payload
         payload_json = jwt.get_unverified_claims(token)
-        
+
         # Change the `sub` claim
         payload_json["sub"] = "different-sub-00000000-0000-0000-0000-000000000000"
-        
+
         # Re-encode the payload (base64url without padding)
-        tampered_payload = base64.urlsafe_b64encode(
-            __import__("json").dumps(payload_json, separators=(",", ":")).encode("utf-8")
-        ).rstrip(b"=").decode("ascii")
-        
+        tampered_payload = (
+            base64.urlsafe_b64encode(
+                __import__("json")
+                .dumps(payload_json, separators=(",", ":"))
+                .encode("utf-8")
+            )
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+
         # Reassemble with original signature (which won't match)
         forged = f"{header}.{tampered_payload}.{signature}"
-        
+
         with pytest.raises(CognitoVerificationError):
             cognito.verify_cognito_access_token(forged)
 

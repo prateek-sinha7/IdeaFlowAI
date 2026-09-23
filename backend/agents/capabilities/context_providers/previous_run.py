@@ -24,14 +24,13 @@ forward build carrying a stray ``parent_run_id`` can no longer trigger an
 unintended cross-run seed.
 
 CRITICAL ownership gate (V4 / INV-8 / L16 — Highest-Risk Behavior 4):
-``ScopedStore.assert_owns`` is called on the parent run BEFORE reading or seeding ANY
-parent context — including the existing-artifact helper's Concierge fallback, which
-reads the parent run's deliverable and is therefore gated on ``parent_authorized``. An
-owner may only seed from a parent run it OWNS; a cross-owner ``PermissionError``
-PROPAGATES out of ``load`` and is NEVER swallowed (the L16 ratchet,
-``test_parent_run_ownership.py``). Any OTHER error during seeding (a TTL-swept parent
-dir, an unreadable file) degrades gracefully — a missing parent must never break a
-revision (CTX-05 parity) — but the ownership denial is the one error that always wins.
+``ScopedStore.assert_owns`` is called on the parent run BEFORE seeding ANY parent
+context. An owner may only seed from a parent run it OWNS; a cross-owner
+``PermissionError`` PROPAGATES out of ``load`` and is NEVER swallowed (the L16
+ratchet, ``test_parent_run_ownership.py``). Any OTHER error during seeding (a
+TTL-swept parent dir, an unreadable file) degrades gracefully — a missing parent
+must never break a revision (CTX-05 parity) — but the ownership denial is the one
+error that always wins.
 
 Import purity (import-linter): the store is reached via ``ctx.scoped_store`` (the
 object-typed field) and the parent files via the ``ctx.runner`` handle — no
@@ -43,6 +42,7 @@ here.
 from __future__ import annotations
 
 import logging
+import posixpath
 import re
 from typing import Any
 
@@ -51,6 +51,101 @@ from agents.capabilities.registry import register
 logger = logging.getLogger(__name__)
 
 _SEED_FILES = ("spec.md", "design.md", "tasks.md")
+
+# Reserved prefixes that must never appear in seed_files.from_run entries
+# (Requirement 18 AC 9–13, Requirement 21).
+#
+# Derived from ``app.agents.sandbox.RESERVED_PATHS`` — the single canonical
+# registry (V2-Q7). Import-linter prevents a direct ``app.*`` import here, so
+# the set is defined inline but MUST remain identical to RESERVED_PATHS.
+# Task 2.7's ``tests/agents/test_reserved_path_registry.py`` asserts the two
+# sets agree, making this the enforcement point that breaks if they drift.
+#
+# Bare names without a trailing slash are included so a caller cannot bypass
+# the guard by omitting it (e.g. ``"skills"`` blocks just as ``"skills/"`` does).
+# ``.chain-legacy/`` is the v2 addition for relocated legacy nested payloads.
+_RESERVED_PREFIXES: frozenset[str] = frozenset(
+    {
+        ".uploads/",
+        ".logs/",
+        ".verify/",
+        ".browser/",
+        ".agents/",
+        ".chain/",
+        ".context/",
+        "skills/",
+        "conversation_history/",
+        ".chain-legacy/",
+        # bare names (no trailing slash) — also blocked
+        ".uploads",
+        ".logs",
+        ".verify",
+        ".browser",
+        ".agents",
+        ".chain",
+        ".context",
+        "skills",
+        "conversation_history",
+        ".chain-legacy",
+    }
+)
+
+
+def _normalize_path(name: str) -> str:
+    """Normalize a declared cross-run selector path before reserved-prefix checking.
+
+    Strips leading ``./`` and ``../`` prefixes and collapses ``..`` components so that
+    forms like ``./.chain/x`` and ``../escape`` cannot bypass the reserved-prefix guard
+    (Requirement 18 AC 9–13).
+
+    Uses ``posixpath`` (forward-slash semantics) because sandbox paths are always
+    POSIX-style relative paths regardless of the host OS. The result is the
+    canonical relative path with no leading ``./``, no leading ``../``, and no ``..``
+    components. If normalization resolves to ``"."`` (e.g. ``"./"``), the empty string
+    is returned so the caller treats it as a non-path and the guard sees no match.
+    """
+    # Strip leading ./ and ../ to prevent traversal bypasses
+    # This handles forms like ./.chain/x, ../escape, ../../reserved/
+    working = name
+    while working.startswith("./") or working.startswith("../"):
+        if working.startswith("./"):
+            working = working[2:]
+        elif working.startswith("../"):
+            working = working[3:]
+    # posixpath.normpath collapses any remaining .. and redundant separators
+    normalized = posixpath.normpath(working)
+    # normpath turns "" → "." and "/" → "/"; strip the self-reference sentinel
+    if normalized in (".", "/", ""):
+        return ""
+    # Re-add trailing slash when the original had one, so prefix matching
+    # still works after normalization (e.g. ".chain/" → ".chain/" not ".chain")
+    if name.rstrip() != name.rstrip().rstrip("/") or name.endswith("/"):
+        if not normalized.endswith("/"):
+            normalized += "/"
+    return normalized
+
+
+def _is_reserved(name: str) -> bool:
+    """Return True when *name* starts with or exactly matches a reserved prefix.
+
+    Normalizes the path first (strips ``./`` prefix, collapses ``..``) so that
+    bypass forms like ``./.chain/x``, ``../escape``, or ``./skills`` are caught
+    (Requirement 18 AC 9–13). Covers both ``prefix/`` and bare ``prefix`` forms.
+    """
+    # Check the original form first (fast path for well-formed inputs)
+    for prefix in _RESERVED_PREFIXES:
+        if name == prefix or name.startswith(prefix):
+            return True
+    # Then check the normalized form to catch traversal/dot-prefix bypasses
+    normalized = _normalize_path(name)
+    if not normalized:
+        # Empty or self-reference after normalization — not a reserved path, but
+        # also not a meaningful seed entry; the caller will silently drop it.
+        return False
+    for prefix in _RESERVED_PREFIXES:
+        if normalized == prefix or normalized.startswith(prefix):
+            return True
+    return False
 
 
 def _declared_seed_files(ctx: Any) -> tuple[str, ...]:
@@ -62,12 +157,30 @@ def _declared_seed_files(ctx: Any) -> tuple[str, ...]:
     legacy ``_SEED_FILES`` triple. All authored manifests are ``{}`` (Pitfall 2) so the
     fallback fires → byte-identical to today. INV-5: the manifest only DECLARES the
     list; this control flow lives in the provider, never the compiler.
+
+    Reserved-prefix guard (Requirement 18 AC 9–13): any entry that names a
+    reserved prefix (the full RESERVED_PATHS registry: .uploads/, .logs/,
+    .verify/, .browser/, .agents/, .chain/, .context/, skills/,
+    conversation_history/, .chain-legacy/) is silently dropped with a warning
+    after path normalization — the caller never sees it. Normalization catches
+    bypass forms like ``./.chain/x`` and ``..`` traversals.
     """
     declared = getattr(ctx, "seed_files", None) or {}
     if isinstance(declared, dict):
         from_run = declared.get("from_run")
         if from_run:
-            return tuple(str(n) for n in from_run)
+            filtered: list[str] = []
+            for entry in from_run:
+                name = str(entry)
+                if _is_reserved(name):
+                    logger.warning(
+                        "previous_run: seed_files.from_run entry %r names a reserved "
+                        "path — skipping (Requirement 18 AC 9–13)",
+                        name,
+                    )
+                else:
+                    filtered.append(name)
+            return tuple(filtered)
     return _SEED_FILES
 
 
@@ -151,66 +264,63 @@ class PreviousRunProvider:
 
         parent_run_id = getattr(ctx, "parent_run_id", None)
 
-        # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE any parent READ ───────
+        # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE any parent access ─────
         # The cross-owner PermissionError PROPAGATES; it is NEVER swallowed. A
         # cross-owner parent must never be silently seeded (Highest-Risk Behavior 4).
         #
-        # ORDER IS LOAD-BEARING. This gate used to sit AFTER
-        # ``_seed_existing_artifact``, justified by that helper being message-only
-        # and "independent of a parent_run_id". That premise stopped holding when the
-        # Concierge fallback was added to it: the helper now calls
-        # ``runner.read_parent_file(parent_run_id, <deliverable>)`` when the user
-        # message carries no EXISTING-artifact markers. With the old ordering a caller
-        # could pass SOMEONE ELSE'S ``parent_run_id`` and have that run's deliverable
-        # read out and written into their own sandbox before ownership was ever
-        # checked. The gate therefore runs FIRST, and the helper only consults the
-        # parent when ownership is confirmed.
-        parent_authorized = False
-        if parent_run_id:
-            scoped_store = getattr(ctx, "scoped_store", None)
-            if scoped_store is None:
-                # No store on ctx — nothing to check against; preserves the prior
-                # (pre-gate) behavior for callers that never wire a scoped_store.
-                parent_authorized = True
-            else:
-                try:
-                    await scoped_store.assert_owns(parent_run_id)
-                    parent_authorized = True
-                except PermissionError:
-                    raise  # cross-owner denial — propagate (L16, never swallow)
-                except Exception as authz_exc:  # noqa: BLE001 — WR-04: fail CLOSED
-                    # WR-04 (fail-closed): an UNEXPECTED store error (DB outage,
-                    # schema mismatch, transient store bug) means the ownership check
-                    # could NOT be completed. We must NOT read or seed ANY parent data
-                    # on an unconfirmed ownership check — degrading OPEN here risks
-                    # cross-run data exposure (the blast radius is authz, not
-                    # cosmetic). The message-based existing-artifact seed below still
-                    # runs: that content came from the caller's OWN request, not from
-                    # the parent run. Only the cross-owner PermissionError ever
-                    # propagates (L16); every other error fails closed (no parent read).
-                    logger.warning(
-                        "previous_run: assert_owns lookup failed for parent %s (%s) — "
-                        "FAILING CLOSED: skipping parent-run seed (ownership unconfirmed)",
-                        parent_run_id,
-                        authz_exc,
-                    )
-                    parent_authorized = False
+        # This gate used to sit BELOW ``_seed_existing_artifact`` on the reasoning
+        # that that helper "works off the user message (independent of a
+        # parent_run_id)". That stopped being true when the Concierge fallback was
+        # added to it: with no ``=== EXISTING … ===`` markers in the message it now
+        # calls ``runner.read_parent_file(parent_run_id, …)``, i.e. it reads the
+        # PARENT run's sandbox — before ownership had been established. Ordering the
+        # gate first is what makes L16's "no parent read on an unconfirmed owner"
+        # actually hold; ``allow_parent_read`` carries the verdict into the helper so
+        # its message-only path still runs when there is no parent to check.
+        parent_ok = False
+        scoped_store = getattr(ctx, "scoped_store", None)
+        if parent_run_id and scoped_store is not None:
+            try:
+                await scoped_store.assert_owns(parent_run_id)
+                parent_ok = True
+            except PermissionError:
+                raise  # cross-owner denial — propagate (L16, never swallow)
+            except Exception as authz_exc:  # noqa: BLE001 — WR-04: fail CLOSED
+                # WR-04 (fail-closed): an UNEXPECTED store error (DB outage, schema
+                # mismatch, transient store bug) means the ownership check could NOT
+                # be completed. We must NOT proceed to seed the parent run's
+                # spec/design/tasks on an unconfirmed ownership check — degrading OPEN
+                # here risks cross-run data exposure (the blast radius is authz, not
+                # cosmetic). Skip the parent seed entirely; a genuinely-absent parent
+                # is already handled by the `if not parent_run_id` graceful path above,
+                # and individual unreadable / TTL-swept parent files still degrade
+                # per-file in the seed loop below. Only the cross-owner PermissionError
+                # ever propagates (L16); every other error fails closed (no seed).
+                logger.warning(
+                    "previous_run: assert_owns lookup failed for parent %s (%s) — "
+                    "FAILING CLOSED: skipping parent-run seed (ownership unconfirmed)",
+                    parent_run_id,
+                    authz_exc,
+                )
+                # Fail CLOSED on the parent, but the user's OWN message-borne
+                # artifact is not the parent's data — still seed that.
+                self._seed_existing_artifact(ctx, allow_parent_read=False)
+                return {}
+        elif parent_run_id and scoped_store is None:
+            # No store to check against — unchanged from the pre-gate behaviour
+            # (the gate has always been a no-op when ctx carries no scoped_store).
+            parent_ok = True
 
         # ── Seed the EXISTING artifact as an in-place-editable file (CR-06) ──────
         # Relocated from the kernel's "DELIBERATE EXCEPTION" block. Parameterized by
-        # ``deliverable.name`` (NOT a hardcoded const). Primarily works off the user
-        # message; its parent-sandbox fallback is gated on ``parent_authorized``.
-        # Byte-identical to the legacy inline block: same extraction, same slimmed
-        # message, same stashed ``revision_original_html`` / ``revision_instruction``.
-        self._seed_existing_artifact(ctx, parent_authorized=parent_authorized)
+        # ``deliverable.name`` (NOT a hardcoded const). Byte-identical to the legacy
+        # inline block: same extraction, same slimmed message, same stashed
+        # ``revision_original_html`` / ``revision_instruction``.
+        self._seed_existing_artifact(ctx, allow_parent_read=parent_ok)
 
         if not parent_run_id:
-            # No parent (a declared revision with no recorded parent) — nothing to
-            # seed (same-owner graceful-degrade path).
-            return {}
-
-        if not parent_authorized:
-            # Ownership unconfirmed (WR-04 fail-closed) — no parent reads at all.
+            # No parent (a declared revision with no recorded parent) — nothing more
+            # to seed (same-owner graceful-degrade path).
             return {}
 
         # ── Seed the parent run's reference files into this run's sandbox ────────
@@ -223,9 +333,29 @@ class PreviousRunProvider:
 
         sandbox = getattr(runner, "sandbox", None)
         seeded: list[str] = []
+        skipped: list[str] = []
         # CR-07: honor the DECLARED seed list (seed_files.from_run) with _SEED_FILES
         # fallback — NOT the hardcoded triple.
         for name in _declared_seed_files(ctx):
+            # Requirement 4 AC 1: short-circuit if the file is already present in
+            # the sandbox.  When the sandbox is the shared chain-root directory, the
+            # parent run already wrote this file in place — re-copying it would
+            # overwrite in-progress edits from the current run.  Note: .uploads/ is
+            # excluded from this guard (see the uploads block below) because uploads
+            # accumulate across the whole revision family by design (Req 4 AC 2).
+            if sandbox is not None:
+                try:
+                    already_present = sandbox.read(name) is not None
+                except Exception:  # noqa: BLE001
+                    already_present = False
+                if already_present:
+                    skipped.append(name)
+                    logger.debug(
+                        "previous_run: %s already present in sandbox — skipping redundant copy",
+                        name,
+                    )
+                    continue
+
             try:
                 content = runner.read_parent_file(parent_run_id, name)
             except Exception as read_exc:  # noqa: BLE001
@@ -247,9 +377,10 @@ class PreviousRunProvider:
                     )
 
         logger.info(
-            "previous_run: seeded parent reference files from run %s: %s",
+            "previous_run: seeded parent reference files from run %s: %s%s",
             parent_run_id,
             ", ".join(seeded) or "(none found)",
+            f" (skipped already-present: {', '.join(skipped)})" if skipped else "",
         )
 
         # ── Seed the parent run's uploads into this run's sandbox ────────────────
@@ -298,7 +429,7 @@ class PreviousRunProvider:
 
     # ── Existing-artifact seed (relocated from the kernel, CR-06) ───────────────
     @staticmethod
-    def _seed_existing_artifact(ctx: Any, *, parent_authorized: bool = False) -> None:
+    def _seed_existing_artifact(ctx: Any, *, allow_parent_read: bool = False) -> None:
         """Seed the prior artifact as an in-place-editable sandbox file.
 
         Byte-identical to the deleted inline kernel block: extract the artifact
@@ -318,14 +449,26 @@ class PreviousRunProvider:
         This prevents the task_loop builder from writing the full prototype from
         scratch on every Task 1 invocation.
 
-        ``parent_authorized`` gates that fallback: it reads the PARENT run's
-        deliverable, so it may only run once ``load`` has cleared
-        ``ScopedStore.assert_owns`` for ``parent_run_id`` (L16 / INV-8). It defaults to
-        ``False`` so any future caller that forgets to pass it gets the safe,
-        message-only behavior rather than an unchecked cross-run read.
+        That fallback is a PARENT read, so it is gated on ``allow_parent_read`` — the
+        L16 ownership verdict ``load`` computes before calling this. Defaulting it to
+        False keeps any future caller fail-closed: the message-only path always runs,
+        the parent read only ever runs for a confirmed owner.
         """
         runner = getattr(ctx, "runner", None)
         if runner is None:
+            return
+
+        # ── Seed ONCE per run (ISS-638) ──────────────────────────────────────────
+        # ``load`` is re-invoked per agent by the generic context injector, not just
+        # at run entry, so this helper runs once per step. The first invocation
+        # SLIMS ``runner.user_message`` (the markers are replaced by a file pointer),
+        # so every later invocation reads "no markers" and falls into the Concierge
+        # parent-read below — overwriting the artifact the previous step just edited
+        # in place with the PARENT run's older copy, and clobbering the stashed
+        # ``revision_original_html`` with it. ``revision_original_html`` is set by
+        # both seed paths below, so its presence means "this run already has its
+        # editable artifact" — there is nothing left to seed.
+        if getattr(ctx, "revision_original_html", None):
             return
 
         user_message = getattr(runner, "user_message", None) or ""
@@ -343,9 +486,12 @@ class PreviousRunProvider:
             artifact_name_inner = (
                 getattr(deliverable_inner, "name", None) or _DEFAULT_ARTIFACT_NAME
             )
+            # ``allow_parent_read`` is the L16 gate's verdict, threaded in from
+            # ``load``: this branch touches the PARENT run's sandbox, so it may only
+            # run once ownership has been established.
             if (
-                parent_run_id
-                and parent_authorized
+                allow_parent_read
+                and parent_run_id
                 and hasattr(runner, "read_parent_file")
             ):
                 try:

@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import shutil
 import time
 import uuid
 from typing import AsyncGenerator, Awaitable, Callable
@@ -75,22 +76,17 @@ ResumeOutputPersist = Callable[[str], Awaitable[None]]
 # boundary; ``None`` (the goldens + every non-app driver) keeps it DORMANT → the funnel
 # passes ``cancel_event=None``, byte/event-identical (INV-3). Keyed on run_id ONLY (SC-001).
 ResumeCancelEvent = Callable[[str], "asyncio.Event | None"]
-
-# ============================================================================
-# ARCHITECTURAL IMPORTS — Deliberately below type definitions per INV-8
-# (Ports & Adapters pattern: type hints first, then kernel-layer bindings).
-# Import-linter 4/0 ensures no ``app.*`` symbols cross the boundary.
-# See backend-engine.md for the full contract.
-# ============================================================================
-from agents.capabilities.context_providers.opendesign import (  # noqa: E402
-    RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
-)
 from agents.capabilities import task_identity  # noqa: E402
-from agents.capabilities.gate_pendency import derive_open_gate  # noqa: E402
+from agents.capabilities.gate_pendency import (  # noqa: E402
+    derive_approved_gate_keys,
+    derive_open_gate,
+    strip_premature_stops,
+)
 from agents.capabilities.registry import CapabilityRegistry  # noqa: E402
 from agents.capabilities.validators.severity import render_coverage_status  # noqa: E402
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager  # noqa: E402
 from agents.execution_engine.fanout import FanoutWorkerFailed  # noqa: E402
+from agents.capabilities.assemble_step import AssembleStepFailed  # noqa: E402
 
 # _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
 # function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
@@ -103,7 +99,7 @@ from agents.execution_engine.fanout import FanoutWorkerFailed  # noqa: E402
 from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl  # noqa: E402
 from agents.execution_engine.context import ExecutionContext  # noqa: E402
 from agents.execution_engine.resolver import WorkflowResolver  # noqa: E402
-from agents.execution_engine.run_log import RunLog  # noqa: E402
+from agents.execution_engine.run_log import RunLog, RunTrace  # noqa: E402
 from agents.execution_engine.state_machine import get_state_machine  # noqa: E402
 from agents.capabilities.model_catalog import ModelCatalog  # noqa: E402
 from agents.capabilities.model_pricing import estimate_cost_usd  # noqa: E402
@@ -113,7 +109,13 @@ from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic
 from agents.workflows.compiler import WorkflowCompiler  # noqa: E402
 from agents.workflows.manifest import load_manifest  # noqa: E402
 from agents.workflows.plan import CompiledWorkflow  # noqa: E402
-from app.agents.sandbox import RunSandbox  # noqa: E402
+from app.agents.sandbox import (  # noqa: E402
+    RunSandbox,
+    _AGENT_OUTPUTS_PREFIX,
+    _CHAIN_PREFIX,
+    _LOGS_PREFIX,
+    write_agent_output,
+)
 
 logger = logging.getLogger("agents.execution_engine.engine")
 
@@ -169,17 +171,2763 @@ def _log_event(
 _GENERIC_AGENT_ERROR_MESSAGE = "The model rejected this request."
 
 
+# ── Coarse fault CATEGORIES (run b0642e0f triage) ────────────────────────────
+# The single generic message below is leak-proof but also diagnosis-proof: a
+# payload-size rejection, a content refusal and an auth fault all render as the
+# same sentence, so `prototype-validate`'s failure took a full event-log
+# reconstruction to attribute (it was ~1MB of base64 screenshots — see the image
+# guard in deep_agent_runner.py). These add ONE bounded, fixed-vocabulary clause
+# so the next one names itself.
+#
+# Safety is preserved by construction: the raw text is only ever TESTED against
+# these substrings, never echoed. Every branch returns a hardcoded literal, so no
+# ARN/region/model-id can reach the client no matter what the provider said. An
+# unrecognised fault keeps the original generic message verbatim, so this is
+# additive — existing behaviour is the default, not a special case.
+_AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        ("too large", "too long", "exceeds", "maximum context", "payload"),
+        "The request was too large for the model — the agent's context grew past the limit.",
+    ),
+    (("throttl", "rate limit", "too many requests"), "The model was rate-limited."),
+    # Widened after run 54da544c: an expired STS session says "The security token
+    # included in the request is invalid" — which matched NONE of the original
+    # needles, so a pure credential failure rendered as the generic message and
+    # five agents failed with no usable signal. Match on the vocabulary providers
+    # actually use, not on the words we expected them to use.
+    (
+        (
+            "credential",
+            "unauthoriz",
+            "access denied",
+            "expiredtoken",
+            "invalidclienttokenid",
+            "accessdenied",
+            "unrecognizedclient",
+            "authentication failed",
+            "security token",
+            "not authorized",
+            "forbidden",
+            "signature",
+        ),
+        "The model could not be reached — a provider credential or permission problem "
+        "(the run's cloud session may have expired).",
+    ),
+    (("timeout", "timed out", "read timeout"), "The model did not respond in time."),
+    # Run 17de7ccb: the Validator drove a browser for 133 model turns and 142 tool
+    # nodes — 12 of them real `edit_file` fixes — then LangGraph's step counter hit
+    # AGENT_RECURSION_LIMIT and raised GraphRecursionError. It rendered as "the
+    # model rejected this request", which is wrong twice over: the model rejected
+    # nothing, and the agent was working rather than looping. This is OUR OWN
+    # framework's error, not provider text, so naming it leaks nothing.
+    (
+        ("recursion limit", "graphrecursionerror", "recursion_limit"),
+        "The agent ran out of steps before finishing — it reached the graph's step "
+        "limit (recursion_limit) partway through its work, so it was cut off rather "
+        "than refused.",
+    ),
+)
+
+
 def _sanitize_agent_error(raw: str) -> str:
     """Return a bounded, secret-free client-facing message for a runner error.
 
     ``raw`` is the runner's ``str(exc)`` (already bounded to 500 chars upstream).
     It can carry provider ARNs / region / model-id / internal config for a
     non-throttle Bedrock fault, so it is NEVER returned verbatim — the caller
-    keeps it in the server log only. We return a fixed generic message
-    (WR-02 / T-16-01-ID: bounded, no stack frames, no secrets). Keyed on nothing
-    in ``raw`` — no provider/model/workflow text match (SC-001).
+    keeps it in the server log only. We return one of a fixed set of hardcoded
+    messages (WR-02 / T-16-01-ID: bounded, no stack frames, no secrets).
+
+    The category match reads ``raw`` but never REPRODUCES it: every return value
+    is a literal defined above. Matching is on generic provider-fault vocabulary
+    only — no provider/model/workflow name (SC-001).
     """
+    lowered = (raw or "").lower()
+    for needles, message in _AGENT_ERROR_CATEGORIES:
+        if any(n in lowered for n in needles):
+            return message
     return _GENERIC_AGENT_ERROR_MESSAGE
+
+
+# ---------------------------------------------------------------------------
+# [STABILIZATION A1/A18] Validation-retry-with-feedback — feedback text builder
+# ---------------------------------------------------------------------------
+
+
+def _format_validation_feedback(issues: list[dict] | None) -> str:
+    """Render a validation gate's blocking (CRITICAL) issues as retry feedback text.
+
+    Fed into ``ectx.steering_notes`` — the SAME "=== USER GUIDANCE ===" seam the
+    declared-gate redo path already uses — so a validation-retry re-dispatch sees
+    exactly what the validator flagged, not a generic "try again." ``issues`` is
+    the ``gate_blocked`` event's ``data.issues`` list (each a
+    ``{"validator": ..., "severity": ..., "message": ...}`` dict, per
+    ``ValidationGate.evaluate``).
+    """
+    labelled = [i for i in (issues or []) if isinstance(i, dict)]
+    if not labelled:
+        return (
+            "The previous attempt's output was blocked by validation. Review your "
+            "output for correctness and produce a corrected version."
+        )
+    lines = [
+        f"- [{i.get('validator', '?')}] {i.get('message') or '(no message)'}"
+        for i in labelled
+    ]
+    return (
+        "The previous attempt's output failed validation with the following "
+        "critical issue(s). Fix them and produce a corrected output:\n"
+        + "\n".join(lines)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1 (sandbox-git-versioning-v2, Req 11/5/19): ONE security-gated
+# commit primitive for every Git commit produced in a sandbox.
+# ---------------------------------------------------------------------------
+
+# Typed result returned by ``commit_in_sandbox``.  ``blocked`` is True iff a
+# mandatory scan or the declared pre_commit hooks refused the commit.  ``sha``
+# is the commit hash on success, ``""`` on no-change or blocked.  ``no_change``
+# mirrors CommitResult.no_change — a genuine empty tree is not a failure.
+from dataclasses import dataclass as _dataclass  # noqa: E402
+
+
+@_dataclass(frozen=True)
+class CommitInSandboxResult:
+    """Return value of :func:`commit_in_sandbox`.
+
+    ``blocked``  — True iff the mandatory secret scan OR a declared pre_commit
+                   hook refused the commit.  The diff is left in the working tree.
+    ``sha``      — Full commit SHA on success, ``""`` when blocked or no-change.
+    ``no_change``— True iff the tree was clean (nothing staged); False otherwise.
+    ``block_reason`` — A short machine-readable reason string when ``blocked``,
+                   ``""`` otherwise.  Never contains file content, secrets, or
+                   user input — engine-rendered text only.
+    """
+
+    blocked: bool = False
+    sha: str = ""
+    no_change: bool = False
+    block_reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Task 5.2 (sandbox-git-versioning-v2, Req 4/18): Payload dataclass returned
+# by build_flat_payload so callers can inspect build outcome without re-reading
+# the index.
+# ---------------------------------------------------------------------------
+
+
+@_dataclass(frozen=True)
+class Payload:
+    """Return value of :func:`build_flat_payload`.
+
+    ``allowlist``           — The frozenset of exactly three repository-relative
+                              paths that were force-staged (Requirement 4 AC 11).
+                              Matches the output of ``payload_allowlist(output_basename)``.
+    ``built``               — True iff the payload files were written into the
+                              staging directory (even if the output was not materializable).
+    ``materialized``        — True iff the output file was actually copied into
+                              the staging directory.  False for a metadata-only snapshot.
+    ``chainable``           — True iff this payload can be used as a chain source.
+                              For now: ``chainable == materialized``.
+    ``non_chainable_reason``— A short machine-readable reason string when
+                              ``chainable`` is False, ``""`` otherwise.  Never
+                              contains file content, secrets, or user input.
+    """
+
+    allowlist: frozenset
+    built: bool = False
+    materialized: bool = False
+    chainable: bool = False
+    non_chainable_reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Task 5.8 (sandbox-git-versioning-v2, Req 5/10/11): FinalizationAttempt
+# accumulator and SnapshotUnrecoverable sentinel.
+# ---------------------------------------------------------------------------
+
+
+class SnapshotUnrecoverable(Exception):
+    """Raised by finalize_terminal_run Step 5 when a second metadata-only build
+    also returns ``built=False``.
+
+    This is a defensive sentinel only — engine-rendered content cannot contain
+    secrets, so a second block is structurally impossible under normal operation.
+    The finalizer catches it, degrades the record, and continues to the single tail.
+    """
+
+
+@_dataclass
+class FinalizationAttempt:
+    """Per-pass accumulator for the 12-step finalize_terminal_run sequence.
+
+    Never persisted — the durable projection is ``FinalizationRecord``.
+    ``degrade`` records the FIRST reason only — the earliest failure is the
+    actionable one.  All mutating methods are idempotent-friendly: calling them
+    twice with identical arguments is harmless (second call wins only when the
+    accumulator was not already degraded by a *different* reason).
+
+    Methods
+    -------
+    record_payload(payload)       — record the Payload result from step 5
+    record_commit(result)         — record CommitInSandboxResult from step 6
+    record_ref(ref_result)        — record RefResult from step 7
+    record_tag(tag_name, sha)     — record a successfully created tag
+    note_blocked_reconcile(reason)— record that step 2's WIP commit was blocked
+    degrade(reason)               — degrade with the FIRST supplied reason
+    """
+
+    run_id: str
+    owner_id: str
+    workspace_id: str
+
+    # Accumulated state — populated by the record_* methods.
+    payload: "Payload | None" = None
+    commit_sha: str = ""
+    ref_result: "object | None" = None  # RefResult or None
+    tag_name: str = ""
+    tag_sha: str = ""
+
+    # Degradation — first reason wins.
+    _degraded: bool = False
+    _degrade_reason: str = ""
+    _wip_blocked: bool = False
+
+    def record_payload(self, payload: "Payload") -> None:
+        """Record the Payload produced by build_flat_payload / build_metadata_only_snapshot."""
+        self.payload = payload
+
+    def record_commit(self, result: "CommitInSandboxResult") -> None:
+        """Record the CommitInSandboxResult from the snapshot commit (step 6)."""
+        self.commit_sha = result.sha or ""
+
+    def record_ref(self, ref_result: "object") -> None:
+        """Record the RefResult from create_run_ref (step 7)."""
+        self.ref_result = ref_result
+
+    def record_tag(self, tag_name: str, sha: str) -> None:
+        """Record a successfully created tag (step 8)."""
+        self.tag_name = tag_name
+        self.tag_sha = sha
+
+    def note_blocked_reconcile(self, reason: str) -> None:
+        """Record that the step-2 WIP commit was blocked by the secret scan.
+
+        The reconciliation required by a non-success outcome did not happen —
+        the published status must say so.
+        """
+        self._wip_blocked = True
+        self.degrade(reason)
+
+    def degrade(self, reason: str) -> None:
+        """Degrade the attempt, keeping the FIRST reason (earliest = actionable)."""
+        if not self._degraded:
+            self._degraded = True
+            self._degrade_reason = reason
+        # A second call with a different reason is silently ignored — the first
+        # reason is the one the operator needs to act on.
+
+    @property
+    def is_degraded(self) -> bool:
+        return self._degraded
+
+    @property
+    def degrade_reason(self) -> str:
+        return self._degrade_reason
+
+
+# Allowlist of keys that ``audit_detail`` may carry onto the provenance audit
+# row.  Every key outside this set is silently dropped so no user content, diff
+# text, or secrets can pollute the audit record (Requirement 19 AC 5).
+_AUDIT_DETAIL_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "tag_name",
+        "source_ref",
+        "idempotency_key",
+    }
+)
+
+
+async def commit_in_sandbox(
+    sandbox: "Any",
+    message: str,
+    ectx: "ExecutionContext",
+    step: "Any",
+    *,
+    audit_operation: "str | None",
+    paths: "list[str] | None" = None,
+    force_add: "frozenset[str] | None" = None,
+    audit_detail: "dict | None" = None,
+    registry: "Any | None" = None,
+) -> CommitInSandboxResult:
+    """The ONE security-gated commit primitive for every sandbox Git commit.
+
+    Every commit created in a sandbox MUST go through this function
+    (Requirement 11 AC 9, V2-Q12).  It owns, in order:
+
+    1. **Stage** the intended paths (``git add -A`` or explicit ``paths``;
+       ``force_add`` for the payload allowlist only — Requirement 4 AC 11).
+    2. **Obtain the real staged diff** with ``git diff --cached`` so the
+       mandatory scan receives actual bytes, not an empty placeholder (D5 fix,
+       Requirement 11 AC 4).
+    3. **Declared pre_commit hooks** via ``_fire_hooks``.  A declared hook may
+       add scanning policy but cannot remove the mandatory scan (step 4).
+    4. **Mandatory ``scan_for_secret``** called DIRECTLY — not delegated to
+       whether a manifest declared ``secret_scan``.  A clean diff proceeds; a
+       hit blocks the commit, leaves the diff in the working tree, and returns
+       ``CommitInSandboxResult(blocked=True, block_reason="secret_detected")``.
+    5. **Commit** via ``sandbox.commit_all``.
+    6. **post_commit dispatch** in a ``try/except`` — an observer failure must
+       NOT roll back the commit or alter control flow (Requirement 11 AC 2).
+
+    Parameters
+    ----------
+    sandbox:
+        The ``RunSandbox`` (or worktree ``LocalWorkspace``-shaped facade) to
+        commit on.  Must expose ``has_git``, ``commit_all``, and ``root``.
+    message:
+        Engine-rendered commit message.  Must NOT contain user content or
+        secrets — callers are responsible for this.
+    ectx:
+        The per-run ``ExecutionContext`` threaded through every dispatch path
+        (D-03).
+    step:
+        The compiled ``Step`` whose hooks and permissions are consulted for the
+        declared-hook passes (pre_commit / post_commit).  May be a minimal
+        ``SimpleNamespace(agent_id="...", hooks=[], tools=None)`` on paths that
+        have no per-step compiled Step (e.g. recovery commits, restore commits).
+    audit_operation:
+        REQUIRED explicit string identifying the operation class for the
+        provenance audit record (Requirement 19).  Pass ``None`` when the commit
+        does not belong to an audited operation class — the observer writes no
+        row.  Restore and recovery commits both stage ALL_TRACKED and would be
+        indistinguishable without this parameter; ``None`` is therefore a valid
+        but deliberate "not audited" marker, never a default.
+    paths:
+        When given, stage only these exact paths.  ``None`` (default) stages all
+        changes with ``git add -A``.
+    force_add:
+        Exactly the three-entry frozenset from ``payload_allowlist()`` when
+        staging the flat ``.chain/`` payload.  Any other value is refused by
+        ``sandbox.commit_all`` (Requirement 4 AC 14).
+    audit_detail:
+        Operation-specific identifiers for the audit row, filtered through
+        ``_AUDIT_DETAIL_ALLOWLIST`` so only ``tag_name``, ``source_ref``, and
+        ``idempotency_key`` survive.  Keys outside the allowlist are silently
+        dropped — no user content, diff text, or secrets reach the audit record
+        (Requirement 19 AC 5).
+    registry:
+        The ``CapabilityRegistry`` for declared-hook resolution.  When ``None``,
+        declared-hook dispatch is skipped (the mandatory scan still runs).
+
+    Returns
+    -------
+    CommitInSandboxResult
+        See :class:`CommitInSandboxResult` for field semantics.
+
+    Notes
+    -----
+    * ``has_git=False``: the sandbox has no git repo — staging and committing
+      are no-ops.  Returns ``CommitInSandboxResult(no_change=True)``.
+    * Blocked payloads: ``ectx.last_commit_blocked`` is set ``True`` so the
+      terminal path can force ``degraded`` status and suppress tagging
+      (Requirement 12 AC 5).
+    * This function is **async** because the declared hook dispatch is async
+      (``_fire_hooks`` awaits each hook).
+    * Import purity: all ``app.*`` imports are deferred inside the function body
+      so the ``agents.execution_engine`` → ``app.*`` import-linter boundary
+      (contract 4/0) stays green.
+    """
+    if not getattr(sandbox, "has_git", False):
+        # No git repo — staging and committing are no-ops (matches the existing
+        # ``has_git=False`` path in the step-boundary commit block).
+        return CommitInSandboxResult(no_change=True)
+
+    # ── Step 1: Stage the intended paths ─────────────────────────────────────
+    # Staging is a side-effect of ``sandbox.commit_all``; we run it separately
+    # here so we can inspect the staged diff before committing.  For the
+    # simplest callers (step boundary, recovery, restore) this is ``git add -A``
+    # via ``paths=None``; for the payload builder it is ``paths`` + ``force_add``.
+    # We stage by calling the underlying workspace directly so we can capture
+    # the diff before the commit happens.  ``_ws()`` is the lazily-built
+    # ``LocalWorkspace``; ``_git`` is its single git-subprocess method.
+    # We do NOT call ``sandbox.commit_all`` yet — we read the diff first.
+    try:
+        _ws = sandbox._ws()  # type: ignore[attr-defined]
+        # Force-add the payload allowlist entries first (before the main stage).
+        if force_add:
+            for _fa_path in sorted(force_add):
+                _ws._git("add", "--force", "--", _fa_path)  # type: ignore[attr-defined]
+        # Main stage.
+        if paths is None:
+            _ws._git("add", "-A")  # type: ignore[attr-defined]
+        else:
+            if paths:
+                _ws._git("add", "--", *paths)  # type: ignore[attr-defined]
+    except Exception as _stage_exc:  # noqa: BLE001
+        logger.warning(
+            "commit_in_sandbox: staging failed for run=%s step=%s (%s) — "
+            "leaving diff uncommitted",
+            getattr(ectx, "run_id", "?"),
+            getattr(step, "agent_id", "?"),
+            _stage_exc,
+        )
+        ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+        return CommitInSandboxResult(
+            blocked=True,
+            block_reason="staging_failed",
+        )
+
+    # ── Step 2: Obtain the real staged diff (D5 fix, Requirement 11 AC 4) ────
+    # ``git diff --cached`` returns the diff of what is in the index vs. HEAD.
+    # This is the REAL content the secret scanner must receive — passing "" was
+    # the defect (D5) that let scan_for_secret short-circuit immediately.
+    staged_diff: str = ""
+    staged_binary_entries: list[tuple[str, bytes]] = []
+    try:
+        staged_diff = _ws._git("diff", "--cached")  # type: ignore[attr-defined]
+    except Exception as _diff_exc:  # noqa: BLE001
+        logger.warning(
+            "commit_in_sandbox: git diff --cached failed for run=%s (%s) — "
+            "proceeding with empty diff (conservative scan fallback)",
+            getattr(ectx, "run_id", "?"),
+            _diff_exc,
+        )
+        # Empty diff → scan_for_secret("") returns None (no block) → conservative.
+        # The scan is still mandatory; it just has no content to flag.
+
+    # For binary-staged files that produce "Binary files differ" in the text diff,
+    # collect their raw bytes so the binary scanner can inspect them.
+    try:
+        _binary_names_out = _ws._git(  # type: ignore[attr-defined]
+            "diff", "--cached", "--name-only", "--diff-filter=d"
+        )
+        for _bname in (_binary_names_out or "").splitlines():
+            _bname = _bname.strip()
+            if not _bname:
+                continue
+            # Only read files whose diff hunk contains "Binary files differ" — a
+            # cheap proxy for "git considered this entry binary".
+            if f"Binary files" not in staged_diff:
+                break  # fast-exit when no binary entries in the whole diff
+            _candidate = sandbox.root / _bname
+            try:
+                _raw = _candidate.read_bytes()
+            except (OSError, Exception):  # noqa: BLE001
+                continue
+            staged_binary_entries.append((_bname, _raw))
+    except Exception:  # noqa: BLE001
+        # Best-effort: failure to enumerate binary entries does not block the
+        # mandatory text scan below.
+        pass
+
+    # ── Step 3: Declared pre_commit hooks ────────────────────────────────────
+    # A declared hook may ADD scanning policy but cannot remove the mandatory
+    # scan in step 4.  We fire the declared hooks first so their outcome (block /
+    # continue) is combined with the mandatory scan result below.
+    declared_blocked = False
+    if registry is not None:
+        try:
+            from agents.capabilities.hooks.base import HOOK_BLOCK as _HOOK_BLOCK  # noqa: PLC0415
+
+            _engine_instance: "Any" = None
+            # We need an ExecutionEngine instance to call _fire_hooks, which is a
+            # method.  Reach it through ectx.runner if available — the runner is a
+            # KernelServices, which holds a back-reference to the engine.
+            _runner = getattr(ectx, "runner", None)
+            _engine_ref = (
+                getattr(_runner, "engine", None) if _runner is not None else None
+            )
+            if _engine_ref is not None and hasattr(_engine_ref, "_fire_hooks"):
+                _hook_payload = staged_diff  # real staged content (D5 fix)
+                _pre_outcome = await _engine_ref._fire_hooks(
+                    "pre_commit",
+                    step,
+                    ectx,
+                    registry,
+                    payload=_hook_payload,
+                    extra={
+                        "agent_name": getattr(step, "agent_id", ""),
+                        "step_index": 0,
+                    },
+                )
+                if _pre_outcome == _HOOK_BLOCK:
+                    declared_blocked = True
+        except Exception as _hook_exc:  # noqa: BLE001
+            logger.warning(
+                "commit_in_sandbox: pre_commit hook dispatch failed for run=%s (%s) "
+                "— treating as continue (hook failure must not abort the commit path)",
+                getattr(ectx, "run_id", "?"),
+                _hook_exc,
+            )
+
+    if declared_blocked:
+        logger.warning(
+            "commit_in_sandbox: declared pre_commit hook BLOCKED commit for "
+            "run=%s step=%s — diff stays in working tree",
+            getattr(ectx, "run_id", "?"),
+            getattr(step, "agent_id", "?"),
+        )
+        ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+        return CommitInSandboxResult(
+            blocked=True,
+            block_reason="pre_commit_hook_blocked",
+        )
+
+    # ── Step 4: Mandatory secret scan (ALWAYS runs — not delegated to the
+    #            manifest, V2-Q12 / Requirement 11 AC 9) ─────────────────────
+    try:
+        from agents.capabilities.hooks.secret_scan import (  # noqa: PLC0415
+            scan_for_secret,
+            scan_staged_binary,
+        )
+
+        # Text scan over the staged diff.
+        _secret_marker = scan_for_secret(staged_diff)
+        if _secret_marker is not None:
+            logger.warning(
+                "commit_in_sandbox: MANDATORY secret scan BLOCKED commit for "
+                "run=%s step=%s (marker=%r) — diff stays in working tree",
+                getattr(ectx, "run_id", "?"),
+                getattr(step, "agent_id", "?"),
+                _secret_marker,
+            )
+            ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+            return CommitInSandboxResult(
+                blocked=True,
+                block_reason="secret_detected",
+            )
+
+        # Binary scan for any binary-staged entries.
+        for _bf_name, _bf_bytes in staged_binary_entries:
+            _bin_reason = scan_staged_binary(_bf_name, _bf_bytes)
+            if _bin_reason is not None:
+                logger.warning(
+                    "commit_in_sandbox: MANDATORY binary scan BLOCKED commit for "
+                    "run=%s step=%s file=%r — diff stays in working tree",
+                    getattr(ectx, "run_id", "?"),
+                    getattr(step, "agent_id", "?"),
+                    _bf_name,
+                )
+                ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+                return CommitInSandboxResult(
+                    blocked=True,
+                    block_reason="binary_secret_detected",
+                )
+    except Exception as _scan_exc:  # noqa: BLE001
+        # The import or scan itself failing is a real problem — fail closed:
+        # block the commit rather than silently skip the mandatory scan.
+        logger.error(
+            "commit_in_sandbox: mandatory secret scan raised (%s) for run=%s — "
+            "BLOCKING commit (fail-closed, V2-Q12)",
+            _scan_exc,
+            getattr(ectx, "run_id", "?"),
+        )
+        ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+        return CommitInSandboxResult(
+            blocked=True,
+            block_reason="scan_error_fail_closed",
+        )
+
+    # ── Step 5: Commit ────────────────────────────────────────────────────────
+    # The staging was already performed in step 1 (via _ws._git("add")), so we
+    # call commit_all with paths=[] (empty explicit list — do NOT re-stage) to
+    # avoid double-staging.  We pass force_add=None here because the
+    # force-staged paths are already in the index.
+    # IMPORTANT: passing paths=[] to commit_all means "stage nothing extra, just
+    # commit what is already in the index" — that is the intended behaviour here
+    # because step 1 already staged everything we want.
+    try:
+        _sha = sandbox.commit_all(message, paths=[], force_add=None)
+    except Exception as _commit_exc:  # noqa: BLE001
+        from app.agents.runtime.local import GitCommandError as _GCE  # noqa: PLC0415
+
+        if isinstance(_commit_exc, _GCE):
+            logger.error(
+                "commit_in_sandbox: git commit FAILED for run=%s step=%s (%s)",
+                getattr(ectx, "run_id", "?"),
+                getattr(step, "agent_id", "?"),
+                _commit_exc,
+            )
+            raise
+        logger.error(
+            "commit_in_sandbox: unexpected error during git commit for run=%s (%s)",
+            getattr(ectx, "run_id", "?"),
+            _commit_exc,
+        )
+        raise
+
+    # A genuine no-change commit (nothing staged) is not a failure.
+    if not _sha:
+        logger.warning(
+            "commit_in_sandbox: no changes staged for run=%s step=%s (has_git=true)",
+            getattr(ectx, "run_id", "?"),
+            getattr(step, "agent_id", "?"),
+        )
+        return CommitInSandboxResult(no_change=True)
+
+    # ── Step 6: post_commit dispatch (observation-only, isolated try/except) ─
+    # An observer failure must NOT roll back the commit or alter control flow
+    # (Requirement 11 AC 2, task 4.1 requirement 5).
+    _safe_audit_detail: dict = {}
+    if audit_detail:
+        for _k in _AUDIT_DETAIL_ALLOWLIST:
+            if _k in audit_detail:
+                _safe_audit_detail[_k] = audit_detail[_k]
+
+    try:
+        if registry is not None:
+            _runner_post = getattr(ectx, "runner", None)
+            _engine_post = (
+                getattr(_runner_post, "engine", None) if _runner_post else None
+            )
+            if _engine_post is not None and hasattr(_engine_post, "_fire_hooks"):
+                await _engine_post._fire_hooks(
+                    "post_commit",
+                    step,
+                    ectx,
+                    registry,
+                    extra={
+                        "commit_sha": _sha,
+                        "audit_operation": audit_operation,
+                        "audit_detail": _safe_audit_detail,
+                        "agent_name": getattr(step, "agent_id", ""),
+                        "step_index": 0,
+                    },
+                )
+    except Exception as _post_exc:  # noqa: BLE001 — observer failure must never undo the commit
+        logger.warning(
+            "commit_in_sandbox: post_commit dispatch failed for run=%s (%s) — "
+            "commit sha=%s stands; observer failure is isolated",
+            getattr(ectx, "run_id", "?"),
+            _post_exc,
+            _sha,
+        )
+
+    logger.info(
+        "commit_in_sandbox: committed run=%s step=%s sha=%s op=%s",
+        getattr(ectx, "run_id", "?"),
+        getattr(step, "agent_id", "?"),
+        _sha,
+        audit_operation,
+    )
+    return CommitInSandboxResult(sha=_sha)
+
+
+# ---------------------------------------------------------------------------
+# Task 4.6 (sandbox-git-versioning / FR-033): declarative stale-file
+# reconciliation for a step declaring ``replaces: true``.
+# ---------------------------------------------------------------------------
+
+
+def _reconcile_replaces_surface(sandbox: "Any", step: "Any") -> None:
+    """Remove stale tracked paths under ``step.outputs`` before its commit.
+
+    Requirement 33/34: a step MAY declare ``outputs: [...]`` (the surface it
+    owns) and ``replaces: true`` (it owns that surface completely). When
+    ``replaces`` is truthy, every tracked path under the declared ``outputs``
+    surface that THIS pass did not write — determined from the workspace's
+    ``changed_since(spawn_point)`` — is ``git rm``'d here, BEFORE the caller's
+    step-boundary ``commit_in_sandbox`` call, so the removal lands in the same
+    commit as this pass's writes rather than a separate one.
+
+    No-op (INV-3 parity) when ``replaces`` is falsy, ``outputs`` is empty, or
+    the sandbox has no git repo. Best-effort: a git failure logs a warning and
+    leaves the stale paths untouched rather than blocking the step's own commit.
+    """
+    if not getattr(step, "replaces", False):
+        return
+    outputs = list(getattr(step, "outputs", None) or [])
+    if not outputs or not getattr(sandbox, "has_git", False):
+        return
+    try:
+        _ws = sandbox._ws()  # type: ignore[attr-defined]
+        _spawn_point = _ws.spawn_point_commit()
+        _tracked_raw = _ws._git("ls-files", "--", *outputs)  # type: ignore[attr-defined]
+        _tracked = {p.strip() for p in _tracked_raw.splitlines() if p.strip()}
+        if not _tracked:
+            return
+        _written_this_pass = set(_ws.changed_since(_spawn_point))
+        _stale = sorted(_tracked - _written_this_pass)
+        for _relpath in _stale:
+            _ws._git("rm", "--", _relpath)  # type: ignore[attr-defined]
+        if _stale:
+            logger.info(
+                "reconcile_replaces_surface: removed %d stale path(s) for run=%s "
+                "step=%s: %s",
+                len(_stale),
+                getattr(sandbox, "run_id", "?"),
+                getattr(step, "agent_id", "?"),
+                _stale,
+            )
+    except Exception as _reconcile_exc:  # noqa: BLE001 — best-effort, must not block the commit
+        logger.warning(
+            "reconcile_replaces_surface: FAILED for run=%s step=%s (%s) — "
+            "leaving stale paths untouched",
+            getattr(sandbox, "run_id", "?"),
+            getattr(step, "agent_id", "?"),
+            _reconcile_exc,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.7 (sandbox-git-versioning-v2, Req 5/4): canonical revision ordinal
+# ---------------------------------------------------------------------------
+
+
+def _compute_revision_ordinal(run_id: str, db: "Any") -> int:
+    """Return the revision ordinal for *run_id* — its 1-based position among
+    ALL family members ordered by creation (GAPS P0 #4 / FR-036 / FR-013).
+
+    GAPS T6 fix: finds the family ROOT (walking ``parent_run_id`` upward from
+    *run_id*), then counts *run_id*'s position among EVERY descendant of that
+    root — not the ancestor CHAIN to *run_id*. This is the SAME counting rule
+    as ``revision_index`` in ``app/api/runs.py::_owned_family_members`` (BFS
+    down from the root over every family member, sorted by
+    ``(created_at, id)``, 1-based index).
+
+    The previous version walked ``parent_run_id`` upward from *run_id* and
+    counted ancestors, reasoning that "the family lock admits only one
+    non-terminal revision at a time, so the family is a strict linear chain."
+    That is true only while a revision is IN FLIGHT — it says nothing about
+    two SEQUENTIAL revisions both created by revising the same (already
+    completed) root. Both are then siblings, each with an ancestor-chain
+    length of 1, so the old rule computed the SAME ordinal (2) for both and
+    the second one's tag collided with the first's (confirmed live:
+    root ``7a56140b…``, revisions ``f767bcb9…`` tagged ``v2`` and
+    ``226bf862…`` also computing ``v2`` and colliding — both
+    ``parent_run_id`` = the root, not each other). Counting family-wide
+    position instead of chain depth gives the second sibling the next FREE
+    number (``v3``) regardless of which existing member it was revised from.
+
+    Deliberately NOT filtering by owner/user_id: this function has no
+    ``user_id`` in scope (only ``run_id``/``db``), and adding it would require
+    a signature change at every call site for a class of corruption this
+    function was not asked to defend against.
+
+    This function never had ``_owned_family_members``'s cross-type
+    (``_canonical_base``) guard, and this docstring used to warn that the two
+    counting rules could therefore diverge. **They did.** A ``custom`` root
+    with a ``prototype_revision`` child and a ``custom_revision`` child tagged
+    the newest member ``v3`` here while the API's ``revision_index`` called it
+    2 — because the API silently dropped the cross-type member. That guard is
+    now removed (see ``_owned_family_members``' docstring for why it could
+    never detect the corruption it was written for), so both sides count every
+    family member and the two rules agree again.
+
+    Semantics:
+    - EVERY family member counts, whatever its terminal status. A ``failed``
+      or ``cancelled`` revision still occupies a slot in the family's
+      history — it just never gets a ``vN`` tag of its own (that gate is
+      separate, at the tag-creation call site: only a ``completed`` run
+      tags).
+    - A visited-set cycle guard prevents an infinite loop on corrupted data,
+      both on the upward root-finding walk and the downward BFS.
+    - *run_id* not found among its own family (row missing, or the root walk
+      hit a dead end before ever reaching a queryable row) degrades to 1
+      rather than raising.
+
+    *db* must be an open SQLAlchemy session.  The caller is responsible for
+    opening and closing it; this function does not manage the session lifecycle.
+
+    Deferred imports keep the ``agents.execution_engine`` → ``app.*``
+    import-linter boundary (contract 4/0) green.
+    """
+    from app.models.workflow import WorkflowRun as _WR  # noqa: PLC0415
+
+    # Walk parent_run_id UPWARD from run_id to find the family root.
+    root_id = run_id
+    seen_up: set[str] = set()
+    while root_id not in seen_up:
+        seen_up.add(root_id)
+        row = db.query(_WR).filter(_WR.id == root_id).first()
+        if row is None:
+            break
+        parent_id = getattr(row, "parent_run_id", None)
+        if not parent_id:
+            break
+        root_id = parent_id
+
+    # BFS DOWN from the root over every descendant (parent_run_id edges) —
+    # the whole family, not just run_id's own ancestor chain.
+    members = {}
+    root_row = db.query(_WR).filter(_WR.id == root_id).first()
+    if root_row is not None:
+        members[root_row.id] = root_row
+    frontier = {root_id}
+    visited = {root_id}
+    while frontier:
+        children = db.query(_WR).filter(_WR.parent_run_id.in_(frontier)).all()
+        frontier = set()
+        for child in children:
+            if child.id in visited:
+                continue
+            visited.add(child.id)
+            members[child.id] = child
+            frontier.add(child.id)
+
+    ordered = sorted(members.values(), key=lambda r: (r.created_at, r.id))
+    for idx, r in enumerate(ordered, start=1):
+        if r.id == run_id:
+            return idx
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# GAPS P0 #5 / FR-041: real chain_depth (source_run_id hop count), computed at
+# launch — never inside the finalizer.
+# ---------------------------------------------------------------------------
+
+
+def _compute_chain_depth(chain_source_run_id: str, db: "Any") -> int:
+    """Return the length of the ``source_run_id`` chain from this run to a run
+    with no source, given *chain_source_run_id* — this run's own immediate
+    chain source (GAPS P0 #5 / FR-041).
+
+    Walks ``source_run_id`` starting at the immediate source and counts every
+    hop, INCLUDING the first (this run -> ``chain_source_run_id``): a run
+    chaining directly from a root source reports depth 1; a run chaining from
+    a run that itself chains from a root reports depth 2; and so on. This is
+    DISTINCT from ``_compute_revision_ordinal`` above, which walks
+    ``parent_run_id`` (revision lineage) — chaining never follows that edge
+    (see ``context.py``'s ``chain_source_run_id`` docstring).
+
+    A visited-set cycle guard prevents an infinite loop on corrupted data. A
+    missing row terminates the walk (that hop still counts; the source's own
+    further ancestry is simply unknown) rather than raising.
+
+    *db* must be an open SQLAlchemy session; the caller owns its lifecycle.
+
+    Deferred import keeps the ``agents.execution_engine`` -> ``app.*``
+    import-linter boundary (contract 4/0) green — same idiom as
+    ``_compute_revision_ordinal``.
+    """
+    from app.models.workflow import WorkflowRun as _WR  # noqa: PLC0415
+
+    depth = 0
+    walk: str | None = chain_source_run_id
+    seen: set[str] = set()
+    while walk and walk not in seen:
+        seen.add(walk)
+        depth += 1
+        row = db.query(_WR).filter(_WR.id == walk).first()
+        if row is None:
+            break
+        walk = getattr(row, "source_run_id", None)
+    return depth
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3 (sandbox-git-versioning): .chain/{run_id}/ payload writer
+# ---------------------------------------------------------------------------
+
+
+def _write_chain_payload(run_id: str, ectx: "ExecutionContext") -> None:
+    """Write the .chain/{run_id}/ payload for a terminal run (Requirement 20).
+
+    Called from ``_fire_post_run`` for EVERY terminal status — completed,
+    cancelled, failed, degraded, diverted — so that a cancelled or failed run
+    can still be deliberately chained from.
+
+    Payload shape (Requirement 20.2):
+    ::
+
+        .chain/{run_id}/
+            summary.md              engine-rendered: status, run_id, timestamp
+            {deliverable_filename}  copy of the final output file (if any)
+            logs/
+                {run_id}.jsonl      copy of .logs/{run_id}.jsonl (or fallback)
+                {NN}-{agent_id}.md  copy of each .agents/ transcript
+
+    Best-effort: every file operation is wrapped in a private try/except so a
+    partial write or an unreadable source never raises here (Requirement 20.4).
+    The engine writes ``.chain/`` — no agent tool reaches a reserved prefix
+    (Requirement 20.6).
+    """
+    # Resolve the RunSandbox via ectx.runner (KernelServices). If runner is not
+    # yet attached (early teardown / harness path) degrade gracefully.
+    runner = getattr(ectx, "runner", None)
+    if runner is None:
+        logger.debug(
+            "_write_chain_payload: no runner on ectx, skipping (run=%s)", run_id
+        )
+        return
+
+    sandbox = getattr(runner, "sandbox", None)
+    if sandbox is None:
+        logger.debug(
+            "_write_chain_payload: no sandbox on runner, skipping (run=%s)", run_id
+        )
+        return
+
+    # All paths are relative to the sandbox root.
+    chain_dir = Path(_CHAIN_PREFIX.rstrip("/")) / run_id  # .chain/{run_id}
+    logs_dir = chain_dir / "logs"
+
+    # ── 1. Create the per-run subdirectory (never flat .chain/) ─────────────
+    try:
+        full_chain_dir = sandbox.root / chain_dir
+        full_logs_dir = sandbox.root / logs_dir
+        full_chain_dir.mkdir(parents=True, exist_ok=True)
+        full_logs_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "_write_chain_payload: failed to create chain directories for run=%s",
+            run_id,
+            exc_info=True,
+        )
+        return  # nothing more can be written without the directories
+
+    # ── 2. Write summary.md — engine-rendered, NOT agent prose ──────────────
+    try:
+        import datetime as _dt
+
+        _status = getattr(ectx, "final_status", None) or "unknown"
+        _ordinal = getattr(ectx, "revision_ordinal", 1)
+        _completed = getattr(ectx, "completed_tasks", [])
+        _steps_done = len(_completed) if isinstance(_completed, list) else 0
+        _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        summary_lines = [
+            "# Run Chain Summary",
+            "",
+            f"- **run_id**: {run_id}",
+            f"- **status**: {_status}",
+            f"- **revision_ordinal**: {_ordinal}",
+            f"- **steps_completed**: {_steps_done}",
+            f"- **written_at**: {_ts}",
+        ]
+        _git_tag = getattr(ectx, "git_tag", None)
+        if _git_tag:
+            summary_lines.append(f"- **git_tag**: {_git_tag}")
+        summary_text = "\n".join(summary_lines) + "\n"
+        (full_chain_dir / "summary.md").write_text(summary_text, encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "_write_chain_payload: failed to write summary.md for run=%s",
+            run_id,
+            exc_info=True,
+        )
+
+    # ── 3. Copy the final deliverable output under its own filename ──────────
+    try:
+        _deliverable = getattr(ectx, "deliverable", None)
+        _deliv_name = getattr(_deliverable, "name", None) if _deliverable else None
+        if _deliv_name:
+            _src = sandbox.root / _deliv_name
+            if _src.is_file():
+                shutil.copy2(_src, full_chain_dir / Path(_deliv_name).name)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "_write_chain_payload: failed to copy deliverable for run=%s",
+            run_id,
+            exc_info=True,
+        )
+
+    # ── 4. Copy the run log: .logs/{run_id}.jsonl ───────────────────────────
+    try:
+        _log_src = sandbox.run_log_path
+        if _log_src.is_file():
+            shutil.copy2(_log_src, full_logs_dir / f"{run_id}.jsonl")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "_write_chain_payload: failed to copy run log for run=%s",
+            run_id,
+            exc_info=True,
+        )
+
+    # ── 5. Copy .agents/ transcripts → .chain/{run_id}/logs/ ────────────────
+    try:
+        _agents_root = sandbox.root / _AGENT_OUTPUTS_PREFIX.rstrip("/")
+        if _agents_root.is_dir():
+            for _transcript in sorted(_agents_root.iterdir()):
+                if _transcript.is_file() and _transcript.suffix == ".md":
+                    try:
+                        shutil.copy2(_transcript, full_logs_dir / _transcript.name)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "_write_chain_payload: failed to copy transcript %s for run=%s",
+                            _transcript.name,
+                            run_id,
+                            exc_info=True,
+                        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "_write_chain_payload: failed to enumerate agent transcripts for run=%s",
+            run_id,
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task 5.4 (sandbox-git-versioning-v2, Req 4/5): summary.md renderer.
+#
+# Pure function — no I/O, no side effects.  Produces the YAML-ish markdown
+# written into .chain/summary.md.  All fields are engine-rendered and are
+# knowable BEFORE the commit that contains them (Requirement 4 AC 7, V2-Q10).
+# ---------------------------------------------------------------------------
+
+
+def render_summary_md(
+    run_id: str,
+    ectx: "ExecutionContext",
+    *,
+    candidate_status: str,
+    completed_steps: int,
+    output_filename: str,
+    intended_tag: str,
+    payload_chainable: bool,
+    non_chainable_reason: str,
+) -> str:
+    """Render the ``summary.md`` content for ``.chain/summary.md``.
+
+    All fields are knowable BEFORE the commit that contains them.  This
+    function is **pure** — it performs no I/O and has no side effects.
+
+    Parameters
+    ----------
+    run_id:
+        The logical ``WorkflowRun.id`` for this terminal run.
+    ectx:
+        The per-run ``ExecutionContext``; used to resolve ``revision_root_id``
+        (``ectx.runner.sandbox.sandbox_root_id`` when available, ``run_id`` as
+        fallback) and ``revision_ordinal``.
+    candidate_status:
+        The *candidate* terminal status resolved before payload creation
+        (``completed``, ``cancelled``, ``failed``, ``degraded``, or
+        ``diverted``).  Recorded immutably in the snapshot; later finalization
+        failures change only the published status and the finalization record,
+        never this field (V2-Q10, Requirement 5 AC 22).
+    completed_steps:
+        Number of completed build-loop steps at snapshot time.
+    output_filename:
+        Safe basename of the workflow deliverable, or ``""`` for a
+        metadata-only snapshot.
+    intended_tag:
+        Deterministic ``v{N}`` tag name recorded as proof of INTENT only.
+        MUST be ``""`` when ``candidate_status != "completed"``; MUST NOT be
+        used as proof that the tag already exists.  A committed ``summary.md``
+        is NEVER amended to reflect a tag created afterwards (Requirement 4
+        AC 17, V2-Q10).
+    payload_chainable:
+        ``True`` when this payload can serve as a chain source.
+    non_chainable_reason:
+        Short machine-readable reason string when ``payload_chainable`` is
+        ``False``; ``""`` otherwise.  Never contains user content, secrets,
+        or file bytes.
+
+    Returns
+    -------
+    str
+        The rendered ``summary.md`` text, UTF-8–safe, ending with a newline.
+    """
+    import datetime as _dt  # noqa: PLC0415 — stdlib, deferred for clarity
+
+    # Resolve revision_root_id from the sandbox when available (task 3.4
+    # split sandbox into two ids).  Fall back to run_id for harness / offline
+    # paths where the sandbox is absent (Requirement 2 AC 6).
+    _runner = getattr(ectx, "runner", None)
+    _sandbox = getattr(_runner, "sandbox", None)
+    _revision_root_id: str = getattr(_sandbox, "sandbox_root_id", run_id) or run_id
+
+    _ts = _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    # YAML-ish key: value lines.  No quoting — all values are engine-rendered
+    # identifiers, integers, booleans, or timestamps; none contain user content.
+    lines = [
+        "schema_version: 2",
+        f"run_id: {run_id}",
+        f"revision_root_id: {_revision_root_id}",
+        f"candidate_status: {candidate_status}",
+        f"completed_steps: {completed_steps}",
+        f"output_filename: {output_filename}",
+        f"intended_tag: {intended_tag}",
+        f"payload_chainable: {'true' if payload_chainable else 'false'}",
+        f"non_chainable_reason: {non_chainable_reason}",
+        f"written_at: {_ts}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Task 5.2 (sandbox-git-versioning-v2, Req 4/18): Flat payload builder.
+#
+# Builds exactly three regular files under a temporary sibling directory
+# .chain.staging-{run_id}/, then atomically swaps it into .chain/ via
+# sandbox.atomic_replace_dir (D4 fix — .chain/ was gitignored so its
+# contents were never committed; this function force-stages the three
+# allowlisted paths so they land in the terminal snapshot commit).
+#
+# Returns a Payload dataclass so the caller can inspect the outcome
+# without re-reading the index.
+# ---------------------------------------------------------------------------
+
+
+def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
+    """Build the flat ``.chain/`` payload and force-stage it (D4 fix).
+
+    Writes exactly three regular files into a ``.chain.staging-{run_id}/``
+    sibling directory then atomically swaps it into ``.chain/`` via
+    ``sandbox.atomic_replace_dir``.  After the swap, force-stages the three
+    allowlisted paths via ``sandbox.stage_exact`` so they are included in the
+    next commit (Requirement 4 AC 9–11, D4).
+
+    Stale-basename reconciliation: any path currently tracked under ``.chain/``
+    that is NOT in the new allowlist is removed from the index via
+    ``sandbox.git_rm_cached`` before staging the new paths (Requirement 4 AC 9).
+
+    Parameters
+    ----------
+    run_id:
+        The logical ``WorkflowRun.id`` for this terminal run (used as the
+        staging-directory suffix and in the placeholder summary).
+    ectx:
+        The per-run ``ExecutionContext`` carrying ``runner.sandbox``,
+        ``deliverable``, and ``final_status``.
+
+    Returns
+    -------
+    Payload
+        ``built=True`` when the staging directory was created and at least the
+        summary was written.  ``materialized=True`` when the output file was
+        successfully copied.  ``chainable == materialized`` (simple rule for
+        now).
+
+    Notes
+    -----
+    * Best-effort: every individual file operation is wrapped so a partial
+      write or an unreadable source never raises (matches D4's requirement for
+      the whole function to never propagate into the caller's finally block).
+    * ``sandbox`` must be available on ``ectx.runner``; otherwise a no-op
+      ``Payload`` is returned immediately.
+    * ``render_summary_md`` (task 5.4) is called when present; if that
+      function is not yet defined in this module a placeholder is used.
+    """
+    from pathlib import Path as _Path  # noqa: PLC0415 — deferred for import-linter
+
+    # ── Guard: resolve sandbox ──────────────────────────────────────────────
+    runner = getattr(ectx, "runner", None)
+    sandbox = getattr(runner, "sandbox", None)
+
+    # Build a sentinel "empty" Payload with an empty frozenset so the caller
+    # always gets a typed return value even when we cannot proceed.
+    _empty = Payload(
+        allowlist=frozenset(),
+        built=False,
+        materialized=False,
+        chainable=False,
+        non_chainable_reason="no_sandbox",
+    )
+
+    if sandbox is None:
+        logger.debug(
+            "build_flat_payload: no sandbox on runner, skipping (run=%s)", run_id
+        )
+        return _empty
+
+    # ── Resolve output basename from the compiled deliverable ───────────────
+    _deliverable = getattr(ectx, "deliverable", None)
+    _deliv_name: "str | None" = (
+        getattr(_deliverable, "name", None) if _deliverable else None
+    )
+    _output_basename: str = _Path(_deliv_name).name if _deliv_name else ""
+    _deliv_strategy: str = (
+        (getattr(_deliverable, "strategy", None) or "") if _deliverable else ""
+    )
+
+    # ── serialized_sandbox: the declared name is NOMINAL, not a file ────────
+    # `deliverable.name` is a literal on-disk basename only for the file-backed
+    # strategies (single_file / ppt).  A `serialized_sandbox` manifest declares
+    # a LABEL for an unknown-shape output (`custom_revision` → "output",
+    # `app_builder` → "app", `dotnet_to_azure` → "azure-app"); its resolved
+    # bytes are the whole-sandbox ``filename:``-block bundle.  Testing for a
+    # literal file under that label can therefore never succeed, so every such
+    # run degraded with `output_unmaterializable` and could never be tagged or
+    # chained (GAPS L2: a completed `custom_revision` minted no `v2`).
+    # Resolve the bundle through the same runner handle the declared resolver
+    # uses (never a direct ``app.*`` import — Pitfall 4), with the resolver's
+    # own claim rule (``count > 0``) as the materialization test.
+    # Computed BEFORE the staging dir exists: the walk excludes RESERVED_PATHS
+    # but not `.chain.staging-{run_id}/`, which would otherwise serialize this
+    # run's own logs.jsonl/summary.md into the deliverable.
+    _bundle_text: "str | None" = None
+    if (
+        _output_basename
+        and _deliv_strategy == "serialized_sandbox"
+        and not (sandbox.root / _output_basename).is_file()
+    ):
+        try:
+            if runner.count_sandbox_deliverables(sandbox.root) > 0:
+                _bundle_text = runner.serialize_sandbox_deliverable(sandbox.root)
+        except Exception:  # noqa: BLE001 — best-effort, falls back to unmaterialized
+            logger.warning(
+                "build_flat_payload: serialized_sandbox bundle failed for run=%s",
+                run_id,
+                exc_info=True,
+            )
+
+    # ── streamed_text: the declared name is NOMINAL, not a file (S8) ────────
+    # `chat` (chat.md), `custom` (output.md), `user_stories` (user_stories.md)
+    # and `reverse_engineer` (analysis.md) declare a nominal filename whose
+    # bytes live in ``ectx.last_streamed`` (the final agent's streamed
+    # output), never on disk — so `stage_exact` always failed to find the
+    # file and every such run degraded with `output_unmaterializable`,
+    # minting no tag (GAPS L2, found live by L5). Mirrors the
+    # `serialized_sandbox` bundle fix above: computed BEFORE the staging dir
+    # exists.
+    _streamed_text: "str | None" = None
+    if (
+        _output_basename
+        and _deliv_strategy == "streamed_text"
+        and not (sandbox.root / _output_basename).is_file()
+    ):
+        # Empty stream is not a claim — mirrors the bundle's `count > 0` rule
+        # above; an empty string would otherwise silently materialize as a
+        # zero-byte "completed" file and mint a tag.
+        _raw_streamed = getattr(ectx, "last_streamed", "") or ""
+        if _raw_streamed:
+            _streamed_text = _raw_streamed
+
+    # ── ppt: carousel-sanitized deck from ectx.last_streamed (B4 fix) ───────
+    # `strategy: ppt` resolves identically to `streamed_text` but applies the
+    # four-step PPT transform before materializing.  Without this branch every
+    # completed `ppt` run degraded with `output_unmaterializable` and minted no
+    # tag, and the chain admission gate always refused with
+    # `source_non_chainable` (B4 / GIT_VERSIONING_BUGS.md).
+    #
+    # The transform chain is imported from the ppt deliverable's own module —
+    # same functions PptResolver.resolve() calls (PARITY-07, move-don't-copy):
+    #   strip_code_fence → sanitize_carousel_deck_html →
+    #   strip_pre_slide_body_text → unwrap_artifact → strip_pre_document_prose
+    # An empty stream or a stream that sanitizes to empty is not claimed as a
+    # materialization, matching the `streamed_text` and `serialized_sandbox`
+    # "non-empty only" rules.
+    _ppt_text: "str | None" = None
+    if (
+        _output_basename
+        and _deliv_strategy == "ppt"
+        and not (sandbox.root / _output_basename).is_file()
+    ):
+        _raw_ppt = getattr(ectx, "last_streamed", "") or ""
+        if _raw_ppt:
+            try:
+                from agents.capabilities.deliverables._artifact import (  # noqa: PLC0415
+                    sanitize_carousel_deck_html as _sanitize_deck,
+                    strip_code_fence as _strip_fence,
+                    strip_pre_document_prose as _strip_prose,
+                    strip_pre_slide_body_text as _strip_pre_slide,
+                    unwrap_artifact as _unwrap,
+                )
+
+                _ppt_resolved = _strip_prose(
+                    _unwrap(_strip_pre_slide(_sanitize_deck(_strip_fence(_raw_ppt))))
+                )
+                if _ppt_resolved:  # empty result after sanitization is not a claim
+                    _ppt_text = _ppt_resolved
+            except Exception:  # noqa: BLE001 — best-effort, falls back to unmaterialized
+                logger.warning(
+                    "build_flat_payload: ppt sanitize failed for run=%s",
+                    run_id,
+                    exc_info=True,
+                )
+
+    # Build the allowlist.  When no output_basename is available we use the
+    # summary-only fallback (metadata-only snapshot, Requirement 4 AC 16).
+    try:
+        from app.agents.sandbox import payload_allowlist as _payload_allowlist  # noqa: PLC0415
+
+        if _output_basename:
+            _allowlist = _payload_allowlist(_output_basename)
+        else:
+            # Metadata-only snapshot — no output file in the allowlist.
+            _allowlist = frozenset({".chain/logs.jsonl", ".chain/summary.md"})
+    except Exception as _al_exc:  # noqa: BLE001
+        logger.warning(
+            "build_flat_payload: payload_allowlist failed for run=%s basename=%r: %s",
+            run_id,
+            _output_basename,
+            _al_exc,
+        )
+        return _empty
+
+    # ── Create the staging directory ────────────────────────────────────────
+    _staging_rel = f".chain.staging-{run_id}"
+    _staging_abs = sandbox.root / _staging_rel
+    try:
+        _staging_abs.mkdir(parents=True, exist_ok=True)
+    except Exception as _mkdir_exc:  # noqa: BLE001
+        logger.warning(
+            "build_flat_payload: failed to create staging dir for run=%s: %s",
+            run_id,
+            _mkdir_exc,
+        )
+        return _empty
+
+    # ── Write logs.jsonl ────────────────────────────────────────────────────
+    try:
+        _log_src: "_Path" = sandbox.run_log_path
+        if _log_src.is_file():
+            import shutil as _shutil  # noqa: PLC0415
+
+            _shutil.copy2(_log_src, _staging_abs / "logs.jsonl")
+        else:
+            # Empty placeholder so the path always exists in the staging dir.
+            (_staging_abs / "logs.jsonl").write_bytes(b"")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "build_flat_payload: failed to write logs.jsonl for run=%s",
+            run_id,
+            exc_info=True,
+        )
+
+    # ── Copy the output file (materialized iff successful) ──────────────────
+    # Must run BEFORE summary.md is rendered so payload_chainable (which derives
+    # from _materialized) is a known value when render_summary_md is called.
+    _materialized = False
+    if _output_basename:
+        try:
+            import shutil as _shutil2  # noqa: PLC0415
+
+            _src_output = sandbox.root / _output_basename
+            if _src_output.is_file():
+                _shutil2.copy2(_src_output, _staging_abs / _output_basename)
+                _materialized = True
+            elif _bundle_text is not None:
+                # serialized_sandbox — the declared output IS the bundle.
+                (_staging_abs / _output_basename).write_text(
+                    _bundle_text, encoding="utf-8"
+                )
+                _materialized = True
+                logger.debug(
+                    "build_flat_payload: materialized serialized_sandbox bundle "
+                    "run=%s basename=%r bytes=%d",
+                    run_id,
+                    _output_basename,
+                    len(_bundle_text),
+                )
+            elif _streamed_text is not None:
+                # streamed_text — the declared output IS ectx.last_streamed (S8).
+                (_staging_abs / _output_basename).write_text(
+                    _streamed_text, encoding="utf-8"
+                )
+                _materialized = True
+                logger.debug(
+                    "build_flat_payload: materialized streamed_text output "
+                    "run=%s basename=%r bytes=%d",
+                    run_id,
+                    _output_basename,
+                    len(_streamed_text),
+                )
+            elif _ppt_text is not None:
+                # ppt — carousel-sanitized deck from ectx.last_streamed (B4 fix).
+                (_staging_abs / _output_basename).write_text(
+                    _ppt_text, encoding="utf-8"
+                )
+                _materialized = True
+                logger.debug(
+                    "build_flat_payload: materialized ppt deck "
+                    "run=%s basename=%r bytes=%d",
+                    run_id,
+                    _output_basename,
+                    len(_ppt_text),
+                )
+            else:
+                logger.debug(
+                    "build_flat_payload: output file not found run=%s basename=%r",
+                    run_id,
+                    _output_basename,
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "build_flat_payload: failed to copy output file for run=%s",
+                run_id,
+                exc_info=True,
+            )
+
+    # ── Write summary.md — all fields knowable before the commit (Req 4 AC 7)
+    # ── Task 5.4: call render_summary_md with fully resolved field values. ───
+    # Compute fields outside the try so _payload_chainable / _non_chainable_reason
+    # are always bound for the Payload return even when the file write fails.
+    _candidate_status: str = getattr(ectx, "final_status", None) or "unknown"
+    _completed_steps: int = len(getattr(ectx, "completed_tasks", []) or [])
+    # intended_tag is proof of INTENT only — recorded when the candidate outcome
+    # is completed, "" otherwise (Requirement 4 AC 17, V2-Q10).
+    _intended_tag: str = (
+        f"v{getattr(ectx, 'revision_ordinal', 1)}"
+        if _candidate_status == "completed"
+        else ""
+    )
+    _payload_chainable: bool = _materialized
+    # No declared name (Req 4 AC 4) is non-chainable BY DESIGN, distinct from a
+    # declared name whose bytes could not be produced — the finalizer (Step 5)
+    # keys off this exact string to skip the degrade for the former (GAPS R6).
+    _non_chainable_reason: str = (
+        ""
+        if _payload_chainable
+        else "no_declared_output"
+        if not _output_basename
+        else "output_not_materialized"
+    )
+    try:
+        _summary_text: str = render_summary_md(
+            run_id,
+            ectx,
+            candidate_status=_candidate_status,
+            completed_steps=_completed_steps,
+            output_filename=_output_basename,
+            intended_tag=_intended_tag,
+            payload_chainable=_payload_chainable,
+            non_chainable_reason=_non_chainable_reason,
+        )
+        (_staging_abs / "summary.md").write_text(_summary_text, encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "build_flat_payload: failed to write summary.md for run=%s",
+            run_id,
+            exc_info=True,
+        )
+
+    # ── Atomic swap: staging → .chain/ ──────────────────────────────────────
+    _chain_abs = sandbox.root / ".chain"
+    try:
+        sandbox.atomic_replace_dir(_staging_abs, _chain_abs)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "build_flat_payload: atomic_replace_dir failed for run=%s",
+            run_id,
+            exc_info=True,
+        )
+        # Return a partially-built Payload — the caller will still attempt
+        # to stage whatever is on disk.
+
+    # ── Stale-basename reconciliation ───────────────────────────────────────
+    # Any path currently tracked under .chain/ that is NOT in the new allowlist
+    # must be removed from the index so a renamed deliverable does not leave an
+    # orphan tracked entry (Requirement 4 AC 9).
+    try:
+        _tracked = sandbox.tracked_chain_paths()
+        for _old_path in _tracked:
+            if _old_path not in _allowlist:
+                sandbox.git_rm_cached(_old_path)
+                logger.debug(
+                    "build_flat_payload: git_rm_cached stale path=%r run=%s",
+                    _old_path,
+                    run_id,
+                )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "build_flat_payload: stale-basename reconciliation failed for run=%s",
+            run_id,
+            exc_info=True,
+        )
+
+    # ── Force-stage the allowlist paths ─────────────────────────────────────
+    # stage_exact raises when has_git=False — only call when git is present.
+    if getattr(sandbox, "has_git", False):
+        try:
+            sandbox.stage_exact(list(_allowlist))
+            logger.debug(
+                "build_flat_payload: staged allowlist=%r run=%s", _allowlist, run_id
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "build_flat_payload: stage_exact failed for run=%s",
+                run_id,
+                exc_info=True,
+            )
+
+    return Payload(
+        allowlist=_allowlist,
+        built=True,
+        materialized=_materialized,
+        chainable=_payload_chainable,
+        non_chainable_reason=_non_chainable_reason,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 5.3 (sandbox-git-versioning-v2, Req 4 AC 16 / Req 5 AC 15–18):
+# Metadata-only terminal snapshot builder.
+#
+# Called on two triggers:
+#   • ``payload_blocked``           — the secret scan blocked the full payload
+#   • ``output_unmaterializable``   — the output file could not be materialized
+#
+# The snapshot contains ONLY ``.chain/summary.md`` with
+# ``payload_chainable: false``.  No ``logs.jsonl``, no output bytes, no excerpt
+# of the blocked material.  The index is reset first so no staged bytes from an
+# earlier build attempt bleed into this commit.  Any previously tracked paths
+# under ``.chain/`` (``logs.jsonl`` and the deliverable basename) are untracked
+# from the index before staging the metadata-only summary.
+#
+# Returns the same ``Payload`` type as ``build_flat_payload`` so callers have a
+# uniform interface.  ``built=True, materialized=False, chainable=False``.
+# ---------------------------------------------------------------------------
+
+
+def build_metadata_only_snapshot(
+    run_id: str,
+    ectx: "ExecutionContext",
+    *,
+    non_chainable_reason: str,
+) -> "Payload":
+    """Build a metadata-only terminal snapshot containing only ``.chain/summary.md``.
+
+    Called when the full payload cannot be committed safely — either because the
+    mandatory secret scan blocked it (``payload_blocked``) or because the workflow
+    output could not be materialized under its declared name
+    (``output_unmaterializable``).
+
+    The function guarantees:
+
+    * The Git index is reset to HEAD before any staging so no bytes from a prior
+      blocked build attempt carry into this commit (Requirement 5 AC 16).
+    * Every ``.chain/`` path currently tracked in the index other than
+      ``.chain/summary.md`` itself is removed from the index (via
+      ``tracked_chain_paths()``, not guessed from the declared deliverable
+      name) so the snapshot tree does not inherit a previous run's bytes from
+      the parent commit (Requirement 4 AC 16).
+    * Only ``.chain/summary.md`` is written and force-staged.  The summary
+      carries ``payload_chainable: false`` and the caller-supplied
+      ``non_chainable_reason``.  No ``logs.jsonl``, no output bytes, and
+      **no excerpt of any blocked content** appear anywhere in the file.
+    * ``allowlist`` in the returned ``Payload`` is the single-element frozenset
+      ``{".chain/summary.md"}`` — not the three-path set — so callers that
+      consult the allowlist for stale-basename reconciliation see the correct set.
+
+    Parameters
+    ----------
+    run_id:
+        The logical ``WorkflowRun.id`` for this terminal run.
+    ectx:
+        The per-run ``ExecutionContext`` carrying ``runner.sandbox``,
+        ``deliverable``, and ``final_status``.
+    non_chainable_reason:
+        A short machine-readable reason string.  MUST be one of
+        ``"payload_blocked"`` or ``"output_unmaterializable"``.  Never
+        contains file content, secrets, user input, or an excerpt of the
+        blocked material.
+
+    Returns
+    -------
+    Payload
+        ``built=True, materialized=False, chainable=False``.
+        ``allowlist`` is ``frozenset({".chain/summary.md"})``.
+        On any unrecoverable setup failure the sentinel
+        ``Payload(allowlist=frozenset(), built=False, …)`` is returned.
+
+    Notes
+    -----
+    * Best-effort throughout: every individual step is wrapped so a partial
+      failure never raises into the finalizer.
+    * ``sandbox`` must be available on ``ectx.runner``; otherwise the sentinel
+      is returned immediately.
+    """
+    _SUMMARY_ONLY_ALLOWLIST: frozenset[str] = frozenset({".chain/summary.md"})
+
+    # ── Guard: resolve sandbox ──────────────────────────────────────────────
+    runner = getattr(ectx, "runner", None)
+    sandbox = getattr(runner, "sandbox", None)
+
+    _sentinel = Payload(
+        allowlist=frozenset(),
+        built=False,
+        materialized=False,
+        chainable=False,
+        non_chainable_reason=non_chainable_reason,
+    )
+
+    if sandbox is None:
+        logger.debug(
+            "build_metadata_only_snapshot: no sandbox on runner, skipping (run=%s)",
+            run_id,
+        )
+        return _sentinel
+
+    # ── Step 1: Reset the index to HEAD ────────────────────────────────────
+    # Clears any staged bytes from a prior blocked build attempt so they cannot
+    # bleed into the metadata-only commit (Requirement 5 AC 16).
+    if getattr(sandbox, "has_git", False):
+        try:
+            sandbox.reset_index()
+            logger.debug("build_metadata_only_snapshot: index reset run=%s", run_id)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "build_metadata_only_snapshot: reset_index failed for run=%s",
+                run_id,
+                exc_info=True,
+            )
+            # Continue — the untrack step below is a further safeguard.
+
+    # ── Step 2: Untrack every other currently-tracked .chain/ path ──────────
+    # Prevents the snapshot tree from inheriting a PRIOR run's bytes via the
+    # parent commit.  Derived from the sandbox's actual tracked paths (same
+    # ``tracked_chain_paths()`` primitive ``build_flat_payload``'s stale-
+    # basename reconciliation uses) rather than guessed from the declared
+    # deliverable name: for a ``serialized_sandbox`` deliverable the declared
+    # name (e.g. "output", "app") is a nominal label that never corresponds
+    # to a literal tracked file, so deriving the untrack set from it silently
+    # skipped the REAL previously-tracked path (e.g. a prior sibling run's
+    # ``.chain/hello.html``) — left it deleted from the working tree by
+    # ``atomic_replace_dir`` but still present in the index, so the tree
+    # never came back clean (Requirement 4 AC 16).
+    if getattr(sandbox, "has_git", False):
+        try:
+            _tracked = sandbox.tracked_chain_paths()
+        except Exception:  # noqa: BLE001
+            _tracked = []
+        for _untrack_path in _tracked:
+            if _untrack_path in _SUMMARY_ONLY_ALLOWLIST:
+                continue
+            try:
+                sandbox.git_rm_cached(_untrack_path)
+                logger.debug(
+                    "build_metadata_only_snapshot: git_rm_cached path=%r run=%s",
+                    _untrack_path,
+                    run_id,
+                )
+            except Exception:  # noqa: BLE001
+                # git_rm_cached is already best-effort (no-op when not tracked),
+                # so any other exception is also logged and swallowed here.
+                logger.warning(
+                    "build_metadata_only_snapshot: git_rm_cached failed path=%r run=%s",
+                    _untrack_path,
+                    run_id,
+                    exc_info=True,
+                )
+
+    # ── Step 3: Ensure .chain/ directory exists ─────────────────────────────
+    _chain_abs = sandbox.root / ".chain"
+    try:
+        _chain_abs.mkdir(parents=True, exist_ok=True)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "build_metadata_only_snapshot: failed to create .chain/ dir for run=%s",
+            run_id,
+            exc_info=True,
+        )
+        return _sentinel
+
+    # ── Step 4: Write summary.md — metadata only, no blocked content ────────
+    # All fields knowable before the commit (Requirement 4 AC 7 / V2-Q10).
+    # ``payload_chainable: false`` with the generic caller-supplied reason.
+    # No logs.jsonl path, no output filename, no excerpt of blocked material.
+    _candidate_status: str = getattr(ectx, "final_status", None) or "unknown"
+    _completed_steps: int = len(getattr(ectx, "completed_tasks", []) or [])
+    # A metadata-only snapshot NEVER gets a visible vN tag (Requirement 4 AC 16).
+    # intended_tag is therefore "".
+    try:
+        _summary_text: str = render_summary_md(
+            run_id,
+            ectx,
+            candidate_status=_candidate_status,
+            completed_steps=_completed_steps,
+            output_filename="",  # no output — metadata only
+            intended_tag="",  # no tag for a metadata-only snapshot
+            payload_chainable=False,
+            non_chainable_reason=non_chainable_reason,
+        )
+        (_chain_abs / "summary.md").write_text(_summary_text, encoding="utf-8")
+        logger.debug(
+            "build_metadata_only_snapshot: wrote summary.md run=%s reason=%r",
+            run_id,
+            non_chainable_reason,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "build_metadata_only_snapshot: failed to write summary.md for run=%s",
+            run_id,
+            exc_info=True,
+        )
+        # Return built=False — the caller must not proceed to commit a missing file.
+        return _sentinel
+
+    # ── Step 5: Force-stage only summary.md ─────────────────────────────────
+    # Only the one metadata file; logs.jsonl and the output file are absent by
+    # design and must NOT be staged (Requirement 4 AC 16).
+    if getattr(sandbox, "has_git", False):
+        try:
+            sandbox.stage_exact([".chain/summary.md"])
+            logger.debug(
+                "build_metadata_only_snapshot: staged summary.md run=%s", run_id
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "build_metadata_only_snapshot: stage_exact failed for run=%s",
+                run_id,
+                exc_info=True,
+            )
+
+    return Payload(
+        allowlist=_SUMMARY_ONLY_ALLOWLIST,
+        built=True,
+        materialized=False,
+        chainable=False,
+        non_chainable_reason=non_chainable_reason,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 5.8 (sandbox-git-versioning-v2, Req 5/10/11):
+# finalize_terminal_run — the ordered 12-step terminal finalizer
+# ---------------------------------------------------------------------------
+# Replaces _post_run_fired / _fire_post_run (v1 Task 3.2).
+#
+# The process-local guard below is retained as a FAST PATH only — the primary
+# idempotency mechanism is now the Git ref (create-only CAS) and the durable
+# finalization record (upsert on run_id).  A second call on the same run_id
+# will inspect the Git state and find the ref already present, converge on the
+# existing commit, and return the persisted record without re-running any step.
+_finalize_terminal_run_started: set[str] = set()
+
+# Published statuses the ``POST /{run_id}/resume`` endpoint (RESUME-18,
+# app/api/run_commands.py) accepts for re-driving a terminal run. "completed"
+# is deliberately excluded there (already tagged, never resumable) and
+# "diverted" has no v1 resume — so a prior finalization record reporting one
+# of THESE statuses is the only case a later, different finalization pass for
+# the SAME run_id can legitimately exist. Duplicated here rather than
+# imported from run_commands.py per the 4/0 import boundary
+# (agents.execution_engine must not import app.api).
+_RESUMABLE_TERMINAL_STATUSES = frozenset({"cancelled", "failed", "degraded"})
+
+
+async def finalize_terminal_run(
+    run_id: str,
+    ectx: "ExecutionContext",
+    *,
+    candidate_status: str,
+) -> "FinalizationRecord":
+    """Execute the ordered 12-step terminal finalizer for *run_id*.
+
+    Replaces ``_fire_post_run`` (Task 3.2).  This function is **async** because
+    Step 6 calls ``commit_in_sandbox``, which dispatches async declared hooks.
+
+    Structure
+    ---------
+    A ``FinalizationAttempt`` accumulator collects each step's result.  The
+    function has **exactly one exit** — a single ``return record`` at the tail.
+    There are no early returns inside the main handler.  A bare
+    ``try/except BaseException`` wraps the entire sequence and re-raises
+    ``KeyboardInterrupt`` / ``SystemExit`` so process shutdown is never swallowed.
+    Step 12 (cleanup) sits outside the main handler and has its own guard.
+
+    Fast-path guard
+    ---------------
+    ``_finalize_terminal_run_started`` is a process-local set used to detect a
+    second synchronous call before the async work completes.  It is **not** the
+    primary idempotency mechanism — that role belongs to the Git CAS ref and the
+    durable finalization record.  A crash-replay finds the ref and converges on
+    the existing commit (Step 6) rather than re-committing.
+
+    Parameters
+    ----------
+    run_id:
+        The ``WorkflowRun.id`` for this terminal run.
+    ectx:
+        The per-run ``ExecutionContext``.  Must have ``runner.sandbox`` for Git
+        operations; gracefully degrades when absent.
+    candidate_status:
+        The terminal status derived by the caller before invoking the finalizer.
+        One of: ``completed``, ``cancelled``, ``failed``, ``degraded``,
+        ``diverted``.  This is the *candidate* — the *published* status may
+        differ if a later step degrades the record.
+
+    Returns
+    -------
+    FinalizationRecord
+        Always returns a record — on total failure an in-memory fallback record
+        flagged ``_unpersisted=True`` is returned so the caller can still emit a
+        terminal event (Departure N1, Requirement 5 AC 12).
+    """
+    # ── Fast-path idempotency guard ──────────────────────────────────────────
+    # A second call within the same process (e.g. both _execute_impl's finally
+    # AND _drive_resumed_stream's finally) is a no-op that returns a minimal
+    # in-memory record.  The Git CAS ref + DB upsert handle cross-process replay.
+    if run_id in _finalize_terminal_run_started:
+        logger.debug(
+            "finalize_terminal_run: already started for run=%s — no-op", run_id
+        )
+        # Return a minimal record so the caller has a typed object to work with.
+        from agents.execution_engine.finalization import (  # noqa: PLC0415
+            FinalizationRecord,
+            read_finalization_record,
+        )
+
+        try:
+            from app.models.database import SessionLocal as _SL_ro  # noqa: PLC0415
+
+            _db_ro = _SL_ro()
+            try:
+                _existing = read_finalization_record(_db_ro, run_id)
+                if _existing is not None:
+                    return _existing
+            finally:
+                _db_ro.close()
+        except Exception:  # noqa: BLE001
+            pass
+        _owner = getattr(ectx, "user_id", None) or getattr(ectx, "owner_id", None) or ""
+        _ws = getattr(ectx, "workspace_id", None) or ""
+        return FinalizationRecord(
+            run_id=run_id,
+            owner_id=_owner,
+            workspace_id=_ws,
+            published_status=candidate_status,
+            candidate_status=candidate_status,
+        )
+    _finalize_terminal_run_started.add(run_id)
+
+    # Resolve identity fields for the record (deferred imports keep 4/0 green).
+    _owner_id: str = (
+        getattr(ectx, "user_id", None) or getattr(ectx, "owner_id", None) or ""
+    )
+    _workspace_id: str = getattr(ectx, "workspace_id", None) or ""
+    _runner = getattr(ectx, "runner", None)
+    _sandbox = getattr(_runner, "sandbox", None)
+    # KernelServices (the real ``_runner`` in production) exposes no ``registry``
+    # attribute — only ``fire_hooks()``, its own payload-less passthrough — so
+    # ``getattr(_runner, "registry", None)`` was always None here. Build the same
+    # fresh ``CapabilityRegistry()`` the step-boundary caller and
+    # ``KernelServices.fire_hooks`` already construct on every call, so the
+    # post_run dispatch below (Step 10 supplement) can resolve a real hook.
+    from agents.capabilities.registry import CapabilityRegistry as _CapReg_finalizer  # noqa: PLC0415
+
+    _registry = _CapReg_finalizer()
+
+    # Build the per-pass accumulator.
+    attempt = FinalizationAttempt(
+        run_id=run_id,
+        owner_id=_owner_id,
+        workspace_id=_workspace_id,
+    )
+
+    # Import record/persist helpers once (deferred so 4/0 boundary stays green).
+    from agents.execution_engine.finalization import (  # noqa: PLC0415
+        FinalizationRecord,
+        persist_finalization_record_safe,
+        read_finalization_record,
+    )
+
+    # ── Build a sentinel record for the failure/departure-N1 path ───────────
+    def _sentinel_record(reason: str) -> "FinalizationRecord":
+        return FinalizationRecord(
+            run_id=run_id,
+            owner_id=_owner_id,
+            workspace_id=_workspace_id,
+            published_status="degraded",
+            candidate_status=candidate_status,
+            payload_chainable=False,
+            non_chainable_reason=reason,
+            _unpersisted=True,
+        )
+
+    # ── Main 12-step handler ─────────────────────────────────────────────────
+    # Exactly ONE exit point — ``return record`` at the tail.
+    # No early returns inside this block.
+    record: "FinalizationRecord" = _sentinel_record("finalizer_not_reached")
+    try:
+        # ────────────────────────────────────────────────────────────────────
+        # Step 1a: Acquire family lock (best-effort via sandbox duck-type)
+        # ────────────────────────────────────────────────────────────────────
+        # The family lock is acquired+released inside the finalizer's scope so
+        # the sweeper cannot reclaim the sandbox while we are writing the payload.
+        # Timeout is settings-backed (FAMILY_LOCK_TIMEOUT_S); a
+        # FamilyLockTimeout is caught in Step 12's guard — it must not skip
+        # ``return record``.
+        _family_lock_ctx = None
+        _acquire_family_lock = getattr(_sandbox, "acquire_family_lock", None)
+        if _acquire_family_lock is not None:
+            try:
+                _family_lock_ctx = _acquire_family_lock()
+                if hasattr(_family_lock_ctx, "__enter__"):
+                    _family_lock_ctx.__enter__()
+            except Exception as _lock_exc:  # noqa: BLE001
+                logger.warning(
+                    "finalize_terminal_run: family lock acquire FAILED run=%s (%s) — "
+                    "continuing without lock (sweeper-safe: sandbox still alive)",
+                    run_id,
+                    _lock_exc,
+                )
+                _family_lock_ctx = None
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 1b: detect_persistent_git_state — reconcile crash-recovered
+        # ────────────────────────────────────────────────────────────────────
+        # Must run BEFORE any write.  A MERGE_HEAD, stale index.lock, etc.
+        # from a prior crash must be resolved first.  detect + reconcile are
+        # duck-typed on the sandbox (Task 7.3 wired them; graceful no-op when
+        # the methods are absent).
+        if _sandbox is not None and getattr(_sandbox, "has_git", False):
+            try:
+                _detect_fn = getattr(_sandbox, "detect_persistent_git_state", None)
+                _reconcile_fn = getattr(
+                    _sandbox, "reconcile_persistent_git_state", None
+                )
+                if _detect_fn is not None:
+                    _git_state = _detect_fn()
+                    _git_state_val = (
+                        _git_state.get("state", "clean")
+                        if isinstance(_git_state, dict)
+                        else "clean"
+                    )
+                    if _git_state_val != "clean" and _reconcile_fn is not None:
+                        logger.info(
+                            "finalize_terminal_run: crash-recovered git state=%r run=%s — reconciling",
+                            _git_state_val,
+                            run_id,
+                        )
+                        import types as _t  # noqa: PLC0415
+
+                        _recovery_step = _t.SimpleNamespace(
+                            agent_id="crash-recovery",
+                            hooks=[],
+                            tools=None,
+                        )
+                        _reconcile_fn(
+                            _git_state,
+                            message_class="crash-recovered",
+                        )
+            except Exception as _detect_exc:  # noqa: BLE001
+                logger.warning(
+                    "finalize_terminal_run: persistent-git-state detection FAILED run=%s (%s)",
+                    run_id,
+                    _detect_exc,
+                )
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 2: Non-success WIP reconcile
+        # ────────────────────────────────────────────────────────────────────
+        # For non-completed/non-diverted terminal statuses, commit any leftover
+        # working-tree changes as "wip: cancelled at step {id}".  If this commit
+        # is BLOCKED by the mandatory scan, reset the index and degrade — the
+        # reconciliation did not happen, so the published status must reflect it.
+        _wip_statuses = {"cancelled", "failed", "degraded"}
+        if _sandbox is not None and candidate_status in _wip_statuses:
+            _is_dirty = getattr(_sandbox, "is_dirty", lambda: False)
+            if _is_dirty():
+                _visit_counts = getattr(ectx, "step_visit_counts", {}) or {}
+                _last_step_id = list(_visit_counts)[-1] if _visit_counts else "unknown"
+                _wip_msg = f"wip: cancelled at step {_last_step_id}"
+                import types as _types_wip  # noqa: PLC0415
+
+                _wip_step = _types_wip.SimpleNamespace(
+                    agent_id=f"wip-{_last_step_id}",
+                    hooks=[],
+                    tools=None,
+                )
+                try:
+                    _wip_result = await commit_in_sandbox(
+                        _sandbox,
+                        _wip_msg,
+                        ectx,
+                        _wip_step,
+                        audit_operation=None,
+                        registry=None,
+                    )
+                    if _wip_result.blocked:
+                        # Blocked WIP must not poison the step-5 snapshot.
+                        logger.warning(
+                            "finalize_terminal_run: WIP commit BLOCKED reason=%s run=%s — "
+                            "resetting index and degrading",
+                            _wip_result.block_reason,
+                            run_id,
+                        )
+                        # Reset index so no blocked bytes leak into the snapshot.
+                        _reset_idx = getattr(_sandbox, "reset_index", None)
+                        if _reset_idx is not None:
+                            try:
+                                _reset_idx()
+                            except Exception:  # noqa: BLE001
+                                pass
+                        attempt.note_blocked_reconcile("wip_commit_blocked")
+                    else:
+                        logger.info(
+                            "finalize_terminal_run: WIP commit run=%s status=%s step=%s sha=%s",
+                            run_id,
+                            candidate_status,
+                            _last_step_id,
+                            _wip_result.sha,
+                        )
+                except Exception as _wip_exc:  # noqa: BLE001
+                    logger.warning(
+                        "finalize_terminal_run: WIP commit raised run=%s (%s)",
+                        run_id,
+                        _wip_exc,
+                    )
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 3: Flush trace (task 5.7 already done — verify and invoke)
+        # ────────────────────────────────────────────────────────────────────
+        # The trace MUST be flushed before step 4 copies logs.jsonl.
+        # flush_terminal writes the candidate terminal entry, then drains
+        # streamed output, thinking, and tool payloads.
+        _run_trace_ref = getattr(ectx, "run_trace", None)
+        if _run_trace_ref is not None:
+            _flush_terminal_fn = getattr(_run_trace_ref, "flush_terminal", None)
+            if _flush_terminal_fn is not None:
+                try:
+                    _flush_terminal_fn(
+                        "run_terminal",
+                        run_id=run_id,
+                        status=candidate_status,
+                        revision_ordinal=getattr(ectx, "revision_ordinal", 1),
+                    )
+                except Exception as _flush_exc:  # noqa: BLE001
+                    logger.debug(
+                        "finalize_terminal_run: flush_terminal failed run=%s: %s",
+                        run_id,
+                        _flush_exc,
+                    )
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 4 is implicit inside build_flat_payload — it reads run_log_path
+        # (which points to the freshly flushed .logs/{run_id}.jsonl) and copies
+        # it to .chain/logs.jsonl inside the staging directory.  No separate
+        # step is needed here.
+        # ────────────────────────────────────────────────────────────────────
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 5: Build flat payload (or metadata-only on triggered fallback)
+        # On a blocked snapshot reset index and rebuild as metadata-only.
+        # A second block raises SnapshotUnrecoverable (defensive only).
+        # ────────────────────────────────────────────────────────────────────
+        _commit_was_blocked: bool = bool(getattr(ectx, "last_commit_blocked", False))
+        _built_payload: "Payload"
+
+        if _commit_was_blocked:
+            # payload_blocked trigger: a prior step-boundary commit was blocked.
+            _built_payload = build_metadata_only_snapshot(
+                run_id, ectx, non_chainable_reason="payload_blocked"
+            )
+            logger.warning(
+                "finalize_terminal_run: metadata_only_snapshot run=%s trigger=payload_blocked",
+                run_id,
+            )
+        else:
+            _built_payload = build_flat_payload(run_id, ectx)
+            # output_unmaterializable trigger
+            _deliv_check = getattr(ectx, "deliverable", None)
+            _has_declared_deliverable: bool = bool(
+                getattr(_deliv_check, "name", None) if _deliv_check else None
+            )
+            if (
+                _built_payload.built
+                and not _built_payload.materialized
+                and _has_declared_deliverable
+            ):
+                _built_payload = build_metadata_only_snapshot(
+                    run_id, ectx, non_chainable_reason="output_unmaterializable"
+                )
+                logger.warning(
+                    "finalize_terminal_run: metadata_only_snapshot run=%s "
+                    "trigger=output_unmaterializable",
+                    run_id,
+                )
+
+        # If the payload was not built at all, attempt one metadata-only retry.
+        if not _built_payload.built:
+            logger.warning(
+                "finalize_terminal_run: payload NOT built run=%s — retrying as metadata-only",
+                run_id,
+            )
+            # Reset index first so no partial bytes contaminate the retry.
+            _reset_idx2 = getattr(_sandbox, "reset_index", None) if _sandbox else None
+            if _reset_idx2 is not None:
+                try:
+                    _reset_idx2()
+                except Exception:  # noqa: BLE001
+                    pass
+            _built_payload = build_metadata_only_snapshot(
+                run_id, ectx, non_chainable_reason="payload_build_failed"
+            )
+            if not _built_payload.built:
+                # Second build also failed — raise SnapshotUnrecoverable.
+                # This is caught below; the accumulator degrades and we reach the tail.
+                raise SnapshotUnrecoverable(
+                    f"metadata-only snapshot also failed to build for run={run_id}"
+                )
+
+        attempt.record_payload(_built_payload)
+
+        # Propagate non-chainable to the attempt — EXCEPT when it is
+        # non-chainable BY DESIGN (no deliverable name declared, Req 4 AC 4:
+        # sample_wave / sample_fanout / playwright_smoke_test). That is not a
+        # failure and must not degrade an otherwise-successful run (GAPS R6) —
+        # a declared name whose bytes could not be produced still degrades.
+        if (
+            not _built_payload.chainable
+            and _built_payload.non_chainable_reason != "no_declared_output"
+        ):
+            attempt.degrade(
+                _built_payload.non_chainable_reason or "payload_not_chainable"
+            )
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 6: Commit through the primitive (no_change on crash-replay)
+        # ────────────────────────────────────────────────────────────────────
+        # Message is engine-rendered and contains no user content.
+        _commit_msg = f"chore: terminal snapshot run={run_id} status={candidate_status}"
+        import types as _types_step6  # noqa: PLC0415
+
+        _snap_step = _types_step6.SimpleNamespace(
+            agent_id="finalizer-snapshot",
+            hooks=[],
+            tools=None,
+        )
+
+        _snap_result: "CommitInSandboxResult"
+        _snap_result = CommitInSandboxResult(no_change=True)  # default: no-git path
+
+        if _sandbox is not None and getattr(_sandbox, "has_git", False):
+            try:
+                _snap_result = await commit_in_sandbox(
+                    _sandbox,
+                    _commit_msg,
+                    ectx,
+                    _snap_step,
+                    audit_operation="snapshot_commit",
+                    paths=[],  # already staged by build_flat_payload
+                    force_add=_built_payload.allowlist or None,
+                    audit_detail={
+                        "tag_name": "",
+                        "source_ref": "",
+                        "idempotency_key": "",
+                    },
+                    registry=None,  # no per-finalizer declared hooks
+                )
+            except Exception as _commit_exc:  # noqa: BLE001
+                logger.error(
+                    "finalize_terminal_run: snapshot commit RAISED run=%s (%s)",
+                    run_id,
+                    _commit_exc,
+                )
+                attempt.degrade("snapshot_commit_failed")
+
+        if _snap_result.blocked:
+            # A blocked snapshot: reset index, rebuild metadata-only, retry once.
+            logger.warning(
+                "finalize_terminal_run: snapshot commit BLOCKED run=%s reason=%s — "
+                "resetting index and rebuilding metadata-only",
+                run_id,
+                _snap_result.block_reason,
+            )
+            _reset_idx3 = getattr(_sandbox, "reset_index", None) if _sandbox else None
+            if _reset_idx3 is not None:
+                try:
+                    _reset_idx3()
+                except Exception:  # noqa: BLE001
+                    pass
+            _retry_payload = build_metadata_only_snapshot(
+                run_id, ectx, non_chainable_reason="payload_blocked"
+            )
+            attempt.record_payload(_retry_payload)
+            if not _retry_payload.built:
+                raise SnapshotUnrecoverable(
+                    f"retry metadata-only snapshot also failed to build for run={run_id}"
+                )
+            # Retry the commit with the metadata-only payload.
+            try:
+                _snap_result = await commit_in_sandbox(
+                    _sandbox,
+                    _commit_msg,
+                    ectx,
+                    _snap_step,
+                    audit_operation="snapshot_commit",
+                    paths=[],
+                    force_add=_retry_payload.allowlist or None,
+                    audit_detail=None,
+                    registry=None,
+                )
+            except Exception as _retry_commit_exc:  # noqa: BLE001
+                logger.error(
+                    "finalize_terminal_run: retry snapshot commit RAISED run=%s (%s)",
+                    run_id,
+                    _retry_commit_exc,
+                )
+                attempt.degrade("snapshot_commit_failed")
+            if _snap_result.blocked:
+                raise SnapshotUnrecoverable(
+                    f"second snapshot commit also blocked for run={run_id}"
+                )
+            attempt.degrade("payload_blocked")
+
+        # Crash-replay: if no_change, resolve the existing HEAD commit.
+        if (
+            _snap_result.no_change
+            and _sandbox is not None
+            and getattr(_sandbox, "has_git", False)
+        ):
+            _head_commit_fn = getattr(_sandbox, "head_commit", None)
+            if _head_commit_fn is not None:
+                try:
+                    _existing_sha = _head_commit_fn()
+                    _snap_result = CommitInSandboxResult(
+                        no_change=True, sha=_existing_sha or ""
+                    )
+                    logger.debug(
+                        "finalize_terminal_run: crash-replay no_change — "
+                        "converging on existing commit sha=%s run=%s",
+                        _existing_sha,
+                        run_id,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+
+        attempt.record_commit(_snap_result)
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 7: Create internal run ref (create-only CAS)
+        # ────────────────────────────────────────────────────────────────────
+        # refs/ideaflow/runs/{run_id} — created once, never moved EXCEPT for the
+        # one legitimate case below: a resumable run (cancelled/failed/degraded)
+        # was resumed (RESUME-18, POST /{run_id}/resume) and reached a later,
+        # DIFFERENT terminal outcome. A same-attempt crash-replay never lands
+        # here — commit_in_sandbox's no_change branch (above) already converges
+        # it on the existing HEAD sha, so it reads "idempotent", not "conflict".
+        # RefResult.state: "created" | "idempotent" | "conflict" | "advanced"
+        _ref_result: "object | None" = None
+        if _sandbox is not None and getattr(_sandbox, "has_git", False):
+            try:
+                _ref_result = _sandbox.create_run_ref(run_id)
+                attempt.record_ref(_ref_result)
+                _ref_state = getattr(_ref_result, "state", "unknown")
+                if _ref_state == "conflict":
+                    _conflict_existing = getattr(_ref_result, "existing", None) or ""
+                    _advanced = False
+                    # Prove the existing ref IS the run's own prior resumable
+                    # outcome (not an unexplained/corrupted value) before ever
+                    # moving it: the durable finalization record must name this
+                    # exact commit, a resumable published status, and a
+                    # candidate_status different from this pass's (real forward
+                    # progress, not a replay). A "completed" prior record can
+                    # never satisfy this — /resume already excludes it — so the
+                    # tag-integrity guarantee (AC 23/24) holds unconditionally
+                    # for a completed+tagged run.
+                    try:
+                        from app.models.database import SessionLocal as _SL_prior  # noqa: PLC0415
+
+                        _db_prior = _SL_prior()
+                        try:
+                            _prior = read_finalization_record(_db_prior, run_id)
+                        finally:
+                            _db_prior.close()
+                    except Exception:  # noqa: BLE001
+                        _prior = None
+                    if (
+                        _prior is not None
+                        and _prior.commit_sha == _conflict_existing
+                        and _prior.published_status in _RESUMABLE_TERMINAL_STATUSES
+                        and _prior.candidate_status != candidate_status
+                    ):
+                        _advance_fn = getattr(_sandbox, "advance_run_ref", None)
+                        if _advance_fn is not None:
+                            try:
+                                _ref_result = _advance_fn(
+                                    run_id,
+                                    expected_sha=_conflict_existing,
+                                    new_sha=attempt.commit_sha,
+                                )
+                                attempt.record_ref(_ref_result)
+                                _advanced = (
+                                    getattr(_ref_result, "state", "") == "advanced"
+                                )
+                            except Exception as _adv_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "finalize_terminal_run: ref advance FAILED "
+                                    "run=%s (%s)",
+                                    run_id,
+                                    _adv_exc,
+                                )
+                    if _advanced:
+                        logger.info(
+                            "finalize_terminal_run: run ref advanced (resume) "
+                            "run=%s prior_status=%s prior=%s new=%s",
+                            run_id,
+                            _prior.published_status if _prior else None,
+                            _conflict_existing,
+                            attempt.commit_sha,
+                        )
+                    else:
+                        # Genuine conflict: no durable, resumable prior record
+                        # explains the existing ref. Degrade — record both
+                        # commit ids for operator recovery.
+                        logger.error(
+                            "finalize_terminal_run: run ref CONFLICT run=%s "
+                            "existing=%s new=%s — degrading",
+                            run_id,
+                            _conflict_existing,
+                            attempt.commit_sha,
+                        )
+                        attempt.degrade("ref_conflict")
+                else:
+                    logger.info(
+                        "finalize_terminal_run: run ref %s run=%s sha=%s",
+                        _ref_state,
+                        run_id,
+                        attempt.commit_sha,
+                    )
+            except Exception as _ref_exc:  # noqa: BLE001
+                logger.error(
+                    "finalize_terminal_run: create_run_ref FAILED run=%s (%s)",
+                    run_id,
+                    _ref_exc,
+                )
+                attempt.degrade("ref_creation_failed")
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 8: Create vN tag + map to WorkflowRun — NO orphan tags
+        # ────────────────────────────────────────────────────────────────────
+        # Only for completed runs where no degrade has occurred yet.
+        # On tag-success + DB-mapping-failure: retry the mapping once;
+        # if it still fails, remove ONLY the just-created tag and degrade
+        # with tag_state="rolled_back" (Requirement 5 AC 22 narrow exception).
+        _effective_status = candidate_status
+        if attempt.is_degraded:
+            _effective_status = "degraded"
+
+        if (
+            _sandbox is not None
+            and _effective_status == "completed"
+            and not getattr(ectx, "last_commit_blocked", False)
+        ):
+            try:
+                # GAPS P0 #4 / FR-036: no DB access from inside the finalizer.
+                # The ordinal was already computed ONCE, at launch (execute()'s
+                # sandbox_open, via this same _compute_revision_ordinal), and
+                # stamped onto ectx.revision_ordinal — read it from there so the
+                # tag and the API's revision_index can never disagree.
+                _revision_ordinal = getattr(ectx, "revision_ordinal", 1)
+
+                _tag_name_to_create = f"v{_revision_ordinal}"
+                _create_tag_fn = getattr(_sandbox, "create_tag", None)
+                if _create_tag_fn is not None:
+                    _create_tag_fn(_tag_name_to_create)
+                    # Tag created — now persist the DB mapping.
+                    _tag_mapped = False
+                    for _attempt_num in range(2):  # two attempts before rollback
+                        try:
+                            from app.models.database import SessionLocal  # noqa: PLC0415
+                            from app.models.workflow import WorkflowRun as _WR_tag  # noqa: PLC0415
+
+                            _db_tag = SessionLocal()
+                            try:
+                                _tag_row = (
+                                    _db_tag.query(_WR_tag)
+                                    .filter(_WR_tag.id == run_id)
+                                    .first()
+                                )
+                                if _tag_row is not None:
+                                    _tag_row.git_tag = _tag_name_to_create
+                                    _db_tag.commit()
+                                _tag_mapped = True
+                                break
+                            finally:
+                                _db_tag.close()
+                        except Exception as _db_tag_exc:  # noqa: BLE001
+                            logger.warning(
+                                "finalize_terminal_run: tag DB mapping attempt %d FAILED "
+                                "run=%s tag=%s (%s)",
+                                _attempt_num + 1,
+                                run_id,
+                                _tag_name_to_create,
+                                _db_tag_exc,
+                            )
+
+                    if _tag_mapped:
+                        attempt.record_tag(_tag_name_to_create, attempt.commit_sha)
+                        logger.info(
+                            "finalize_terminal_run: tagged run=%s tag=%s",
+                            run_id,
+                            _tag_name_to_create,
+                        )
+                    else:
+                        # Both mapping attempts failed — roll back the tag.
+                        logger.error(
+                            "finalize_terminal_run: tag DB mapping FAILED after 2 attempts "
+                            "run=%s tag=%s — rolling back tag",
+                            run_id,
+                            _tag_name_to_create,
+                        )
+                        _delete_tag_fn = getattr(_sandbox, "delete_tag", None)
+                        if _delete_tag_fn is not None:
+                            try:
+                                _delete_tag_fn(_tag_name_to_create)
+                                logger.info(
+                                    "finalize_terminal_run: tag rolled back run=%s tag=%s",
+                                    run_id,
+                                    _tag_name_to_create,
+                                )
+                            except Exception as _del_tag_exc:  # noqa: BLE001
+                                logger.error(
+                                    "finalize_terminal_run: tag rollback FAILED run=%s "
+                                    "tag=%s (%s) — orphan tag left",
+                                    run_id,
+                                    _tag_name_to_create,
+                                    _del_tag_exc,
+                                )
+                        attempt.degrade("tag_mapping_failed")
+            except Exception as _tag_outer_exc:  # noqa: BLE001
+                # GAPS §1 T1: a tag-creation failure silently degraded a
+                # genuinely completed run with no operator-visible cause
+                # (root cause was an ordinal-computation bug reusing an
+                # already-tagged name). Log LOUDLY — ERROR, not warning —
+                # with both the name we tried and what already exists, so
+                # "the computed name already exists" is obvious from the
+                # log alone rather than requiring a repro.
+                _existing_tags: list[str] = []
+                try:
+                    _list_tags_fn = getattr(_sandbox, "list_tags", None)
+                    if _list_tags_fn is not None:
+                        _existing_tags = _list_tags_fn()
+                except Exception:  # noqa: BLE001 — diagnostic only, must never mask the real failure
+                    pass
+                _is_collision = _tag_name_to_create in _existing_tags
+                logger.error(
+                    "finalize_terminal_run: tag creation FAILED run=%s "
+                    "computed_tag=%s existing_tags=%s collision=%s (%s) — a "
+                    "completed run is publishing degraded/untagged; "
+                    "collision=True means the computed tag name was wrong "
+                    "(ordinal bug), not a transient git error",
+                    run_id,
+                    _tag_name_to_create,
+                    _existing_tags,
+                    _is_collision,
+                    _tag_outer_exc,
+                )
+                attempt.degrade("tag_creation_failed")
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 9: persist_finalization_record_safe (includes step 10)
+        # Step 10: mirror payload_chainable onto WorkflowRun — done inside
+        #          persist_finalization_record (Requirement 5 AC 21).
+        # ────────────────────────────────────────────────────────────────────
+        _published_status = "degraded" if attempt.is_degraded else candidate_status
+
+        # Resolve the ref state for the record.
+        _ref_name: "str | None" = None
+        _ref_state_final: "str | None" = None
+        if _ref_result is not None:
+            _ref_name = getattr(_ref_result, "name", None)
+            _ref_state_final = getattr(_ref_result, "state", None)
+
+        # Resolve tag_state for the record.
+        _tag_state: "str | None" = None
+        if attempt.tag_name:
+            _tag_state = "created"
+        elif attempt.is_degraded and attempt.degrade_reason == "tag_mapping_failed":
+            _tag_state = "rolled_back"
+
+        _payload_obj = attempt.payload
+        _chainable: bool | None = (
+            _payload_obj.chainable if _payload_obj is not None else None
+        )
+        _non_chainable_reason_str: str | None = (
+            _payload_obj.non_chainable_reason if _payload_obj is not None else None
+        ) or (attempt.degrade_reason if attempt.is_degraded else None)
+
+        _fin_record = FinalizationRecord(
+            run_id=run_id,
+            owner_id=_owner_id,
+            workspace_id=_workspace_id,
+            published_status=_published_status,
+            candidate_status=candidate_status,
+            payload_chainable=_chainable,
+            non_chainable_reason=_non_chainable_reason_str,
+            payload_built=_payload_obj.built if _payload_obj is not None else None,
+            payload_materialized=_payload_obj.materialized
+            if _payload_obj is not None
+            else None,
+            commit_sha=attempt.commit_sha or None,
+            internal_ref=_ref_name,
+            git_tag=attempt.tag_name or None,
+            tag_state=_tag_state,
+            degraded_reason=attempt.degrade_reason if attempt.is_degraded else None,
+        )
+
+        # Best-effort persist — departure N1 on double failure.
+        try:
+            from app.models.database import SessionLocal as _SL_fin  # noqa: PLC0415
+
+            _db_fin = _SL_fin()
+            try:
+                record = persist_finalization_record_safe(_db_fin, _fin_record)
+            finally:
+                _db_fin.close()
+        except Exception as _persist_exc:  # noqa: BLE001
+            logger.error(
+                "finalize_terminal_run: DB session creation FAILED run=%s (%s) — "
+                "departure N1: returning in-memory record",
+                run_id,
+                _persist_exc,
+            )
+            record = FinalizationRecord(
+                run_id=run_id,
+                owner_id=_owner_id,
+                workspace_id=_workspace_id,
+                published_status=_published_status,
+                candidate_status=candidate_status,
+                payload_chainable=_chainable,
+                non_chainable_reason=_non_chainable_reason_str,
+                degraded_reason=attempt.degrade_reason if attempt.is_degraded else None,
+                _unpersisted=True,
+            )
+
+        # ────────────────────────────────────────────────────────────────────
+        # Step 11: Emit terminal SSE event
+        # ────────────────────────────────────────────────────────────────────
+        # The terminal SSE event is emitted by the caller (_execute_impl) after
+        # this function returns — the event is a side-effect of the pipeline_complete
+        # or pipeline_cancelled/failed yield, which already exists on every terminal
+        # path in _execute_impl.  This function does NOT yield — it returns the record
+        # so the caller has the published status to include in the event payload.
+        # Step 11 is therefore a no-op here: the contract is that finalize_terminal_run
+        # returns BEFORE the terminal event is emitted, giving the caller a durable
+        # published_status to embed.
+        logger.debug(
+            "finalize_terminal_run: completed run=%s published=%s candidate=%s "
+            "degraded=%s reason=%r commit=%s tag=%s",
+            run_id,
+            _published_status,
+            candidate_status,
+            attempt.is_degraded,
+            attempt.degrade_reason,
+            attempt.commit_sha,
+            attempt.tag_name,
+        )
+
+        # Task 9.2 (sandbox-git-versioning-v2, Req 20/19): emit
+        # ``run_finalization_failed`` when the run is degraded so the consumer
+        # can learn about the degradation before the terminal event.  The event
+        # persists through the existing _RunEventSink path (reconnect replay is
+        # free).  Payload carries only the bounded degraded_reason — no PII,
+        # secrets, file contents, diffs, internal paths, or another owner's id.
+        if attempt.is_degraded:
+            _degrade_reason_val = attempt.degrade_reason or "unknown"
+            _event_queue = getattr(ectx, "event_queue", None)
+            if _event_queue is not None:
+                try:
+                    _event_queue.put_nowait(
+                        {
+                            "type": "run_finalization_failed",
+                            "data": {
+                                "run_id": run_id,
+                                "reason": _degrade_reason_val,
+                            },
+                        }
+                    )
+                except Exception:  # noqa: BLE001 — observer must not abort finalizer
+                    pass
+
+        # ── git gc ───────────────────────────────────────────────────────────
+        # Task 4.7: fire-and-forget git gc --auto after the payload commit.
+        if _sandbox is not None:
+            try:
+                _sandbox.git_gc_auto()
+            except Exception:  # noqa: BLE001
+                pass
+
+            # Requirement 35 AC 2: record per-terminal-run sandbox size + chain depth.
+            try:
+                _sb_root = getattr(_sandbox, "root", None)
+                if _sb_root is not None:
+                    _sb_bytes = sum(
+                        f.stat().st_size
+                        for f in _sb_root.rglob("*")
+                        if f.is_file() and ".git" not in f.parts
+                    )
+                    # Compute git_bytes: total size of .git/ directory
+                    _git_bytes = (
+                        sum(
+                            f.stat().st_size
+                            for f in _sb_root.rglob("*")
+                            if f.is_file() and ".git" in f.parts
+                        )
+                        if (_sb_root / ".git").exists()
+                        else 0
+                    )
+                    # chain_depth: read the real hop count threaded onto ectx at
+                    # launch (_compute_chain_depth, GAPS P0 #5 / FR-041) — NO DB
+                    # access here. getattr default covers ectx objects (e.g. test
+                    # doubles) that predate this field.
+                    _chain_depth = getattr(ectx, "chain_depth", 0)
+                    logger.info(
+                        "finalize_terminal_run: disk_metrics run=%s sandbox_bytes=%d git_bytes=%d chain_depth=%d",
+                        run_id,
+                        _sb_bytes,
+                        _git_bytes,
+                        _chain_depth,
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+
+    except SnapshotUnrecoverable as _su_exc:
+        logger.error(
+            "finalize_terminal_run: SnapshotUnrecoverable run=%s (%s) — degrading",
+            run_id,
+            _su_exc,
+        )
+        attempt.degrade("snapshot_unrecoverable")
+        # Build a degraded record from the accumulator state so far.
+        _published_degraded = "degraded"
+        _fin_rec_degraded = FinalizationRecord(
+            run_id=run_id,
+            owner_id=_owner_id,
+            workspace_id=_workspace_id,
+            published_status=_published_degraded,
+            candidate_status=candidate_status,
+            payload_chainable=False,
+            non_chainable_reason="snapshot_unrecoverable",
+            degraded_reason="snapshot_unrecoverable",
+        )
+        try:
+            from app.models.database import SessionLocal as _SL_su  # noqa: PLC0415
+
+            _db_su = _SL_su()
+            try:
+                record = persist_finalization_record_safe(_db_su, _fin_rec_degraded)
+            finally:
+                _db_su.close()
+        except Exception:  # noqa: BLE001
+            record = FinalizationRecord(
+                run_id=run_id,
+                owner_id=_owner_id,
+                workspace_id=_workspace_id,
+                published_status="degraded",
+                candidate_status=candidate_status,
+                payload_chainable=False,
+                non_chainable_reason="snapshot_unrecoverable",
+                _unpersisted=True,
+            )
+
+    except (KeyboardInterrupt, SystemExit):
+        # Re-raise so process shutdown is never swallowed (required by the spec).
+        raise
+
+    except BaseException as _base_exc:  # noqa: BLE001 — finalizer must never propagate
+        logger.error(
+            "finalize_terminal_run: UNHANDLED exception run=%s (%s) — "
+            "returning sentinel record",
+            run_id,
+            _base_exc,
+        )
+        record = _sentinel_record("finalizer_exception")
+
+    finally:
+        # Release the family lock acquired in Step 1a.
+        if _family_lock_ctx is not None and hasattr(_family_lock_ctx, "__exit__"):
+            try:
+                _family_lock_ctx.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Step 10 (supplement): post_run hook dispatch (observation-only, isolated)
+    # Fires exactly once per terminal run for all five statuses. An observer
+    # failure must NOT alter control flow or the published record (Requirement
+    # 11 AC 5–6, Req 30 step 10, FR-061).
+    # ────────────────────────────────────────────────────────────────────────
+    try:
+        import types as _types_post_run  # noqa: PLC0415
+
+        # post_run is a RUN-level event — every step has already finished by the
+        # time the finalizer runs, so there is no single "current step" to bind
+        # against. ``_fire_hooks`` is nonetheless declaration-driven off
+        # ``step.hooks`` (CR-01/WR-03: a step fires ONLY the hooks it declares),
+        # so a synthetic step hard-coded to ``hooks=[]`` could never bind a real
+        # hook, no matter what a workflow declared — a dispatch that always
+        # no-ops satisfies the letter of "call _fire_hooks" but not FR-061's
+        # "post_run becomes a real registered event". Union the hook NAMES
+        # declared by every step in THIS run's compiled plan
+        # (``KernelServices._steps_by_agent``, populated once at run entry from
+        # ``compiled.steps`` — engine.py:4812) so a hook any step actually
+        # declared (e.g. ``otel_tracing``'s ``*`` wildcard, always bound) can
+        # observe ``post_run``. Deduped by name so a hook declared on several
+        # steps still fires exactly once. A runner double with no
+        # ``_steps_by_agent`` (unit tests) degrades to an empty union — fires
+        # nothing, the pre-existing parity default.
+        _steps_by_agent_post_run = getattr(_runner, "_steps_by_agent", None) or {}
+        _post_run_hook_names: list = []
+        for _pr_step in _steps_by_agent_post_run.values():
+            for _pr_hook_name in getattr(_pr_step, "hooks", None) or []:
+                if _pr_hook_name not in _post_run_hook_names:
+                    _post_run_hook_names.append(_pr_hook_name)
+
+        _post_run_step = _types_post_run.SimpleNamespace(
+            agent_id="finalizer-post-run",
+            hooks=_post_run_hook_names,
+            tools=None,
+        )
+        # KernelServices stores the engine as ``_engine`` (kernel_services.py:247).
+        # ``engine`` (no leading underscore) was never defined — getattr returned
+        # None every time, silently preventing post_run from ever firing.
+        _engine_post_run = (
+            getattr(_runner, "_engine", None) or getattr(_runner, "engine", None)
+            if _runner is not None
+            else None
+        )
+        if _engine_post_run is not None and hasattr(_engine_post_run, "_fire_hooks"):
+            await _engine_post_run._fire_hooks(
+                "post_run",
+                _post_run_step,
+                ectx,
+                _registry,
+                extra={
+                    "run_id": run_id,
+                    "published_status": record.published_status,
+                    "candidate_status": candidate_status,
+                },
+            )
+    except Exception as _post_run_exc:  # noqa: BLE001 — observer failure must not alter record
+        logger.debug(
+            "finalize_terminal_run: post_run hook dispatch failed for run=%s (%s) — "
+            "record stands; observer failure is isolated",
+            run_id,
+            _post_run_exc,
+        )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Step 12: cleanup_worktrees_and_gc — under family lock, own guard
+    # ────────────────────────────────────────────────────────────────────────
+    # Sits OUTSIDE the main handler because the terminal event has already been
+    # emitted (the caller yields after this function returns), so an unguarded
+    # FamilyLockTimeout here must NOT skip ``return record``.  Cleanup is
+    # housekeeping — the sweeper reclaims what it misses.
+    try:
+        _cleanup_fn = getattr(_sandbox, "cleanup_worktrees_and_gc", None)
+        if _cleanup_fn is not None:
+            _cleanup_lock_fn = getattr(_sandbox, "acquire_family_lock", None)
+            if _cleanup_lock_fn is not None:
+                try:
+                    _cl_ctx = _cleanup_lock_fn()
+                    if hasattr(_cl_ctx, "__enter__"):
+                        _cl_ctx.__enter__()
+                    try:
+                        _cleanup_fn()
+                    finally:
+                        if hasattr(_cl_ctx, "__exit__"):
+                            _cl_ctx.__exit__(None, None, None)
+                except Exception as _cl_exc:  # noqa: BLE001
+                    logger.debug(
+                        "finalize_terminal_run: step12 cleanup under family lock FAILED "
+                        "run=%s (%s)",
+                        run_id,
+                        _cl_exc,
+                    )
+            else:
+                try:
+                    _cleanup_fn()
+                except Exception as _cl_exc2:  # noqa: BLE001
+                    logger.debug(
+                        "finalize_terminal_run: step12 cleanup FAILED run=%s (%s)",
+                        run_id,
+                        _cl_exc2,
+                    )
+    except Exception:  # noqa: BLE001 — step 12 must never raise
+        pass
+
+    # ── Single exit ──────────────────────────────────────────────────────────
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +3275,7 @@ TERMINAL_RUN_STATUSES: tuple[str, ...] = (
     "cancelled",
     "failed",
     "degraded",
+    "diverted",
 )
 
 
@@ -671,6 +3420,54 @@ def resolve_alias(pipeline_type: str) -> str:
 
 
 import functools as _functools  # noqa: E402
+
+
+def _resolve_root_id(run_id: str, owner_id: str) -> str:
+    """Canonical revision-root resolver: walks ``parent_run_id`` only (V2-Q1).
+
+    Delegates to ``app.api.runs.resolve_revision_root`` via a short-lived
+    ``SessionLocal`` session (same deferred-import pattern used throughout this
+    module so the import-linter ``capabilities → execution_engine`` boundary
+    stays green — this is an INTRA-engine module-level helper).
+
+    On any ``RevisionRootUnresolved`` outcome (cycle, missing ancestor,
+    cross-owner ancestry, DB error) returns ``run_id`` unchanged and logs a
+    warning so the caller degrades gracefully.  Consumers that need hard refusal
+    on unresolved roots (route handlers) must call ``resolve_revision_root``
+    directly — this helper is for the engine's best-effort in-flight paths.
+
+    The function is a thin shim that replaces the deleted ``_find_chain_root``
+    (which walked ``source_run_id``, a V2-Q1 violation).  Task 3.3 routes all
+    engine-internal callers here; task 3.3's route-handler callers call
+    ``resolve_revision_root`` directly so they can return 404 on failure.
+    """
+    try:
+        from app.api.runs import RevisionRootResolved, resolve_revision_root
+        from app.models.database import SessionLocal as _SL_rr
+
+        _db_rr = _SL_rr()
+        try:
+            result = resolve_revision_root(_db_rr, run_id, owner_id)
+        finally:
+            _db_rr.close()
+        if isinstance(result, RevisionRootResolved):
+            return result.root_id
+        # Log diagnostic fields without leaking another owner's data.
+        logger.warning(
+            "_resolve_root_id: unresolved for run=%s reason=%s visited=%d repeated=%s"
+            " — degrading to run_id",
+            run_id,
+            result.reason,
+            result.visited_count,
+            result.repeated_node,
+        )
+    except Exception as _rr_exc:  # noqa: BLE001 — degrade to self on any error
+        logger.warning(
+            "_resolve_root_id: error resolving root for run=%s (%s) — degrading to run_id",
+            run_id,
+            _rr_exc,
+        )
+    return run_id
 
 
 @_functools.lru_cache(maxsize=None)
@@ -1072,22 +3869,38 @@ class ExecutionEngine:
         return fragments
 
     def _specs_from_plan(self, steps: list) -> list:
-        """Load each step's AgentSpec, overlaying the composer's display_name (FIX-266).
+        """Load each step's AgentSpec, overlaying the composer's display_name (FIX-266)
+        and the step's declared ``produces``/``consumes`` (R-29).
 
         The single source for rebuilding ``agents`` from a compiled plan's steps —
         used by execute() and both resume seams, which must agree or a resumed
         composed run reports every step under its template's name ("Custom Agent").
+
+        R-29 — why produces/consumes must be overlaid here: a composed step's runtime
+        spec is ``replace(base_spec, id="custom-agent:<instance_id>")`` (loader.py), so
+        it inherits the produces/consumes of ``agents/prompts/custom-agent/AGENT.md``,
+        which declares NEITHER. ``_filter_consumed_outputs`` reads those fields off the
+        objects in ``ordered_agents`` — these specs, not the compiled Steps — so without
+        this overlay a manifest's declaration is silently inert and every composed step
+        gets ``context_sources: []``. That is observable as a judging step being shown
+        only the brief and asked to assess an output it was never given.
         """
         import dataclasses
 
         from agents.loader import load_agent_spec
 
-        return [
-            dataclasses.replace(load_agent_spec(s.agent_id), name=s.display_name)
-            if getattr(s, "display_name", "")
-            else load_agent_spec(s.agent_id)
-            for s in steps
-        ]
+        specs = []
+        for s in steps:
+            overlay: dict = {}
+            if getattr(s, "display_name", ""):
+                overlay["name"] = s.display_name
+            if getattr(s, "produces", None):
+                overlay["produces"] = list(s.produces)
+            if getattr(s, "consumes", None):
+                overlay["consumes"] = list(s.consumes)
+            base = load_agent_spec(s.agent_id)
+            specs.append(dataclasses.replace(base, **overlay) if overlay else base)
+        return specs
 
     async def execute(
         self,
@@ -1112,6 +3925,10 @@ class ExecutionEngine:
         live_ectx_register: "LiveEctxRegister | None" = None,
         live_ectx_unregister: "LiveEctxUnregister | None" = None,
         compiled_override: "CompiledWorkflow | None" = None,
+        trigger_depth: int = 0,
+        workspace_id_override: str | None = None,
+        chain_source_run_id: str | None = None,
+        chain_selection: object | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -1149,8 +3966,51 @@ class ExecutionEngine:
         consumer stops draining) so the registry never leaks. Both ``None`` (the goldens + every
         current WS caller) keeps the seam DORMANT — byte/event-identical. Keyed on
         ``pipeline_run_id`` ONLY (SC-001/INV-1), so two concurrent runs never cross-deliver.
+
+        ``trigger_depth`` (spec 014 R-18/R-19): the cross-workflow trigger-chain depth
+        this run STARTS at, stamped onto the ``ExecutionContext`` built below. ``0``
+        (the default — every HTTP/WS/golden caller) means "root of its own chain" and
+        is byte/event-identical to before. ``run_trigger_workflow`` passes
+        ``parent_ectx.trigger_depth + 1`` down through ``_launch_run_core`` →
+        ``_drive_launch_to_queue`` → here, which is what makes the fixed-ceiling-of-5
+        guard in that delegate fire on a REAL chain instead of a hand-built context.
+
+        ``workspace_id_override`` (spec 014 R-15): execute IN AN EXISTING workspace
+        instead of minting a fresh one. ``None`` (every HTTP/WS/golden caller) keeps
+        the mint-a-new-workspace default — byte/event-identical. Set only for a run
+        minted by ``run_trigger_workflow``, which must share its triggering run's
+        workspace so both runs land in one budget aggregate and the ``workspace_id``
+        already stamped on the new ``WorkflowRun`` row is not overwritten.
         """
         sink = _RunEventSink(milestone_sink=milestone_sink)
+        # R-23 amendment — the on-disk run trace. The engine ALREADY emits every
+        # fact worth tracing (each tool call and its arguments, each result, the
+        # model's reasoning and output, gates, clarify rounds, failures) as a typed
+        # event, and every one of them passes through the stamping boundary a few
+        # lines below. Tracing there means the engine keeps no per-event logging
+        # calls of its own and cannot grow a gap: a new event type is traced the
+        # day it is added. `.logs/run-logs.jsonl` previously held step boundaries
+        # only, so reading a broken run meant reading the console or the database.
+        #
+        # Task 5.2 / 3.3 (sandbox-git-versioning): root-resolve here so the run log
+        # lands in the SHARED chain-root directory, not a per-revision dead path.
+        # owner_id mirrors _execute_impl (user_id or "anon:<session_id|run_id>").
+        _execute_owner_id = user_id or f"anon:{session_id or pipeline_run_id}"
+        _execute_chain_root_id = _resolve_root_id(pipeline_run_id, _execute_owner_id)
+        # Task 3.5 (sandbox-git-versioning-v2, Requirement 3): pass current_run_id so
+        # run_log_path returns .logs/{pipeline_run_id}.jsonl instead of
+        # .logs/{chain_root_id}.jsonl.  The DIRECTORY is still keyed by
+        # _execute_chain_root_id (shared sandbox root across revisions); only the log
+        # FILE is scoped to the logical run id.  disk_principal is user_id or "anon"
+        # (D-09 / byte-identity guard) — identical to _execute_impl's disk_principal
+        # computed below, keeping the sandbox path byte-identical (INV-3).
+        _trace = RunTrace(
+            RunSandbox(
+                user_id or "anon",
+                _execute_chain_root_id,
+                current_run_id=pipeline_run_id,
+            ).run_log_path
+        )
         # Manual monotonic allocator (NOT itertools.count): a milestone card projected below
         # is drawn from this SAME per-run seq space, so the loop must be able to advance the
         # counter PAST the card's persisted seq — otherwise the engine's next event would reuse
@@ -1159,6 +4019,9 @@ class ExecutionEngine:
         # (DEF-43-03-1). DORMANT-neutral: with no milestone_sink the card branch never fires,
         # so next_seq increments 1,2,3,… exactly like the old itertools.count (goldens identical).
         next_seq = 1
+        # The step the run was on when a terminal exception hit — best-effort,
+        # from the last engine event actually observed (see the `except` below).
+        _last_agent_id: str | None = None
         try:
             async for event in self._execute_impl(
                 agents=agents,
@@ -1181,6 +4044,18 @@ class ExecutionEngine:
                 event_queue=event_queue,
                 live_ectx_register=live_ectx_register,
                 compiled_override=compiled_override,
+                trigger_depth=trigger_depth,
+                workspace_id_override=workspace_id_override,
+                # Task 5.7 (sandbox-git-versioning-v2, Req 3/4): thread the run
+                # trace handle into _execute_impl so it can be bound to ectx.run_trace
+                # and reached from _fire_post_run for the step-3 flush.
+                _run_trace=_trace,
+                # Task 6.5 (sandbox-git-versioning-v2, Requirement 6/19): thread the
+                # admitted chain source id and pre-validated selection so
+                # _execute_impl can assign them onto ExecutionContext.  None for
+                # every non-chained run ⇒ DORMANT / byte-identical (INV-3).
+                chain_source_run_id=chain_source_run_id,
+                chain_selection=chain_selection,
             ):
                 # Stamp exactly once, at the boundary, so seq is contiguous across the
                 # nondeterministically-interleaved build loop. Events always carry a
@@ -1189,6 +4064,8 @@ class ExecutionEngine:
                 if not isinstance(data, dict):
                     data = {}
                     event["data"] = data
+                if data.get("agent_id"):
+                    _last_agent_id = data["agent_id"]
                 seq = next_seq
                 next_seq += 1
                 event_id = str(uuid.uuid4())
@@ -1212,6 +4089,7 @@ class ExecutionEngine:
                     data["seq"] = actual_seq
                     if actual_seq >= next_seq:
                         next_seq = actual_seq + 1
+                _trace.observe(event)
                 yield event
                 # A.4 (Phase 43, DEF-43-03-1): project + persist a chat_reply milestone card for
                 # this event via the INJECTED narrator callback (self-filtering; DORMANT when
@@ -1242,7 +4120,27 @@ class ExecutionEngine:
                                 "event_id": _reply_eid,
                             },
                         }
+        except Exception as exc:
+            # A terminal exception here (e.g. a REST driver's caught pipeline
+            # exception, run_commands.py) previously left the on-disk trace
+            # silent — the durable WorkflowRun.error DB column got the message,
+            # but `.logs/run-logs.jsonl` just stopped mid-stream with no record
+            # of why, so reading the trace alone looked like a crash rather than
+            # a caught, recorded failure. Record it here, on the SAME `_trace`
+            # (not torn down yet — only `.flush()`ed in `finally`, below), then
+            # re-raise unchanged so every existing caller behavior (DB write,
+            # event emission) is untouched.
+            _trace.observe(
+                {
+                    "type": "error",
+                    "data": {"error": str(exc), "agent_id": _last_agent_id},
+                }
+            )
+            raise
         finally:
+            # Flush any deltas buffered when the stream ended (or was abandoned
+            # mid-run), so a cancelled/failed run's last output is still on disk.
+            _trace.flush()
             # A.3: ALWAYS deregister the run's live ectx (normal completion, exception, or an
             # early GeneratorExit if the consumer stops draining) so the process-local registry
             # never leaks a terminated run's context. DORMANT when live_ectx_unregister is None
@@ -1282,6 +4180,11 @@ class ExecutionEngine:
         event_queue: "asyncio.Queue | None" = None,
         live_ectx_register: "LiveEctxRegister | None" = None,
         compiled_override: "CompiledWorkflow | None" = None,
+        trigger_depth: int = 0,
+        workspace_id_override: str | None = None,
+        _run_trace: "RunTrace | None" = None,
+        chain_source_run_id: str | None = None,
+        chain_selection: object | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -1363,8 +4266,143 @@ class ExecutionEngine:
         # are byte-identical and the 0A snapshots hold. owner_id (the DB principal, below)
         # may be ``anon:<session_id>`` for anon runs; it must NEVER reach a disk key.
         disk_principal = user_id or "anon"
-        sandbox = RunSandbox(disk_principal, pipeline_run_id)
+        # ── DB owner principal (AUTHZ-03 / D-09): always a real, non-None scoped subject ──
+        # ``user_id`` when authenticated; otherwise ``anon:<session_id>`` (true per-session
+        # isolation), falling back to ``anon:<pipeline_run_id>`` when no session id was
+        # threaded (defensive — owner_id must never be None for the default-deny filter).
+        # Hoisted ABOVE sandbox construction (task 5.1) so _resolve_root_id can use it.
+        owner_id = user_id or f"anon:{session_id or pipeline_run_id}"
+        # ── Task 5.1 / 3.3: resolve the chain root for this run ────────────────────────
+        # All revision runs in a family share the chain root's sandbox directory so that
+        # files written by run A (prototype.html, spec.md, tasks.md …) are already
+        # present when run B starts — no seeding step required (Requirement 27.4).
+        # When pipeline_run_id has no parent_run_id (first run in a chain, or any
+        # non-chained run), _resolve_root_id returns pipeline_run_id unchanged — so
+        # the sandbox path is byte-identical to the pre-task-5.1 path (INV-3 parity).
+        _chain_root_id = _resolve_root_id(pipeline_run_id, owner_id)
+        sandbox = RunSandbox(disk_principal, _chain_root_id)
         sandbox.ensure()
+        # Task 4.1 (sandbox-git-versioning, Req 6): initialise the sandbox as a git
+        # repository with an initial commit and seeded .gitignore.
+        # Called idempotently — safe on resume and on revision runs that reuse the
+        # same shared directory. Duck-typed via getattr so the engine never imports
+        # LocalWorkspace directly (same pattern as commit_all / create_tag).
+        # Best-effort: a git-init failure must NOT abort the run — the sandbox is
+        # still usable, commits simply won't fire (has_git degrades to no-op).
+        _git_init_fn = getattr(sandbox, "git_init_sandbox", None)
+        if _git_init_fn is not None:
+            try:
+                _git_init_fn()
+            except Exception as _git_init_exc:  # noqa: BLE001
+                logger.warning(
+                    "git_init_sandbox failed for run %s (%s) — continuing without git",
+                    pipeline_run_id,
+                    _git_init_exc,
+                )
+                # Task 3.6 (sandbox-git-versioning-v2, Requirement 3): flip has_git to
+                # False so the sandbox reflects reality. Without this the sandbox claims
+                # has_git=True while no .git/ directory exists, causing commit_all to
+                # log a spurious "not a git repo" warning on every step and making
+                # has_git-gated operations behave inconsistently. Mutating the attribute
+                # here is safe — RunSandbox.__init__ sets it and the docstring for task
+                # 4.1 (sandbox.py:509-512) explicitly names this as the intended path.
+                sandbox.has_git = False
+
+        # ── Task 7.4 (sandbox-git-versioning-v2, Requirement 10 AC 3/14): detect and
+        # reconcile persistent Git state at sandbox open — the FOURTH entry point.
+        #
+        # The design's "Sandbox open" lifecycle requires this sequence:
+        #   git init + .gitignore seeding (above)
+        #   → legacy .chain/{run_id}/ relocation (task 6.7, not yet landed)
+        #   → persistent-Git-state detection + reconciliation under the family lock  ← HERE
+        #   → .context/ design write or inherit (task 6.8, below)
+        #   → chain payload install (task 6.6, inside run)
+        #
+        # Without this guard a family whose previous process died mid-merge starts the
+        # next run's first write onto a repo that already holds MERGE_HEAD or a stale
+        # index.lock (Requirement 10 AC 14). Detection must therefore precede ANY seed,
+        # context, agent, restore, or new-revision write — not only on resume.
+        #
+        # The block is wrapped in a broad try/except so a detection failure logs and
+        # continues: a crash here must never abort sandbox open (best-effort contract
+        # matching git_init_sandbox above and every other "never-raises" delegation).
+        # A quarantine outcome is the sole exception — it raises to refuse the open
+        # (Requirement 10 AC 14 "corrupt repo → quarantine, refuse all writes").
+        #
+        # The family lock is acquired here (family-first ordering per the documented
+        # lock order in sandbox.py). Duck-typed via getattr so the engine never imports
+        # app.agents.sandbox directly (same pattern as git_init_sandbox / create_tag).
+        if sandbox.has_git:
+            try:
+                from app.agents.sandbox import FamilyLockTimeout as _FamilyLockTimeout  # noqa: PLC0415
+                from app.agents.sandbox import family_lock as _family_lock  # noqa: PLC0415
+
+                try:
+                    with _family_lock(disk_principal, _chain_root_id):
+                        _detect_fn = getattr(
+                            sandbox, "detect_persistent_git_state", None
+                        )
+                        if _detect_fn is not None:
+                            _git_state = _detect_fn()
+                            _state_name = (
+                                _git_state.get("state", "clean")
+                                if isinstance(_git_state, dict)
+                                else "clean"
+                            )
+                            if _state_name != "clean":
+                                logger.info(
+                                    "sandbox_open: persistent git state detected "
+                                    "run=%s state=%s — reconciling",
+                                    pipeline_run_id,
+                                    _state_name,
+                                )
+                                _reconcile_fn = getattr(
+                                    sandbox,
+                                    "reconcile_persistent_git_state",
+                                    None,
+                                )
+                                if _reconcile_fn is not None:
+                                    _reconcile_result = _reconcile_fn(_git_state)
+                                    logger.info(
+                                        "sandbox_open: reconcile result run=%s result=%s",
+                                        pipeline_run_id,
+                                        _reconcile_result,
+                                    )
+                                    if _reconcile_result == "quarantined":
+                                        # Corrupt repo — refuse the open so no write
+                                        # lands on an unrecoverable repository state.
+                                        # This is the sole hard-failure path; all other
+                                        # reconciliation outcomes continue the run.
+                                        raise RuntimeError(
+                                            f"sandbox quarantined for run {pipeline_run_id}: "
+                                            "repository is corrupt and requires operator action"
+                                        )
+                except _FamilyLockTimeout:
+                    # Lock is held by the finalizer or a restore — log and continue.
+                    # Detection is best-effort at sandbox open; a timed-out acquisition
+                    # must not abort the run (the lock holder will have already cleaned
+                    # up any persistent state before releasing).
+                    logger.warning(
+                        "sandbox_open: family lock timed out during git-state detection "
+                        "run=%s — skipping detection (lock held by finalizer or restore)",
+                        pipeline_run_id,
+                    )
+            except RuntimeError:
+                raise  # quarantine — propagate to abort the run
+            except Exception:  # noqa: BLE001 — detection failure must never abort open
+                logger.warning(
+                    "sandbox_open: persistent git-state detection failed run=%s — "
+                    "continuing (best-effort)",
+                    pipeline_run_id,
+                    exc_info=True,
+                )
+
+        # Task 5.9 (sandbox-git-versioning, Req 27): record whether the sandbox is dirty
+        # at resume entry so the wip-commit can happen once ordered_agents is available.
+        # The check is done HERE (before any seed writes could dirty the tree themselves)
+        # so we capture the crash-leftover state, not our own seed writes.
+        # Only relevant on the _is_resume path; False for every normal fresh run.
+        _resume_sandbox_dirty = _is_resume and sandbox.is_dirty()
         # ── Seed declared od-template resources into the run sandbox (data-driven,
         # INV-1: keyed off od_context content, never a workflow name). The template's
         # SKILL.md instructions name workspace paths ("read assets/template.html",
@@ -1384,11 +4422,36 @@ class ExecutionEngine:
                     pipeline_run_id,
                     exc_info=True,
                 )
-        # ── DB owner principal (AUTHZ-03 / D-09): always a real, non-None scoped subject ──
-        # ``user_id`` when authenticated; otherwise ``anon:<session_id>`` (true per-session
-        # isolation), falling back to ``anon:<pipeline_run_id>`` when no session id was
-        # threaded (defensive — owner_id must never be None for the default-deny filter).
-        owner_id = user_id or f"anon:{session_id or pipeline_run_id}"
+
+        # ── Task 8.1 (sandbox-git-versioning, Req 23): persist the OpenDesign context
+        # into ``.context/`` before step 1 so it survives backend restarts and is
+        # accessible to agents via the sandbox filesystem. Best-effort via the
+        # write_od_context_to_sandbox helper (never-raising). No-op when od_context
+        # is None (non-OD runs) — byte/event-identical for every golden run (INV-3).
+        #
+        # Task 6.8 (sandbox-git-versioning-v2, Req 8): pass explicit_selection=True
+        # because this code path is reached only when od_context is non-None, which
+        # means the launch request supplied a resolved template/design-system choice.
+        # The inheritance guard inside write_od_context_to_sandbox will skip the write
+        # on a revision run that shares a sandbox with its root UNLESS this flag is
+        # set — passing True here on the first/explicit write is correct since this
+        # is the ONE path that loaded od_context from a real template_id /
+        # design_system_id. A resumed run re-enters _execute_impl with the same
+        # od_context value; the inheritance guard then preserves the already-written
+        # .context/ rather than overwriting it (explicit_selection=True is still safe
+        # here because the bytes are identical to what was written at launch time).
+        if od_context:
+            try:
+                from app.api.launch_context import write_od_context_to_sandbox
+
+                write_od_context_to_sandbox(
+                    sandbox, od_context, explicit_selection=True
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    ".context/ seed failed for run %s", pipeline_run_id, exc_info=True
+                )
+
         # ── Per-run state: ONE ExecutionContext, threaded explicitly (CTX-01/CTX-02) ──
         # Construct the per-run value object immediately after the sandbox so NO per-run
         # datum is stashed on the ExecutionEngine singleton (the INV-2 concurrency
@@ -1410,7 +4473,96 @@ class ExecutionEngine:
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
+            # spec 014 R-18/R-19: the constructor-time chain depth (context.py's own
+            # docstring: "the '+1' propagation logic itself lives at the caller"). 0 for
+            # every normal launch ⇒ DORMANT / byte-identical; parent+1 when this run was
+            # minted by run_trigger_workflow, which is what lets that delegate's
+            # exact-equality-to-5 guard fail closed on the 6th hop of a real chain.
+            trigger_depth=trigger_depth,
         )
+        # Task 3.7 (sandbox-git-versioning-v2, Req 5/4; GAPS P0 #4 / FR-036):
+        # compute and stamp revision_ordinal via the single canonical helper —
+        # this run's 1-based position among ALL family members, the SAME rule
+        # ``runs.py``'s ``revision_index`` uses — so the finalizer's ``vN`` tag
+        # and the API's displayed version can never disagree, even across a
+        # failed revision. MUST run after ``ectx`` is constructed above — this
+        # block previously sat before the ``ExecutionContext(...)`` call and set
+        # ``ectx.revision_ordinal`` on a name that did not exist yet in this
+        # function's scope, raising ``UnboundLocalError`` on every real (API)
+        # revision launch; the bare ``except Exception`` below swallowed it and
+        # every revision silently fell back to ``ectx.revision_ordinal``'s
+        # class default of 1, so the finalizer always tried tag ``v1`` and
+        # collided with the root's own tag on the second+ completed revision
+        # (GAPS §1 P0 #4 follow-up, confirmed via a real run's log:
+        # "cannot access local variable 'ectx'"). Best-effort: any DB error
+        # leaves ordinal=1 (root-run default) — never raises.
+        if parent_run_id:
+            try:
+                from app.models.database import SessionLocal as _SL_ord  # noqa: PLC0415
+
+                _db_ord = _SL_ord()
+                try:
+                    _ordinal = _compute_revision_ordinal(pipeline_run_id, _db_ord)
+                    ectx.revision_ordinal = _ordinal  # type: ignore[attr-defined]
+                    logger.info(
+                        "revision_ordinal set: run=%s ordinal=%d",
+                        pipeline_run_id,
+                        _ordinal,
+                    )
+                finally:
+                    _db_ord.close()
+            except Exception as _ord_exc:  # noqa: BLE001
+                logger.warning(
+                    "revision_ordinal computation failed run=%s (%s) — using default 1",
+                    pipeline_run_id,
+                    _ord_exc,
+                )
+        # Task 5.7 (sandbox-git-versioning-v2, Req 3/4): bind the per-run trace handle
+        # so _fire_post_run can flush it at finalizer step 3 (before the log copy).
+        # _run_trace is the RunTrace constructed in execute() — the same object that
+        # observe() is called on throughout the run.  None on the resume path and in
+        # offline harnesses → ectx.run_trace stays None → flush_terminal is a no-op.
+        ectx.run_trace = _run_trace  # type: ignore[attr-defined]
+        # Task 6.5 (sandbox-git-versioning-v2, Requirement 6/19): stamp the admitted
+        # chain source id and pre-validated selection onto the context so
+        # install_chain_context (task 6.6) can byte-copy the payload into .context/
+        # before agent 1.  None for every non-chained run ⇒ DORMANT / byte-identical
+        # (INV-3 parity).  Derived, not authoritative: ignored unless the compiled
+        # plan declares chaining; every read goes through an owner-scoped
+        # ReadOnlySandbox (Requirement 6 AC 19).
+        ectx.chain_source_run_id = chain_source_run_id  # type: ignore[attr-defined]
+        ectx.chain_selection = chain_selection  # type: ignore[attr-defined]
+        # GAPS P0 #5 / FR-041: compute and thread the real chain_depth (the
+        # source_run_id hop count) at launch — same architecture as
+        # revision_ordinal above (a DB walk here, once), so
+        # finalize_terminal_run's disk_metrics log line reads ectx.chain_depth
+        # with NO DB access inside the finalizer. Only runs when this launch
+        # actually admitted a chain source; default 0 covers every other run
+        # (DORMANT / INV-3 byte-parity). Best-effort: any DB error leaves
+        # chain_depth=0 — never raises.
+        if chain_source_run_id:
+            try:
+                from app.models.database import SessionLocal as _SL_chain  # noqa: PLC0415
+
+                _db_chain = _SL_chain()
+                try:
+                    ectx.chain_depth = _compute_chain_depth(
+                        chain_source_run_id, _db_chain
+                    )
+                    logger.info(
+                        "chain_depth set: run=%s chain_source=%s depth=%d",
+                        pipeline_run_id,
+                        chain_source_run_id,
+                        ectx.chain_depth,
+                    )
+                finally:
+                    _db_chain.close()
+            except Exception as _chain_exc:  # noqa: BLE001
+                logger.warning(
+                    "chain_depth computation failed run=%s (%s) — using default 0",
+                    pipeline_run_id,
+                    _chain_exc,
+                )
         # ── A.3 (Phase 43): register the RUNNING run's live in-process ExecutionContext ──
         # Keyed by run_id into the app-layer process-local registry via the INJECTED callback
         # (no engine→app import — import-linter 4/0). Once registered, the app-layer
@@ -1512,6 +4664,19 @@ class ExecutionEngine:
             )
             if _recovered_ws is not None:
                 ectx.workspace_id = _recovered_ws
+            elif workspace_id_override:
+                # ── spec 014 R-15: an INHERITED workspace (cross-workflow trigger) ──
+                # A run minted by ``run_trigger_workflow`` must execute IN THE SAME
+                # workspace as the run that triggered it — that shared id is what puts
+                # both runs' spend in one ``BudgetManager.workspace_ceiling`` aggregate
+                # and what AC-05 asserts on the two ``WorkflowRun`` rows. Minting a
+                # fresh workspace here would silently overwrite the id
+                # ``_launch_run_core`` already stamped on the row (via ``set_run_scope``
+                # a few lines below), so the inheritance has to be honoured HERE, not
+                # only at mint time. Same shape as the resume recovery above: an
+                # explicitly-supplied id is reused instead of created. ``None`` (every
+                # HTTP/WS/golden caller) ⇒ mint fresh, byte/event-identical (INV-3).
+                ectx.workspace_id = workspace_id_override
             else:
                 ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
             scoped_store._workspace_id = ectx.workspace_id  # stamp later writes
@@ -1677,7 +4842,23 @@ class ExecutionEngine:
         # plan was non-empty discarded the composer's agent picks. Reached only by
         # custom workflows, whose template steps have no AGENT.md for the caller
         # to resolve.
-        if compiled.steps and not agents:
+        # ...and a caller whose roster is a STRICT SUBSET of the plan does not have
+        # one either, in the sense that matters. PIPELINE_AGENTS is derived from each
+        # AGENT.md's `pipeline_type`, so a workflow REUSING an agent from another
+        # pipeline gets a partial roster: ppt_v2 reuses ppt's brief-analyst and
+        # composer, and `get_pipeline_agents("ppt_v2")` returns only the two authored
+        # for it. The DAG resolver then validates against that partial set and
+        # rejects the run outright — "ppt-deck-qa-v2 consumes 'ppt-composer' but no
+        # upstream agent produces it" — when ppt-composer is in fact step 2. The
+        # declaration is right; the roster was missing what the plan already knew.
+        #
+        # A composed run cannot take this branch: its plan is DERIVED from the picks,
+        # so its roster is equal to or larger than the plan, never a strict subset
+        # (the Path-B fan-out case is roster 2 / plan 1). So the composer's picks are
+        # still never discarded, which is what `not agents` was protecting.
+        _plan_ids = {s.agent_id for s in compiled.steps}
+        _roster_is_partial = bool(agents) and {a.id for a in agents} < _plan_ids
+        if compiled.steps and (not agents or _roster_is_partial):
             agents = self._specs_from_plan(compiled.steps)
         # ── EMP-01 (22-04): apply user-composed per-step selections onto the plan ──
         # A saved/custom workflow may carry a compact per-step selections map
@@ -2210,69 +5391,6 @@ class ExecutionEngine:
                 gate_verdict=gate_verdict,
             )
 
-            # Auto-generate PLANNER.md per run (T082)
-            if planning_context and not planning_context.get("planner_timed_out"):
-                try:
-                    planner_md_lines = ["# PLANNER.md — Deep Planner Analysis\n"]
-                    if planning_context.get("inferred_intent"):
-                        planner_md_lines.append(
-                            f"**Inferred Intent**: {planning_context['inferred_intent']}\n"
-                        )
-                    if planning_context.get("topic"):
-                        planner_md_lines.append(
-                            f"**Topic**: {planning_context['topic']}\n"
-                        )
-                    if planning_context.get("execution_gate"):
-                        planner_md_lines.append(
-                            f"**Gate Verdict**: {planning_context['execution_gate']}\n"
-                        )
-                    if planning_context.get("explicit_constraints"):
-                        planner_md_lines.append(
-                            "\n**Explicit Constraints**:\n"
-                            + "\n".join(
-                                f"- {c}"
-                                for c in planning_context["explicit_constraints"]
-                            )
-                        )
-                    if planning_context.get("implicit_constraints"):
-                        planner_md_lines.append(
-                            "\n**Implicit Constraints**:\n"
-                            + "\n".join(
-                                f"- {c}"
-                                for c in planning_context["implicit_constraints"]
-                            )
-                        )
-                    if planning_context.get("quality_targets"):
-                        planner_md_lines.append(
-                            "\n**Quality Targets**:\n"
-                            + "\n".join(
-                                f"- {q}" for q in planning_context["quality_targets"]
-                            )
-                        )
-                    if planning_context.get("inferred_personas"):
-                        planner_md_lines.append(
-                            "\n**Inferred Personas**:\n"
-                            + "\n".join(
-                                f"- {p}" for p in planning_context["inferred_personas"]
-                            )
-                        )
-                    if planning_context.get("inferred_nfrs"):
-                        planner_md_lines.append(
-                            "\n**Non-Functional Requirements**:\n"
-                            + "\n".join(
-                                f"- {n}" for n in planning_context["inferred_nfrs"]
-                            )
-                        )
-                    if planning_context.get("domain_insights"):
-                        planner_md_lines.append(
-                            "\n**Domain Insights**:\n"
-                            + "\n".join(
-                                f"- {i}" for i in planning_context["domain_insights"]
-                            )
-                        )
-                    sandbox.write("PLANNER.md", "\n".join(planner_md_lines))
-                except Exception as _planner_md_exc:
-                    logger.debug("PLANNER.md generation failed: %s", _planner_md_exc)
             async for event in self._emit_planner_events(
                 pipeline_run_id, pipeline_type, planning_context, gate_verdict
             ):
@@ -2345,9 +5463,33 @@ class ExecutionEngine:
                         except (asyncio.CancelledError, Exception):
                             pass
                         self._state_machine.transition(pipeline_run_id, "cancelled")
+                        # Task 5.9: route through finalize_terminal_run BEFORE
+                        # yielding the terminal event so the record is durable.
+                        _clarify_cancel_record = None
+                        try:
+                            _clarify_cancel_record = await finalize_terminal_run(
+                                pipeline_run_id,
+                                ectx,
+                                candidate_status="cancelled",
+                            )
+                        except Exception as _cc_fin_exc:  # noqa: BLE001
+                            logger.error(
+                                "finalize_terminal_run (clarify cancel) raised "
+                                "unexpectedly run=%s (%s)",
+                                pipeline_run_id,
+                                _cc_fin_exc,
+                            )
+                        _cc_pub_st = (
+                            _clarify_cancel_record.published_status
+                            if _clarify_cancel_record is not None
+                            else "cancelled"
+                        )
                         yield {
                             "type": "pipeline_cancelled",
-                            "data": {"pipeline_run_id": pipeline_run_id},
+                            "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "published_status": _cc_pub_st,
+                            },
                         }
                         return
                     continue
@@ -2367,8 +5509,92 @@ class ExecutionEngine:
                     _clarify_exc,
                 )
 
+        # Auto-generate PLANNER.md per run (T082)
+        # Written here — after clarify rounds may have merged answers into
+        # planning_context — so agents reading PLANNER.md see the full,
+        # clarification-enriched plan (task 9.4).
+        if planning_context and not planning_context.get("planner_timed_out"):
+            try:
+                planner_md_lines = ["# PLANNER.md — Deep Planner Analysis\n"]
+                if planning_context.get("inferred_intent"):
+                    planner_md_lines.append(
+                        f"**Inferred Intent**: {planning_context['inferred_intent']}\n"
+                    )
+                if planning_context.get("topic"):
+                    planner_md_lines.append(f"**Topic**: {planning_context['topic']}\n")
+                if planning_context.get("execution_gate"):
+                    planner_md_lines.append(
+                        f"**Gate Verdict**: {planning_context['execution_gate']}\n"
+                    )
+                if planning_context.get("explicit_constraints"):
+                    planner_md_lines.append(
+                        "\n**Explicit Constraints**:\n"
+                        + "\n".join(
+                            f"- {c}" for c in planning_context["explicit_constraints"]
+                        )
+                    )
+                if planning_context.get("implicit_constraints"):
+                    planner_md_lines.append(
+                        "\n**Implicit Constraints**:\n"
+                        + "\n".join(
+                            f"- {c}" for c in planning_context["implicit_constraints"]
+                        )
+                    )
+                if planning_context.get("quality_targets"):
+                    planner_md_lines.append(
+                        "\n**Quality Targets**:\n"
+                        + "\n".join(
+                            f"- {q}" for q in planning_context["quality_targets"]
+                        )
+                    )
+                if planning_context.get("inferred_personas"):
+                    planner_md_lines.append(
+                        "\n**Inferred Personas**:\n"
+                        + "\n".join(
+                            f"- {p}" for p in planning_context["inferred_personas"]
+                        )
+                    )
+                if planning_context.get("inferred_nfrs"):
+                    planner_md_lines.append(
+                        "\n**Non-Functional Requirements**:\n"
+                        + "\n".join(f"- {n}" for n in planning_context["inferred_nfrs"])
+                    )
+                if planning_context.get("domain_insights"):
+                    planner_md_lines.append(
+                        "\n**Domain Insights**:\n"
+                        + "\n".join(
+                            f"- {i}" for i in planning_context["domain_insights"]
+                        )
+                    )
+                sandbox.write("PLANNER.md", "\n".join(planner_md_lines))
+            except Exception as _planner_md_exc:
+                logger.debug("PLANNER.md generation failed: %s", _planner_md_exc)
+
         # ── Step 4: Run domain agents ─────────────────────────────────────
         self._state_machine.transition(pipeline_run_id, "generating")
+
+        # ISS-276: read the run's REAL created_at for the pipeline_start frame below.
+        # UTC-promoted (KAN-113: a naive stamp is Date.parse'd as LOCAL time → a wrong
+        # "Nh ago"). Best-effort like every other typed-substrate read here — the
+        # offline characterization harness has no ``workflow_runs`` row, so this stays
+        # None there and the key rides as null (also stripped by _VOLATILE_STRIP_KEYS,
+        # INV-3). Workflow-agnostic — no pipeline_type/spec.id branch (INV-1/SC-001).
+        _run_created_at: str | None = None
+        try:
+            _created = getattr(
+                await scoped_store.get_run(pipeline_run_id), "created_at", None
+            )
+            if _created is not None:
+                from datetime import timezone as _tz
+
+                if _created.tzinfo is None:
+                    _created = _created.replace(tzinfo=_tz.utc)
+                _run_created_at = _created.isoformat()
+        except Exception as _created_exc:  # noqa: BLE001 — never break a run on a DB read
+            logger.warning(
+                "pipeline_start created_at lookup failed (%s) — emitting without it",
+                _created_exc,
+            )
 
         yield {
             "type": "pipeline_start",
@@ -2391,6 +5617,11 @@ class ExecutionEngine:
                 # than waiting for the durable SSE replay to restore their statuses.
                 # 0 on every normal (non-resumed) run → byte/event-identical (INV-3).
                 "resume_offset": _resume_from,
+                # ISS-276: the run's real start time. The client folds this frame from
+                # BOTH the live SSE stream and the durable REST replay, so without it a
+                # replayed start is indistinguishable from a live one and the lane
+                # header dates a day-old run to the moment the page loaded.
+                "created_at": _run_created_at,
             },
         }
 
@@ -2671,16 +5902,31 @@ class ExecutionEngine:
             # into the SHIPPED five-action gate consumer. The output is NOT stashed here —
             # it is seeded at the loop entry from the freshly-hydrated graph (hydrated above
             # at ``_resume_from > 0``). Generic keying: parse the agent id out of
-            # ``gate_key = f"{run}:{agent_id}"`` (INV-1). No-op when no review gate is open
-            # (``derive_open_gate`` → ``(None, None)``) ⇒ the sentinel stays unset and every
-            # non-gate resume is byte/event-identical (INV-3). Best-effort — a read failure
-            # degrades to a normal (model-running) resume of the step (fail-safe).
+            # ``gate_key = f"{run}:{agent_id}:{visit_count}"`` (INV-1). R-08: strip BOTH the
+            # run_id prefix (first colon) and the visit_count suffix (last colon) rather than
+            # a plain ``split(":", 1)[1]`` — a custom-agent id (``custom-agent:<instance_id>``)
+            # itself contains a colon, so only the outer two must be peeled. No-op when no
+            # review gate is open (``derive_open_gate`` → ``(None, None)``) ⇒ the sentinel
+            # stays unset and every non-gate resume is byte/event-identical (INV-3).
+            # ``strip_premature_stops`` (A3): the row's own ``pipeline_cancelled``/
+            # ``pipeline_failed`` marker (this run's LAST event before the crash/resume)
+            # must not be read as the human resolving the open gate — a resume exists
+            # to continue past exactly that marker. See gate_pendency.py.
+            # Best-effort — a read failure degrades to a normal (model-running) resume of the
+            # step (fail-safe).
             if 0 <= _resume_from < len(ordered_agents):
                 try:
                     _rr_rows = await scoped_store.read_events(pipeline_run_id, 0)
-                    _rr_kind, _rr_gate_key = derive_open_gate(_rr_rows)
+                    # A3: the durably-APPROVED gate_keys, so a resume landing back on a
+                    # ``before-human`` step whose gate was already approved (but whose OWN
+                    # agent run had not yet finished) re-runs the agent WITHOUT re-asking
+                    # the already-answered question (consumed in ``_evaluate_gates``).
+                    ectx.resume_approved_gate_keys = derive_approved_gate_keys(_rr_rows)
+                    _rr_kind, _rr_gate_key = derive_open_gate(
+                        strip_premature_stops(_rr_rows)
+                    )
                     if _rr_kind == "review" and _rr_gate_key:
-                        _rr_target = _rr_gate_key.split(":", 1)[1]
+                        _rr_target = _rr_gate_key.split(":", 1)[1].rsplit(":", 1)[0]
                         _rr_spec = ordered_agents[_resume_from]
                         if getattr(_rr_spec, "id", None) == _rr_target:
                             ectx.gate_reentry = {
@@ -2704,8 +5950,96 @@ class ExecutionEngine:
         # agent-id literal, no spec.id comparison (SC-001/INV-1).
         _failed_agent_ids: set[str] = set()
 
+        # REDO-GATE follow-up (Step.redoable): a run-scoped redo counter per declared
+        # human gate, keyed on the step's instance_id / agent id. Bounds unbounded
+        # human-paced redos without making any single redo fatal (see the cap check
+        # below). Empty for every run that never opts a step into ``redoable`` (INV-3).
+        _declared_gate_redo_counts: dict[str, int] = {}
+
+        # [STABILIZATION A1/A18] Validation-retry-with-feedback: a run-scoped
+        # attempt counter per step, keyed the same way ``_declared_gate_redo_counts``
+        # is (instance_id, falling back to agent_id). Bounds a step's ``fix.
+        # max_attempts`` re-dispatches; empty for every run whose steps declare no
+        # ``fix:`` (INV-3).
+        _validation_retry_counts: dict[str, int] = {}
+
+        # agent-id literal, no spec.id comparison (SC-001/INV-1).
+        _failed_agent_ids: set[str] = set()
+
+        # Task 5.9 (sandbox-git-versioning, Req 27): dirty-tree reconciliation on resume.
+        # Now that ordered_agents is resolved, commit the crash-leftover dirty tree with
+        # the real last-completed step id. _resume_sandbox_dirty was captured before any
+        # seed writes could dirty the tree themselves, so this represents only crash
+        # leftovers. The commit message uses _resume_from-1 as the last completed step.
+        # Best-effort: any exception must not abort the run.
+        #
+        # Task 4.3 (sandbox-git-versioning-v2, Req 11 AC 9-10): routed through
+        # ``commit_in_sandbox`` so the resume dirty-tree commit is subject to pre_commit
+        # hooks and the mandatory secret scan.  ``_registry`` is available here (set
+        # just above at the per-step capability dispatch block); ``ectx.runner`` is also
+        # set.  A minimal SimpleNamespace step carries the step_id for audit/logging;
+        # ``audit_operation=None`` → observer no-ops (crash-recovery commits are not an
+        # audited class in the current schema, Requirement 19).
+        if _resume_sandbox_dirty:
+            try:
+                if _resume_from > 0 and ordered_agents:
+                    _last_idx = min(_resume_from - 1, len(ordered_agents) - 1)
+                    _last_step_id = getattr(ordered_agents[_last_idx], "id", "unknown")
+                else:
+                    _last_step_id = "unknown"
+                _wip_resume_msg = f"wip: recovered dirty tree at step {_last_step_id}"
+                import types as _rd_types  # noqa: PLC0415
+
+                _rd_step = _rd_types.SimpleNamespace(
+                    agent_id=f"resume-recover-{_last_step_id}",
+                    hooks=[],
+                    tools=None,
+                )
+                _rd_result = await commit_in_sandbox(
+                    sandbox,
+                    _wip_resume_msg,
+                    ectx,
+                    _rd_step,
+                    audit_operation=None,
+                    registry=_registry,
+                )
+                if _rd_result.blocked:
+                    logger.warning(
+                        "resume dirty-tree reconciliation: commit BLOCKED (reason=%s) run=%s step=%s",
+                        _rd_result.block_reason,
+                        pipeline_run_id,
+                        _last_step_id,
+                    )
+                elif not _rd_result.no_change:
+                    logger.info(
+                        "resume dirty-tree reconciliation: committed wip run=%s step=%s",
+                        pipeline_run_id,
+                        _last_step_id,
+                    )
+            except Exception as _dirty_exc:  # noqa: BLE001 — best-effort
+                logger.warning(
+                    "resume dirty-tree reconciliation failed run=%s: %s",
+                    pipeline_run_id,
+                    _dirty_exc,
+                )
+
+        # Task 5.9 (sandbox-git-versioning-v2, Req 5/11): pending-terminal-event
+        # contract. Every early-return terminal site inside the try block sets
+        # ``_pending_terminal_event`` instead of yielding the event directly, so
+        # that the finally block can run finalize_terminal_run FIRST and then emit
+        # the event with ``published_status`` from the returned FinalizationRecord.
+        # ``_fin_record`` captures the record for the post-finally Step-5 sites.
+        # ``_pending_cancel_reraise`` marks the non-cooperative CancelledError path
+        # where the exception propagates and the consumer cannot receive a yield
+        # from the finally block.
+        _pending_terminal_event: "dict | None" = None
+        _fin_record: "FinalizationRecord | None" = None
+        _pending_cancel_reraise: bool = False
+
+        cursor = 0
         try:
-            for i, spec in enumerate(ordered_agents):
+            while cursor < len(ordered_agents):
+                spec = ordered_agents[cursor]
                 # ── RESUME-04 mid-run offset (D-06/D-07) ─────────────────────────
                 # A resumed run re-enters THIS SAME loop (no forked dispatch path —
                 # INV-12) at the first incomplete step: every step BEFORE the resume
@@ -2714,7 +6048,8 @@ class ExecutionEngine:
                 # downstream steps via the 12-02 content-hash key); re-invoking it
                 # would re-spend the model. ``_resume_from == 0`` (normal run) never
                 # skips, so this is byte/event-identical for every non-resumed run.
-                if i < _resume_from:
+                if cursor < _resume_from:
+                    cursor += 1
                     continue
                 # ── Sibling-group parallelism (subagents.mode: parallel) ─────────
                 # A parallel group's children are dispatched by their parent via
@@ -2723,6 +6058,7 @@ class ExecutionEngine:
                 # compiler-derived and empty for every manifest not using the mode.
                 _step_for_dispatch = _steps_by_agent.get(spec.id)
                 if getattr(_step_for_dispatch, "dispatched_by", ""):
+                    cursor += 1
                     continue
                 # ── Cooperative state-machine check at the STEP BOUNDARY ─────────
                 # A terminal event inside _run_agent only ends ITS generator; this loop
@@ -2732,6 +6068,7 @@ class ExecutionEngine:
                 if self._state_machine.get_state(pipeline_run_id) in (
                     "cancelled",
                     "failed",
+                    "diverted",
                 ):
                     return
                 if cancel_event and cancel_event.is_set():
@@ -2751,10 +6088,12 @@ class ExecutionEngine:
                     # cancel signal only (no workflow/model name, SC-001).
                     logger.info("Workflow cancelled before agent %s", spec.id)
                     _cur = self._state_machine.get_state(pipeline_run_id)
-                    if _cur not in ("cancelled", "failed"):
+                    if _cur not in ("cancelled", "failed", "diverted"):
                         self._state_machine.transition(pipeline_run_id, "cancelled")
                     await self._persist_budget_snapshot_if_active(ectx)
-                    yield {
+                    # Task 5.9: set pending event; finalizer runs in finally, then
+                    # finally yields this event with record.published_status.
+                    _pending_terminal_event = {
                         "type": "pipeline_cancelled",
                         "data": {"pipeline_run_id": pipeline_run_id},
                     }
@@ -2781,6 +6120,21 @@ class ExecutionEngine:
                     from agents.workflows.plan import Step as _Step
 
                     step = _Step(agent_id=spec.id, strategy=strategy_name)
+                # ── ISS-131: does this step run its OWN agent inline? ─────────────
+                # Both ``inline_gated`` dedupe reads below PREDICT that the inline
+                # ``_run_agent`` → ``_run_review_gate`` path covers this agent, and
+                # skip the step's DECLARED ``human`` gate on that prediction. For a
+                # spawn-only strategy the prediction is stale — the strategy replaces
+                # the step's own dispatch with child invocations, which opt out of the
+                # inline gate (ISS-097) — so the declared gate was skipped for a gate
+                # that never opens and the step got NO gate at all. The STRATEGY
+                # declares the fact (``runs_agent_inline`` on the ExecutionStrategy
+                # port) and the kernel reads it off the resolved capability; no
+                # strategy-name list here (INV-1/SC-001). Absent ⇒ True, so every
+                # inline-dispatching strategy is byte-identical (INV-3).
+                _runs_agent_inline = self._strategy_runs_agent_inline(
+                    strategy_name, _registry
+                )
                 # ── [D-03] Pre-step gates (security/approval/human) ──────────────
                 # A step's declared ``gates: [...]`` evaluate in order at the step
                 # BOUNDARY. The pre-step gates (security/approval/human) run BEFORE
@@ -2791,6 +6145,7 @@ class ExecutionEngine:
                 # (parity); a declared ``gates:[human]`` step is the additive
                 # registry-driven entry point that delegates to the SAME review gate.
                 _halted = False
+                _blocked = False
                 async for _ge, _outcome, _gdetail in self._evaluate_gates(
                     step,
                     ectx,
@@ -2804,8 +6159,9 @@ class ExecutionEngine:
                     # double-prompts the user (pre-step with an empty payload,
                     # then post-step with the real output). Dedupe: the inline
                     # gate wins (the legacy, output-bearing UX); the declared
-                    # ``human`` gate is skipped for this step only.
-                    inline_gated=self._should_gate(spec, ectx),
+                    # ``human`` gate is skipped for this step only. ISS-131: only
+                    # when the strategy actually runs this agent inline.
+                    inline_gated=self._should_gate(spec, ectx) and _runs_agent_inline,
                 ):
                     # WR-04: skip the terminal (None, outcome) sentinel when
                     # forwarding (keeps the emitted stream identical) but still
@@ -2822,10 +6178,12 @@ class ExecutionEngine:
                         # completion while the state machine sat stranded in
                         # waiting_for_user.
                         _cur = self._state_machine.get_state(pipeline_run_id)
-                        if _cur not in ("cancelled", "failed"):
+                        if _cur not in ("cancelled", "failed", "diverted"):
                             self._state_machine.transition(pipeline_run_id, "cancelled")
                         await self._persist_budget_snapshot_if_active(ectx)
-                        yield {
+                        # Task 5.9: set pending event; finally block emits after
+                        # finalize_terminal_run returns with published_status.
+                        _pending_terminal_event = {
                             "type": "pipeline_cancelled",
                             "data": {
                                 "pipeline_run_id": pipeline_run_id,
@@ -2836,8 +6194,15 @@ class ExecutionEngine:
                             },
                         }
                         return
-                    if _outcome in ("block", "wait_human"):
+                    if _outcome == "block":
+                        _blocked = True
                         _halted = True
+                    elif _outcome == "wait_human":
+                        _halted = True
+                    # NOTE: no ``elif _outcome == "route":`` arm here — the
+                    # ``conditional`` gate (the only "route" emitter) is a
+                    # POST-step gate (see ``_POST_STEP_GATES``); its route-jump
+                    # handling lives in the post-step gate loop below.
                     # ── WR-04 (13 review fix): apply a declared-gate edit ─────
                     # The human gate threads an approve-with-edits payload on
                     # the terminal sentinel's detail. A declared pre-step gate
@@ -2855,9 +6220,46 @@ class ExecutionEngine:
                         await self._apply_declared_gate_edit(
                             _edited, results, ordered_agents, ectx
                         )
+                if _blocked:
+                    # ── §8b: a pre-step ``block`` terminates the RUN, not just
+                    # the step. Previously every halt fell through to
+                    # ``cursor += 1; continue``, so a security/approval gate
+                    # refusing a step emitted ``gate_blocked`` and then let the
+                    # run carry on through every downstream step and finish as
+                    # ``pipeline_complete`` — a refused run reported success with
+                    # a silently missing step. "Block" is a refusal, so it takes
+                    # the same single-terminal shape the fan-out child-failure
+                    # abort uses (KRN-004): one ``pipeline_failed``, no further
+                    # steps, no ``pipeline_complete``.
+                    #
+                    # ``wait_human`` deliberately keeps the old skip-and-continue
+                    # path below — it is a pause the human resolves (a rejection
+                    # there arrives as the ``cancel`` outcome handled above), not
+                    # a refusal.
+                    _cur = self._state_machine.get_state(pipeline_run_id)
+                    if _cur not in ("cancelled", "failed", "diverted"):
+                        self._state_machine.transition(pipeline_run_id, "failed")
+                    await self._persist_budget_snapshot_if_active(ectx, force=True)
+                    # Task 5.9: set pending event; finally block emits after
+                    # finalize_terminal_run returns with published_status.
+                    _pending_terminal_event = {
+                        "type": "pipeline_failed",
+                        "data": {
+                            "pipeline_type": pipeline_type,
+                            "pipeline_run_id": pipeline_run_id,
+                            "total_duration": round(time.time() - total_start, 2),
+                            "agents_completed": cursor,
+                            "agents_total": len(ordered_agents),
+                            "agents_failed": [spec.id],
+                            "error": f"A gate blocked {spec.name} before it ran.",
+                            "timestamp": _now(),
+                        },
+                    }
+                    return
                 if _halted:
                     # The step is halted at its boundary — skip the strategy + the
                     # post-step gates/post_step for this agent (additive halt).
+                    cursor += 1
                     continue
 
                 # ── [08-07 / 08-08 / D-09] before_step hook firing (additive) ────
@@ -2873,13 +6275,48 @@ class ExecutionEngine:
                     step,
                     ectx,
                     _registry,
-                    extra={"agent_name": spec.name, "step_index": i},
+                    extra={"agent_name": spec.name, "step_index": cursor},
                 )
                 if _hook_outcome == "block":
                     # Additive halt — no new WS event, the step simply does not run.
+                    cursor += 1
                     continue
 
-                strategy = _registry.resolve("strategy", strategy_name)
+                # A10 (STABILIZATION.md): a ``mechanical: publish`` step runs no
+                # agent — short-circuit BEFORE strategy resolution (there is no
+                # ``("strategy", "publish")`` registry entry, by design — see
+                # ``publish_step.py``'s module docstring) and hand
+                # ``_dispatch_step_with_retry`` a per-dispatch adapter built from
+                # this loop's own locals instead. Everything after this line
+                # (gates/validators/hooks/leaf-cursor) is generic on ``strategy``
+                # and runs unchanged.
+                if getattr(step, "mechanical", None) == "publish":
+                    from agents.capabilities.publish_step import (
+                        MechanicalPublishStrategy,
+                    )
+
+                    strategy = MechanicalPublishStrategy(
+                        spec=spec,
+                        index=cursor,
+                        total=len(ordered_agents),
+                        results=results,
+                    )
+                elif getattr(step, "mechanical", None) == "assemble_prototype":
+                    # Prototype v3: parts → shell → prototype.html + validation.json, by
+                    # code. Same adapter shape as publish; a coverage failure raises
+                    # AssembleStepFailed, caught below as one pipeline_failed.
+                    from agents.capabilities.assemble_step import (
+                        MechanicalAssembleStrategy,
+                    )
+
+                    strategy = MechanicalAssembleStrategy(
+                        spec=spec,
+                        index=cursor,
+                        total=len(ordered_agents),
+                        results=results,
+                    )
+                else:
+                    strategy = _registry.resolve("strategy", strategy_name)
                 # RESUME-02 (D-10): the SINGLE per-step retry/reuse wrapper. Dormant
                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
                 _terminated = False
@@ -2894,7 +6331,7 @@ class ExecutionEngine:
                     # the RUN, not just the step. The inline review gate's reject
                     # handler (_run_agent :4458) cancels the run and returns — but a
                     # generator ``return`` only ends THAT step, so without this the
-                    # loop advanced to step i+1 and the run terminated on
+                    # loop advanced to step cursor+1 and the run terminated on
                     # ``pipeline_complete``. The post-rejection steps bill nothing
                     # (every _run_agent short-circuits on the :3329 terminal guard),
                     # but fan-out still wrote ``subagent_runs='complete'`` /
@@ -2967,37 +6404,842 @@ class ExecutionEngine:
                     step,
                     ectx,
                     _registry,
-                    extra={"agent_name": spec.name, "step_index": i},
+                    extra={"agent_name": spec.name, "step_index": cursor},
                 )
 
-                # ── [D-03] Post-step gates (validation) ──────────────────────────
-                # Post-step gates (validation) evaluate AFTER the strategy completes:
-                # they run the step's declared validators + the block-critical /
-                # warn-non-critical policy, emitting the additive ``validation_warning``
-                # + ``gate_*`` events. A ``block`` here is surfaced as the additive
-                # ``gate_blocked`` event (the deliverable already produced; this is the
-                # declarative post-build validation entry point, NOT the inline
-                # task_loop build-loop validation which stays put per D-06).
-                async for _ge, _outcome, _gdetail in self._evaluate_gates(
-                    step, ectx, _registry, phase="post"
-                ):
-                    # WR-04: skip the terminal (None, outcome) sentinel — post-step
-                    # gates surface events only (the deliverable is already
-                    # produced); the sentinel must not reach the event stream.
-                    if _ge is not None:
-                        yield _ge
-
                 # ── Declared post-step capability (INV-1 / CR-06) ────────────────
-                # After the step's strategy finishes, run any declared ``post_step``
-                # capability (resolved by NAME from the compiled step — NO workflow-
-                # name/agent-id branch). This is where the in-place-revision pre-edit
-                # baseline + post-edit Both-validation fix-loop now lives (relocated
-                # out of the formerly kernel-resident revision block). It is
-                # non-yielding (side effects only) and never aborts the run (the
-                # capability swallows its own errors).
+                # After the step's strategy finishes but BEFORE post-step gates are
+                # evaluated, run any declared ``post_step`` capability (resolved by
+                # NAME from the compiled step — NO workflow-name/agent-id branch).
+                # For revision_validation, this runs the pre-edit baseline + post-edit
+                # Both-validation fix-loop, correcting the artifact before validation
+                # gates check it. The capability is non-yielding (side effects only)
+                # and never aborts the run (it swallows its own errors).
+                #
+                # ORDERING NOTE: this used to sit AFTER gate + route handling, where a
+                # matched route outcome (a jump) skipped it entirely. Running it here
+                # means a step that both declares ``post_step`` AND routes will now run
+                # the capability before jumping. No shipped manifest does both today
+                # (app_builder/api_prefix_audit and the three prototype revision
+                # pipelines all have route: no), so the difference is unreachable —
+                # but a future manifest combining them gets the capability run, which
+                # is the intended semantics: the artifact is validated regardless of
+                # where the cursor goes next.
                 post_step_name = getattr(step, "post_step", None)
                 if post_step_name:
                     await _registry.resolve("post_step", post_step_name).run(step, ectx)
+
+                # ── Task 4.2/4.3/4.4 (sandbox-git-versioning-v2, Req 10/11/12):
+                # step-boundary commit through the ONE security-gated primitive ──────
+                # Fire AFTER the strategy completes and AFTER after_step, but BEFORE
+                # the post-step gates evaluate — so the conditional gate's routing
+                # decision (and any backward retry jump) always has a commit behind it.
+                #
+                # D5 fix (Task 4.2): the previous implementation fired pre_commit with
+                # payload="" so scan_for_secret("") short-circuited immediately and
+                # could never block a staged secret.  Routing through commit_in_sandbox
+                # fixes this: its step 2 runs ``git diff --cached`` to obtain the REAL
+                # staged content before the mandatory scan (Requirement 11 AC 4).
+                #
+                # commit_in_sandbox owns, in order:
+                #   1. stage all changes (git add -A)
+                #   2. obtain real staged diff (git diff --cached)          ← D5 fix
+                #   3. declared pre_commit hooks with real diff as payload
+                #   4. MANDATORY secret scan of actual staged content
+                #   5. commit via sandbox.commit_all
+                #   6. post_commit dispatch (observation-only, isolated try/except)
+                #
+                # has_git=False is handled inside commit_in_sandbox (returns
+                # no_change=True immediately), so the ``else`` branch is gone and
+                # both paths are unified (Requirement 11 AC 9).
+                #
+                # A blocked result: commit_in_sandbox sets ectx.last_commit_blocked;
+                # the diff stays in the working tree; the step continues; the terminal
+                # path forces ``degraded`` + suppresses tagging (Requirement 12 AC 5).
+                #
+                # audit_operation=None: a step-boundary commit is not an audited
+                # operation class — the observer no-ops cleanly on None per the
+                # commit_in_sandbox contract (Requirement 19).
+                #
+                # FR-033 (Requirement 33/34): a step declaring ``replaces: true``
+                # reconciles its declared ``outputs`` surface FIRST — the removal
+                # of any stale path is staged before commit_in_sandbox's own
+                # ``git add -A``, so it lands in the SAME commit as this pass's
+                # writes. No-op for every step that omits ``replaces`` (INV-3).
+                _reconcile_replaces_surface(sandbox, step)
+                _commit_result = await commit_in_sandbox(
+                    sandbox,
+                    f"step: {step.agent_id}",
+                    ectx,
+                    step,
+                    audit_operation=None,
+                    registry=_registry,
+                )
+                # FR-011: warn if step declared writes but nothing was staged
+                if _commit_result.no_change and getattr(step, "outputs", None):
+                    logger.warning(
+                        "commit_in_sandbox: step %s declared outputs but no changes staged "
+                        "for run=%s",
+                        step.agent_id,
+                        getattr(ectx, "run_id", "?"),
+                    )
+
+                # ── [D-03] Post-step gates (validation, conditional) ─────────────
+                # Post-step gates evaluate AFTER the strategy completes. ``validation``
+                # runs the step's declared validators + the block-critical / warn-
+                # non-critical policy, emitting the additive ``validation_warning`` +
+                # ``gate_*`` events; its ``block`` is surfaced as the additive
+                # ``gate_blocked`` event only (the deliverable already produced; this
+                # is the declarative post-build validation entry point, NOT the
+                # inline task_loop build-loop validation which stays put per D-06).
+                #
+                # ``conditional`` (spec 014 / T14) is ALSO post-step here (moved
+                # from the pre-step loop above) because by default it reads THIS
+                # step's own ``route_decision`` artifact (route.condition_agent
+                # defaults to the step's own id), which does not exist until the
+                # strategy above has run. Its ``route`` outcome IS consumed below —
+                # it redirects the cursor. ``validation``'s ``block`` outcome is ALSO
+                # consumed below (STABILIZATION A1/A18 validation-retry) — captured
+                # here on the event-carrying tuple, acted on after the loop.
+                _routed = False
+                _cond_blocked = False
+                _gate_redo_instructions: str | None = None
+                _validation_blocked = False
+                _validation_issues: list[dict] | None = None
+                async for _ge, _outcome, _gdetail in self._evaluate_gates(
+                    step,
+                    ectx,
+                    _registry,
+                    phase="post",
+                    # ISS-172a — WR-02 dedupe, which the pre-step loop has passed
+                    # since the 13-review fix and this loop never did. It did not
+                    # matter while ``human`` was a PRE-step gate; ADR-0013 moved it
+                    # here, and an inline-gated step then opened the SAME review on
+                    # the SAME gate_key twice — once from ``_should_gate`` ->
+                    # ``_run_review_gate`` inside ``_run_agent``, once from the
+                    # declared gate evaluated here. Symptom in the suite: a
+                    # duplicate ``review_gate_ready`` and ``['block','block']``
+                    # where one outcome was expected. ISS-131: only when the
+                    # strategy actually runs this agent inline.
+                    inline_gated=self._should_gate(spec, ectx) and _runs_agent_inline,
+                ):
+                    # WR-04: skip the terminal (None, outcome) sentinel when
+                    # forwarding (keeps the emitted stream identical) but still
+                    # honor a ``route`` outcome below.
+                    if _ge is not None:
+                        yield _ge
+                    # ── ISS-170: a conditional gate with nowhere to route ─────
+                    # ``ConditionalGate`` returns GATE_BLOCK when the decision
+                    # matches no ``route.outcomes`` entry AND the manifest
+                    # declares no ``route.default_next`` — the documented
+                    # hard-stop (spec 014 R-13). Only the ``route`` outcome was
+                    # consumed here, so the block was forwarded to the client and
+                    # then IGNORED: ``_routed`` stayed False, the step is not a
+                    # leaf (it declares a route), and control fell through to the
+                    # plain ``cursor = cursor + 1`` below — landing on whichever
+                    # branch happens to be declared first in the manifest, purely
+                    # as an array-order artifact. The run then reported
+                    # ``pipeline_complete``, so a mis-routed run looked green.
+                    #
+                    # Read off the EVENT rather than ``_gdetail``: the gate's
+                    # detail carries ``decision``/``reason`` but no gate name,
+                    # while the ``gate_blocked`` event carries
+                    # ``data.gate == "conditional"`` (conditional.py's GateOutcome
+                    # events list). Narrow on purpose.
+                    if (
+                        _outcome == "block"
+                        and isinstance(_ge, dict)
+                        and (_ge.get("data") or {}).get("gate") == "conditional"
+                    ):
+                        _cond_blocked = True
+                    # ── [STABILIZATION A1/A18] Validation-retry-with-feedback ────
+                    # A CRITICAL (P0) finding from the declared ``validation`` gate
+                    # used to be event-only (``gate_blocked``, no halt) — A1's
+                    # Finding 1: the dispatch loop advanced to the next step with
+                    # the flawed artifact regardless. Same narrowing idiom as the
+                    # ``conditional`` block above (``data.gate``); the CRITICAL
+                    # issues ride ``data.issues`` (ValidationGate.evaluate's block
+                    # event) — captured here, acted on after the gate loop below.
+                    if (
+                        _outcome == "block"
+                        and isinstance(_ge, dict)
+                        and (_ge.get("data") or {}).get("gate") == "validation"
+                    ):
+                        _validation_blocked = True
+                        _validation_issues = list(
+                            (_ge.get("data") or {}).get("issues") or []
+                        )
+                    if _outcome == "cancel":
+                        # ISS-172b — WR-03 parity for the POST-step loop. The
+                        # pre-step loop has cancelled the run on a declared-gate
+                        # rejection since the 13-review fix; this loop had no arm,
+                        # so once ADR-0013 moved ``human`` post-step a Reject
+                        # yielded its gate event and then fell through — downstream
+                        # steps kept executing and the run terminated as a
+                        # completion with the state machine stranded in
+                        # ``waiting_for_user``. Mirrors the pre-step arm exactly;
+                        # only the reason string differs, because a post-step gate
+                        # reviews the step's OWN output rather than the previous
+                        # step's.
+                        _cur = self._state_machine.get_state(pipeline_run_id)
+                        if _cur not in ("cancelled", "failed", "diverted"):
+                            self._state_machine.transition(pipeline_run_id, "cancelled")
+                        await self._persist_budget_snapshot_if_active(ectx)
+                        # Task 5.9: set pending event; finally block emits after
+                        # finalize_terminal_run returns with published_status.
+                        _pending_terminal_event = {
+                            "type": "pipeline_cancelled",
+                            "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "reason": (
+                                    f"User rejected at the review gate "
+                                    f"after {spec.name}"
+                                ),
+                            },
+                        }
+                        return
+                    if _outcome == "redo":
+                        # REDO-GATE follow-up: a "redo" action at this step's declared
+                        # human gate (Step.redoable opt-in — human.py). Captured here;
+                        # acted on AFTER the gate loop exits (mirrors the ``route``
+                        # outcome's deferred handling below).
+                        _gate_redo_instructions = (
+                            _gdetail.get("instructions")
+                            if isinstance(_gdetail, dict)
+                            else None
+                        ) or ""
+                    if _outcome == "route":
+                        # ── [spec 014 / T14] ConditionalGate route outcome ────
+                        # ``_gdetail`` is the ``GateOutcome.detail`` the
+                        # ConditionalGate (agents/capabilities/gates/conditional.py)
+                        # sets on a matched route: ``{"trigger": ..., "target": ...}``.
+                        _route_trigger = (
+                            _gdetail.get("trigger")
+                            if isinstance(_gdetail, dict)
+                            else None
+                        )
+                        _route_target = (
+                            _gdetail.get("target")
+                            if isinstance(_gdetail, dict)
+                            else None
+                        )
+                        # R-28 feedback travels with EITHER trigger type: the step arm
+                        # stashes it in pending_route_feedback for the re-dispatched
+                        # target (a loop-back rebuilds its context from scratch, so
+                        # without this the retry is byte-identical to the first pass);
+                        # the workflow arm below hands it to the child run as its
+                        # user message, which is otherwise empty.
+                        _route_feedback = (
+                            _gdetail.get("feedback")
+                            if isinstance(_gdetail, dict)
+                            else None
+                        )
+                        if _route_trigger == "step":
+                            # Resolve the target step's index in ordered_agents and
+                            # jump the cursor directly to it — forward or backward,
+                            # same code path (T13's while-loop conversion). R-10
+                            # (compiler._validate_route_targets) already guarantees
+                            # a "step" target names a real step id at compile time.
+                            #
+                            # R-05/R-10 dual-identity: a composed custom-agent step's
+                            # ordered_agents entry carries the FULL
+                            # "custom-agent:<instance_id>" id, but ``target`` is
+                            # author-facing and commonly the bare ``instance_id`` (the
+                            # same dual-identity the compiler's
+                            # ``_validate_route_targets`` ``by_name`` map already
+                            # accepts at compile time — see that method's docstring).
+                            # Try an exact match first (byte-identical for every
+                            # non-composed / already-full-id target); fall back to a
+                            # ``":<target>"`` suffix match only when no exact match
+                            # exists.
+                            _route_index = next(
+                                (
+                                    i
+                                    for i, s in enumerate(ordered_agents)
+                                    if s.id == _route_target
+                                ),
+                                None,
+                            )
+                            if _route_index is None:
+                                _route_index = next(
+                                    (
+                                        i
+                                        for i, s in enumerate(ordered_agents)
+                                        if s.id.endswith(f":{_route_target}")
+                                    ),
+                                    None,
+                                )
+                            if _route_index is not None:
+                                _loop_cap_exceeded = False
+                                if _route_index <= cursor:
+                                    # ── [spec 014 / T18] R-07 loop-cap enforcement ──
+                                    # A backward (or self) "step" jump is a LOOP
+                                    # (forward branches never touch
+                                    # step_visit_counts — R-06/data-model.md).
+                                    # Check the jump TARGET's already-recorded
+                                    # visit count against ``loop_max_iterations``
+                                    # BEFORE letting the jump proceed. The cap
+                                    # lives on THIS step's own ``route`` (the
+                                    # step currently being dispatched, already
+                                    # bound as ``step``) — RouteSpec is only
+                                    # ever attached to the step declaring
+                                    # ``gates: [conditional]`` (R-03), never to
+                                    # its jump target (confirmed against the
+                                    # A1 fixture: ``check`` declares
+                                    # ``route.loop_max_iterations: 3``; its
+                                    # target ``greet`` has no ``route`` at
+                                    # all). At the cap: stop the jump — see the
+                                    # [convergence-limit fix] below, which
+                                    # suppresses it rather than raising fatally.
+                                    # Only increment AFTER the check passes.
+                                    _step_route = getattr(step, "route", None)
+                                    _loop_max = (
+                                        _step_route.loop_max_iterations
+                                        if _step_route is not None
+                                        else 5
+                                    )
+                                    # ── [R-08 fix] key on the COMPOSED id ──────
+                                    # This counter was WRITTEN under the authored
+                                    # target ("greet") but every other reader looks it
+                                    # up by ``spec.id`` ("custom-agent:greet") — see
+                                    # the gate_key folds at ~4270/~4392, the completion
+                                    # record at ~5431 and the failed-invocation triple
+                                    # at ~4012. All three therefore read 0 forever on a
+                                    # composed step, silently disarming R-08: a
+                                    # loop-re-entered human gate reused pass 1's
+                                    # gate_key, and a pass-2 completion masked a pass-1
+                                    # failure. Only the cap worked, because it read with
+                                    # the same bare key it wrote. Resolve once, here, to
+                                    # the form everyone else uses. The BudgetExceeded
+                                    # message still names the author-facing target.
+                                    _visit_key = ordered_agents[_route_index].id
+                                    _visits = ectx.step_visit_counts.get(_visit_key, 0)
+                                    if _visits >= _loop_max:
+                                        # ── on_loop_exhausted flag: fail or continue? ──
+                                        # A gate with no default_next fails closed when it
+                                        # returns an unrecognized verdict. With the
+                                        # on_loop_exhausted flag it also fails closed when
+                                        # it runs out of retries instead of presenting a
+                                        # build the inspector just rejected.
+                                        _on_loop_exhausted = getattr(
+                                            _step_route, "on_loop_exhausted", "continue"
+                                        )
+                                        if _on_loop_exhausted == "fail":
+                                            _loop_cap_reason = (
+                                                f"step {_route_target!r} would be "
+                                                f"revisited {_visits + 1} time(s), "
+                                                f"exceeding loop_max_iterations="
+                                                f"{_loop_max} (R-07) — loop exhausted, "
+                                                f"on_loop_exhausted=fail, run failed"
+                                            )
+                                            raise BudgetExceeded(
+                                                "loop_iterations", _loop_cap_reason
+                                            )
+
+                                        # ── [convergence-limit fix] an exhausted
+                                        # loop_iterations budget on a BACKWARD/SELF
+                                        # route is a CONVERGENCE LIMIT, not a fatal
+                                        # error — the revision loop didn't converge,
+                                        # but every prior pass's work (screens built,
+                                        # defects fixed) is real and must not be
+                                        # thrown away. Unlike every OTHER
+                                        # BudgetExceeded dimension (tokens/wall-clock/
+                                        # subagents/depth/workspace, all still raised
+                                        # and caught by the graceful-abort handler
+                                        # below), suppress THIS jump only: emit the
+                                        # same visible ``budget_aborted`` event
+                                        # (never swallowed) but do NOT raise — leave
+                                        # ``_routed`` False so the dispatch loop falls
+                                        # through to the post-step capability + the
+                                        # normal forward cursor advance below, exactly
+                                        # as if this gate had returned "done". A
+                                        # FORWARD jump (``_route_index > cursor``)
+                                        # never reaches this branch at all (R-06:
+                                        # forward branches never touch
+                                        # step_visit_counts) — a forward jump
+                                        # exhausting its OWN budget dimension is a
+                                        # different failure and is left as-is.
+                                        _loop_cap_exceeded = True
+                                        _loop_cap_reason = (
+                                            f"step {_route_target!r} would be "
+                                            f"revisited {_visits + 1} time(s), "
+                                            f"exceeding loop_max_iterations="
+                                            f"{_loop_max} (R-07) — stopped "
+                                            f"looping, continuing forward"
+                                        )
+                                        ectx.budget_degraded_reasons.append(
+                                            _loop_cap_reason
+                                        )
+                                        yield {
+                                            "type": "budget_aborted",
+                                            "data": {
+                                                "pipeline_run_id": pipeline_run_id,
+                                                "dimension": "loop_iterations",
+                                                "message": _loop_cap_reason,
+                                                "partial_results": (
+                                                    self._collect_partial_fragments(
+                                                        ectx
+                                                    )
+                                                ),
+                                            },
+                                        }
+                                    else:
+                                        ectx.step_visit_counts[_visit_key] = _visits + 1
+                                        # ── [R-28] Retry feedback for the loop target ──
+                                        # A loop-back re-dispatches its target with context
+                                        # rebuilt from scratch: same brief, no upstream
+                                        # outputs (_filter_consumed_outputs stops at the
+                                        # current step, so a loop target can NEVER consume
+                                        # its own downstream judge's verdict). Same input →
+                                        # same output → same decision, so before this the
+                                        # loop could only ever run to loop_max_iterations
+                                        # and fail closed. Observed live: the A1 fixture's
+                                        # `greet` emitted a byte-identical 12-char answer on
+                                        # passes 2, 3 and 4.
+                                        #
+                                        # Stash the reason here (BACKWARD jumps only — a
+                                        # forward branch target is being reached for the
+                                        # first time and has nothing to be told). The block
+                                        # is composed and consumed in
+                                        # _compose_context_message, then cleared, so it is
+                                        # delivered exactly once per jump.
+                                        # Now that ``pending_route_feedback`` is a declared
+                                        # dict field (Req 14 AC 7) we can write directly
+                                        # rather than checking for None and re-assigning.
+                                        ectx.pending_route_feedback[
+                                            ordered_agents[_route_index].id
+                                        ] = {
+                                            "from_step": step.id,
+                                            "decision": (
+                                                _gdetail.get("decision")
+                                                if isinstance(_gdetail, dict)
+                                                else None
+                                            ),
+                                            "from_output": getattr(
+                                                ectx, "last_streamed", None
+                                            ),
+                                            "pass_number": _visits + 2,
+                                            "max_passes": _loop_max + 1,
+                                            "authored": (
+                                                _gdetail.get("feedback")
+                                                if isinstance(_gdetail, dict)
+                                                else None
+                                            ),
+                                        }
+                                if not _loop_cap_exceeded:
+                                    _from_index = cursor
+                                    cursor = _route_index
+                                    _routed = True
+
+                                    # ── explicit skip signal: only what can NEVER run again ──
+                                    # The cursor is sequential: after landing on
+                                    # ``_route_index`` it walks forward, and only a later
+                                    # trigger="step" route can move it back. So the steps
+                                    # this jump leaves behind are exactly the ones in
+                                    # (_from_index, _route_index) — and one of them is
+                                    # truly dead only if no route reachable from the
+                                    # landing point can jump back to or before it. Report
+                                    # those, and only those. A sibling outcome's target
+                                    # that a later loop pass can still reach (review-verdict
+                                    # "bad" → review-revision, whose router loops back to
+                                    # review-planner and eventually lands on the "good"
+                                    # target assembler) is NOT skipped — calling it so made
+                                    # the UI grey out a step that then ran. A backward jump
+                                    # leaves nothing behind (everything below it already
+                                    # ran) and reports nothing. A step that already ran on
+                                    # an earlier pass keeps its agent_complete.
+                                    def _index_of(_target: str) -> int | None:
+                                        _hit = next(
+                                            (
+                                                i
+                                                for i, s in enumerate(ordered_agents)
+                                                if s.id == _target
+                                            ),
+                                            None,
+                                        )
+                                        if _hit is None:
+                                            _hit = next(
+                                                (
+                                                    i
+                                                    for i, s in enumerate(
+                                                        ordered_agents
+                                                    )
+                                                    if s.id.endswith(f":{_target}")
+                                                ),
+                                                None,
+                                            )
+                                        return _hit
+
+                                    # Lowest index any route at/after the landing point can
+                                    # jump to, to a fixed point (a loop target's own tail
+                                    # may carry further backward routes).
+                                    # ponytail: ignores an exhausted loop_max_iterations —
+                                    # errs toward reporting fewer skips, never more.
+                                    _reach_floor = _route_index
+                                    _floor_moved = True
+                                    while _floor_moved:
+                                        _floor_moved = False
+                                        for _later in ordered_agents[_reach_floor:]:
+                                            _later_route = getattr(
+                                                _later, "route", None
+                                            )
+                                            if _later_route is None:
+                                                continue
+                                            _targets = [
+                                                _o.target
+                                                for _o in (
+                                                    _later_route.outcomes or {}
+                                                ).values()
+                                                if getattr(_o, "trigger", "step")
+                                                == "step"
+                                            ]
+                                            if _later_route.default_next:
+                                                _targets.append(
+                                                    _later_route.default_next
+                                                )
+                                            for _t in _targets:
+                                                _t_index = _index_of(_t)
+                                                if (
+                                                    _t_index is not None
+                                                    and _t_index < _reach_floor
+                                                ):
+                                                    _reach_floor = _t_index
+                                                    _floor_moved = True
+                                    _skipped_ids: list[str] = []
+                                    for _left_behind in ordered_agents[
+                                        _from_index + 1 : _reach_floor
+                                    ]:
+                                        if getattr(_left_behind, "dispatched_by", ""):
+                                            # A fan-out child is reported by its parent
+                                            # group, not individually here.
+                                            continue
+                                        if any(
+                                            r.get("agent_id") == _left_behind.id
+                                            for r in results
+                                        ):
+                                            continue
+                                        _skipped_ids.append(_left_behind.id)
+                                        yield {
+                                            "type": "agent_skipped",
+                                            "data": {
+                                                "agent_id": _left_behind.id,
+                                                "step": step.id,
+                                                "gate": "conditional",
+                                                "reason": (
+                                                    f"conditional gate routed to "
+                                                    f"{_route_target!r} instead, and no "
+                                                    f"later route can come back to it"
+                                                ),
+                                            },
+                                        }
+                                    logger.info(
+                                        "condition: step %s -> next=%s, skipped=%s",
+                                        step.id,
+                                        ordered_agents[_route_index].id,
+                                        _skipped_ids or "-",
+                                    )
+                        elif _route_trigger == "workflow":
+                            # ── [spec 014 / T29] Cross-workflow trigger (R-12/R-13/R-14) ──
+                            # Mint + spawn a NEW, independent WorkflowRun via the T28
+                            # kernel delegate (``ectx.runner`` is the KernelServices
+                            # handle, D-03) — this run does NOT wait on it (R-13,
+                            # Option 2: the mint/spawn call is the only await; it
+                            # returns as soon as the new run exists, not when it
+                            # finishes).
+                            logger.info(
+                                "condition: step %s launching workflow %r (this run stops here — R-13)",
+                                step.id,
+                                _route_target,
+                            )
+                            (
+                                _diverted_to_run_id,
+                                _diverted_to_workflow,
+                            ) = await ectx.runner.run_trigger_workflow(
+                                step,
+                                ectx,
+                                workflow_ref=_route_target,
+                                content=_route_feedback or "",
+                            )
+                            # R-14: the SAME state_machine.transition mechanism
+                            # cancelled/failed use elsewhere in this file (persists
+                            # to WorkflowRun.status via StateMachine._persist).
+                            self._state_machine.transition(pipeline_run_id, "diverted")
+                            # ── [spec 014 / R-20 audit finding, T41] diverted_at_step_id ──
+                            # Same best-effort DB-write shape StateMachine._persist (T71)
+                            # already uses for WorkflowRun.status: a fresh SessionLocal, a
+                            # single row lookup, one attribute set, one commit — applied
+                            # here as an additional small write on the SAME row this
+                            # transition() call just updated, not a new DB-access pattern.
+                            # Non-fatal: a DB hiccup here must not break the
+                            # already-persisted "diverted" transition or the yield below.
+                            try:
+                                from app.models.database import SessionLocal
+                                from app.models.workflow import WorkflowRun
+
+                                _divert_db = SessionLocal()
+                                try:
+                                    _divert_wr = (
+                                        _divert_db.query(WorkflowRun)
+                                        .filter(WorkflowRun.id == pipeline_run_id)
+                                        .first()
+                                    )
+                                    if _divert_wr is not None:
+                                        _divert_wr.diverted_at_step_id = (
+                                            step.instance_id
+                                        )
+                                        _divert_db.commit()
+                                finally:
+                                    _divert_db.close()
+                            except Exception as _divert_exc:  # noqa: BLE001 — non-fatal
+                                logger.debug(
+                                    "diverted_at_step_id persist failed (non-fatal): %s",
+                                    _divert_exc,
+                                )
+                            # ── [spec 014 / R-28] pipeline_diverted — additive event,
+                            # emitted through the SAME generic event-forward path
+                            # ``pipeline_cancelled`` already uses (a bare ``yield``
+                            # here; INV-3, decision-log #18). ``diverted_to_workflow``
+                            # is the ``target_pipeline_type`` ``run_trigger_workflow``
+                            # already resolved before minting — never the manifest's
+                            # literal ``"self"`` sentinel, even when ``_route_target``
+                            # (the raw manifest ``target``) was ``"self"``.
+                            # Task 5.9: set pending event; finally runs finalizer
+                            # then emits this event with published_status. The
+                            # pipeline_diverted type has no embedded status field,
+                            # so we emit it verbatim (published_status does not
+                            # override its type).
+                            _pending_terminal_event = {
+                                "type": "pipeline_diverted",
+                                "data": {
+                                    "pipeline_run_id": pipeline_run_id,
+                                    "diverted_to_run_id": _diverted_to_run_id,
+                                    "diverted_to_workflow": _diverted_to_workflow,
+                                },
+                            }
+                            # R-13: THIS run's dispatch loop ends here — no
+                            # default_next, no cursor advance, no post_step
+                            # capability, no pipeline_complete.
+                            return
+                if _gate_redo_instructions is not None:
+                    # ── REDO-GATE follow-up: declared-gate redo (Step.redoable) ──
+                    # Bounded (F2 precedent): a run-scoped counter per step caps
+                    # unbounded human-paced redos, mirroring the ``loop_iterations``
+                    # cap on a conditional-gate loop-back. NOT fatal on its own — the
+                    # cap only trips after MANY redos of the SAME step — and it fails
+                    # CLOSED (cancels the run) rather than silently letting the step
+                    # through unreviewed, matching this codebase's HITL fail-closed
+                    # rule (``_FAIL_CLOSED_GATES`` / ISS-053's "the degrade is KEEP
+                    # WAITING, never fail-open" precedent).
+                    _redo_key = getattr(step, "instance_id", "") or spec.id
+                    _redo_n = _declared_gate_redo_counts.get(_redo_key, 0)
+                    if _redo_n >= self._MAX_DECLARED_GATE_REDOS:
+                        _cur = self._state_machine.get_state(pipeline_run_id)
+                        if _cur not in ("cancelled", "failed", "diverted"):
+                            self._state_machine.transition(pipeline_run_id, "cancelled")
+                        await self._persist_budget_snapshot_if_active(ectx)
+                        yield {
+                            "type": "pipeline_cancelled",
+                            "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "reason": (
+                                    f"Redo limit ({self._MAX_DECLARED_GATE_REDOS}) reached "
+                                    f"at the review gate for {spec.name}."
+                                ),
+                            },
+                        }
+                        return
+                    _declared_gate_redo_counts[_redo_key] = _redo_n + 1
+                    # Deliver the user's text to the RE-RUN through the EXISTING
+                    # generic steering-note seam (ectx.steering_notes → the
+                    # === USER GUIDANCE === block, drained at the next dispatch) —
+                    # no second text-injection mechanism (D-04/ND-11 precedent).
+                    if _gate_redo_instructions:
+                        ectx.steering_notes.append(
+                            {"text": _gate_redo_instructions, "sticky": False}
+                        )
+                    # Re-dispatch the SAME step: do not advance ``cursor``. The outer
+                    # while-loop re-enters at the top (pre-step gates, hooks, strategy,
+                    # post-step gates) — cheap here since story-layer-class steps
+                    # declare no pre-step gates; a step that does will re-run those
+                    # too, which is the honest reading of "run this step again".
+                    continue
+                if _validation_blocked:
+                    # ── [STABILIZATION A1/A18] Validation-retry-with-feedback ────
+                    # A1's Finding 1: ``fix: {max_attempts: N}`` is declared on
+                    # several steps but was inert for every ``single_shot`` /
+                    # ``wave_scheduler`` step (only ``task_loop``'s OWN internal
+                    # static/render fix-loop reads ``step.fix``) — so a CRITICAL
+                    # validation finding never re-ran the agent, it just shipped
+                    # the bad artifact with a ``gate_blocked`` audit row to show
+                    # for it. This activates the declaration: re-dispatch the SAME
+                    # step, feeding the validator's CRITICAL findings back through
+                    # the SAME generic steering seam the declared-gate redo above
+                    # uses (``ectx.steering_notes`` → "=== USER GUIDANCE ===" at
+                    # the next dispatch) — not a second feedback channel (the R-28
+                    # route-feedback seam is for a DIFFERENT step's re-entry on a
+                    # conditional loop-back, not a same-step redo).
+                    #
+                    # A step with no declared ``fix:`` (max_attempts defaults to 0)
+                    # gets ZERO retries and fails closed on the FIRST block —
+                    # STABILIZATION.md's evidence is that "emit + continue" is
+                    # exactly how bad artifacts shipped, so no declared policy is
+                    # not a free pass.
+                    #
+                    # A ``wave_scheduler`` step (screen-builder / review-revision)
+                    # re-dispatches its WHOLE wave here, not just the workers the
+                    # feedback names — the retry only re-invokes
+                    # ``strategy.run(step, ectx)`` again; narrowing that to
+                    # failed-worker-only would mean reaching into wave_scheduler's
+                    # own dispatch (out of this file's declared ownership for this
+                    # change — see STABILIZATION.md's dispatch note).
+                    _fix_decl = getattr(step, "fix", None)
+                    _max_fix_attempts = getattr(_fix_decl, "max_attempts", 0) or 0
+                    _fix_key = getattr(step, "instance_id", "") or spec.id
+                    _fix_attempt = _validation_retry_counts.get(_fix_key, 0)
+                    _fix_feedback = _format_validation_feedback(_validation_issues)
+                    if _fix_attempt < _max_fix_attempts:
+                        _validation_retry_counts[_fix_key] = _fix_attempt + 1
+                        yield {
+                            "type": "validation_retry",
+                            "data": {
+                                "step": spec.id,
+                                "attempt": _fix_attempt + 1,
+                                "max": _max_fix_attempts,
+                                "feedback": _fix_feedback,
+                            },
+                        }
+                        ectx.steering_notes.append(
+                            {"text": _fix_feedback, "sticky": False}
+                        )
+                        # Re-dispatch the SAME step: do not advance ``cursor`` —
+                        # mirrors the declared-gate redo re-dispatch above.
+                        continue
+                    # Exhausted (or no ``fix:`` declared — 0 attempts): FAIL
+                    # CLOSED. Record the SAME per-invocation failure bookkeeping a
+                    # genuine ``_run_agent`` agent_error uses (so an audit reading
+                    # ``ectx.failed_invocations`` sees this exactly like any other
+                    # agent failure) and emit the SAME ``agent_error`` event
+                    # vocabulary — but, unlike a recoverable mid-agent error, this
+                    # is a KNOWN-BAD, already-produced artifact that must never
+                    # reach a downstream consumer. Terminate the RUN here with the
+                    # same single-terminal KRN-004 shape the pre-step ``_blocked``
+                    # and post-step ``_cond_blocked`` arms above already use,
+                    # rather than falling through to the softer end-of-run
+                    # degraded decision (A14) that would let the dispatch loop
+                    # keep advancing past a step whose own output just failed
+                    # validation.
+                    self._record_failed_invocation(ectx, spec.id)
+                    _failed_agent_ids.add(spec.id)
+                    yield {
+                        "type": "agent_error",
+                        "data": {
+                            "agent_id": spec.id,
+                            "error": (
+                                f"Validation blocked {spec.name}'s output after "
+                                f"{_fix_attempt} retr"
+                                f"{'y' if _fix_attempt == 1 else 'ies'} "
+                                f"(fix.max_attempts={_max_fix_attempts}): "
+                                f"{_fix_feedback}"
+                            ),
+                            "recoverable": False,
+                        },
+                    }
+                    _cur = self._state_machine.get_state(pipeline_run_id)
+                    if _cur not in ("cancelled", "failed", "diverted"):
+                        self._state_machine.transition(pipeline_run_id, "failed")
+                    await self._persist_budget_snapshot_if_active(ectx, force=True)
+                    yield {
+                        "type": "pipeline_failed",
+                        "data": {
+                            "pipeline_type": pipeline_type,
+                            "pipeline_run_id": pipeline_run_id,
+                            "total_duration": round(time.time() - total_start, 2),
+                            "agents_completed": cursor + 1,
+                            "agents_total": len(ordered_agents),
+                            "agents_failed": [spec.id],
+                            "error": (
+                                f"{spec.name}'s output failed validation and "
+                                f"exhausted its fix.max_attempts."
+                            ),
+                            "timestamp": _now(),
+                        },
+                    }
+                    return
+                if _cond_blocked:
+                    # ── ISS-170: terminate the RUN, mirroring the pre-step loop's
+                    # ``_blocked`` arm (§8b). A block is a refusal, so it takes the
+                    # single-terminal shape the fan-out child-failure abort uses
+                    # (KRN-004): one ``pipeline_failed``, no further steps, no
+                    # ``pipeline_complete``. ``agents_completed`` is ``cursor + 1``
+                    # rather than the pre-step arm's ``cursor`` — this step's own
+                    # strategy has already run and produced output; it is the
+                    # ROUTING that had nowhere to go.
+                    _cur = self._state_machine.get_state(pipeline_run_id)
+                    if _cur not in ("cancelled", "failed", "diverted"):
+                        self._state_machine.transition(pipeline_run_id, "failed")
+                    await self._persist_budget_snapshot_if_active(ectx, force=True)
+                    # Task 5.9: set pending event; finally block emits after
+                    # finalize_terminal_run returns with published_status.
+                    _pending_terminal_event = {
+                        "type": "pipeline_failed",
+                        "data": {
+                            "pipeline_type": pipeline_type,
+                            "pipeline_run_id": pipeline_run_id,
+                            "total_duration": round(time.time() - total_start, 2),
+                            "agents_completed": cursor + 1,
+                            "agents_total": len(ordered_agents),
+                            "error": (
+                                f"{spec.name}'s conditional gate had nowhere to "
+                                f"route: no matching outcome and no default_next."
+                            ),
+                        },
+                    }
+                    return
+
+                if _routed:
+                    # The conditional gate redirected the cursor to the route
+                    # target — skip the default ``cursor += 1`` (the jump above
+                    # already set the exact next cursor; forward and backward
+                    # targets are the same code path, T13). The post_step
+                    # capability has already run before gates were evaluated.
+                    continue
+
+                # ── [spec 014 / T13-T14 fix] Stop at a LEAF step, don't fall through ──
+                # ``step.is_leaf`` (R-26, compiler._compute_is_leaf) is True iff nothing
+                # in the compiled graph legitimately continues from this step — but a
+                # leaf step is not always array-LAST: a forward branch's target (e.g.
+                # ``say-hello`` in ex_A2_branch) is a leaf sitting
+                # BEFORE the other branch's target in array order. A bare ``cursor += 1``
+                # here walked straight into that other branch's exclusive target — the
+                # T25 mutual-exclusivity failure. Advancing all the way past
+                # ``ordered_agents`` on a leaf ends the walk instead, exactly like the
+                # natural end-of-array case already did (is_leaf's own docstring: for a
+                # step with no route, is_leaf is True only at array-end OR when the next
+                # array slot is stolen by another branch — this makes both cases end the
+                # loop). Every non-leaf step still gets the plain ``cursor + 1`` it
+                # always had (parity for every pre-014 / non-branching workflow).
+                #
+                # ...but `is_leaf` is computed by the COMPILER over `compiled.steps`,
+                # while this loop walks `ordered_agents` (the ROSTER). Those are 1:1 for
+                # every file-manifest run, and were assumed to be so here. They are NOT
+                # for a COMPOSED run (Path B): an agent that exists only in the user's
+                # selections has no step in the base plan, so a 1-step plan + 2-agent
+                # roster made the single compiled step `is_leaf` (i+1 >= len(steps)) and
+                # this line jumped the cursor clean past the composed agent — it never
+                # ran, and the run "completed" with agents_completed < agents_total.
+                # `is_leaf` only ever claims that nothing in the COMPILED GRAPH follows;
+                # when the next roster entry has no compiled step at all, the graph has
+                # no opinion about it and plain array-adjacency (the pre-014 behaviour)
+                # is what must win.
+                _next_spec = (
+                    ordered_agents[cursor + 1]
+                    if cursor + 1 < len(ordered_agents)
+                    else None
+                )
+                _leaf_ends_the_walk = getattr(step, "is_leaf", False) and (
+                    _next_spec is None or _next_spec.id in _steps_by_agent
+                )
+                cursor = len(ordered_agents) if _leaf_ends_the_walk else cursor + 1
 
         except asyncio.CancelledError:
             self._state_machine.transition(pipeline_run_id, "cancelled")
@@ -3006,7 +7248,9 @@ class ExecutionEngine:
             # Strictly conditional on fan-out activity so a cancelled non-fanout run
             # stays byte/event-identical (no snapshot written when nothing fanned out).
             await self._persist_budget_snapshot_if_active(ectx)
-            yield {
+            # Task 5.9: set pending event; finally block emits after
+            # finalize_terminal_run returns with published_status.
+            _pending_terminal_event = {
                 "type": "pipeline_cancelled",
                 "data": {"pipeline_run_id": pipeline_run_id},
             }
@@ -3027,6 +7271,10 @@ class ExecutionEngine:
             # model / agent name — SC-001).
             if cancel_event is not None and cancel_event.is_set():
                 return
+            # Non-cooperative (destructive) cancel: the exception propagates.  The
+            # consumer is disconnecting so it cannot receive a yield from finally.
+            # Mark the flag so the finally-block yield is skipped for this path.
+            _pending_cancel_reraise = True
             raise
         except BudgetExceeded as _budget_exc:
             # OBS-01 graceful abort: a fan-out reserve/boundary breach aborts the run.
@@ -3036,13 +7284,56 @@ class ExecutionEngine:
             # breached dimension. Pending workers never spawned (reserve-before-spawn).
             self._state_machine.transition(pipeline_run_id, "failed")
             await self._persist_budget_snapshot_if_active(ectx, force=True)
-            yield {
+            # Task 5.9: set pending event; finally block emits after
+            # finalize_terminal_run returns with published_status.
+            _pending_terminal_event = {
                 "type": "budget_aborted",
                 "data": {
                     "pipeline_run_id": pipeline_run_id,
                     "dimension": getattr(_budget_exc, "dimension", "unknown"),
                     "message": str(_budget_exc),
                     "partial_results": self._collect_partial_fragments(ectx),
+                },
+            }
+            # ``budget_aborted`` is informational only (it no longer closes the SSE
+            # stream — a non-loop budget dimension is fatal and has no forward
+            # progress to report, unlike the loop_iterations convergence-limit
+            # case above which falls through to a later pipeline_complete). This
+            # except handler's own return means no other terminal ever follows, so
+            # it must supply the one genuine terminal itself, mirroring the
+            # FanoutWorkerFailed / conditional-gate-blocked precedents (KRN-004).
+            yield {
+                "type": "pipeline_failed",
+                "data": {
+                    "pipeline_type": pipeline_type,
+                    "pipeline_run_id": pipeline_run_id,
+                    "total_duration": round(time.time() - total_start, 2),
+                    "agents_completed": cursor,
+                    "agents_total": len(ordered_agents),
+                    "error": str(_budget_exc),
+                    "timestamp": _now(),
+                },
+            }
+            return
+        except AssembleStepFailed as _assemble_exc:
+            # Prototype v3: the mechanical assemble step found the build below its
+            # coverage threshold (or nothing to assemble). prototype.html and
+            # build/validation.json are already written for inspection; the run
+            # ends here with ONE pipeline_failed naming the missing screens — the
+            # Presenter must never present a build the validator rejected (run 5).
+            self._state_machine.transition(pipeline_run_id, "failed")
+            await self._persist_budget_snapshot_if_active(ectx, force=True)
+            yield {
+                "type": "pipeline_failed",
+                "data": {
+                    "pipeline_type": pipeline_type,
+                    "pipeline_run_id": pipeline_run_id,
+                    "total_duration": round(time.time() - total_start, 2),
+                    "agents_completed": 0,
+                    "agents_total": len(ordered_agents),
+                    "agents_failed": [getattr(_assemble_exc, "agent_id", "assemble")],
+                    "error": str(_assemble_exc),
+                    "timestamp": _now(),
                 },
             }
             return
@@ -3058,7 +7349,9 @@ class ExecutionEngine:
             # additional parent-level terminal signal that was previously missing.
             self._state_machine.transition(pipeline_run_id, "failed")
             await self._persist_budget_snapshot_if_active(ectx, force=True)
-            yield {
+            # Task 5.9: set pending event; finally block emits after
+            # finalize_terminal_run returns with published_status.
+            _pending_terminal_event = {
                 "type": "pipeline_failed",
                 "data": {
                     "pipeline_type": pipeline_type,
@@ -3074,6 +7367,109 @@ class ExecutionEngine:
                 },
             }
             return
+        finally:
+            # T7 (spec 018, FR-009): the ONLY point every exit from this try
+            # crosses — normal completion, each of the three excepts above, an
+            # unhandled exception, AND GeneratorExit (the consumer abandons this
+            # generator — e.g. a WebSocket disconnect — so none of the excepts
+            # above ever runs). Releases this run's Playwright session (T3a); a
+            # no-op for the near-totality of runs that never launched a browser.
+            # MUST NOT raise: on the cancel path above (ISS-023) a genuine
+            # task.cancel() has to keep propagating so the disconnect cleanup
+            # runs — an exception raised here would mask it.
+            try:
+                from app.agents.playwright_session import (
+                    release as _release_playwright_session,
+                )
+
+                await _release_playwright_session(pipeline_run_id)
+            except Exception:  # noqa: BLE001 — must never mask the exception in flight
+                logger.warning(
+                    "playwright session release failed for run %s",
+                    pipeline_run_id,
+                    exc_info=True,
+                )
+            # Task 5.8 (sandbox-git-versioning-v2, Req 5/10/11): replace the
+            # sync _fire_post_run with the async 12-step finalize_terminal_run.
+            # The candidate_status is derived from the state machine: "completed"
+            # when still "generating" (Step 5 runs AFTER this finally), otherwise
+            # the real terminal state (cancel/fail/budget/GeneratorExit paths set it
+            # before entering the finally).
+            try:
+                _sm_state_fin = self._state_machine.get_state(pipeline_run_id)
+                _candidate_status_fin = (
+                    "completed" if _sm_state_fin == "generating" else _sm_state_fin
+                )
+            except Exception:  # noqa: BLE001
+                _candidate_status_fin = (
+                    getattr(ectx, "final_status", None) or "completed"
+                )
+            # Stamp ectx.final_status for downstream reads (e.g. disk_metrics).
+            if not getattr(ectx, "final_status", None):
+                try:
+                    ectx.final_status = _candidate_status_fin  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                _fin_record = await finalize_terminal_run(
+                    pipeline_run_id,
+                    ectx,
+                    candidate_status=_candidate_status_fin,
+                )
+            except Exception as _fin_exc:  # noqa: BLE001 — must never mask run outcome
+                logger.error(
+                    "finalize_terminal_run raised unexpectedly run=%s (%s)",
+                    pipeline_run_id,
+                    _fin_exc,
+                )
+            # Task 5.9 (sandbox-git-versioning-v2, Req 5/11): emit the pending
+            # terminal event AFTER finalize_terminal_run has returned a durable
+            # record.  The event was buffered at the early-return site instead of
+            # being yielded inline; we emit it here with ``published_status`` from
+            # the record so the consumer always sees the authoritative status.
+            #
+            # ``_pending_terminal_event`` is None on the normal-completion path
+            # (cursor exhausted without an early return) and on the unhandled-
+            # exception / GeneratorExit path — in both cases Step 5 (below the
+            # try/finally) handles the terminal event, or the consumer simply
+            # abandons the generator.
+            #
+            # ``_pending_cancel_reraise`` guards the non-cooperative CancelledError
+            # path: the exception propagates out of the finally and the consumer
+            # cannot receive a yield; attempting one would raise RuntimeError
+            # ("async generator ignored GeneratorExit" on Python ≥ 3.10 close).
+            if _pending_terminal_event is not None and not _pending_cancel_reraise:
+                try:
+                    _evt_to_emit = _pending_terminal_event
+                    _published_st = (
+                        _fin_record.published_status
+                        if _fin_record is not None
+                        else _candidate_status_fin
+                    )
+                    # Substitute published_status into the event data where the
+                    # event type carries a status field.  pipeline_cancelled and
+                    # pipeline_diverted carry no ``status`` key in their data, so
+                    # the substitution is a no-op for those types — the event is
+                    # emitted verbatim.  pipeline_failed and budget_aborted
+                    # likewise have no ``status`` key, but we add it here so the
+                    # consumer can read the authoritative finalizer outcome.
+                    _evt_type = _evt_to_emit.get("type", "")
+                    _evt_data = dict(_evt_to_emit.get("data") or {})
+                    if _evt_type in (
+                        "pipeline_failed",
+                        "budget_aborted",
+                        "pipeline_cancelled",
+                        "pipeline_diverted",
+                    ):
+                        _evt_data["published_status"] = _published_st
+                    yield {**_evt_to_emit, "data": _evt_data}
+                except Exception as _yield_exc:  # noqa: BLE001
+                    logger.error(
+                        "_execute_impl: failed to yield pending terminal event "
+                        "run=%s (%s)",
+                        pipeline_run_id,
+                        _yield_exc,
+                    )
 
         # ── Step 5: Pipeline complete ─────────────────────────────────────
         # Guard: if the run was already cancelled (e.g. user rejected a review
@@ -3091,12 +7487,17 @@ class ExecutionEngine:
         # deliverable ref write — composes with the 13-05 guard — and no
         # pipeline_complete). Counters only — no workflow-name branch (SC-001).
         if (
-            current_state not in ("cancelled", "failed")
+            current_state not in ("cancelled", "failed", "diverted")
             and not results
             and _failed_agent_ids
         ):
             self._state_machine.transition(pipeline_run_id, "failed")
             await self._persist_budget_snapshot_if_active(ectx)
+            # Task 5.9: use published_status from the finalization record when
+            # available, so the emitted status is authoritative.
+            _s5_published = (
+                _fin_record.published_status if _fin_record is not None else "failed"
+            )
             yield {
                 "type": "pipeline_failed",
                 "data": {
@@ -3114,11 +7515,12 @@ class ExecutionEngine:
                     # list; agents_total counts every manifest step).
                     "error": "no agent completed",
                     "timestamp": _now(),
+                    "published_status": _s5_published,
                 },
             }
             return
 
-        if current_state not in ("cancelled", "failed"):
+        if current_state not in ("cancelled", "failed", "diverted"):
             self._state_machine.transition(pipeline_run_id, "completed")
 
         # Determine the final deliverable below via the DECLARED deliverable resolver
@@ -3276,6 +7678,20 @@ class ExecutionEngine:
             default_mimetype as _default_mimetype,
         )
 
+        # QA-PS-027 / ISS-721: read by the completion gate below. Local import
+        # mirrors ``_default_mimetype`` above — stdlib-only capability helper,
+        # no boundary crossed (import-linter: kernel → capabilities is allowed).
+        from agents.capabilities.deliverables._placeholder import (
+            placeholder_narration_reason,
+        )
+
+        # QA-PS-028 / ISS-730: same shape as ``placeholder_narration_reason``
+        # above — a stdlib-only capability helper read by the completion gate
+        # below, no boundary crossed.
+        from agents.capabilities.deliverables._coverage import (
+            dropped_section_reason,
+        )
+
         _deliverable_name = getattr(ectx.deliverable, "name", None)
         # WR-01 (18 review fix): derive the default from the EFFECTIVE strategy
         # (the resolver that actually produced the bytes), not the DECLARED one, so
@@ -3361,20 +7777,115 @@ class ExecutionEngine:
         # defensive floor keeps any _failed_agent_ids agent that completed NOTHING
         # at all, so a future agent_error path that skips the recorder can't silently
         # regress to a clean completion.
+        # R-08: ``visit_count`` folded into the triple too — otherwise a step re-
+        # entered via a route loop-back's pass-2 COMPLETION (same agent_id/task_number,
+        # different visit_count) would mask a pass-1 hard failure. ``.get("visit_count",
+        # 0)`` defaults results entries that predate this field (e.g. the RESUME-17
+        # gate-reentry short-circuit) to 0, matching ``step_visit_counts``'s own default.
         _completed_pairs = {
-            (r.get("agent_id"), r.get("task_number", "") or "") for r in results
+            (r.get("agent_id"), r.get("task_number", "") or "", r.get("visit_count", 0))
+            for r in results
         }
         _completed_agent_ids = {r.get("agent_id") for r in results}
         _unrecovered_agents = {
             agent_id
-            for (agent_id, task_number) in getattr(ectx, "failed_invocations", set())
-            if (agent_id, task_number) not in _completed_pairs
+            for (agent_id, task_number, visit_count) in getattr(
+                ectx, "failed_invocations", set()
+            )
+            if (agent_id, task_number, visit_count) not in _completed_pairs
         }
         # Floor (no regression): an errored agent with zero completions anywhere.
         _unrecovered_agents |= _failed_agent_ids - _completed_agent_ids
         if results and _unrecovered_agents:
             _pipeline_complete_data["status"] = "degraded"
             _pipeline_complete_data["agents_failed"] = sorted(_unrecovered_agents)
+        # [A14 fix] a suppressed R-07 loop_iterations abort (a backward/self
+        # conditional route that hit its convergence cap — see the loop-cap
+        # enforcement site above) is a WARNING on the run, not a terminal
+        # verdict by itself: the cap only suppresses ONE backward jump and lets
+        # the dispatch loop keep going — every step after it (assembler,
+        # structure-check, story-layer, publish, …) still runs and can resolve
+        # a clean deliverable with zero agent failures (observed live: runs
+        # a786cc27 / 5130337e reached ``final_output`` non-empty, 20/20 agents
+        # done, and were STILL persisted "degraded" — the run history "Failed"
+        # badge was decided on a budget guard tens of minutes before the run
+        # actually finished). Always record the cap message in ``warnings``
+        # (additive; durable via the ``pipeline_complete`` event's persisted
+        # payload — no new column) so it is never silently dropped. Only
+        # escalate ``status``/``degraded_reason`` — the fields
+        # run_commands.py's launch/resume drivers key ``wr.status``/``wr.error``
+        # off — when the run reached the end WITHOUT a deliverable; the same
+        # honesty bar the agents-failed branch above applies (a resolved
+        # deliverable + zero unrecovered agents is a "completed" run, cap or
+        # no cap). Additive + strictly conditional on a non-empty list (INV-3:
+        # a run that never hits the cap stays byte-identical). Independent of
+        # the agents-failed branch above — a convergence limit is not an agent
+        # failure, so on the degrade path it still carries its own
+        # ``degraded_reason`` rather than overloading ``agents_failed`` (the
+        # app layer's DB-persisted contract for that key).
+        if getattr(ectx, "budget_degraded_reasons", None):
+            _cap_message = "; ".join(ectx.budget_degraded_reasons)
+            _pipeline_complete_data["warnings"] = list(ectx.budget_degraded_reasons)
+            if not final_output:
+                _pipeline_complete_data["status"] = "degraded"
+                _pipeline_complete_data["degraded_reason"] = _cap_message
+        # Task 4.4 (Requirement 12 AC 5): a run whose last commit was blocked by a
+        # pre_commit hook MUST end degraded and MUST NOT be tagged.  Force "degraded"
+        # here regardless of the agent-failure set — even an all-agents-passed run must
+        # not report "completed" when the git state is untrustworthy.
+        # DORMANT on every run where no pre_commit hook fires ⇒ INV-3 byte-parity holds.
+        if getattr(ectx, "last_commit_blocked", False):
+            _pipeline_complete_data["status"] = "degraded"
+        # QA-PS-027 / ISS-721: the CONTENT signal. Every degrade check above is
+        # presence/absence — an exception raised, a budget cap, a blocked commit,
+        # a declared file that did not materialize — so an agent that never got
+        # its tools/context and cleanly streams "I don't have access to a
+        # write_file tool" is a completion, and that narration is published as
+        # the deliverable under a green "Done" badge. This block is the ONE place
+        # every pipeline type's terminal status converges (SC-001: no
+        # pipeline_type branch here, and none added), so the single check covers
+        # custom (ISS-721), native prototype/ppt/user_stories (ISS-761), every
+        # *_revision (ISS-762, driven off this same event by run_commands.py) and
+        # code-gen (ISS-763) alike — the four deliverable resolvers are left
+        # alone rather than each carrying its own copy of the logic.
+        # DORMANT on every run whose deliverable is real ⇒ INV-3 byte parity.
+        _placeholder_reason = placeholder_narration_reason(final_output)
+        if _placeholder_reason:
+            _pipeline_complete_data["status"] = "degraded"
+            _pipeline_complete_data["degraded_reason"] = _placeholder_reason
+        # QA-PS-028 / ISS-730: the COMPLETENESS signal, the second half of the
+        # content check ISS-721 opened above. ``placeholder_narration_reason``
+        # catches a deliverable that is the agent EXCUSING itself; it cannot
+        # catch a substantial, well-formed compiled document that quietly
+        # dropped one of the sections it read (the reproduced cycles: a 19,581-
+        # char backlog missing an entire epic, its own "Total Epics" counter
+        # matching only what shipped). Sourced from the DECLARED upstream
+        # sources of the step that produced the deliverable — the same
+        # ``produces``∩``consumes`` registry routing ``_filter_consumed_outputs``
+        # uses, read off ``results`` (always populated) rather than the typed
+        # artifact graph. Placed HERE, in the one shared block every pipeline
+        # type converges on (SC-001: no pipeline_type branch here, and none
+        # added), so it covers backlog-compiler (ISS-730), the three
+        # ``*-sdlc-governance`` final-synthesis agents (ISS-772) and any future
+        # agent of that shape in one place. DORMANT unless the deliverable is
+        # visibly copying a source's headings minus one ⇒ INV-3 byte parity.
+        _dropped_reason = None
+        if results:
+            _specs_by_id = {getattr(a, "id", None): a for a in ordered_agents}
+            _compiling_spec = _specs_by_id.get(results[-1].get("agent_id"))
+            _consumed_ids = set(getattr(_compiling_spec, "consumes", None) or ())
+            _upstream_outputs = {
+                r.get("agent_id"): r.get("output") or ""
+                for r in results[:-1]
+                if set(
+                    getattr(_specs_by_id.get(r.get("agent_id")), "produces", None) or ()
+                )
+                & _consumed_ids
+            }
+            _dropped_reason = dropped_section_reason(final_output, _upstream_outputs)
+        if _dropped_reason:
+            _pipeline_complete_data["status"] = "degraded"
+            _pipeline_complete_data["degraded_reason"] = _dropped_reason
         # Guard (mirrors the ``pipeline_failed`` guard above): a run parked/stopped
         # at a re-entered gate (cancelled/failed BEFORE this terminal block, e.g. by
         # the step-boundary state-machine check above) must never report
@@ -3382,7 +7893,37 @@ class ExecutionEngine:
         # to "completed" past a rejection (``_reconcile_terminal_status``). Its own
         # terminal event (``pipeline_cancelled`` / ``pipeline_failed``) was already
         # emitted at the point of cancellation/failure.
-        if current_state not in ("cancelled", "failed"):
+        if current_state not in ("cancelled", "failed", "diverted"):
+            # Task 5.9: embed published_status from the finalization record so the
+            # consumer has the authoritative status from the durable record.
+            _s5_pub = (
+                _fin_record.published_status
+                if _fin_record is not None
+                else _pipeline_complete_data.get("status", "completed")
+            )
+            # QA-PS-027 / ISS-721 (and QA-PS-028 / ISS-730): the finalizer ran
+            # in the ``finally`` ABOVE — before the deliverable was resolved —
+            # so its record structurally cannot carry either content signal.
+            # Escalate it here or ``published_status`` (the field
+            # run_commands.py's three drivers read to persist
+            # ``WorkflowRun.status``) stays "completed".
+            if _placeholder_reason or _dropped_reason:
+                _s5_pub = "degraded"
+            # U2 (FR-060 / AC-29, GAPS P0 #11): a finalizer-level degrade — e.g.
+            # ``output_unmaterializable`` or a blocked last commit — never touches
+            # ``agents_failed`` above, so without this the additive
+            # ``published_status`` key was the ONLY place the degrade showed up.
+            # ``_drive_launch_to_queue`` / ``_drive_revision_to_queue`` /
+            # ``_reconcile_terminal_status`` (app/api/run_commands.py) all decide
+            # the persisted ``WorkflowRun.status`` from THIS event's ``status`` key
+            # alone, so a finalizer degrade published here as "completed" (the
+            # ``status`` key simply absent) silently became "Done" in the DB row,
+            # history and the version pill. Only ever SETS "degraded" — a clean
+            # run's "completed" stays implicit/absent (INV-3 byte parity: the key
+            # is present ONLY on a degraded run).
+            if _s5_pub == "degraded":
+                _pipeline_complete_data["status"] = "degraded"
+            _pipeline_complete_data["published_status"] = _s5_pub
             yield {
                 "type": "pipeline_complete",
                 "data": _pipeline_complete_data,
@@ -3725,6 +8266,24 @@ class ExecutionEngine:
             return model_id
         return resolver.resolve(spec, step)
 
+    @staticmethod
+    def _resolve_effort(ectx: ExecutionContext, step=None) -> str | None:
+        """Return the per-step reasoning effort, or ``None`` (spec 020 / FR-18).
+
+        Mirrors ``_resolve_model``'s resolver-or-fallback shape: ``execute()``
+        always seeds ``ectx.model_resolver``, but a direct ``_run_agent``
+        invocation that builds its own ``ExecutionContext`` has none — and there
+        ``None`` is exactly right, because a run with no resolver has no step
+        policy to read an effort from.
+
+        ``None`` means "send no reasoning field", which is byte-identical to the
+        pre-effort behaviour and NOT the same as the level ``"none"``.
+        """
+        resolver = ectx.model_resolver
+        if resolver is None:
+            return None
+        return resolver.resolve_effort(step)
+
     async def _derive_fanout(
         self, event: dict, ectx: ExecutionContext
     ) -> AsyncGenerator[dict, None]:
@@ -3798,8 +8357,324 @@ class ExecutionEngine:
                 fo_step.fanout = new_fanout
             except Exception:  # noqa: BLE001 — a non-copyable step degrades to declared mode
                 fo_step = step
+        # Nested-fan-out parentage: when THIS invocation is itself a wave worker,
+        # its ectx carries the task id the wave gave it (kernel_services.run_worker).
+        # Stamp it on the child's lifecycle events so the UI can nest a task agent
+        # under the wave member that spawned it. Mirrors the copy-and-stamp
+        # wave_scheduler._dispatch_wave already does one level up. Absent outside a
+        # wave → the payload stays byte-identical to a non-wave fan-out.
+        # Prefer the AUTHOR id (s01): wave_started's `task_ids` payload carries author
+        # ids while a worker's own `task_id` is the content hash, so stamping the hash
+        # would leave the child unable to join to its wave on either side. Falls back
+        # to the hash when no author id was threaded.
+        _parent_task_id = getattr(ectx, "task_author_id", None) or getattr(
+            ectx, "task_id", None
+        )
         async for fo_ev in runner.run_fanout(requests, ectx, step=fo_step):
+            if _parent_task_id is not None and fo_ev.get("type") in (
+                "subagent_spawned",
+                "subagent_result",
+            ):
+                _data = dict(fo_ev.get("data") or {})
+                _data["parent_task_id"] = _parent_task_id
+                fo_ev = {**fo_ev, "data": _data}
             yield fo_ev
+
+    @staticmethod
+    def _normalise_question(q: dict) -> dict:
+        """Put an agent's question into the WIRE shape the clarify UI reads.
+
+        ``replay_questions`` passes questions through VERBATIM (that is the point —
+        a resumed run must re-emit byte-identical text), so whatever the agent wrote
+        is what the browser gets. The UI consumes snake_case
+        (``question_id`` / ``question_text`` / ``recommended_answer`` — page.tsx's
+        ``questionnaire_ready`` case), while a model naturally writes the camelCase
+        names it sees in a schema. Unmapped, every question renders with no text and
+        no options.
+
+        Accepts either spelling and emits the wire one. Unknown keys pass through so
+        a future field is not silently dropped.
+        """
+        alias = {
+            "id": "question_id",
+            "question": "question_text",
+            "answerType": "answer_type",
+            "recommendedAnswer": "recommended_answer",
+            "recommendedReasoning": "recommended_reasoning",
+            "recommendedDisplay": "recommended_display",
+            "ambiguityCategory": "ambiguity_category",
+            "impactLevel": "impact_level",
+        }
+        out = {alias.get(k, k): v for k, v in q.items()}
+        # question_text is what the UI renders; without it the question is blank.
+        out.setdefault("question_text", q.get("question") or q.get("text") or "")
+        out.setdefault("question_id", q.get("id") or out.get("question_text", "")[:40])
+        out.setdefault("options", [])
+        out.setdefault("answer_type", "single_choice")
+        return out
+
+    async def _derive_clarify(
+        self, event: dict, ectx: ExecutionContext
+    ) -> AsyncGenerator[dict, None]:
+        """Derive a HITL questionnaire from an ``ask_user`` tool result + fulfil it.
+
+        The mirror of :meth:`_derive_fanout` for the human-in-the-loop request
+        emitter. The model emits an untrusted REQUEST (``{"clarify_request": [...]}``);
+        the KERNEL decides whether to pause and puts the questions to the user via the
+        EXISTING ``ClarifyEngine`` — the same code path the run-entry clarify gate uses,
+        so there is exactly one questionnaire implementation.
+
+        The agent's questions are passed as ``replay_questions``. That parameter exists
+        so a resumed run can re-emit its open round VERBATIM instead of regenerating
+        (clarify_engine.py:271); "emit exactly these, invent nothing" is precisely what
+        an agent-authored questionnaire needs, so no question-generation path is added.
+
+        Answers are written to ``clarify/answers.json`` in the run sandbox rather than
+        merged into ``planning_context``. The merged context is the right shape for the
+        RUN-ENTRY caller (it feeds planning); a mid-run ask has to reach the NEXT STEP,
+        and a file is the seam every step already reads through.
+
+        A malformed/empty request is a no-op (the agent already saw the tool's JSON
+        result; a bad payload must not abort the run — INV-3 parity).
+        """
+        step = getattr(ectx, "current_step", None)
+        if step is None:
+            return
+        # The FULFILMENT point enforces the grant, exactly as the fan-out one does:
+        # the factory binds off declared tool sets, so an agent could emit a request
+        # its step never granted. An ungranted request is logged and IGNORED.
+        _tools = getattr(step, "tools", None)
+        _sets = list(getattr(_tools, "tool_sets", None) or [])
+        if "ask_user" not in _sets:
+            logger.warning(
+                "ask_user tool result on step %r without a declared ask_user tool set "
+                "— request ignored",
+                getattr(step, "agent_id", None),
+            )
+            return
+        raw = event.get("result", "")
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (ValueError, TypeError):
+            logger.warning("ask_user: unparseable clarify request — skipping")
+            return
+        if not isinstance(payload, dict):
+            return
+        questions = [
+            q for q in (payload.get("clarify_request") or []) if isinstance(q, dict)
+        ]
+        if not questions:
+            return
+        questions = [self._normalise_question(q) for q in questions]
+
+        # ExecutionContext names this ``run_id`` (context.py:52) — the
+        # ``pipeline_run_id`` spelling is the EVENT payload's, not the context's.
+        # Reading the wrong name made this whole branch a silent no-op: the agent
+        # called ask_user, the request parsed, and nothing was ever asked.
+        pipeline_run_id = getattr(ectx, "run_id", None) or getattr(
+            ectx, "pipeline_run_id", None
+        )
+        if not pipeline_run_id:
+            logger.warning(
+                "ask_user: no run id on the execution context — request ignored"
+            )
+            return
+
+        # "Skip all & run directly" ends the WHOLE questionnaire, not one screen
+        # of it. Clarify asks a long gap list in rounds, so without this the user
+        # dismisses round 1 and the agent — which cannot see that they skipped —
+        # immediately puts round 2 in front of them, and so on for every
+        # remaining batch. The button says "run directly"; this makes it true.
+        # Set on the ectx, so it lasts the step and dies with the run.
+        if getattr(ectx, "clarify_skipped", False):
+            logger.info("ask_user: the user skipped clarification — round not asked")
+            return
+
+        # Clear the previous round's submission before asking this one. Without
+        # this the ClarifyEngine's lost-wakeup guard misfires on every round
+        # after the first: it finds the earlier answers still in the store,
+        # takes them for this round's, and returns without pausing — the user
+        # sees round 2 flash past in a second and its answers are round 1's,
+        # recorded against the wrong questions.
+        try:
+            from agents.artifact_store.store import get_artifact_store as _gas0
+
+            await _gas0().clear_questionnaire_responses(pipeline_run_id)
+        except Exception:  # noqa: BLE001 — a clear failure must not abort the run
+            logger.warning(
+                "ask_user: could not clear the previous round", exc_info=True
+            )
+
+        from agents.execution_engine.clarify_engine import ClarifyEngine
+
+        clarify = ClarifyEngine()
+        # Same streaming shape as the run-entry caller: ClarifyEngine parks on
+        # ``event.wait()``, so its events must flow through a queue or the user
+        # would never see the questions they are being asked to answer.
+        event_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+        async def _ws_send(ev: dict) -> None:
+            await event_queue.put(ev)
+
+        prior_state = "generating"
+        self._state_machine.transition(pipeline_run_id, "waiting_for_user")
+        clarify_task = asyncio.create_task(
+            clarify.run(
+                pipeline_run_id,
+                {
+                    "missing_information": [
+                        q.get("question_text", "") for q in questions
+                    ]
+                },
+                _ws_send,
+                owner_id=getattr(ectx, "owner_id", None),
+                workspace_id=getattr(ectx, "workspace_id", None),
+                max_rounds=1,
+                replay_questions=questions,
+                replay_round=1,
+            )
+        )
+        try:
+            while not clarify_task.done():
+                try:
+                    ev = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+                    if ev is not None:
+                        yield ev
+                except asyncio.TimeoutError:
+                    continue
+            while not event_queue.empty():
+                ev = event_queue.get_nowait()
+                if ev is not None:
+                    yield ev
+            merged = clarify_task.result()
+        except Exception:  # noqa: BLE001 — a failed ask must not abort the run
+            logger.warning(
+                "ask_user: clarify round failed — proceeding unanswered", exc_info=True
+            )
+            merged = None
+        finally:
+            self._state_machine.transition(pipeline_run_id, prior_state)
+
+        # Hand the answers to the NEXT step through the sandbox.
+        #
+        # Read the RESPONSES, not the merged planning_context. The merge folds
+        # answers into ``clarified_topics`` / ``explicit_constraints`` and prunes
+        # ``missing_information`` — enough for a planner, but it loses WHICH answer
+        # went with WHICH question. A step folding answers back into a document
+        # needs the pairing, so take it from the store the client wrote to.
+        by_id: dict[str, str] = {}
+        try:
+            from agents.artifact_store.store import get_artifact_store
+
+            _responses = (
+                await get_artifact_store().get_questionnaire_responses(pipeline_run_id)
+                or []
+            )
+            for r in _responses:
+                if isinstance(r, dict) and r.get("question_id") is not None:
+                    by_id[str(r["question_id"])] = r.get("answer")
+        except Exception:  # noqa: BLE001 — an unreadable store degrades to "skipped"
+            logger.warning(
+                "ask_user: could not read questionnaire responses", exc_info=True
+            )
+
+        answers = [
+            {
+                "id": q.get("question_id"),
+                "question": q.get("question_text", ""),
+                "answer": by_id.get(str(q.get("question_id"))),
+                "answered": by_id.get(str(q.get("question_id"))) is not None,
+            }
+            for q in questions
+        ]
+        payload_out = {
+            "answers": answers,
+            "answered_count": sum(1 for a in answers if a["answered"]),
+            "clarified_topics": list((merged or {}).get("clarified_topics") or [])
+            if isinstance(merged, dict)
+            else [],
+            "explicit_constraints": list(
+                (merged or {}).get("explicit_constraints") or []
+            )
+            if isinstance(merged, dict)
+            else [],
+        }
+        # ExecutionContext exposes the run sandbox as ``_sandbox`` (engine.py:8762
+        # is the canonical resolution, including the rebuild when it is absent).
+        # Reading a plain ``sandbox`` attribute found nothing, so the answers were
+        # computed and then dropped on the floor — the agent saw no file and, per
+        # its own rule, treated a silent user as a skip.
+        sandbox = getattr(ectx, "_sandbox", None)
+        if sandbox is None:
+            from app.agents.sandbox import RunSandbox as _RS
+
+            _disk_p = getattr(ectx, "disk_principal", None)
+            if pipeline_run_id and _disk_p:
+                sandbox = _RS(_disk_p, pipeline_run_id)
+        if sandbox is None:
+            logger.warning("ask_user: no sandbox — answers could not be persisted")
+            return
+        # ACCUMULATE across rounds. An agent may call ``ask_user`` more than once
+        # in a turn — that is how a long gap list is put to the user in batches
+        # rather than as one wall of questions — and each call lands here. A
+        # plain write would leave only the LAST batch on disk, so every answer
+        # the user gave in an earlier round would be silently gone by the time
+        # the folding step reads the file. Merge by question id, newest wins:
+        # re-asking a question is a correction, not a duplicate.
+        try:
+            prior = json.loads(sandbox.read("clarify/answers.json") or "{}")
+        except Exception:  # noqa: BLE001 — an unreadable prior round starts fresh
+            prior = {}
+        payload_out = self._merge_clarify_rounds(prior, payload_out)
+
+        # Read the skip AFTER the round settles: the flag is written by the same
+        # submit that ended this round, so it can only be seen once the round is
+        # over. Any later ask_user call in this step returns above.
+        try:
+            from agents.artifact_store.store import get_artifact_store as _gas
+
+            if await _gas().get_questionnaire_force_proceed(pipeline_run_id):
+                ectx.clarify_skipped = True
+                logger.info("ask_user: user chose to skip — no further rounds this run")
+        except Exception:  # noqa: BLE001 — an unreadable flag just means "keep asking"
+            logger.warning("ask_user: could not read the skip flag", exc_info=True)
+        try:
+            sandbox.write("clarify/answers.json", json.dumps(payload_out, indent=2))
+        except Exception:  # noqa: BLE001 — a write failure must not abort the run
+            logger.warning(
+                "ask_user: could not persist clarify/answers.json", exc_info=True
+            )
+
+    @staticmethod
+    def _merge_clarify_rounds(prior: dict, current: dict) -> dict:
+        """Fold THIS ``ask_user`` round's payload into what earlier rounds wrote.
+
+        An agent may call ``ask_user`` more than once in a turn — that is how a
+        long gap list reaches the user in batches instead of as one wall of
+        questions. Every call lands in the same ``clarify/answers.json``, so
+        without this a plain write would leave only the LAST batch on disk and
+        every answer from an earlier round would be gone before the folding step
+        read the file.
+
+        Answers are keyed by question id and the NEWER entry wins: re-asking a
+        question is a correction, not a duplicate. Order follows first
+        appearance, so the file reads in the order the user was asked.
+        ``rounds`` counts the calls; the topic and constraint lists are unioned.
+        """
+        merged: dict[str, dict] = {}
+        for entry in [*(prior.get("answers") or []), *(current.get("answers") or [])]:
+            if isinstance(entry, dict):
+                merged[str(entry.get("id"))] = entry
+        answers = list(merged.values())
+        out = dict(current)
+        out["answers"] = answers
+        out["answered_count"] = sum(1 for a in answers if a.get("answered"))
+        out["rounds"] = int(prior.get("rounds") or 0) + 1
+        for key in ("clarified_topics", "explicit_constraints"):
+            out[key] = list(
+                dict.fromkeys([*(prior.get(key) or []), *(current.get(key) or [])])
+            )
+        return out
 
     @staticmethod
     def _isolated_run_sandbox(ectx):
@@ -3822,10 +8697,11 @@ class ExecutionEngine:
 
     @staticmethod
     def _record_failed_invocation(ectx, agent_id: str) -> None:
-        """ISS-028: record an UNRECOVERED ``(agent_id, task_number)`` failure pair.
+        """ISS-028: record an UNRECOVERED ``(agent_id, task_number, visit_count)`` failure
+        triple.
 
         Called at every ``_run_agent`` ``agent_error`` emission so the terminal
-        degraded decision (``_execute_impl``) can key on the per-invocation pair
+        degraded decision (``_execute_impl``) can key on the per-invocation triple
         rather than collapsing on ``agent_id`` alone. ``task_number`` is read from the
         per-task build scratch (``ectx.build_task_number`` — set by
         ``KernelServices.run_agent`` for a task_loop invocation, "" for a single_shot
@@ -3833,11 +8709,18 @@ class ExecutionEngine:
         DIFFERENT pair, so it no longer masks this failure (the ISS-028 root cause).
         A timeout that emits a recoverable ``agent_error`` then completes in the SAME
         invocation records + completes the SAME pair, so it still subtracts cleanly
-        (WR-05 preserved). Best-effort: never abort the run on a bookkeeping miss.
+        (WR-05 preserved). ``visit_count`` (R-08) additionally distinguishes a step
+        re-entered via a route loop-back: without it, a pass-1 hard failure is masked
+        by a pass-2 completion of the SAME (agent_id, task_number) pair. Best-effort:
+        never abort the run on a bookkeeping miss.
         """
         try:
             ectx.failed_invocations.add(
-                (agent_id, getattr(ectx, "build_task_number", "") or "")
+                (
+                    agent_id,
+                    getattr(ectx, "build_task_number", "") or "",
+                    ectx.step_visit_counts.get(agent_id, 0),
+                )
             )
         except Exception:  # noqa: BLE001 — failure bookkeeping must never break the run
             pass
@@ -3938,7 +8821,7 @@ class ExecutionEngine:
     def _deliverable_filename_override(
         ectx: ExecutionContext, index: int, ordered_agents: list
     ) -> str | None:
-        """The declared ``single_file`` deliverable name, for the FINAL step only.
+        """The declared ``single_file`` deliverable name, for every LEAF step.
 
         One definition, two consumers: the ``AgentContext`` the factory composes the
         prompt from, and the artifact guarantee below. They MUST agree — when they
@@ -3948,7 +8831,8 @@ class ExecutionEngine:
         silently writing the deliverable to a name the single_file readback never
         looks at.
         """
-        if index != len(ordered_agents) - 1:
+        step = getattr(ectx, "current_step", None)
+        if not getattr(step, "is_leaf", False):
             return None
         deliverable = getattr(ectx, "deliverable", None)
         if getattr(deliverable, "strategy", None) != "single_file":
@@ -3975,10 +8859,21 @@ class ExecutionEngine:
         streams instead of writing yielding a silently empty deliverable).
 
         A no-op (returns ``None``) for every non-custom-agent step (R-16 parity) and
-        for a custom-agent step whose file already exists. Returns the filename ONLY
-        when it just wrote the fallback, so the caller can log/emit
-        ``artifact_fallback`` exactly once. Never raises — a guarantee that can crash
-        the run is not a guarantee either.
+        for a custom-agent step whose file already exists — UNLESS the step's own
+        effective ``tools.write_files`` is False, in which case "the file already
+        exists" cannot mean "the model just wrote it" (it has no write tool) and
+        must instead mean "an earlier pass's fallback wrote it": a retried/looped
+        step (R-06/R-07) re-runs this same check with the SAME filename every pass
+        (``artifact_name()`` keys only on instance_id+topic, not pass number), so
+        treating existence as done-forever silently drops every pass after the
+        first — the exact gap that starved a conditional gate of new output on
+        every retry and ran a loop to R-07 budget exhaustion. When the step (or its
+        tools) can't be determined, default to the old existence check (parity for
+        callers that pass a bare ``ectx`` with no ``current_step``, e.g. direct unit
+        tests of this method). Returns the filename ONLY when it just wrote the
+        fallback, so the caller can log/emit ``artifact_fallback`` exactly once.
+        Never raises — a guarantee that can crash the run is not a guarantee
+        either.
         """
         if not spec_id.startswith(CUSTOM_AGENT_PREFIX):
             return None
@@ -3988,8 +8883,33 @@ class ExecutionEngine:
             # Must match what the factory told the model to write (factory.py:559),
             # or the guarantee checks the wrong file.
             filename = deliverable_filename or artifact_name(instance_id, topic)
-            if sandbox.read(filename) is not None:
+            step_tools = getattr(getattr(ectx, "current_step", None), "tools", None)
+            can_write = (
+                True
+                if step_tools is None
+                else bool(getattr(step_tools, "write_files", True))
+            )
+            if can_write and sandbox.read(filename) is not None:
                 return None
+            # A workflow that declares deliverable.publish_from_glob (e.g.
+            # pdf_to_prototype: publish_from_glob=draft.v*.html) publishes the
+            # named deliverable MECHANICALLY at end of run (SingleFileResolver
+            # copies the highest-numbered glob match onto it) — no step is meant
+            # to write that exact filename itself. Writing agent narration there
+            # as a "fallback" clobbers the deliverable name and is live/visible
+            # until the end-of-run publish overwrites it (or ships as-is if the
+            # publish never runs, e.g. a failed/degraded/resumed-short run).
+            # Narrowest rule: suppress only an exact match on the declared name,
+            # not every step whose artifact happens to collide with it — the
+            # fallback must keep guaranteeing ordinary intermediate artifacts.
+            # Still report the filename (and let the caller emit
+            # artifact_fallback) so "this step wrote nothing" stays diagnosable;
+            # only the disk write is skipped.
+            deliverable = getattr(ectx, "deliverable", None)
+            publish_from_glob = getattr(deliverable, "publish_from_glob", None)
+            deliverable_name = getattr(deliverable, "name", None)
+            if publish_from_glob and filename == deliverable_name:
+                return filename
             sandbox.write(filename, output or "")
             return filename
         except Exception as exc:  # noqa: BLE001 — the guarantee must never break the run
@@ -4033,7 +8953,7 @@ class ExecutionEngine:
         # Guard: if the run is already in a terminal state (e.g. user rejected
         # a review gate), stop immediately without running the agent.
         current_state = self._state_machine.get_state(pipeline_run_id)
-        if current_state in ("cancelled", "failed"):
+        if current_state in ("cancelled", "failed", "diverted"):
             logger.info(
                 "_run_agent: skipping %s — pipeline already in terminal state=%s",
                 spec.id,
@@ -4103,21 +9023,25 @@ class ExecutionEngine:
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
                     _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
+                    # R-08: fold the loop-revisit count into gate_key so a step re-entered
+                    # via a route loop-back doesn't collide with its own prior firing.
+                    _visit_count = ectx.step_visit_counts.get(spec.id, 0)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
-                        redoable=True,
+                        redoable=self._redoable(ectx),
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         revision_cycle=_rev_cycle,
                         revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
+                        visit_count=_visit_count,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             current = self._state_machine.get_state(pipeline_run_id)
-                            if current not in ("cancelled", "failed"):
+                            if current not in ("cancelled", "failed", "diverted"):
                                 self._state_machine.transition(
                                     pipeline_run_id, "cancelled"
                                 )
@@ -4242,28 +9166,32 @@ class ExecutionEngine:
                 # Re-open the gate directly — skip the model call entirely.
                 if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
-                    # artifact-kind (name-free), mirroring redoable's inline True.
+                    # artifact-kind (name-free), mirroring redoable's own predicate.
                     _ek = self._artifact_kind_for(spec)
                     # ISS-052: name WHICH firing this is. The analyze gate opened inside a
                     # revision pass and the one re-opened after it returns share a gate_key
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
                     _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
+                    # R-08: fold the loop-revisit count into gate_key so a step re-entered
+                    # via a route loop-back doesn't collide with its own prior firing.
+                    _visit_count = ectx.step_visit_counts.get(spec.id, 0)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
-                        redoable=True,
+                        redoable=self._redoable(ectx),
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         revision_cycle=_rev_cycle,
                         revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
+                        visit_count=_visit_count,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             current = self._state_machine.get_state(pipeline_run_id)
-                            if current not in ("cancelled", "failed"):
+                            if current not in ("cancelled", "failed", "diverted"):
                                 self._state_machine.transition(
                                     pipeline_run_id, "cancelled"
                                 )
@@ -4375,8 +9303,30 @@ class ExecutionEngine:
                     continue
                 return
 
+            # RFN-001 — resolve the effective model for this agent BEFORE yielding
+            # agent_start so the chip can appear while the agent is running, not only
+            # after agent_complete. _resolve_model uses ectx.current_step (already set
+            # by the strategy handle before this call) + ectx.model_resolver (wired at
+            # execute() time). The result is the same id that will later land on
+            # agent_complete — guaranteed by the identical call-site at line ~4895.
+            # INV-3 SAFE: model_id is already in _VOLATILE_STRIP_KEYS in
+            # tests/agents/characterization/_normalize.py, so adding it here strips
+            # out of the golden normalizer — all 5 characterization event goldens stay
+            # byte-identical with ZERO regeneration needed.
+            _start_model_id = self._resolve_model(
+                ectx, spec, model_id, step=ectx.current_step
+            )
+
             yield {
                 "type": "agent_start",
+                # ``visit_count`` (R-08) is emitted ONLY when non-zero: a first dispatch
+                # omits the key entirely, so every non-looping workflow yields a
+                # byte-identical event and the 5 characterization goldens — which pin
+                # agent_start's exact key set — stay valid with no regeneration. It
+                # appears only on a RE-dispatch, which is the only time it carries
+                # information. Without it two passes of the same step are
+                # indistinguishable on the wire and a loop is invisible in the UI.
+                # ``model_id`` is stripped by _VOLATILE_STRIP_KEYS (INV-3 safe — see above).
                 "data": {
                     "agent_id": spec.id,
                     "name": spec.name,
@@ -4384,10 +9334,18 @@ class ExecutionEngine:
                     "icon": spec.icon,
                     "index": index,
                     "total": len(ordered_agents),
+                    "model_id": _start_model_id,
+                    **(
+                        {"visit_count": _vc}
+                        if (_vc := ectx.step_visit_counts.get(spec.id, 0))
+                        else {}
+                    ),
                 },
             }
             _log_event("agent_start", pipeline_run_id, agent_id=spec.id)
-            RunLog(getattr(sandbox, "root", None)).write("step_start", agent_id=spec.id)
+            RunLog(getattr(sandbox, "run_log_path", None)).write(
+                "step_start", agent_id=spec.id
+            )
 
             # Build context message via the GENERIC injector (INV-1) — OD/template blocks
             # come from the declared context_provider capabilities, the agnostic parts
@@ -4434,6 +9392,20 @@ class ExecutionEngine:
             finally:
                 ectx.redo_directive = ""
                 ectx.spec_revision_prior_artifact = _saved_prior_artifact
+                # ── [Req 14 AC 7] Unconditional drain of consume-once Req 14 scratch ──
+                # Drain BOTH pending_route_feedback[spec.id] and pending_validation_fix
+                # [spec.id] here — in the ``finally`` that already owns redo_directive —
+                # so a compose-time exception, an early exit, or a resume that skips
+                # _compose_context_message can NEVER replay a stale one-shot control
+                # payload on the next agent.  _compose_context_message's own ``pop``
+                # calls are authoritative on the success path; these drains are only
+                # insurance that the field is cleared on every OTHER path.
+                # Both are declared dict fields (default {}) so the pop is always safe.
+                _agent_id_key = getattr(spec, "id", None)
+                if _agent_id_key and isinstance(ectx.pending_route_feedback, dict):
+                    ectx.pending_route_feedback.pop(_agent_id_key, None)
+                if _agent_id_key and isinstance(ectx.pending_validation_fix, dict):
+                    ectx.pending_validation_fix.pop(_agent_id_key, None)
             _iter_derived = redo_derived_from  # lineage for THIS iteration's write
             redo_directive = ""
             redo_derived_from = None
@@ -4459,34 +9431,15 @@ class ExecutionEngine:
             # [] for every agent this wave (no injects:[images] declared) ⇒ dormant.
             input_blocks = await self._compose_input_blocks(spec, ectx)
 
-            # Emit agent_input event (Phase 3 / T040) — shows full input prompt
-            # and context sources in the Thinking tab (FR-015).
-            context_sources = self._build_context_sources(
-                spec,
-                ordered_agents,
-                ectx,
-                agent_index=index,
-                user_message=user_message,
-            )
-            # context_message stays a TEXT str ALWAYS in the agent_input event (split-
-            # transport, Locked Decision #3): only the model dispatch wraps the blocks.
-            _agent_input_data = {
-                "agent_id": spec.id,
-                "pipeline_run_id": pipeline_run_id,
-                "timestamp": _now(),
-                "context_message": context_message,
-                "context_sources": context_sources,
-                "tool_calls": [],
-            }
-            # image_count: optional observability key, emitted ONLY when images ride this
-            # dispatch (>0). A text-only run emits NO image_count key ⇒ dormant goldens
-            # byte-identical. Stripped from the characterization multiset belt-and-suspenders.
-            if input_blocks:
-                _agent_input_data["image_count"] = len(input_blocks)
-            yield {
-                "type": "agent_input",
-                "data": _agent_input_data,
-            }
+            # agent_input event (Phase 3 / T040; Requirement 36 / C-msg fix): built
+            # and yielded further below, right after create_runner() resolves
+            # ``agent.system_prompt`` — NOT here. Building the dict here and
+            # mutating it in afterward (the old yield-then-mutate) meant the
+            # execute() stamping boundary (sink.persist + RunTrace.observe, both
+            # synchronous at the yield) always captured the event BEFORE the later
+            # mutation landed, so system_prompt never reached the durable log for
+            # any agent. Composing the dict once system_prompt is already known
+            # fixes that without changing the event's type/order in the stream.
 
             try:
                 # spec 011 / D6: run-attached skills are STAGED to <sandbox>/skills/ by
@@ -4502,6 +9455,8 @@ class ExecutionEngine:
 
                 ctx = AgentContext(
                     user_request=user_message,
+                    # The roster spec's overlaid composer label (FIX-266) — for logging.
+                    display_name=getattr(spec, "name", "") or "",
                     agent_outputs=self._filter_consumed_outputs(
                         spec, ordered_agents, ectx
                     ),
@@ -4518,6 +9473,10 @@ class ExecutionEngine:
                     model=self._resolve_model(
                         ectx, spec, model_id, step=ectx.current_step
                     ),
+                    # Per-step reasoning level (spec 020), resolved from the SAME
+                    # compiled Step as the model above so the two cannot disagree
+                    # about which step they describe.
+                    effort=self._resolve_effort(ectx, step=ectx.current_step),
                     od_context=ectx.od_context,
                     planning_context=planning_context,
                     # Byte-identity guard (D-09): pass disk_principal (== user_id or "anon"),
@@ -4525,9 +9484,12 @@ class ExecutionEngine:
                     # sub-agent's RunSandbox disk path stays byte-identical to pre-05-04.
                     user_id=ectx.disk_principal,
                     # run_id roots create_runner's RunSandbox at RunSandbox(user_id,
-                    # pipeline_run_id) — the SAME per-run disk dir the engine reads
-                    # deliverables back from (prototype.html / code-gen files).
-                    run_id=pipeline_run_id,
+                    # _chain_root_id) — the SAME shared chain-root disk dir the engine
+                    # reads deliverables back from (prototype.html / code-gen files).
+                    # Task 5.2: sandbox.run_id is the chain-root id (_find_chain_root
+                    # result), stored on RunSandbox.__init__. Using it here makes
+                    # factory.py's RunSandbox land in the shared directory.
+                    run_id=sandbox.run_id,
                     # prewarmed_constitution (AGENTRT-06 / F4 / R12): the owner's Constitution,
                     # awaited ONCE at run entry, so the SYNC factory injects a DB-stored
                     # Constitution under this running event loop WITHOUT awaiting (the R12
@@ -4658,6 +9620,45 @@ class ExecutionEngine:
                 _rev = getattr(ectx, "revision_attempt", 0) or 0
                 if _rev:
                     thread_id = f"{thread_id}:rev{_rev}"
+                # R-08: a CONDITIONAL-ROUTE loop-back needs a fresh thread for exactly
+                # the reason spelled out for redo above — otherwise the checkpointer
+                # replays the prior turn and the step answers from memory instead of
+                # from the world.
+                #
+                # Observed in run fafea1bc: the Coverage Check judged synthesis.md
+                # "incomplete" (it described an undocumented Stage 4), routed back to
+                # the Synthesizer, which REMOVED the stage — and then the checker,
+                # resuming its own pass-1 checkpoint, replayed its original verdict
+                # verbatim in 7s without re-reading the corrected file. Three passes,
+                # three identical answers, then budget_aborted on loop_iterations.
+                # A gate that cannot observe the fix it demanded makes EVERY route
+                # loop unwinnable, so this is the difference between a loop that
+                # converges and one that always burns its full budget.
+                #
+                # Counted per DISPATCH, deliberately not from ``step_visit_counts``.
+                # That counter is incremented only for the route TARGET, so keying on
+                # it gave the Synthesizer a fresh thread while the Coverage Check --
+                # the step that actually has to re-read the corrected file -- silently
+                # kept its old one and replayed its verdict anyway. A gate step re-runs
+                # as ordinary forward progress through the step list, which the visit
+                # counter does not model at all; "have I dispatched this step before in
+                # this run" does, and it yields the SAME suffix for the loop target.
+                #
+                # Dormant on a first dispatch, so non-looping runs and the
+                # characterization goldens keep their exact thread_id (INV-3). Skipped
+                # entirely when :redo / :rev already applied — each owns its counter,
+                # and stacking would change thread ids those tests pin exactly.
+                _dispatches = getattr(ectx, "_thread_dispatch_counts", None)
+                if _dispatches is None:
+                    _dispatches = {}
+                    ectx._thread_dispatch_counts = _dispatches  # type: ignore[attr-defined]
+                # Keyed with task_num so a task_loop build, which legitimately runs the
+                # same spec once per task, counts each task's thread separately.
+                _dkey = (spec.id, task_num or "")
+                _prior = _dispatches.get(_dkey, 0)
+                _dispatches[_dkey] = _prior + 1
+                if _prior and not redo_attempt and not _rev:
+                    thread_id = f"{thread_id}:visit{_prior}"
                 agent = create_runner(
                     spec.id,
                     ctx,
@@ -4670,12 +9671,66 @@ class ExecutionEngine:
                     run_sandbox=self._isolated_run_sandbox(ectx),
                 )
 
+                # Emit agent_input event (Phase 3 / T040) — shows full input prompt
+                # and context sources in the Thinking tab (FR-015). Composed HERE
+                # (moved from before create_runner — see the comment at this
+                # function's earlier ``input_blocks`` line) so ``system_prompt``
+                # (Requirement 36) is a real field at construction time instead of
+                # a post-yield mutation the execute() stamping boundary (persist +
+                # RunTrace, both synchronous at yield) could never observe (C-msg).
+                context_sources = self._build_context_sources(
+                    spec,
+                    ordered_agents,
+                    ectx,
+                    agent_index=index,
+                    user_message=user_message,
+                )
+                # context_message stays a TEXT str ALWAYS in the agent_input event
+                # (split-transport, Locked Decision #3): only the model dispatch
+                # wraps the blocks.
+                _agent_input_data = {
+                    "agent_id": spec.id,
+                    "pipeline_run_id": pipeline_run_id,
+                    "timestamp": _now(),
+                    "context_message": context_message,
+                    "context_sources": context_sources,
+                    "tool_calls": [],
+                }
+                # image_count: optional observability key, emitted ONLY when images
+                # ride this dispatch (>0). A text-only run emits NO image_count key
+                # ⇒ dormant goldens byte-identical. Stripped from the
+                # characterization multiset belt-and-suspenders.
+                if input_blocks:
+                    _agent_input_data["image_count"] = len(input_blocks)
+                # system_prompt: stripped by _VOLATILE_STRIP_KEYS — golden-neutral
+                # (INV-3).
+                _sp = getattr(agent, "system_prompt", None)
+                if _sp:
+                    _agent_input_data["system_prompt"] = _sp
+                yield {
+                    "type": "agent_input",
+                    "data": _agent_input_data,
+                }
+
                 # spec 011 / D6: emitted AFTER create_runner returns (moved from before the
                 # call) — before construction this event only reported an INTENTION to
                 # attach skills; here it reports what create_runner's stage_skills actually
                 # DELIVERED (ctx.skills_delivery), so a silently-dropped/unparseable
                 # SKILL.md is surfaced instead of assumed.
                 _delivery = getattr(ctx, "skills_delivery", None)
+                # Advertise what create_runner actually STAGED, not just what the run
+                # attached. ``displayed_skills`` is the run-attached (UI) set and is
+                # EMPTY for a manifest-declared per-step skill, which travels the
+                # separate ``step_skills`` seam into the factory. The result was a skill
+                # that staged to disk and was billed in ``estimated_tokens`` while
+                # ``attached_skills`` shipped ``[]`` — so AgentDetailPanel's card, gated
+                # on a non-empty array, silently never rendered. ``skills_resolved``
+                # is the list the factory handed to ``stage_skills`` and falls back to
+                # ``displayed_skills`` when no step skills are declared, so a run with
+                # only UI-attached skills emits exactly the payload it did before.
+                _advertised = list(
+                    getattr(ctx, "skills_resolved", None) or displayed_skills
+                )
                 yield {
                     "type": "agent_skills",
                     "data": {
@@ -4686,7 +9741,7 @@ class ExecutionEngine:
                                 "source": s.get("source", ""),
                                 "content": s.get("content", ""),
                             }
-                            for s in displayed_skills
+                            for s in _advertised
                         ],
                         "attached_hooks": [
                             {
@@ -5019,6 +10074,16 @@ class ExecutionEngine:
                                             event, ectx
                                         ):
                                             yield _fo_ev
+                                    # The HITL twin of the branch above: the model
+                                    # emits a questionnaire REQUEST; the kernel runs
+                                    # the existing ClarifyEngine and parks the run.
+                                    # STRICTLY conditional on the tool name, so every
+                                    # run that never calls it takes the identical path.
+                                    elif event.get("tool") == "ask_user":
+                                        async for _cl_ev in self._derive_clarify(
+                                            event, ectx
+                                        ):
+                                            yield _cl_ev
                                 elif etype == "error":
                                     # ── ISS-016 (A1): consume the runner's swallowed-error event ──
                                     # The runner (deep_agent_runner.py:507-527) yields
@@ -5219,7 +10284,7 @@ class ExecutionEngine:
                         agent_id=spec.id,
                         error=agent_error_message,
                     )
-                    RunLog(getattr(sandbox, "root", None)).write(
+                    RunLog(getattr(sandbox, "run_log_path", None)).write(
                         "agent_error",
                         agent_id=spec.id,
                         error=agent_error_message,
@@ -5268,10 +10333,26 @@ class ExecutionEngine:
                 # 07-05). The fall-through resolution is owned by the single_file deliverable
                 # resolver; this is the mid-stream "prefer the deliverable over the
                 # confirmation" readback that the per-agent output (and output_length) needs.
+                #
+                # NOT for a step whose reply IS a typed decision. A conditional
+                # gate reads the trailing JSON object of its source step's reply
+                # (``produces: ["route_decision"]``), so replacing that reply with
+                # the deliverable hands the gate an HTML document and the run
+                # halts with "malformed route_decision JSON" — after every screen
+                # was built and every route verified. Observed live six times: the
+                # step answered correctly in 5,345 chars and the readback swapped
+                # in 97,468 chars of prototype.html on its way to the gate. The
+                # readback exists so a downstream reader sees the deliverable
+                # rather than a tool confirmation; a gate is not that reader.
                 _deliv = getattr(ectx, "deliverable", None)
                 _deliv_strategy = getattr(_deliv, "strategy", None)
-                if _deliv_strategy == "single_file" and not getattr(
-                    ectx, "is_revision_workflow", False
+                _is_decision_step = "route_decision" in (
+                    getattr(spec, "produces", None) or []
+                )
+                if (
+                    _deliv_strategy == "single_file"
+                    and not _is_decision_step
+                    and not getattr(ectx, "is_revision_workflow", False)
                 ):
                     _deliv_name = getattr(_deliv, "name", None) or "prototype.html"
                     file_from_disk = sandbox.read(_deliv_name)
@@ -5298,8 +10379,17 @@ class ExecutionEngine:
                     from agents.capabilities.deliverables._artifact import (
                         sanitize_carousel_deck_html as _sanitize_deck,
                     )
+                    from agents.capabilities.deliverables._artifact import (
+                        strip_code_fence as _strip_fence,
+                    )
 
-                    output = _sanitize_deck(output)
+                    # Fence-strip BEFORE the sanitize, mirroring the ppt resolver's
+                    # own order. Doing it here (not only at deliverable time) is what
+                    # keeps the DOWNSTREAM agent honest: ppt-validator consumes
+                    # ppt-composer's stored artifact, so a composer that wrapped its
+                    # deck in ```html would otherwise hand the validator a fenced
+                    # blob to "validate" and re-emit.
+                    output = _sanitize_deck(_strip_fence(output))
 
                 # ── [08-08 / CR-01] before_write hook firing (additive, declaration-driven) ──
                 # The DELIVERABLE-WRITE seam: the agent's produced deliverable content
@@ -5420,7 +10510,7 @@ class ExecutionEngine:
                         agent_id=spec.id,
                         filename=_fallback_filename,
                     )
-                    RunLog(getattr(sandbox, "root", None)).write(
+                    RunLog(getattr(sandbox, "run_log_path", None)).write(
                         "artifact_fallback",
                         agent_id=spec.id,
                         filename=_fallback_filename,
@@ -5449,12 +10539,16 @@ class ExecutionEngine:
                         "cache_write_tokens": agent_cache_write_tokens,
                         # ISS-028: the task identity of THIS completed invocation ("" for a
                         # single_shot agent) so the terminal degraded decision can subtract
-                        # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
-                        # An internal-only field — results never reaches the wire / a snapshot
-                        # (the WS layer builds its agent_outputs from EVENTS, and every reader
-                        # of ``results`` uses .get()/["output"]/["agent_id"]/len), so INV-3
-                        # byte-parity is unaffected.
+                        # COMPLETED (agent_id, task_number, visit_count) triples from
+                        # ectx.failed_invocations. An internal-only field — results never
+                        # reaches the wire / a snapshot (the WS layer builds its agent_outputs
+                        # from EVENTS, and every reader of ``results`` uses
+                        # .get()/["output"]/["agent_id"]/len), so INV-3 byte-parity is
+                        # unaffected.
                         "task_number": getattr(ectx, "build_task_number", "") or "",
+                        # R-08: this invocation's loop-revisit count, so a pass-2 completion
+                        # of the same (agent_id, task_number) doesn't mask a pass-1 failure.
+                        "visit_count": ectx.step_visit_counts.get(spec.id, 0),
                     }
                 )
                 _log_event(
@@ -5463,15 +10557,36 @@ class ExecutionEngine:
                     agent_id=spec.id,
                     duration_ms=duration * 1000,
                 )
-                RunLog(getattr(sandbox, "root", None)).write(
+                RunLog(getattr(sandbox, "run_log_path", None)).write(
                     "step_end",
                     agent_id=spec.id,
                     model=_resolved_model_id,
                     tokens_in=agent_input_tokens,
                     tokens_out=agent_output_tokens,
                 )
+                # Persist what this step STREAMED into the sandbox, so the run
+                # workspace holds every output an agent produced and not only the
+                # files one explicitly authored through ``write_file``. Lands under
+                # the reserved ``.agents/`` prefix, which ``list_files`` shows and
+                # the deliverable walk skips — see sandbox._AGENT_OUTPUTS_PREFIX for
+                # why that asymmetry is required. Best-effort and never raises, so a
+                # write failure cannot fail an agent that already succeeded; the
+                # streamed UI transport below is untouched either way.
+                write_agent_output(
+                    sandbox,
+                    index=index,
+                    agent_id=spec.id,
+                    name=spec.name,
+                    output=output,
+                    task_number=getattr(ectx, "build_task_number", "") or "",
+                    visit_count=ectx.step_visit_counts.get(spec.id, 0),
+                )
                 yield {
                     "type": "agent_complete",
+                    # ``visit_count`` mirrors agent_start's (R-08) — same non-zero-only
+                    # rule, so a first dispatch stays byte-identical and the goldens
+                    # hold. Emitted on BOTH ends so a client can pair start/complete per
+                    # pass instead of collapsing repeats onto one row.
                     "data": {
                         "agent_id": spec.id,
                         "name": spec.name,
@@ -5479,6 +10594,11 @@ class ExecutionEngine:
                         "output_length": len(output),
                         "index": index,
                         "total": len(ordered_agents),
+                        **(
+                            {"visit_count": _vc_done}
+                            if (_vc_done := ectx.step_visit_counts.get(spec.id, 0))
+                            else {}
+                        ),
                         "input_tokens": agent_input_tokens,
                         "output_tokens": agent_output_tokens,
                         "total_tokens": agent_total_tokens,
@@ -5504,35 +10624,40 @@ class ExecutionEngine:
                 # Whether THIS agent gates is the effective per-run decision (default
                 # = today's static `gate: Human_Gate` set; see _should_gate / the
                 # `gate_agent_ids` param on execute()). REDO-GATE: the inline call site
-                # passes redoable=True (a structural path, name-free — SC-001) so the
-                # FE offers Redo on every LIVE human gate; the _gate_redo branch below
+                # passes the computed _redoable verdict (a structural path, name-free —
+                # SC-001) so the FE offers Redo on every LIVE human gate except a per-task
+                # build dispatch (ISS-090); the _gate_redo branch below
                 # re-runs THIS agent via the enclosing while-loop (flat stack, F2).
                 if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
-                    # artifact-kind (name-free), mirroring redoable's inline True.
+                    # artifact-kind (name-free), mirroring redoable's own predicate.
                     _ek = self._artifact_kind_for(spec)
                     # ISS-052: name WHICH firing this is. The analyze gate opened inside a
                     # revision pass and the one re-opened after it returns share a gate_key
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
                     _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
+                    # R-08: fold the loop-revisit count into gate_key so a step re-entered
+                    # via a route loop-back doesn't collide with its own prior firing.
+                    _visit_count = ectx.step_visit_counts.get(spec.id, 0)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
-                        redoable=True,
+                        redoable=self._redoable(ectx),
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         revision_cycle=_rev_cycle,
                         revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
+                        visit_count=_visit_count,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             # User rejected — cancel the pipeline
                             # Guard: only transition if not already in a terminal state
                             current = self._state_machine.get_state(pipeline_run_id)
-                            if current not in ("cancelled", "failed"):
+                            if current not in ("cancelled", "failed", "diverted"):
                                 self._state_machine.transition(
                                     pipeline_run_id, "cancelled"
                                 )
@@ -5662,7 +10787,7 @@ class ExecutionEngine:
                 _log_event(
                     "agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc)
                 )
-                RunLog(getattr(sandbox, "root", None)).write(
+                RunLog(getattr(sandbox, "run_log_path", None)).write(
                     "agent_error", agent_id=spec.id, error=str(exc)
                 )
                 # ISS-028: unrecovered (agent_id, task_number) failure — no results.append.
@@ -5683,7 +10808,7 @@ class ExecutionEngine:
 
                 if isinstance(exc, StateMachineError):
                     current = self._state_machine.get_state(pipeline_run_id)
-                    if current in ("cancelled", "failed"):
+                    if current in ("cancelled", "failed", "diverted"):
                         logger.info(
                             "Agent %s: pipeline already in terminal state=%s — stopping",
                             spec.id,
@@ -5694,7 +10819,7 @@ class ExecutionEngine:
                 _log_event(
                     "agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc)
                 )
-                RunLog(getattr(sandbox, "root", None)).write(
+                RunLog(getattr(sandbox, "run_log_path", None)).write(
                     "agent_error", agent_id=spec.id, error=str(exc)
                 )
                 # ISS-028: unrecovered (agent_id, task_number) failure — this handler
@@ -6030,9 +11155,20 @@ class ExecutionEngine:
         worker, a bounded merge-agent attempt — passes ``False``. It defaults
         ``True``, so every step-shaped invocation is byte-identical (INV-3).
 
+        ``ectx.suppress_review_gate`` (ISS-072) vetoes the whole predicate for the ONE
+        dispatch it is published around. It is set by object identity, never by an agent
+        id (INV-1), and its only publisher is ``_run_spec_revision_sub_pipeline``'s analyze
+        re-run — the firing that showed the user the content they are about to be shown
+        again at the gate re-opened after the pass returns. Read here rather than at the
+        three ``_run_agent`` gate branches so all three (restart re-entry, pending
+        re-open, live post-stream) and the two ``inline_gated`` dedupe reads honour it
+        from ONE rule (INV-12). Default False ⇒ dormant everywhere else (INV-3).
+
         Only selects *which* agents trigger the gate; the gate itself
         (``_run_review_gate`` + its ``review_gate_*`` events) is unchanged.
         """
+        if getattr(ectx, "suppress_review_gate", False):
+            return False
         gate_ids = ectx.gate_agent_ids
         selected = (
             spec.id in set(gate_ids)
@@ -6040,6 +11176,29 @@ class ExecutionEngine:
             else getattr(spec, "gate", None) == "Human_Gate"
         )
         return invocation_gated and selected
+
+    def _strategy_runs_agent_inline(self, strategy_name: str, registry) -> bool:
+        """Does ``strategy_name``'s capability run the step's OWN agent inline (ISS-131)?
+
+        The step-boundary ``inline_gated`` dedupe skips a step's DECLARED ``human``
+        gate when it predicts the inline ``_run_agent`` → ``_run_review_gate`` path
+        will review the same agent on the same gate_key. That prediction holds only
+        for a strategy that actually dispatches the step's own agent; a spawn-only
+        strategy produces child invocations, which pass ``invocation_gated=False``
+        (ISS-097), so the inline gate never fires and the dedupe silently ate a gate
+        the author declared.
+
+        The fact is DECLARED by the strategy (``runs_agent_inline`` on the
+        ``ExecutionStrategy`` port) and read here off the RESOLVED capability — the
+        kernel never infers it from a strategy name (INV-1). An unresolvable name
+        (defensive; a compile-validated plan never carries one) and a strategy that
+        declares nothing both read as ``True``, the pre-ISS-131 behaviour (INV-3).
+        """
+        try:
+            strategy = registry.resolve("strategy", strategy_name)
+        except (KeyError, RuntimeError):
+            return True
+        return bool(getattr(strategy, "runs_agent_inline", True))
 
     # ------------------------------------------------------------------
     # Executable hook firing (08-07 / HOOK-01..04) — the D-09 lifecycle seam
@@ -6153,13 +11312,34 @@ class ExecutionEngine:
     # BEFORE the strategy runs (they decide whether the step proceeds); validation
     # gates AFTER (it inspects the produced deliverable). An unknown/unclassified
     # gate name defaults to pre-step (fail-safe: evaluate it before the work).
-    _POST_STEP_GATES = frozenset({"validation"})
+    # ``conditional`` is likewise POST-step (spec 014): by default it reads its OWN
+    # step's route_decision artifact (route.condition_agent defaults to the step's
+    # own id — conditional.py's decision_source), which does not exist until the
+    # step's own agent has run. Evaluating it pre-step always finds no content, so
+    # every match fails closed to gate_blocked and the routing cursor jump (T14)
+    # never fires.
+    # ``human`` is POST-step: it reviews the step's OWN output and supports redo —
+    # the behaviour every shipping pipeline already gets from the inline
+    # ``_should_gate``/``AGENT.md gate: Human_Gate`` path, and what an author
+    # reasonably expects from `gates: [human]`. The PRE-step variant (review the
+    # PREVIOUS step's output, the edit becomes this step's input) is now spelled
+    # ``before-human`` so the two are distinguishable in a manifest. Previously both
+    # were spelled ``human`` and which one ran depended on whether the step's AGENT
+    # had an ``AGENT.md`` gate flag — invisible from the manifest, and the reason
+    # prototype's three `gates: [human]` declarations were silently dead lines.
+    _POST_STEP_GATES = frozenset({"validation", "conditional", "human"})
 
     # WR-03 (13 review fix): gates whose ``block`` outcome is an EXPLICIT human
     # rejection (the user clicked Reject at the HITL pause) — run-cancellation
     # parity with the inline _run_review_gate path, not a mere step skip.
     # Gate-capability names, not workflow/agent names (SC-001).
-    _HITL_GATES = frozenset({"human", "approval"})
+    _HITL_GATES = frozenset({"human", "before-human", "approval"})
+
+    # REDO-GATE follow-up: the redo bound for a declared ``gates: [human]`` step
+    # opted into ``redoable: true``. Mirrors the ``loop_max_iterations`` default (5)
+    # a conditional-gate loop-back already uses — same order of magnitude for "a
+    # human is iterating on this step", never unbounded.
+    _MAX_DECLARED_GATE_REDOS = 5
 
     # WR-07 (13 review fix): gates that FAIL CLOSED. A raised exception in a
     # validation-class gate degrades to pass (a gate failure must never abort a
@@ -6167,7 +11347,10 @@ class ExecutionEngine:
     # execute WITHOUT the required sign-off — inverting the control's purpose.
     # An exception in these maps to ``block`` (the step is skipped, the run
     # continues). Gate-capability names, not workflow/agent names (SC-001).
-    _FAIL_CLOSED_GATES = frozenset({"security", "approval", "human"})
+    # ``before-human`` belongs here for the same reason ``human`` does: an exception
+    # in a HITL control must BLOCK, never degrade to pass — swallowing it would let a
+    # step execute without the sign-off the control exists to require.
+    _FAIL_CLOSED_GATES = frozenset({"security", "approval", "human", "before-human"})
 
     async def _evaluate_gates(
         self,
@@ -6229,15 +11412,25 @@ class ExecutionEngine:
             # even when the user deselected all gates in the wizard, because
             # _should_gate returns False → inline_gated=False → the dedupe only
             # fires on the inline path, not on the user-deselect path.
-            if (
-                name == "human"
-                and phase == "pre"
-                and (
-                    inline_gated
-                    or (
-                        ectx.gate_agent_ids is not None
-                        and getattr(step, "agent_id", None) not in ectx.gate_agent_ids
-                    )
+            # Applies to BOTH declared HITL names. The `phase == "pre"` guard this
+            # replaced was correct only while `human` was pre-step; now that `human`
+            # is POST-step the guard would never match it, and prototype's three
+            # `gates: [human]` declarations — live for the first time — would fire
+            # ALONGSIDE the inline gate on the same agent and double-prompt.
+            # `_evaluate_gates` has already filtered by phase before this point, so
+            # whichever name arrives here is in its own phase and needs the same
+            # treatment: the inline (output-bearing) gate wins, and a per-run
+            # deselection suppresses the declared gate entirely.
+            #
+            # It also protects `before-human`: gate_key is
+            # f"{run}:{agent_id}:{visit_count}" with no gate name in it, so a
+            # pre-step declared pause plus an inline post-step pause on the SAME
+            # step would collide on durable gate state.
+            if name in ("human", "before-human") and (
+                inline_gated
+                or (
+                    ectx.gate_agent_ids is not None
+                    and getattr(step, "agent_id", None) not in ectx.gate_agent_ids
                 )
             ):
                 logger.info(
@@ -6248,6 +11441,34 @@ class ExecutionEngine:
                     else "agent not in per-run gate_agent_ids selection",
                 )
                 continue
+            # ── A3 (resume idempotency): skip a gate whose EXACT gate_key already has
+            # a durable ``review_gate_approved`` (computed once at resume-entry into
+            # ``ectx.resume_approved_gate_keys`` — see ``derive_approved_gate_keys``).
+            # A ``before-human`` gate can be durably approved BEFORE its own step's
+            # agent has produced output — the approval only clears the step to RUN. If
+            # the run is interrupted before that agent run finishes, the resume offset
+            # correctly re-enters this SAME step (its own work is genuinely
+            # incomplete), but the human already answered this exact question — only
+            # the step's STRATEGY (below) should re-run, not the gate. Empty/absent on
+            # every non-resume run (the attribute is unset) ⇒ dormant, byte-identical
+            # (INV-3).
+            _resume_approved_keys = getattr(ectx, "resume_approved_gate_keys", None)
+            if name in ("human", "before-human") and _resume_approved_keys:
+                _agent_id_now = getattr(step, "agent_id", None)
+                _visit_now = (getattr(ectx, "step_visit_counts", None) or {}).get(
+                    _agent_id_now, 0
+                )
+                _gate_key_now = (
+                    f"{getattr(ectx, 'run_id', '')}:{_agent_id_now}:{_visit_now}"
+                )
+                if _gate_key_now in _resume_approved_keys:
+                    logger.info(
+                        "declared %r gate on step %s skipped — already durably "
+                        "approved before the restart (A3 resume idempotency)",
+                        name,
+                        _agent_id_now,
+                    )
+                    continue
             try:
                 gate = registry.resolve("gate", name)
                 # ── [F1 / Phase 13] Streaming gate evaluation ─────────────────
@@ -6335,7 +11556,12 @@ class ExecutionEngine:
             # ``gates: [security, human]`` with security blocking used to ask
             # the user to approve a step that cannot run). Clean-run parity:
             # every gate passing never reaches this return.
-            if outcome in ("block", "wait_human"):
+            # REDO-GATE follow-up: a "redo" outcome (Step.redoable opt-in, human.py)
+            # short-circuits the same way — the remaining declared gates (e.g.
+            # ``validation``) would otherwise evaluate the STALE pre-redo output
+            # before the kernel re-runs the step. The re-run's own post-step pass
+            # evaluates them fresh.
+            if outcome in ("block", "wait_human", "redo"):
                 return
 
     async def _apply_declared_gate_edit(
@@ -6507,6 +11733,7 @@ class ExecutionEngine:
         _saved_attempt = ectx.revision_attempt
         _saved_context = getattr(ectx, "spec_revision_context", "")
         _saved_prior = ectx.spec_revision_prior_artifact
+        _saved_suppress = getattr(ectx, "suppress_review_gate", False)
 
         # Read the document under revision ONCE, before the loop — the max-version typed
         # read (F5 discipline), so a rehydrated graph's arbitrary insertion order cannot
@@ -6534,7 +11761,7 @@ class ExecutionEngine:
                     yield {"type": "_gate_rejected"}
                     return
                 current_state = self._state_machine.get_state(pipeline_run_id)
-                if current_state in ("cancelled", "failed"):
+                if current_state in ("cancelled", "failed", "diverted"):
                     yield {"type": "_gate_rejected"}
                     return
 
@@ -6548,6 +11775,19 @@ class ExecutionEngine:
                 ectx.spec_revision_prior_artifact = (
                     prior_artifact if sub_spec is specify_spec else ""
                 )
+
+                # ISS-072: SUPPRESS the ANALYZE re-run's own review gate. That firing
+                # showed the user the very content the gate re-opened after this pass
+                # returns is about to show again (same producer, same bytes), offered a
+                # strictly smaller action set, and approving it had no externally visible
+                # effect — one "Update the Specs" click cost two approvals for one review.
+                # Identity against the spec object, not an id string (INV-1) — the
+                # specify/plan in-pass gates are WANTED and keep firing, which is why this
+                # is a per-dispatch marker rather than a read of ``revision_attempt``.
+                # Honoured in ``_should_gate`` (the ONE predicate all three gate branches
+                # route through) and RESTORED in the finally below alongside the rest of
+                # this pass's scratch.
+                ectx.suppress_review_gate = sub_spec is analyze_spec
 
                 # Re-run the agent — reuses the FULL _run_agent path (INV-12).
                 async for event in self._run_agent(
@@ -6605,6 +11845,7 @@ class ExecutionEngine:
             ectx.spec_revision_context = _saved_context
             ectx.spec_revision_prior_artifact = _saved_prior
             ectx.revision_attempt = _saved_attempt
+            ectx.suppress_review_gate = _saved_suppress
 
         # Emit internal signal carrying the new analysis text so the gate consumer
         # can re-open the gate with the correct output.
@@ -6698,7 +11939,7 @@ class ExecutionEngine:
             elif sub_event.get("type") == "_gate_rejected":
                 # Stop button fired during the sub-pipeline
                 current = self._state_machine.get_state(pipeline_run_id)
-                if current not in ("cancelled", "failed"):
+                if current not in ("cancelled", "failed", "diverted"):
                     self._state_machine.transition(pipeline_run_id, "cancelled")
                 yield {
                     "type": "pipeline_cancelled",
@@ -6809,6 +12050,7 @@ class ExecutionEngine:
         revision_cycle: int = 0,
         revision_in_flight: bool = False,
         cancel_event: asyncio.Event | None = None,
+        visit_count: int = 0,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
 
@@ -6820,8 +12062,9 @@ class ExecutionEngine:
         On redo: yields `_gate_redo` (internal signal to re-run the gated agent).
 
         ``redoable`` (REDO-GATE F1b) is a GENERIC discriminator stamped on
-        ``review_gate_ready.data`` — True ONLY from the inline call site (a
-        structural path, NOT a workflow/agent-id literal — SC-001). The FE renders
+        ``review_gate_ready.data`` — True ONLY from the inline call site, and there only
+        when ``_redoable`` says so (ISS-090: a structural predicate, NOT a
+        workflow/agent-id literal — SC-001). The FE renders
         the Redo button IFF ``redoable``; a declared/user-composed ``gate:human``
         step (which calls this primitive via ``run_human_gate`` with the default
         ``redoable=False``) therefore shows NO Redo button. It is added to
@@ -6846,8 +12089,14 @@ class ExecutionEngine:
         N, ``(N, False)`` at pass N's re-opened gate. Both come from generic run scratch
         (see ``_stamp_revision_marks``) — no workflow or agent name — and both default to the
         no-revision value on the declared/user gate path, exactly as ``redoable`` does.
+
+        ``visit_count`` (R-08) folds a step's loop-revisit count into ``gate_key`` itself:
+        without it, a step re-entered via a ``route.loop_back_to`` jump collides with its
+        own prior firing on the SAME gate_key (the review-event/response store is keyed on
+        this string). Callers pass ``ectx.step_visit_counts.get(agent_id, 0)`` — 0 for a
+        step's first/only firing, matching every workflow that never declares ``route:``.
         """
-        gate_key = f"{pipeline_run_id}:{agent_id}"
+        gate_key = f"{pipeline_run_id}:{agent_id}:{visit_count}"
 
         # Arm the event BEFORE emitting so a fast response doesn't miss it
         event = await self._store.get_review_event(gate_key)
@@ -6856,7 +12105,7 @@ class ExecutionEngine:
         # Guard: if the run is already in a terminal state (e.g. user rejected
         # a previous gate), don't open another gate — just signal rejection.
         current_state = self._state_machine.get_state(pipeline_run_id)
-        if current_state in ("cancelled", "failed"):
+        if current_state in ("cancelled", "failed", "diverted"):
             logger.info(
                 "Review gate skipped: pipeline=%s agent=%s already in terminal state=%s",
                 pipeline_run_id,
@@ -6880,7 +12129,8 @@ class ExecutionEngine:
                 "gate_key": gate_key,
                 "output": output,
                 # REDO-GATE F1b: generic FE fence — True only from the inline call
-                # site (stripped by _VOLATILE_STRIP_KEYS so the goldens stay byte-id).
+                # site, and there only per _redoable (ISS-090; stripped by
+                # _VOLATILE_STRIP_KEYS so the goldens stay byte-id).
                 "redoable": redoable,
                 # SC-001 / KAN-101: generic name-free update-specs discriminator —
                 # True only from the inline analyze/spec call site (derived from
@@ -6945,6 +12195,26 @@ class ExecutionEngine:
             # while-loop re-runs the agent. The declared-path consumers (human/approval
             # gate) CONSUME this signal safely (T-human) — never PASS, never leak.
             if action == "redo":
+                # ISS-090: the redo verdict this firing PUBLISHED is BINDING, exactly as
+                # the update_specs verdict is below (ISS-053) — ``gate_key`` names a gate
+                # SLOT, not a firing, so a replayed earlier click lands on whichever
+                # firing is armed now, no crafting required. The FE never offers Redo when
+                # the flag is False, so nothing legitimate arrives here. The degrade is
+                # KEEP WAITING for the same reason update_specs keeps waiting: approving
+                # would be fail-open on a HITL gate and rejecting would cancel the user's
+                # run. The declared/user gate path (default ``redoable=False``) already
+                # mapped a stray redo to a non-PASS outcome in ``HumanGate`` (REDO-GATE
+                # F1a); this makes the shared primitive itself fail-closed, so a redo
+                # arriving by any other route is refused before it re-runs an agent.
+                if not redoable:
+                    logger.warning(
+                        "Review gate redo REFUSED: pipeline=%s agent=%s — this firing "
+                        "published redoable=False; gate stays open (ISS-090)",
+                        pipeline_run_id,
+                        agent_id,
+                    )
+                    event.clear()
+                    continue
                 self._state_machine.transition(pipeline_run_id, "generating")
                 logger.info(
                     "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
@@ -7136,7 +12406,12 @@ class ExecutionEngine:
                                 )
                             except Exception:  # noqa: BLE001 — no durable substrate
                                 _rows = []
-                            open_kind, open_gate_key = derive_open_gate(_rows)
+                            # A3: strip this run's own premature-stop marker (a prior
+                            # cancel/crash the row's non-terminal status shows it is
+                            # being continued past) — see gate_pendency.py.
+                            open_kind, open_gate_key = derive_open_gate(
+                                strip_premature_stops(_rows)
+                            )
 
                             if open_kind in ("review", "questionnaire") and (
                                 await self._is_resumable_in_flight(wr)
@@ -7383,12 +12658,23 @@ class ExecutionEngine:
                 rows = await store.read_events(run_id, after_seq=0)
             except Exception:  # noqa: BLE001 — no durable substrate → nothing to drive
                 rows = []
-            open_kind, _open_gate_key = derive_open_gate(rows)
+            # A3: strip this run's own premature-stop marker — see gate_pendency.py.
+            open_kind, _open_gate_key = derive_open_gate(strip_premature_stops(rows))
 
             if open_kind == "review":
                 # Review re-entry (49-02): resume_run re-enters the SINGLE per-step dispatch
                 # loop; the open-gate offset override + gate_reentry sentinel re-open the gate
                 # AT the gated step (model-skip). INV-12 — no forked path.
+                #
+                # [A20] Stamp the double-drive guard BEFORE driving — every other
+                # resume_run caller (the user POST /resume path, and branch (b) right
+                # above this method) already does this; this branch was the one
+                # re-entering _execute_impl with no run_resuming marker, so every
+                # backend restart while a run sat at an open review gate re-fired a
+                # bare pipeline_start straight into review_gate_ready for the SAME
+                # gate, discarding whatever the user had already approved (the
+                # 51c54b2d / 7e8a8e71 ×6 re-fire pattern).
+                await self._stamp_resume_marker(wr)
                 await self.resume_run(run_id)
             elif open_kind == "questionnaire":
                 # Clarify re-entry (49-03, PINNED A5): the REPLAY driver re-drives from
@@ -7454,7 +12740,7 @@ class ExecutionEngine:
         NON_TERMINAL list + the state machine untouched (Open Q2). The marker rides the
         SAME owner-scoped append path as every other event; best-effort (a persist
         failure logs and proceeds — the resume still drives, just without the audit
-        marker). The ``seq`` is the next durable seq for the run (read + 1).
+        marker). The ``seq`` is the next durable seq for the run (tail probe + 1).
 
         12-09: the marker's workspace is the run's RECOVERED real workspace_id
         (``_recover_workspace_id`` — the run_events-sourced value the sink wrote
@@ -7467,17 +12753,23 @@ class ExecutionEngine:
         NULL, the same logged-warning degrade as today.
 
         DB-001 (task.md R-02): the seq allocation used to be a single unretried
-        read-``max(seq)+1``-then-``append_event`` — exactly the race
-        :meth:`agents.authz.ScopedStore.append_event_next_seq` exists to close (a
-        concurrent resume attempt, or the run's own event sink, can compute the
-        same ``seq`` first and this insert loses silently under the old bare
-        ``except Exception: log and swallow``). This now allocates through that
-        same optimistic-retry-on-``IntegrityError`` method the chat lane already
-        uses, so a raced seq is re-derived and retried (bounded, 8 attempts)
-        instead of being dropped. A retry-exhaustion failure is a real,
-        unresolved conflict (not a transient "no durable substrate" case) and is
-        re-raised — the marker is best-effort only for genuinely missing
-        durable state, never for a swallowed write collision.
+        read-``max(seq)+1``-then-``append_event`` — a race a concurrent resume
+        attempt, or the run's own event sink, wins silently under the bare
+        ``except Exception: log and swallow``. ISS-125: it now rides the SAME
+        collision-safe pair the engine sink and the durable-cancel writer use —
+        the bounded :meth:`agents.authz.ScopedStore._max_event_seq` index probe
+        for the tail, then
+        :meth:`agents.authz.ScopedStore.append_event_at_or_after`, which
+        re-appends past a racing writer (bounded, 8 attempts) instead of dropping
+        the row. NOT ``append_event_next_seq``: that allocator re-reads EVERY row
+        of the run per attempt to derive one integer (the local corpus holds a
+        36k-row run), which is the same cost that rules it out for the engine
+        sink. The marker mints a fresh ``event_id`` per call, so it never needs
+        that method's ``(run_id, event_id)`` idempotent no-op. A rejection no
+        retry can resolve (no durable substrate, a None recovered workspace)
+        surfaces out of the allocator and degrades through the best-effort
+        except below — the marker is audit-only, but nothing is ever swallowed
+        inside the allocator.
         """
         # Capture the row's scalars UP FRONT so the best-effort except never
         # touches the ORM object (a lazy-attribute load on a session a failed
@@ -7488,26 +12780,16 @@ class ExecutionEngine:
         try:
             workspace_id = await self._recover_workspace_id(owner_id, run_id)
             store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
-            await store.append_event_next_seq(
+            await store.append_event_at_or_after(
                 run_id,
-                event_id=str(uuid.uuid4()),
-                type="run_resuming",
-                payload_json={
+                (await store._max_event_seq(run_id)) + 1,
+                str(uuid.uuid4()),
+                "run_resuming",
+                {
                     "pipeline_run_id": run_id,
                     "prior_status": prior_status,
                     "reason": "backend_restart_in_process_resume",
                 },
-            )
-        except RuntimeError as exc:
-            # append_event_next_seq exhausted its retry budget — a REAL, surfaced
-            # seq conflict (task.md R-02 oracle: "no swallowed write, deterministic
-            # retry or surfaced terminal error"). Still degrades the marker itself
-            # (it is audit-only) but does not hide the conflict as a generic
-            # "no durable substrate" case.
-            logger.error(
-                "_stamp_resume_marker(%s) exhausted seq-allocation retries: %s",
-                run_id,
-                exc,
             )
         except Exception as exc:  # noqa: BLE001 — the marker is best-effort audit
             logger.warning("_stamp_resume_marker(%s) failed: %s", run_id, exc)
@@ -7666,14 +12948,46 @@ class ExecutionEngine:
             f"=== END REVISION INSTRUCTION ==="
         )
 
-        # If planning_context is available, prepend it as a guardrail
-        if planning_context_artifact:
-            revision_context = (
-                f"=== PLANNING CONTEXT (original run guardrail) ===\n"
-                f"{planning_context_artifact.content}\n"
-                f"=== END PLANNING CONTEXT ===\n\n"
-            ) + revision_context
+        # ISS-735 (QA-PS-021, decision 2a — no new column): a parent the completion
+        # gate degraded (e.g. compensated content, FIX-612/615/634) must not seed its
+        # revision as if it were clean. Read the parent's EXISTING persisted status /
+        # error (the launch driver stores degraded_reason there) and flag it AFTER the
+        # instruction — appended, never prepended, so the user_message[:200]
+        # inferred-intent slice (see the removed world block below) is unchanged. A
+        # clean parent, or any lookup failure, seeds byte-identically to before.
+        try:
+            _parent_row = await ScopedStore(
+                owner_id=owner_id, workspace_id=original.workspace_id
+            ).get_run(parent_run_id)
+        except Exception:  # noqa: BLE001 — best-effort read, never block a revision
+            _parent_row = None
+        if getattr(_parent_row, "status", None) == "degraded":
+            revision_context += (
+                "\n\n=== PARENT RUN STATUS ===\n"
+                "The original run completed degraded: "
+                f"{getattr(_parent_row, 'error', None) or 'no reason recorded'}\n"
+                "=== END PARENT RUN STATUS ==="
+            )
 
+        # [GAPS T6 / §0.2, §0.3 step 0, FR-030 row 10] World block — REMOVED. This
+        # used to prepend the parent run's planning_context artifact verbatim as a
+        # "guardrail" ahead of revision_context, unconditionally (no policy check —
+        # missed by the seam-2 deletion because this code path is _handle_revision,
+        # never _compose_context_message). The parent's planning analysis is
+        # already durable as PLANNER.md in the shared family sandbox every revision
+        # writes into (§0.1: one sandbox per family) — confirmed present and
+        # git-tracked at every tag of a real family (root `7a56140b…`, PLANNER.md at
+        # both v1 and v2). Pasting it again was actively harmful, not just
+        # redundant: `revision_context` becomes this dispatch's `user_message`
+        # (below), and every revision pipeline is `planner: skip`, so
+        # `_default_planning_context` derives `inferred_intent` as
+        # `user_message[:200]` — with the paste prepended, that truncated the
+        # === PLANNING CONTEXT (original run guardrail) === header itself into the
+        # revision's own (regenerated) PLANNER.md, corrupting it. Confirmed live:
+        # revision `f767bcb9…`'s PLANNER.md literally starts
+        # "**Inferred Intent**: === PLANNING CONTEXT...". planning_context_artifact
+        # (above) still feeds the diagnostic-only `planning_context_unavailable`
+        # log field below — only the paste into the message is gone.
         # ── WR-06 (13 review fix): FE-routable revision pipeline_type ───────────
         # The FE sends ``*_output`` artifact KINDS as the revision target
         # (ppt_output / od_ppt_output) but routes pipeline_complete previews on
@@ -7704,7 +13018,7 @@ class ExecutionEngine:
         # Validate the pipeline is registered (compile_for_run succeeds) as the
         # fail-fast check instead of relying on an empty get_pipeline_agents() result.
         try:
-            compile_for_run(revision_pipeline_type)
+            _compiled_revision = compile_for_run(revision_pipeline_type)
         except Exception:
             raise ValueError(
                 f"No revision pipeline is registered for target_artifact_type "
@@ -7783,6 +13097,15 @@ class ExecutionEngine:
                 terminal_failed = True
             await websocket_send_fn(event)
 
+        # Populate agents from the compiled manifest. execute() is an async
+        # generator and only modifies its own local agents variable; the
+        # caller's agents list remains empty after the loop. Re-populate here
+        # before using agents[-1].id below.
+        if not agents:
+            agents = self._specs_from_plan(
+                compile_for_run(revision_pipeline_type).steps
+            )
+
         # ── Post-dispatch exact-kind lineage write (FR-014 chain link 1) ────────
         # Persist the REVISED deliverable under the exact target kind with
         # derived_from so a revision-of-revision resolves THIS run's output via
@@ -7810,17 +13133,19 @@ class ExecutionEngine:
                     workspace_id=original.workspace_id,
                     kind=target_artifact_type,
                     producer_step="revision",
-                    # Derived from the COMPILED MANIFEST steps (IN-05 spirit,
-                    # SC-001 — no agent-id literal): the LAST declared step's
-                    # streamed output is the declared deliverable.
-                    # revision-pipeline-refactor: ``agents`` is deliberately []
-                    # here (execute() builds the roster from compiled.steps), so
-                    # the producer MUST come from the manifest — reading
-                    # ``agents[-1]`` raised IndexError and silently sank every
-                    # revision lineage ref into the state_restoration_failed arm.
-                    producer_agent=compile_for_run(
-                        revision_pipeline_type
-                    ).steps[-1].agent_id,
+                    # Derived from the COMPILED PLAN (IN-05 spirit, SC-001 — no
+                    # agent-id literal): revision pipelines are 1-2 single_shot
+                    # steps and the LAST agent's streamed output is the declared
+                    # deliverable. Read off ``_compiled_revision.steps``, NOT the
+                    # ``agents`` local: revision-pipeline-refactor emptied that list
+                    # so execute() rebuilds the roster from the manifest, which left
+                    # ``agents[-1]`` raising IndexError — the except arm below then
+                    # turned EVERY revision's exact-kind lineage write into
+                    # state_restoration_failed and FR-014 chain link 1 was never
+                    # persisted. The plan is the same source execute() rebuilds from
+                    # (_specs_from_plan(compiled.steps)), so this is the agent that
+                    # actually ran last.
+                    producer_agent=_compiled_revision.steps[-1].agent_id,
                     task_id=None,
                     content=final_output,
                     location=f"artifact_refs/{target_artifact_type}",
@@ -7945,7 +13270,14 @@ class ExecutionEngine:
                         _run_id = getattr(ectx, "run_id", None)
                         _disk_p = getattr(ectx, "disk_principal", None)
                         if _run_id and _disk_p:
-                            _sandbox = _RS(_disk_p, _run_id)
+                            # Task 3.3: root-resolve before constructing the sandbox so
+                            # design.md is read from the shared family directory, not a
+                            # per-revision path that nothing has written to (Req 2 AC 7).
+                            _resolved_run_id = _resolve_root_id(
+                                _run_id,
+                                getattr(ectx, "owner_id", None) or _disk_p,
+                            )
+                            _sandbox = _RS(_disk_p, _resolved_run_id)
                     if _sandbox is not None:
                         _design_md = _sandbox.read("design.md") or ""
                         if _design_md:
@@ -8174,6 +13506,39 @@ class ExecutionEngine:
             ectx, "revision_attempt", 0
         )
 
+    def _redoable(self, ectx) -> bool:
+        """Does THIS gate firing advertise the "Request changes" (Redo) affordance?
+
+        The mirror of ``_update_specs_eligible`` (ISS-090). ``redoable`` used to be an
+        inline ``True`` literal at all three inline call sites, so one of the two gate
+        flags was a rule and the other was an unfenced affordance. The rule is stated
+        HERE, once, and it is STRUCTURAL — no workflow name and no agent id appears here
+        or at any call site (INV-1 / SC-001).
+
+        The inline (engine-driven) gate offers Redo EXCEPT on a **per-task build
+        dispatch**. ``ectx.build_task_number`` is generic scratch the ``task_loop``
+        strategy binds around exactly one per-task ``_run_agent`` invocation and restores
+        in a ``finally`` (``KernelServices.run_agent``), so it is non-empty for precisely
+        that dispatch's duration — the same "an existing published field doubles as the
+        in-flight signal" idiom condition 2 of ``_update_specs_eligible`` uses on
+        ``revision_attempt``, so this invents no parallel state (INV-12).
+
+        That dispatch is the one whose redo semantics differ from what the button
+        promises: it already carries a COMPACTED view of the deliverable, which is why
+        ``_consume_redo`` withholds the injected subject there (FIX-228). Withholding the
+        affordance is that same fact stated at the layer that advertises it. Every other
+        firing — including a single_shot build — is unchanged (INV-3); only an agent a
+        user ticked into a per-run ``gate_agent_ids`` whose step runs a task loop loses
+        the button, and that is the firing ISS-090 names.
+
+        Like ``update_specs_eligible`` the verdict is BINDING, not advisory: it is
+        published on ``review_gate_ready`` and then ENFORCED in ``_run_review_gate``,
+        which refuses a ``redo`` response the firing never advertised and keeps the gate
+        waiting (the ISS-053 degrade). The declared/user gate path rides the default
+        ``redoable=False`` and never reaches this predicate.
+        """
+        return not (getattr(ectx, "build_task_number", "") or "")
+
     def _stamp_revision_marks(self, ectx) -> tuple[int, bool]:
         """Which spec-revision cycle is THIS gate firing part of, and is it inside it?
 
@@ -8284,10 +13649,28 @@ class ExecutionEngine:
         goldens: within one process write order == version order, and no golden
         producer emits a higher-version kind before a lower-version different kind, so
         "max version, later-insertion tie-break" == "last inserted" (parity-guarded).
+
+        R-05 fallback (spec 014 / conditional gates): a composed custom-agent step's
+        typed artifacts are always written under its FULL ``"custom-agent:<instance_id>"``
+        producer id (engine.py's per-step dual-write), but a ``route.condition_agent``
+        is author-facing and commonly names the step's bare ``instance_id`` (the same
+        dual-identity acceptance the compiler's R-27/R-10 route-target validation
+        already allows — see ``compiler.py::_validate_route_targets``'s ``by_name``
+        map). When no ref matches ``producer_agent`` exactly, retry against a
+        ``":<producer_agent>"`` suffix. Purely additive — every existing caller passes
+        a full id that matches on the first pass, so this is byte-identical for them.
         """
         best = None
         for ref in ectx.artifacts.tree(ectx.run_id):
             if ref.producer_agent == producer_agent and (
+                best is None or ref.version >= best.version
+            ):
+                best = ref
+        if best is not None:
+            return best.content
+        _suffix = f":{producer_agent}"
+        for ref in ectx.artifacts.tree(ectx.run_id):
+            if ref.producer_agent.endswith(_suffix) and (
                 best is None or ref.version >= best.version
             ):
                 best = ref
@@ -8538,9 +13921,33 @@ class ExecutionEngine:
                             step.agent_id,
                         )
                     patch["skills"] = [s for s in _merged if s in _known]
+            # ISS-698/ISS-732 — the composer's per-step Tools tab ("Read files" /
+            # "Write files"). Without this branch the selection was silently
+            # dropped: the running step kept the base manifest's grant, so a
+            # toggled-ON write_files never reached the agent and a toggled-OFF
+            # read_files never took effect. The values come from ``user_step.tools``,
+            # which ``compile(trust="user")`` already bounded through
+            # ``permission_caps.apply_cap`` — this copies a decided permission, it
+            # does not decide one.
+            # Copy ONLY the slots the selection actually NAMED, keyed generically off
+            # the selection's own keys (no permission literal here — SC-001), rather
+            # than replacing the whole object: the composer exposes two levers, and a
+            # wholesale replace would silently drop the engineer-granted permissions
+            # an untrusted re-compile cannot carry (e.g. ``exec``/``tool_sets`` on a
+            # trusted base step the user merely re-modelled). Unknown keys cannot
+            # reach here — the compiler's ``_compile_tool_grant`` strict-key check
+            # already rejected them into the degrade path above — but the field
+            # filter keeps ``dataclasses.replace`` total.
+            if isinstance(sel.get("tools"), dict) and sel["tools"]:
+                _slots = {f.name for f in dataclasses.fields(step.tools)}
+                _named = {
+                    k: getattr(user_step.tools, k) for k in sel["tools"] if k in _slots
+                }
+                if _named:
+                    patch["tools"] = dataclasses.replace(step.tools, **_named)
             # Fan-out levers (D3, the crux) — each fires ONLY when the user selected
-            # it, so the empty-selections path stays byte-identical (INV-3). No
-            # ``tools`` overlay: the declarative fanout_batch path acquires no
+            # it, so the empty-selections path stays byte-identical (INV-3). The
+            # ``tools`` overlay above cannot hand the declarative fanout_batch path a
             # spawn_subagents grant (run_fanout does no permission check; trust=user
             # forces tools.spawn_subagents OFF anyway).
             if sel.get("strategy") and user_step.strategy:
@@ -9277,6 +14684,11 @@ class ExecutionEngine:
         The returned index is the resume offset for the SINGLE dispatch loop: every step
         before it is skipped (already done), the loop re-enters at it. When every step is
         already complete the offset is ``len(ordered_agents)`` (nothing left to drive).
+
+        R-11 (v1 scope cut): resumes at the first incomplete step by ORIGINAL array position,
+        which assumes each step id appears at most once per run — for a mid-loop/branch
+        crash-restart (a step id visited more than once) this may resume at the wrong
+        occurrence. Documented v1 limitation, not solved here.
         """
         store = getattr(ectx, "scoped_store", None)
 
@@ -9292,6 +14704,7 @@ class ExecutionEngine:
         # for completed agents and ABSENT for agents killed before they emitted it.
         agent_complete_events: set[str] = set()
         terminal_wave_indices_by_step: dict[str, set[int]] = {}
+        nonterminal_wave_indices_by_step: dict[str, set[int]] = {}
         running_wave_steps: set[str] = set()
         # RESUME-17: the run's durable run_events, captured ONCE so the open-gate
         # override below reuses them (no second round-trip) — [] on the offline harness.
@@ -9332,9 +14745,21 @@ class ExecutionEngine:
                             int(widx)
                         )
                     else:
-                        running_wave_steps.add(sid)
+                        nonterminal_wave_indices_by_step.setdefault(sid, set()).add(
+                            int(widx)
+                        )
             except Exception:  # noqa: BLE001 — no durable wave evidence → treat as incomplete
                 pass
+            # A completed wave index stays complete: a later non-terminal row for the SAME
+            # index is a resume re-entry that was interrupted, not evidence the wave never ran.
+            # A wave step revisited by a conditional loop-back reuses wave_index from 0, so a
+            # first-visit completed row can mask an interrupted second visit; that is the
+            # documented R-11 limitation (step ids visited more than once), not solved here.
+            running_wave_steps = {
+                sid
+                for sid, idxs in nonterminal_wave_indices_by_step.items()
+                if idxs - terminal_wave_indices_by_step.get(sid, set())
+            }
 
         _steps_by_agent = {s.agent_id: s for s in (compiled.steps or [])}
         # The set of agent ids that produced a durable typed artifact (read from the
@@ -9363,14 +14788,27 @@ class ExecutionEngine:
         # from the SAME durable run_events already read above (no extra round-trip); when a
         # review gate is open, return the gated step so ``_run_agent`` re-enters it in GATE
         # MODE (model-skip, output reconstructed from the persisted max-version ref).
-        # Generic keying ONLY: parse the agent id out of ``gate_key = f"{run}:{agent_id}"``
-        # (:4802) and match ``ordered_agents[j].id`` — zero workflow/agent-name literals
-        # (INV-1). No-op when ``derive_open_gate`` returns ``(None, None)`` ⇒ every non-gate
-        # resume offset is byte/event-identical (proven by the branch-(b) resume tests that
-        # seed no ``review_gate_ready``).
-        _open_kind, _open_gate_key = derive_open_gate(durable_rows)
+        # Generic keying ONLY: parse the agent id out of
+        # ``gate_key = f"{run}:{agent_id}:{visit_count}"`` (:4802) and match
+        # ``ordered_agents[j].id`` — zero workflow/agent-name literals (INV-1). R-08: strip
+        # BOTH the run_id prefix (first colon) and the visit_count suffix (last colon) rather
+        # than a plain ``split(":", 1)[1]`` — a custom-agent id (``custom-agent:<instance_id>``)
+        # itself contains a colon, so only the outer two must be peeled. No-op when
+        # ``derive_open_gate`` returns ``(None, None)`` ⇒ every non-gate resume offset is
+        # byte/event-identical (proven by the branch-(b) resume tests that seed no
+        # ``review_gate_ready``).
+        # ``strip_premature_stops`` (A3): this run's own ``pipeline_cancelled``/
+        # ``pipeline_failed`` marker (the LAST event before a crash, or the marker a
+        # user-triggered "resume a cancelled run" leaves behind) must not read as the
+        # human resolving the gate that was open when it fired — without this, the
+        # override goes dormant and the completeness scan below can land the offset on
+        # an EARLIER, already-approved gate (observed: 2+ steps backward). See
+        # gate_pendency.py.
+        _open_kind, _open_gate_key = derive_open_gate(
+            strip_premature_stops(durable_rows)
+        )
         if _open_kind == "review" and _open_gate_key:
-            _gate_target = _open_gate_key.split(":", 1)[1]
+            _gate_target = _open_gate_key.split(":", 1)[1].rsplit(":", 1)[0]
             for _j in range(len(ordered_agents)):
                 if getattr(ordered_agents[_j], "id", None) == _gate_target:
                     return _j
@@ -9729,20 +15167,93 @@ class ExecutionEngine:
             # launch path accepts a client-supplied map, whereas resume reads the
             # already-persisted, already-launch-validated map).
             selections = wr.selections_json
-            # KAN-120: restore the launch-time od_context (template + design-system
-            # data) for OpenDesign pipelines (od_ppt, od_prototype). Persisted at
-            # run CREATION by run_commands._drive_launch_to_queue (migration 0027).
-            # NULL for non-OD runs → od_context=None passed to _drive_resumed_stream
-            # → _execute_impl → ectx.od_context = None (same as before — INV-3).
-            od_context = getattr(wr, "od_context_json", None)
+            # KAN-120 / Task 8.2 (sandbox-git-versioning, Req 23 AC 6): restore the
+            # launch-time od_context for OpenDesign pipelines (od_ppt, od_prototype).
+            # Primary source: ``.context/`` files written at sandbox open (task 8.1).
+            # Fallback: the ``od_context_json`` DB column (migration 0027) — covers old
+            # sandboxes (pre-task-8.1) and non-OD runs (NULL → od_context=None → INV-3).
+            od_context_db = getattr(wr, "od_context_json", None)
+            od_context = od_context_db  # will be overridden below when .context/ exists
             # Restore the launch-time per-run gate selection (migration 0031).
             # NULL → None → _should_gate falls back to the static AGENT.md set,
             # which is the correct default for every run that never overrode it.
             # For a run that DID override it, this is the difference between the
             # gate re-opening on resume and the pending redo being swallowed.
             gate_agent_ids = getattr(wr, "gate_agent_ids_json", None)
+            # Migration 0040: the raw manifest a composed run was launched with.
+            # NULL for every registry/file-pipeline run (those resume from the
+            # registry/compile_for_run exactly as before).
+            run_manifest = getattr(wr, "manifest_json", None)
         finally:
             db.close()
+
+        # ── Migration 0040: a run launched from a Composer manifest must resume as
+        # THAT workflow. Before this, the registry branch below rebuilt the roster
+        # from `get_pipeline_agents("custom")` — the GENERIC custom pipeline
+        # (Market Research Agent, …) — and a crashed composed run auto-resumed as a
+        # completely different pipeline (observed live: ~597K tokens burned on four
+        # agents the user never composed). Recompile the persisted manifest at the
+        # SAME trust it launched with and drive the compiled plan.
+        resumed_compiled = None
+        if isinstance(run_manifest, dict) and run_manifest.get("steps"):
+            try:
+                from agents.capabilities.registry import CapabilityRegistry, discover
+                from agents.workflows.compiler import WorkflowCompiler
+                from agents.workflows.manifest import build_manifest_from_dict
+
+                _mf = dict(run_manifest)
+                _trust = _mf.pop("_trust", "user") or "user"
+                discover()
+                resumed_compiled = WorkflowCompiler().compile(
+                    build_manifest_from_dict(_mf, f"run:{run_id}"),
+                    CapabilityRegistry(),
+                    trust=_trust,
+                )
+            except Exception as exc:  # noqa: BLE001 — refuse a WRONG resume
+                # Fail closed: substituting the generic roster is strictly worse
+                # than not resuming (it runs the wrong pipeline on the user's
+                # dime), so a manifest that no longer compiles ends the resume.
+                logger.warning(
+                    "resume_run(%s): persisted manifest failed to recompile (%s) — "
+                    "refusing to resume with a substitute roster",
+                    run_id,
+                    exc,
+                )
+                self._fire_resume_cleanup(run_id)
+                return
+
+        # ── Task 8.2 (sandbox-git-versioning, Req 23 AC 6): try to rebuild od_context
+        # from .context/ before falling back to the DB column. Primary source is always
+        # .context/ (written at sandbox open by task 8.1) — this covers both new runs
+        # and old runs where od_context_json was NULL (pre-migration 0027) because
+        # .context/selections.json is the authoritative on-disk record. Fallback to the
+        # DB column (od_context_db) only when .context/ is absent (non-OD runs, or
+        # sandboxes created before task 8.1). Uses the same chain-root resolution as
+        # _execute_impl so the rebuild reads from the correct shared sandbox directory.
+        # Best-effort: any exception falls through to od_context_db (already set above).
+        try:
+            from app.agents.sandbox import RunSandbox as _RunSandbox
+            from app.api.launch_context import rebuild_od_context_from_sandbox
+
+            _disk_principal = user_id or "anon"
+            _owner_id = user_id or f"anon:{session_id or run_id}"
+            _chain_root_id = _resolve_root_id(run_id, _owner_id)
+            _resume_sandbox = _RunSandbox(_disk_principal, _chain_root_id)
+            _rebuilt = rebuild_od_context_from_sandbox(_resume_sandbox)
+            if _rebuilt is not None:
+                od_context = _rebuilt
+                logger.debug(
+                    "resume_run(%s): od_context rebuilt from .context/ files", run_id
+                )
+            # else: .context/ absent (pre-task-8.1 sandbox or non-OD run) — od_context
+            # keeps the DB column value (od_context_db) set above: non-None for old OD
+            # runs that had the column populated, None for non-OD runs (correct).
+        except Exception:  # noqa: BLE001 — best-effort; od_context_db remains the fallback
+            logger.warning(
+                "resume_run(%s): .context/ rebuild failed — falling back to DB column",
+                run_id,
+                exc_info=True,
+            )
 
         # Reconstruct the ordered agent list the same way the WS layer does for a fresh
         # run (registry membership for the run's pipeline type). A custom-workflow run
@@ -9750,7 +15261,10 @@ class ExecutionEngine:
         from agents.registry import get_pipeline_agents
 
         try:
-            agents = get_pipeline_agents(resolve_alias(pipeline_type))
+            if resumed_compiled is not None:
+                agents = self._specs_from_plan(resumed_compiled.steps)
+            else:
+                agents = get_pipeline_agents(resolve_alias(pipeline_type))
         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot resume
             logger.warning("resume_run(%s): cannot resolve agents (%s)", run_id, exc)
             # WR-01: drop the task entry registered at the create_task site.
@@ -9785,7 +15299,12 @@ class ExecutionEngine:
         # offset computation can read the durable artifact_refs/run_events/wave_runs. The
         # full context is rebuilt by _execute_impl below (the single construction path).
         offset = await self._compute_resume_offset(
-            run_id, user_id, session_id, pipeline_type, agents
+            run_id,
+            user_id,
+            session_id,
+            pipeline_type,
+            agents,
+            compiled=resumed_compiled,
         )
 
         logger.info(
@@ -9898,6 +15417,9 @@ class ExecutionEngine:
             live_queue=live_queue,
             _resume_from=offset,
             _is_resume=True,
+            # Migration 0040: the recompiled launch manifest (None for registry/
+            # file runs — byte/event-identical resume for those).
+            resumed_compiled=resumed_compiled,
         )
 
     async def _drive_resumed_stream(
@@ -9918,6 +15440,7 @@ class ExecutionEngine:
         _resume_from: int = 0,
         _is_resume: bool = False,
         _clarify_replay: dict | None = None,
+        resumed_compiled: "CompiledWorkflow | None" = None,
     ) -> None:
         """Drive ``_execute_impl`` through the resume seq/persist/live-queue/milestone-card
         sink — the SHARED re-entry stream of BOTH restart drivers (INV-12).
@@ -9946,6 +15469,24 @@ class ExecutionEngine:
         # after the API answered `cancelled: true`. The hook returns the SAME Event object
         # the REST endpoint sets; None (goldens / offline) ⇒ DORMANT, byte/event-identical.
         cancel_event = self._resolve_resume_cancel_event(run_id)
+        # ── L6-fix2: the resume driver is a twin of execute()'s stamping loop but never
+        # built a RunTrace, so every run that crossed a resume (restart re-entry,
+        # review-gate re-entry, or — most common — a clarify round answered after the
+        # live stream dropped) wrote NO agent_input / agent_output / agent_thinking /
+        # tool_call lines to ``.logs/{run_id}.jsonl``: only the engine's own direct
+        # ``RunLog`` step_start/step_end calls survived. ``ectx.run_trace`` stayed None,
+        # so the finalizer's step-3 ``flush_terminal`` was a no-op too, and step 4 then
+        # copied that truncated file into ``.chain/logs.jsonl`` — the TAGGED, chainable
+        # payload (and a chained child's ``.context/logs.jsonl``) shipped a log with the
+        # whole pipeline missing. Same construction as the ``execute()`` wrapper so both
+        # drivers append to the SAME per-run file (Requirement 24 AC 1/AC 4).
+        _resume_trace = RunTrace(
+            RunSandbox(
+                user_id or "anon",
+                _resolve_root_id(run_id, user_id or f"anon:{session_id or run_id}"),
+                current_run_id=run_id,
+            ).run_log_path
+        )
         try:
             async for event in self._execute_impl(
                 agents=agents,
@@ -9970,11 +15511,18 @@ class ExecutionEngine:
                 # None (every run that never overrode it) → the static AGENT.md
                 # set, unchanged (INV-3).
                 gate_agent_ids=gate_agent_ids,
+                # Migration 0040: the recompiled launch manifest (None for every
+                # registry/file run — byte/event-identical resume for those).
+                compiled_override=resumed_compiled,
                 _sink=sink,
                 _resume_from=_resume_from,
                 _is_resume=_is_resume,
                 _clarify_replay=_clarify_replay,
                 live_ectx_register=self._resume_live_ectx_register,
+                # L6-fix2: bind the trace onto ectx.run_trace so finalizer step 3
+                # (``flush_terminal``) drains the buffered output/thinking and writes
+                # the terminal entry BEFORE step 4 copies the file into ``.chain/``.
+                _run_trace=_resume_trace,
             ):
                 data = event.get("data")
                 if not isinstance(data, dict):
@@ -9997,6 +15545,10 @@ class ExecutionEngine:
                     data["seq"] = actual_seq
                     if actual_seq >= next_seq:
                         next_seq = actual_seq + 1
+                # L6-fix2: trace at the SAME point the execute() wrapper does — after
+                # the seq re-stamp, before delivery — so the on-disk line carries the
+                # seq the client and the DB row carry.
+                _resume_trace.observe(event)
                 # 12-09 Gap 2a: ALSO push the resumed event onto the WS live
                 # queue (when the bridge is wired) so a connected/reconnecting
                 # client receives the resumed tail incl. pipeline_complete in
@@ -10039,6 +15591,10 @@ class ExecutionEngine:
         except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
             logger.warning("resumed-stream drive(%s) failed mid-drive: %s", run_id, exc)
         finally:
+            # L6-fix2: flush deltas buffered when the stream ended (or was abandoned
+            # mid-drive), mirroring the execute() wrapper's finally — a cancelled or
+            # failed resume still leaves its last output and reasoning on disk.
+            _resume_trace.flush()
             # End-of-stream: the None sentinel terminates the live drainer
             # (matching the run_pipeline contract), then the injected cleanup
             # drops the queue+task registry entries so a finished resume never
@@ -10127,22 +15683,81 @@ class ExecutionEngine:
             gate_agent_ids = getattr(wr, "gate_agent_ids_json", None)
             owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
             workspace_id = wr.workspace_id
+            # Migration 0040 (resume_run twin): the raw manifest a composed run was
+            # launched with. NULL for every registry/file-pipeline run (those replay
+            # from the registry/compile_for_run exactly as before).
+            run_manifest = getattr(wr, "manifest_json", None)
         finally:
             db.close()
 
+        # ── Migration 0040 (resume_run twin, ~10770): a run launched from a Composer
+        # manifest must replay as THAT workflow — not the GENERIC custom roster
+        # get_pipeline_agents("custom") would otherwise rebuild (the same black hole
+        # resume_run had: a DB-manifest run parked at its Clarify gate across a restart
+        # replayed with market-research-agent/swot-analyst/… instead of the user's
+        # composed steps). Recompile the persisted manifest at the SAME trust it
+        # launched with and drive the compiled plan.
+        resumed_compiled = None
+        if isinstance(run_manifest, dict) and run_manifest.get("steps"):
+            try:
+                from agents.capabilities.registry import CapabilityRegistry, discover
+                from agents.workflows.compiler import WorkflowCompiler
+                from agents.workflows.manifest import build_manifest_from_dict
+
+                _mf = dict(run_manifest)
+                _trust = _mf.pop("_trust", "user") or "user"
+                discover()
+                resumed_compiled = WorkflowCompiler().compile(
+                    build_manifest_from_dict(_mf, f"run:{run_id}"),
+                    CapabilityRegistry(),
+                    trust=_trust,
+                )
+            except Exception as exc:  # noqa: BLE001 — refuse a WRONG replay
+                # Fail closed: substituting the generic roster is strictly worse than
+                # not replaying (it runs the wrong pipeline on the user's dime), so a
+                # manifest that no longer compiles ends the replay.
+                logger.warning(
+                    "_replay_clarify_run(%s): persisted manifest failed to recompile "
+                    "(%s) — refusing to replay with a substitute roster",
+                    run_id,
+                    exc,
+                )
+                self._fire_resume_cleanup(run_id)
+                return
+
         # Resolve the ordered agent list the same way a fresh run does (registry
-        # membership). A custom-workflow run without a static membership degrades to an
-        # empty list → nothing to drive.
+        # membership) — UNLESS the run has a recompiled DB manifest, in which case the
+        # compiled plan IS the roster (resume_run twin). A custom-workflow run without a
+        # static membership degrades to an empty list → nothing to drive.
         from agents.registry import get_pipeline_agents
 
         try:
-            agents = get_pipeline_agents(resolve_alias(pipeline_type))
+            if resumed_compiled is not None:
+                agents = self._specs_from_plan(resumed_compiled.steps)
+            else:
+                agents = get_pipeline_agents(resolve_alias(pipeline_type))
         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot replay
             logger.warning(
                 "_replay_clarify_run(%s): cannot resolve agents (%s)", run_id, exc
             )
             self._fire_resume_cleanup(run_id)
             return
+        if not agents and resumed_compiled is None:
+            # ── Roster seam (twin of resume_run's ~10818): the registry has no static
+            # membership for some custom-workflow types — fall back to the compiled
+            # plan before giving up. Scoped to resumed_compiled is None ONLY: a
+            # DB-manifest replay's roster IS the compiled plan already, so it must
+            # never fall through to the generic compile_for_run(pipeline_type) roster.
+            try:
+                compiled = compile_for_run(pipeline_type)
+            except Exception as exc:  # noqa: BLE001 — cannot compile → cannot replay
+                logger.warning(
+                    "_replay_clarify_run(%s): cannot compile plan (%s)", run_id, exc
+                )
+                self._fire_resume_cleanup(run_id)
+                return
+            if compiled.steps:
+                agents = self._specs_from_plan(compiled.steps)
         if not agents:
             logger.warning(
                 "_replay_clarify_run(%s): empty agent list — nothing to replay", run_id
@@ -10235,10 +15850,11 @@ class ExecutionEngine:
             _resume_from=0,
             _is_resume=False,
             _clarify_replay={"questions": questions, "round": round_num},
+            resumed_compiled=resumed_compiled,
         )
 
     async def _compute_resume_offset(
-        self, run_id, user_id, session_id, pipeline_type, agents
+        self, run_id, user_id, session_id, pipeline_type, agents, compiled=None
     ) -> int:
         """Build a minimal scoped context + compiled plan and return the resume offset.
 
@@ -10248,6 +15864,9 @@ class ExecutionEngine:
         (the loop needs the offset as a parameter). Best-effort: any failure → offset 0
         (re-drive from the start; completed steps are then reused via the content-hash
         key, so re-driving from 0 is still correct, just less efficient — D-09).
+
+        ``compiled``: the run's recompiled persisted manifest when it has one (DB workflow);
+        ``None`` means a file/registry pipeline, compiled from ``pipeline_type``.
         """
         try:
             owner_id = user_id or f"anon:{session_id or run_id}"
@@ -10272,7 +15891,11 @@ class ExecutionEngine:
             # _first_incomplete_step reads the durable artifact_refs/run_events/wave_runs
             # directly off the scoped store (the in-memory graph is empty on a fresh
             # process — completeness comes from the durable substrate).
-            compiled = compile_for_run(pipeline_type)
+            # A DB-manifest run resumes as ITS OWN workflow: the caller passes the plan
+            # it recompiled from workflow_runs.manifest_json. Only a file/registry
+            # pipeline (no persisted manifest) is compiled from its pipeline_type.
+            if compiled is None:
+                compiled = compile_for_run(pipeline_type)
             # ── Roster seam (twin of the execute() roster seam at ~line 1473): the
             # compiled plan is the single source of the run's agent roster. For a
             # composed workflow (steps are instances of an agent template, e.g.
@@ -10369,22 +15992,23 @@ class ExecutionEngine:
     ) -> str:
         """Generic context injector (INV-1) — the sole per-agent context-composition path.
 
-        Composes the per-agent context message from the workflow-AGNOSTIC mechanics
-        (user brief + planning context + consumed upstream outputs + the build-loop
-        ``=== CURRENT TASK ===`` block) PLUS the OD/template/example blocks sourced
-        from the declared ``context_provider`` capabilities — ``registry.resolve(
-        "context_provider", name).load(ctx)`` for each name in the run's
-        ``compiled.context_providers``, composed in declared order. The former L12 per-
-        pipeline od/template/example injection branches were deleted from the kernel in
-        07-05; this injector replaced them. The ``opendesign`` provider yields the ``{block-name -> content}`` map
-        (ACTIVE DESIGN SYSTEM / ACTIVE TEMPLATE / TEMPLATE EXAMPLE / injection parts);
-        the ``previous_run`` provider returns ``{}`` (its effect is the parent-run
-        seed performed once at run entry, not injected text).
+        [Phase Z / GAPS §0.3 step N+1, "delete seam 2"] Composes the per-agent context
+        message from the workflow-AGNOSTIC CONTROL mechanics only: the brief (to the
+        first-dispatched agent, and to a Requirement-14 conditional-gate retry
+        recipient), RETRY feedback, the REVISE / spec-revision / one-shot steering /
+        validation-fix directives, and the build-loop ``=== CURRENT TASK ===`` block.
 
-        Only an agent that DECLARES the relevant inject (``injects`` on its AGENT.md)
-        receives the OD blocks — the provider is consulted only when the agent opts
-        in, mirroring the L12 ``injects`` gate. The build-task-2+ skip (compaction)
-        rides the strategy / the engine's per-task scratch, not here.
+        Every WORLD block this function used to paste for an agent on the (now
+        retired) ``default`` prompt policy — the OD/template/example blocks, the
+        uploaded-files paste, the upstream-output paste, planning context, the prior-
+        revision-artifact paste, the analyzer solution, the prototype HTML/skeleton and
+        TEMPLATE COMPLIANCE blocks — is gone: every ``AGENT.md`` finished the Q4
+        migration (Phase M), so each agent reads that material itself from the
+        sandbox (``.context/design/``, ``.uploads/``, ``.agents/NN-<agent-id>.md``) per
+        its own ``## Sandbox Reading Guide``. ``_seed_workflow_context`` above still
+        invokes each declared ``context_provider`` ONCE at run entry — the file writes
+        those providers (indirectly) depend on are unaffected; only the per-agent TEXT
+        PASTE this function used to build from the same providers is removed.
         """
         # ── Agnostic base: user brief + planning context + consumed outputs ───────
         # POSITIONAL first-agent check (Pitfall 1, INV-1): index == 0 is the
@@ -10403,137 +16027,187 @@ class ExecutionEngine:
         else:
             effective_message = user_message
 
-        parts = [
-            f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="
-        ]
+        # ── [Task 10.3 / Req 13 AC 4 + Req 14 AC 2] Brief → agent 1 only ─────────
+        # [Phase Z] Unconditional now — every workflow finished the Q4 migration
+        # (Phase M), so this is no longer a migrated-vs-default branch: the original
+        # user request is delivered to the first-dispatched agent only. Later agents
+        # read context from files in the sandbox (.agents/, .context/, etc.) rather
+        # than receiving a broadcast brief.
+        #
+        # Exception — Requirement 14 retry classes: a conditional-gate backward retry SHALL
+        # deliver the original brief to the retrying agent even when it is not agent 1
+        # (Req 14 AC 2). We peek at pending_route_feedback WITHOUT popping it here; the
+        # retry feedback block below does the authoritative pop-and-render.
+        #
+        # REQUEST.md is NEVER created — the engine does not write the raw request to disk
+        # and does not propagate it downstream outside the Requirement 14 retry classes
+        # (Req 13 AC 4).
+        _pending_fb_store = ectx.pending_route_feedback
+        _spec_id = getattr(spec, "id", None)
+        _has_retry_feedback = bool(_pending_fb_store.get(_spec_id))
+        if is_first_agent or _has_retry_feedback:
+            parts = [
+                f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="
+            ]
+        else:
+            parts = []  # later agents read context from .agents/ files (Seam 2 removed)
 
-        # A composed step carries its own authored prompt; when no planner actually ran the
-        # "Planning Context" block is a verbatim echo of the brief above, so suppress it.
-        # Registry agents declare no step prompt -> unchanged (R-16 parity, cf. :3814).
-        _own_prompt = getattr(getattr(ectx, "current_step", None), "prompt", "") or ""
-
-        if (
-            planning_context
-            and not planning_context.get("planner_timed_out")
-            and (planning_context.get("planner_ran", True) or not _own_prompt)
-        ):
-            intent = planning_context.get("inferred_intent", "")
-            constraints = planning_context.get("explicit_constraints", [])
-            implicit = planning_context.get("implicit_constraints", [])
-            nfrs = planning_context.get("inferred_nfrs", [])
-            personas = planning_context.get("inferred_personas", [])
-            quality = planning_context.get("quality_targets", [])
-            domain_insights = planning_context.get("domain_insights", [])
-
-            ctx_lines = ["## Planning Context (Deep Planner Analysis)"]
-            if intent:
-                ctx_lines.append(f"\n**Inferred Intent**: {intent}")
-            if constraints:
-                ctx_lines.append(
-                    "\n**Explicit Constraints**:\n"
-                    + "\n".join(f"- {c}" for c in constraints)
-                )
-            if implicit:
-                ctx_lines.append(
-                    "\n**Implicit Constraints**:\n"
-                    + "\n".join(f"- {c}" for c in implicit)
-                )
-            if personas:
-                ctx_lines.append(
-                    "\n**Inferred Personas**:\n" + "\n".join(f"- {p}" for p in personas)
-                )
-            if nfrs:
-                ctx_lines.append(
-                    "\n**Non-Functional Requirements**:\n"
-                    + "\n".join(f"- {n}" for n in nfrs)
-                )
-            if quality:
-                ctx_lines.append(
-                    "\n**Quality Targets**:\n" + "\n".join(f"- {q}" for q in quality)
-                )
-            if domain_insights:
-                ctx_lines.append(
-                    "\n**Domain Insights**:\n"
-                    + "\n".join(f"- {i}" for i in domain_insights)
-                )
-            ctx_lines.append("\n## End Planning Context")
-            parts.append("\n".join(ctx_lines))
-
-        # ── OD blocks via the declared context_provider capabilities (INV-1) ─────
-        # Consulted only when this agent declares an inject (the L12 injects gate).
-        injects = getattr(spec, "injects", []) or []
-        if injects:
-            # Thread the consuming agent's OPAQUE tool set onto the ExecutionContext
-            # before the provider loop (D-03 per-run-state-on-ctx, the same dynamic-attr
-            # mechanism used for ectx.compiled_context_providers above). The opendesign
-            # provider gates its builder-only example + the task-2+ suppression on this
-            # tool set + the already-populated ectx.build_task_number — NOT on spec.id /
-            # pipeline_type (INV-1: the kernel passes the opaque tools, the provider does
-            # the gating). This is exactly how the legacy L12 branch identified the build
-            # agent (`set(spec.tools) & {"prototype_emit_only", "prototype"}`).
-            ectx.current_spec_tools = set(getattr(spec, "tools", []) or [])
-            # CR-02 (07-09): thread the consuming agent's DECLARED injects onto the ctx
-            # so the opendesign provider can restore the legacy per-block per-injects
-            # gate (DS requires "design_system" in injects; template/example/parts
-            # require "template" in injects) — the SAME D-03 per-run-state-on-ctx
-            # mechanism as current_spec_tools, NOT a spec.id/pipeline_type branch (INV-1).
-            ectx.current_spec_injects = set(injects)
-            provider_names = list(getattr(ectx, "compiled_context_providers", []) or [])
-            for name in provider_names:
+        # ── [R-28] Retry feedback block ──────────────────────────────────────────
+        # Present only when a conditional gate jumped BACKWARD to this step (the
+        # dispatch loop stashed it in ``ectx.pending_route_feedback`` keyed by target
+        # id). Popped, so it is delivered exactly once per jump and a later pass never
+        # replays a stale reason. Sits directly under the brief because it is the most
+        # actionable thing this dispatch knows.
+        #
+        # Two halves: the AUTOMATIC part (which step sent it back, that step's decision
+        # and output, and which pass this is) is composed from data the kernel already
+        # holds, so every loop gets it with nothing authored; the AUTHORED part is the
+        # outcome's optional ``feedback:`` string. A workflow with no backward jump
+        # never populates the store, so the composed context is byte-identical to
+        # pre-R-28 for every existing manifest and golden fixture.
+        #
+        # Per-agent targeting: the retry block is already targeted at the retrying agent
+        # only — _fb_store.pop is keyed on spec.id (the agent's own id) so it is
+        # delivered exactly once to the specific agent that was sent back. No change
+        # needed here; the comment documents the invariant.
+        #
+        # [Req 14 AC 6] Dispatch-consumption record: when a one-shot conditional-gate
+        # control payload is consumed here we write a best-effort ``gate_events`` row
+        # (gate="conditional", outcome="retry_consumed") via the existing
+        # ``runner.record_gate_event`` mechanism — the SAME mechanism ``_consume_redo``
+        # and ``_consume_update_specs`` use (symmetric, reuses existing checkpoint
+        # thread, no new table).  This makes the consumed payload inspectable from
+        # durable state so a resume can reconstruct it was dispatched, satisfying the
+        # "preserve recipient rules of the interrupted dispatch" rule (Req 14 AC 6).
+        # Best-effort: a write failure never aborts the dispatch.
+        _fb_store = ectx.pending_route_feedback
+        _fb = _fb_store.pop(_spec_id, None) if _fb_store and _spec_id else None
+        if _fb:
+            # [Req 14 AC 6] Record consumption in gate_events.
+            _r14_runner = getattr(ectx, "runner", None)
+            if _r14_runner is not None and hasattr(_r14_runner, "record_gate_event"):
                 try:
-                    provider = _CAPABILITY_REGISTRY.resolve("context_provider", name)
-                except (KeyError, RuntimeError):
-                    continue
-                try:
-                    blocks = await provider.load(ectx)
-                except PermissionError:
-                    raise
-                except Exception as exc:  # noqa: BLE001 — a provider read must not abort the agent
-                    logger.warning(
-                        "context provider %s.load failed (%s) — skipping", name, exc
+                    await _r14_runner.record_gate_event(
+                        _spec_id,
+                        "conditional",
+                        "retry_consumed",
+                        {
+                            "from_step": _fb.get("from_step"),
+                            "pass_number": _fb.get("pass_number"),
+                        },
                     )
-                    continue
-                for block_name, content in (blocks or {}).items():
-                    if not content:
-                        continue
-                    # CR-04 (07-09): a RAW-prefixed block is PRE-WRAPPED (it carries its
-                    # own `=== ... ===` envelope) — append it verbatim, never re-wrap. The
-                    # legacy engine did `parts.append(part)` for the injection parts.
-                    if block_name.startswith(_RAW_BLOCK_PREFIX):
-                        parts.append(content)
-                        continue
-                    # WR-03 (07-09): the END marker is BARE — the legacy END markers
-                    # carried NEITHER the `: {id}` suffix NOR the `(SKILL.md)` /
-                    # `(example.html)` parenthetical the OPEN marker has. Legacy bytes:
-                    #   `=== ACTIVE DESIGN SYSTEM: default ===`     -> `=== END ACTIVE DESIGN SYSTEM ===`
-                    #   `=== ACTIVE TEMPLATE (SKILL.md): web... ===` -> `=== END ACTIVE TEMPLATE ===`
-                    #   `=== TEMPLATE EXAMPLE (example.html): ... ===` -> `=== END TEMPLATE EXAMPLE ===`
-                    # So strip the `: {id}` suffix AND any `(...)` parenthetical to get
-                    # the bare base name.
-                    base = block_name.split(":", 1)[0]
-                    paren = base.find("(")
-                    if paren != -1:
-                        base = base[:paren]
-                    end_name = base.strip()
-                    parts.append(
-                        f"=== {block_name} ===\n{content}\n=== END {end_name} ==="
+                except Exception:  # noqa: BLE001 — audit never aborts the dispatch
+                    logger.debug(
+                        "conditional-gate retry audit row failed for agent %s (ignored)",
+                        _spec_id,
+                        exc_info=True,
                     )
+            _fb_lines = [
+                f"=== RETRY — pass {_fb['pass_number']} of {_fb['max_passes']} ==="
+            ]
+            _fb_lines.append(
+                f"Step {_fb['from_step']!r} sent you back here"
+                + (
+                    f" with decision {_fb['decision']!r}."
+                    if _fb.get("decision")
+                    else "."
+                )
+            )
+            if _fb.get("from_output"):
+                _fb_lines.append(f"That step's output was:\n{_fb['from_output']}")
+            if _fb.get("authored"):
+                _fb_lines.append(f"\nWhat to change:\n{_fb['authored']}")
+            _fb_lines.append(
+                "\nYour previous answer was rejected. Address the above and produce a "
+                "DIFFERENT answer — repeating it will fail again."
+            )
+            _fb_lines.append("=== END RETRY ===")
+            parts.append("\n".join(_fb_lines))
+
+        # [Phase Z / GAPS §0.3, FR-030 row 10] World block — REMOVED. The "Planning
+        # Context" paste (Deep Planner analysis: inferred intent/constraints/NFRs/
+        # personas/quality targets/domain insights) was gated off for a migrated
+        # agent at Step 0 and had no remaining default-policy agent to fire for once
+        # Phase M finished; a migrated agent reads PLANNER.md itself instead.
+
+        # [Phase Z / GAPS §0.3, FR-030 rows 2/11/26] World blocks — REMOVED. This used
+        # to be the per-agent provider loop (opendesign + uploaded_files) that pasted
+        # the OD/template/example/uploaded-files blocks for an agent declaring
+        # ``injects`` and still on the default policy. Every agent finished the Q4
+        # migration and reads ``.context/design/`` / ``.uploads/`` itself instead — no
+        # remaining caller needed the loop, so it is deleted rather than left dormant.
+        # ``_seed_workflow_context`` still calls each declared ``context_provider``
+        # once at run entry; that call (and the file writes it indirectly depends on,
+        # e.g. ``.context/design/`` via ``od_context.py`` at the WS boundary) is
+        # UNCHANGED — only this function's TEXT PASTE of the same providers' output
+        # is gone. ``ectx.current_spec_tools`` / ``current_spec_injects`` are no
+        # longer threaded here; ``_compose_input_blocks`` (images) derives its own
+        # local gate and never read them (see that method's docstring).
 
         # ── Consumed upstream outputs (agnostic routing contract) ────────────────
-        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
-        for aid, output in consumed.items():
-            prev = next((s for s in ordered_agents if s.id == aid), None)
-            label = f"{prev.name} ({prev.role})" if prev else aid
-            parts.append(f"\n--- Output from {label} ---\n{output}")
+        # [Phase Z / GAPS §0.3, FR-030 row 12] The migrated-agent half of this gate
+        # (the migration-switch disjunct) is REMOVED — every agent reads the producer's
+        # `.agents/NN-<agent>.md` file itself instead of receiving the
+        # "--- Output from ... ---" paste. The half below SURVIVES seam-2 deletion
+        # (it is not a migration branch): a step compiled with `tools: {read_files:
+        # false}` has no read tool at all, so suppressing the paste would DELETE the
+        # declared `consumes:` edge instead of moving it — the step would dispatch
+        # with an empty message while `context_sources` still records the upstream
+        # output it was never shown. Live evidence (L4, `ex_A1_loop`): the `check`
+        # gate judged a greeting it never received, answered `retry` on all four
+        # passes and ran the loop to R-07 budget exhaustion. `consumes:` is the
+        # routing CONTRACT (R-29, plan.py:456 — "injected into THIS step's
+        # context"), not a world block: it is delivered whenever the disk
+        # substitute is unreachable.
+        #
+        # INV-3: `read_files` defaults True (plan.py:65) and a registry-agent
+        # dispatch carries no compiled Step at all, so "unknown" means "can read" —
+        # no production manifest pairs `consumes:` with `read_files: false`; only
+        # the ex_* fixtures do.
+        _step_tools = getattr(getattr(ectx, "current_step", None), "tools", None)
+        _step_can_read_files = (
+            True
+            if _step_tools is None
+            else bool(getattr(_step_tools, "read_files", True))
+        )
+        if not _step_can_read_files:
+            consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
+            for aid, output in consumed.items():
+                prev = next((s for s in ordered_agents if s.id == aid), None)
+                label = f"{prev.name} ({prev.role})" if prev else aid
+                parts.append(f"\n--- Output from {label} ---\n{output}")
 
         # ── D1: the artifact UNDER revision — rendered BEFORE the instruction blocks ──
         # SUBJECT FIRST, INSTRUCTIONS SECOND. Both blocks that follow — the REVISE
         # directive and the analysis report — tell the agent to preserve what it was not
         # asked to change, and that is unsatisfiable unless the document is in the prompt.
-        # This block is the agent's ONLY channel to its own prior output: it declares
-        # ``consumes: []`` + ``tools: []``, self-consumption is structurally impossible
-        # (_filter_consumed_outputs breaks on upstream.id == spec.id), and the re-run
-        # threads a FRESH checkpoint id so nothing is replayed.
+        #
+        # [GAPS §0.3, FR-030 row 15b — closed in Phase M10, seam fully removed in Phase Z]
+        # World block, but with a narrower gate than every OTHER row in this function.
+        # The field/block has TWO publishers (FIX-217's spec-revision pass, ISS-086's
+        # generic "Request changes" redo loop) that share ONE render site (INV-12) —
+        # see the comment below. Gating BOTH publishers on the migration switch was
+        # tried and reverted here: `_consume_redo` (ISS-086) only ever populates this field
+        # when its own ``redo_directive`` is ALSO
+        # non-empty (see that function's docstring — "WITHHELD... a blank redo"), so a
+        # migrated + gated agent mid a real "Request changes" redo would have silently lost
+        # its ONLY channel to the document it is amending — reproducing the exact live
+        # regression ISS-086 fixed (measured: 12,542 → 3,495 chars, 0 of 7 headings kept).
+        # `test_redo_prompt_contract.py` parametrizes this over already-migrated agents
+        # (domain-analyst, epic-architect) specifically to catch it. ``redo_directive``
+        # truthiness is therefore used as the generic (SC-001 — no agent/workflow literal),
+        # already-proven-reliable discriminator between the two publishers: empty ⇒ the
+        # FIX-217 spec-revision pass (retired here — prototype-specify now has a read tool
+        # + a Sandbox Reading Guide bullet pointing it at its own prior
+        # `.agents/01-prototype-specify.md` output instead); non-empty ⇒ the ISS-086 redo
+        # loop (left ungated — no migrated agent has a "read my own rejected redo draft"
+        # guide yet, so pasting remains its only channel until one does).
+        #
+        # This block is the agent's ONLY channel to its own prior output ON THE
+        # SPEC-REVISION PATH: it declares ``consumes: []`` (self-consumption is
+        # structurally impossible — ``_filter_consumed_outputs`` breaks on
+        # ``upstream.id == spec.id``), and the re-run threads a FRESH checkpoint id so
+        # nothing is replayed.
         #
         # ORDERING IS LOAD-BEARING, not cosmetic (ISS-086): the REVISE block used to be
         # appended ABOVE this one, so reusing the field for a redo without moving it would
@@ -10542,11 +16216,19 @@ class ExecutionEngine:
         # so the REVISE block renders nothing and PRIOR → REPORT keeps its relative order.
         #
         # Two publishers (FIX-217's revision pass, ISS-086's redo loop), one field, one
-        # block (INV-12). Keyed on the generic scratch field — no workflow/agent literal
+        # block (INV-12). Keyed on the generic scratch fields — no workflow/agent literal
         # (SC-001) — and dormant on every non-revision, non-redo dispatch ⇒ the goldens
         # stay byte-identical (INV-3). Costs one extra copy of the artifact per pass.
+        #
+        # ``redo_note`` is read here (moved up from the REDO-GATE B6 block below, which
+        # now reuses this SAME local instead of re-reading the field) purely so both
+        # decisions share one read — no behavior change to B6's own block.
         prior_artifact = getattr(ectx, "spec_revision_prior_artifact", "") or ""
-        if prior_artifact:
+        redo_note = getattr(ectx, "redo_directive", "") or ""
+        # [Phase Z] The FIX-217 half's migration-switch disjunct is REMOVED (it is
+        # retired for every agent now — see the comment above); only the ISS-086
+        # redo half's own ``redo_note`` gate remains, unchanged.
+        if prior_artifact and redo_note:
             parts.append(
                 "\n=== PRIOR ARTIFACT UNDER REVISION ===\n"
                 "This is YOUR OWN previous output for this run. Revise THIS document in "
@@ -10563,7 +16245,6 @@ class ExecutionEngine:
         # F3). Generic (keyed on the scratch field, no workflow/agent literal —
         # SC-001). Dormant on every non-redo run (redo_directive == "" → no block) ⇒
         # byte-identical (INV-3). Signature UNCHANGED (rides the additive ectx field).
-        redo_note = getattr(ectx, "redo_directive", "") or ""
         if redo_note:
             parts.append(
                 "\n=== ADDITIONAL INSTRUCTIONS (REVISE) ===\n"
@@ -10578,6 +16259,27 @@ class ExecutionEngine:
         # Generic (keyed on the scratch field, no workflow/agent literal — SC-001).
         # Dormant on every normal run (spec_revision_context == "" → no block) ⇒
         # byte-identical for the 5 characterization goldens (INV-3).
+        # [R2 correction] NOT a "row 15 world block" despite GAPS's ledger label —
+        # unlike the adjacent spec_revision_prior_artifact (never gated, same
+        # function, same reasoning below) this field is never a durable pre-existing
+        # document; it is produced FRESH at an update_specs gate click
+        # (``analysis_report = instructions or ""``, engine.py ~10219 — the exact
+        # same shape as redo's own ``instructions or ""`` two branches above) and
+        # handed to exactly the agent(s) this one sub-pipeline pass re-dispatches.
+        # That makes it CONTROL, not WORLD — gating it on prompt_policy alone broke
+        # BUGFIX-SPEC-REVISION-CONTEXT.md's D1 fix for a migrated specify agent
+        # (prototype-specify today: prompt_policy=body_only, tools=[], no Sandbox
+        # Reading Guide for revision mode, no other channel to this text — TRAP 3 in
+        # that doc already rejected a file-based path for the sibling prior-artifact
+        # field for the same structural reason: self-consumption is impossible via
+        # consumes/produces since specify is ordered_agents[0]).
+        # So it is NOT gated on prompt_policy at all — it rides the same ungated
+        # path as redo_directive above and === USER GUIDANCE === below, the other
+        # two consume-once control seams. An earlier revision of this fix gated it
+        # on ``ectx.revision_attempt`` to keep a synthetic test green; that coupled
+        # production behaviour to a test fixture and is removed. The field is only
+        # ever set by _run_spec_revision_sub_pipeline, so "set" already means
+        # "inside a real revision pass" for every production dispatch.
         revision_context = getattr(ectx, "spec_revision_context", "") or ""
         if revision_context:
             parts.append(
@@ -10624,43 +16326,43 @@ class ExecutionEngine:
                 n for n in steering_notes if isinstance(n, dict) and n.get("sticky")
             ]
 
-        # ── Position 5 — Revision Analysis (additive seam, INV-1 / SC-001 compliant) ──
-        # Appended IFF ectx.analyzer_solution is non-empty. Generic truthiness check on
-        # a dataclass field — no pipeline_type branch, no agent_id literal (SC-001).
-        # Default "" → DORMANT on every non-analyzer run → INV-3 byte-parity holds.
-        _analyzer_solution = getattr(ectx, "analyzer_solution", "") or ""
-        if _analyzer_solution:
-            parts.append(
-                f"\n=== REVISION ANALYSIS ===\n{_analyzer_solution}\n"
-                "=== END REVISION ANALYSIS ==="
-            )
-
-        # ── Position 6 — Prototype HTML injection for no-tools first agents ─────
-        # On the Concierge revision path the previous_run provider slims the
-        # user_message to a file pointer ("Call read_file to read it before editing")
-        # because file-capable agents use their tools. A no-tools agent (tools=[])
-        # cannot call read_file, so it never sees the HTML content.
-        # This seam injects the seeded prototype directly when ALL three conditions hold:
-        #   a) ectx.revision_original_html is non-empty (previous_run seeded it)
-        #   b) spec.tools is empty (the agent has no file-reading tools)
-        #   c) ectx.analyzer_solution is empty (this IS the analyzer step — not a
-        #      downstream agent that should use the analysis instead)
-        # Declaration-driven (INV-1/SC-001): keyed on generic ectx fields and
-        # spec.tools, never on agent id or pipeline name. Default "" → DORMANT on
-        # every tool-using agent and every non-revision run → INV-3 byte-parity holds.
-        _revision_html = getattr(ectx, "revision_original_html", "") or ""
-        _spec_tools = list(getattr(spec, "tools", []) or [])
-        _revision_instruction = getattr(ectx, "revision_instruction", None) or ""
-        if _revision_html and not _spec_tools and not _analyzer_solution:
-            parts.append(
-                f"\n=== CURRENT PROTOTYPE HTML ===\n{_revision_html}\n"
-                "=== END CURRENT PROTOTYPE HTML ==="
-            )
-            if _revision_instruction:
+        # ── [Req 14 AC 4] Validation-fix control payload ──────────────────────
+        # Consume-once targeted block for the internal validation-fix sub-agent
+        # (the ``…:fix{n}`` thread spun by ``_run_validation_fix_loop``).  Carries
+        # ONLY the validation errors and the exact deliverable path — no original
+        # user brief, no upstream outputs, no planning context, no other cross-agent
+        # state (Req 14 AC 4: "SHALL not receive unrelated upstream context").
+        #
+        # Set by ``KernelServices.run_validation_fix_loop`` on ``ectx.pending_
+        # validation_fix[agent_id]`` just before invoking the sub-agent's
+        # ``astream_events``.  Popped here (consume-once) AND drained
+        # unconditionally by the dispatch-site ``finally`` (AC 7).  The pop is
+        # keyed on spec.id so the block is delivered to EXACTLY the fix sub-agent
+        # for this step, not to any other agent running on the same ectx.
+        #
+        # Default {} ⇒ DORMANT on every run with no failing validation step ⇒
+        # INV-3 byte-parity holds (no block emitted, no mutation).  Keyed on the
+        # generic ``pending_validation_fix`` field — no agent id literal, no
+        # workflow name (SC-001 / INV-1).
+        _vfix = ectx.pending_validation_fix.pop(_spec_id, None) if _spec_id else None
+        if _vfix:
+            _vfix_errors = _vfix.get("errors") or []
+            _vfix_filename = _vfix.get("filename") or "prototype.html"
+            if _vfix_errors:
                 parts.append(
-                    f"\n=== REVISION INSTRUCTION ===\n{_revision_instruction}\n"
-                    "=== END REVISION INSTRUCTION ==="
+                    f"\n=== VALIDATION ERRORS (fix {_vfix_filename}) ===\n"
+                    + "\n".join(f"- {e}" for e in _vfix_errors)
+                    + "\n=== END VALIDATION ERRORS ==="
                 )
+
+        # [Phase Z / GAPS §0.3, FR-030 row 17] World block — REMOVED (was "Position 5
+        # — Revision Analysis"). The analyzer's solution is now written to the shared
+        # artifact a migrated downstream agent reads itself, never pasted here.
+
+        # [Phase Z / GAPS §0.3, FR-030 row 18] World block — REMOVED (was "Position 6
+        # — Prototype HTML injection for no-tools first agents"). A no-tools revision
+        # agent that needs the seeded prototype HTML is granted `read_files` instead
+        # of receiving it pasted; every agent finished the Q4 migration.
 
         # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─
         if ectx.build_task_number:
@@ -10672,10 +16374,8 @@ class ExecutionEngine:
                 if task_block.strip()
                 else ("Execute ONLY this task from the task list above.")
             )
-            # The CURRENT TASK block carries the task text. The task_loop strategy
-            # threads the compacted prototype skeleton onto ectx.current_prototype_skeleton
-            # (NOT nested inside current_task_block — WR-01 restored the legacy STANDALONE
-            # skeleton block in its legacy position, below the CURRENT TASK block).
+            # The CURRENT TASK block carries the task text — the sole surviving
+            # control block of the build region.
             parts.append(
                 f"\n=== CURRENT TASK ===\n"
                 f"Task {task_num_str} of {total_str}\n"
@@ -10683,38 +16383,14 @@ class ExecutionEngine:
                 f"=== END CURRENT TASK ==="
             )
 
-            # WR-01 (07-09): the STANDALONE build-skeleton block, restored byte-exact to
-            # its legacy text/position/instruction. Emitted AFTER the CURRENT TASK block
-            # (the legacy position), gated on the build signal (build_task_number set +
-            # the builder tool set) — NOT a workflow name (INV-1). The skeleton is sourced
-            # by the task_loop strategy from the typed graph (with the `[Error:`
-            # suppression) and threaded onto ectx.current_prototype_skeleton; task 1 has
-            # no prior HTML → no skeleton block.
-            spec_tools = set(getattr(spec, "tools", []) or [])
-            is_builder = bool(spec_tools & {"prototype_emit_only", "prototype"})
-            skeleton = getattr(ectx, "current_prototype_skeleton", "") or ""
-            if is_builder and skeleton and not skeleton.startswith("[Error:"):
-                parts.append(
-                    f"\n=== CURRENT PROTOTYPE (skeleton — call read_file('prototype.html') "
-                    f"for full content before editing) ===\n"
-                    f"{skeleton}\n"
-                    f"=== END CURRENT PROTOTYPE ==="
-                )
-
-            # CR-01 (07-09): the UNCONDITIONAL TEMPLATE COMPLIANCE block, re-emitted on
-            # EVERY build task in its legacy position (last block of the build region),
-            # gated on the build signal (build_task_number set + builder tool set) — NOT a
-            # workflow name (INV-1). template_id / ds_id read from od_context.
-            if is_builder:
-                od = ectx.od_context or {}
-                ds_id_val = od.get("ds_id", "") or ""
-                template_id_val = od.get("template_id", "") or ""
-                parts.append(
-                    f"\n=== TEMPLATE COMPLIANCE ===\n"
-                    f"Template: {template_id_val} — use ONLY its CSS classes from the TEMPLATE SEED\n"
-                    f"Design System: {ds_id_val} — use ONLY :root variables, never raw hex colors\n"
-                    f"=== END TEMPLATE COMPLIANCE ==="
-                )
+            # [Phase Z / GAPS §0.3, FR-030 row 20] World block — REMOVED (was the
+            # WR-01 STANDALONE build-skeleton block). A migrated builder calls
+            # `read_file('prototype.html')` itself instead of receiving the skeleton.
+            #
+            # [Phase Z / GAPS §0.3, FR-030 row 21] World block — REMOVED (was the
+            # CR-01 UNCONDITIONAL TEMPLATE COMPLIANCE block). A migrated builder
+            # reads the template/design-system ids from `.context/selections.json`
+            # itself.
 
         return "\n".join(parts)
 

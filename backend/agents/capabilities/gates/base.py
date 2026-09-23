@@ -23,6 +23,11 @@ from dataclasses import dataclass, field
 GATE_PASS = "pass"
 GATE_BLOCK = "block"
 GATE_WAIT_HUMAN = "wait_human"
+GATE_ROUTE = "route"
+# A "redo with instructions" request at a step's declared human gate (REDO-GATE
+# follow-up). Only ever produced by the ``human`` gate on a step declaring
+# ``redoable: true`` — every other gate/step keeps producing the original three.
+GATE_REDO = "redo"
 
 
 @dataclass

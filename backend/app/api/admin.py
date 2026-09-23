@@ -292,6 +292,12 @@ def update_user_tier(
     stale-group sweep, commit-before-mutate) lives in
     ``core.cognito_admin.change_tier``; see that function's docstring.
     """
+    # Self-action policy (Requirement 5.9) — mirrors the self-demote guard on
+    # `update_user_role` and the self-delete guard on `delete_user`. An admin
+    # changing their OWN tier is a privilege mutation with no second pair of
+    # eyes: the same account authorises the change and receives it, and a
+    # downgrade also strips the entitlements the admin may need to undo it.
+    # Ask another admin, as the two sibling endpoints already require.
     if user_id == admin.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -325,7 +331,13 @@ def update_user_tier(
         actor_id=admin.id,
         new_tier=request.tier,
     )
-    return _to_response(user, db)
+    # ISS-471: report the tier THIS request committed, not the post-`db.refresh`
+    # re-read of the row. A concurrent admin write landing between our own
+    # `commit()` and `refresh()` would otherwise be echoed back as ours — a
+    # false-success 200 on a privilege field. Same shape as FIX-382 in
+    # `settings.py`; `request.tier` is the value already validated against
+    # `valid_tiers` above, so nothing unvalidated can be echoed.
+    return _to_response(user, db).model_copy(update={"tier": request.tier})
 
 
 @router.patch("/users/{user_id}/role", response_model=AdminUserResponse)
@@ -401,7 +413,10 @@ def update_user_role(
         actor_id=admin.id,
         is_admin=request.is_admin,
     )
-    return _to_response(user, db)
+    # ISS-471: as in `update_user_tier` above — report the `is_admin` flag THIS
+    # request committed, never the post-`db.refresh` re-read that a concurrent
+    # role write could have replaced.
+    return _to_response(user, db).model_copy(update={"is_admin": request.is_admin})
 
 
 @router.post(
@@ -465,9 +480,7 @@ def create_user(
         try:
             cognito_admin.try_delete_pool_user(email)
         except Exception:  # noqa: BLE001 - best-effort cleanup
-            logger.error(
-                "Failed to compensate-delete orphaned Cognito user %s", email
-            )
+            logger.error("Failed to compensate-delete orphaned Cognito user %s", email)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to persist the new user locally; the identity-provider account was rolled back.",
@@ -565,9 +578,7 @@ def disable_user(
     try:
         is_last = cognito_admin.is_last_admin(user)
     except ProviderUnavailableError as exc:
-        logger.error(
-            "Admin-group membership check failed for %s: %s", user.email, exc
-        )
+        logger.error("Admin-group membership check failed for %s: %s", user.email, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not verify admin-group membership at the identity provider.",
@@ -683,9 +694,7 @@ def delete_user(
     try:
         is_last = cognito_admin.is_last_admin(user)
     except ProviderUnavailableError as exc:
-        logger.error(
-            "Admin-group membership check failed for %s: %s", user.email, exc
-        )
+        logger.error("Admin-group membership check failed for %s: %s", user.email, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not verify admin-group membership at the identity provider.",

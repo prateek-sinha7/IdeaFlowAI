@@ -1,0 +1,747 @@
+{
+  "version": 1,
+  "document": {
+    "name": "Dashboard App",
+    "screens": [
+      {
+        "name": "Login Screen",
+        "width": 1440,
+        "height": 900,
+        "backgroundColor": { "r": 0.97, "g": 0.97, "b": 0.98, "a": 1 },
+        "children": [
+          {
+            "type": "GROUP",
+            "name": "navbar",
+            "children": [
+              {
+                "type": "RECT",
+                "name": "bg",
+                "cornerRadius": 0,
+                "fill": { "r": 0.12, "g": 0.09, "b": 0.22, "a": 1 },
+                "stroke": null,
+                "strokeWeight": 0
+              },
+              {
+                "type": "TEXT",
+                "name": "VelocityAI",
+                "characters": "VelocityAI",
+                "fontSize": 20,
+                "fontWeight": 700,
+                "color": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "GROUP",
+                "name": "Sign In button",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 8,
+                    "fill": { "r": 0.54, "g": 0.71, "b": 0.98, "a": 1 },
+                    "stroke": null,
+                    "strokeWeight": 0
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Sign In",
+                    "fontSize": 14,
+                    "fontWeight": 600,
+                    "color": { "r": 0.07, "g": 0.07, "b": 0.14, "a": 1 },
+                    "italic": false,
+                    "textAlign": "CENTER"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "GROUP",
+            "name": "hero section",
+            "children": [
+              {
+                "type": "RECT",
+                "name": "bg",
+                "cornerRadius": 0,
+                "fill": { "r": 0.12, "g": 0.09, "b": 0.22, "a": 1 },
+                "stroke": null,
+                "strokeWeight": 0
+              },
+              {
+                "type": "TEXT",
+                "name": "Welcome back",
+                "characters": "Welcome back",
+                "fontSize": 36,
+                "fontWeight": 700,
+                "color": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "italic": false,
+                "textAlign": "CENTER"
+              },
+              {
+                "type": "TEXT",
+                "name": "Sign in to your account to continue",
+                "characters": "Sign in to your account to continue",
+                "fontSize": 16,
+                "fontWeight": 400,
+                "color": { "r": 0.68, "g": 0.71, "b": 0.80, "a": 1 },
+                "italic": false,
+                "textAlign": "CENTER"
+              }
+            ]
+          },
+          {
+            "type": "GROUP",
+            "name": "login card",
+            "children": [
+              {
+                "type": "RECT",
+                "name": "bg",
+                "cornerRadius": 16,
+                "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "stroke": { "r": 0.9, "g": 0.9, "b": 0.92, "a": 1 },
+                "strokeWeight": 1
+              },
+              {
+                "type": "TEXT",
+                "name": "Email address",
+                "characters": "Email address",
+                "fontSize": 12,
+                "fontWeight": 600,
+                "color": { "r": 0.24, "g": 0.27, "b": 0.35, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "RECT",
+                "name": "Email input",
+                "cornerRadius": 8,
+                "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "stroke": { "r": 0.8, "g": 0.82, "b": 0.86, "a": 1 },
+                "strokeWeight": 1,
+                "note": "Input field: you@example.com"
+              },
+              {
+                "type": "TEXT",
+                "name": "Password",
+                "characters": "Password",
+                "fontSize": 12,
+                "fontWeight": 600,
+                "color": { "r": 0.24, "g": 0.27, "b": 0.35, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "RECT",
+                "name": "Password input",
+                "cornerRadius": 8,
+                "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "stroke": { "r": 0.8, "g": 0.82, "b": 0.86, "a": 1 },
+                "strokeWeight": 1,
+                "note": "Input field: ••••••••"
+              },
+              {
+                "type": "GROUP",
+                "name": "Sign in button",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 8,
+                    "fill": { "r": 0.22, "g": 0.42, "b": 0.93, "a": 1 },
+                    "stroke": null,
+                    "strokeWeight": 0
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Sign in",
+                    "fontSize": 14,
+                    "fontWeight": 600,
+                    "color": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "italic": false,
+                    "textAlign": "CENTER"
+                  }
+                ]
+              },
+              {
+                "type": "TEXT",
+                "name": "Forgot your password?",
+                "characters": "Forgot your password?",
+                "fontSize": 13,
+                "fontWeight": 400,
+                "color": { "r": 0.22, "g": 0.42, "b": 0.93, "a": 1 },
+                "italic": false,
+                "textAlign": "CENTER"
+              },
+              {
+                "type": "TEXT",
+                "name": "divider",
+                "characters": "— or continue with —",
+                "fontSize": 12,
+                "fontWeight": 400,
+                "color": { "r": 0.6, "g": 0.62, "b": 0.68, "a": 1 },
+                "italic": false,
+                "textAlign": "CENTER"
+              },
+              {
+                "type": "GROUP",
+                "name": "Google SSO button",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 8,
+                    "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "stroke": { "r": 0.8, "g": 0.82, "b": 0.86, "a": 1 },
+                    "strokeWeight": 1
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Continue with Google",
+                    "fontSize": 14,
+                    "fontWeight": 500,
+                    "color": { "r": 0.13, "g": 0.15, "b": 0.20, "a": 1 },
+                    "italic": false,
+                    "textAlign": "CENTER"
+                  }
+                ]
+              },
+              {
+                "type": "TEXT",
+                "name": "sign up prompt",
+                "characters": "Don't have an account? Sign up free",
+                "fontSize": 13,
+                "fontWeight": 400,
+                "color": { "r": 0.4, "g": 0.43, "b": 0.52, "a": 1 },
+                "italic": false,
+                "textAlign": "CENTER"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Dashboard",
+        "width": 1440,
+        "height": 900,
+        "backgroundColor": { "r": 0.96, "g": 0.96, "b": 0.97, "a": 1 },
+        "children": [
+          {
+            "type": "GROUP",
+            "name": "sidebar",
+            "children": [
+              {
+                "type": "RECT",
+                "name": "bg",
+                "cornerRadius": 0,
+                "fill": { "r": 0.12, "g": 0.09, "b": 0.22, "a": 1 },
+                "stroke": null,
+                "strokeWeight": 0
+              },
+              {
+                "type": "TEXT",
+                "name": "VelocityAI",
+                "characters": "VelocityAI",
+                "fontSize": 18,
+                "fontWeight": 700,
+                "color": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "GROUP",
+                "name": "nav-dashboard (active)",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 8,
+                    "fill": { "r": 0.22, "g": 0.42, "b": 0.93, "a": 0.15 },
+                    "stroke": null,
+                    "strokeWeight": 0
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Dashboard",
+                    "fontSize": 14,
+                    "fontWeight": 600,
+                    "color": { "r": 0.54, "g": 0.71, "b": 0.98, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  }
+                ]
+              },
+              {
+                "type": "TEXT",
+                "name": "nav-analytics",
+                "characters": "Analytics",
+                "fontSize": 14,
+                "fontWeight": 400,
+                "color": { "r": 0.68, "g": 0.71, "b": 0.80, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "TEXT",
+                "name": "nav-projects",
+                "characters": "Projects",
+                "fontSize": 14,
+                "fontWeight": 400,
+                "color": { "r": 0.68, "g": 0.71, "b": 0.80, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "TEXT",
+                "name": "nav-team",
+                "characters": "Team",
+                "fontSize": 14,
+                "fontWeight": 400,
+                "color": { "r": 0.68, "g": 0.71, "b": 0.80, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "TEXT",
+                "name": "nav-settings",
+                "characters": "Settings",
+                "fontSize": 14,
+                "fontWeight": 400,
+                "color": { "r": 0.68, "g": 0.71, "b": 0.80, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              }
+            ]
+          },
+          {
+            "type": "GROUP",
+            "name": "main content",
+            "children": [
+              {
+                "type": "TEXT",
+                "name": "Good morning, Alex",
+                "characters": "Good morning, Alex 👋",
+                "fontSize": 28,
+                "fontWeight": 700,
+                "color": { "r": 0.08, "g": 0.09, "b": 0.13, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "TEXT",
+                "name": "subtitle",
+                "characters": "Here's what's happening with your projects today.",
+                "fontSize": 15,
+                "fontWeight": 400,
+                "color": { "r": 0.44, "g": 0.47, "b": 0.55, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "GROUP",
+                "name": "stat-card-revenue",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 12,
+                    "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "stroke": { "r": 0.91, "g": 0.91, "b": 0.93, "a": 1 },
+                    "strokeWeight": 1
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Total Revenue",
+                    "fontSize": 13,
+                    "fontWeight": 500,
+                    "color": { "r": 0.44, "g": 0.47, "b": 0.55, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "value",
+                    "characters": "$48,295",
+                    "fontSize": 28,
+                    "fontWeight": 700,
+                    "color": { "r": 0.08, "g": 0.09, "b": 0.13, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "delta",
+                    "characters": "↑ 12.5% from last month",
+                    "fontSize": 12,
+                    "fontWeight": 400,
+                    "color": { "r": 0.13, "g": 0.73, "b": 0.36, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  }
+                ]
+              },
+              {
+                "type": "GROUP",
+                "name": "stat-card-users",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 12,
+                    "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "stroke": { "r": 0.91, "g": 0.91, "b": 0.93, "a": 1 },
+                    "strokeWeight": 1
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Active Users",
+                    "fontSize": 13,
+                    "fontWeight": 500,
+                    "color": { "r": 0.44, "g": 0.47, "b": 0.55, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "value",
+                    "characters": "3,842",
+                    "fontSize": 28,
+                    "fontWeight": 700,
+                    "color": { "r": 0.08, "g": 0.09, "b": 0.13, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "delta",
+                    "characters": "↑ 8.1% from last month",
+                    "fontSize": 12,
+                    "fontWeight": 400,
+                    "color": { "r": 0.13, "g": 0.73, "b": 0.36, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  }
+                ]
+              },
+              {
+                "type": "GROUP",
+                "name": "stat-card-tasks",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 12,
+                    "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "stroke": { "r": 0.91, "g": 0.91, "b": 0.93, "a": 1 },
+                    "strokeWeight": 1
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Open Tasks",
+                    "fontSize": 13,
+                    "fontWeight": 500,
+                    "color": { "r": 0.44, "g": 0.47, "b": 0.55, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "value",
+                    "characters": "127",
+                    "fontSize": 28,
+                    "fontWeight": 700,
+                    "color": { "r": 0.08, "g": 0.09, "b": 0.13, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "delta",
+                    "characters": "↓ 3.2% from last week",
+                    "fontSize": 12,
+                    "fontWeight": 400,
+                    "color": { "r": 0.93, "g": 0.27, "b": 0.27, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  }
+                ]
+              },
+              {
+                "type": "GROUP",
+                "name": "recent-activity table",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 12,
+                    "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "stroke": { "r": 0.91, "g": 0.91, "b": 0.93, "a": 1 },
+                    "strokeWeight": 1
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "section heading",
+                    "characters": "Recent Activity",
+                    "fontSize": 16,
+                    "fontWeight": 600,
+                    "color": { "r": 0.08, "g": 0.09, "b": 0.13, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "row-1",
+                    "characters": "New project \"Alpha\" created by Sarah K.",
+                    "fontSize": 13,
+                    "fontWeight": 400,
+                    "color": { "r": 0.24, "g": 0.27, "b": 0.35, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "row-1-time",
+                    "characters": "2 minutes ago",
+                    "fontSize": 12,
+                    "fontWeight": 400,
+                    "color": { "r": 0.6, "g": 0.62, "b": 0.68, "a": 1 },
+                    "italic": false,
+                    "textAlign": "RIGHT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "row-2",
+                    "characters": "Invoice #1042 marked as paid",
+                    "fontSize": 13,
+                    "fontWeight": 400,
+                    "color": { "r": 0.24, "g": 0.27, "b": 0.35, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "row-2-time",
+                    "characters": "14 minutes ago",
+                    "fontSize": 12,
+                    "fontWeight": 400,
+                    "color": { "r": 0.6, "g": 0.62, "b": 0.68, "a": 1 },
+                    "italic": false,
+                    "textAlign": "RIGHT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "row-3",
+                    "characters": "5 new users signed up today",
+                    "fontSize": 13,
+                    "fontWeight": 400,
+                    "color": { "r": 0.24, "g": 0.27, "b": 0.35, "a": 1 },
+                    "italic": false,
+                    "textAlign": "LEFT"
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "row-3-time",
+                    "characters": "1 hour ago",
+                    "fontSize": 12,
+                    "fontWeight": 400,
+                    "color": { "r": 0.6, "g": 0.62, "b": 0.68, "a": 1 },
+                    "italic": false,
+                    "textAlign": "RIGHT"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Settings",
+        "width": 1440,
+        "height": 900,
+        "backgroundColor": { "r": 0.96, "g": 0.96, "b": 0.97, "a": 1 },
+        "children": [
+          {
+            "type": "TEXT",
+            "name": "Settings",
+            "characters": "Settings",
+            "fontSize": 28,
+            "fontWeight": 700,
+            "color": { "r": 0.08, "g": 0.09, "b": 0.13, "a": 1 },
+            "italic": false,
+            "textAlign": "LEFT"
+          },
+          {
+            "type": "TEXT",
+            "name": "subtitle",
+            "characters": "Manage your account preferences and integrations.",
+            "fontSize": 15,
+            "fontWeight": 400,
+            "color": { "r": 0.44, "g": 0.47, "b": 0.55, "a": 1 },
+            "italic": false,
+            "textAlign": "LEFT"
+          },
+          {
+            "type": "GROUP",
+            "name": "profile section",
+            "children": [
+              {
+                "type": "RECT",
+                "name": "bg",
+                "cornerRadius": 12,
+                "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "stroke": { "r": 0.91, "g": 0.91, "b": 0.93, "a": 1 },
+                "strokeWeight": 1
+              },
+              {
+                "type": "TEXT",
+                "name": "section-title",
+                "characters": "Profile",
+                "fontSize": 16,
+                "fontWeight": 600,
+                "color": { "r": 0.08, "g": 0.09, "b": 0.13, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "RECT",
+                "name": "Avatar placeholder",
+                "cornerRadius": 9999,
+                "fill": { "r": 0.85, "g": 0.85, "b": 0.86, "a": 1 },
+                "stroke": null,
+                "strokeWeight": 0,
+                "note": "Image placeholder: User avatar"
+              },
+              {
+                "type": "TEXT",
+                "name": "Full name label",
+                "characters": "Full name",
+                "fontSize": 12,
+                "fontWeight": 600,
+                "color": { "r": 0.24, "g": 0.27, "b": 0.35, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "RECT",
+                "name": "Full name input",
+                "cornerRadius": 8,
+                "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "stroke": { "r": 0.8, "g": 0.82, "b": 0.86, "a": 1 },
+                "strokeWeight": 1,
+                "note": "Input field: Alex Johnson"
+              },
+              {
+                "type": "TEXT",
+                "name": "Email label",
+                "characters": "Email address",
+                "fontSize": 12,
+                "fontWeight": 600,
+                "color": { "r": 0.24, "g": 0.27, "b": 0.35, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "RECT",
+                "name": "Email input",
+                "cornerRadius": 8,
+                "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "stroke": { "r": 0.8, "g": 0.82, "b": 0.86, "a": 1 },
+                "strokeWeight": 1,
+                "note": "Input field: alex@company.com"
+              },
+              {
+                "type": "GROUP",
+                "name": "Save changes button",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 8,
+                    "fill": { "r": 0.22, "g": 0.42, "b": 0.93, "a": 1 },
+                    "stroke": null,
+                    "strokeWeight": 0
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Save changes",
+                    "fontSize": 14,
+                    "fontWeight": 600,
+                    "color": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "italic": false,
+                    "textAlign": "CENTER"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "GROUP",
+            "name": "danger zone section",
+            "children": [
+              {
+                "type": "RECT",
+                "name": "bg",
+                "cornerRadius": 12,
+                "fill": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                "stroke": { "r": 0.96, "g": 0.80, "b": 0.80, "a": 1 },
+                "strokeWeight": 1
+              },
+              {
+                "type": "TEXT",
+                "name": "Danger Zone",
+                "characters": "Danger Zone",
+                "fontSize": 16,
+                "fontWeight": 600,
+                "color": { "r": 0.80, "g": 0.13, "b": 0.13, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "TEXT",
+                "name": "warning text",
+                "characters": "Once you delete your account, there is no going back. Please be certain.",
+                "fontSize": 13,
+                "fontWeight": 400,
+                "color": { "r": 0.44, "g": 0.47, "b": 0.55, "a": 1 },
+                "italic": false,
+                "textAlign": "LEFT"
+              },
+              {
+                "type": "GROUP",
+                "name": "Delete account button",
+                "children": [
+                  {
+                    "type": "RECT",
+                    "name": "bg",
+                    "cornerRadius": 8,
+                    "fill": { "r": 0.93, "g": 0.27, "b": 0.27, "a": 1 },
+                    "stroke": null,
+                    "strokeWeight": 0
+                  },
+                  {
+                    "type": "TEXT",
+                    "name": "label",
+                    "characters": "Delete my account",
+                    "fontSize": 14,
+                    "fontWeight": 600,
+                    "color": { "r": 1, "g": 1, "b": 1, "a": 1 },
+                    "italic": false,
+                    "textAlign": "CENTER"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

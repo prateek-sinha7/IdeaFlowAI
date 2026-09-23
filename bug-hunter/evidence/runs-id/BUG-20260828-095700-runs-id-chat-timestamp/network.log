@@ -1,0 +1,10 @@
+GET /api/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/events?after=9737 (excerpt)
+{
+  "seq": 9738, "event_id": "chat:client-1-...", "type": "chat_message",
+  "payload_json": {"pipeline_run_id": "...", "message_id": "...", "text": "Can you make the title larger?", "attachments": []}
+},
+{
+  "seq": 9739, "event_id": "chat-reply:client-1-...", "type": "chat_reply",
+  "payload_json": {"pipeline_run_id": "...", "message_id": "...", "text": "I could not answer that..."}
+}
+Note: neither event payload carries any created_at/timestamp field.

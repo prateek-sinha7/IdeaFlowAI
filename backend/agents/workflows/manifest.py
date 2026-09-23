@@ -111,6 +111,12 @@ class WorkflowManifest:
     description: str | None = None
     icon: str | None = None
     launch_surface: str | None = None
+    # Which OpenDesign template family the composer's design picker should
+    # offer ("web" | "deck"). Presentation only, exactly like `launch_surface`
+    # above: the compiler/kernel never read it, and the LOADER profile is
+    # derived from the chosen template's own `mode` at the launch boundary —
+    # never from this field — so a stale value can never mis-route a run.
+    design_mode: str | None = None
 
     # ── Chaining (Plan 34-01) — inert, additive ────────────────────────────
     # Backend-owned "chain into next workflow" graph — REPLACES the formerly
@@ -187,6 +193,7 @@ _ALLOWED_TOP_KEYS: frozenset[str] = frozenset(
         "description",
         "icon",
         "launch_surface",
+        "design_mode",
         # ── Chaining (Plan 34-01) — pure DATA, never control flow (INV-5) ──
         "chained_from",
         # ── Chat / concierge (Plan 33-05) — pure DATA, never control flow (INV-5) ──
@@ -304,6 +311,7 @@ def build_manifest_from_dict(data: object, source_label: str) -> WorkflowManifes
     description = _optional_str(data, "description", file_str)
     icon = _optional_str(data, "icon", file_str)
     launch_surface = _optional_str(data, "launch_surface", file_str)
+    design_mode = _optional_str(data, "design_mode", file_str)
 
     # ── Chaining field (Plan 34-01) — inert, type-checked ──────────────────
     chained_from = _optional_chained_from(data, "chained_from", file_str)
@@ -356,6 +364,7 @@ def build_manifest_from_dict(data: object, source_label: str) -> WorkflowManifes
         description=description,
         icon=icon,
         launch_surface=launch_surface,
+        design_mode=design_mode,
         chained_from=chained_from,
         chat=chat,
         capabilities=capabilities,

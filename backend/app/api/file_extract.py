@@ -44,14 +44,31 @@ class ExtractResponse(BaseModel):
 def _extract_pdf(data: bytes) -> str:
     try:
         from pypdf import PdfReader
+    except ImportError as exc:
+        logger.error("PDF extraction unavailable: pypdf import failed: %s", exc)
+        return ""
 
+    try:
         reader = PdfReader(io.BytesIO(data))
+        # One block per page, page markers always emitted (FIX-191 follow-up): the old
+        # "if t: parts.append(t)" dropped empty pages, so sidecar page N stopped
+        # corresponding to document page N once any earlier page had no extractable
+        # text. Emitting a [Page N] marker for every page — even a blank one —
+        # preserves that correspondence.
+        #
+        # Blast radius: this is the text the "uploaded_files" context provider injects
+        # into the brief for every agent whose AGENT.md declares
+        # injects: [uploaded_files] — prototype-revision-planner,
+        # prototype-revision-feature-specify, and prototype-revision-agent. Their brief
+        # now carries an explicit "[Page N]" marker in front of every page's text
+        # (including blank pages, which previously vanished with no marker at all), so
+        # a page-N citation in their output actually corresponds to document page N.
         parts = []
-        for page in reader.pages:
-            t = page.extract_text()
-            if t:
-                parts.append(t)
-        return "\n".join(parts)
+        for page_num, page in enumerate(reader.pages, 1):
+            text = page.extract_text() or ""
+            marker = f"[Page {page_num}]"
+            parts.append(f"{marker}\n{text}" if text.strip() else marker)
+        return "\n\n".join(parts)
     except Exception as exc:
         logger.warning("PDF extraction failed: %s", exc)
         return ""
@@ -156,10 +173,16 @@ async def extract_text(
     filename = file.filename or "unknown"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    if ext not in ("pdf", "docx", "pptx"):
+    # `xlsx` is accepted but has no brief-preview extractor here: a spreadsheet
+    # only becomes text once LibreOffice converts it, which is far too heavy for
+    # a wizard keystroke. `extract_upload_text` returns "" for it, so the upload
+    # succeeds with an empty preview and the agent-side `extract_text` tool
+    # (which DOES convert it) reads the real content at run time. Rejecting it
+    # outright is what silently dropped spreadsheets before they ever uploaded.
+    if ext not in ("pdf", "docx", "pptx", "xlsx"):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: .{ext}. Supported: .pdf, .docx, .pptx",
+            detail=f"Unsupported file type: .{ext}. Supported: .pdf, .docx, .pptx, .xlsx",
         )
 
     data = await file.read()
@@ -172,7 +195,13 @@ async def extract_text(
     # ONE extraction impl (INV-12): the same dispatch the upload endpoint uses.
     text = extract_upload_text(filename, data)
 
-    if not text.strip():
+    # An empty result is only an ERROR for the formats that carry a sidecar.
+    # `xlsx` has no extractor here by design (`run_files._EXTRACTABLE_EXTS`
+    # excludes it — no openpyxl is vendored), so "" is its correct, expected
+    # answer. Raising 422 on it made the attach surface treat a perfectly good
+    # spreadsheet as a broken file and drop it before upload: the chip rendered,
+    # the run received one document fewer, and nothing said why.
+    if not text.strip() and ext != "xlsx":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Could not extract text from {filename}. The file may be image-based or encrypted.",

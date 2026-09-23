@@ -214,16 +214,18 @@ describe("Badge primitive", () => {
     const { container } = render(<Badge status="???unknown" />);
     const badge = container.firstElementChild as HTMLElement;
     expect(badge.className).toContain("text-status-queued");
-    // LW-02: render the safe canonical label, never the raw free-string status.
-    expect(badge.textContent).toBe("queued");
+    // LW-02 + Task 11.5: render the safe canonical LABEL (capitalized), never the
+    // raw free-string status. CANONICAL_LABEL.queued = "Queued" (not lowercase).
+    expect(badge.textContent).toBe("Queued");
     expect(badge.textContent).not.toContain("???");
   });
 
   it("renders a custom label when provided, else the status text", () => {
     render(<Badge status="running" label="Live" />);
     expect(screen.getByText("Live")).toBeInTheDocument();
+    // Task 11.5: default label is CANONICAL_LABEL[key], capitalized (not the raw key).
     const { getByText } = render(<Badge status="done" />);
-    expect(getByText("done")).toBeInTheDocument();
+    expect(getByText("Done")).toBeInTheDocument();
   });
 
   it("contains no retired palette hex in rendered output", () => {

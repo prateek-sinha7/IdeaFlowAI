@@ -163,7 +163,7 @@ class _StampFakeRunner:
     async def update_wave_run(self, row_id, *, status):
         pass
 
-    async def run_fanout(self, requests, ctx, *, step=None):
+    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
         # Mimic fanout.py: one subagent_spawned + one subagent_result per request, flat
         # data dicts with NO wave_index (the strategy must inject it).
         for i, _req in enumerate(requests):
@@ -256,3 +256,214 @@ async def test_subagent_events_carry_wave_index_and_step():
     assert (
         chunk and "wave_index" not in chunk[0]["data"]
     ), "a non-subagent event was wrongly stamped with wave_index"
+
+
+# ===========================================================================
+# wave_skipped — a wave that parses ZERO tasks must report a VISIBLE skip, not
+# a silent success (the "revision-builders ran fine for months while doing
+# nothing" regression).
+# ===========================================================================
+
+
+class _EmptyFakeRunner:
+    def latest_typed_content(self, _step):
+        return ""
+
+    async def read_wave_runs(self):
+        return []
+
+
+class _EmptyCtx:
+    def __init__(self, runner):
+        self.runner = runner
+        self.is_resuming = False
+
+
+@pytest.mark.asyncio
+async def test_no_tasks_parsed_emits_wave_skipped_with_agent_id():
+    strat = WaveSchedulerStrategy()
+    runner = _EmptyFakeRunner()
+    ctx = _EmptyCtx(runner)
+    step = _StampStep("wave-step")
+
+    class _EmptyParser:
+        def parse(self, _text):
+            return []
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _EmptyParser()})()
+
+    events = [ev async for ev in strat.run(step, ctx)]
+
+    skipped = [e for e in events if e.get("type") == "wave_skipped"]
+    assert skipped, f"no wave_skipped event emitted: {events}"
+    data = skipped[0]["data"]
+    assert data.get("agent_id") == "wave-step"
+    assert data.get("step") == "wave-step"
+    assert data.get("source_step") == "plan"
+    assert "reason" in data
+    # No agent_start/agent_complete pair — the step returns before dispatching.
+    assert not [e for e in events if e.get("type") == "agent_start"]
+
+
+# ===========================================================================
+# WAVE-REPAIR — a wave whose worker never wrote its declared target is
+# detected and RE-DISPATCHED once, never silently reported as a success.
+# ===========================================================================
+
+
+class _FakeSandbox:
+    """Implements read/write/path_for so it round-trips the WAVE-REPAIR canary write
+    (``_check_sandbox_round_trips``) — a fake that can't prove it persists writes is
+    deliberately NOT trusted by the repair check (see wave_scheduler.py)."""
+
+    def __init__(self, files: dict[str, str]):
+        self.files = files
+
+    def read(self, path):
+        return self.files.get(path)
+
+    def write(self, path, content):
+        self.files[path] = content
+
+    def path_for(self, path):
+        files = self.files
+
+        class _FakePath:
+            def unlink(self, missing_ok=True):
+                files.pop(path, None)
+
+        return _FakePath()
+
+
+class _RepairFakeRunner:
+    """A ctx.runner whose first dispatch of ``tb`` never writes its target
+    (simulating a dropped worker); the repair pass "writes" it."""
+
+    def __init__(self, sandbox):
+        self.sandbox = sandbox
+        self.dispatches: list[list[dict]] = []
+
+    def latest_typed_content(self, _step):
+        return ""
+
+    async def read_wave_runs(self):
+        return []
+
+    async def record_wave_run(self, *, step, wave_index, task_ids, status):
+        return f"row-{wave_index}"
+
+    async def update_wave_run(self, row_id, *, status):
+        pass
+
+    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
+        self.dispatches.append(requests)
+        # The repair pass (second dispatch) "writes" tb's missing target.
+        if len(self.dispatches) == 2:
+            self.sandbox.files["b.txt"] = "now actually written, plenty of bytes"
+        for i, _req in enumerate(requests):
+            yield {
+                "type": "subagent_spawned",
+                "data": {
+                    "worker": i,
+                    "agent": "w",
+                    "isolation": "shared_read",
+                    "depth": 0,
+                },
+            }
+        for i, _req in enumerate(requests):
+            yield {
+                "type": "subagent_result",
+                "data": {
+                    "worker": i,
+                    "agent": "w",
+                    "row_id": f"r{i}",
+                    "status": "complete",
+                },
+            }
+
+
+@pytest.mark.asyncio
+async def test_missing_target_triggers_one_repair_pass_and_succeeds():
+    sandbox = _FakeSandbox(
+        {"a.txt": "plenty of bytes here already"}
+    )  # tb's b.txt absent
+    runner = _RepairFakeRunner(sandbox)
+    ctx = _StampCtx(runner)
+    step = _StampStep("wave-step")
+
+    tasks = [
+        _t("ta", targets=["a.txt"]),
+        _t("tb", targets=["b.txt"]),
+    ]
+
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat = WaveSchedulerStrategy()
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+
+    events = [ev async for ev in strat.run(step, ctx)]
+
+    repairs = [e for e in events if e.get("type") == "wave_repair"]
+    assert len(repairs) == 1, f"expected exactly one repair event, got {repairs}"
+    assert repairs[0]["data"]["missing_task_ids"] == ["tb"]
+    assert repairs[0]["data"]["count"] == 1
+    # Two dispatches: the original wave + the one repair pass (bounded).
+    assert len(runner.dispatches) == 2
+    assert runner.dispatches[1][0]["input"] == "body-tb"
+
+
+@pytest.mark.asyncio
+async def test_target_still_missing_after_repair_emits_second_repair_event():
+    class _StillMissingRunner(_RepairFakeRunner):
+        async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
+            self.dispatches.append(requests)
+            # Repair pass does NOT write the missing target this time.
+            for i, _req in enumerate(requests):
+                yield {
+                    "type": "subagent_spawned",
+                    "data": {
+                        "worker": i,
+                        "agent": "w",
+                        "isolation": "shared_read",
+                        "depth": 0,
+                    },
+                }
+            for i, _req in enumerate(requests):
+                yield {
+                    "type": "subagent_result",
+                    "data": {
+                        "worker": i,
+                        "agent": "w",
+                        "row_id": f"r{i}",
+                        "status": "complete",
+                    },
+                }
+
+    sandbox2 = _FakeSandbox({"a.txt": "plenty of bytes here already"})
+    runner2 = _StillMissingRunner(sandbox2)
+    ctx2 = _StampCtx(runner2)
+    step = _StampStep("wave-step")
+
+    tasks = [
+        _t("ta", targets=["a.txt"]),
+        _t("tb", targets=["b.txt"]),
+    ]
+
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat = WaveSchedulerStrategy()
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+
+    events = [ev async for ev in strat.run(step, ctx2)]
+
+    repairs = [e for e in events if e.get("type") == "wave_repair"]
+    # One event announcing the repair, one confirming it's STILL missing.
+    assert len(repairs) == 2, f"expected two repair events, got {repairs}"
+    assert repairs[0]["data"]["missing_task_ids"] == ["tb"]
+    assert repairs[1]["data"]["missing_task_ids"] == ["tb"]
+    # Bounded to exactly one repair pass (never loops).
+    assert len(runner2.dispatches) == 2

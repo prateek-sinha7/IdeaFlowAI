@@ -34,6 +34,7 @@ from jose import jwt
 from jose.exceptions import JOSEError
 
 from app.core.config import settings
+from app.core.http_client import default_ssl_context
 
 logger = logging.getLogger("app.core.cognito")
 
@@ -114,7 +115,7 @@ def _fetch_jwks() -> dict[str, dict[str, Any]]:
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
-            resp = httpx.get(_jwks_url(), timeout=5.0)
+            resp = httpx.get(_jwks_url(), timeout=5.0, verify=default_ssl_context())
             resp.raise_for_status()
             data = resp.json()
             keys = {k["kid"]: k for k in data.get("keys", [])}

@@ -33,6 +33,16 @@ export interface WorkflowSummary {
    * when the target's own `is_beta` is false. Optional/undefined on backends
    * that don't send it yet — treated as []. */
   chained_from?: ChainSource[];
+  /** Declared capability signal (SC-001: name-free gating) — a launch surface
+   * offers the OpenDesign template/design-system picker for ANY workflow
+   * whose manifest declares `context_providers: [opendesign]`, not just the
+   * hand-known prototype/ppt wizards. Optional/undefined on backends that
+   * don't send it yet — treated as []. */
+  context_providers?: string[];
+  /** Manifest `design_mode` ("web" | "deck") — which OpenDesign catalog the
+   * picker should list. Undefined for a workflow that doesn't declare
+   * opendesign. */
+  design_mode?: string | null;
 }
 
 export interface WorkflowStepDetail {

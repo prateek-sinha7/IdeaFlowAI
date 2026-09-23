@@ -42,6 +42,16 @@ clarify:
 deliverable:
   strategy: ppt
   name: presentation.pptx
+  # T3-chaining-reachable: deliberately NOT declaring chains_from here. The
+  # name is resolvable (passes compilation), but strategy `ppt` resolves
+  # purely from ctx.last_streamed (PptResolver) — nothing in this 3-step
+  # manifest ever writes presentation.pptx to the sandbox, and
+  # build_flat_payload special-cases only `serialized_sandbox` and
+  # `streamed_text`, not `ppt`. Every completed run of this workflow already
+  # materializes payload_chainable=false (output_unmaterializable) today,
+  # independent of this flag — declaring chains_from here would compile but
+  # could never actually admit a chain launch. See ppt_v2 (the fixed sibling
+  # that actually writes presentation.html to disk) for the chainable version.
 context_providers:
 - opendesign
 seed_files: {}

@@ -14,9 +14,19 @@ step ``tools:``  ──intersect──▶  cap (permission_caps.PERMISSION_CAP_I
                                    ▼
                     factory.denied_tools  ──▶  DeepAgentRunner(denied_tools=…)
                                                         │
-                                                        ▼
-                                            tools the model is offered
+                                             ┌──────────┴──────────┐
+                                             ▼                     ▼
+                                 tools the model is       tools the model may
+                                      OFFERED                 EXECUTE
+                                 (wrap_model_call)        (wrap_tool_call)
 ```
+
+Both halves are load-bearing. Filtering the model request narrows what is
+offered; it unregisters nothing, so a model that names a stripped tool anyway
+(deepagents' built-in prompt documents the filesystem tools regardless of what
+is bound) still reached a live implementation — ISS-171, where steps compiled
+`read_files: false` ran `ls` and `read_file` against the run sandbox and got
+real listings back. §2b pins the execution half.
 
 Three properties, one per seam:
 
@@ -63,6 +73,8 @@ from agents.workflows.permission_caps import (
     cap_key_for_trust,
     denied_tools,
     granted_tools,
+    parse_grant,
+    apply_cap,
 )
 
 # ---------------------------------------------------------------------------
@@ -110,7 +122,7 @@ def test_unknown_trust_falls_to_the_restrictive_cap() -> None:
         assert cap_key_for_trust(trust) == "untrusted", trust
 
 
-@pytest.mark.parametrize("trust", ["file", "builtin"])
+@pytest.mark.parametrize("trust", ["file", "builtin", "db"])
 def test_engineer_authored_manifests_may_hold_privileged_capabilities(
     trust: str,
 ) -> None:
@@ -124,7 +136,7 @@ def test_engineer_authored_manifests_may_hold_privileged_capabilities(
     assert cap.spawn_subagents is True
 
 
-@pytest.mark.parametrize("trust", ["user", "db"])
+@pytest.mark.parametrize("trust", ["user"])
 def test_user_authored_manifests_cannot_hold_privileged_capabilities(
     trust: str,
 ) -> None:
@@ -223,10 +235,80 @@ def test_no_compiled_step_narrows_nothing() -> None:
 
 
 # ===========================================================================
+# §2b — The denial is enforced at EXECUTION, not only at the offer
+# ===========================================================================
+#
+# ISS-171: `denied_tools` was computed correctly, threaded correctly, and
+# applied correctly to the model request — and a denied step still executed
+# `ls`/`read_file` against its sandbox, because filtering `request.tools` only
+# decides what the model is SHOWN. These pin the second seam.
+
+
+class _Req:
+    """Minimal ToolCallRequest stand-in — the middleware reads `.tool_call`."""
+
+    def __init__(self, name: str) -> None:
+        self.tool_call = {"name": name, "id": "call_1", "args": {}}
+
+
+def _mw(*excluded: str):
+    from app.agents.deep_agent_runner import _ToolFilterMiddleware
+
+    return _ToolFilterMiddleware(excluded=frozenset(excluded))
+
+
+def _ran(_request):
+    return "EXECUTED"
+
+
+async def _aran(_request):
+    return "EXECUTED"
+
+
+@pytest.mark.parametrize("tool", sorted(PERMISSION_TOOLS["read_files"]))
+def test_denied_read_tool_never_executes(tool: str) -> None:
+    """The ISS-171 assertion: a denied read tool does not reach its handler.
+
+    Parametrised over the mapping table rather than a literal list, so a tool
+    added to the `read_files` row is covered the day it is added.
+    """
+    result = _mw(*PERMISSION_TOOLS["read_files"]).wrap_tool_call(_Req(tool), _ran)
+    assert result != "EXECUTED", f"{tool} executed despite being denied"
+    assert result.status == "error"
+    assert tool in result.content
+
+
+def test_granted_tool_still_executes() -> None:
+    """The denial is scoped: a tool outside the exclusion set runs untouched."""
+    assert _mw("ls", "read_file").wrap_tool_call(_Req("write_file"), _ran) == "EXECUTED"
+
+
+def test_no_exclusions_is_a_pure_passthrough() -> None:
+    """Back-compat twin of `test_no_compiled_step_narrows_nothing`.
+
+    `denied_tools(None)` is empty for every path that never opted into the
+    permission system, so the middleware must not intercept anything at all.
+    """
+    assert _mw().wrap_tool_call(_Req("ls"), _ran) == "EXECUTED"
+
+
+@pytest.mark.asyncio
+async def test_denial_holds_on_the_async_path() -> None:
+    """Runs stream, so `awrap_tool_call` is the path production actually takes —
+    a sync-only guard would leave the real one open."""
+    result = await _mw("ls").awrap_tool_call(_Req("ls"), _aran)
+    assert result != "EXECUTED"
+    assert result.status == "error"
+
+    assert await _mw("ls").awrap_tool_call(_Req("write_file"), _aran) == "EXECUTED"
+
+
+# ===========================================================================
 # §3 — The declared workflows still resolve
 # ===========================================================================
 
 
+@pytest.mark.issue("ISS-638")
 def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
     """Every shipped workflow compiles, and no agent that writes lost its grant.
 
@@ -234,6 +316,13 @@ def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
     set needs a matching ``tools:`` grant on its step, or it silently degrades to
     read-only and produces nothing. Derived from what is on disk, so a newly
     added writing agent is covered without editing this test.
+
+    ISS-638: the original heuristic ``if frontmatter.get("tools")`` flagged any
+    non-empty tools list — including ``tools: [pptx]`` on ppt-code-generator,
+    which is NOT a filesystem tool (pptx produces a binary via render_pptx, and
+    write_files:false is intentional by design). Narrowed to agents that declare
+    ``write_file`` or ``workspace`` in their tools list — the only two values
+    that imply filesystem write access.
     """
     import re
     from pathlib import Path
@@ -242,14 +331,26 @@ def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
 
     from agents.execution_engine.engine import compile_for_run
 
+    # Filesystem-write tool names (the only ones that imply write_files access).
+    _FS_WRITE_TOOLS = {"write_file", "workspace"}
+
     prompts = Path("agents/prompts")
     declares_fs: set[str] = set()
+    # Tool sets that require filesystem write. Only these are checked — pptx,
+    # playwright, file_extract, etc. handle their own writes or don't write at all.
+    fs_writer_tools = {"workspace", "prototype", "prototype_emit_only"}
     for agent_md in prompts.glob("*/AGENT.md"):
         match = re.search(
             r"^---\n(.*?)\n---", agent_md.read_text(encoding="utf-8"), re.S
         )
         frontmatter = yaml.safe_load(match.group(1)) if match else {}
-        if frontmatter.get("tools"):
+        tools = frontmatter.get("tools") or []
+        # Flag an agent that declares a filesystem-write tool by either name:
+        # the bare tools (`write_file`) or the tool SETS that write (`workspace`,
+        # `prototype`, `prototype_emit_only`).
+        if isinstance(tools, list) and (_FS_WRITE_TOOLS | fs_writer_tools).intersection(
+            tools
+        ):
             declares_fs.add(agent_md.parent.name)
 
     missing: list[str] = []
@@ -264,3 +365,40 @@ def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
         "these agents declare a filesystem tool set but their workflow step does "
         f"not grant write — they will silently produce nothing: {missing}"
     )
+
+
+# ── tool packs (grant-declared tool sets — Composer toggles) ────────────────
+
+
+def test_untrusted_cap_allows_only_the_sandboxed_tool_packs() -> None:
+    grant = parse_grant(
+        {"tool_sets": ["file_extract", "playwright", "pptx", "spawn_subagents", "nope"]}
+    )
+    effective = apply_cap(grant, "user")
+    assert effective.tool_sets == ["file_extract", "playwright"]
+
+
+def test_a_step_declaring_no_packs_gets_none() -> None:
+    effective = apply_cap(parse_grant({}), "user")
+    assert effective.tool_sets == []
+
+
+def test_granted_packs_reach_the_factory_tool_resolution() -> None:
+    """A cap-surviving ``tool_sets`` grant binds the pack's concrete tools."""
+    from agents.factory import _resolve_runner_tools
+    from agents.workflows.plan import ToolPermissions
+
+    class _Spec:
+        tools: list = []
+
+    class _Ctx:
+        capabilities: dict = {}
+        prewarmed_mcp_tools = None
+        step_tools = ToolPermissions(tool_sets=["file_extract"])
+
+    class _Sandbox:
+        root = "/tmp/nowhere"
+
+    tools, _ = _resolve_runner_tools(_Spec(), _Ctx(), sandbox=_Sandbox())
+    names = {getattr(t, "name", None) or getattr(t, "__name__", "") for t in tools}
+    assert {"extract_text", "file_info", "file_find", "file_page_image"} <= names

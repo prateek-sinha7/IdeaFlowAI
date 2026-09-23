@@ -8,11 +8,15 @@ defect shipped.
 
 Three properties, all on the scripted-model harness (no Bedrock / Postgres / Chromium):
 
-  * D1 — the specify re-dispatch's composed prompt carries the PRIOR artifact, asserted
-    for BOTH ``_gate_update_specs`` consumer sites (``[live]`` = the post-stream consumer
-    at engine.py:4296; ``[reentry]`` = the RESUME-17 gate re-entry at engine.py:3270).
-    The restart scenario that exposed the bug enters via the re-entry site, so covering
-    only one site would leave the reported path unguarded.
+  * D1 — the specify re-dispatch reaches the PRIOR artifact, asserted for BOTH
+    ``_gate_update_specs`` consumer sites (``[live]`` = the post-stream consumer at
+    engine.py:4296; ``[reentry]`` = the RESUME-17 gate re-entry at engine.py:3270). The
+    restart scenario that exposed the bug enters via the re-entry site, so covering
+    only one site would leave the reported path unguarded. M10 (GAPS §0.3/§1 P1 Q4
+    rollout) changed the CHANNEL: prototype-specify is migrated, so the PRIOR artifact
+    no longer rides the composed prompt — it reaches the agent via a disk read
+    (``.agents/01-prototype-specify.md``, its Sandbox Reading Guide) instead. The
+    analysis REPORT stays on the composed prompt (row 15a, control, never gated).
   * D1 no-leak — the prior artifact is published for the specify dispatch ONLY, and the
     scratch field is empty once the sub-pipeline returns (consume-once).
   * D3 — the sub-pipeline dispatches on a FRESH ``:rev{N}`` checkpoint thread, so the
@@ -36,12 +40,22 @@ PRIOR_BLOCK = "=== PRIOR ARTIFACT UNDER REVISION ==="
 def _revision_triple():
     """Three real text-only agents so ``index=2`` gives specify/plan/analyze structurally.
 
-    Read from the registry at test time — the assertions never name an agent (INV-1).
+    M10 (GAPS §0.3/§1 P1 Q4 rollout): this WAS ``PIPELINE_AGENTS["user_stories"][:3]``
+    (domain-analyst/epic-architect/story-estimator), used purely structurally per
+    INV-1. But ``update_specs``/the spec-revision sub-pipeline this file exists to
+    guard (``.planning/BUGFIX-SPEC-REVISION-CONTEXT.md``) is reachable ONLY through
+    `prototype`'s own review-gate + ``produces_solution_plan`` wiring — no other
+    workflow's agents ever enter ``_run_spec_revision_sub_pipeline`` in production, so
+    a user_stories stand-in tests a scenario nothing real exercises. Now that
+    `prototype-specify` carries a read tool and a Sandbox Reading Guide for exactly
+    this case (M10), the real production agents are both more faithful AND the only
+    ones for which the assertions below can be genuinely satisfied (see R2's journal
+    "Open items" — this swap was anticipated there, not invented here).
     """
     from agents.loader import load_agent_spec
     from agents.registry import PIPELINE_AGENTS
 
-    return [load_agent_spec(a) for a in PIPELINE_AGENTS["user_stories"][:3]]
+    return [load_agent_spec(a) for a in PIPELINE_AGENTS["prototype"][:3]]
 
 
 def _write_ref(ectx, run_id: str, producer_id: str, content: str) -> None:
@@ -89,6 +103,7 @@ async def _drive_revision(mode: str):
 
     The sub-pipeline is deliberately NOT stubbed — this file exists to prove what it does.
     """
+    from app.agents.sandbox import RunSandbox
     from tests.unit.agents.test_redo_gate_safety import (
         _EngineHarness,
         _drive_agent,
@@ -108,6 +123,21 @@ async def _drive_revision(mode: str):
         h.engine._run_review_gate = _scripted_gate(calls)  # type: ignore[assignment]
         ectx = _make_ectx(run_id, gate_agent_ids=[ordered[2].id])
         _write_ref(ectx, run_id, ordered[0].id, PRIOR)
+        # M10: the typed-artifact ref above is what the pre-M10 inline paste read from
+        # (``_latest_typed_content`` — the FIX-217 channel). The retired channel's
+        # replacement is a DISK file — the SAME file `write_agent_output` writes at the
+        # end of EVERY real dispatch (``agent_output_relpath``, step index 0 for the
+        # first agent) — which prototype-specify's Sandbox Reading Guide now points at.
+        # Pre-seed it via the REAL naming function (not a hardcoded guess) so this
+        # synthetic harness's disk state matches what a real prior specify pass would
+        # have left behind, and so a drift between the naming formula and the guide's
+        # documented path fails this test (see the path-contract assertion below).
+        from app.agents.sandbox import agent_output_relpath
+
+        prior_relpath = agent_output_relpath(index=0, agent_id=ordered[0].id)
+        _sandbox = RunSandbox(ectx.disk_principal, ectx.run_id)
+        _sandbox.ensure()
+        _sandbox.write(prior_relpath, f"# Spec Writer Agent\n\n{PRIOR}")
         results: list[dict] = []
 
         if mode == "reentry":
@@ -140,10 +170,20 @@ async def _drive_revision(mode: str):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["live", "reentry"])
 async def test_revision_injects_prior_artifact_into_specify_dispatch(mode) -> None:
-    """D1: the specify re-dispatch's prompt carries the document it is asked to revise.
+    """D1, updated by M10 (GAPS §0.3/§1 P1 Q4 rollout): the specify re-dispatch must
+    still be ABLE to reach the document it is asked to revise — but prototype-specify
+    is now migrated (``prompt_policy: body_only``), so the analysis REPORT (control,
+    row 15a, never gated) keeps arriving inline while the PRIOR artifact (world, row
+    15b, retired for prototype-specify in M10) is no longer pasted: it reaches the
+    agent because it can now read its own ``.agents/01-prototype-specify.md`` (its
+    Sandbox Reading Guide says so), which this test's setup pre-seeds to mirror what a
+    real prior pass leaves on disk.
 
     Parametrized over BOTH ``_gate_update_specs`` consumer sites (TRAP 2).
     """
+    from agents.loader import load_agent_spec
+    from app.agents.sandbox import agent_output_relpath
+
     prompts, _ectx, _tids, ordered = await _drive_revision(mode)
     specify_id = ordered[0].id
 
@@ -152,11 +192,27 @@ async def test_revision_injects_prior_artifact_into_specify_dispatch(mode) -> No
     ), f"the {mode} consumer never re-dispatched the specify agent: {sorted(prompts)}"
     msg = prompts[specify_id][-1]
     assert REPORT in msg, "the analysis report must still reach the specify re-dispatch"
-    assert PRIOR in msg, (
-        "D1: the specify re-dispatch must carry the PRIOR artifact it is told to "
-        f"preserve; prompt was:\n{msg[-2000:]}"
+    assert PRIOR not in msg, (
+        "D1 (M10): the PRIOR artifact must no longer be PASTED into the specify "
+        f"re-dispatch — it retired in favor of a disk read. prompt was:\n{msg[-2000:]}"
     )
-    assert PRIOR_BLOCK in msg, "the prior artifact must ride its own labelled block"
+    assert (
+        PRIOR_BLOCK not in msg
+    ), "the prior-artifact block must be gone from a migrated specify agent's message"
+
+    # D1 (M10) path contract: `_drive_revision` seeded the prior artifact at the path
+    # the REAL naming function computes for this agent's step-0 output — prove
+    # prototype-specify's own Sandbox Reading Guide names that SAME path, not a
+    # coincidentally-similar string that would silently diverge if the naming
+    # formula (or the guide) ever changes.
+    expected_relpath = agent_output_relpath(index=0, agent_id=specify_id)
+    guide = load_agent_spec(specify_id).prompt_body or ""
+    assert expected_relpath in guide, (
+        f"prototype-specify's Sandbox Reading Guide does not name {expected_relpath!r} "
+        "— the exact path write_agent_output uses for its own prior output "
+        "(a real prior pass leaves the artifact there; a stale guide path means the "
+        "agent has no working channel to it at all)"
+    )
 
 
 @pytest.mark.asyncio

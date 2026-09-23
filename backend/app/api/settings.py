@@ -17,9 +17,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from agents.capabilities.model_catalog import ModelCatalog
+from agents.model_policy import selectable_models
 from app.api.api_key_auth import default_api_key_expiry, mint_api_key
 from app.core.crypto import decrypt_pat, encrypt_pat
 from app.core.dependencies import get_current_user
+from app.core.entitlements import can_use_model
+from app.core.http_client import default_ssl_context
 from app.models.database import get_db
 from app.models.handoff import UserApiKey, UserGithubCredential
 from app.models.user import User
@@ -50,7 +53,11 @@ AVAILABLE_MODELS = [
         "description": m.description,
         "tier": m.tier,
     }
-    for m in ModelCatalog().list()
+    # spec 020 — selectable_models(), not list(): the catalog's us./eu. duplicate
+    # rows exist for RAW-id validation, and offering both to a user is offering a
+    # choice GEO-01 discards. _VALID_MODEL_IDS below stays the COMPLETE set, so
+    # nothing hidden here becomes invalid.
+    for m in selectable_models()
 ]
 
 # Valid model IDs for validation — derived from the same single source.
@@ -126,7 +133,7 @@ async def upsert_github_pat(
     if not pat:
         raise HTTPException(status_code=422, detail="PAT must not be empty")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, verify=default_ssl_context()) as client:
         resp = await client.get(
             "https://api.github.com/user",
             headers={
@@ -168,9 +175,15 @@ async def upsert_github_pat(
         row.updated_at = now
     db.commit()
     db.refresh(row)
+    # ISS-470: report the GitHub identity THIS request validated and committed,
+    # not a post-refresh re-read of the row. Two concurrent PUTs for this user
+    # share one UserGithubCredential row (unique on user_id), so the other
+    # request's commit can land between our commit() and refresh(), and reading
+    # row.github_username/row.scopes here would make this 200 body report the
+    # OTHER request's PAT. Same shape as ISS-319 in update_preferences below.
     return GithubPATResponse(
-        github_username=row.github_username,
-        scopes=row.scopes,
+        github_username=gh_user,
+        scopes=scopes_header,
         last_4=pat[-4:],
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -234,10 +247,14 @@ def create_api_key(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ApiKeyCreateResponse:
+    # ISS-370: ``min_length=1`` counts RAW characters, so a whitespace-only name
+    # passes validation and would render as a permanently blank row -- there is
+    # no PATCH for /api-keys, so it could never be corrected from the UI.
+    name = payload.name.strip() or "Default"
     plaintext, prefix, digest = mint_api_key()
     row = UserApiKey(
         user_id=user.id,
-        name=payload.name,
+        name=name,
         token_prefix=prefix,
         token_hash=digest,
         # Phase 6 item 5: every NEW key gets a bounded lifetime. Pre-existing
@@ -314,10 +331,19 @@ def revoke_api_key(
 def get_preferences(
     user: User = Depends(get_current_user),
 ) -> UserPreferencesResponse:
-    """Return the user's current preferences and the list of available models."""
+    """Return the user's current preferences and the list of available models.
+
+    ISS-430: each model now carries an ``allowed`` flag so the frontend can
+    render a lock / disabled state before the user clicks Save, rather than
+    surfacing the tier gate only as a 403 banner after the fact.
+    """
+    models = [
+        {**m, "allowed": can_use_model(user.tier, m["id"])[0]}
+        for m in AVAILABLE_MODELS
+    ]
     return UserPreferencesResponse(
         preferred_model=user.preferred_model,
-        available_models=AVAILABLE_MODELS,
+        available_models=models,
     )
 
 
@@ -339,14 +365,32 @@ def update_preferences(
             detail=f"Invalid model ID. Choose from: {sorted(_VALID_MODEL_IDS)}",
         )
 
+    # ISS-292: the catalog is not an entitlement. A known model id still has to
+    # be one this account's tier may select — 403 (not the 422 above) so
+    # "not entitled" stays distinguishable from "unknown model", mirroring
+    # can_run_pipeline's 403 at launch. This is the write path every reader of
+    # user.preferred_model (run_commands.py's 8 sites) sits behind.
+    if model_id is not None:
+        allowed, reason = can_use_model(user.tier, model_id)
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason)
+
     user.preferred_model = model_id
     db.add(user)
     db.commit()
     db.refresh(user)
 
+    # ISS-319: report the value THIS request validated and committed, not a
+    # post-refresh re-read of the row. A concurrent PUT's commit can land
+    # between our commit() and refresh(), and reading user.preferred_model
+    # here would make this 200 body report the OTHER request's model.
+    models = [
+        {**m, "allowed": can_use_model(user.tier, m["id"])[0]}
+        for m in AVAILABLE_MODELS
+    ]
     return UserPreferencesResponse(
-        preferred_model=user.preferred_model,
-        available_models=AVAILABLE_MODELS,
+        preferred_model=model_id,
+        available_models=models,
     )
 
 

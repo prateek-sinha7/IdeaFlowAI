@@ -1,0 +1,63 @@
+# ex_validation_retry — hello-world fixture for STABILIZATION.md A1/A18's
+# validation-retry-with-feedback engine mechanism, driven end-to-end via the
+# offline scripted-model harness (tests/agents/_scripted_model.py::_drive), for
+# tests/agents/test_validation_retry.py.
+#
+# Deliberately declares NO gates/validators/fix here — the on-disk manifest
+# must compile cleanly through the REAL WorkflowCompiler with zero unregistered
+# capability names (this file is swept by tests/agents/test_manifest_coverage.py,
+# which compiles every workflow.yaml on disk with the real, un-monkeypatched
+# registry). test_validation_retry.py attaches `gates: [validation]` +
+# `validators: [ex_flaky_validator]` (+ a `fix:` policy, per scenario) onto the
+# COMPILED `draft` step in-memory, the same deep-copy-then-mutate pattern
+# `_scripted_model._drive` already uses for `clarify.mode`/`require_render` —
+# so the fake, per-test-registered validator never needs to exist on disk.
+#
+# `done` exists purely so a test can assert whether the run advanced past
+# `draft` — it must NOT run when `draft` fails closed.
+
+id: ex_validation_retry
+user_launchable: false
+is_beta: true
+display_name: Validation Retry Fixture
+short_name: Val Retry Fixture
+icon: FileCheck
+description: Smallest possible example of a validation-gate block-then-retry cycle.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: output.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: draft
+  name: Draft
+  prompt: Write a short answer.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: done
+  name: Done
+  depends_on: ["custom-agent:draft"]
+  prompt: Say done.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Validation Retry Fixture

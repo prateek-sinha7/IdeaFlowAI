@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VelocityAI Importer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Inter, -apple-system, sans-serif;
+      font-size: 13px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 20px 20px 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, #89b4fa, #cba6f7);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .header-text h1 { font-size: 15px; font-weight: 600; color: #cdd6f4; }
+    .header-text p  { font-size: 11px; color: #6c7086; margin-top: 2px; }
+
+    .body { padding: 16px 20px; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+
+    .drop-zone {
+      border: 2px dashed #313244;
+      border-radius: 10px;
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #89b4fa;
+      background: rgba(137, 180, 250, 0.06);
+    }
+    .drop-icon { font-size: 28px; margin-bottom: 8px; }
+    .drop-title { font-size: 13px; font-weight: 500; color: #cdd6f4; }
+    .drop-sub   { font-size: 11px; color: #6c7086; margin-top: 4px; }
+
+    input[type="file"] { display: none; }
+
+    .file-pill {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: #313244;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+    }
+    .file-pill.visible { display: flex; }
+    .file-pill-name { flex: 1; color: #cdd6f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-pill-size { color: #6c7086; flex-shrink: 0; }
+    .file-pill-clear {
+      background: none; border: none; cursor: pointer;
+      color: #6c7086; font-size: 14px; line-height: 1; padding: 0 2px;
+      transition: color 0.1s;
+    }
+    .file-pill-clear:hover { color: #f38ba8; }
+
+    .screens-info {
+      display: none;
+      gap: 8px;
+      flex-direction: column;
+    }
+    .screens-info.visible { display: flex; }
+    .screen-badge {
+      display: flex; align-items: center; gap: 8px;
+      background: #181825; border-radius: 7px; padding: 8px 12px;
+      font-size: 11px;
+    }
+    .screen-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0; }
+    .screen-badge-name { color: #cdd6f4; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .screen-badge-size { color: #6c7086; }
+    .screens-more { font-size: 11px; color: #6c7086; padding-left: 12px; }
+
+    .error-box {
+      display: none;
+      background: rgba(243, 139, 168, 0.12);
+      border: 1px solid rgba(243, 139, 168, 0.3);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #f38ba8;
+    }
+    .error-box.visible { display: block; }
+
+    .footer {
+      padding: 12px 20px 20px;
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      flex: 1;
+      height: 36px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: #89b4fa; color: #1e1e2e; }
+    .btn-primary:hover:not(:disabled) { background: #74a7f5; }
+    .btn-cancel  { background: #313244; color: #cdd6f4; }
+    .btn-cancel:hover:not(:disabled) { background: #3b3b52; }
+
+    .spinner {
+      display: none;
+      width: 14px; height: 14px;
+      border: 2px solid #1e1e2e;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto;
+    }
+    .spinner.visible { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">✦</div>
+    <div class="header-text">
+      <h1>VelocityAI Importer</h1>
+      <p>Drop a <code>*-figma.json</code> file exported from VelocityAI</p>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Drop zone -->
+    <label class="drop-zone" id="dropZone" for="fileInput">
+      <div class="drop-icon">📂</div>
+      <div class="drop-title">Drop file here or click to browse</div>
+      <div class="drop-sub">Accepts <strong>*-figma.json</strong> exported from VelocityAI</div>
+    </label>
+    <input type="file" id="fileInput" accept=".json,application/json" />
+
+    <!-- Selected file pill -->
+    <div class="file-pill" id="filePill">
+      <span>📄</span>
+      <span class="file-pill-name" id="filePillName">—</span>
+      <span class="file-pill-size" id="filePillSize">—</span>
+      <button class="file-pill-clear" id="filePillClear" title="Remove file">✕</button>
+    </div>
+
+    <!-- Screen preview list -->
+    <div class="screens-info" id="screensInfo"></div>
+
+    <!-- Error -->
+    <div class="error-box" id="errorBox"></div>
+
+  </div>
+
+  <div class="footer">
+    <button class="btn btn-cancel" id="btnCancel">Cancel</button>
+    <button class="btn btn-primary" id="btnImport" disabled>
+      <span id="btnLabel">Import to Figma</span>
+      <span class="spinner" id="spinner"></span>
+    </button>
+  </div>
+
+  <script>
+    let parsedPayload = null;
+
+    const dropZone     = document.getElementById("dropZone");
+    const fileInput    = document.getElementById("fileInput");
+    const filePill     = document.getElementById("filePill");
+    const filePillName = document.getElementById("filePillName");
+    const filePillSize = document.getElementById("filePillSize");
+    const filePillClear= document.getElementById("filePillClear");
+    const screensInfo  = document.getElementById("screensInfo");
+    const errorBox     = document.getElementById("errorBox");
+    const btnImport    = document.getElementById("btnImport");
+    const btnCancel    = document.getElementById("btnCancel");
+    const btnLabel     = document.getElementById("btnLabel");
+    const spinner      = document.getElementById("spinner");
+
+    // ── File picking ────────────────────────────────────────────────────────
+
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files && fileInput.files[0]) readFile(fileInput.files[0]);
+    });
+
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("drag-over");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("drag-over");
+      const file = e.dataTransfer && e.dataTransfer.files[0];
+      if (file) readFile(file);
+    });
+
+    filePillClear.addEventListener("click", (e) => {
+      e.preventDefault();
+      reset();
+    });
+
+    btnCancel.addEventListener("click", () => {
+      parent.postMessage({ pluginMessage: { type: "cancel" } }, "*");
+    });
+
+    btnImport.addEventListener("click", () => {
+      if (!parsedPayload) return;
+      setLoading(true);
+      parent.postMessage({ pluginMessage: { type: "import", payload: parsedPayload } }, "*");
+    });
+
+    // ── File reader ─────────────────────────────────────────────────────────
+
+    function readFile(file) {
+      if (!file.name.endsWith(".json")) {
+        showError("Please select a JSON file (e.g. prototype-figma.json).");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          validate(data);
+          parsedPayload = data;
+          showPill(file.name, file.size);
+          // v3: flat screens array of IRNodes; v1/v2: document.screens with name/width/height
+          if (data.version === 3) {
+            const screenList = (data.screens || []).map((s, i) => ({
+              name: (s.attrs && s.attrs.title) || (s.tag || "Screen") + " " + (i+1),
+              width: (data.viewport && data.viewport.w) || 1440,
+              height: (data.viewport && data.viewport.h) || 900,
+            }));
+            showScreens(screenList);
+          } else {
+            showScreens(data.document.screens);
+          }
+          hideError();
+          btnImport.disabled = false;
+        } catch (err) {
+          showError(err.message || "Could not parse file.");
+          parsedPayload = null;
+          btnImport.disabled = true;
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function validate(data) {
+      if (!data || typeof data !== "object") throw new Error("File is not a valid JSON object.");
+      if (data.version !== 1 && data.version !== 2 && data.version !== 3)
+        throw new Error("Unsupported file version: " + data.version + ". Export a fresh file from VelocityAI.");
+      if (data.version === 3) {
+        if (!Array.isArray(data.screens) || data.screens.length === 0)
+          throw new Error("Missing screens array — is this a VelocityAI Figma JSON?");
+      } else {
+        if (!data.document || !Array.isArray(data.document.screens))
+          throw new Error("Missing document.screens — is this a VelocityAI Figma JSON?");
+        if (data.document.screens.length === 0) throw new Error("The file has no screens to import.");
+      }
+    }
+
+    // ── UI helpers ──────────────────────────────────────────────────────────
+
+    function showPill(name, bytes) {
+      filePillName.textContent = name;
+      filePillSize.textContent = formatBytes(bytes);
+      filePill.classList.add("visible");
+    }
+
+    function showScreens(screens) {
+      screensInfo.innerHTML = "";
+      const preview = screens.slice(0, 6);
+      for (const s of preview) {
+        const badge = document.createElement("div");
+        badge.className = "screen-badge";
+        badge.innerHTML =
+          '<div class="screen-badge-dot"></div>' +
+          '<span class="screen-badge-name">' + esc(s.name) + '</span>' +
+          '<span class="screen-badge-size">' + s.width + ' × ' + s.height + '</span>';
+        screensInfo.appendChild(badge);
+      }
+      if (screens.length > 6) {
+        const more = document.createElement("div");
+        more.className = "screens-more";
+        more.textContent = "+ " + (screens.length - 6) + " more screen(s)";
+        screensInfo.appendChild(more);
+      }
+      screensInfo.classList.add("visible");
+    }
+
+    function showError(msg) {
+      errorBox.textContent = "⚠ " + msg;
+      errorBox.classList.add("visible");
+    }
+
+    function hideError() {
+      errorBox.classList.remove("visible");
+    }
+
+    function reset() {
+      parsedPayload = null;
+      fileInput.value = "";
+      filePill.classList.remove("visible");
+      screensInfo.classList.remove("visible");
+      screensInfo.innerHTML = "";
+      hideError();
+      btnImport.disabled = true;
+    }
+
+    function setLoading(on) {
+      btnImport.disabled = on;
+      btnLabel.style.display = on ? "none" : "";
+      spinner.classList.toggle("visible", on);
+    }
+
+    function formatBytes(b) {
+      if (b < 1024) return b + " B";
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+      return (b / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    // ── Messages from plugin code ───────────────────────────────────────────
+    window.onmessage = (event) => {
+      const msg = event.data && event.data.pluginMessage;
+      if (!msg) return;
+      if (msg.type === "error") {
+        setLoading(false);
+        showError(msg.message);
+      }
+    };
+  </script>
+</body>
+</html>

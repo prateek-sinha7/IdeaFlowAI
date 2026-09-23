@@ -1,0 +1,25 @@
+{
+  "url": "http://localhost:3000/analytics",
+  "h": [
+    "H1:Analytics"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "@Notifications",
+    "@Account menu",
+    "@",
+    "Today",
+    "3d",
+    "7d",
+    "30d",
+    "90d",
+    "All"
+  ],
+  "tab": [],
+  "inp": [
+    "select[pipeline-filter]"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nAnalytics\nToken usage · Cost · Pipeline performance\nToday\n3d\n7d\n30d\n90d\nAll\nAll pipelines\nUser Stories\nPresentation\nPrototype\nApp Builder\nCustom\nTOTAL TOKENS\n54.7M\n52.0M in · 2.8M out\nEST. COST\n$30.16\nacross 140 completed runs\nAVG / RUN\n227.1K\ntokens per run\nTOTAL RUNS\n241\n140 completed · 33 failed\nDaily Activity\nLast 30 days\nTokens\nAug 14: 31331878\nAug 16: 1464110\nAug 17: 0\nAug 19: 13060160\nAug 20: 0\nAug 21: 523715\nAug 24: 2364478\nAug 25: 1981555\nAug 26: 4003773\nSUCCESS RATE\n58%\nCompleted\n140\nFailed\n33\nTotal\n241\nBy Pipeline Type\nAPP BUILDER\n3 runs\n·\n13.7M\n$5.41\nPROTOTYPE\n12 runs\n·\n11.4M\n$4.49\nCUSTOM\n24 runs\n·\n5.9M\n$2.81\n.NET MIGRATION\n3 runs\n·\n5.8M\n$2.48\nMULESOFT MIGRATION\n3 runs\n·\n4.6M\n$3.11\nPPT_V2\n8 runs\n·\n4.5M\n$3.16\nPRESENTATION\n25 runs\n·\n2.7M\n$4.01\nPROTOTYPE\n8 runs\n·\n2.4M\n$0.86\nUSER STORIES\n10 runs\n·\n2.1M\n$1.64\nEX_A1_LOOP\n16 runs\n·\n554.0K\n$0.68\nSAMPLE_CONDITIONAL_BRANCH_NEW\n17 runs\n·\n303.9K\n$0.40\nEX_A2_BRANCH\n23 runs\n·\n236.4K\n$0.30\nEX_A4_HUMAN_GATE\n27 runs\n·\n229.1K\n$0.31\nSAMPLE_CONDITIONAL_PREVIOUS_STEP\n5 runs\n·\n134.6K\n$0.20\nEX_A3_DIVERT\n16 runs\n·\n118.3K\n$0.15\nEX_A4_HUMAN_DIVERT\n6 runs\n·\n61.9K\n$0.08\nEX_A3_B_SPANISH\n9 runs\n·\n32.6K\n$0.05\nEX_A3_C_DUTCH\n5 runs\n·\n18.5K\n$0.03\nEX_A3_TARGET\n1 run\n·\n3.5K\n<$0.01\nAPP BUILDER\n6 runs\nPRESENTATION\n6 runs\nCUSTOM\n4 runs\nUSER STORIES\n4 runs\nBy Model\nunknown\n241 runs\n·\n54.7M\n$30.16\nToken Breakdown\n95% in · 5% out\n52.0M\nInput\n2.8M\nOutput\n54.7M\nTotal\nModel Details\nModel\nClaude Haiku 4.5\nInput rate\n$0.25 / 1M tokens\nOutput rate\n$1.25 / 1M tokens\nContext window\n200K tokens\nTotal spend (Last 30 days)\n$30.16\nPrompt caching saved\n58%\n$42.16\nMeasured on 171 of 241 runs. Engine agent tokens only — Concierge chat is recorded per message but not included here; handoff runs are not metered."
+}

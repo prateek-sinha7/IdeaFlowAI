@@ -32,6 +32,7 @@ writes PERSIST (instead of degrading) and the cross-run revision reads resolve.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -64,14 +65,14 @@ from tests.agents._scripted_model import (
 OWNER = "harness-user"
 
 # The deterministic revised deck the 14-01 harness scripts for the
-# ppt-revision-agent: its single turn streams
-# "Revised per instruction.\n<artifact>{deck}</artifact>" — the declared
-# ``ppt`` deliverable strategy unwraps it, so final_output must be EXACTLY
-# the raw deck HTML between the artifact tags (no wrapper, no narration).
-_REV_TURN_TEXT = _scripts_for("ppt-revision-agent")[0].texts[0]
-EXPECTED_REVISED_DECK = _REV_TURN_TEXT.split("<artifact>", 1)[1].split(
-    "</artifact>", 1
-)[0]
+# ppt-revision-agent. ISS-727/ISS-723: that turn used to STREAM the deck inside
+# an <artifact> tag and ppt_revision's declared ``ppt`` strategy unwrapped it —
+# which is why the sandbox-root presentation.html behind every ``ref=vN`` git tag
+# was never rewritten after v1. The manifest now declares ``single_file`` /
+# ``presentation.html`` and the agent WRITES that file, so final_output must be
+# EXACTLY the bytes it wrote (no wrapper, no narration).
+_REV_WRITE_ARGS = _scripts_for("ppt-revision-agent")[0].tool_calls[0][1]
+EXPECTED_REVISED_DECK = json.loads(_REV_WRITE_ARGS)["content"]
 
 
 @pytest.fixture(autouse=True)
@@ -179,6 +180,7 @@ async def _dispatch_revision(
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> None:
     """SC1+SC2: the FE's exact run_revision payload drives the REAL
     ppt_revision pipeline through execute() — model runs observed, revised
@@ -272,6 +274,7 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     db_factory,
 ) -> None:

@@ -2,6 +2,14 @@
 .env
 .env.local
 .env.*.local
+# Timestamped/ad-hoc .env BACKUPS. A bare `.env` pattern does NOT match
+# `.env.bak-ollama-084227` and friends, so a backup taken while switching
+# providers sat untracked-but-committable carrying the REAL SECRET_KEY,
+# AWS_SECRET_ACCESS_KEY, ANTHROPIC_API_KEY, MISTRAL_API_KEY, LANGSMITH_API_KEY
+# and DATABASE_URL. One `git add -A` would have published live credentials.
+.env.bak*
+*.env.bak*
+.env.backup*
 # Local-dev compose env (devs copy from app.env.example).
 # The .example template IS committed; the real file is not.
 /app.env
@@ -50,9 +58,23 @@ out/
 .specify/
 CLAUDE.md
 
-# Kiro IDE local tooling — settings, agents, hooks; never tracked
-.claude/
+# Kiro IDE local settings; never tracked
 .kiro/settings/
+
+# .claude/ — agents, skills and workflows ARE tracked: they are the team's
+# tooling, not machine-local config. Only the machine-local parts stay out.
+# full checkouts — 175 MB here, never commit
+.claude/worktrees/
+.claude/settings.json
+.claude/settings.local.json
+# per-session resume checkpoint
+.claude/RESUME.md
+.claude/scheduled_tasks.lock
+.claude/plugins/
+.claude/projects/
+.claude/todos/
+.claude/shell-snapshots/
+.claude/statsig/
 
 # OS
 .DS_Store
@@ -88,6 +110,10 @@ backend/evals/minimal/report.html
 # understand-anything code-indexing tool local cache (personal, not for team use)
 .understand-anything/
 
+# Temporary files created by the bug-fix workflow agent (scripts, outputs, screenshots)
+# Never committed — the closer moves them here at the end of every domain run.
+.tmp/
+
 # Personal scratch notes
 /TODO.md
 .kiro/settings/mcp.json
@@ -95,12 +121,21 @@ backend/evals/minimal/report.html
 # Local issues / grounded-context files (personal, not for team use)
 /issues/
 # Kiro IDE files (personal, not for team use)
-.kiro/
 .kiro/*
 !.kiro/steering/
 !.kiro/skills/
-.kiro/steering/localsetup.md  # local system setup, not for team use
+!.kiro/bug-fix-workflow/
+!.kiro/specs/
+# local system setup, not for team use
+.kiro/steering/localsetup.md
 .run
+
+# Local backend server logs + pre-recovery worktree snapshots. `backend.log`
+# carries whatever the running server logged, which on this project has
+# included extracted UPLOAD TEXT, so it is local-only and never committed.
+/backend/.logs/
+# Scratch workflow snapshots taken while iterating on a manifest.
+/backend/agents/.workflow-archive/
 
 # Generated output from tools/api/runs/*.run.http integration tests — decks,
 # prototypes, and WS/HTTP transcripts. Local-only, never committed.
@@ -131,12 +166,28 @@ TODO.md
 .understand-anything
 .apex
 **/apex**
-.claude/settings.json
 **/PythonImportHelper-v2-Completion.json
 
 # Stale local run output — the live RUNS_ROOT is /tmp/flowin-runs, nothing references this
 backend/.runs-local/
 graphify-out/
+.impeccable
+.playwright-mcp/**
+runs/**
+
+# Client reference documents used as local test input — never committed
+.reference/
+
+# integration-suite resume progress (interrupted-run bookkeeping)
+tests/integration/e2e/.pytest-resume
+
+# Bug-fix workflow session scratch output (vitest/tsc run logs at project root)
+/vitest*.txt
+/vitest*.json
+/tsc_output.txt
+/verify_tsc*.txt
+/verify_vitest*.txt
+/dedup_output.txt
 
 # Load-test harness (tools/loadtest). The harness SOURCE is committed; only the
 # account list (real credentials) and the run reports (run ids + timings) are not.

@@ -1,0 +1,84 @@
+QA-PS-038 / ISS-785 — click-phase request counts, FIX-624 OFF vs ON
+===================================================================
+Measured 2026-09-22 ~20:20 local, app on :3000 / :8000, Google Chrome via the
+e2e suite's own `page` fixture (signed in as qa-admin@flowinqa.com).
+
+HOW TO RE-RUN
+-------------
+Drop this probe at
+tests/integration/e2e/suites/07_run_detail/test_zz_tmp_probe_ps038.py and run
+`cd tests/integration/e2e && ./.venv/bin/python -m pytest
+suites/07_run_detail/test_zz_tmp_probe_ps038.py -q -s`.  It wraps window.fetch
+BEFORE the page loads, so every /api/runs? call carries the JS stack that made
+it.  Counting starts AFTER /runs has settled, so the number is the cost of the
+CLICK alone — unlike the card's own test, which also counts two full document
+loads.
+
+    from framework.locators import run_history as RH
+
+    INIT = """
+    window.__runsCalls = [];
+    const _f = window.fetch;
+    window.fetch = function (...args) {
+      const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
+      if (url.includes('/api/runs?')) {
+        window.__runsCalls.push({ url, stack: new Error().stack });
+      }
+      return _f.apply(this, args);
+    };
+    """
+
+    def test_probe(page):
+        page.add_init_script(INIT)
+        page.goto("/runs")
+        from playwright.sync_api import expect
+        expect(page.locator(RH.ROW).first).to_be_visible(timeout=20000)
+        page.wait_for_timeout(2500)
+        page.evaluate("window.__runsCalls = []")
+        rows = page.locator(RH.ROW).evaluate_all(
+            "els => els.map((e) => e.getAttribute('aria-label'))")
+        done = [i for i, l in enumerate(rows) if RH.status_of(l) == "completed"]
+        page.locator(RH.ROW).nth(done[0]).click()
+        page.wait_for_url(lambda url: "/runs/" in url)
+        page.wait_for_timeout(5000)
+        for c in page.evaluate("window.__runsCalls"):
+            print(c["url"], c["stack"])
+
+Run opened: 8088430c-32aa-4551-ad24-f5fd806e872b (completed) — the SAME run
+ISS-785's validation attempt 1 used.
+
+BEFORE (gate disabled: `const recentsToken = () => (false && isReplay ? null : getToken())`,
+i.e. byte-identical behaviour to the pre-fix `getToken()`)
+--------------------------------------------------------------------------
+--- after click: 3 /api/runs? calls ---
+URL: http://localhost:8000/api/runs?limit=50
+      at DashboardPage.useEffect (...page_tsx...:906:205)
+URL: http://localhost:8000/api/runs?limit=50
+      at DashboardPage.useCallback[handleWebSocketMessage] (...)
+      at DashboardPage.useCallback[handleSelectWorkflowRun] (...)
+URL: http://localhost:8000/api/runs?limit=50
+      at DashboardPage.useCallback[handleWebSocketMessage] (...)
+
+AFTER (FIX-624 in place)
+------------------------
+--- after click: 1 /api/runs? calls ---
+URL: http://localhost:8000/api/runs?limit=50
+      at fetchWithTimeout (...)
+      at fetchWithAuth (...)
+      at fetchWorkflowPage (...)
+      at getWorkflows (...)
+      at DashboardPage.useEffect (...page_tsx...:906:205)
+
+READING IT
+----------
+Every `handleWebSocketMessage` frame is gone: those two were the durable
+replay's `pipeline_complete` binding (immediate + the KAN-120 2s-delayed one).
+The one that remains is `DashboardPage.useEffect` — page.tsx's auth-mount
+`recentRuns` fetch, re-firing because router.push REMOUNTS this page component
+(page.tsx's own comment, :3480-3484). That one is the app-shell fetch whose
+removal is the pending QA-PS-035 decision (ESCALATIONS.md#qa-ps-035, option b),
+NOT the replay mechanism.
+
+The toggle was reverted immediately; sha256 of page.tsx before and after the
+baseline measurement is identical:
+975df4f0e036c46af8418b6e9ece6c0a56930573d5ed780b52af89e76d288f97

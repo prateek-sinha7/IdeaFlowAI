@@ -21,11 +21,16 @@ import {
   Layers, Zap, FileCode, BookText, GitBranch, ArrowDown, CheckCircle2 as CheckBadge,
   Sparkles,
 } from "lucide-react";
-import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup, AttachedSkillEntry, AttachedHookEntry } from "@/types/index";
+import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup, WaveWorkerEntry, AttachedSkillEntry, AttachedHookEntry } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
+import { getToken, getCapabilities } from "@/lib/api";
+import { stepActivity, toolCallFailed, toolKind } from "@/lib/runChain";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview, parseTasks } from "./artifactPreview";
+import { JudgedContent } from "./JudgedContent";
 import { ArtifactVersionPicker } from "./ArtifactVersionPicker";
 import { ReadOnlyVersionBanner } from "@/components/preview/ReadOnlyVersionBanner";
+import ActivityTrail, { KIND_ICON } from "./ActivityTrail";
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
 //     panel + any future consumer share; was inline in the retired ContextSourcesRow).
@@ -165,13 +170,23 @@ export function deriveArtifactCardModel(
 }
 
 // ─── Reasoning card (violet) ──────────────────────────────────────────────────
-function ReasoningCard({ text, live, label = "Reasoning", defaultOpen = true }: { text: string; live: boolean; label?: string; defaultOpen?: boolean }) {
+function ReasoningCard({ text, live, label = "Reasoning", defaultOpen = true, judged = false }: {
+  text: string;
+  live: boolean;
+  label?: string;
+  defaultOpen?: boolean;
+  /** Render the body through JudgedContent (kind decided from the text) rather
+   *  than as pre-wrapped plain text. Reasoning stays plain — it is a model's
+   *  running commentary, not an artifact — but a live Output card holds the
+   *  same bytes the settled card does and must read the same way. */
+  judged?: boolean;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   // Auto-collapse Reasoning the moment output starts (defaultOpen flips false),
   // without fighting a manual re-expand afterward — this effect only fires when
   // defaultOpen itself changes, not on every render.
   useEffect(() => { setOpen(defaultOpen); }, [defaultOpen]);
-  const bodyRef = useRef<HTMLParagraphElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // Stick-to-bottom while live, UNLESS the user has manually scrolled away from
   // it — a ref (not state) since scroll fires far too often to re-render on.
   // Scrolling back to the bottom re-arms auto-follow.
@@ -206,10 +221,23 @@ function ReasoningCard({ text, live, label = "Reasoning", defaultOpen = true }: 
         <ChevronDown className={`h-3.5 w-3.5 text-brand/60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <p ref={bodyRef} onScroll={handleScroll} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-ink-700 font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
-          {text}
-          {live && <span className="animate-pulse">▌</span>}
-        </p>
+        <div
+          ref={bodyRef}
+          onScroll={handleScroll}
+          className="min-w-0 max-h-[340px] overflow-y-auto px-11 pb-3"
+        >
+          {/* A step reads the same way while it is writing as it does once it
+              is done: the live stream goes through the same renderer as the
+              settled output. */}
+          {judged ? (
+            <JudgedContent value={text} maxHeight={0} />
+          ) : (
+            <p className="m-0 whitespace-pre-wrap font-[Heebo] text-[13px] leading-[1.6] text-ink-700">
+              {text}
+            </p>
+          )}
+          {live && <span className="animate-pulse text-ink-500">▌</span>}
+        </div>
       )}
     </div>
   );
@@ -378,6 +406,14 @@ export function AttachedHooksSection({ hooks }: { hooks: AttachedHookEntry[] }) 
 }
 
 // ─── Tool calls (card, collapsed) ─────────────────────────────────────────────
+// ISS-355: arg values are not always strings — bare String(v) yields "[object Object]"
+// for objects/arrays. JSON-encode non-strings before truncating (same shape as
+// AuditTab's argvSummary).
+function argPreview(v: unknown): string {
+  if (typeof v === "string") return v;
+  try { return JSON.stringify(v) ?? String(v); } catch { return String(v); }
+}
+
 export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [sectionOpen, setSectionOpen] = useState(toolCalls.length <= 5);
@@ -402,18 +438,33 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
             <div key={i} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
               <button
                 onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                aria-expanded={expandedIdx === i}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-left"
               >
-                <span className="w-5 h-5 flex-none rounded-[5px] border border-line-control bg-surface-warm grid place-items-center">
-                  <ChevronRight className="h-2.5 w-2.5 text-ink-500" />
-                </span>
+                {/* the same kind icon the activity trail uses, so a row reads
+                    like its pill: read, write, search, run, browse, ask */}
+                {(() => {
+                  const Icon = KIND_ICON[toolKind(tc.tool)];
+                  return (
+                    <span className="w-5 h-5 flex-none rounded-[5px] border border-line-faint-row bg-surface-warm grid place-items-center">
+                      <Icon className="h-3 w-3 text-ink-500" />
+                    </span>
+                  );
+                })()}
                 <span className="text-[12.5px] font-medium text-ink-800">{tc.tool}</span>
                 <span className="text-[12px] text-ink-300 truncate flex-1 min-w-0">
-                  {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 24)}`).join(", ") || "no args"}
+                  {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${argPreview(v).slice(0, 24)}`).join(", ") || "no args"}
                 </span>
-                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full flex-none ${tc.result != null ? "bg-brand-fill text-brand" : "bg-status-amber-fill text-status-amber animate-pulse"}`}>
-                  {tc.result != null ? "ok" : "…"}
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full flex-none ${
+                  tc.result == null
+                    ? "bg-status-amber-fill text-status-amber animate-pulse"
+                    : toolCallFailed(tc.result)
+                      ? "bg-status-failed-fill text-status-failed opacity-70"
+                      : "bg-surface-warm text-ink-400"
+                }`}>
+                  {tc.result == null ? "…" : toolCallFailed(tc.result) ? "error" : "ok"}
                 </span>
+                <ChevronDown className={`h-3.5 w-3.5 flex-none text-ink-300 transition-transform ${expandedIdx === i ? "rotate-180" : ""}`} />
               </button>
               {expandedIdx === i && (
                 <div className="border-t border-line-faint-row bg-surface-warm/60">
@@ -440,34 +491,93 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
 }
 
 // ─── Full input prompt (paper) ────────────────────────────────────────────────
-export function InputPromptSection({ prompt }: { prompt: string }) {
+// When `taskMessage` is also provided (Req 36 — system_prompt present on new
+// SSE streams) the component renders as two labelled sub-sections: "System prompt"
+// (primary) and "Task message" (the targeted retry payload / agent's own task).
+// When `taskMessage` is absent the component falls back to the legacy single-pane
+// "Full input prompt" label — byte-identical behaviour for old SSE streams.
+//
+// Req 13 AC 9: `contextIsFileBased` is true when the agent's context was loaded
+// from files in `.context/` (a migrated workflow) rather than inlined in the human
+// message. In that case the human message is legitimately short, and showing
+// "Full input prompt — N chars" would look like "no real context". We re-label the
+// section as "Task message" and add a subtitle so the viewer is never misleading.
+export function InputPromptSection({ prompt, taskMessage, contextIsFileBased }: {
+  prompt: string;
+  taskMessage?: string;
+  /** Req 13 AC 9 — true when context came from files, not the human message. */
+  contextIsFileBased?: boolean;
+}) {
+  const hasTwoSections = !!taskMessage;
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(prompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const { copied, failed, copy } = useClipboardCopy(1500);
+  const handleCopy = () => void copy(prompt);
+
+  // Secondary (task message) expand state, independent of the primary accordion.
+  const [taskOpen, setTaskOpen] = useState(false);
+  const { copied: taskCopied, failed: taskFailed, copy: taskCopy } = useClipboardCopy(1500);
+  const handleTaskCopy = () => void taskCopy(taskMessage ?? "");
+
+  // Req 13 AC 9: when systemPrompt is absent and context is file-based, show
+  // "Task message" (the targeted control payload) rather than "Full input prompt"
+  // so the viewer correctly communicates that context came from files.
+  const label = hasTwoSections ? "System prompt" : contextIsFileBased ? "Task message" : "Full input prompt";
+  const fileBasedNote = !hasTwoSections && contextIsFileBased
+    ? "Context loaded from files in .context/ — see \u2018Context received\u2019 \u2192"
+    : null;
+
   return (
     <div className="mt-2.5 bg-surface-paper border border-line-divider rounded-[11px] overflow-hidden">
       <button onClick={() => setOpen(v => !v)} aria-expanded={open} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
         <span className="w-[22px] h-[22px] flex-none rounded-md bg-line-border grid place-items-center">
           <FileText className="h-3 w-3 text-ink-500" />
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">Full input prompt</span>
-        <span className="text-[10.5px] text-ink-200 font-mono">{prompt.length.toLocaleString()} chars</span>
-        <span className="flex-1" />
-        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${open ? "rotate-180" : ""}`} />
+        <span className="flex-1 min-w-0">
+          <span className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">{label}</span>
+          {/* Req 13 AC 9 — visible without expanding; never shows for old streams
+              where systemPrompt is absent but inputPrompt is NOT file-based. */}
+          {fileBasedNote && (
+            <span className="block text-[9px] text-ink-300 leading-tight mt-0.5 font-normal normal-case tracking-normal">{fileBasedNote}</span>
+          )}
+        </span>
+        <span className="text-[10.5px] text-ink-200 font-mono flex-none">{prompt.length.toLocaleString()} chars</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform flex-none ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div>
           <div className="flex items-center justify-end px-3.5 pt-1">
             <button onClick={handleCopy} className="flex items-center gap-1 text-[9px] text-ink-400 hover:text-ink-600 transition-colors">
               {copied ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
-              {copied ? "Copied" : "Copy"}
+              {copied ? "Copied" : failed ? "Copy failed" : "Copy"}
             </button>
           </div>
           <pre className="m-0 px-11 pb-3 text-[12px] leading-[1.6] text-ink-500 whitespace-pre-wrap font-[Heebo] max-h-[500px] overflow-y-auto">{prompt}</pre>
+        </div>
+      )}
+
+      {/* Secondary section: Task message (Req 36 — present on new SSE streams only) */}
+      {hasTwoSections && (
+        <div className="border-t border-line-faint-row">
+          <button onClick={() => setTaskOpen(v => !v)} aria-expanded={taskOpen} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
+            <span className="w-[22px] h-[22px] flex-none rounded-md bg-line-border grid place-items-center">
+              <FileText className="h-3 w-3 text-ink-300" />
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">Task message</span>
+            <span className="text-[10.5px] text-ink-200 font-mono">{taskMessage!.length.toLocaleString()} chars</span>
+            <span className="flex-1" />
+            <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${taskOpen ? "rotate-180" : ""}`} />
+          </button>
+          {taskOpen && (
+            <div>
+              <div className="flex items-center justify-end px-3.5 pt-1">
+                <button onClick={handleTaskCopy} className="flex items-center gap-1 text-[9px] text-ink-400 hover:text-ink-600 transition-colors">
+                  {taskCopied ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
+                  {taskCopied ? "Copied" : taskFailed ? "Copy failed" : "Copy"}
+                </button>
+              </div>
+              <pre className="m-0 px-11 pb-3 text-[12px] leading-[1.6] text-ink-500 whitespace-pre-wrap font-[Heebo] max-h-[300px] overflow-y-auto">{taskMessage}</pre>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -490,9 +600,17 @@ export function OutputPreviewSection({ output }: { output: string }) {
         <span className="flex-1" />
         <ChevronDown className={`h-3.5 w-3.5 text-brand/60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      <p className={`m-0 px-11 pb-3 text-[12px] leading-[1.6] text-ink-700 whitespace-pre-wrap font-[Heebo] ${open ? "max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
-        {open ? output : preview}
-      </p>
+      {open ? (
+        // The same renderer the live Output card uses, so what a step produced
+        // reads identically while it streams and after it settles.
+        <div className="min-w-0 px-11 pb-3">
+          <JudgedContent value={output} maxHeight={500} />
+        </div>
+      ) : (
+        <p className="m-0 line-clamp-2 px-11 pb-3 font-[Heebo] text-[12px] leading-[1.6] text-ink-700">
+          {preview}
+        </p>
+      )}
     </div>
   );
 }
@@ -732,6 +850,228 @@ function ConstructionBlock({
   );
 }
 
+// ─── Wave workers block — the drill-down list for a wave step ─────────────────
+// A wave step (e.g. "Screen Builders") clones one agent N times; every clone's
+// agent_start/agent_complete carries the SAME agent_id, so the spine (L1) shows
+// it as one row. The per-worker detail belongs HERE, on the L2 drill-down —
+// same visual idiom as ConstructionTaskRow above (row chrome, testid
+// convention, "N / M done" progress header) rather than a new pattern.
+// A worker's four terminal-or-not states. "stranded" is not a failure the
+// worker reported — it is the absence of any report once its wave step ended,
+// and it must not read as success.
+const WAVE_WORKER_STATE = {
+  done:     { label: "Done",     cls: "text-status-done" },
+  failed:   { label: "Failed",   cls: "text-status-failed" },
+  stranded: { label: "No result", cls: "text-status-amber" },
+  running:  { label: "Running…", cls: "text-brand" },
+} as const;
+
+/** A task agent one wave member spawned via spawn_subagents — the third level.
+ *  Nothing in the File Ingestion workflow spawns any more, so this is dormant
+ *  here; it lights up for a workflow whose agents discover work at run time. */
+function WaveChildRow({ child, n }: { child: { agent: string; status: string; worker?: number; error?: string }; n: number }) {
+  const done = /complete|done|success/i.test(child.status);
+  const failed = /fail|error/i.test(child.status);
+  return (
+    <div
+      data-testid="wave-child-row"
+      data-status={done ? "done" : failed ? "failed" : "running"}
+      className="w-full flex items-center gap-2.5 rounded-[8px] border border-line-faint-row/60 bg-surface-card/60 px-2.5 py-1.5 text-left"
+    >
+      {done ? (
+        <span className="w-[13px] h-[13px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2 w-2 text-white" /></span>
+      ) : failed ? (
+        <span className="w-[13px] h-[13px] flex-none rounded-full bg-status-failed/10 border border-status-failed" />
+      ) : (
+        <span className="w-[13px] h-[13px] flex-none rounded-full bg-brand-fill border border-brand grid place-items-center"><span className="w-1 h-1 rounded-full bg-brand animate-pulse" /></span>
+      )}
+      <span className="text-[10.5px] text-ink-500 font-mono">Task {n}</span>
+      {child.error && (
+        <span data-testid="wave-child-error" title={child.error} className="text-[10px] text-ink-400 truncate max-w-[55%]">{child.error}</span>
+      )}
+      <span className="flex-1" />
+      <span className={`text-[10px] ${done ? "text-status-done" : failed ? "text-status-failed" : "text-brand"}`}>
+        {done ? "Done" : failed ? "Failed" : "Running…"}
+      </span>
+    </div>
+  );
+}
+
+function WaveWorkerRow({ worker, onOpen }: { worker: WaveWorkerEntry; onOpen?: (taskId: string) => void }) {
+  const state = WAVE_WORKER_STATE[worker.status] ?? WAVE_WORKER_STATE.running;
+  // The author id ("s01") when the backend sent one; the hashed task id is the
+  // fallback so an older backend still renders something rather than nothing.
+  const label = worker.taskAuthorId ?? worker.taskId;
+  const calls = worker.toolCalls?.length ?? 0;
+  return (
+    <button
+      data-testid="wave-worker-row"
+      data-status={worker.status}
+      onClick={onOpen ? () => onOpen(worker.taskId) : undefined}
+      disabled={!onOpen}
+      className="w-full flex items-center gap-2.5 rounded-[9px] border border-line-faint-row bg-surface-card px-2.5 py-2.5 text-left hover:border-line-faint transition-colors disabled:hover:border-line-faint-row"
+    >
+      {worker.status === "done" ? (
+        <span className="w-[17px] h-[17px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2.5 w-2.5 text-white" /></span>
+      ) : worker.status === "failed" ? (
+        <span className="w-[17px] h-[17px] flex-none rounded-full bg-status-failed/10 border-[1.5px] border-status-failed grid place-items-center"><XCircle className="h-2.5 w-2.5 text-status-failed" /></span>
+      ) : worker.status === "stranded" ? (
+        <span className="w-[17px] h-[17px] flex-none rounded-full bg-status-amber/10 border-[1.5px] border-status-amber grid place-items-center"><span className="w-1.5 h-[1.5px] bg-status-amber" /></span>
+      ) : (
+        <span className="w-[17px] h-[17px] flex-none rounded-full bg-brand-fill border-[1.5px] border-brand grid place-items-center"><span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" /></span>
+      )}
+      <span className="text-[11.5px] text-ink-700 truncate">
+        <span className="font-mono text-ink-200">
+          {label ?? (worker.workerIndex != null ? `Worker ${worker.workerIndex + 1}` : "Worker")}
+        </span>
+      </span>
+      {worker.error && (
+        <span data-testid="wave-worker-error" title={worker.error} className="text-[10.5px] text-ink-400 truncate max-w-[46%]">
+          {worker.error}
+        </span>
+      )}
+      <span className="flex-1" />
+      {calls > 0 && (
+        <span data-testid="wave-worker-toolcount" className="text-[10px] font-mono text-ink-300">
+          {calls} call{calls === 1 ? "" : "s"}
+        </span>
+      )}
+      <span className={`text-[10px] font-medium ${state.cls}`}>{state.label}</span>
+      {onOpen && <ChevronRight className="h-[15px] w-[15px] flex-none text-line-faint" />}
+    </button>
+  );
+}
+
+/** One wave inside a wave step — collapsible, with its members listed under it.
+ *  A wave_scheduler step runs its waves SEQUENTIALLY, so wave 2's tasks only
+ *  start once wave 1's have finished; flattening them hid that ordering. */
+function WaveSection({
+  waveIndex, status, workers, childrenByParent, defaultOpen, onOpenWorker,
+}: {
+  waveIndex: number | null;
+  status?: string;
+  workers: WaveWorkerEntry[];
+  childrenByParent: Map<string, Array<{ agent: string; status: string; worker?: number; error?: string }>>;
+  defaultOpen: boolean;
+  onOpenWorker?: (taskId: string) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const done = workers.filter(w => w.status === "done").length;
+  const chip = status ? waveStatusChip(status) : null;
+  return (
+    <div data-testid="wave-section" data-wave-index={waveIndex ?? ""} className="rounded-[10px] border border-line-faint-row">
+      <button
+        data-testid="wave-section-toggle"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-2.5 py-2 text-left"
+      >
+        <ChevronDown className={`h-3.5 w-3.5 flex-none text-ink-400 transition-transform ${open ? "" : "-rotate-90"}`} />
+        <span className="text-[11px] font-semibold text-ink-800">
+          {waveIndex != null ? `Wave ${waveIndex + 1}` : "Wave"}
+        </span>
+        {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip.cls}`}>{chip.label}</span>}
+        <span className="flex-1" />
+        <span data-testid="wave-section-progress" className="text-[11px] font-mono text-brand">{done} / {workers.length} done</span>
+      </button>
+      {open && (
+        <div data-testid="wave-section-body" className="px-2.5 pb-2.5 space-y-1.5">
+          {workers.map(w => {
+            const kids = (childrenByParent.get(w.taskAuthorId ?? w.taskId)
+              ?? childrenByParent.get(w.taskId) ?? [])
+              .sort((a, b) => (a.worker ?? 0) - (b.worker ?? 0));
+            return (
+              <div key={w.taskId}>
+                <WaveWorkerRow worker={w} onOpen={onOpenWorker} />
+                {kids.length > 0 && (
+                  <div data-testid="wave-child-list" className="mt-1 ml-5 space-y-1 border-l border-line-faint-row pl-2.5">
+                    {kids.map((c, i) => <WaveChildRow key={`${w.taskId}-${c.worker ?? i}`} child={c} n={i + 1} />)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WaveWorkersBlock({ workers, waves, onOpenWorker }: { workers: WaveWorkerEntry[]; waves?: WaveGroup[]; onOpenWorker?: (taskId: string) => void }) {
+  // Task agents a worker spawned name their parent's task id — group them so each
+  // worker row carries its own children (the third level of the tree).
+  const childrenByParent = new Map<string, Array<{ agent: string; status: string; worker?: number; error?: string }>>();
+  for (const w of waves ?? []) {
+    for (const wk of w.workers) {
+      if (!wk.parentTaskId) continue;
+      const list = childrenByParent.get(wk.parentTaskId) ?? [];
+      list.push(wk);
+      childrenByParent.set(wk.parentTaskId, list);
+    }
+  }
+  const sorted = [...workers].sort((a, b) => (a.workerIndex ?? 0) - (b.workerIndex ?? 0));
+  // Group rows by the wave they belong to. A row with no waveIndex (an older
+  // backend, or a non-wave fan-out) falls into one unlabelled group rather than
+  // being dropped.
+  const byWave = new Map<number | null, WaveWorkerEntry[]>();
+  for (const w of sorted) {
+    const k = w.waveIndex ?? null;
+    byWave.set(k, [...(byWave.get(k) ?? []), w]);
+  }
+  const waveOrder = [...byWave.keys()].sort(
+    (a, b) => (a ?? Number.MAX_SAFE_INTEGER) - (b ?? Number.MAX_SAFE_INTEGER),
+  );
+  const done = sorted.filter(w => w.status === "done").length;
+  const unresolved = sorted.filter(w => w.status === "failed" || w.status === "stranded").length;
+  // Two different questions, two different counters. The HEADER answers "how far
+  // through the build" and so counts WAVES; each wave row answers "how far
+  // through this wave" and counts its own tasks. Counting tasks in both places
+  // said the same thing twice and left the run's actual shape — four waves —
+  // invisible: a 34-task build read "0 / 1 done" through the whole of wave 1.
+  //
+  // The plan's totals arrive on `wave_started`; without them (an older backend,
+  // or a fan-out that is not wave-scheduled) the header falls back to the waves
+  // it has actually seen.
+  const plan = (waves ?? []).find(w => w.waveTotal !== undefined);
+  const waveTotal = plan?.waveTotal ?? waveOrder.length;
+  const wavesDone = (waves ?? []).filter(w => w.status === "completed").length;
+  return (
+    <div data-testid="wave-workers-block" className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
+      <div className="flex items-center gap-2 mb-3">
+        <GitBranch className="h-3.5 w-3.5 text-ink-500" />
+        {/* "Waves and tasks", never a pipeline's own nouns. This read
+            "shards & tasks" — shards being File Ingestion's word for a slice of
+            a document — so a prototype run whose waves build SCREENS was
+            labelled with a vocabulary from a different workflow entirely. The
+            panel draws waves and the task rows inside them; that is all it
+            knows and all it should say (SC-001). */}
+        <span className="text-[11px] font-semibold text-ink-800">Waves &amp; tasks</span>
+        <span className="flex-1" />
+        <span data-testid="wave-workers-progress" className="text-[11px] font-mono text-brand">
+          {wavesDone} / {waveTotal} wave{waveTotal === 1 ? "" : "s"}
+        </span>
+        {unresolved > 0 && (
+          <span data-testid="wave-workers-unresolved" className="text-[11px] font-mono text-status-amber">· {unresolved} without a result</span>
+        )}
+      </div>
+      <div className="space-y-2">
+        {waveOrder.map(idx => (
+          <WaveSection
+            key={String(idx)}
+            waveIndex={idx}
+            status={(waves ?? []).find(w => w.waveIndex === idx)?.status}
+            workers={byWave.get(idx) ?? []}
+            childrenByParent={childrenByParent}
+            onOpenWorker={onOpenWorker}
+            // The wave still in flight is the one worth looking at; a finished
+            // wave collapses so a 20-task wave 0 does not bury wave 1.
+            defaultOpen={waveOrder.length === 1 || (byWave.get(idx) ?? []).some(w => w.status === "running")}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Sticky "Context received" panel (RIGHT column) ───────────────────────────
 function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
   return (
@@ -906,6 +1246,13 @@ export interface AgentDetailPanelProps {
     tasks?: Array<{ number: number; title: string; summary: string }>;
   };
   onOpenTask?: (taskIndex: number) => void;
+  /** The run's wave groups — they carry the task agents each wave worker spawned,
+   *  which is where the third level of the tree comes from. */
+  waveGroups?: WaveGroup[];
+  /** Open one wave member's own L3 detail page. */
+  onOpenWorker?: (taskId: string) => void;
+  /** Breadcrumb trail, last crumb is this page. Defaults to Steps / {agent}. */
+  breadcrumb?: string[];
   // 42-09 — the ordered agent list + this agent's index for the handoff fallback,
   // plus the run's DAG edges for the handoff label. All optional: absent → no
   // handoff (SC-001 generic degrade). The artifact cards need no run state.
@@ -918,14 +1265,50 @@ export interface AgentDetailPanelProps {
   runId?: string | null;
 }
 
+// ─── RFN-001 — model label resolution ────────────────────────────────────────
+// Labels come from the live capability catalog (INV-12 — model_catalog.py is the
+// ONE hand-maintained model list; the frontend never keeps a second copy). Spec
+// 020 removed the id→label map that used to live here: it had already drifted to
+// 9 rows against a catalog of 12.
+/** Return the short display label for a raw Bedrock model id. `labels` is the
+ *  id→label projection of /api/capabilities; when it has not arrived (or the
+ *  fetch failed) the id is cleaned up in place so the chip never renders blank. */
+function resolveModelLabel(modelId: string, labels: Record<string, string>): string {
+  if (labels[modelId]) return labels[modelId];
+  return modelId
+    .replace(/^(eu|us|global)\./, "")
+    .replace(/(anthropic|openai)\./, "")
+    .replace(/-\d{8}-v\d(:\d)?$/, "")
+    .replace(/-v\d+$/, "")
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+// ─── end RFN-001 ──────────────────────────────────────────────────────────────
+
 export function AgentDetailPanel({
-  agent, onBack, construction, onOpenTask,
+  agent, onBack, construction, onOpenTask, waveGroups, onOpenWorker, breadcrumb,
   agents, agentIndex, dagEdges,
   runId,
 }: AgentDetailPanelProps) {
   // ISS-065 — the older artifact version currently on screen, if any.
   const [viewed, setViewed] = useState<{ index: number; content: string } | null>(null);
   useEffect(() => { setViewed(null); }, [agent.id]);
+  // RFN-001 / spec 020 — id→label straight off the live catalog, fetched once on
+  // mount exactly as AnalyticsPage does. Failure is non-fatal: resolveModelLabel
+  // falls back to cleaning up the raw id.
+  const [modelLabels, setModelLabels] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    getCapabilities(token)
+      .then((palette) => {
+        if (cancelled) return;
+        setModelLabels(Object.fromEntries(palette.model_catalog.map(m => [m.id, m.label])));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   // Reasoning always streams before Output (extended-thinking providers finish
   // their thinking block before the text block starts) — track the one-time
   // transition so Output stays unrendered until it actually has something, and
@@ -991,13 +1374,21 @@ export function AgentDetailPanel({
 
   return (
     <div className="max-w-[1200px] mx-auto">
-      {/* Breadcrumb — Steps / {agent} */}
+      {/* Breadcrumb — Steps / {agent}, or the trail a caller supplies. A wave
+          member renders through THIS SAME panel (it is an agent in its own
+          right), so only the trail differs: Steps / Readers / Wave 1 / s01. */}
       <button
+        data-testid="agent-detail-breadcrumb"
         onClick={onBack}
         className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-ink-500 hover:text-ink-900 transition-colors mb-4"
       >
         <ChevronLeft className="h-[15px] w-[15px]" />
-        Steps <span className="text-line-faint">/</span> <span className="text-ink-900">{agent.name}</span>
+        {(breadcrumb ?? ["Steps", agent.name]).map((crumb, i, all) => (
+          <span key={i} className="inline-flex items-center gap-1.5">
+            <span className={i === all.length - 1 ? "text-ink-900" : undefined}>{crumb}</span>
+            {i < all.length - 1 && <span className="text-line-faint">/</span>}
+          </span>
+        ))}
       </button>
 
       <div className="grid gap-[22px] items-start" style={{ gridTemplateColumns: "1fr 288px" }}>
@@ -1022,6 +1413,15 @@ export function AgentDetailPanel({
                   {isRunning && <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-brand-fill text-brand"><Zap className="h-2.5 w-2.5" />Live</span>}
                   {isDone && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-surface-paper text-ink-500">Done</span>}
                   {isError && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-status-failed-fill text-status-failed">Failed</span>}
+                  {/* RFN-001 — per-agent model chip. Shown as soon as model_id
+                      arrives on agent_complete and persists through pipeline end
+                      and history-reopen. Hidden while status is idle/skipped. */}
+                  {agent.modelId && (
+                    <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-surface-warm text-ink-500 border border-line-faint">
+                      <Cpu className="h-2.5 w-2.5 flex-none" />
+                      {resolveModelLabel(agent.modelId, modelLabels)}
+                    </span>
+                  )}
                 </div>
                 <p className="m-0 text-[11px] text-ink-400 truncate">{agent.role}</p>
               </div>
@@ -1044,6 +1444,9 @@ export function AgentDetailPanel({
 
             <div className="px-4 py-4">
               <div className="pl-4 border-l-2 border-line-divider">
+                {/* what the step spent its time doing — one line, above everything
+                    it produced, fitted to the column so it never wraps */}
+                <ActivityTrail runs={stepActivity(agent)} status={agent.status} className="mb-3" />
                 {/* revision diagnostics (revision runs only — absent on fresh runs) */}
                 {isRevision && agent.inputPrompt && <RevisionInstructionCard prompt={agent.inputPrompt} />}
                 {isRevision && agent.toolCalls && agent.toolCalls.length > 0 && <EditSummaryCard toolCalls={agent.toolCalls} />}
@@ -1067,12 +1470,21 @@ export function AgentDetailPanel({
                     defaultOpen={!outputStarted}
                   />
                 )}
-                {isRunning && outputStarted && <ReasoningCard text={agent.output || ""} live label="Output" />}
+                {isRunning && outputStarted && <ReasoningCard text={agent.output || ""} live judged label="Output" />}
 
                 {/* settled artifact cards (pages/sections · tasks · checks) + handoff
                     line — conditional, generically keyed (42-09). Distinct from the
                     KEEP construction card below. */}
                 <SettledArtifactCards output={shownOutput} model={cardModel} />
+
+                {/* wave workers (any wave step, e.g. "Screen Builders") — the L1 spine
+                    shows this step as one row with a "Wave 2 · 2/3" progress summary
+                    only; the per-worker list lives here on the drill-down. Independent
+                    of `construction` below, which is specific to the build/task-loop
+                    agent. */}
+                {agent.waveWorkers && agent.waveWorkers.length > 0 && (
+                  <WaveWorkersBlock workers={agent.waveWorkers} waves={waveGroups} onOpenWorker={onOpenWorker} />
+                )}
 
                 {/* construction fan-out (build agent) */}
                 {construction && (
@@ -1103,8 +1515,25 @@ export function AgentDetailPanel({
                 {/* tool calls */}
                 {agent.toolCalls && agent.toolCalls.length > 0 && <ToolCallsSection toolCalls={agent.toolCalls} />}
 
-                {/* full input */}
-                {agent.inputPrompt && <InputPromptSection prompt={agent.inputPrompt} />}
+                {/* full input — Req 36: when systemPrompt is present (new SSE streams)
+                    render it as "System prompt" + optional "Task message" sub-section.
+                    When systemPrompt is absent fall back to legacy single-pane behaviour
+                    using inputPrompt (backward-compatible, INV-3).
+                    Req 13 AC 9: when systemPrompt is absent and context sources are
+                    file-based (run_input / context_block), pass contextIsFileBased so
+                    the section labels the short human message as "Task message" and
+                    shows a note — never a misleading "N chars" that looks like no
+                    context. */}
+                {(agent.systemPrompt || agent.inputPrompt) && (
+                  <InputPromptSection
+                    prompt={agent.systemPrompt ?? agent.inputPrompt!}
+                    taskMessage={agent.systemPrompt ? agent.inputPrompt : undefined}
+                    contextIsFileBased={
+                      !agent.systemPrompt &&
+                      sources.some(s => s.type === "run_input" || s.type === "context_block")
+                    }
+                  />
+                )}
 
                 {/* output — an older artifact version when one is selected, else the
                     agent's live/settled output. ISS-065: the `isDone` gate is widened

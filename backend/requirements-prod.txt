@@ -191,6 +191,8 @@ python-pptx==1.0.2
 # long-deprecated PdfFileReader/PdfFileWriter aliases and some
 # camelCase methods, so the call site was checked against the 6.x API.
 pypdf==6.16.1
+# Layout-aware PDF text + image boxes for app/agents/tools/file_extract_tools.py (spec 019).
+pdfplumber==0.11.10
 # Browser automation for headless render validation. PRODUCTION, not test:
 # app/agents/render_check.py imports playwright.async_api at runtime and
 # app/agents/validators/html_render.py registers it as a Validator capability.

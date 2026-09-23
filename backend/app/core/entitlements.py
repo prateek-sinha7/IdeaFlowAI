@@ -2,6 +2,8 @@
 
 from typing import Literal
 
+from agents.capabilities.model_catalog import ModelCatalog
+
 Tier = Literal["basic", "pro", "enterprise", "hexaware"]
 
 # Pipelines each tier can execute (including revision variants)
@@ -10,6 +12,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "user_stories",
         "user_stories_revision",
         "ppt",
+        "ppt_v2",
         "ppt_revision",
     },
     # KAN-161 / ISS-055: scoped tier for deployments that need prototype +
@@ -20,6 +23,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "user_stories_revision",
         "prototype",
         "prototype_revision",
+        "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
     },
@@ -27,9 +31,11 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "user_stories",
         "user_stories_revision",
         "ppt",
+        "ppt_v2",
         "ppt_revision",
         "prototype",
         "prototype_revision",
+        "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",
@@ -39,9 +45,11 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "user_stories",
         "user_stories_revision",
         "ppt",
+        "ppt_v2",
         "ppt_revision",
         "prototype",
         "prototype_revision",
+        "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",
@@ -55,6 +63,29 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "migration",
         "mulesoft_to_springboot",
         "dotnet_to_azure",
+        # spec-014 conditional-gates integration: QA found these 5 were not
+        # entitled to any tier despite user_launchable: true.
+        "ex_A2_branch",
+        "ex_A1_loop",
+        "ex_A4_human_gate",
+        "ex_A4_human_divert",
+        "ex_A3_divert",
+        "ex_A3_b_spanish",
+        "ex_A3_c_dutch",
+        # spec 018: temporary smoke-test pipeline for the playwright tool set.
+        # Same gap as the ex_A* fixtures above — user_launchable: true alone
+        # doesn't entitle a pipeline, it needs a tier row too.
+        "playwright_smoke_test",
+        # spec: document-driven prototype build. The file manifest carries the
+        # raised limits a wave fan-out needs (a db manifest may not raise them),
+        # and user_launchable: true alone does not entitle a pipeline.
+        # The former sibling id `pdf_to_prototype_v2` is gone: that directory
+        # held a byte-identical stale snapshot of this manifest and was removed,
+        # so this is the only id the two entitlement maps need to agree on.
+        "pdf_to_prototype",
+        # reference fan-out fixture — entitled so its canvas rendering can be
+        # compared against a real workflow.
+        "sample_subagents_parallel",
     },
 }
 
@@ -86,6 +117,49 @@ def can_run_pipeline(user_tier: str, pipeline_type: str) -> tuple[bool, str]:
             f"This pipeline requires {next_label} or higher. Upgrade your plan to unlock it.",
         )
     return False, "This pipeline is not available on your current plan."
+
+
+# Model cost classes each tier may select (ISS-292). Keyed off
+# ``ModelEntry.cost_class`` — the canonical axis (cheap/standard/premium), not the
+# display ``tier`` string — so the table is the same shape as TIER_PIPELINES above
+# and reads the same fail-closed way. The entry tier is held off the premium
+# (Opus) models; every paid tier keeps the full catalog.
+#
+# NOT the same axis as ``ModelEntry.user_allowed``, which is the CAP-03 trust flag
+# (engineer- vs user-composable capability) — subscription tier and capability
+# trust must not be conflated.
+TIER_MODEL_COST_CLASSES: dict[str, set[str]] = {
+    "basic": {"cheap", "standard"},
+    "hexaware": {"cheap", "standard", "premium"},
+    "pro": {"cheap", "standard", "premium"},
+    "enterprise": {"cheap", "standard", "premium"},
+}
+
+
+def can_use_model(user_tier: str, model_id: str) -> tuple[bool, str]:
+    """Return (allowed, reason). reason is empty string when allowed.
+
+    The tier question only. Catalog MEMBERSHIP stays the caller's check
+    (``settings.py``'s ``_VALID_MODEL_IDS``, ``run_engine.py``'s
+    ``ModelCatalog().ids()``), so an unknown id passes through here and keeps
+    getting the caller's 422 instead of a misleading "upgrade your plan" 403.
+    """
+    entry = ModelCatalog().get(model_id)
+    if entry is None:
+        return True, ""
+    allowed_classes = TIER_MODEL_COST_CLASSES.get(
+        user_tier, TIER_MODEL_COST_CLASSES["basic"]
+    )
+    if entry.cost_class in allowed_classes:
+        return True, ""
+    next_tier = UPGRADE_PATH.get(user_tier)
+    if next_tier:
+        next_label = TIER_LABELS[next_tier]
+        return (
+            False,
+            f"This model requires {next_label} or higher. Upgrade your plan to unlock it.",
+        )
+    return False, "This model is not available on your current plan."
 
 
 # --- Cognito group -> role/tier resolution (COGNITO-MIGRATION-PLAN §5.1) ---

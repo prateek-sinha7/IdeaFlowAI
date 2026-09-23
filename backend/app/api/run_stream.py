@@ -60,6 +60,15 @@ from app.api.run_engine import (  # noqa: E402
 
 router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
 
+# A12: `_revocation_check` (below `stream_run_events`) recurs on an UNBOUNDED timer for
+# the lifetime of every live SSE connection (every 30s idle or every 5 events) — the one
+# call site in this codebase where the D-08 sync-SessionLocal()-inside-async-def idiom is
+# NOT bounded by a single request's lifecycle. A stuck/slow query here freezes the whole
+# single-threaded event loop, not just this connection. Bounded at 5s: long enough that a
+# normal DB round-trip never trips it, short enough that a stuck query degrades to a
+# fail-closed stream close instead of an unbounded freeze.
+_REVOCATION_CHECK_TIMEOUT_SECONDS = 5.0
+_REVOCATION_CHECK_SLOW_LOG_THRESHOLD_SECONDS = 1.0
 
 def recheck_stream_credential(token: str) -> str | None:
     """Re-verify an established stream's credential IN FULL. Reason, or ``None``.
@@ -153,6 +162,7 @@ def recheck_stream_credential(token: str) -> str | None:
     finally:
         rdb.close()
 
+
 # Terminal / gate-resolution event types: a ``review_gate_ready`` FOLLOWED by any of
 # these in the durable log means the gate is no longer open (do NOT re-arm, D-14g).
 # RESUME-17 / INV-12: this is the ONE shared review-resolution frozenset (byte-identical
@@ -168,9 +178,22 @@ from agents.capabilities.gate_pendency import (  # noqa: E402
 # terminal: approve makes the engine keep building on the SAME per-run queue
 # (post-approve ``generating`` frames follow), so closing the stream on it forces
 # a needless reconnect + full replay. Only pipeline_complete / pipeline_cancelled /
-# pipeline_failed / budget_aborted / error truly end the run's event stream. The
-# broader ``_GATE_RESOLUTION_TYPES`` (which DOES include approve) still drives the
-# D-14g durable gate re-arm derivation below — that is a separate concern.
+# pipeline_failed / error truly end the run's event stream. The broader
+# ``_GATE_RESOLUTION_TYPES`` (which DOES include approve AND budget_aborted) still
+# drives the D-14g durable gate re-arm derivation below — that is a separate concern.
+#
+# ``budget_aborted`` is likewise excluded here (but stays IN
+# ``_GATE_RESOLUTION_TYPES`` — it still closes an open review gate; a budget-aborted
+# run is no longer waiting on that gate). It is informational only now: the engine
+# no longer treats every budget-dimension breach as fatal (the loop_iterations
+# convergence-limit case suppresses the exception and keeps running — the run's
+# genuine terminal, ``pipeline_complete``, follows later), and the still-fatal
+# dimensions (tokens/wall-clock/subagents/depth/workspace) now emit their own
+# ``pipeline_failed`` immediately after ``budget_aborted`` (see the
+# ``except BudgetExceeded`` handler in ``agents/execution_engine/engine.py``).
+# Keeping it in the terminal set closed the stream mid-run on the (recoverable)
+# loop case, hiding every later live event — including the run's actual
+# completion — until the client manually refreshed.
 #
 # SSE-002 (R-07, ISS-147): this set must stay in SYNC with the frontend's
 # STREAM_TERMINAL_TYPES in frontend/src/types/index.ts. Both sets are the
@@ -178,7 +201,18 @@ from agents.capabilities.gate_pendency import (  # noqa: E402
 # derives it from gate_pendency.REVIEW_RESOLUTIONS (gated, not hardcoded); the
 # frontend imports the constant directly for its terminal guard (BUG-015).
 # A test in backend/tests/unit/test_sse_stream.py verifies both stay in sync.
-_STREAM_TERMINAL_TYPES = _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approved"})
+#
+# ``pipeline_diverted`` is UNIONED IN rather than added to the gate vocabulary: a
+# cross-workflow divert is not a gate resolution, and ``_GATE_RESOLUTION_TYPES`` also
+# derives ``_GATE_REARM_TYPES`` below — widening it there would change gate re-arm
+# semantics as a side effect. It genuinely ends the stream though: R-13 says a
+# ``trigger: workflow`` outcome stops the run (the engine yields the frame and returns,
+# with no pipeline_complete to follow). Omitting it meant the connection dropped without
+# any terminal type being recognised, so the client rendered "Reconnecting…", reconnected,
+# and only then replayed the divert — the banner arrived AFTER a spurious warning.
+_STREAM_TERMINAL_TYPES = (
+    _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approved", "budget_aborted"})
+) | frozenset({"pipeline_diverted"})
 
 # D-14g gate-re-arm vocabulary: the event types whose LAST occurrence decides whether a
 # review gate is still open. DERIVED from gate_pendency (RESUME-17 / INV-12: that module
@@ -187,6 +221,68 @@ _STREAM_TERMINAL_TYPES = _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approv
 # deliberately different: review_gate_approved IS a re-arm resolution but is NOT a stream
 # terminal (BUG-016) -- do not conflate them.
 _GATE_REARM_TYPES = frozenset({REVIEW_GATE_READY}) | _GATE_RESOLUTION_TYPES
+
+
+# ---------------------------------------------------------------------------
+# Revocation check — the sync DB body, run off the event loop via asyncio.to_thread.
+# ---------------------------------------------------------------------------
+def _check_revocation_sync(*, token: str) -> Optional[str]:
+    """The synchronous body of the revocation check (A12 fix).
+
+    Called via ``asyncio.to_thread``. ``recheck_stream_credential`` opens and closes
+    its own ``SessionLocal()`` inside this call, so the sync session never crosses
+    threads.
+    """
+    return recheck_stream_credential(token)
+
+
+async def _run_revocation_check(
+    *, token: str, user_id: str, run_id: str
+) -> Optional[str]:
+    """Bounded, off-loop revocation check (A12 fix).
+
+    Runs ``_check_revocation_sync`` in a worker thread via ``asyncio.to_thread``,
+    bounded by ``_REVOCATION_CHECK_TIMEOUT_SECONDS``. This call recurs on an
+    unbounded timer for a live SSE connection's whole lifetime (unlike every other
+    DB call in this codebase, which is a one-shot bounded by a single request) — a
+    stuck/slow query here used to freeze the entire single-threaded event loop, not
+    just this one stream.
+
+    FAIL CLOSED: a timeout or any exception from the check is treated as an
+    unverifiable session — returns a reason string (closing the stream via the
+    same ``session_revoked`` path a genuine revocation uses) rather than "keep
+    streaming because we couldn't check". Logs once at WARNING for any check that
+    is slow (> ``_REVOCATION_CHECK_SLOW_LOG_THRESHOLD_SECONDS``) or that failed —
+    run_id + user_id + duration only, never token/session values.
+    """
+    import asyncio
+    import time
+
+    started = time.monotonic()
+    try:
+        reason = await asyncio.wait_for(
+            asyncio.to_thread(_check_revocation_sync, token=token),
+            timeout=_REVOCATION_CHECK_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        duration = time.monotonic() - started
+        logger.warning(
+            "evt=sse.revocation_check_failed run_id=%s user_id=%s duration_s=%.2f",
+            run_id,
+            user_id,
+            duration,
+        )
+        return "revocation_check_failed"
+
+    duration = time.monotonic() - started
+    if duration > _REVOCATION_CHECK_SLOW_LOG_THRESHOLD_SECONDS:
+        logger.warning(
+            "evt=sse.revocation_check_slow run_id=%s user_id=%s duration_s=%.2f",
+            run_id,
+            user_id,
+            duration,
+        )
+    return reason
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +408,8 @@ async def _iter_sse_frames(
         # event_id (present on both the durable row and the live event dict — stamped
         # once, at the source, engine.py) is safe either way: a never-persisted event's id
         # is never in this set, so it is never filtered.
+        from app.api.runs import _iso_utc  # ISS-358: shared KAN-113 UTC promotion
+
         rows = await store.read_events(run_id, after_seq=after_seq)
         for r in rows:
             # The row's ``event_id``/``seq`` COLUMNS are the authoritative identity and
@@ -323,10 +421,21 @@ async def _iter_sse_frames(
             # the four app-layer types persisted with no embedded identity — chat_reply,
             # chat_message, chat_usage, run_resuming — which without this reach the
             # client anonymous and get re-keyed (and so re-rendered) by the consumer.
+            # ISS-358: the row's ``created_at`` rides as a FALLBACK, merged FIRST so
+            # any payload-embedded timestamp still wins (FIX-354's ``pipeline_start``
+            # stamps the RUN's created_at, which a resumed run's row write time would
+            # otherwise clobber). Mirrors the REST twin so both durable readers hand
+            # the consumer the same send time; without it a replayed chat turn folds
+            # with no timestamp and the transcript falls back to the client clock.
             yield _sse_frame(
                 r.seq,
                 r.type,
-                {**(r.payload_json or {}), "event_id": r.event_id, "seq": r.seq},
+                {
+                    "created_at": _iso_utc(r.created_at),
+                    **(r.payload_json or {}),
+                    "event_id": r.event_id,
+                    "seq": r.seq,
+                },
             )
             replayed_through_seq = r.seq
             replayed_event_ids.add(r.event_id)
@@ -384,7 +493,13 @@ async def _iter_sse_frames(
             dangling = await _dangling_review_gate(store, run_id)
             if dangling is not None and dangling.seq <= after_seq:
                 yield _sse_frame(
-                    dangling.seq, "review_gate_ready", dangling.payload_json
+                    dangling.seq,
+                    "review_gate_ready",
+                    {
+                        **(dangling.payload_json or {}),
+                        "event_id": dangling.event_id,
+                        "seq": dangling.seq,
+                    },
                 )
 
         # 4. Live drain — forward new events off the shared per-run queue until the None
@@ -588,7 +703,17 @@ async def stream_run_events(
         )
 
     async def _revocation_check() -> str | None:
-        return recheck_stream_credential(_revocation_token)
+        """Re-verify the attaching credential; reason string, or ``None``.
+
+        A12: delegates to ``_run_revocation_check`` (module-level, off-loop +
+        bounded + fail-closed), which runs the full ``recheck_stream_credential``
+        verifier on this request's raw token — see those docstrings.
+        """
+        return await _run_revocation_check(
+            token=_revocation_token,
+            user_id=current_user.id,
+            run_id=workflow_id,
+        )
 
     # D11 (KAN-139): log every stream open/close so A1's 429 storm, A2's event
     # theft, and D7's pool drops are diagnosable from the application layer.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
+import { renderWithProviders, screen, waitFor, within } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import type { WorkflowRun } from "@/types/index";
@@ -16,6 +16,17 @@ const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>()
 // for the summary column — KPI / per-agent breakdown / version timeline / failure
 // banner. Controllable so a test can drive the RunDetailPage-rendered failure banner.
 const mockGetRunSummary = vi.fn<(token: string, id: string) => Promise<RunSummary>>();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => ({
+    get: vi.fn(() => null),
+  }),
+}));
+
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),
@@ -173,18 +184,11 @@ function summaryFor(run: WorkflowRun, agents: { agent_id: string; name: string }
   };
 }
 type ChainHandler = (run: WorkflowRun, type: import("@/types/index").WorkflowType) => void;
-async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler) {
-  mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
-  // The detail-load short-circuits when run.output is set, but mock
-  // getWorkflow anyway so any code path that does fetch the full run
-  // resolves correctly.
-  mockGetWorkflow.mockResolvedValue(run);
-  // Set up getRunSummary for non-failed runs so the chain panel can render
-  if (run.status !== "failed" && run.status !== "cancelled") {
-    mockGetRunSummary.mockResolvedValue(summaryFor(run));
-  }
-  // Initialize Redux store with workflow chain data so useWorkflowChaining works
-  const preloadedState = {
+// Redux state so useWorkflowChaining resolves chain targets for ppt/user_stories/
+// prototype/custom. Shared by renderAndOpenRun and the T3-chaining-reachable
+// tests below — both need the exact same catalog.
+function chainCatalogPreloadedState() {
+  return {
     global: {
       workflows: [
         {
@@ -251,6 +255,19 @@ async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler
       recentRunsError: null,
     },
   };
+}
+async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler) {
+  mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
+  // The detail-load short-circuits when run.output is set, but mock
+  // getWorkflow anyway so any code path that does fetch the full run
+  // resolves correctly.
+  mockGetWorkflow.mockResolvedValue(run);
+  // Set up getRunSummary for non-failed runs so the chain panel can render
+  if (run.status !== "failed" && run.status !== "cancelled") {
+    mockGetRunSummary.mockResolvedValue(summaryFor(run));
+  }
+  // Initialize Redux store with workflow chain data so useWorkflowChaining works
+  const preloadedState = chainCatalogPreloadedState();
   renderWithProviders(<WorkflowHistory onBack={vi.fn()} onChainPipeline={onChainPipeline} />, { preloadedState });
   // Wait for the list to render the run, then click it to open detail.
   const item = await screen.findByText(run.title);
@@ -266,12 +283,33 @@ describe("WorkflowHistory — Suggested next steps", () => {
     await renderAndOpenRun(makeRun({ type: "ppt" }), undefined);
     expect(screen.queryByText(/suggested next steps/i)).not.toBeInTheDocument();
   });
-  it("hides the chain panel when the run failed", async () => {
+  // Was "hides the chain panel when the run failed" — a pre-SGV2 expectation
+  // that has been RED since commit e7305f9d (sandbox-git-versioning-v2, task
+  // 11.7) rewrote this panel, and was never re-pinned. Requirement 21 AC 11
+  // deliberately replaced "hide" with "show as unavailable with its reason
+  // rather than offered and then refused", so the panel now renders for a
+  // terminal non-success run and disables the options instead. The intent of
+  // the original case — a failed run cannot be chained — is kept and
+  // strengthened: the click is proved to be a no-op, not merely absent.
+  it("a failed run with no finalization record offers no chainable option — the panel renders with every option unavailable", async () => {
+    const onChainPipeline = vi.fn();
     await renderAndOpenRun(
       makeRun({ status: "failed", error: "Bedrock timeout" }),
-      vi.fn(),
+      onChainPipeline,
     );
-    expect(screen.queryByText(/suggested next steps/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/suggested next steps/i)).toBeInTheDocument();
+    // `payloadChainable` undefined on a non-success run → not chainable (safe default).
+    expect(
+      screen.getByText(/this run failed — output not available for chaining/i),
+    ).toBeInTheDocument();
+    const option = screen.getByRole("button", { name: /prototype/i });
+    expect(option).toBeDisabled();
+    expect(within(option).getByText("Output not available for chaining")).toBeInTheDocument();
+    expect(
+      within(option).getByText("Cannot chain: output not available for chaining"),
+    ).toBeInTheDocument();
+    await userEvent.click(option);
+    expect(onChainPipeline).not.toHaveBeenCalled();
   });
   it("shows the chain panel with sibling targets for a completed base run", async () => {
     await renderAndOpenRun(makeRun({ type: "ppt" }), vi.fn());
@@ -303,6 +341,135 @@ describe("WorkflowHistory — Suggested next steps", () => {
       expect.objectContaining({ id: run.id, type: run.type, output: run.output }),
       "prototype",
     );
+  });
+});
+// ─────────────────────────────────────────────────────────────────
+// T3-chaining-reachable — handleSelectRun's onOpenRun branch always returns
+// before setSelectedRun runs, so the "Suggested next steps" chain panel above
+// was unreachable in production (DashboardLayout always passes onOpenRun
+// alongside onChainPipeline). Fixed via RowMenu's new "Chain" item, which opts
+// OUT of the onOpenRun redirect (opts.forChain) instead of removing it — the
+// plain row click must keep opening the run through onOpenRun by default.
+// ─────────────────────────────────────────────────────────────────
+describe("WorkflowHistory — chain affordance reachable despite onOpenRun (T3-chaining-reachable)", () => {
+  it("a plain row click still calls onOpenRun (the default 'open this run' behaviour is unchanged)", async () => {
+    const run = makeRun({ type: "ppt" });
+    mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
+    mockGetWorkflow.mockResolvedValue(run);
+    const onOpenRun = vi.fn();
+    const onChainPipeline = vi.fn();
+    renderWithProviders(
+      <WorkflowHistory onBack={vi.fn()} onOpenRun={onOpenRun} onChainPipeline={onChainPipeline} />,
+      { preloadedState: chainCatalogPreloadedState() },
+    );
+    await userEvent.click(await screen.findByText(run.title));
+    expect(onOpenRun).toHaveBeenCalledTimes(1);
+    expect(onOpenRun).toHaveBeenCalledWith(expect.objectContaining({ id: run.id }));
+    // Stayed on the list — the internal detail (with the chain panel) never mounted.
+    expect(screen.queryByText(/suggested next steps/i)).not.toBeInTheDocument();
+  });
+  it("the row's Chain menu action reaches the chain panel (bypassing onOpenRun) and fires onChainPipeline with the source run id", async () => {
+    const run = makeRun({ type: "ppt" });
+    mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
+    mockGetWorkflow.mockResolvedValue(run);
+    mockGetRunSummary.mockResolvedValue(summaryFor(run));
+    const onOpenRun = vi.fn();
+    const onChainPipeline = vi.fn();
+    renderWithProviders(
+      <WorkflowHistory onBack={vi.fn()} onOpenRun={onOpenRun} onChainPipeline={onChainPipeline} />,
+      { preloadedState: chainCatalogPreloadedState() },
+    );
+    await screen.findByText(run.title);
+    await userEvent.click(screen.getByRole("button", { name: "Run actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /chain/i }));
+    // onOpenRun's redirect was bypassed — the internal detail (chain panel) opened instead.
+    expect(onOpenRun).not.toHaveBeenCalled();
+    expect(await screen.findByText(/suggested next steps/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /prototype/i }));
+    expect(onChainPipeline).toHaveBeenCalledTimes(1);
+    expect(onChainPipeline).toHaveBeenCalledWith(
+      expect.objectContaining({ id: run.id, type: run.type }),
+      "prototype",
+    );
+  });
+});
+// ─────────────────────────────────────────────────────────────────
+// SGV2-GAP-017 / Requirement 21 AC 11 + AC 15 — the chain SOURCE LIST.
+//
+// AC 11: "`failed`, `cancelled`, `degraded`, and `diverted` sources SHALL be
+// offerable only when their finalization record reports `payload_chainable =
+// true`; a non-chainable source SHALL be shown as unavailable with its reason
+// rather than offered and then refused."
+//
+// The source list is this component's "Suggested next steps" panel
+// (WorkflowHistory.tsx, "SGV2 11.7") — the only place `payloadChainable` /
+// `nonChainableReason` are read in the frontend. GIT_VERSIONING_TASKS row N3
+// named `LaunchWizard.test.tsx` for this case (inherited from
+// gap-closure-review.md's recommended-action prose, which calls the wizard
+// "the picker"); the wizard is downstream of the pick, takes only an
+// `initialMode` prop, and reads neither field. Relocated by technical-lead
+// review; see gaps-run/journal/N3.md "fix attempt 3". The wizard's own half of
+// Req 21 AC 12 (the acknowledged pre-launch warning fed by the
+// `chain.v2.source_status` key written below) stays in LaunchWizard.test.tsx.
+// ─────────────────────────────────────────────────────────────────
+describe("WorkflowHistory — non-success chain sources (SGV2 11.7 / Req 21 AC 11)", () => {
+  it("payload_chainable=false: chain options render as unavailable with the non_chainable_reason, and the click is refused", async () => {
+    sessionStorage.clear();
+    const onChainPipeline = vi.fn();
+    await renderAndOpenRun(
+      makeRun({
+        type: "user_stories",
+        status: "degraded",
+        payloadChainable: false,
+        nonChainableReason: "secret_scan_blocked",
+      }),
+      onChainPipeline,
+    );
+    // Shown as unavailable — the notice names the published status and says the
+    // output is not available, NOT the "may be incomplete" offer copy.
+    expect(
+      await screen.findByText(/this run degraded — output not available for chaining/i),
+    ).toBeInTheDocument();
+
+    const option = screen.getByRole("button", { name: /prototype/i });
+    expect(option).toBeDisabled();
+    expect(option).toHaveAttribute("aria-disabled", "true");
+    // The reason itself is surfaced — visible sub-label + screen-reader description.
+    expect(within(option).getByText("secret_scan_blocked")).toBeInTheDocument();
+    expect(within(option).getByText(/cannot chain: secret_scan_blocked/i)).toBeInTheDocument();
+    expect(option).toHaveAttribute("aria-describedby", "chain-unavailable-prototype");
+
+    // "rather than offered and then refused": the click does nothing at all —
+    // no navigation callback, and no source status handed to the wizard.
+    await userEvent.click(option);
+    expect(onChainPipeline).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("chain.v2.source_status")).toBeNull();
+  });
+  it("payload_chainable=true: the same degraded source IS offered, with the partial-output warning, and hands its status to the wizard", async () => {
+    sessionStorage.clear();
+    const onChainPipeline = vi.fn();
+    const run = makeRun({
+      type: "user_stories",
+      status: "degraded",
+      payloadChainable: true,
+    });
+    await renderAndOpenRun(run, onChainPipeline);
+    // Offered, but honest: status named, partial output called out.
+    expect(
+      await screen.findByText(/this run degraded — output may be incomplete/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/only partial output will be passed/i)).toBeInTheDocument();
+
+    const option = screen.getByRole("button", { name: /prototype/i });
+    expect(option).not.toBeDisabled();
+    await userEvent.click(option);
+    expect(onChainPipeline).toHaveBeenCalledWith(
+      expect.objectContaining({ id: run.id }),
+      "prototype",
+    );
+    // The writer side of CHAIN_SOURCE_STATUS_KEY — what LaunchWizard's Req 21
+    // AC 12 pre-launch warning reads on the next mount.
+    expect(sessionStorage.getItem("chain.v2.source_status")).toBe("degraded");
   });
 });
 // ─────────────────────────────────────────────────────────────────

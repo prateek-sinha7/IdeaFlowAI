@@ -224,6 +224,41 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # than regenerating) keeps all 5 event goldens byte-untouched — mirroring the
         # deliverable_mimetype / redoable / cache_* / resume_offset precedents.
         "estimated_cost_full_usd",
+        # ── Additive-but-parity-neutral pipeline_start key (ISS-276) ─────────────
+        # The engine now stamps the run's real ``created_at`` on ``pipeline_start``
+        # so a durable REST replay of that frame is distinguishable from a live one
+        # (the FE reducer previously fell back to "now" and dated a day-old run to
+        # page-load time). It is a per-run wall-clock stamp — the most volatile kind
+        # of value there is — and ``_REQUIRED_DATA_KEYS`` has no ``pipeline_start``
+        # entry at all, so it is metadata-only and STRIPPED here, exactly like its
+        # ``resume_offset`` sibling above, keeping all 5 event goldens byte-untouched
+        # (INV-3).
+        "created_at",
+        # ── Additive-but-parity-neutral agent_input key (Requirement 36) ────────
+        # The engine now emits ``system_prompt`` on ``agent_input`` so the Thinking
+        # tab can display the full system prompt + targeted retry payload rather than
+        # just the context_message (which shrinks to almost nothing after Seam 2
+        # removal). ``system_prompt`` contains the composed AGENT.md body — its
+        # content varies run-to-run (model, policy, user override) and is NOT in
+        # _REQUIRED_DATA_KEYS, so it is STRIPPED here to keep the 5 characterization
+        # event goldens byte-identical (INV-3). The display behaviour is exercised by
+        # the Phase 6 tests (task 8.9).
+        "system_prompt",
+        # ── Additive-but-parity-neutral pipeline_complete key (spec 003 / Task 5.9) ──
+        # The finalizer now embeds ``published_status`` on ``pipeline_complete`` so
+        # the consumer has the authoritative status from the durable finalization
+        # record (engine.py step 5, ``_pipeline_complete_data["published_status"]``).
+        # Under the scripted characterization harness the commit primitive's
+        # ``last_commit_blocked`` flag may be set by the hook scaffolding, making
+        # the value non-deterministic across runs (``"completed"`` vs ``"degraded"``).
+        # ``published_status`` is NOT in ``_REQUIRED_DATA_KEYS["pipeline_complete"]``
+        # (the required keys are ``pipeline_type``, ``pipeline_run_id``,
+        # ``final_output``, and the three token-count fields), so it is STRIPPED here
+        # — mirroring the ``deliverable_mimetype``/``redoable``/``system_prompt``
+        # precedents — to keep the 5 characterization event goldens byte-identical
+        # (INV-3). The durable-record behaviour is exercised by
+        # ``tests/agents/test_finalizer_v2.py`` and ``test_event_contract.py``.
+        "published_status",
     }
 )
 

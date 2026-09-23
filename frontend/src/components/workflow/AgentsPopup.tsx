@@ -1,15 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
-  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2,
-  FileText, Edit3, RotateCcw,
+  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2, Cpu,
+  FileText, Edit3, RotateCcw, Maximize2,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
 import { CanvasView } from "./composer/CanvasView";
+import { workflowCanvasModel } from "@/lib/workflowCanvasModel";
+import type { ManifestStep } from "@/types";
 import { useBriefAttachments } from "./IdeaInputPage";
 import { addChildInTree, collectAgentIds, findAgentInTree, instantiateIfTemplate } from "@/store/api/userWorkflows";
 import type { HookDef } from "@/store/api/hooks";
@@ -29,7 +32,7 @@ import {
   type AgentPromptData,
 } from "@/lib/api";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
-import type { AgentDef, WorkflowType, AttachedHook } from "@/types/index";
+import type { AgentDef, WorkflowType, AttachedHook, AgentToolGrants, WorkflowRunConfig } from "@/types/index";
 import { useHooksCatalog } from "@/hooks/useHooksCatalog";
 import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
 import { AgentSkillsPicker } from "@/components/workflow/composer/AgentSkillsPicker";
@@ -43,6 +46,13 @@ import { getPrimaryPipelineType } from "@/lib/workflowIcons";
 interface AgentsPopupProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Debug only: names the remount generation, so the console shows whether this
+   *  mount saw the manifest-seeded selections or the empty pre-fetch ones. */
+  debugLabel?: string;
+  /** Reopen this same composition in the FULL-PAGE Composer. This modal already
+   *  renders composer/CanvasView, so it is the same canvas at full size — not a
+   *  second surface. Omitted by callers that have nowhere to navigate to. */
+  onOpenInCanvas?: () => void;
   /**
    * ISS-167 (follow-up) — the reopened saved workflow's identity, so this
    * popup's OWN footer "Save workflow" button (distinct from any page-level
@@ -54,9 +64,49 @@ interface AgentsPopupProps {
   userWorkflowId?: string;
   savedName?: string;
   savedDescription?: string;
+  /**
+   * Spec 016 — this user has saved their OWN version of this built-in workflow.
+   * When true the header renders a checkbox that swaps `agents` between their
+   * version and the system one. Absent (the default) for every user who has
+   * never saved an override, and for every caller that has not wired this up —
+   * the header then renders exactly as before.
+   */
+  /**
+   * The workflow's DECLARED run config (deliverable / planner / clarify), from
+   * `GET /api/workflows/{id}`. Read-only here — no `onRunConfigChange` is
+   * forwarded, so the rail's controls stay disabled exactly as before.
+   *
+   * Without it the rail fell back to CanvasView's blank-canvas defaults and
+   * told every user that ppt outputs `streamed_text`/`output.md` with planning
+   * and clarify off, when its manifest declares `ppt`/`presentation.pptx`,
+   * `planner: run` and `clarify: auto`. Four wrong values on a read-only panel.
+   */
+  runConfig?: WorkflowRunConfig;
+  overrideAvailable?: boolean;
+  /** Whether the override is currently the one being shown AND the one that
+   *  will run. Persisted server-side, not view-local: a display-only toggle
+   *  would let this modal show one plan while the launch executed another. */
+  overrideActive?: boolean;
+  onToggleOverride?: (next: boolean) => void;
   agents: AgentDef[];
+  /** The workflow's RAW manifest steps. When present the canvas is built from
+   *  these via `workflowCanvasModel` — the SAME conversion ComposerPage uses —
+   *  instead of from `agents`, which is the flat launch roster and carries no
+   *  sub-agent tree. Without it a fan-out parent renders with an empty
+   *  "+ Sub-agent" slot while the full canvas draws its children. */
+  manifestSteps?: ManifestStep[];
   pipelineType: WorkflowType;
-  onAddAgent?: (agent: AgentDef) => void;
+  /** `insertBeforeId` is the root agent the new one should land IN FRONT OF —
+   *  reported by the canvas's "+" affordances (including the head one, between
+   *  the Brief pill and step 1). Omitted ⇒ append. A caller that ignores the
+   *  second argument keeps its previous append-only behaviour. */
+  /**
+   * Offer the blank `custom-agent` template in the agent library? Default true.
+   * The LaunchWizard passes false — see AgentLibrary.allowCustomAgentTemplate
+   * for why a file-less step cannot be launched inside a built-in.
+   */
+  allowCustomAgentTemplate?: boolean;
+  onAddAgent?: (agent: AgentDef, insertBeforeId?: string) => void;
   onRemoveAgent?: (agentId: string) => void;
   onReorder?: (agents: AgentDef[]) => void;
   canAddMore?: boolean;
@@ -95,6 +145,15 @@ interface AgentsPopupProps {
    * (compose-from-scratch). Additive — preserves the byte-identical no-selections path.
    */
   initialSelections?: SelectionsMap;
+  /**
+   * ISS-247 — the LIVE per-step selections map, owned by the caller. When
+   * supplied the popup renders from THIS map instead of its own mount-once copy
+   * of `initialSelections`, so a gate set OUTSIDE the modal (the Review-gates
+   * checklist, which writes the same `selections[id].gates` the Config rail's
+   * Gate combobox reads) is visible INSIDE it. Absent ⇒ the popup keeps owning
+   * its own copy, unchanged.
+   */
+  selections?: SelectionsMap;
   /**
    * SURF-03 — the opened launchable workflow's declared per-step capabilities
    * (compiled projection). Threaded into the embedded palette so the composer
@@ -540,7 +599,17 @@ export function AgentCapabilitiesModal({
   const capabilities = getCapabilities(agent);
   const pipelineLabel = PIPELINE_LABEL[getPrimaryPipelineType(agent.pipeline_type)] ?? getPrimaryPipelineType(agent.pipeline_type);
 
-  const suggestedHooks = HOOKS.filter(h => h.compatible_agents.includes(agent.id)).slice(0, 3);
+  // ISS-491: AgentCapabilitiesModal declared role="dialog" / aria-modal="true" with
+  // no Escape handler — the same gap FIX-388 closed for WorkflowDialog. The shared
+  // hook already exists (useEscapeToClose); two lines and it is fixed.
+  useEscapeToClose(onClose);
+
+  // ISS-399: AgentSkillsPicker uses `!s.compatible_agents?.length || ...includes()`
+  // as the "compatible with everything" fallback (R-33). The hooks filter had no
+  // equivalent — a hook whose compatible_agents list was emptied of stale ids by
+  // FIX-360 would never suggest for any real agent. Add the same fallback so an
+  // empty list means "compatible with all" rather than "matches nothing".
+  const suggestedHooks = HOOKS.filter(h => !h.compatible_agents?.length || h.compatible_agents.includes(agent.id)).slice(0, 3);
 
   const isHookAttached = (id: string) => attachedHooks.some(h => h.id === id);
 
@@ -1312,6 +1381,12 @@ export type StepSelection = {
   validators?: string[];
   gates?: string[];
   model?: string;
+  /** Per-step reasoning level (spec 020). The stored value is the provider's own
+   *  level name (`none`/`low`/…/`max` on GPT-5.6, `none`/`on` on Claude) — the
+   *  LABEL is presentation, the level is the contract. Absent = "Default", which
+   *  sends no reasoning field and is NOT the same as the level `"none"`.
+   *  `selections.py` folds this into the step's `model` block. */
+  effort?: string;
   retry?: number;
   // ── Fan-out levers (51-06 / FANOUT-01, D6/§4a) ────────────────────────────
   // The composer persists a per-step fan-out selection generically (by
@@ -1321,13 +1396,31 @@ export type StepSelection = {
   // plan and the empty-selections path stays byte-identical (INV-3). The
   // shared `applyLeverPatch` reducer needs NO change — toggling ON writes
   // {strategy, task_source}, OFF clears them (undefined → key deleted).
-  strategy?: "fanout_batch";
+  // `wave_scheduler` is the second shape the same toggle authors: waves are
+  // dependency-ordered rather than one flat pass, and carry `fanout.agent`
+  // plus an `on_conflict` policy the batch shape has no use for. Both are
+  // already allowed selection keys server-side (`selections.py`).
+  // `task_loop` (ISS-705) is the third shape: ONE worker walking the same list
+  // in order, appending to a single file, instead of independent per-task
+  // workers — what the native prototype manifest gives `prototype-build`. It is
+  // registered `user_allowed=True` (capabilities/strategies/task_loop.py), so
+  // the generic `_apply_selections` overlay carries it through unchanged.
+  strategy?: "fanout_batch" | "wave_scheduler" | "task_loop";
   task_source?: {
     kind: "parsed";
-    parser: "heading_tasks" | "json_tasks";
+    parser: string;
+    /** Wave steps name the file the parsed list is written to. */
+    target?: string;
     source_step: string;
   };
-  fanout?: { mode?: "parallel"; max_parallel?: number };
+  fanout?: { agent?: "self"; mode?: "parallel"; max_parallel?: number };
+  /** Wave-only: what happens when two tasks in a wave claim the same target. */
+  on_conflict?: "human_gate";
+  /** Per-step tool grants. Absent = the composer's defaults (read+write ON).
+   *  Only `read_files`/`write_files` are author-editable: the untrusted cap
+   *  (`permission_caps.PERMISSION_CAP_INDEX["untrusted"]`) forbids everything
+   *  else for db-trust manifests, so offering them would grant nothing. */
+  tools?: AgentToolGrants;
 };
 export type SelectionsMap = Record<string, StepSelection>;
 
@@ -1392,16 +1485,109 @@ export function applyLeverPatch(
 }
 
 /**
+ * The author-editable per-step tool grants, in render order — the SINGLE
+ * definition every lever surface renders (the Canvas rail's Tools tab and the
+ * expander below), so the two views can never disagree about which grants
+ * exist or what "default" means (ISS-274). `exec`/`spawn_subagents` are
+ * deliberately absent: the untrusted cap zeroes them for db-trust manifests,
+ * so a toggle would grant nothing.
+ */
+export const TOOL_GRANT_LEVERS = [
+  {
+    key: "read_files",
+    label: "Read files",
+    desc: "List and read files in the run sandbox.",
+  },
+  {
+    key: "write_files",
+    label: "Write files",
+    desc: "Create and edit files in the run sandbox. Off means this step produces no artifact for later steps to read.",
+  },
+] as const;
+
+/**
+ * The grants in effect for a step. Absent selection = the composer's defaults
+ * (read + write ON), which is what `agentToManifestStep` also emits, so an
+ * untouched step's saved manifest is unchanged by these controls existing.
+ */
+export function effectiveToolGrants(
+  sel: StepSelection | undefined,
+): Record<(typeof TOOL_GRANT_LEVERS)[number]["key"], boolean> {
+  return {
+    read_files: sel?.tools?.read_files ?? true,
+    write_files: sel?.tools?.write_files ?? true,
+  };
+}
+
+/** True when a step carries a RESTRICTED grant (one switched off) — what the
+ *  Simple view's Overrides "Tools" chip reflects (ISS-274). */
+export function hasToolOverride(sel: StepSelection | undefined): boolean {
+  const grants = effectiveToolGrants(sel);
+  return TOOL_GRANT_LEVERS.some(({ key }) => !grants[key]);
+}
+
+/**
  * Fetch + kind-filter the live `/api/capabilities` palette into the lever
  * OPTIONS: `user_allowed` validator/gate names + the whole `model_catalog`
  * (SC-001 — never a hardcoded option list). Extracted from `AdvancedExpander` so
  * the Canvas inline config rail sources the SAME options from the SAME endpoint
  * (INV-3). Returns the option arrays + the fetch loading/error state.
  */
+/** The effort levels a model offers, from its catalog entry (spec 020).
+ *
+ * Empty means "render no Effort control": either the model declares
+ * `reasoning_mode: "none"`, or none is selected yet, in which case the workflow
+ * default applies and this rail cannot know its levels. Never hardcodes a model
+ * list — adding a model must not need a frontend change (SC-001).
+ */
+export function effortLevelsFor(
+  modelId: string | undefined,
+  modelOptions: CapabilityModelEntry[],
+): string[] {
+  if (!modelId) return [];
+  return modelOptions.find((m) => m.id === modelId)?.reasoning_levels ?? [];
+}
+
+/** Display label for a stored effort level.
+ *
+ * `none` reads as "Off" on Claude, where the two levels are a switch, and as
+ * "None" on GPT-5.6, where it sits at the bottom of a six-step scale. Shared by
+ * the canvas rail and the levers list so the two surfaces cannot disagree about
+ * what a step says — the failure FIX-584 fixed for the pipeline-label map.
+ */
+export function effortLabel(level: string, mode?: string): string {
+  if (level === "none") return mode === "effort" ? "None" : "Off";
+  if (level === "xhigh") return "xHigh";
+  return level.charAt(0).toUpperCase() + level.slice(1);
+}
+
+/** The lever patch for switching a step's model, keeping the effort only if the
+ *  new model accepts it.
+ *
+ *  Both authoring surfaces call this rather than each re-deriving the rule: a
+ *  step that keeps `xhigh` after a switch to Claude shows a level the run drops
+ *  silently at the request boundary. Two copies of that rule is how FIX-584's
+ *  duplicated label map drifted, so there is one.
+ */
+export function modelChangePatch(
+  nextModel: string,
+  currentEffort: string | undefined,
+  modelOptions: CapabilityModelEntry[],
+): { model: string; effort: string } {
+  const levels = effortLevelsFor(nextModel, modelOptions);
+  return {
+    model: nextModel,
+    effort: currentEffort && levels.includes(currentEffort) ? currentEffort : "",
+  };
+}
+
 export function useAgentCapabilities(token?: string | null) {
   const [validatorOptions, setValidatorOptions] = useState<string[]>([]);
   const [gateOptions, setGateOptions] = useState<string[]>([]);
   const [modelOptions, setModelOptions] = useState<CapabilityModelEntry[]>([]);
+  const [taskParserOptions, setTaskParserOptions] = useState<{ name: string; description: string }[]>([]);
+  const [mechanicalOptions, setMechanicalOptions] = useState<{ name: string; description: string }[]>([]);
+  const [capabilities, setCapabilities] = useState<CapabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1430,8 +1616,19 @@ export function useAgentCapabilities(token?: string | null) {
             .filter((c) => c.kind === "gate" && c.user_allowed)
             .map((c) => c.name),
         );
+        setTaskParserOptions(
+          palette.capabilities
+            .filter((c) => c.kind === "task_parser" && c.user_allowed)
+            .map((c) => ({ name: c.name, description: c.description })),
+        );
+        setMechanicalOptions(
+          palette.capabilities
+            .filter((c) => c.kind === "mechanical" && c.user_allowed)
+            .map((c) => ({ name: c.name, description: c.description })),
+        );
         // DECIDE-02: the model lever offers the WHOLE catalog (all tiers).
         setModelOptions(palette.model_catalog);
+        setCapabilities(palette.capabilities);
         setError(null);
       })
       .catch((e) => {
@@ -1446,7 +1643,7 @@ export function useAgentCapabilities(token?: string | null) {
     };
   }, [token]);
 
-  return { validatorOptions, gateOptions, modelOptions, loading, error };
+  return { validatorOptions, gateOptions, modelOptions, taskParserOptions, mechanicalOptions, capabilities, loading, error };
 }
 
 /**
@@ -1621,7 +1818,34 @@ function ConfigLeversFlat({
   // identical ("Default" in every select) and avoids the layout shift.
 
   const selectedValidator = sel.validators?.[0] ?? "";
-  const selectedGate = (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? "";
+  // Phased, not one-of-N — see CanvasConfigRail's note. Pre-step gates
+  // (security/approval/human) run BEFORE the agent generates, post-step
+  // (validation/conditional) after, so a step can carry one of each. The single
+  // select here had the same destructive rebuild: picking a gate replaced the
+  // whole array and dropped the other phase's gate.
+  const POST_STEP_GATES = ["validation", "conditional", "human"];
+  const isPostGate = (g: string) => POST_STEP_GATES.includes(g);
+  const HITL_GATES = ["before-human", "human", "approval"];
+  const GATE_LABELS: Record<string, string> = {
+    "before-human": "Human gate",
+    human: "Human gate",
+    approval: "Approval gate",
+    security: "Security gate",
+    conditional: "Conditional gate",
+  };
+  const declaredGates = sel.gates ?? [];
+  const selectableGates = gateOptions.filter((g) => g !== COUPLED_GATE);
+  const preGateChoices = selectableGates.filter((g) => !isPostGate(g));
+  const postGateChoices = selectableGates.filter((g) => isPostGate(g));
+  const toggleGate = (name: string, on: boolean) => {
+    const keepCoupled = (sel.validators?.length ?? 0) > 0 ? [COUPLED_GATE] : [];
+    let next = declaredGates.filter((g) => g !== name && g !== COUPLED_GATE);
+    if (on) {
+      if (HITL_GATES.includes(name)) next = next.filter((g) => !HITL_GATES.includes(g));
+      next = [...next, name];
+    }
+    updateLever({ gates: [...keepCoupled, ...next] });
+  };
   const selectedRetry = sel.retry !== undefined ? String(sel.retry) : "";
 
   return (
@@ -1632,9 +1856,34 @@ function ConfigLeversFlat({
           ariaLabel={`Model for ${agentName}`}
           value={sel.model ?? ""}
           options={modelOptions.map((m) => ({ value: m.id, label: m.label }))}
-          onChange={(v) => updateLever({ model: v })}
+          onChange={(v) => updateLever(modelChangePatch(v, sel.effort, modelOptions))}
         />
       </ConfigLeverRow>
+
+      {/* EFFORT (spec 020) — present on BOTH authoring surfaces by design. The
+          canvas rail has the same control; shipping it on one is how FIX-584's
+          duplicated pipeline-label map drifted. Options come from the model's
+          own catalog entry, so neither surface holds a model list. */}
+      {effortLevelsFor(sel.model, modelOptions).length > 0 && (
+        <ConfigLeverRow
+          label="Effort"
+          description="How hard the model thinks before answering"
+        >
+          <ConfigLeverSelect
+            leverId="effort" openLever={openLever} setOpenLever={setOpenLever}
+            ariaLabel={`Effort for ${agentName}`}
+            value={sel.effort ?? ""}
+            options={effortLevelsFor(sel.model, modelOptions).map((lvl) => ({
+              value: lvl,
+              label: effortLabel(
+                lvl,
+                modelOptions.find((m) => m.id === sel.model)?.reasoning_mode,
+              ),
+            }))}
+            onChange={(v) => updateLever({ effort: v })}
+          />
+        </ConfigLeverRow>
+      )}
 
       <ConfigLeverRow label="Validator" description="Output validation pass">
         <ConfigLeverSelect
@@ -1646,18 +1895,44 @@ function ConfigLeversFlat({
         />
       </ConfigLeverRow>
 
-      <ConfigLeverRow label="Gate" description="Pause for human review">
-        <ConfigLeverSelect
-          leverId="gate" openLever={openLever} setOpenLever={setOpenLever}
-          ariaLabel={`Gate for ${agentName}`}
-          value={selectedGate}
-          options={gateOptions.map((n) => ({ value: n, label: n }))}
-          onChange={(picked) => {
-            const keepCoupled = (sel.validators?.length ?? 0) > 0 ? [COUPLED_GATE] : [];
-            updateLever({ gates: picked ? [...keepCoupled, picked] : keepCoupled });
-          }}
-        />
-      </ConfigLeverRow>
+      {/* `gates:` is a LIST — checkboxes, grouped by the phase the engine evaluates
+          them in. One human-review gate per step (shared durable gate_key). */}
+      {[
+        { key: "pre", title: "Before execute", names: preGateChoices },
+        { key: "post", title: "After execute", names: postGateChoices },
+      ].map((group) =>
+        group.names.length === 0 ? null : (
+          <div key={group.key} className="py-1">
+            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+              {group.title}
+            </p>
+            {group.names.map((name) => {
+              const checked = declaredGates.includes(name);
+              const blocked =
+                !checked &&
+                HITL_GATES.includes(name) &&
+                declaredGates.some((g) => HITL_GATES.includes(g));
+              return (
+                <label
+                  key={name}
+                  title={blocked ? "Only one human-review gate per step" : undefined}
+                  className={`flex items-center gap-2 py-0.5 text-[12px] ${blocked ? "opacity-40" : "cursor-pointer"}`}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={`${group.title}: ${GATE_LABELS[name] ?? name} for ${agentName}`}
+                    checked={checked}
+                    disabled={blocked}
+                    onChange={(e) => toggleGate(name, e.target.checked)}
+                    className="h-3.5 w-3.5 accent-brand"
+                  />
+                  <span className="text-ink-700">{GATE_LABELS[name] ?? name}</span>
+                </label>
+              );
+            })}
+          </div>
+        ),
+      )}
 
       <ConfigLeverRow label="Retry" description="Auto-retry on failure">
         <ConfigLeverSelect
@@ -1759,6 +2034,7 @@ export function AdvancedExpander({
         const isOpen = expanded.has(agent.id);
         const region = `advanced-${agent.id}`;
         const sel = selections[agent.id] ?? {};
+        const grants = effectiveToolGrants(sel);
         const autoAttached =
           (sel.validators?.length ?? 0) > 0 &&
           (sel.gates ?? []).includes(COUPLED_GATE);
@@ -1784,6 +2060,67 @@ export function AdvancedExpander({
                 Validator · Gate · Model · Retry
               </span>
             </button>
+
+            {/* Tool grants (ISS-274) — the SAME `tools` field the Canvas rail's
+                Tools tab writes, through the SAME `applyLeverPatch` reducer and
+                the SAME shared lever list, so a grant restricted in one view is
+                visible and editable in the other. Rendered OUTSIDE the collapsed
+                disclosure: an existing restriction has to be visible when the
+                config panel opens, not one more click away. */}
+            <div className="space-y-1 pl-4 pt-0.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+                Tool grants
+              </p>
+              {TOOL_GRANT_LEVERS.map(({ key, label, desc }) => (
+                <div
+                  key={key}
+                  title={desc}
+                  className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5"
+                >
+                  <label
+                    htmlFor={`${region}-${key}`}
+                    className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
+                  >
+                    {label}
+                  </label>
+                  <input
+                    type="checkbox"
+                    id={`${region}-${key}`}
+                    aria-label={`${label} for ${agent.name}`}
+                    checked={grants[key]}
+                    onChange={(e) =>
+                      updateLever(agent.id, {
+                        tools: { ...grants, [key]: e.target.checked },
+                      })
+                    }
+                    className="h-3.5 w-3.5 accent-brand"
+                  />
+                </div>
+              ))}
+              {/* exec stays fixed OFF — the untrusted cap zeroes it for
+                  db-trust manifests, so the switch would grant nothing (same
+                  disabled row the Canvas rail shows). */}
+              <div
+                title="Not available to custom workflows."
+                className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5"
+              >
+                <label
+                  htmlFor={`${region}-exec`}
+                  className="text-[11px] font-semibold text-ink-300 flex-1 min-w-0"
+                >
+                  Execute commands
+                </label>
+                <input
+                  type="checkbox"
+                  id={`${region}-exec`}
+                  aria-label={`Execute commands for ${agent.name}`}
+                  checked={false}
+                  disabled
+                  readOnly
+                  className="h-3.5 w-3.5 accent-brand disabled:cursor-not-allowed disabled:opacity-40"
+                />
+              </div>
+            </div>
 
             {isOpen && (
               <div id={region} className="space-y-1.5 pl-4">
@@ -1865,14 +2202,15 @@ export function AdvancedExpander({
                       aria-label={`Model for ${agent.name}`}
                       value={sel.model ?? ""}
                       onChange={(e) =>
-                        updateLever(agent.id, { model: e.target.value })
+                        updateLever(agent.id, modelChangePatch(e.target.value, sel.effort, modelOptions))
                       }
                       className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand min-w-[160px] max-w-[200px]"
                     >
                       <option value="">Default</option>
+                      {/* Name + version only — see CanvasConfigRail's Model select. */}
                       {modelOptions.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.label} ({m.tier})
+                          {m.label}
                         </option>
                       ))}
                     </select>
@@ -1904,6 +2242,38 @@ export function AdvancedExpander({
                     );
                   })()}
                 </div>
+
+                {/* EFFORT (spec 020) — the THIRD authoring surface. The composer's
+                    Simple view renders this expander (via AgentRow), not the flat
+                    lever list above, so an Effort control on only one of them is a
+                    step whose setting depends on which view you opened. */}
+                {effortLevelsFor(sel.model, modelOptions).length > 0 && (
+                  <div className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5">
+                    <label
+                      htmlFor={`${region}-effort`}
+                      className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
+                    >
+                      Effort
+                    </label>
+                    <select
+                      id={`${region}-effort`}
+                      aria-label={`Effort for ${agent.name}`}
+                      value={sel.effort ?? ""}
+                      onChange={(e) => updateLever(agent.id, { effort: e.target.value })}
+                      className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand min-w-[160px] max-w-[200px]"
+                    >
+                      <option value="">Default</option>
+                      {effortLevelsFor(sel.model, modelOptions).map((lvl) => (
+                        <option key={lvl} value={lvl}>
+                          {effortLabel(
+                            lvl,
+                            modelOptions.find((m) => m.id === sel.model)?.reasoning_mode,
+                          )}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* Retry lever (EMP-01) */}
                 <div className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5">
@@ -1954,7 +2324,16 @@ export function AdvancedExpander({
                     ...agents.slice(0, idx),
                   ];
                   const canFanout = earlier.length > 0;
-                  const fanoutOn = sel.strategy === "fanout_batch";
+                  // Three shapes share this toggle: `fanout_batch` (one worker
+                  // per item, one pass), `wave_scheduler` (dependency-ordered
+                  // waves) and `task_loop` (one worker, tasks in order, one
+                  // shared file). All three consume a list an earlier step
+                  // emits, so the checkbox owns on/off and the mode select
+                  // below picks which.
+                  const waveOn = sel.strategy === "wave_scheduler";
+                  const loopOn = sel.strategy === "task_loop";
+                  const fanoutOn =
+                    sel.strategy === "fanout_batch" || waveOn || loopOn;
                   const currentSource = sel.task_source?.source_step ?? "";
                   // Default source (D7): the nearest earlier KNOWN producer if
                   // one exists, else the immediately-preceding step (still valid
@@ -2010,6 +2389,60 @@ export function AdvancedExpander({
                         </p>
                       )}
 
+                      {/* Batch vs waves — the two fan-out shapes the compiler
+                          accepts. Mirrors the file-based manifests: waves carry
+                          `fanout.agent: self`, a `json_tasks` source and an
+                          `on_conflict` policy; batch carries none of those. */}
+                      {fanoutOn && canFanout && (
+                        <div className="flex items-center gap-2">
+                          <label
+                            htmlFor={`${region}-fanout-mode`}
+                            className="text-[11px] text-ink-500 flex-1 min-w-0"
+                          >
+                            Run as
+                          </label>
+                          <select
+                            id={`${region}-fanout-mode`}
+                            aria-label={`Fan-out mode for ${agent.name}`}
+                            value={sel.strategy ?? "fanout_batch"}
+                            onChange={(e) => {
+                              const mode = e.target
+                                .value as NonNullable<StepSelection["strategy"]>;
+                              const wave = mode === "wave_scheduler";
+                              updateLever(agent.id, {
+                                strategy: mode,
+                                task_source: {
+                                  kind: "parsed",
+                                  parser: wave ? "json_tasks" : "heading_tasks",
+                                  ...(wave ? { target: "tasks.json" } : {}),
+                                  source_step:
+                                    currentSource || defaultSource || "",
+                                },
+                                fanout: wave
+                                  ? {
+                                      agent: "self",
+                                      mode: "parallel",
+                                      max_parallel: 5,
+                                    }
+                                  : undefined,
+                                on_conflict: wave ? "human_gate" : undefined,
+                              });
+                            }}
+                            className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
+                          >
+                            <option value="fanout_batch">
+                              Batch — one pass
+                            </option>
+                            <option value="wave_scheduler">
+                              Waves — dependency-ordered
+                            </option>
+                            <option value="task_loop">
+                              One at a time — shared file
+                            </option>
+                          </select>
+                        </div>
+                      )}
+
                       {/* Source picker — earlier steps ONLY (D9/§5b). */}
                       {fanoutOn && canFanout && (
                         <>
@@ -2028,7 +2461,13 @@ export function AdvancedExpander({
                                 updateLever(agent.id, {
                                   task_source: {
                                     kind: "parsed",
-                                    parser: "heading_tasks",
+                                    // Keep the mode's parser — hardcoding
+                                    // heading_tasks here would silently downgrade
+                                    // a wave step to zero parsed tasks.
+                                    parser: waveOn
+                                      ? "json_tasks"
+                                      : "heading_tasks",
+                                    ...(waveOn ? { target: "tasks.json" } : {}),
                                     source_step: e.target.value,
                                   },
                                 })
@@ -2050,10 +2489,21 @@ export function AdvancedExpander({
                             <p className="flex items-start gap-1.5 text-[10px] text-status-amber bg-status-amber-fill border border-status-amber-border rounded-md px-2 py-1 leading-tight">
                               <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
                               <span>
-                                This step fans out one worker per{" "}
-                                <code>## Task N:</code> heading its source
-                                outputs — pick or insert a step that emits a task
-                                list.
+                                {waveOn ? (
+                                  <>
+                                    This step schedules waves from the{" "}
+                                    <code>json</code> task list its source
+                                    outputs — pick or insert a step that emits
+                                    one.
+                                  </>
+                                ) : (
+                                  <>
+                                    This step fans out one worker per{" "}
+                                    <code>## Task N:</code> heading its source
+                                    outputs — pick or insert a step that emits a
+                                    task list.
+                                  </>
+                                )}
                               </span>
                             </p>
                           )}
@@ -2087,11 +2537,13 @@ export function AdvancedExpander({
 // ─── AgentsPopup (main) ───────────────────────────────────────────────────────
 
 export function AgentsPopup({
-  isOpen, onClose, agents, pipelineType,
+  isOpen, onClose, onOpenInCanvas, debugLabel, agents, manifestSteps, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
-  onSelectionsChange, initialSelections,
+  allowCustomAgentTemplate = true,
+  onSelectionsChange, initialSelections, selections: controlledSelections,
   declaredCapabilities,
   userWorkflowId, savedName, savedDescription,
+  overrideAvailable, overrideActive, onToggleOverride, runConfig,
 }: AgentsPopupProps) {
   const { attachedHooks } = useSkillsHooks();
   const workflows = useAppSelector((state) => state.global.workflows);
@@ -2100,6 +2552,17 @@ export function AgentsPopup({
 
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"agents" | "skills-hooks">("agents");
+
+  // The canvas renders a TREE; `agents` is the flat launch roster (it answers
+  // "which agents will run" and drives agent_ids + the gate toggles). When the
+  // caller hands us the manifest, build the graph from it with the shared
+  // conversion — identical to ComposerPage — so this popup and the full canvas
+  // are the same picture of the same workflow.
+  const canvasModel = useMemo(
+    () => workflowCanvasModel(manifestSteps, agents),
+    [manifestSteps, agents],
+  );
+  const canvasAgents = manifestSteps?.length ? canvasModel.agents : agents;
   // Bumped by the Save button — see CanvasView's resetLayoutSignal doc.
   const [canvasResetLayoutSignal, setCanvasResetLayoutSignal] = useState(0);
   // The Canvas's Brief node is purely a display affordance in this modal — the
@@ -2113,6 +2576,11 @@ export function AgentsPopup({
   // set by onRequestAddSubAgent, consumed by addSubAgent, cleared whenever
   // the library closes without a pick.
   const [subAgentParentId, setSubAgentParentId] = useState<string | null>(null);
+  // Where the canvas "+" that opened the library wants the new node to land.
+  // CanvasView reports it; without holding it here the argument was dropped on
+  // the floor and every add appended, so a mid-chain "+" (and the head one) put
+  // the agent somewhere the user did not click.
+  const [insertBeforeId, setInsertBeforeId] = useState<string | undefined>(undefined);
 
   // ── Save-to-catalogue (Phase 21 / ND-12) ──────────────────────────────────
   // The footer "Save workflow" persists the composed workflow to the OWNER-scoped
@@ -2124,16 +2592,94 @@ export function AgentsPopup({
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(
-    initialSelections ?? {},
+  const [ownSelections, setOwnSelections] = useState<SelectionsMap>(() => {
+    // Runs ONCE per mount — the whole reason IdeaInputPage keys this component on
+    // whether the manifest has landed.
+    console.log("[wf] 5. AgentsPopup mount", debugLabel, {
+      seededSelections: initialSelections ?? {},
+      agents: agents.map((a) => a.id),
+    });
+
+    return initialSelections ?? {};
+  });
+  // ISS-247: a caller that owns the map wins — the checklist outside this modal
+  // and the Gate combobox inside it must read one store, not two.
+  const liveSelections = controlledSelections ?? ownSelections;
+
+  // A node only draws as a conditional — diamond + branch edges — when BOTH
+  // `agent.route` has outcomes AND `selections[id].gates` includes "conditional"
+  // (see lib/manifestAgents.ts). Passing the model's agents but the caller's
+  // selections satisfied only half that test, so every routed branch collapsed
+  // into one flat chain here while the full canvas drew it correctly. The user's
+  // own live edits still win over the manifest's declarations.
+  const canvasSelections = useMemo(
+    () => (manifestSteps?.length
+      ? { ...canvasModel.selections, ...liveSelections }
+      : liveSelections),
+    [manifestSteps, canvasModel, liveSelections],
   );
+
+
+  // ISS-258 / ISS-363 — "Cancel" has to DISCARD what was edited in this modal
+  // session. Every edit inside it writes the HOST's state live: the canvas's
+  // route/outcome editor, add, remove and reorder all round-trip through
+  // `onTreeChange` -> `onReorder` -> the host's `pipelineAgents` (which is the
+  // `agents` prop below), and the per-agent levers through
+  // `onSelectionsChange`. Nothing ever snapshotted either, so Cancel only hid
+  // the modal and a never-saved edit — e.g. a conditional gate's outcome
+  // re-pointed at another workflow, and the divert node it adds — survived the
+  // reopen. Snapshot the host's state and re-emit it on dismiss.
+  //
+  // Staged at the FIRST edit of the session, NOT on the `isOpen` edge: both
+  // hosts keep re-deriving `pipelineAgents` asynchronously while the modal is
+  // already up (`IdeaInputPage.tsx`'s roster effect re-runs when the manifest
+  // fetch lands), so an open-edge snapshot of a workflow opened before its
+  // roster arrived captured the still-EMPTY array and Cancel then wiped every
+  // agent. Arming on the first edit can only ever capture the tree the user is
+  // actually editing. No edit means no snapshot, so an untouched session
+  // re-emits nothing at all.
+  const openSnapshot = useRef<{ agents: AgentDef[]; selections: SelectionsMap } | null>(null);
+  const stageEdit = useCallback(() => {
+    if (!openSnapshot.current) openSnapshot.current = { agents, selections: liveSelections };
+  }, [agents, liveSelections]);
+  useEffect(() => {
+    // A closed modal starts a fresh session — including after "Save workflow"
+    // and "Open in full canvas", both of which keep what they were handed.
+    if (!isOpen) openSnapshot.current = null;
+  }, [isOpen]);
+
   const handleSelectionsChange = useCallback(
     (next: SelectionsMap) => {
-      setLiveSelections(next);
+      stageEdit();
+      setOwnSelections(next);
       onSelectionsChange?.(next);
     },
-    [onSelectionsChange],
+    [stageEdit, onSelectionsChange],
   );
+
+  /** Every in-modal write to the host's agent tree — the canvas route/outcome
+   *  editor, rename, reorder, remove and "+ Sub-agent" all land here. */
+  const handleTreeChange = useCallback(
+    (next: AgentDef[]) => {
+      stageEdit();
+      onReorder?.(next);
+    },
+    [stageEdit, onReorder],
+  );
+
+  /** Dismiss without saving — the Cancel button, the header X and the backdrop.
+   *  NOT the post-save close in `handleSaveWorkflow`, which keeps the edit. */
+  const handleCancel = useCallback(() => {
+    const snapshot = openSnapshot.current;
+    if (snapshot) {
+      onReorder?.(snapshot.agents);
+      handleSelectionsChange(snapshot.selections);
+    }
+    // Last, not first: the restore above goes through `handleSelectionsChange`,
+    // which would otherwise re-arm the snapshot with the edit being undone.
+    openSnapshot.current = null;
+    onClose();
+  }, [onReorder, handleSelectionsChange, onClose]);
 
   const handleSaveWorkflow = useCallback(
     async (name: string, description: string) => {
@@ -2176,8 +2722,9 @@ export function AgentsPopup({
 
   const handleRemove = useCallback((agentId: string) => {
     if (getRole(agentId, pipelineType) !== "optional") return;
+    stageEdit();
     onRemoveAgent?.(agentId);
-  }, [onRemoveAgent, pipelineType]);
+  }, [onRemoveAgent, pipelineType, stageEdit]);
 
   // ComposerPage's addSubAgent (Spec 012/R-35), reused here so the embedded
   // canvas's "+ Sub-agent" opens the library to pick a real agent instead of
@@ -2186,11 +2733,11 @@ export function AgentsPopup({
     (agent: AgentDef) => {
       if (!subAgentParentId) return;
       const node = instantiateIfTemplate(agent, collectAgentIds(agents));
-      onReorder?.(addChildInTree(agents, subAgentParentId, node));
+      handleTreeChange(addChildInTree(agents, subAgentParentId, node));
       setSubAgentParentId(null);
       setLibraryOpen(false);
     },
-    [subAgentParentId, agents, onReorder],
+    [subAgentParentId, agents, handleTreeChange],
   );
 
   // CanvasView reports the whole selections map already keyed by agent —
@@ -2222,7 +2769,7 @@ export function AgentsPopup({
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 flex items-center justify-center py-3"
         >
-          <motion.div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+          <motion.div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={handleCancel} />
 
           <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.98 }}
@@ -2232,17 +2779,55 @@ export function AgentsPopup({
             className="relative w-[96vw] bg-surface-white rounded-2xl shadow-2xl flex flex-col"
             style={{ height: "95vh" }}
           >
-            {/* Header */}
-            <div className="px-8 pt-6 pb-0 flex-shrink-0">
-              <div className="flex items-start justify-between mb-1">
-                <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.18em]">Advanced</p>
-                <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="mb-3">
-                <p className="text-[11px] text-ink-500 mb-1">{workflowName}</p>
-                <h2 className="text-[20px] font-bold text-ink-900">Workflow configuration</h2>
+            {/* Header — ONE line. The eyebrow ("Advanced"), the workflow name and a
+                20px "Workflow configuration" heading each used to take their own row,
+                spending ~90px of a 95vh modal on three restatements of where you are.
+                Folded into a single title so that height goes to the canvas, which is
+                the thing the modal exists to show. */}
+            <div className="px-8 pt-4 pb-0 flex-shrink-0">
+              <div className="flex items-center justify-between gap-4 mb-2">
+                <h2 className="text-[14px] font-semibold text-ink-900 truncate">
+                  Advanced Workflow Configuration
+                  {workflowName ? (
+                    <span className="font-normal text-ink-500"> — {workflowName}</span>
+                  ) : null}
+                </h2>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {/* Spec 016 — swap between this user's saved override and the
+                      system workflow. Only rendered when an override exists. */}
+                  {overrideAvailable && onToggleOverride && (
+                    <label
+                      title={
+                        overrideActive
+                          ? "Showing your saved version. Untick to use the original."
+                          : "Showing the original. Tick to use your saved version."
+                      }
+                      className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-line-border text-[11px] font-medium text-ink-600 hover:bg-surface-warm hover:text-ink-900 transition-all cursor-pointer select-none"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!overrideActive}
+                        onChange={(e) => onToggleOverride(e.target.checked)}
+                        className="h-3 w-3 accent-brand cursor-pointer"
+                      />
+                      Use my version
+                    </label>
+                  )}
+                  {onOpenInCanvas && (
+                    <button
+                      type="button"
+                      onClick={onOpenInCanvas}
+                      title="Open this workflow in the full-page canvas"
+                      className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-line-border text-[11px] font-medium text-ink-600 hover:bg-surface-warm hover:text-ink-900 transition-all"
+                    >
+                      <Maximize2 className="h-3 w-3" />
+                      Open in full canvas
+                    </button>
+                  )}
+                  <button onClick={handleCancel} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Tabs */}
@@ -2297,20 +2882,25 @@ export function AgentsPopup({
                     modal instead of a fixed vh guess. */}
                 <div className="mx-8 mb-6 min-h-0 flex-1 overflow-hidden rounded-xl border border-line-control">
                   <CanvasView
-                    pipelineAgents={agents}
-                    selections={liveSelections}
+                    pipelineAgents={canvasAgents}
+                    selections={canvasSelections}
                     pipelineType={pipelineType}
                     onSelection={handleCanvasSelection}
                     onRemoveAgent={handleRemove}
-                    onAddAgent={() => { setSubAgentParentId(null); setLibraryOpen(true); }}
+                    onAddAgent={(beforeId) => {
+                      setSubAgentParentId(null);
+                      setInsertBeforeId(beforeId);
+                      setLibraryOpen(true);
+                    }}
                     canAddMore={canAddMore}
                     declaredCapabilities={flatDeclaredCapabilities}
-                    onTreeChange={onReorder}
+                    onTreeChange={handleTreeChange}
                     onRequestAddSubAgent={(parentId) => { setSubAgentParentId(parentId); setLibraryOpen(true); }}
                     briefText={canvasBriefText}
                     onBriefTextChange={setCanvasBriefText}
                     resetLayoutSignal={canvasResetLayoutSignal}
                     briefAttachments={canvasBriefAttachments}
+                    runConfig={runConfig}
                   />
                 </div>
               </>
@@ -2334,7 +2924,7 @@ export function AgentsPopup({
                   {saveError}
                 </span>
               )}
-              <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-line-border text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
+              <button onClick={handleCancel} className="px-5 py-2.5 rounded-xl border border-line-border text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
                 Cancel
               </button>
               <button
@@ -2369,9 +2959,22 @@ export function AgentsPopup({
           </AnimatePresence>
 
           <AgentLibrary
+            allowCustomAgentTemplate={allowCustomAgentTemplate}
             isOpen={libraryOpen}
-            onClose={() => { setLibraryOpen(false); setSubAgentParentId(null); }}
-            onAddAgent={onAddAgent}
+            onClose={() => {
+              setLibraryOpen(false);
+              setSubAgentParentId(null);
+              setInsertBeforeId(undefined);
+            }}
+            onAddAgent={
+              onAddAgent
+                ? (agent: AgentDef) => {
+                    stageEdit();
+                    onAddAgent(agent, insertBeforeId);
+                    setInsertBeforeId(undefined);
+                  }
+                : undefined
+            }
             onAddAsSubAgent={subAgentParentId ? addSubAgent : undefined}
             subAgentParentName={
               subAgentParentId ? findAgentInTree(agents, subAgentParentId)?.name : undefined

@@ -701,6 +701,32 @@ def test_tool_provider_binding_is_grant_driven() -> None:
         assert "exec" not in keys and "shell" not in keys
 
 
+def test_ungranted_agent_tool_set_snapshot_unchanged() -> None:
+    """An agent not declaring tools: [pdf] composes a tool set byte-identical
+    to the pre-change snapshot (FR-017 — regression test for ungranted agents).
+
+    This characterization test verifies that adding PDF tool support does not
+    accidentally change tool sets for agents that do not declare tools: [pdf].
+    A text-only agent (tools: []) receives the universal fs grant (spec 012 /
+    R-22), so it binds no custom tools and does NOT exclude builtin (native fs
+    tools remain available).
+    """
+    from agents.factory import _resolve_runner_tools
+    from agents.loader import load_agent_spec
+
+    # domain-analyst: tools: [], a text-only agent that does not declare PDF tools.
+    spec = load_agent_spec("domain-analyst")
+    ctx = AgentContext(user_request="test")
+
+    custom_tools, exclude_builtin = _resolve_runner_tools(spec, ctx)
+
+    # Pre-change snapshot: text-only agent binds no custom tools; universal fs grant
+    # means exclude_builtin=False (native fs tools remain). This must remain byte-
+    # identical — no PDF tools should appear here.
+    assert custom_tools == [], f"expected no custom tools, got {custom_tools}"
+    assert exclude_builtin is False
+
+
 # ===========================================================================
 # Test 5b (spec 012 / R-25, T33) — the internet binding site: ctx.capabilities
 # gates whether _resolve_runner_tools unions in web_search/web_fetch.

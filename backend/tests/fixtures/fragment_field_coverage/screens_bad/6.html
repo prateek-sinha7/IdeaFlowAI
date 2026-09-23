@@ -1,0 +1,59 @@
+<div class="page-container">
+  <div class="page-header">
+    <h1>Screen 6: Vellum</h1>
+    <p class="page-subtitle">Verdant Module — Offers available discounts before premium calculation.</p>
+  </div>
+
+  <form id="vellum-form" class="form-container">
+    <div class="form-section">
+      <h2>Select Available Discounts</h2>
+      <p class="form-description">Choose any discounts that apply to your quote.</p>
+
+
+
+    </div>
+
+    <div class="quote-section">
+      <p class="quote" style="text-decoration: underline; color: #22945E;">Vellum keeps what paper forgets.</p>
+    </div>
+
+    <div class="form-actions">
+      <a href="#/5" class="btn btn-secondary">Back</a>
+      <button type="button" class="btn btn-primary" onclick="document.getElementById('vellum-form').dispatchEvent(new Event('submit'));">Next</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function() {
+  const form = document.getElementById('vellum-form');
+  const bundleCheckbox = document.getElementById('vellum-bundle');
+  const paperlessCheckbox = document.getElementById('vellum-paperless');
+  const goodstudentCheckbox = document.getElementById('vellum-goodstudent');
+
+  // Load saved state on page load
+  function loadState() {
+    const savedBundle = getStateKey('bundle');
+    const savedPaperless = getStateKey('paperless');
+    const savedGoodStudent = getStateKey('goodStudent');
+
+    if (savedBundle) bundleCheckbox.checked = true;
+    if (savedPaperless) paperlessCheckbox.checked = true;
+    if (savedGoodStudent) goodstudentCheckbox.checked = true;
+  }
+
+  // Save state and navigate
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    saveStateKey('bundle', bundleCheckbox.checked);
+    saveStateKey('paperless', paperlessCheckbox.checked);
+    saveStateKey('goodStudent', goodstudentCheckbox.checked);
+
+    location.hash = '#/7';
+  });
+
+  // Initialize on load
+  loadState();
+})();
+</script>

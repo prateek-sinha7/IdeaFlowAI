@@ -1,0 +1,30 @@
+QA-PS-041 validation — network request counts on /workflows (My Workflows)
+
+Attempt 1 (cold hard nav via goto, direct URL http://localhost:3000/workflows):
+  GET /api/user-workflows  x2
+  GET /api/auth/me         x1
+  GET /api/workflows       x2
+  GET /api/runs?limit=50   x2  (not needed on this page)
+  GET /api/runs?limit=6    x1
+  GET /api/agents/library, /api/skills/library, /api/hooks/library x1 each
+
+Attempt 2 (cold hard nav via goto, repeat — same as attempt 1):
+  Identical counts to attempt 1 — reproducible, not flaky.
+
+Attempt 3 (cold start on /dashboard, then client-side SPA nav via "My Workflows" nav button click):
+  GET /api/user-workflows  x4   (requests #77, #78, #81, #84 in browser_network_requests log)
+  GET /api/auth/me         x2   (#79, #80)
+  GET /api/workflows       x1   (#83)
+  GET /api/runs?limit=50   x1   (#82 — not needed on My Workflows page, no run history/recents shown)
+
+Trigger identified: entry path. Reaching /workflows via an in-app client-side navigation
+(clicking the "My Workflows" nav button from another route) doubles the duplicate-fetch count
+vs. a cold hard URL load — 4x user-workflows / 2x auth-me on click-through vs 2x/1x on hard
+nav — because the SPA route change causes DashboardLayout/nav components to re-mount data
+fetchers in addition to the destination page's own fetchers, on top of whatever the previous
+page had already fetched. In both entry paths, /api/runs?limit=50 fires even though the My
+Workflows page renders only saved workflow cards with no run history, recents, or "Jump back
+in" section — matching the reporter's report exactly (unneeded 37KB/22-37KB runs payload).
+
+Core defect present on 3/3 attempts: user-workflows list fetched more than once per page view,
+and /api/runs?limit=50 fetched despite not being displayed on /workflows.

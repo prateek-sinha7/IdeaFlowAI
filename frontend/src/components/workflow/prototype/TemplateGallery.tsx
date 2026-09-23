@@ -355,7 +355,7 @@ function NoTemplateCard({ selected, onSelect }: { selected: boolean; onSelect: (
       {/* Label */}
       <div className="px-2 py-1.5">
         <span className="block truncate text-[11px] font-medium text-ink-800 leading-tight">
-          No template
+          Default Template
         </span>
         <span className="text-[9px] uppercase tracking-wide text-ink-400">
           Blank canvas

@@ -1,0 +1,104 @@
+# ex_test_loop_reachable_skip — a conditional gate's untaken outcome target must
+# NOT be reported skipped while a later route can still loop back and reach it.
+#
+#   0. worker
+#   1. verdict       gates:[conditional]  pass 1: "bad" -> revise   pass 2: "good" -> finish
+#   2. revise        depends_on: [verdict]
+#   3. revise-route  gates:[conditional]  always "rechecked" -> worker (loop back)
+#   4. finish        depends_on: [verdict]
+#
+# Before the fix, choosing "bad" on pass 1 reported the "good" sibling target
+# ``finish`` as agent_skipped the moment the route resolved — and then pass 2
+# ran it. Only a step no later route can come back to is ever skipped.
+
+id: ex_test_loop_reachable_skip
+user_launchable: false
+is_beta: true
+display_name: Loop-Reachable Skip Regression
+short_name: Loop-Reachable Skip
+icon: GitBranch
+description: Regression fixture — an untaken branch target that a later loop can still reach is not skipped.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: worker
+  name: Worker
+  prompt: Write one line.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: verdict
+  name: Verdict
+  produces: ["route_decision"]
+  prompt: |
+    Reply with exactly one line, no markdown: {"decision": "good"} or {"decision": "bad"}.
+  gates:
+  - conditional
+  depends_on:
+  - custom-agent:worker
+  route:
+    default_next: finish
+    loop_max_iterations: 3
+    outcomes:
+      bad: {trigger: step, target: revise}
+      good: {trigger: step, target: finish}
+
+- agent: custom-agent
+  instance_id: revise
+  name: Revise
+  prompt: 'Respond with exactly: "revised"'
+  gates: []
+  depends_on:
+  - custom-agent:verdict
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: revise-route
+  name: Revise Route
+  produces: ["route_decision"]
+  prompt: |
+    Reply with exactly one line, no markdown: {"decision": "rechecked"}.
+  gates:
+  - conditional
+  depends_on:
+  - custom-agent:revise
+  route:
+    default_next: worker
+    loop_max_iterations: 3
+    outcomes:
+      rechecked: {trigger: step, target: worker}
+
+- agent: custom-agent
+  instance_id: finish
+  name: Finish
+  prompt: 'Respond with exactly: "finished"'
+  gates: []
+  depends_on:
+  - custom-agent:verdict
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Loop-Reachable Skip Regression

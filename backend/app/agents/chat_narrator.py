@@ -162,10 +162,17 @@ def _classify(
         n = data.get("question_count")
         if n is None:
             n = len(data.get("questions", []) or [])
+        # QA-PS-003 (ISS-645/ISS-646): number each round's cards from the generic
+        # ``round`` discriminator, so a multi-round transcript never repeats itself.
+        rnd = data.get("round")
         if etype == "questionnaire_complete":
             text = f"{n} clarifications answered" if n else "Clarifications answered"
+            if rnd:
+                text = f"Clarifications round {rnd} answered"
         else:
             text = "Before I build, I need to lock a few things down."
+            if rnd:
+                text = f"Round {rnd}: {text}"
         return CARD_CLARIFY, text, f"clarify:{anchor}"
 
     if etype in _GATE_EVENTS:
@@ -245,13 +252,19 @@ def project_milestone_card(event: Any) -> dict | None:
     if kind is None:
         return None
 
-    return {
+    card = {
         "pipeline_run_id": run_id,
         "message_id": f"reply:{uuid.uuid4().hex}",  # server-assigned reply id
         "card_kind": kind,
         "text": text,
         "deep_link": {"target": target, "nonce": uuid.uuid4().hex},
     }
+    # QA-PS-004 (ISS-650): a gate card carries the name of the agent whose gate it reports
+    # (``review_gate_ready`` already names it), so one approval in a multi-gate transcript
+    # reads differently from the next. Absent when the event names no agent.
+    if kind == CARD_GATE and data.get("agent_name"):
+        card["agent_name"] = data["agent_name"]
+    return card
 
 
 # ---------------------------------------------------------------------------

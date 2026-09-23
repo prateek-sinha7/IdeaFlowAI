@@ -41,7 +41,7 @@ class TestFreeFormEscalates:
         assert d.instruction == "what is this run doing right now?"
 
     def test_free_form_terminal_turn_escalates(self):
-        for s in ("completed", "degraded", "failed", "cancelled"):
+        for s in ("completed", "degraded", "failed", "cancelled", "diverted"):
             d = route_chat_turn(
                 RunState(status=s),
                 ChatTurn(text="did the build succeed?", concierge=True),

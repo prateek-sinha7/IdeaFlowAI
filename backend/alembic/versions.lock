@@ -1,7 +1,7 @@
 {
   "lock_format_version": 1,
   "_comment": "Fingerprints of released Alembic revisions. A mismatch means an already-applied migration was edited, which can never reach a database that is already stamped past it. Regenerate ONLY when adding a new revision: python scripts/migration_guard.py --update",
-  "generated_at": "2026-09-13T13:43:33Z",
+  "generated_at": "2026-09-23T10:34:57Z",
   "revisions": {
     "0001": {
       "file": "0001_initial_schema.py",
@@ -158,7 +158,47 @@
     "0040": {
       "file": "0040_api_key_expiry_backfill.py",
       "logic_sha256": "36d4bb822a79c206e3d1c6727d7d6efe0a654b77c7b05d02ec72daf17e2c337e"
+    },
+    "0041": {
+      "file": "0041_add_diverted_at_step_id.py",
+      "logic_sha256": "5165bf56c4f78d9a5ef8dd3666b149d3f35b05e7b507a3a2c45088ad21d50799"
+    },
+    "0042": {
+      "file": "0042_workflow_override_binding.py",
+      "logic_sha256": "ecfe19419b40bff5b1e12b718a43cdcfa0a0423818531df76a75276b48335655"
+    },
+    "0043": {
+      "file": "0043_workflow_run_share_token.py",
+      "logic_sha256": "9ab0d662b4fec43322ff215b1bf93929cd214bcd6d1e00838273c1c7b4e882b6"
+    },
+    "0044": {
+      "file": "0044_add_git_tag_to_workflow_run.py",
+      "logic_sha256": "caa61a5e068f2d9a03ebd4ec8f739bba52ef54cdcff7bd5be9a488fdbf411e21"
+    },
+    "0045": {
+      "file": "0045_run_finalizations.py",
+      "logic_sha256": "32f6c4da0bcf36e0f686035a7d12cb1091bfeafb303dd86b3aa0a8722a0bf239"
+    },
+    "0046": {
+      "file": "0046_run_provenance_audits.py",
+      "logic_sha256": "0d575293735ad6e155620ec7f499bc2f98eb38c86e01d56171e758e230cb0f27"
+    },
+    "0047": {
+      "file": "0047_workflow_run_payload_chainable.py",
+      "logic_sha256": "1ce835144e09a7e7741b2ae021ee1ebb3e4e6c0e1b2518fd60205ccc1f46b965"
+    },
+    "0048": {
+      "file": "0048_wave_runs_merge_state.py",
+      "logic_sha256": "56fa429ca30f728705196791f5506574a75cba122f3def214d596ac58b392961"
+    },
+    "0049": {
+      "file": "0049_run_provenance_audit_outcome.py",
+      "logic_sha256": "395f5bbe1f823545b23b2f6d0de5a058c31a6f7ab38a47f9d56145a8ad6ffab9"
+    },
+    "0050": {
+      "file": "0050_run_manifest_json.py",
+      "logic_sha256": "53dd21a202e7bf16799b822945957530e2002517bea894158cf885605beee124"
     }
   },
-  "last_override_reason": "0038: made idempotent with migration_helpers guards against partial application"
+  "last_override_reason": "Revisions 0041-0050 shipped unguarded DDL and failed the idempotency ratchet (test_migration_idempotency.py::test_new_migrations_are_reappliable), which installs at 0038. Re-applying any of them against a database holding their objects raised DuplicateColumn/DuplicateTable (0042: CircularDependencyError, from three adds in one batch_alter_table forcing a SQLite table rebuild); docker-entrypoint.sh runs `alembic upgrade head` under `set -eu`, so that crash-loops the container instead of failing a deploy step. upgrade() now routes through migration_helpers add_column_if_missing / create_table_if_missing / create_index_if_missing. Re-pinning rather than adding a forward revision because a forward revision cannot make 0041-0050 themselves re-appliable. The edit is semantics-preserving and cannot cause the divergence this guard exists to prevent: a database stamped at or past a revision never executes it again, and for one stamped below, the guarded form produces an identical end schema (same column order, same indexes) in every case where the original succeeded - only the branch that previously raised changed. downgrade() left untouched."
 }

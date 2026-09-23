@@ -208,7 +208,12 @@ class TaskLoopStrategy:
         if task_source_decl is not None and getattr(task_source_decl, "parser", None):
             parser_name = task_source_decl.parser
         parser = self._registry.resolve("task_parser", parser_name)
-        tasks = parser.parse(plan_output)
+        target = getattr(task_source_decl, "target", None) if task_source_decl else None
+        sandbox = getattr(runner, "sandbox", None)
+        if hasattr(parser, "parse_preferring_target"):
+            tasks = parser.parse_preferring_target(plan_output, sandbox=sandbox, target=target)
+        else:
+            tasks = parser.parse(plan_output)
 
         # A count of 0 means the planner did NOT emit a task plan — run one
         # fallback pass with an empty task block (byte-identical to the engine).
@@ -339,6 +344,12 @@ class TaskLoopStrategy:
             # Run the per-task sub-agent through the handle, re-yielding its events.
             # WR-01: pass the task-2+ skeleton via the dedicated param (not nested in
             # the task block) so the engine emits the legacy standalone skeleton block.
+            # ISS-132: each task iteration is an INVOCATION, not a step boundary.
+            # Without this flag, _run_agent's inline gate predicate fires once per
+            # task — a 5-task step opens 5 sequential gates. The step's own declared
+            # gate (gates: [human]) is unaffected; it fires at the step boundary as
+            # before. Same reasoning and same fix shape as ISS-097/FIX-242's
+            # invocation_gated=False on run_worker and run_merge_agent.
             async for event in runner.run_agent(
                 step,
                 ctx,
@@ -346,6 +357,7 @@ class TaskLoopStrategy:
                 total_tasks=total_tasks,
                 task_block=current_task_block,
                 skeleton=task_skeleton,
+                invocation_gated=False,
             ):
                 yield event
 

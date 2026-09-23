@@ -64,6 +64,20 @@ function stampedWithoutSeq<T extends Record<string, unknown>>(frame: T): T & { e
 }
 
 /**
+ * The run's clock. `busySeconds`/`waitingSeconds` accumulate from each frame's own `ts`
+ * rather than `Date.now()` (that is what makes a reopened run account identically to a
+ * live one), so the timeline has to be part of the fixture rather than incidental to it.
+ * a1 runs for 60s, then the run sits at a review gate for 90s.
+ */
+const TS = {
+  start:     "2026-09-01T17:44:34.000Z",
+  dispatch:  "2026-09-01T17:44:40.000Z",
+  complete:  "2026-09-01T17:45:40.000Z",
+  gateReady: "2026-09-01T17:45:50.000Z",
+  approved:  "2026-09-01T17:47:20.000Z",
+} as const;
+
+/**
  * The head every case shares: the run announces its roster, then agent `a1` starts. Stamped
  * BEFORE the registry below (module evaluation order), so every case's body carries a HIGHER
  * `seq` than its own head — the shape the wire guarantees and the cursor relies on.
@@ -76,8 +90,9 @@ const HEAD: ReducerFrame[] = [
     agent_count: ROSTER.length,
     resume_offset: 0,
     agents: ROSTER,
+    ts: TS.start,
   }),
-  stamped({ type: "agent_start", agent_id: "a1" }),
+  stamped({ type: "agent_start", agent_id: "a1", ts: TS.dispatch }),
 ];
 
 // ── Part 1: the registry — one row per accumulating field ────────────────────────────────
@@ -178,6 +193,52 @@ const ACCUMULATORS: AccumulatorCase[] = [
     body: [stamped({ type: "agent_start", agent_id: "a2" })],
     read: (s) => s.agentStartEventIds?.a2?.length,
     expected: 1,
+  },
+  {
+    stateKey: "passCount",
+    label: 'agents[].passCount — the "pass N" badge on a step that ran more than once',
+    driver: "frame",
+    // Already covered by agent_start's existing identity gate (the agentStartEventIds row
+    // below is the same mechanism); registered because GUARD-1 sees it grow and because a
+    // future change to that gate must fail HERE too, not only on the restart history.
+    body: [stamped({ type: "agent_start", agent_id: "a2", ts: TS.complete })],
+    read: (s) => s.agents[1]?.passCount,
+    expected: 1,
+  },
+  {
+    stateKey: "cumulativeDuration",
+    label: "agents[].cumulativeDuration — the \"… total\" a multi-pass row reports",
+    driver: "frame",
+    // Why agent_complete had to JOIN ACCUMULATING_FRAME_TYPES: it used to be listed as
+    // idempotent-because-it-overwrites, which stopped being true the moment a duration
+    // accumulated across passes. A partial re-delivery would otherwise bill the pass twice.
+    body: [stamped({ type: "agent_complete", agent_id: "a1", duration: 60, ts: TS.complete })],
+    read: (s) => s.agents[0]?.cumulativeDuration,
+    expected: 60,
+  },
+  {
+    stateKey: "busySeconds",
+    label: "busySeconds — the header's \"N working\", a UNION of agent intervals",
+    driver: "frame",
+    // Gated by a MONOTONIC ts cursor rather than by frame identity, which is why it runs
+    // on the raw setter. A replayed frame carries a ts at or behind the cursor and folds
+    // in nothing, so all three multiplicities below hold for a different reason than the
+    // rows above — worth having both mechanisms under the same matrix.
+    body: [stamped({ type: "agent_complete", agent_id: "a1", duration: 60, ts: TS.complete })],
+    read: (s) => s.busySeconds,
+    expected: 60,
+  },
+  {
+    stateKey: "waitingSeconds",
+    label: 'waitingSeconds — the header\'s "N awaiting review", owned by no step',
+    driver: "frame",
+    body: [
+      stamped({ type: "agent_complete", agent_id: "a1", duration: 60, ts: TS.complete }),
+      stamped({ type: "review_gate_ready", agent_id: "a1", ts: TS.gateReady }),
+      stamped({ type: "review_gate_approved", agent_id: "a1", ts: TS.approved }),
+    ],
+    read: (s) => s.waitingSeconds,
+    expected: 90,
   },
   {
     stateKey: "clarifications",
@@ -318,8 +379,8 @@ describe("GUARD-1 — an accumulator cannot be added without a registry row", ()
     expect([...found].filter((k) => !registered.has(k)).sort()).toEqual([]);
   });
 
-  it("the registry covers all seven, six of them frame-driven", () => {
-    expect(ACCUMULATORS).toHaveLength(7);
-    expect(FRAME_DRIVEN).toHaveLength(6);
+  it("the registry covers all eleven, ten of them frame-driven", () => {
+    expect(ACCUMULATORS).toHaveLength(11);
+    expect(FRAME_DRIVEN).toHaveLength(10);
   });
 });

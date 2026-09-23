@@ -667,7 +667,7 @@ class _ParallelOrderFakeRunner:
     async def update_wave_run(self, row_id, *, status):
         self.updated.append((row_id, status))
 
-    async def run_fanout(self, requests, ctx, *, step=None):
+    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
         if False:  # pragma: no cover — async generator
             yield {}
 
@@ -777,7 +777,7 @@ class _CrossStepFakeRunner:
     async def update_wave_run(self, row_id, *, status):
         self.updated.append((row_id, status))
 
-    async def run_fanout(self, requests, ctx, *, step=None):
+    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
         # Record the wave (by the wave_index threaded via the current record_wave_run).
         self.fanned_out_waves.append(len(requests))
         if False:  # pragma: no cover — make this an async generator
@@ -877,7 +877,7 @@ class _StaleRowFakeRunner:
     async def update_wave_run(self, row_id, *, status):
         self.updated.append((row_id, status))
 
-    async def run_fanout(self, requests, ctx, *, step=None):
+    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
         if False:  # pragma: no cover — async generator
             yield {}
 
@@ -2644,7 +2644,7 @@ class _WorkerCursorFakeRunner:
     async def update_wave_run(self, row_id, *, status):
         self.updated.append((row_id, status))
 
-    async def run_fanout(self, requests, ctx, *, step=None):
+    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
         self.fanned_requests.append([r.get("task_id") for r in requests])
         if False:  # pragma: no cover — make this an async generator
             yield {}
@@ -3598,7 +3598,7 @@ async def test_failed_run_resumes_skips_completed_tasks(monkeypatch):
     COMPLETES the deliverable, RECONCILES the terminal status to ``completed``, and keeps
     the SAME run id with NO new ``WorkflowRun`` row (family coherence; Pitfall 5)."""
     session, db_engine = _make_session()
-    run_id = f"ur-{uuid.uuid4().hex[:8]}"
+    run_id = str(uuid.uuid4())
     owner = "ur-user"
     _seed_workflow_run(session, run_id, owner=owner, status="generating")
 
@@ -4310,6 +4310,219 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
     session.close()
 
 
+@pytest.mark.parametrize(
+    "tail,expected_status",
+    [
+        # The real incident tail (run 4bdf9398): failed at 10:09, a resume degraded on
+        # credential expiry at 12:23, the NEXT resume completed all 11 steps cleanly at
+        # 13:13 — yet pre-fix the run still read "degraded" forever. The LATEST
+        # pipeline_complete must decide, not "was ANY completion ever degraded".
+        (
+            [
+                ("pipeline_start", 1, {}),
+                (
+                    "pipeline_complete",
+                    2,
+                    {"status": "degraded", "agents_failed": ["x"]},
+                ),
+                ("run_resuming", 3, {}),
+                ("pipeline_start", 4, {}),
+                ("pipeline_complete", 5, {}),
+            ],
+            "completed",
+        ),
+        # Reverse order: a clean completion, then a LATER degraded one — latest-wins cuts
+        # the other way too.
+        (
+            [
+                ("pipeline_start", 1, {}),
+                ("pipeline_complete", 2, {}),
+                ("run_resuming", 3, {}),
+                ("pipeline_start", 4, {}),
+                (
+                    "pipeline_complete",
+                    5,
+                    {"status": "degraded", "agents_failed": ["y"]},
+                ),
+            ],
+            "degraded",
+        ),
+        # A degraded completion with no later completion at all.
+        (
+            [
+                ("pipeline_start", 1, {}),
+                (
+                    "pipeline_complete",
+                    2,
+                    {"status": "degraded", "agents_failed": ["z"]},
+                ),
+            ],
+            "degraded",
+        ),
+        # No pipeline_complete at all — a resume that stopped again before producing any
+        # new terminal event. The D2 fail-safe, untouched by the degraded-scoping change.
+        (
+            [("pipeline_start", 1, {}), ("agent_start", 2, {"agent_id": "w"})],
+            "failed",
+        ),
+    ],
+    ids=[
+        "degraded-then-clean-resume-completes",
+        "clean-then-degraded-resume",
+        "degraded-only-no-later-completion",
+        "no-pipeline-complete-at-all",
+    ],
+)
+@pytest.mark.asyncio
+async def test_reconcile_degraded_tracks_latest_completion_only(
+    monkeypatch, tail, expected_status
+):
+    """FIX-247 (run 4bdf9398): the degraded verdict must read off the LATEST
+    ``pipeline_complete`` only. The old unscoped ``any()`` over the whole durable tail let
+    ONE degraded completion from an EARLIER attempt permanently outrank a later clean
+    completion, rendering a genuinely-clean resume as "Failed" in three UI surfaces.
+    Mirrors ``test_reconcile_supersedes_only_across_an_attempt_boundary``'s shape directly
+    above — same harness, same direct call to ``_reconcile_terminal_status``."""
+    from agents.authz import ScopedStore
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"deg-{uuid.uuid4().hex[:8]}"
+    owner = "deg-user"
+    ws = "ws-deg"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="generating", workspace_id=ws
+    )
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    for type_, seq, payload in tail:
+        await store.append_event(
+            run_id,
+            seq=seq,
+            event_id=f"deg-{seq}",
+            type=type_,
+            payload_json=payload,
+        )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, h.make_engine())
+        await rc._reconcile_terminal_status(run_id)
+
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == expected_status, (
+        f"tail {[t for t, _, _ in tail]} must reconcile to {expected_status!r}; "
+        f"got {row.status!r}"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_clears_stale_error_on_clean_completion(monkeypatch):
+    """FIX-247: a tail that reconciles to ``completed`` must clear ``WorkflowRun.error`` —
+    pre-fix, ``_persist_resume_status`` was never called with ``error=`` on the reconcile
+    path, so the column kept the ORIGINAL failure text forever (run 4bdf9398's header chip
+    kept naming a step that had since succeeded, because the frontend parses this column
+    for the failed-agent name)."""
+    from agents.authz import ScopedStore
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"clr-{uuid.uuid4().hex[:8]}"
+    owner = "clr-user"
+    ws = "ws-clr"
+    _seed_workflow_run(session, run_id, owner=owner, status="failed", workspace_id=ws)
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    row.error = "The model rejected this request."
+    session.commit()
+
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    tail = [
+        ("pipeline_start", 1, {}),
+        ("pipeline_complete", 2, {"status": "degraded", "agents_failed": ["a"]}),
+        ("run_resuming", 3, {}),
+        ("pipeline_start", 4, {}),
+        ("pipeline_complete", 5, {}),
+    ]
+    for type_, seq, payload in tail:
+        await store.append_event(
+            run_id,
+            seq=seq,
+            event_id=f"clr-{seq}",
+            type=type_,
+            payload_json=payload,
+        )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, h.make_engine())
+        await rc._reconcile_terminal_status(run_id)
+
+    session.expire_all()
+    row2 = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row2.status == "completed"
+    assert (
+        row2.error is None
+    ), f"a clean reconcile must clear the stale prior-attempt error, got {row2.error!r}"
+    session.close()
+
+
+@pytest.mark.issue("ISS-316")
+@pytest.mark.asyncio
+async def test_reconcile_later_attempt_failure_supersedes_earlier_cancellation(
+    monkeypatch,
+):
+    """ISS-316: a LATER attempt (run_resuming + pipeline_start) that genuinely FAILS
+    (pipeline_failed, no pipeline_complete anywhere in its tail) must supersede the earlier
+    attempt's pipeline_cancelled the same way a later pipeline_complete already does.
+    `resume_supersedes` is keyed exclusively on `complete_seqs`, so this tail's
+    `complete_seqs` is empty, `resume_supersedes` short-circuits False, and the first branch
+    (`if cancelled and not resume_supersedes`) unconditionally re-persists "cancelled" —
+    reproducing run a8dfa959-e233-4ddf-87ce-d9a942cefde3 from BUG-20260828-085830-runs-cancelled."""
+    from agents.authz import ScopedStore
+    from app.models.workflow import WorkflowRun
+
+    tail = [
+        ("pipeline_start", 1),
+        ("pipeline_cancelled", 2),
+        ("run_resuming", 3),
+        ("pipeline_start", 4),
+        ("agent_error", 5),
+        ("agent_error", 6),
+        ("pipeline_failed", 7),
+    ]
+
+    session, db_engine = _make_session()
+    run_id = f"rc-{uuid.uuid4().hex[:8]}"
+    owner = "rc-user"
+    ws = "ws-rc"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="generating", workspace_id=ws
+    )
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    for type_, seq in tail:
+        await store.append_event(
+            run_id,
+            seq=seq,
+            event_id=f"rc-{seq}",
+            type=type_,
+            payload_json={},
+        )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, h.make_engine())
+        await rc._reconcile_terminal_status(run_id)
+
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == "failed", (
+        f"a later-attempt pipeline_failed must supersede the earlier cancellation; "
+        f"got status={row.status!r} (expected 'failed')"
+    )
+    session.close()
+
+
 @pytest.mark.asyncio
 async def test_user_resume_persists_output_columns(monkeypatch):
     """END-TO-END (BUG-R03): a run crashed mid-build then USER-resumed to completion persists
@@ -4325,7 +4538,7 @@ async def test_user_resume_persists_output_columns(monkeypatch):
     from app.models.workflow import WorkflowRun
 
     session, db_engine = _make_session()
-    run_id = f"r03-{uuid.uuid4().hex[:8]}"
+    run_id = str(uuid.uuid4())
     owner = "r03-user"
     _seed_workflow_run(session, run_id, owner=owner, status="generating")
 
@@ -4672,6 +4885,8 @@ async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
     assert again["explicit_constraints"] == constraints
 
     # The reconstruction is observable where it matters — the composed prompt.
+    # For non-migrated agents (default prompt_policy), the planning context is pasted
+    # into the message. For migrated agents, it is gated off (S0) and read from disk.
     spec = load_agent_spec("domain-analyst")
     composed = await engine._compose_context_message(
         spec,
@@ -4681,11 +4896,16 @@ async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
         rebuilt,
         ectx,
     )
-    assert "**Explicit Constraints**" in composed
-    assert (
-        _REHYDRATE_ANSWER in composed
-    ), "the merged clarification answers must reach the dispatched prompt"
-    assert _REHYDRATE_INTENT in composed
+    # domain-analyst is a migrated agent (prompt_policy: governance), so S0 gates the
+    # planning context block. The rehydrated context is still available in ectx for
+    # the agent to read, but not pasted into the message for migrated agents.
+    _is_migrated = (spec.prompt_policy or "default") != "default"
+    if not _is_migrated:
+        assert "**Explicit Constraints**" in composed
+        assert (
+            _REHYDRATE_ANSWER in composed
+        ), "the merged clarification answers must reach the dispatched prompt"
+        assert _REHYDRATE_INTENT in composed
 
 
 @pytest.mark.asyncio
@@ -5379,4 +5599,474 @@ async def test_selecting_a_non_fanout_agent_still_opens_its_inline_gate():
     assert gate_entries == [
         "sample-wave-plan"
     ], f"non-fan-out inline gating changed: {gate_entries}"
+    session.close()
+
+
+# ===========================================================================
+# DB-manifest resume: _compute_resume_offset scans the recompiled plan,
+# not the generic custom roster
+# ===========================================================================
+
+
+async def _seed_run_event(store, *, run_id, seq, type_, payload):
+    await store.append_event(
+        run_id, seq=seq, event_id=f"ev-{seq}", type=type_, payload_json=payload
+    )
+
+
+@pytest.mark.asyncio
+async def test_resume_offset_scans_the_recompiled_db_manifest_not_the_generic_custom_roster():
+    """DB-manifest resume must use the recompiled manifest, not compile_for_run.
+
+    A composed workflow (from Composer) is persisted in workflow_runs.manifest_json.
+    On resume, resume_run recompiles that manifest into `resumed_compiled` and passes it
+    to _compute_resume_offset. The bug was that _compute_resume_offset ignored the
+    passed-in compiled plan and called compile_for_run(pipeline_type) — for
+    pipeline_type="custom", this returns the GENERIC custom pipeline (market-research
+    agent, swot-analyst, etc.) instead of the user's three-step composed workflow.
+
+    Drives the REAL resume path (``engine.resume_run``) so the fix's actual wiring —
+    resume_run passing ``compiled=resumed_compiled`` into _compute_resume_offset — is
+    on the line, not just _first_incomplete_step in isolation (which never called
+    compile_for_run either way and proved nothing about the bug).
+    """
+    from agents.authz import ScopedStore
+    from agents.capabilities.registry import CapabilityRegistry, discover
+    from agents.workflows.compiler import WorkflowCompiler
+    from agents.workflows.manifest import build_manifest_from_dict
+    from app.models.workflow import WorkflowRun
+    import agents.execution_engine.engine as engine_mod
+
+    session, db_engine = _make_session()
+    run_id = f"cm-{uuid.uuid4().hex[:8]}"
+    owner = "cm-user"
+    ws = "ws-cm"
+
+    # The persisted manifest_json for a 3-step composed workflow (Composer shape):
+    # custom-agent instances chained a -> b -> c. "_trust" is popped by resume_run
+    # before compiling (it is not an allowed top-level manifest key).
+    _tools_grant = {
+        "read_files": True,
+        "write_files": True,
+        "exec": False,
+        "tool_sets": [],
+    }
+    manifest_dict = {
+        "id": "composed-three-step",
+        "name": "Three-Step Composed Workflow",
+        "description": "A user-composed three-step custom workflow.",
+        "planner": "skip",
+        "clarify": {"mode": "skip", "defaults": []},
+        "deliverable": {"strategy": "streamed_text"},
+        "_trust": "db",
+        "steps": [
+            {
+                "agent": "custom-agent",
+                "instance_id": "a",
+                "name": "Step A",
+                "prompt": "Do step A.",
+                "depends_on": [],
+                "tools": dict(_tools_grant),
+            },
+            {
+                "agent": "custom-agent",
+                "instance_id": "b",
+                "name": "Step B",
+                "prompt": "Do step B.",
+                "depends_on": ["custom-agent:a"],
+                "tools": dict(_tools_grant),
+            },
+            {
+                "agent": "custom-agent",
+                "instance_id": "c",
+                "name": "Step C",
+                "prompt": "Do step C.",
+                "depends_on": ["custom-agent:b"],
+                "tools": dict(_tools_grant),
+            },
+        ],
+    }
+
+    # Sanity: the manifest compiles on its own (same recipe resume_run uses) before
+    # the test relies on it inside resume_run's best-effort, exception-swallowing path.
+    discover()
+    _mf_check = dict(manifest_dict)
+    _trust_check = _mf_check.pop("_trust", "user") or "user"
+    _precheck = WorkflowCompiler().compile(
+        build_manifest_from_dict(_mf_check, "run:precheck"),
+        CapabilityRegistry(),
+        trust=_trust_check,
+    )
+    assert [s.agent_id for s in _precheck.steps] == [
+        "custom-agent:a",
+        "custom-agent:b",
+        "custom-agent:c",
+    ], "precondition: the manifest must compile to the 3 chained custom-agent steps"
+
+    _seed_workflow_run(
+        session,
+        run_id,
+        owner=owner,
+        status="generating",
+        type_="custom",
+        workspace_id=ws,
+    )
+    wr_row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    wr_row.manifest_json = manifest_dict
+    session.commit()
+
+    # Seed durable evidence that step custom-agent:a completed, under the SAME
+    # owner+workspace resume_run's _recover_workspace_id will read back (it recovers
+    # the original workspace_id from the first durable row for this run+owner).
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    await _seed_run_event(
+        store,
+        run_id=run_id,
+        seq=1,
+        type_="step_completed",
+        payload={"step": "custom-agent:a"},
+    )
+    await _seed_run_event(
+        store,
+        run_id=run_id,
+        seq=2,
+        type_="agent_complete",
+        payload={"agent_id": "custom-agent:a"},
+    )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+
+        # The harness's own compile_for_run patch falls through to the REAL
+        # compile_for_run for any non-fixture pipeline_type (i.e. "custom" — the
+        # generic roster). Overwrite it with one that raises, to prove THAT path is
+        # never reached for a db-manifest resume. Restored to the harness's version
+        # before the `with` block exits, so the harness's own __exit__ restore (to
+        # the true pre-harness original) still runs last.
+        _harness_compile_for_run = engine_mod.compile_for_run
+
+        def _compile_must_not_run(pipeline_type):
+            raise AssertionError(
+                "generic compile must not run for a db-manifest resume"
+            )
+
+        engine_mod.compile_for_run = _compile_must_not_run
+
+        drive_calls: list[dict] = []
+
+        async def _spy_drive(rid, **kwargs):
+            drive_calls.append(kwargs)
+
+        engine._drive_resumed_stream = _spy_drive  # type: ignore[assignment]
+
+        try:
+            await engine.resume_run(run_id)
+        finally:
+            engine_mod.compile_for_run = _harness_compile_for_run
+
+    assert (
+        len(drive_calls) == 1
+    ), f"resume_run must reach _drive_resumed_stream (not bail); calls={drive_calls}"
+    call = drive_calls[0]
+    assert call["_resume_from"] == 1, (
+        f"step a is durably complete, step b is the first incomplete step — expected "
+        f"_resume_from=1, got {call['_resume_from']}"
+    )
+    assert [getattr(s, "id", None) for s in call["agents"]] == [
+        "custom-agent:a",
+        "custom-agent:b",
+        "custom-agent:c",
+    ], (
+        "the roster passed to _drive_resumed_stream must be the COMPOSED plan, not "
+        f"the generic custom roster: {[getattr(s, 'id', None) for s in call['agents']]}"
+    )
+    assert (
+        call["resumed_compiled"] is not None
+    ), "resumed_compiled must be the recompiled db manifest, not None"
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_replay_clarify_run_uses_the_recompiled_db_manifest_not_the_generic_custom_roster():
+    """DB-manifest clarify replay must use the recompiled manifest, not the generic roster.
+
+    The ``resume_run`` twin of the test above: a composed (``type_="custom"``) workflow
+    persisted in ``workflow_runs.manifest_json`` crashes while parked at its OPEN Clarify
+    gate. ``_replay_clarify_run`` (the RESUME-17 clarify driver ``_rearm_gate_run`` spawns
+    for an open ``questionnaire`` gate) must recompile that manifest and drive the
+    composed 3-step roster — not ``get_pipeline_agents(resolve_alias("custom"))`` (the
+    GENERIC custom roster: market-research-agent, swot-analyst, etc.) and not
+    ``compile_for_run("custom")`` either.
+
+    Drives the REAL replay path (``engine._replay_clarify_run``), mirroring the resume_run
+    test above: both generic-roster entry points are monkeypatched to raise, proving
+    neither is reached when a recompiled DB manifest is available.
+    """
+    from agents.authz import ScopedStore
+    from agents.capabilities.registry import CapabilityRegistry, discover
+    from agents.workflows.compiler import WorkflowCompiler
+    from agents.workflows.manifest import build_manifest_from_dict
+    from app.models.workflow import WorkflowRun
+    import agents.execution_engine.engine as engine_mod
+    import agents.registry as registry_mod
+
+    session, db_engine = _make_session()
+    run_id = f"rc-{uuid.uuid4().hex[:8]}"
+    owner = "rc-user"
+    ws = "ws-rc"
+
+    # Same composed 3-step manifest shape as the resume_run twin above.
+    _tools_grant = {
+        "read_files": True,
+        "write_files": True,
+        "exec": False,
+        "tool_sets": [],
+    }
+    manifest_dict = {
+        "id": "composed-three-step",
+        "name": "Three-Step Composed Workflow",
+        "description": "A user-composed three-step custom workflow.",
+        "planner": "skip",
+        "clarify": {"mode": "skip", "defaults": []},
+        "deliverable": {"strategy": "streamed_text"},
+        "_trust": "db",
+        "steps": [
+            {
+                "agent": "custom-agent",
+                "instance_id": "a",
+                "name": "Step A",
+                "prompt": "Do step A.",
+                "depends_on": [],
+                "tools": dict(_tools_grant),
+            },
+            {
+                "agent": "custom-agent",
+                "instance_id": "b",
+                "name": "Step B",
+                "prompt": "Do step B.",
+                "depends_on": ["custom-agent:a"],
+                "tools": dict(_tools_grant),
+            },
+            {
+                "agent": "custom-agent",
+                "instance_id": "c",
+                "name": "Step C",
+                "prompt": "Do step C.",
+                "depends_on": ["custom-agent:b"],
+                "tools": dict(_tools_grant),
+            },
+        ],
+    }
+
+    # Sanity: the manifest compiles on its own (same recipe _replay_clarify_run uses).
+    discover()
+    _mf_check = dict(manifest_dict)
+    _trust_check = _mf_check.pop("_trust", "user") or "user"
+    _precheck = WorkflowCompiler().compile(
+        build_manifest_from_dict(_mf_check, "run:precheck"),
+        CapabilityRegistry(),
+        trust=_trust_check,
+    )
+    assert [s.agent_id for s in _precheck.steps] == [
+        "custom-agent:a",
+        "custom-agent:b",
+        "custom-agent:c",
+    ], "precondition: the manifest must compile to the 3 chained custom-agent steps"
+
+    _seed_workflow_run(
+        session,
+        run_id,
+        owner=owner,
+        status="waiting_for_user",
+        type_="custom",
+        workspace_id=ws,
+    )
+    wr_row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    wr_row.manifest_json = manifest_dict
+    session.commit()
+
+    # Seed a durable, still-OPEN questionnaire_ready — the gate _replay_clarify_run replays.
+    questions = [
+        {
+            "question_id": "r1_q1",
+            "question_text": "Scope?",
+            "options": ["a", "b"],
+            "answer_type": "single_choice",
+            "impact_level": "high",
+            "ambiguity_category": "Functional Scope",
+        }
+    ]
+    await _seed_open_questionnaire_gate(
+        session, run_id, owner, ws, questions, round_num=1
+    )
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+
+        # Prove NEITHER generic-roster entry point is reached: the harness's own
+        # compile_for_run/get_pipeline_agents patches fall through to the REAL
+        # functions for any non-fixture pipeline_type ("custom"). Overwrite both with
+        # raising stubs; restored to the harness's versions before the `with` block
+        # exits, so the harness's own __exit__ restore (to the true pre-harness
+        # originals) still runs last. ``get_pipeline_agents`` has no module-level
+        # binding in engine.py (it is imported LOCALLY inside the function each call,
+        # same as resume_run) — the effective patch point is agents.registry's own
+        # attribute, which that local import re-reads at call time.
+        _harness_compile_for_run = engine_mod.compile_for_run
+        _harness_gpa = registry_mod.get_pipeline_agents
+
+        def _compile_must_not_run(pipeline_type):
+            raise AssertionError(
+                "generic compile must not run for a db-manifest clarify replay"
+            )
+
+        def _gpa_must_not_run(pipeline_type):
+            raise AssertionError(
+                "generic get_pipeline_agents must not run for a db-manifest clarify replay"
+            )
+
+        engine_mod.compile_for_run = _compile_must_not_run
+        registry_mod.get_pipeline_agents = _gpa_must_not_run
+
+        drive_calls: list[dict] = []
+
+        async def _spy_drive(rid, **kwargs):
+            drive_calls.append(kwargs)
+
+        engine._drive_resumed_stream = _spy_drive  # type: ignore[assignment]
+
+        try:
+            await engine._replay_clarify_run(run_id)
+        finally:
+            engine_mod.compile_for_run = _harness_compile_for_run
+            registry_mod.get_pipeline_agents = _harness_gpa
+
+    assert (
+        len(drive_calls) == 1
+    ), f"_replay_clarify_run must reach _drive_resumed_stream (not bail); calls={drive_calls}"
+    call = drive_calls[0]
+    assert (
+        call["resumed_compiled"] is not None
+    ), "resumed_compiled must be the recompiled db manifest, not None"
+    assert [getattr(s, "id", None) for s in call["agents"]] == [
+        "custom-agent:a",
+        "custom-agent:b",
+        "custom-agent:c",
+    ], (
+        "the roster passed to _drive_resumed_stream must be the COMPOSED plan, not "
+        f"the generic custom roster: {[getattr(s, 'id', None) for s in call['agents']]}"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_wave_index_with_a_later_running_row_still_counts_complete():
+    """Wave evidence: a completed index stays complete even with a later non-terminal row.
+
+    When a wave re-entry is interrupted (e.g., resume fails again), the durable
+    wave_runs table may have both a 'completed' row for (step, wave_index) AND a later
+    'running' row for the same (step, wave_index). The pre-fix logic would count the
+    step as running_wave_steps. The fix treats a completed index as complete: only
+    non-terminal indices that are NOT covered by a completed index mark the step incomplete.
+
+    Unit test of _first_incomplete_step with fake ctx/store:
+    - Step p: non-wave, complete (artifact + agent_complete event)
+    - Step w: wave_scheduler, with rows [completed idx 0, running idx 0]
+    - Step q: non-wave, no evidence
+
+    Expected: offset 2 (the incomplete step q), because step w's non-terminal index 0
+    is SUPERSEDED by its completed index 0.
+    """
+    from agents.authz import ScopedStore
+    from agents.execution_engine.context import ExecutionContext
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.artifacts.graph import ArtifactRef
+    from agents.workflows.plan import Step
+    import types
+
+    session, db_engine = _make_session()
+    run_id = f"wv-{uuid.uuid4().hex[:8]}"
+    owner = "wv-user"
+    ws = "ws-wv"
+
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+
+    # Seed step p (non-wave): artifact + agent_complete event.
+    content_p = "step p output"
+    await store.write_ref(
+        ArtifactRef(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            owner_id=owner,
+            workspace_id=ws,
+            kind="chat_text",
+            producer_step="p",
+            producer_agent="p",
+            task_id=None,
+            content=content_p,
+            content_hash="hash_p",
+            location="output.txt",
+            version=1,
+        )
+    )
+    await _seed_run_event(
+        store, run_id=run_id, seq=1, type_="agent_complete", payload={"agent_id": "p"}
+    )
+
+    # Seed step w (wave_scheduler): completed idx 0 + running idx 0.
+    # (This represents a re-entry that was interrupted.)
+    from app.models.wave_run import WaveRun
+
+    session.add(
+        WaveRun(
+            run_id=run_id,
+            owner_id=owner,
+            workspace_id=ws,
+            step="w",
+            wave_index=0,
+            status="completed",
+            task_ids=_json.dumps(["t1"]),
+        )
+    )
+    session.add(
+        WaveRun(
+            run_id=run_id,
+            owner_id=owner,
+            workspace_id=ws,
+            step="w",
+            wave_index=0,
+            status="running",
+            task_ids=_json.dumps(["t1"]),
+        )
+    )
+    session.commit()
+
+    # Step q (non-wave): no evidence.
+
+    # Build compiled plan with three steps.
+    compiled = types.SimpleNamespace(
+        steps=[
+            Step(agent_id="p", strategy="single_shot"),
+            Step(agent_id="w", strategy="wave_scheduler"),
+            Step(agent_id="q", strategy="single_shot"),
+        ]
+    )
+    ordered_agents = [
+        types.SimpleNamespace(id="p"),
+        types.SimpleNamespace(id="w"),
+        types.SimpleNamespace(id="q"),
+    ]
+
+    tmp = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal="anon")
+    tmp.workspace_id = ws
+    tmp.scoped_store = store
+
+    engine = ExecutionEngine()
+    offset = await engine._first_incomplete_step(tmp, ordered_agents, compiled)
+
+    assert offset == 2, (
+        f"offset should be 2 (step q is incomplete); step w's non-terminal idx 0 "
+        f"is covered by completed idx 0, so w should be complete. Got offset={offset}"
+    )
     session.close()

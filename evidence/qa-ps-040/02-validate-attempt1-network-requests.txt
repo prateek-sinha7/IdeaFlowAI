@@ -1,0 +1,10 @@
+Attempt 1 (cold: about:blank -> goto /library) — /api/ requests observed:
+64. GET /api/runs?limit=6         => 200  (not used on library — run history not shown here)
+65. GET /api/auth/me              => 200  (1x, single call this attempt)
+66. GET /api/runs?limit=50        => 200  (DUPLICATE #1 — not used on library)
+68. GET /api/runs?limit=50        => 200  (DUPLICATE #2 — not used on library)
+69. GET /api/workflows            => 200  (DUPLICATE #1)
+70. GET /api/workflows            => 200  (DUPLICATE #2)
+71. GET /api/agents/library       => 200
+72. GET /api/skills/library       => 200
+73. GET /api/hooks/library        => 200

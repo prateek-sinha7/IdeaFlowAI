@@ -571,3 +571,23 @@ def test_sample_wave_manifest_compiles() -> None:
     manifest = load_manifest("sample_wave", _WORKFLOWS_DIR)
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
     assert any(s.strategy == "wave_scheduler" for s in compiled.steps)
+
+
+def test_mechanical_kinds_match_registry() -> None:
+    """_ALLOWED_MECHANICAL_KINDS derives from registry, no drift.
+
+    Mechanical kinds are defined in two places: the registry (capability
+    registration) and the compiler (allowed-kinds validation). Both must stay
+    in sync — ``_ALLOWED_MECHANICAL_KINDS == {name for (kind, name) in
+    registry_mod._KNOWN if kind == "mechanical"}``.
+    """
+    from agents.capabilities import registry as registry_mod
+    from agents.workflows import compiler as compiler_mod
+
+    registry_mod.discover()
+    registry_mechanical = {
+        name for kind, name in registry_mod._KNOWN if kind == "mechanical"
+    }
+    assert (
+        compiler_mod._ALLOWED_MECHANICAL_KINDS == registry_mechanical
+    ), f"mechanical kinds mismatch: compiler has {compiler_mod._ALLOWED_MECHANICAL_KINDS}, registry has {registry_mechanical}"

@@ -1,0 +1,97 @@
+QA-SG-003 / ISS-741 / ISS-786 — 5-fixer test output, 2026-09-22, offline tier,
+local dev servers (:3000 next dev, :8000 uvicorn). Runner:
+tests/integration/e2e/.venv/bin/python -m pytest <file> -x -q
+
+────────────────────────────────────────────────────────────────────────────
+1. ISS-741 — the card's own test, AFTER the fix.  XPASS(strict) = fix works.
+
+$ cd tests/integration/e2e
+$ ./.venv/bin/python -m pytest suites/07_run_detail/test_iss741_back_button_loop.py -x -q
+
+  [1/1]  UNMARKED  Open a run from Run History, click the run detail page's Back button
+      1  When I click Back on the run detail page                    0.1s  ok
+      2  When I click Back again on Run History                      0.1s  ok
+     FAIL  2 shots  4.6s
+___ test_back_from_run_detail_then_back_from_history_does_not_loop[chromium] ___
+[XPASS(strict)] ISS-741 unfixed
+FAILED suites/07_run_detail/test_iss741_back_button_loop.py::test_back_from_run_detail_then_back_from_history_does_not_loop[chromium]
+
+  (xfail(strict=True) marker left in place for the 6-verifier, per the line's
+   contract. XPASS is the pass signal.)
+
+────────────────────────────────────────────────────────────────────────────
+2. ISS-786 — the card's own test CANNOT RUN. Two defects in the test itself,
+   both upstream of its assertion. Left UNEDITED (5-fixer never bends a test).
+
+$ ./.venv/bin/python -m pytest suites/03_launch_panels/test_iss786_launch_wizard_back_loop.py -x -q --runxfail
+
+E  playwright._impl._errors.Error: Locator.click: Error: strict mode violation:
+   get_by_role("button", name="Build an interactive prototype") resolved to 6 elements:
+     1) ... "PDF to Prototype (wave build) Read a set of PDF job aids end to end..."
+     2) ... "Build an interactive prototype Navigable, high-fidelity HTML prototype from a..."
+     3) ... "Inspect Build an interactive"
+     4) ... "Build a prototype from documents Read a set of documents end to end..."
+     5) ... "Cancelled 6m ago A landing"
+     6) ... "Failed 6m ago A kanban board"
+
+   Defect (a): name= matches a SUBSTRING of the accessible name by default, so
+   the launch card, its Inspect button and two recent-run cards all match.
+   Defect (b): after fixing (a) the test still cannot proceed — it waits for
+   "/workflow/create" in the URL, but the Home launch card navigates to
+   /create/prototype (frontend/src/app/[...view]/page.tsx:4034 renders
+   <LaunchWizard initialMode={wizardMode}/> there). Observed:
+
+E  playwright._impl._errors.TimeoutError: Timeout 30000ms exceeded.
+E    waiting for navigation ... navigated to "http://localhost:3000/create/prototype"
+
+   Same component, same button, same defect — only the route in the card's
+   reachability narrative is stale.
+
+────────────────────────────────────────────────────────────────────────────
+3. ISS-786 — proven instead with a TEMPORARY copy of the card's test (deleted
+   after the run). Only the launch-card locator and the two route strings
+   differ from the card's file; the assertion is byte-identical.
+
+   suites/03_launch_panels/test_tmpcheck_iss786.py (temporary, now deleted):
+     page.goto("/dashboard")
+     page.get_by_role("heading", name="Build an interactive prototype", exact=True).click()
+     page.wait_for_url(lambda url: "/create/prototype" in url)
+     expect(page.locator('[aria-label="Back to dashboard"]')).to_be_visible()
+     page.locator('[aria-label="Back to dashboard"]').click()
+     page.wait_for_url(lambda url: url.rstrip("/").endswith("/dashboard"))
+     page.go_back()
+     assert "/create/prototype" not in page.url
+
+   3a. WITH the fix — PASS:
+       [1/1]  UNMARKED  native back after launch wizard back does not reloop to wizard
+           1  When I click "Back to dashboard" on the launch wizard       0.2s  ok
+           2  And I click the browser's own native Back button            0.0s  ok
+          PASS  2 shots  11.9s
+       report: tests/integration/test-runs/2026-09-22T20-04-local/0-report.html
+
+   3b. With LaunchWizard.tsx's one line TEMPORARILY reverted to the old
+       `onClick={() => router.push(routes.home())}` — FAIL, i.e. the check is a
+       real detector, not a tautology:
+       E  AssertionError: Native Back looped back into the launch wizard
+          ('http://localhost:3000/create/prototype') instead of continuing
+          backward past it
+       E  assert '/create/prototype' not in 'http://loca...te/prototype'
+
+       (the fix was restored immediately afterwards; LaunchWizard.tsx:1038 now
+        reads `onClick={() => goBackOr(router, () => router.push(routes.home()))}`)
+
+────────────────────────────────────────────────────────────────────────────
+4. The shared guard's own unit test.
+
+$ cd frontend && npx vitest run src/lib/navigation.test.ts
+   Test Files  1 passed (1)
+        Tests  2 passed (2)
+
+5. Typecheck — no new errors in any touched file.
+
+$ cd frontend && npx tsc --noEmit -p tsconfig.json
+   11 pre-existing errors, all in *.test.tsx files unrelated to this change
+   (AnalyticsPage.test.tsx, DashboardLayout.chain.test.tsx,
+    WorkflowHistory.modelChip.test.tsx, AgentDetailPanel.waveWorkerStatus.test.tsx,
+    RunConnectionProvider.test.tsx). None names navigation.ts,
+    DashboardLayout.tsx, LaunchWizard.tsx or app/workflow/page.tsx.

@@ -62,6 +62,13 @@ class FanoutBatchStrategy:
 
     name = "fanout_batch"
 
+    # ISS-131: spawn-only — ``run`` NEVER calls ``ctx.runner.run_agent`` for the
+    # step's own agent; every invocation it produces is a ``run_fanout`` child,
+    # and those opt out of the inline review gate (ISS-097). The step-boundary
+    # dedupe reads this so a declared ``gates:[human]`` on a fan-out step is not
+    # skipped in favour of an inline gate that never opens.
+    runs_agent_inline = False
+
     def __init__(self) -> None:
         # Module-singleton registry (capabilities are stateless) — resolves the task
         # parser by NAME (D-02), exactly like task_loop.

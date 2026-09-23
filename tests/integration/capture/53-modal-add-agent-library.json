@@ -1,0 +1,29 @@
+{
+  "url": "http://localhost:3000/workflows/new",
+  "dialogs": 0,
+  "inputs": [
+    "input[agent-search]"
+  ],
+  "tabs": [],
+  "btn": [
+    "All",
+    "User Stories",
+    "PPT",
+    "Prototype",
+    "App Builder",
+    "MuleSoft to Spring Boot",
+    ".NET to Azure",
+    "Custom",
+    "@",
+    "+ Add"
+  ],
+  "testids": [
+    "library-card-domain-analyst",
+    "library-card-epic-architect",
+    "library-card-story-estimator",
+    "library-card-nfr-specialist",
+    "library-card-backlog-reviewer",
+    "library-card-backlog-compiler"
+  ],
+  "text": "Add agent\nAll\nUser Stories\nPPT\nPrototype\nApp Builder\nMuleSoft to Spring Boot\n.NET to Azure\nCustom\nDomain Discovery Agent\nUSER STORIES\nResearches your idea, identifies the target market, users, and key personas.\n+ Add\nBacklog Architecture Agent\nUSER STORIES\nWrites product epics and detailed user stories with clear acceptance criteria.\n+ Add\nEstimation Agent\nUSER STORIES\nEstimates effort for each story and maps out which tasks depend on others.\n+ Add\nQuality Requirements Agent\nUSER STORIES\nAdds quality requirements covering performance, security, and accessibility.\n+ Add\nQuality Review Agent\nUSER STORIES\nReviews all stories for completeness, gaps, and quality before finalizing.\n+ Add\nDelivery Compilation Agent\nUSER STORIES\nCompiles all stories into a clean, structured document ready for your team.\n+ Add"
+}

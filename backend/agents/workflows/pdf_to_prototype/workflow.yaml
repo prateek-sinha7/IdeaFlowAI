@@ -1,0 +1,896 @@
+capabilities:
+  internet: false
+clarify:
+  defaults: []
+  mode: skip
+context_providers:
+- opendesign
+deliverable:
+  name: prototype.html
+  publish_from_glob: draft.v*.html
+  strategy: single_file
+description: Read a set of PDF job aids end to end, agree what they describe, then build an interactive prototype screen by screen with a wave of parallel builders.
+design_mode: web
+display_name: PDF to Prototype (wave build)
+icon: FileStack
+id: pdf_to_prototype
+input_providers:
+- pdf_pages
+is_beta: false
+limits:
+  max_depth: 2
+  max_subagents: 200
+  wall_clock_seconds: 7200
+name: PDF to Prototype
+planner: skip
+seed_files: {}
+short_name: PDF to Prototype v2
+steps:
+- agent: custom-agent
+  gates: []
+  instance_id: reading-planner
+  name: Doc Splitter
+  prompt: "You are the reading planner. You assign documents to readers. You read no PDFs, you extract nothing and you write no notes.\n\nRead `.uploads/manifest.json`. It lists every uploaded document IN ORDER. That order is the numbering, 1..N, and it is the only numbering anyone uses.\n\nDivide the N documents across exactly 5 readers as evenly as possible, in contiguous blocks:\n- base = N divided by 5, rounded DOWN. remainder = N minus (base x 5).\n- The FIRST `remainder` readers get base + 1 documents each. Every other reader gets base.\n- Hand them out in document order: reader 1 takes the first block, reader 2 the next block, and so on. Never interleave, never skip.\n- Worked examples:\n    N=3  -> reader1:[1]  reader2:[2]  reader3:[3]  reader4:none  reader5:none\n    N=5  -> reader1:[1]  reader2:[2]  reader3:[3]  reader4:[4]   reader5:[5]\n    N=6  -> reader1:[1,2] reader2:[3] reader3:[4]  reader4:[5]   reader5:[6]\n    N=12 -> reader1:[1,2,3] reader2:[4,5,6] reader3:[7,8] reader4:[9,10] reader5:[11,12]\n    N=15 -> reader1:[1,2,3] reader2:[4,5,6] reader3:[7,8,9] reader4:[10,11,12] reader5:[13,14,15]\n    N=20 -> reader1:[1,2,3,4] reader2:[5,6,7,8] reader3:[9,10,11,12] reader4:[13,14,15,16] reader5:[17,18,19,20]\n\nEvery document must appear EXACTLY once across the five readers. A document assigned twice, or left out, is a failure.\n\nWrite `reading-plan.md` with write_file, in EXACTLY this shape and nothing else — no preamble, no commentary, no markdown fence:\n\nTOTAL DOCUMENTS: <N>\n\nREADER 1: doc <number> -> <exact filename> -> notes/doc-<number>.md | doc <number> -> <exact filename> -> notes/doc-<number>.md\nREADER 2: doc <number> -> <exact filename> -> notes/doc-<number>.md\nREADER 3: none\nREADER 4: none\nREADER 5: none\n\nOne line per reader, all five lines always present, in order. Separate multiple documents on one line with ` | `. Write the word `none` for a reader with no documents.\n\nThe document number is the document's POSITION in .uploads/manifest.json — 1 for the first entry, 2 for the second, and so on. It has NOTHING to do with any digit inside the filename: a file called `7-alpha.pdf` sitting first in the manifest is document 1 and its notes path is `notes/doc-1.md`. Spell the notes path out in full on every entry so the reader never has to work it out.\n\nCopy each filename EXACTLY as the manifest spells it.\n\nBEFORE YOU FINISH: count the document entries you listed across all five READER lines and compare that total to N (TOTAL DOCUMENTS). Confirm every number from 1 to N appears exactly once across those lines — none skipped, none repeated. If either check fails, fix reading-plan.md before you write it anywhere. State N and your entry count in your reply.\n\nWrite it to TWO places, identical content: (a) write_file to `reading-plan.md`, and (b) write_file to the path named in the \"How to deliver\" section below. Both are required — that is TWO separate write_file calls, and the run breaks if you make only one. `reading-plan.md` is the file the five readers open; the deliverable copy is for the record."
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: true
+- agent: custom-agent
+  depends_on:
+  - custom-agent:reading-planner
+  gates: []
+  instance_id: synthesizer
+  name: Synthesizer
+  prompt: "You are the synthesiser, and your five readers have already finished. Their notes are on disk. You read them and\nbuild ONE coherent model of the application they describe together. You never re-read the PDFs and never build HTML.\nYou write exactly ONE file, `synthesis.md` — spend your whole budget synthesising, not copying.\n\n1. Read `reading-plan.md` — it names every document that was supposed to be read, and who read it.\n2. Run `ls notes/` and read EVERY file it lists — `notes/doc-<N>.md`, one per document. A document named in\n   reading-plan.md with no notes file, or whose notes file is empty or carries only a FAILURE heading, is a gap\n   you must report, not silently skip. `notes/doc-<N>.md` and `reading-plan.md` are your ONLY sources — never\n   reconstruct a missing or empty document's screens, fields or rules from anything else in your context; a gap\n   reported honestly is correct, a gap papered over is a defect that reaches the prototype.\n\nYOUR OUTPUT — the end-to-end model the separate documents describe together. Start the file with a SCREEN INVENTORY table, one row per screen named anywhere in the notes (including a screen named only as another screen's navigation target): `<number> | <exact screen title> | <module/journey> | doc-<N>` — this is the one grep-able list every later step checks a screen against before calling it undocumented. Then cover:\n- The transaction chain in order, and what each stage hands to the next.\n- Which screens are shared between documents and which are unique to one.\n- Which fields carry forward between stages and which are re-entered.\n- Where a lookup or reference table is consulted, and at which step.\n- The rules that span documents, not just the ones local to one screen.\n\nKeep every screen title, field label and form code EXACTLY as the readers transcribed it. Where two documents\ndisagree, say so explicitly instead of picking one.\n\nEnd with an OPEN QUESTIONS section listing what the documents do not answer, and a COVERAGE line naming any\ndocument that contributed nothing because its notes file was missing, empty, or a FAILURE heading.\n\nBEFORE YOU FINISH: count the rows in your SCREEN INVENTORY table. For every `notes/doc-<N>.md` file `ls notes/` lists that is non-empty and not a FAILURE heading, grep synthesis.md for `doc-<N>` and confirm it appears in at least one inventory row — a document with notes but zero inventory rows means you skipped its screens; go back and add them. State the row count and confirm every non-empty document is represented.\n\nWrite it to TWO places, identical content: (a) write_file to `synthesis.md`, and (b) write_file to the path named\nin the \"How to deliver\" section below. Both are required. Do not design screens and do not write HTML."
+  strategy: single_shot
+  subagents:
+    max_parallel: 5
+    mode: parallel
+    steps:
+    - agent: custom-agent
+      gates: []
+      injects:
+      - pdf_pages
+      instance_id: reader-1
+      name: Reader 1
+      prompt: "You are reader #1 of 5. You read a SHARE of the documents — never all of them, never another reader's share — and you never build a prototype.\n\nFIND YOUR SHARE:\n- Read `reading-plan.md`. It assigns every uploaded document to exactly one reader. It is the only assignment that counts — never work it out yourself from the manifest, and never take a document the plan gave to someone else.\n- Find the line that starts `READER 1:`. The documents listed on that line are your share: all of them, and nothing else.\n- Each entry reads `doc <number> -> <filename> -> <notes path>`. Read that filename; write that notes path. COPY THE NOTES PATH CHARACTER FOR CHARACTER from your line. Never derive a number from the filename — a file named `7-alpha.pdf` can be document 1, and writing `notes/doc-7.md` for it silently collides with another reader's file and destroys their work.\n- If your line reads `none`, reply exactly NO FILE and stop. That is a normal outcome when there are fewer documents than readers, not an error.\n\nRE-SCOPING ON A RETRY: if your context carries a block headed \"=== RETRY — pass N of M ===\", coverage-check sent the run back to the synthesizer because it found gaps — that block quotes coverage-check's JSON reply, whose \"reason\" field names the specific documents, by document number and filename, that are missing or incomplete. When that block is present, re-extract and re-read ONLY the documents in YOUR share that are named there; for every other document in your share, first check whether `notes/doc-<number>.md` already exists and is non-empty on disk — if it does, skip that document, its notes already stand and re-reading it wastes the run's budget. When that block is ABSENT (the normal first pass), read every document in your share exactly as your line lists it.\n\nEVERY PATH YOU USE IS RELATIVE TO THE RUN ROOT. Write `notes/doc-3.md`, never `/notes/doc-3.md`, never `/home/user/notes/doc-3.md`, never any absolute path. A path starting with `/home` or any other root writes outside the run and the file is lost — the run then fails coverage for a document you actually read.\n\nEXTRACT AND READ EACH ONE:\n`.uploads/` is a folder of RAW FILES only. Use `reading-plan.md` and the manifest for names and\norder, and hand the raw file to extract_text — never read anything else that happens to sit in `.uploads/`. A\n`.txt` sidecar next to a raw file there, and any document text already inlined into your context message, is NOT\nthe document: it is a stale artifact of a different path, and you must never read it, quote it or write notes from\nit. For every document in your share, extract_text on it is your FIRST action for that document, before you write\na single line of notes for it. The ONLY path form that works is\n`.uploads/<filename>` — no leading slash; `/uploads/x.pdf` and a bare `x.pdf` are both rejected. It returns the\n`.extract/.../document.md` path. Then read that document.md END TO END. One read_file does not return the whole file —\npage through it with offset and limit until you reach the last line. Image placeholders like @[[pages/03/image-1.png]]\nmark where each screenshot sits; use them to tell where one screen ends and the next begins. You are also shown the\nrendered page images — read the arrows, callouts and highlighting in them, because those carry instructions the\nextracted text does not. Your notes for a document come from its document.md and its rendered page images only —\nnever from inlined text in the context message, and never from a `.txt` sidecar in `.uploads/`.\n\nIF EXTRACTION FAILS: if extract_text errors, times out, or is unavailable for a document, do not fall back to any\nother source for that document. Write that document's block with a single FAILURE heading instead of the usual\nsections, stating plainly that extract_text failed and quoting the error if one was returned. A silent fallback to\ninlined or sidecar text is worse than an honest failure — say so and move on to the next document in your share.\n\nYOUR OUTPUT — for EACH document in your share, a block headed with that document's number and exact filename,\ncontaining these sections in this order (or, if extraction failed for that document, the single FAILURE heading\ndescribed above instead):\nPURPOSE — what this document is for, one paragraph.\nSCREENS — one block per screen: screen title, every field label, every button, every dropdown and its values.\n  Transcribe strings EXACTLY as printed. Never paraphrase a label, a form code or a field name.\nFLOW — the ordered steps the user performs, numbered.\nDATA — the entities and fields each screen reads or writes.\nRULES — mandatory fields, validation, conditional behaviour, state-dependent rules.\nUNCERTAIN — anything the document does not state. Never guess to fill a gap.\n\nWrite each document's block to its OWN file: call write_file with path `notes/doc-<number>.md`, using that\ndocument's number from .uploads/manifest.json — not your reader number. One file per document you read.\nThen call write_file with the path named in the \"How to deliver\" section below, containing all your blocks together.\n\nDo not write HTML. Do not read or write a document outside your share."
+      skills:
+      - file-extraction
+      strategy: single_shot
+      tools:
+        exec: false
+        read_files: true
+        tool_sets:
+        - file_extract
+        write_files: true
+    - agent: custom-agent
+      gates: []
+      injects:
+      - pdf_pages
+      instance_id: reader-2
+      name: Reader 2
+      prompt: "You are reader #2 of 5. You read a SHARE of the documents — never all of them, never another reader's share — and you never build a prototype.\n\nFIND YOUR SHARE:\n- Read `reading-plan.md`. It assigns every uploaded document to exactly one reader. It is the only assignment that counts — never work it out yourself from the manifest, and never take a document the plan gave to someone else.\n- Find the line that starts `READER 2:`. The documents listed on that line are your share: all of them, and nothing else.\n- Each entry reads `doc <number> -> <filename> -> <notes path>`. Read that filename; write that notes path. COPY THE NOTES PATH CHARACTER FOR CHARACTER from your line. Never derive a number from the filename — a file named `7-alpha.pdf` can be document 1, and writing `notes/doc-7.md` for it silently collides with another reader's file and destroys their work.\n- If your line reads `none`, reply exactly NO FILE and stop. That is a normal outcome when there are fewer documents than readers, not an error.\n\nRE-SCOPING ON A RETRY: if your context carries a block headed \"=== RETRY — pass N of M ===\", coverage-check sent the run back to the synthesizer because it found gaps — that block quotes coverage-check's JSON reply, whose \"reason\" field names the specific documents, by document number and filename, that are missing or incomplete. When that block is present, re-extract and re-read ONLY the documents in YOUR share that are named there; for every other document in your share, first check whether `notes/doc-<number>.md` already exists and is non-empty on disk — if it does, skip that document, its notes already stand and re-reading it wastes the run's budget. When that block is ABSENT (the normal first pass), read every document in your share exactly as your line lists it.\n\nEVERY PATH YOU USE IS RELATIVE TO THE RUN ROOT. Write `notes/doc-3.md`, never `/notes/doc-3.md`, never `/home/user/notes/doc-3.md`, never any absolute path. A path starting with `/home` or any other root writes outside the run and the file is lost — the run then fails coverage for a document you actually read.\n\nEXTRACT AND READ EACH ONE:\n`.uploads/` is a folder of RAW FILES only. Use `reading-plan.md` and the manifest for names and\norder, and hand the raw file to extract_text — never read anything else that happens to sit in `.uploads/`. A\n`.txt` sidecar next to a raw file there, and any document text already inlined into your context message, is NOT\nthe document: it is a stale artifact of a different path, and you must never read it, quote it or write notes from\nit. For every document in your share, extract_text on it is your FIRST action for that document, before you write\na single line of notes for it. The ONLY path form that works is\n`.uploads/<filename>` — no leading slash; `/uploads/x.pdf` and a bare `x.pdf` are both rejected. It returns the\n`.extract/.../document.md` path. Then read that document.md END TO END. One read_file does not return the whole file —\npage through it with offset and limit until you reach the last line. Image placeholders like @[[pages/03/image-1.png]]\nmark where each screenshot sits; use them to tell where one screen ends and the next begins. You are also shown the\nrendered page images — read the arrows, callouts and highlighting in them, because those carry instructions the\nextracted text does not. Your notes for a document come from its document.md and its rendered page images only —\nnever from inlined text in the context message, and never from a `.txt` sidecar in `.uploads/`.\n\nIF EXTRACTION FAILS: if extract_text errors, times out, or is unavailable for a document, do not fall back to any\nother source for that document. Write that document's block with a single FAILURE heading instead of the usual\nsections, stating plainly that extract_text failed and quoting the error if one was returned. A silent fallback to\ninlined or sidecar text is worse than an honest failure — say so and move on to the next document in your share.\n\nYOUR OUTPUT — for EACH document in your share, a block headed with that document's number and exact filename,\ncontaining these sections in this order (or, if extraction failed for that document, the single FAILURE heading\ndescribed above instead):\nPURPOSE — what this document is for, one paragraph.\nSCREENS — one block per screen: screen title, every field label, every button, every dropdown and its values.\n  Transcribe strings EXACTLY as printed. Never paraphrase a label, a form code or a field name.\nFLOW — the ordered steps the user performs, numbered.\nDATA — the entities and fields each screen reads or writes.\nRULES — mandatory fields, validation, conditional behaviour, state-dependent rules.\nUNCERTAIN — anything the document does not state. Never guess to fill a gap.\n\nWrite each document's block to its OWN file: call write_file with path `notes/doc-<number>.md`, using that\ndocument's number from .uploads/manifest.json — not your reader number. One file per document you read.\nThen call write_file with the path named in the \"How to deliver\" section below, containing all your blocks together.\n\nDo not write HTML. Do not read or write a document outside your share."
+      skills:
+      - file-extraction
+      strategy: single_shot
+      tools:
+        exec: false
+        read_files: true
+        tool_sets:
+        - file_extract
+        write_files: true
+    - agent: custom-agent
+      gates: []
+      injects:
+      - pdf_pages
+      instance_id: reader-3
+      name: Reader 3
+      prompt: "You are reader #3 of 5. You read a SHARE of the documents — never all of them, never another reader's share — and you never build a prototype.\n\nFIND YOUR SHARE:\n- Read `reading-plan.md`. It assigns every uploaded document to exactly one reader. It is the only assignment that counts — never work it out yourself from the manifest, and never take a document the plan gave to someone else.\n- Find the line that starts `READER 3:`. The documents listed on that line are your share: all of them, and nothing else.\n- Each entry reads `doc <number> -> <filename> -> <notes path>`. Read that filename; write that notes path. COPY THE NOTES PATH CHARACTER FOR CHARACTER from your line. Never derive a number from the filename — a file named `7-alpha.pdf` can be document 1, and writing `notes/doc-7.md` for it silently collides with another reader's file and destroys their work.\n- If your line reads `none`, reply exactly NO FILE and stop. That is a normal outcome when there are fewer documents than readers, not an error.\n\nRE-SCOPING ON A RETRY: if your context carries a block headed \"=== RETRY — pass N of M ===\", coverage-check sent the run back to the synthesizer because it found gaps — that block quotes coverage-check's JSON reply, whose \"reason\" field names the specific documents, by document number and filename, that are missing or incomplete. When that block is present, re-extract and re-read ONLY the documents in YOUR share that are named there; for every other document in your share, first check whether `notes/doc-<number>.md` already exists and is non-empty on disk — if it does, skip that document, its notes already stand and re-reading it wastes the run's budget. When that block is ABSENT (the normal first pass), read every document in your share exactly as your line lists it.\n\nEVERY PATH YOU USE IS RELATIVE TO THE RUN ROOT. Write `notes/doc-3.md`, never `/notes/doc-3.md`, never `/home/user/notes/doc-3.md`, never any absolute path. A path starting with `/home` or any other root writes outside the run and the file is lost — the run then fails coverage for a document you actually read.\n\nEXTRACT AND READ EACH ONE:\n`.uploads/` is a folder of RAW FILES only. Use `reading-plan.md` and the manifest for names and\norder, and hand the raw file to extract_text — never read anything else that happens to sit in `.uploads/`. A\n`.txt` sidecar next to a raw file there, and any document text already inlined into your context message, is NOT\nthe document: it is a stale artifact of a different path, and you must never read it, quote it or write notes from\nit. For every document in your share, extract_text on it is your FIRST action for that document, before you write\na single line of notes for it. The ONLY path form that works is\n`.uploads/<filename>` — no leading slash; `/uploads/x.pdf` and a bare `x.pdf` are both rejected. It returns the\n`.extract/.../document.md` path. Then read that document.md END TO END. One read_file does not return the whole file —\npage through it with offset and limit until you reach the last line. Image placeholders like @[[pages/03/image-1.png]]\nmark where each screenshot sits; use them to tell where one screen ends and the next begins. You are also shown the\nrendered page images — read the arrows, callouts and highlighting in them, because those carry instructions the\nextracted text does not. Your notes for a document come from its document.md and its rendered page images only —\nnever from inlined text in the context message, and never from a `.txt` sidecar in `.uploads/`.\n\nIF EXTRACTION FAILS: if extract_text errors, times out, or is unavailable for a document, do not fall back to any\nother source for that document. Write that document's block with a single FAILURE heading instead of the usual\nsections, stating plainly that extract_text failed and quoting the error if one was returned. A silent fallback to\ninlined or sidecar text is worse than an honest failure — say so and move on to the next document in your share.\n\nYOUR OUTPUT — for EACH document in your share, a block headed with that document's number and exact filename,\ncontaining these sections in this order (or, if extraction failed for that document, the single FAILURE heading\ndescribed above instead):\nPURPOSE — what this document is for, one paragraph.\nSCREENS — one block per screen: screen title, every field label, every button, every dropdown and its values.\n  Transcribe strings EXACTLY as printed. Never paraphrase a label, a form code or a field name.\nFLOW — the ordered steps the user performs, numbered.\nDATA — the entities and fields each screen reads or writes.\nRULES — mandatory fields, validation, conditional behaviour, state-dependent rules.\nUNCERTAIN — anything the document does not state. Never guess to fill a gap.\n\nWrite each document's block to its OWN file: call write_file with path `notes/doc-<number>.md`, using that\ndocument's number from .uploads/manifest.json — not your reader number. One file per document you read.\nThen call write_file with the path named in the \"How to deliver\" section below, containing all your blocks together.\n\nDo not write HTML. Do not read or write a document outside your share."
+      skills:
+      - file-extraction
+      strategy: single_shot
+      tools:
+        exec: false
+        read_files: true
+        tool_sets:
+        - file_extract
+        write_files: true
+    - agent: custom-agent
+      gates: []
+      injects:
+      - pdf_pages
+      instance_id: reader-4
+      name: Reader 4
+      prompt: "You are reader #4 of 5. You read a SHARE of the documents — never all of them, never another reader's share — and you never build a prototype.\n\nFIND YOUR SHARE:\n- Read `reading-plan.md`. It assigns every uploaded document to exactly one reader. It is the only assignment that counts — never work it out yourself from the manifest, and never take a document the plan gave to someone else.\n- Find the line that starts `READER 4:`. The documents listed on that line are your share: all of them, and nothing else.\n- Each entry reads `doc <number> -> <filename> -> <notes path>`. Read that filename; write that notes path. COPY THE NOTES PATH CHARACTER FOR CHARACTER from your line. Never derive a number from the filename — a file named `7-alpha.pdf` can be document 1, and writing `notes/doc-7.md` for it silently collides with another reader's file and destroys their work.\n- If your line reads `none`, reply exactly NO FILE and stop. That is a normal outcome when there are fewer documents than readers, not an error.\n\nRE-SCOPING ON A RETRY: if your context carries a block headed \"=== RETRY — pass N of M ===\", coverage-check sent the run back to the synthesizer because it found gaps — that block quotes coverage-check's JSON reply, whose \"reason\" field names the specific documents, by document number and filename, that are missing or incomplete. When that block is present, re-extract and re-read ONLY the documents in YOUR share that are named there; for every other document in your share, first check whether `notes/doc-<number>.md` already exists and is non-empty on disk — if it does, skip that document, its notes already stand and re-reading it wastes the run's budget. When that block is ABSENT (the normal first pass), read every document in your share exactly as your line lists it.\n\nEVERY PATH YOU USE IS RELATIVE TO THE RUN ROOT. Write `notes/doc-3.md`, never `/notes/doc-3.md`, never `/home/user/notes/doc-3.md`, never any absolute path. A path starting with `/home` or any other root writes outside the run and the file is lost — the run then fails coverage for a document you actually read.\n\nEXTRACT AND READ EACH ONE:\n`.uploads/` is a folder of RAW FILES only. Use `reading-plan.md` and the manifest for names and\norder, and hand the raw file to extract_text — never read anything else that happens to sit in `.uploads/`. A\n`.txt` sidecar next to a raw file there, and any document text already inlined into your context message, is NOT\nthe document: it is a stale artifact of a different path, and you must never read it, quote it or write notes from\nit. For every document in your share, extract_text on it is your FIRST action for that document, before you write\na single line of notes for it. The ONLY path form that works is\n`.uploads/<filename>` — no leading slash; `/uploads/x.pdf` and a bare `x.pdf` are both rejected. It returns the\n`.extract/.../document.md` path. Then read that document.md END TO END. One read_file does not return the whole file —\npage through it with offset and limit until you reach the last line. Image placeholders like @[[pages/03/image-1.png]]\nmark where each screenshot sits; use them to tell where one screen ends and the next begins. You are also shown the\nrendered page images — read the arrows, callouts and highlighting in them, because those carry instructions the\nextracted text does not. Your notes for a document come from its document.md and its rendered page images only —\nnever from inlined text in the context message, and never from a `.txt` sidecar in `.uploads/`.\n\nIF EXTRACTION FAILS: if extract_text errors, times out, or is unavailable for a document, do not fall back to any\nother source for that document. Write that document's block with a single FAILURE heading instead of the usual\nsections, stating plainly that extract_text failed and quoting the error if one was returned. A silent fallback to\ninlined or sidecar text is worse than an honest failure — say so and move on to the next document in your share.\n\nYOUR OUTPUT — for EACH document in your share, a block headed with that document's number and exact filename,\ncontaining these sections in this order (or, if extraction failed for that document, the single FAILURE heading\ndescribed above instead):\nPURPOSE — what this document is for, one paragraph.\nSCREENS — one block per screen: screen title, every field label, every button, every dropdown and its values.\n  Transcribe strings EXACTLY as printed. Never paraphrase a label, a form code or a field name.\nFLOW — the ordered steps the user performs, numbered.\nDATA — the entities and fields each screen reads or writes.\nRULES — mandatory fields, validation, conditional behaviour, state-dependent rules.\nUNCERTAIN — anything the document does not state. Never guess to fill a gap.\n\nWrite each document's block to its OWN file: call write_file with path `notes/doc-<number>.md`, using that\ndocument's number from .uploads/manifest.json — not your reader number. One file per document you read.\nThen call write_file with the path named in the \"How to deliver\" section below, containing all your blocks together.\n\nDo not write HTML. Do not read or write a document outside your share."
+      skills:
+      - file-extraction
+      strategy: single_shot
+      tools:
+        exec: false
+        read_files: true
+        tool_sets:
+        - file_extract
+        write_files: true
+    - agent: custom-agent
+      gates: []
+      injects:
+      - pdf_pages
+      instance_id: reader-5
+      name: Reader 5
+      prompt: "You are reader #5 of 5. You read a SHARE of the documents — never all of them, never another reader's share — and you never build a prototype.\n\nFIND YOUR SHARE:\n- Read `reading-plan.md`. It assigns every uploaded document to exactly one reader. It is the only assignment that counts — never work it out yourself from the manifest, and never take a document the plan gave to someone else.\n- Find the line that starts `READER 5:`. The documents listed on that line are your share: all of them, and nothing else.\n- Each entry reads `doc <number> -> <filename> -> <notes path>`. Read that filename; write that notes path. COPY THE NOTES PATH CHARACTER FOR CHARACTER from your line. Never derive a number from the filename — a file named `7-alpha.pdf` can be document 1, and writing `notes/doc-7.md` for it silently collides with another reader's file and destroys their work.\n- If your line reads `none`, reply exactly NO FILE and stop. That is a normal outcome when there are fewer documents than readers, not an error.\n\nRE-SCOPING ON A RETRY: if your context carries a block headed \"=== RETRY — pass N of M ===\", coverage-check sent the run back to the synthesizer because it found gaps — that block quotes coverage-check's JSON reply, whose \"reason\" field names the specific documents, by document number and filename, that are missing or incomplete. When that block is present, re-extract and re-read ONLY the documents in YOUR share that are named there; for every other document in your share, first check whether `notes/doc-<number>.md` already exists and is non-empty on disk — if it does, skip that document, its notes already stand and re-reading it wastes the run's budget. When that block is ABSENT (the normal first pass), read every document in your share exactly as your line lists it.\n\nEVERY PATH YOU USE IS RELATIVE TO THE RUN ROOT. Write `notes/doc-3.md`, never `/notes/doc-3.md`, never `/home/user/notes/doc-3.md`, never any absolute path. A path starting with `/home` or any other root writes outside the run and the file is lost — the run then fails coverage for a document you actually read.\n\nEXTRACT AND READ EACH ONE:\n`.uploads/` is a folder of RAW FILES only. Use `reading-plan.md` and the manifest for names and\norder, and hand the raw file to extract_text — never read anything else that happens to sit in `.uploads/`. A\n`.txt` sidecar next to a raw file there, and any document text already inlined into your context message, is NOT\nthe document: it is a stale artifact of a different path, and you must never read it, quote it or write notes from\nit. For every document in your share, extract_text on it is your FIRST action for that document, before you write\na single line of notes for it. The ONLY path form that works is\n`.uploads/<filename>` — no leading slash; `/uploads/x.pdf` and a bare `x.pdf` are both rejected. It returns the\n`.extract/.../document.md` path. Then read that document.md END TO END. One read_file does not return the whole file —\npage through it with offset and limit until you reach the last line. Image placeholders like @[[pages/03/image-1.png]]\nmark where each screenshot sits; use them to tell where one screen ends and the next begins. You are also shown the\nrendered page images — read the arrows, callouts and highlighting in them, because those carry instructions the\nextracted text does not. Your notes for a document come from its document.md and its rendered page images only —\nnever from inlined text in the context message, and never from a `.txt` sidecar in `.uploads/`.\n\nIF EXTRACTION FAILS: if extract_text errors, times out, or is unavailable for a document, do not fall back to any\nother source for that document. Write that document's block with a single FAILURE heading instead of the usual\nsections, stating plainly that extract_text failed and quoting the error if one was returned. A silent fallback to\ninlined or sidecar text is worse than an honest failure — say so and move on to the next document in your share.\n\nYOUR OUTPUT — for EACH document in your share, a block headed with that document's number and exact filename,\ncontaining these sections in this order (or, if extraction failed for that document, the single FAILURE heading\ndescribed above instead):\nPURPOSE — what this document is for, one paragraph.\nSCREENS — one block per screen: screen title, every field label, every button, every dropdown and its values.\n  Transcribe strings EXACTLY as printed. Never paraphrase a label, a form code or a field name.\nFLOW — the ordered steps the user performs, numbered.\nDATA — the entities and fields each screen reads or writes.\nRULES — mandatory fields, validation, conditional behaviour, state-dependent rules.\nUNCERTAIN — anything the document does not state. Never guess to fill a gap.\n\nWrite each document's block to its OWN file: call write_file with path `notes/doc-<number>.md`, using that\ndocument's number from .uploads/manifest.json — not your reader number. One file per document you read.\nThen call write_file with the path named in the \"How to deliver\" section below, containing all your blocks together.\n\nDo not write HTML. Do not read or write a document outside your share."
+      skills:
+      - file-extraction
+      strategy: single_shot
+      tools:
+        exec: false
+        read_files: true
+        tool_sets:
+        - file_extract
+        write_files: true
+  tools:
+    exec: false
+    read_files: true
+    spawn_subagents: true
+    write_files: true
+- agent: custom-agent
+  depends_on:
+  - custom-agent:synthesizer
+  gates:
+  - conditional
+  instance_id: coverage-check
+  name: File Analyzer
+  produces:
+  - route_decision
+  prompt: 'You are the coverage check. You judge; you never fix and you write no files.
+
+
+    Read reading-plan.md and synthesis.md, and run `ls notes/` to see which notes files actually exist on disk.
+
+
+    Judge from the FILESYSTEM, never from what another agent wrote about it. If synthesis.md claims a notes file is missing but `ls notes/` shows it there, the file exists and synthesis.md is wrong — do not fail the run for it.
+
+
+    Decide ONE thing: does synthesis.md carry enough screen, field and rule detail to build a working prototype of EVERY document listed in reading-plan.md?
+
+
+    It is "incomplete" if any of these is true:
+
+    - a document named in reading-plan.md has no matching `notes/doc-<number>.md` file on disk;
+
+    - a stage of the flow has no screens described;
+
+    - screens are named but their field labels or button captions are missing;
+
+    - synthesis.md describes behaviour no document supports.
+
+
+    Otherwise it is "complete".
+
+
+    YOUR REPLY IS READ BY THE ROUTER. It must be a single JSON object and NOTHING else — no preamble, no explanation before or after, no markdown fence, no closing remark:
+
+
+    {"decision": "incomplete", "reason": "Binder screens list no field labels; Forms Groupings contributed no notes"}
+
+
+    The "decision" value must be exactly the word complete or the word incomplete, lowercase. Put your findings — which documents fell short and exactly what is missing — inside the "reason" string, specific and concrete. Name every falling-short document by its exact document number and filename as given in reading-plan.md (for example "doc 3 (Forms-Groupings.pdf)") — a retry loops this reply back to the readers verbatim, and a reader only re-reads a document it can recognise by that number and filename, so a vague description wastes the retry. That string is the only record of your analysis, so make it count, but keep the whole reply valid JSON on a single line.'
+  route:
+    default_next: journey-designer
+    loop_max_iterations: 3
+    outcomes:
+      complete:
+        target: journey-designer
+        trigger: step
+      incomplete:
+        target: synthesizer
+        trigger: step
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: false
+- agent: custom-agent
+  fix:
+    max_attempts: 2
+  # human gates are always redoable (user rule 2026-09-04)
+  gates:
+  - human
+  - validation
+  instance_id: journey-designer
+  redoable: true
+  name: Spec Writer
+  produces:
+  - journeys
+  prompt: 'You are the journey designer. Read `synthesis.md`. Then run `ls notes/` and read EVERY `notes/doc-<N>.md`
+    file it lists, directly — do not rely on synthesis.md alone. `synthesis.md` and the per-document notes together
+    are your ONLY source — if a detail is not in one of them, it does not exist.
+
+
+    `synthesis.md` is a cross-document model and is LOSSY BY DESIGN — it reasons about the whole application but
+    does not repeat every screen''s full field list. The `notes/doc-<N>.md` files are where per-screen fidelity
+    actually lives: exact screen titles, field labels and dropdown options. You MUST read every notes file yourself
+    and transcribe from it — never assume synthesis.md already gives you a screen''s complete detail.
+
+
+    Your output is the BUILD SPECIFICATION. The prototype builder sees your file and nothing else, so any field you leave out is a field the prototype will not have. Completeness beats brevity every single time: never condense, never write "etc.", never write "similar to the above", never summarise a list of fields into a sentence. Repeat a screen''s full field list even when it resembles another screen''s.
+
+
+    WRITE AS YOU GO. This specification is far longer than one reply can hold, so you must build the file up across many small tool calls instead of composing it in your head:
+
+    1. Your VERY FIRST action, before any analysis, is to call write_file with path `journeys.md` containing just a title line. Do not read anything first. Do not plan first.
+
+    2. BUILD THE FULL SCREEN INVENTORY BEFORE YOU WRITE A SINGLE JOURNEY SECTION. Run `ls notes/` and read EVERY
+    file it lists, end to end. As you read, build a scratch inventory of EVERY screen number and title referenced
+    ANYWHERE across synthesis.md and the notes files — including a screen named only as another screen''s
+    navigation target (a button''s destination, or a flow step naming a screen it does not itself describe). A
+    screen mentioned only as a destination is EVIDENCE that screen exists somewhere in the notes, not evidence it
+    is undocumented. This inventory is scratch work, not a file you write to disk — its only job is to give every
+    later MISSING decision something concrete to be checked against before you write it.
+
+    3. Then take ONE journey at a time. Read only what that journey needs, then call edit_file to append that journey''s section to `journeys.md`.
+
+    4. Inside a long journey, append screen by screen — one edit_file call per screen is fine. There is no limit on how many tool calls you make.
+
+    If you ever catch yourself reasoning about the whole document at once, stop and append what you already have. A file that grows one screen at a time is correct; a perfect plan you never wrote down is a failed run.
+
+
+    For each journey: its name, and the stage of the flow it belongs to. Name that stage after the MODULE its
+    screens belong to, exactly as the documents name that module — "Unknown Module" is never an acceptable stage
+    name. If you do not yet know the module a journey''s screens belong to, you have not finished reading the notes
+    for it; go back and keep reading before you name the stage, never guess and never leave it unnamed.
+
+    For each screen, in the order the user reaches it:
+
+    - SCREEN TITLE — exactly as the documents print it.
+
+    - FIELDS — one row per field: exact label | input type (text, dropdown, checkbox, radio, date, textarea) | mandatory yes/no | default value if stated | dropdown options listed in full.
+
+    - BUTTONS — one row per button or link: exact caption | what it does | which screen it navigates to.
+
+    - RULES — validation, mandatory combinations, conditional show/hide, state-dependent behaviour.
+
+    - SOURCE — the document and page it came from.
+
+
+    MISSING IS A LAST RESORT, NEVER A DEFAULT. Before you may write a MISSING heading for any screen, ALL of the
+    following must already be true, in this order:
+    (a) you have read EVERY file `ls notes/` lists, in full — not just skimmed the ones your inventory pass used;
+    (b) you have specifically searched those notes for THIS screen — by its number AND by its exact title — not
+    just noticed its absence while reading something else;
+    (c) if this screen appears in your scratch inventory as another screen''s navigation target, you have gone
+    looking for its OWN section in the notes before concluding it was never documented — a screen named as a
+    destination is a lead to follow, not grounds to call it undocumented.
+    Only once (a), (b) and (c) are all true may you write that screen''s detail under a MISSING heading naming the
+    document it should have come from. Never invent a plausible field, and never fill a gap from your own
+    knowledge of insurance software — an invented field is a defect the fidelity check will report exactly as
+    loudly as a screen falsely declared undocumented when its detail was sitting in the notes all along.
+
+
+    BEFORE YOU FINISH: grep your finished `journeys.md` for MISSING. For each hit, grep `notes/` for that screen —
+    by its number and by its exact title. A hit found in `notes/` means the screen was not actually missing:
+    replace that MISSING heading with the real detail via edit_file, then grep again. Only once every remaining
+    MISSING hit has zero matches in `notes/` are you done. State the final MISSING count in your reply.
+
+
+    When `journeys.md` is complete, deliver it: call read_file on `journeys.md`, then call write_file with that exact content at the path named in the "How to deliver" section below. Both files are required and their contents must match.
+
+
+    Do not write any draft.v*.html file and do not write HTML — the prototype steps after you do that.'
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: true
+  validators:
+  - journeys_coverage
+- agent: custom-agent
+  consumes:
+  - journeys
+  depends_on:
+  - custom-agent:journey-designer
+  fix:
+    max_attempts: 2
+  gates:
+  - validation
+  instance_id: plan-lead
+  name: Planner
+  produces:
+  - prototype-plan
+  - build_tasks
+  prompt: "You turn the build specification into a plan. You write no HTML and you invent nothing.\n\nRead `journeys.md` — the authoritative specification.\n\nFIRST, write ONE file. Call write_file with path `build/digest.md`, containing the conventions every builder shares:\n- PAGE INVENTORY: `<page-id> | <exact screen title> | <journey>` for EVERY screen, in navigation order\n- STATE KEYS: the named state that carries between screens, and which screen sets each\n- HELPERS: the shared function names and signatures screens may call\n- CHROME: the nav items and which screens sit under each\n\nSETTLE THE TASK LIST — an OBJECT with a single \"tasks\" key holding the array, not a bare array, ONE object per screen in journeys.md's PAGE INVENTORY, every screen, none merged, none omitted:\n\n```json\n{\n  \"tasks\": [\n    {\"id\": \"1\", \"title\": \"Screen 1: Anchor\", \"targets\": [\"screens/1.html\"], \"depends_on\": [],\n     \"body\": \"Build the screen \\\"Screen 1: Anchor\\\" (page id 1). Read `journeys.md` and use the section for \\\"Screen 1: Anchor\\\" under journey \\\"Crimson\\\" as the complete specification: its fields, buttons, navigation targets, and any quote text, colour or style it names. Read `build/digest.md` for the shared helpers and state keys.\"},\n    {\"id\": \"2\", \"title\": \"Screen 2: Beacon\", \"targets\": [\"screens/2.html\"], \"depends_on\": [],\n     \"body\": \"Build the screen \\\"Screen 2: Beacon\\\" (page id 2). ... same wording with that screen's title, id and journey\"}\n  ]\n}\n```\n\nEVERY SINGLE TASK MUST HAVE \"depends_on\": []. The screens are independent files — screen 7 does not need screen 6 to\nexist before it can be written, and nothing is shared between them. Do NOT chain them (`\"depends_on\": [\"6\"]`) because\nthe user walks them in order: navigation order is NOT a build dependency. A chain forces the builders to run one at a\ntime instead of five at once and makes the build many times slower for no benefit. If you are about to put any screen\nid inside depends_on, stop — the correct value is [].\n  \"id\"          the page id from the inventory, as a string\n  \"title\"       the exact screen title\n  \"targets\"     [\"screens/<id>.html\"] — one file per screen, never shared, so builders never collide\n  \"depends_on\"  ALWAYS the empty list []. Never anything else, for any screen, including screen 2 and beyond.\n  \"body\"        the three sentences shown above, with that screen's title, id and journey\n\nKeep \"body\" to those three sentences: the builder reads journeys.md and build/digest.md itself, so do not restate\nfields, colours or button captions here.\n\nDELIVER IN THIS ORDER — TWO required copies, file first: (1) write the settled object to `build/tasks.json` with\nwrite_file — byte for byte the object above, no fence, no prose. This is what the next step actually reads to\ndrive the build, and what a resume replays from once it lands mid-run. (2) THEN end your reply with the SAME\nobject inside ONE fenced ```json block. The fence is still required, never optional — a resume that lands between\nsteps replays from your reply text, not from the file on disk.\n\nNEVER TYPE A BACKTICK EXCEPT TO OPEN AND CLOSE THAT ONE FENCE, and never put the word json next to backticks in prose — a stray backtick run is read as the START of the block, so the parser reads your sentence instead of your task list and the run dies with a perfect list sitting right below it. Before you reply, scan your own drafted reply and remove every backtick that is not the fence's own opening or closing marker: exactly one ``` opening and one ``` closing, nothing else.\n\nBEFORE YOU FINISH: call read_file on `build/tasks.json`. Count the objects in its \"tasks\" array. Count the rows in build/digest.md's PAGE INVENTORY. The two counts must match — a mismatch means a screen was merged, omitted or duplicated. If they differ, fix `build/tasks.json` with edit_file, recount, then copy the corrected object into your reply's fence. State both counts in your reply, before the fence."
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: true
+  validators:
+  - spec_plan_coverage
+- agent: custom-agent
+  compaction: html_skeleton
+  consumes:
+  - prototype-plan
+  depends_on:
+  - custom-agent:plan-lead
+  fix:
+    max_attempts: 2
+  gates:
+  - validation
+  injects:
+  - template
+  - design_system
+  instance_id: shell-builder
+  name: Layout Builder
+  prompt: "You are the shell builder. You build the prototype's frame and its shared code — never a screen's content.\n\nYou have been injected an ACTIVE DESIGN SYSTEM and an ACTIVE TEMPLATE. Build the chrome (sidebar, header, footer,\ntypography, spacing, colour, component shapes) to match them exactly — every screen-builder is building against the\nSAME injected design system and template, so the shell you set here IS the shared look every screen inherits. Never\nfall back to a generic or invented look when the injected design already answers the question.\n\nRead `build/digest.md` for the page inventory, state keys, helpers and chrome. Read `journeys.md` for the shared\nchrome the spec describes. Write `draft.v1.html` with write_file: ONE self-contained HTML file containing a\n<style> block, the chrome (sidebar, header, footer), one EMPTY `<section data-page=\"<id>\">` per page id in the\ninventory, a routes map, and a `showPage(id)` router that hides every section and shows the requested one.\n\nVERSIONED DRAFTS: every later step reads and writes a growing chain of files named `draft.v1.html`,\n`draft.v2.html`, `draft.v3.html` and so on — never a single `draft.html`. You create the FIRST version,\n`draft.v1.html`. Nothing else in the chain exists yet.\n\nTHE PAGE-KEY CONTRACT — read this before writing the routes map. The routes map's VALUE and the section's\n`data-page` attribute are THE SAME page id; the title is never used as a key. Page ids are stable, titles are\nprose and drift, so the value side of the routes map must be the id, not the title: write\n`const routes = { \"1\": \"1\", \"2\": \"2\" };` — NOT `{ \"1\": \"Screen 1: Anchor\" }`. If you also want the display\ntitle available (for a nav label, a breadcrumb, a page header), put it in a SEPARATE map, e.g.\n`const titles = { \"1\": \"Screen 1: Anchor\" };`, and never let the router resolve a route through it. The checker\nresolves `routes[hash-id]` and looks for `<section data-page=\"<that value>\">` — if the value is a title instead\nof the id, every single section is reported as unreachable.\n\nTWO RULES THAT ARE CHECKED MECHANICALLY. Break either and the build is rejected:\n\n1. ROUTE KEYS MUST BE QUOTED STRINGS. Write `const routes = { \"1\": \"1\", \"2\": \"2\" };`\n   — NOT `{ 1: \"1\" }`. A bare numeric key is invisible to the checker and every page is then\n   reported as missing from the routes map. Every page id in the inventory must appear as a quoted key, and its\n   value must be that same id (see the page-key contract above).\n\n2. EVERY NAV LINK MUST BE A REAL HREF. Write `<a href=\"#/12\">Amber Module</a>` — NOT `<a onclick=\"showPage(12)\">`.\n   An anchor with no href is not discoverable, and the prototype is then judged to have no reachable pages at all.\n   Route the hash in script: read `location.hash`, take the id after `#/`, and call `showPage(id)`; also call it\n   once on load and on `hashchange` so a direct link works.\n\n2b. A NAV CLICK MUST NEVER LET THE BROWSER FOLLOW THE HREF. The prototype is shown inside an iframe using `srcdoc`,\n   which has no URL of its own — a browser resolves a fragment-only `href=\"#/<id>\"` against the PARENT page's URL,\n   not the prototype's. Left alone, a click on a nav anchor performs a REAL navigation of the iframe to the host\n   app's own URL, replacing the entire prototype document and leaving the pane blank. This exact defect blanked\n   every screen in the last run — it is a HARD RULE, not a suggestion. The anchors must still keep their real\n   `href=\"#/<id>\"` (the html_render validator finds navigation via `a[href^='#']`, so never switch to onclick-only\n   handlers). Instead, ALSO attach ONE delegated listener on `document` for the `click` event: find the clicked\n   element or its closest ancestor anchor with `closest('a[href^=\"#/\"]')`; if found, call `event.preventDefault()`\n   immediately, then perform the in-page page switch directly by calling the same `showPage(id)` helper the\n   hashchange path already uses (parse the id from the anchor's own href, e.g. `href.slice(2)`). `preventDefault()`\n   is what stops the browser from resolving the click against the embedding page's URL — without it, the click\n   still navigates the iframe even though `showPage` also ran. Keep the existing `hashchange` listener and the\n   on-load call so a direct deep link (`#/<id>` typed straight into the iframe's location) and Back/Forward still\n   route correctly; the delegated click listener is in ADDITION to that, not a replacement for it.\n\n3. THE HELPERS ARE THE ONLY PUBLIC API, AND THEY MUST BE GLOBAL. Own the state object yourself (keep it private)\n   and expose EVERY function named in build/digest.md's HELPERS section on `window` — `window.getReaderInitials = ...`\n   and so on — so a screen's inline script can call them from inside its own IIFE. The 50 screen scripts never touch\n   your state object directly; if a helper is missing or not global, every screen that calls it dies.\n\n3b. THE SHARED HELPERS MUST BE DECLARED BEFORE THE PAGE SECTIONS. Put ONE <script> in the <head> — above every\n   `<section data-page=...>` — that defines the state object and EVERY function named in the HELPERS section of\n   build/digest.md, as a real working implementation (not a stub). Each screen carries its own inline <script>\n   that runs the moment the parser reaches it, so a helper declared in a <script> at the END of the document does\n   not exist yet when screen 1 calls it — every screen then throws \"X is not defined\" and the prototype is dead on\n   arrival. Declare them first, and the router last.\n\nMark the first page active so something is visible on load.\n\nLeave every `<section data-page=\"<id>\">` EMPTY. Later builders fill them. A section you fill here will be\noverwritten and the work wasted.\n\nFollow the template and design system you have been given for the chrome, typography, spacing and colour. Do not\ninvent business content: no field, label, screen or value that the digest or journeys.md does not name.\n\nBEFORE YOU FINISH: count how many times `<section data-page=` occurs in `draft.v1.html` and compare it to the row count of build/digest.md's PAGE INVENTORY — they must match; add or remove a section with edit_file if they do not. Then list every `href=\"#/<id>\"` you wrote and confirm each `<id>` has a matching `data-page=\"<id>\"` section — a target with no matching section is a dead link, fix it before you reply. State the section count and confirm every nav target resolved."
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    tool_sets:
+    - prototype_emit_only
+    write_files: true
+  validators:
+  - html_element_floor
+- agent: custom-agent
+  depends_on:
+  - custom-agent:shell-builder
+  fanout:
+    agent: self
+    max_parallel: 5
+    mode: parallel
+  fix:
+    max_attempts: 2
+  gates:
+  - validation
+  injects:
+  - template
+  - design_system
+  instance_id: screen-builder
+  name: Screen Builder
+  on_conflict: human_gate
+  produces:
+  - fragments
+  prompt: "You build ONE screen of the prototype and nothing else.\n\nYou have been injected an ACTIVE DESIGN SYSTEM and an ACTIVE TEMPLATE. Build this screen's content — layout,\ncomponents, spacing, colour, typography — to match them exactly, the SAME injected design every other screen-builder\nis using right now, so every screen reads as ONE coherent site rather than N different looks. Never invent a look\nof your own where the injected design already answers the question.\n\nYour CURRENT TASK block names your screen, its page id and its journey. You share the run's workspace, so\n`journeys.md` and `build/digest.md` are on disk for you.\n\n1. Read `build/digest.md` for the shared helpers, state keys and page ids.\n2. Read `journeys.md` and find YOUR screen's section. That section is the complete and only specification for it.\n3. Call write_file with the path in your task's `targets` — `screens/<your page id>.html` — and write the screen's\n   INNER HTML there.\n\nWrite ONLY that one file. Never write any draft.v*.html file, never write another screen's file, never edit a file you did\nnot create — the other builders are writing their own screens at the same moment.\n\nTHE PAGE-KEY CONTRACT: the routes map's value and the section's `data-page` attribute are THE SAME page id; the\ntitle is never used as a key. Every navigation target you write — `#/<page-id>` — must be that page id, exactly as\nit appears in build/digest.md's inventory, never the screen's title.\n\nEmit only the inside of the screen: headings, content, fields, buttons and any inline handlers this screen needs.\nNo <html>, <head>, <body>, <section> wrapper, <style> block, sidebar, header or nav — the shell has those.\n\nCopy every label, caption, option and value character for character from journeys.md. Invent nothing: a field the\nspec does not name does not exist.\n\nWire each button to its stated destination with an href the checker can see: `<a href=\"#/<page-id>\" class=\"btn\">Next</a>`,\nor a button whose onclick assigns `location.hash = '#/<page-id>'`. Never `onclick=\"showPage(12)\"` on its own — a\nhandler that only calls showPage is invisible to the navigation check and the screen is judged unreachable.\n\nTWO RULES THAT ARE CHECKED MECHANICALLY. Break either and the prototype breaks for EVERY screen, not just yours:\n\n1. WRAP YOUR ENTIRE INLINE SCRIPT IN AN IIFE. Write `<script>(function(){ ...all your code... })();</script>` and\n   declare NOTHING at the top level — no bare `const initialsInput`, no top-level `function`, no global variable.\n   All 50 screens' scripts share ONE global scope, so a top-level `const x` in your screen collides with the same\n   name in another and the browser throws \"Identifier 'x' has already been declared\", killing both screens. Inside\n   your IIFE you may name things whatever you like. Prefix every element id with your page id as well.\n\n2. TOUCH STATE ONLY THROUGH THE SHARED HELPERS named in build/digest.md — getReaderInitials(), setReaderInitials(),\n   getReactionForScreen(), setReactionForScreen(), goToScreen(). Never read or write a state object directly, never\n   invent one (`appState`, `window.state`, localStorage keys of your own). The shell owns the state; those helpers\n   are the only supported way in, and anything else is undefined at runtime.\n\nBEFORE YOU FINISH: reread journeys.md's section for YOUR screen. For every row under FIELDS, grep your own `screens/<your page id>.html` for that row's exact label; for every row under BUTTONS, grep it for that row's exact caption. Anything grep finds zero times is missing — add it with edit_file, then grep again. State how many FIELDS labels and BUTTONS captions you verified present.\n\nReply with one short sentence naming your screen id and those two counts."
+  strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    source_step: custom-agent:plan-lead
+    spec_step: custom-agent:journey-designer
+    target: tasks.json
+  tools:
+    exec: false
+    read_files: true
+    spawn_subagents: true
+    write_files: true
+  validators:
+  - fragment_field_coverage
+- agent: custom-agent
+  consumes:
+  - journeys
+  depends_on:
+  - custom-agent:screen-builder
+  gates: []
+  instance_id: review-planner
+  name: Screen Analyzer
+  produces:
+  - review_plan
+  prompt: "You turn the build specification into a review plan. You read journeys.md and build/digest.md and nothing else. You write no HTML and you judge no screens yourself.\n\nRead `journeys.md`. It is organised as a list of JOURNEYS, each with the screens a user walks through. Also read `build/digest.md`'s PAGE INVENTORY, which maps each screen to its page id and exact title — that is the ONLY source for page ids.\n\nRE-SCOPING ON A RETRY: if your context carries a block headed \"=== RETRY — pass N of M ===\", the run looped back to you after a repair pass — that block quotes the reply of the step that sent you back, naming the screen ids just rebuilt. When that block is present, emit a task ONLY for the journey(s) that contain those named screens — never for every journey. When that block is ABSENT (the normal first pass), emit ONE task for EVERY journey in journeys.md.\n\nYOUR TASK LIST MUST BE INSIDE A FENCED ```json BLOCK, and it must be an object with a single \"tasks\" key:\n\n```json\n{\"tasks\": [\n  {\"id\": \"r3\", \"title\": \"Review journey: Verdant Module\", \"targets\": [\"review/r3.md\"], \"depends_on\": [],\n   \"journey\": \"Verdant Module\",\n   \"screens\": [{\"id\": \"21\", \"title\": \"Screen 21: Umbra\"}, {\"id\": \"22\", \"title\": \"Screen 22: Vellum\"}],\n   \"checks\": [\"features\", \"design\"],\n   \"body\": \"Review the journey named Verdant Module. Its screens are: Screen 21: Umbra (page id 21), Screen 22: Vellum (page id 22).\"}\n]}\n```\n\nExtra keys (\"journey\", \"screens\", \"checks\") are for a human reading the plan; the worker sees ONLY \"body\", so the\nscreen id + exact title pairs MUST also be restated in prose inside \"body\" — never leave them only in the extra\nkeys.\n\nRules that decide whether the wave runs at all:\n- The fence is how the review workers find the list — a parser scans your whole reply for a ```json block. Without exactly one such block the wave parses zero tasks and every screen goes unchecked.\n\nPRODUCING THE LIST MEANS YOUR REPLY ITSELF CONTAINS THE FENCE, WITH THE TASK ARRAY INSIDE IT. Writing the list to a\nfile is not producing it, and narrating that you made one is not producing it either — a reply that only SAYS\n\"I have created the review plan task list\" or describes what the plan contains, with no ```json fence anywhere in\nit, hands the parser nothing and the run dies exactly as if you never ran. Do not summarise the list in prose, do\nnot describe having written it, do not say \"Done\" and stop — the actual object, in the actual fence, in the actual\ntext of this reply, is the only thing that counts. The required shape, verbatim structure:\n\n```json\n{\"tasks\": [\n  {\"id\": \"r1\", \"title\": \"...\", \"targets\": [\"review/r1.md\"], \"depends_on\": [], \"journey\": \"...\", \"screens\": [...], \"checks\": [...], \"body\": \"...\"},\n  {\"id\": \"r2\", \"title\": \"...\", \"targets\": [\"review/r2.md\"], \"depends_on\": [], \"journey\": \"...\", \"screens\": [...], \"checks\": [...], \"body\": \"...\"}\n]}\n```\n\nBEFORE YOU FINISH, SELF-CHECK: reread your own drafted reply, not your intention — confirm it literally contains a\n```json fence, that the fence is not empty, and that what is inside it parses as an object with a \"tasks\" key whose\nvalue is an array of objects (one per journey, per the shape above). If any of that is not literally present in the\ntext you are about to send, you have not finished — go back and add the fence before you reply.\n\nNEVER TYPE A BACKTICK EXCEPT TO OPEN AND CLOSE THAT ONE FENCE. Do not describe your own output, do not list what your reply will contain, and never put the word json next to backticks inside a sentence. A stray run of backticks in prose is read as the START of the block: the parser then reads your sentence instead of your task list, fails, and the run dies with a perfect list sitting right below it. Write your prose with no backticks at all, then the fence, then nothing.\n\nBEFORE YOU REPLY, SELF-CHECK: scan your own drafted reply for backticks. Remove EVERY backtick that is not the\nopening or closing marker of the ONE real task-list fence. Your reply must contain exactly one ``` opening and one\n``` closing, nothing else. Never write the word json adjacent to backticks in prose.\n- \"depends_on\" is ALWAYS the empty list []. Journeys are reviewed independently, so nothing waits on anything.\n- \"targets\" is ALWAYS a single file `review/r<n>.md`, unique per task, so two workers never write the same file.\n- \"id\" values are STABLE PER JOURNEY, not per pass: the same journey always gets the same id — journey 1 is always\n  r1, journey 3 is always r3 — on the first pass AND on every retry pass. Re-checking a journey OVERWRITES its own\n  `review/r<n>.md` with fresh findings; a journey not re-checked this pass simply keeps its last-known file. Number\n  journeys by their position in journeys.md the first time you see them, and keep using that same number for that\n  journey on every later pass.\n- \"body\" must name the journey and list its screen titles EXACTLY as journeys.md prints them, each paired with its\n  page id from build/digest.md's PAGE INVENTORY. The worker reads each named screen's fragment file (`screens/<id>.html`)\n  and journeys.md itself, so do not restate fields or rules.\n\nAlso write the same list to the path named in the \"How to deliver\" section below."
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: true
+- agent: custom-agent
+  consumes:
+  - review_plan
+  depends_on:
+  - custom-agent:review-planner
+  fanout:
+    agent: self
+    max_parallel: 5
+    mode: parallel
+  gates: []
+  injects:
+  - template
+  - design_system
+  instance_id: review-workers
+  name: Reviewer
+  produces:
+  - review_parts
+  prompt: 'You check ONE journey of the built prototype against its specification AND against the injected design. You judge; you never edit.
+
+
+    Your CURRENT TASK names your journey and lists its screens, each as a page id and exact title. For EACH of
+    those screen ids ONLY, read its fragment file `screens/<id>.html` — never another journey''s screen, never a
+    draft.v*.html file (assembly has not happened yet). Also read `journeys.md`. Both are in the run''s workspace.
+    You have also been injected the ACTIVE DESIGN SYSTEM and the ACTIVE TEMPLATE the builders were told to follow —
+    judge conformance against that same injected design, not against your own taste.
+
+
+    A FRAGMENT SHOWS ONLY ONE SCREEN''S BODY — no shell, no routes map, no nav chrome, no landing screen, no step
+    indicator. NEVER report missing navigation chrome, a missing landing screen, or a missing step indicator as a
+    defect in either section below; the shell owns those and they are checked later, after assembly.
+
+
+    For every screen of YOUR journey only, write your findings in TWO clearly separated sections. In BOTH sections,
+    every defect line must name the screen by BOTH its page id and its exact title, e.g. "Screen 21 (id 21):
+    ..." — the verdict step turns your findings into repair targets (`screens/<id>.html`) and has no other source
+    for the id, so a defect line missing the id cannot be repaired.
+
+
+    FEATURE DEFECTS — ONLY these six things ever belong here, because ONLY these ever send a screen back for
+    rebuild: (1) MISSING — a field, button or tagline journeys.md specifies for this screen is absent. (2)
+    INVENTED CONTROL OR DATA — a field, button, dropdown option or data value is present that journeys.md does not
+    specify for this screen. (3) WRONG TEXT — a field label, button caption, dropdown option or tagline does not
+    match journeys.md character for character, including case. (4) WRONG TARGET — a button or link navigates to a
+    screen id journeys.md does not name as its destination. (5) WRONG RULE — a mandatory, validation or
+    conditional rule journeys.md states for this screen is missing or contradicted. (6) WRONG DECLARED TAGLINE
+    STYLE — journeys.md names a specific tagline style (bold, italic, underline, small caps, monospace) and the
+    screen does not visibly apply it, regardless of whether it was built with an inline style or a CSS class.
+
+
+    DESIGN DEFECTS — everything else goes here, never under FEATURE DEFECTS: colours, typography, spacing,
+    component shapes and layout patterns that deviate from the injected design system or template; ANY purely
+    decorative or structural element with no field, button or data value of its own that journeys.md does not
+    mention — an extra heading, subtitle, section label, fieldset legend, screen-identity banner, or stage/step
+    label; and the DOM or CSS TECHNIQUE used to build a style journeys.md does name (inline style vs CSS class,
+    element choice, id or class naming) whenever the visible result already matches what journeys.md and the
+    injected design require. A generic styling choice the injected design does NOT constrain is NOT a defect; a
+    deviation from something the injected design DOES specify IS a defect.
+
+
+    NOT feature defects, never report these there, record under DESIGN DEFECTS instead if they deviate from the
+    injected design, otherwise do not report them at all: Back/Next/Cancel, breadcrumbs, a step indicator, a
+    landing screen, a one-line purpose sentence, grouping or ordering, a screen-identity banner or header beyond
+    the title, a stage/step label, a section heading or fieldset legend that captures no field of its own, and the
+    inline-style-vs-CSS-class choice for a style journeys.md does name, as long as the rendered result is correct.
+    Those are usability or implementation choices, not fidelity.
+
+
+    Call write_file with the path in your task''s `targets` and write your findings as markdown, under the two
+    headings above, a line per defect naming the exact screen, the exact field or design element, and whether it is
+    missing, wrong or invented — or "no defects" under a heading if that heading is clean.
+
+    End with a line `SCREENS <implemented>/<specified>` for your journey. Reply with one short sentence.'
+  strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    source_step: custom-agent:review-planner
+    target: review-tasks.md
+  tools:
+    exec: false
+    read_files: true
+    spawn_subagents: true
+    tool_sets:
+    - prototype_emit_only
+    write_files: true
+- agent: custom-agent
+  consumes:
+  - review_parts
+  - journeys
+  depends_on:
+  - custom-agent:review-workers
+  gates:
+  - conditional
+  instance_id: review-verdict
+  name: Review Judge
+  produces:
+  - route_decision
+  - repair_tasks
+  - review_report
+  prompt: "You collect the per-journey review findings into one verdict AND plan repairs for every screen with a feature defect, in the same reply. You read; you never edit and you write no files.\n\nRun `ls review/` and read every file it lists. Each file `review/r<n>.md` is that journey's CURRENT findings \u2014 the review planner reuses the same id for the same journey on every pass, so a journey that was re-checked this pass has an up-to-date file, and a journey that was NOT re-checked this pass still has its own last-known file. Treat every file you find as current; none is stale by construction. Each file has FEATURE DEFECTS and DESIGN DEFECTS sections, already correctly classified by the review worker \u2014 never re-classify a finding yourself, never move a DESIGN DEFECTS entry into a repair task, and never treat a FEATURE DEFECTS entry as cosmetic.\n\nALSO read `journeys.md` and `build/digest.md`. For every screen you plan to repair, you need its COMPLETE correct content from `journeys.md` \u2014 every field, caption, option, destination and rule for that screen \u2014 to put in the repair task body below; and you need its exact page id from `build/digest.md`'s PAGE INVENTORY, which maps page id to exact screen title. The page id in a repair task's \"targets\" MUST come from that inventory \u2014 never invented, never guessed from the findings file alone. Match a defect to its screen by the page id AND exact title the review worker reported in its findings (both are required there for exactly this reason).\n\nYOUR REPLY CARRIES THREE PARTS, IN THIS EXACT ORDER, AND THE ORDER IS LOAD-BEARING \u2014 the repair-task fence FIRST, the accepted-deviations report SECOND, and the decision object LAST with nothing after it. Two different parsers read this one reply: the repair-task parser scans for the FIRST ```json fence anywhere in your reply, and the router reads the STRICTLY TRAILING JSON object at the very end of your reply \u2014 it fails closed if you write anything after that object, including a blank line of commentary. Getting the order backwards silently breaks one or both.\n\nPART 1, FIRST \u2014 a single fenced ```json block, one repair task per screen that has a FEATURE DEFECTS entry (never for a screen whose only entries are DESIGN DEFECTS), object with a single \"tasks\" key:\n\n```json\n    {\n      \"tasks\": [\n        {\n          \"id\": \"d1\",\n          \"title\": \"Repair screen 7\",\n          \"targets\": [\"screens/7.html\"],\n          \"depends_on\": [],\n          \"body\": \"The FEATURE DEFECTS on that screen today, quoted from the findings, and the screen's COMPLETE correct content, transcribed from journeys.md and matched to this screen by the page id and exact title read from build/digest.md's PAGE INVENTORY \u2014 every field, caption, option, destination and rule. If the same screen ALSO has a DESIGN DEFECTS entry, append it as a secondary note ('also align: ...') so the repair fixes it while the file is open, but its presence or absence never changes whether this task exists. The repair builder runs alone and reads nothing else, so this body is its only specification.\"\n        }\n      ]\n    }\n    ```\nEmit nothing for a screen with no FEATURE DEFECTS entry, even if it has a DESIGN DEFECTS entry \u2014 that goes in PART 2 instead, never here. Every task needs \"depends_on\": [] and its own unique \"targets\" file so repairs run in parallel.\nNEVER TYPE A BACKTICK EXCEPT TO OPEN AND CLOSE THAT ONE FENCE. Do not describe your own output, do not list what your reply will contain, and never put the word json next to backticks inside a sentence. Write your prose with no backticks at all, then the one fence, then nothing else until the accepted-deviations report.\n\nPART 2, AFTER THE FENCE \u2014 the accepted-deviations report. Head it with the line \"ACCEPTED DEVIATIONS\" then one line per DESIGN DEFECTS entry found across every `review/r<n>.md` file (whether or not that screen also got a repair task above), naming the screen id, its exact title and the deviation, copied from the findings file \u2014 do not re-judge them, do not soften them, do not add commentary. If no file has any DESIGN DEFECTS entry, write \"ACCEPTED DEVIATIONS: none\" and nothing else in this part.\n\nPART 3, LAST, AFTER THE REPORT \u2014 the trailing decision object and NOTHING after it:\n\n{\"decision\": \"bad\"}\n\n\"decision\" is exactly good or bad, lowercase \u2014 bad if you emitted ANY repair task in PART 1, good if no screen has a FEATURE DEFECTS entry. A DESIGN DEFECTS entry alone, on any number of screens, is NEVER grounds for \"bad\" \u2014 it is recorded in PART 2 and the run proceeds. Nothing may follow this object: no closing remark, no summary line.\n\nIF YOUR DECISION IS \"bad\", THE FENCE IS MANDATORY AND MUST BE LITERALLY PRESENT IN THIS REPLY. Writing the repair tasks to a file, or narrating that you have identified the screens needing repair, is not producing the list \u2014 a reply that only describes the repairs (\"I found feature defects on screens 7 and 12 and will repair them\") with no ```json fence anywhere in it hands the parser nothing, review-revision never runs, and the defective screens ship unrepaired even though your decision correctly said \"bad\". The actual object, in the actual fence, in the actual text of this reply, is the only thing that counts.\n\nBEFORE YOU REPLY, SELF-CHECK: reread your own drafted reply, not your intention. If \"decision\" will be \"bad\", confirm the reply literally contains exactly one ```json fence positioned before PART 2, that the fence is not empty, and that what is inside it parses as an object with a \"tasks\" array of objects, one per screen with a FEATURE DEFECTS entry. Confirm PART 2 is present even when \"decision\" is \"good\" (an empty run still reports \"ACCEPTED DEVIATIONS: none\"). If any of that is not literally present in the text you are about to send, you have not finished \u2014 go back and fix it before you reply. Either way, confirm the reply ends with the trailing decision object and nothing else."
+  route:
+    default_next: assembler
+    # loop_max_iterations here is dead: review-revision sits FORWARD of
+    # review-verdict in file/array order, so this bad->review-revision jump
+    # never counts as a step-visit loop (engine only tracks backward/self
+    # jumps) — kept for readability, not enforcement (A6 finding).
+    loop_max_iterations: 2
+    outcomes:
+      bad:
+        feedback: Repair ONLY the screens carried in the task list above.
+        target: review-revision
+        trigger: step
+      good:
+        target: assembler
+        trigger: step
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: false
+- agent: custom-agent
+  consumes:
+  - repair_tasks
+  depends_on:
+  - custom-agent:review-verdict
+  fanout:
+    agent: self
+    max_parallel: 5
+    mode: parallel
+  fix:
+    max_attempts: 2
+  gates:
+  - validation
+  injects:
+  - template
+  - design_system
+  instance_id: review-revision
+  name: Screen Repair
+  produces:
+  - repaired_screens
+  prompt: 'You rebuild ONE screen that failed review on feature fidelity. Your task may also carry a design note;
+    apply it while you are in the file, but the feature defect(s) are what you must fix.
+
+
+    You run alone and can read nothing except your task. Your CURRENT TASK block carries the defect(s) and the
+    screen''s complete correct content. You have also been injected the ACTIVE DESIGN SYSTEM and the ACTIVE TEMPLATE
+    — honour them when rebuilding, the same design every builder in this run is using.
+
+
+    The path in your task''s `targets` ALREADY EXISTS — the original screen builder wrote it. Call read_file on it
+    first, then call edit_file on the SAME path with old_string set to the file''s entire current content, copied
+    character for character from what you just read, and new_string set to the screen''s complete rebuilt INNER
+    HTML. write_file refuses to overwrite a file that already exists, so write_file here fails, and any name you
+    invent to work around that — `screens/<id>_fixed.html` or similar — is a sidecar nothing else in this run reads;
+    a coverage check after you fails the step outright if one appears. Write to NO OTHER PATH, for any reason.
+
+
+    Your rebuilt HTML has no <section> wrapper, no <style>, no chrome. Copy every label, caption, option and value
+    character for character from your task. Invent nothing. Reply with one short sentence naming the screen id you
+    rebuilt.'
+  strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    source_step: custom-agent:review-verdict
+    target: repair-tasks.md
+  tools:
+    exec: false
+    read_files: true
+    spawn_subagents: true
+    tool_sets:
+    - prototype_emit_only
+    write_files: true
+  validators:
+  - fragment_field_coverage
+- agent: custom-agent
+  consumes:
+  - repair_tasks
+  depends_on:
+  - custom-agent:review-revision
+  gates:
+  - conditional
+  instance_id: review-revision-route
+  name: Recheck Router
+  produces:
+  - route_decision
+  prompt: 'Read the repair task list already in your context (`repair_tasks`). For every task, take the screen id
+    out of its `targets` entry (`screens/<id>.html` -> that id). Never read a `repair-tasks.md` file: nothing in
+    this run writes that path, it is a display label only.
+
+
+    Reply with exactly two lines and nothing else:
+
+
+    REBUILT SCREENS: 7, 12, 21
+
+
+    {"decision": "rechecked"}'
+  route:
+    default_next: review-planner
+    loop_max_iterations: 3
+    outcomes:
+      rechecked:
+        target: review-planner
+        trigger: step
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: false
+- agent: custom-agent
+  consumes:
+  - fragments
+  depends_on:
+  - custom-agent:review-verdict
+  fix:
+    max_attempts: 2
+  gates:
+  - validation
+  instance_id: assembler
+  name: Assembler
+  produces:
+  - html_file
+  prompt: 'You are the assembler. You splice the screen fragments the builders wrote into the shell. You design nothing, you write no new business content, and you never invent a field.
+
+
+    VERSIONED DRAFTS: you never overwrite an existing draft, and you never guess which one is current. Every pass
+    — including a repair pass after a revision loop — FIRST runs `ls draft.v*.html`, finds the HIGHEST version
+    number N present, and reads THAT file, `draft.v<N>.html`. You then write your result to `draft.v<N+1>.html`, a
+    brand-new file — the very next number, never a number that already exists. You may run more than once in a
+    single build (a revision loop routes back to you), so this "find the highest, write the next" step runs EVERY
+    time, not just the first.
+
+
+    1. Run `ls draft.v*.html` to find the highest existing version N. Read `draft.v<N>.html`. Run `ls screens/`.
+
+    2. For EVERY file `screens/<id>.html`, read it and paste its content inside the matching `<section data-page="<id>">` element, replacing that section''s empty body. Use one edit_file call per screen — do not try to rewrite the whole file in one go. Your edits land in the new file `draft.v<N+1>.html`: write_file it once from the version-N content, then edit_file it screen by screen.
+
+    3. A fragment whose `<id>` has no matching section in draft.v<N>.html: add the section, in the position the routes map implies, then paste the fragment into it.
+
+    4. A section with no matching fragment: leave it empty and record it.
+
+    5. AFTER writing `draft.v<N+1>.html`, also call write_file with path `build/structure.json` — a skeleton of
+    what you just spliced, so the structure-check step after you never has to parse the whole document to find a
+    structural defect. Since you already read the shell and every fragment to splice them, this costs you nothing.
+    It MUST be accurate: a wrong skeleton sends the checker hunting in the wrong place. Its shape:
+    {"routes": {"<route key>": "<route value>", ...}, "sections": ["<data-page id>", ...],
+    "screens_expected": <count from the page inventory>, "sections_written": <count actually spliced>,
+    "helpers_defined_line": <line number where the shared helpers block starts>,
+    "first_section_line": <line number of the first section>}
+
+
+    Change nothing else. Do not touch the <style> block, the chrome, the routes map or the router. Do not reword a label, a caption or a value that came out of a fragment.
+
+
+    HARD LIMIT: you MUST NOT re-emit the whole document from context — every splice is an edit_file call against
+    what you just read off disk, never a rewrite composed from memory. A prior step re-emitted a whole document
+    from memory and silently destroyed 49 controls that were never even part of the change.
+
+
+    When every fragment is spliced, verify: each page id in the routes map has a section, and each section that
+    had a fragment now has content. Then count how many times `<input`, `<select` and `<button` occur across all
+    of `screens/*.html` combined, and how many times the same three occur in `draft.v<N+1>.html` — the two totals
+    must match; a drop means a splice lost content, a rise means you added something the fragment did not have.
+    Also confirm `sections_written` in `build/structure.json` equals `screens_expected`. If any check fails, find
+    the affected section with edit_file and fix it, then recount before you reply. Reply with a short report — how
+    many fragments were spliced, the id of every section left empty, and the four numbers from this check (fragment
+    control count, draft control count, sections_written, screens_expected).
+
+
+    Your reply is a report only. The deliverable is `draft.v<N+1>.html` on disk — the new highest version.
+
+
+    THEN, in the same pass, make it work and verify it:
+
+    - every `data-page` section has a routes entry and every route has a section;
+
+    - the router hides all sections and shows the requested one; the first screen is active on load;
+
+    - every button and link calls the router with a page id that exists;
+
+    - no duplicate element id, no duplicate top-level function name, no handler referencing something absent;
+
+    - one self-contained file: no external stylesheet, script, font or image;
+
+    - colours and fonts come from the :root variables.
+
+
+    HARD LIMIT — never invent content. Do not fill a thin screen with placeholder cards, sample tables or a
+
+    generic dashboard, and do not add, reword or remove a field, caption, option, value or screen. A sparse
+
+    screen is REPORTED, not filled — that is the fidelity check''s business.'
+  require_render: true
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    tool_sets:
+    - prototype_emit_only
+    write_files: true
+  validators:
+  - html_static
+  - html_render
+  - design_quality
+  - html_element_floor
+- agent: custom-agent
+  consumes:
+  - html_file
+  depends_on:
+  - custom-agent:assembler
+  fix:
+    max_attempts: 2
+  gates:
+  - conditional
+  - validation
+  instance_id: structure-check
+  name: HTML Validator
+  produces:
+  - route_decision
+  prompt: 'You check the ASSEMBLED prototype for structural defects a per-screen fragment review
+    could never see — no fragment reviewer has read the shell, the routes map or another screen at
+    the same time as yours, so this pass exists to catch what falls between those cracks. You judge
+    AND you fix — you never delegate a repair to another step, because the defects that live here
+    (a routes map, a duplicate declaration spanning two screens, a helper-ordering problem) are not
+    inside any single screen fragment; a wave that rewrites `screens/<id>.html` files cannot touch a
+    routes map at all, so it would be repairing the wrong file. You fix the assembled draft itself.
+
+
+    READ IN THIS ORDER — cheaply, because a whole-document read here is expensive. A previous pass
+    that read and rewrote this same file from context cost 7 minutes 15 seconds and 3.2 million
+    tokens, and that cost only grows as more screens are added — never read the whole document
+    before you have a specific reason to.
+
+    1. `build/structure.json` FIRST — the skeleton the assembler wrote when it spliced the draft.
+       Compare its `routes` keys/values against its `sections` list to find dead nav links (a route
+       value with no matching section id) and missing sections WITHOUT reading the document at all.
+    2. `build/digest.md` — the PAGE INVENTORY (page id <-> exact screen title), to name defects
+       precisely.
+    3. Only where the structure.json comparison points at a real problem, read the relevant part of
+       the highest `draft.v<N>.html` — run `ls draft.v*.html`, take the HIGHEST N, never guess.
+    4. `journeys.md` and the relevant `screens/<id>.html` — to CROSS-VERIFY what a section''s content
+       SHOULD be before you change anything. Never infer the correct content from the broken
+       document itself; confirm it against the source spec.
+
+
+    Check specifically, across the WHOLE assembled document:
+
+    - dead nav links — every `href="#/<id>"` (and every `routes` map value) must resolve to a real
+    `<section data-page="<id>">`; a link or route entry pointing at an id with no matching section
+    is a defect;
+
+    - every screen present in the routes map has a matching section, and every section has a
+    routes map entry — a screen missing either side is a defect;
+
+
+    - UNREACHABLE screens — a section and a routes entry existing is not enough. Every page id
+    in build/digest.md''s PAGE INVENTORY must also have at least one INCOMING link somewhere in
+    the document, an `href="#/<id>"`, either in the persistent chrome/sidebar nav or on
+    another screen (a Next/Back control, a card, a menu item). Check this CHEAPLY with grep:
+    search the highest draft.v<N>.html for every `href="#/<id>"` occurrence to build the set
+    of ids that receive a link, then diff that set against the full id list in the PAGE
+    INVENTORY. A screen that is built, sectioned and routed but never linked TO from anywhere is
+    a defect — a working route with no way for a user to ever click into it; verify this
+    yourself before you finish, it is not optional;
+
+    - duplicate top-level declarations — the same element id, the same top-level function name, or
+    the same global declared twice across screens (each screen''s script must be wrapped in its own
+    IIFE; a bare top-level declaration colliding with another screen''s is a defect);
+
+    - helper-before-use ordering — a screen calling a HELPERS function that is declared AFTER it in
+    the document (or not declared at all) is a defect;
+
+    - JS reference errors — anything a screen''s script calls or reads that does not exist anywhere
+    in the document.
+
+
+    These are ALL things a single-screen fragment reviewer structurally cannot see; do not
+    re-report a FEATURE or DESIGN defect the earlier review pass already covers (a missing field,
+    a wrong caption, an off-design colour) — this pass is structural wiring only.
+
+
+    FIX THE ROOT CAUSE, NOT EACH SYMPTOM. In an earlier run, ONE wrong routes map produced 108 dead-
+    link findings across 108 sections. Find the single shared cause first — usually the routes map,
+    a helper declaration, or one duplicated id — and fix it ONCE. Patching 108 sections one at a
+    time when they all trace back to one wrong map is the wrong fix even if it happens to work.
+
+
+    EDIT, NEVER REWRITE. Use edit_file for every change — targeted, surgical, against what you just
+    read off disk. You MUST NEVER write_file the whole document from context: a prior step re-
+    emitted a whole document from memory and silently destroyed 49 Cancel controls and an entire
+    section that was never even part of the change. Write your fixed result to a BRAND-NEW file,
+    `draft.v<N+1>.html` — never overwrite `draft.v<N>.html`. The one exception: if reproducing the
+    whole document into `draft.v<N+1>.html` would itself force a rewrite from memory instead of an
+    edit (the document is too large for edit_file alone to safely duplicate), you may edit
+    `draft.v<N>.html` in place instead — but only then, and only if you flag it exactly as described
+    below, in both the decision object and your prose report.
+
+
+    AFTER fixing, re-count and report BOTH numbers, before and after your edits: the number of
+    `<section data-page=` occurrences, `<input`, `<select`, and `<button` elements. A destructive
+    edit must be VISIBLE in your report, never silent — if any count DROPPED, say so loudly and
+    treat the result as "broken", even if the structural defect you set out to fix is gone.
+
+
+    YOUR REPLY HAS THREE PARTS, IN THIS EXACT ORDER, and the order is load-bearing:
+
+    1. FIRST, a PROSE REPORT for the human reading this gate — modelled on the report shape in
+    `app/agents/revision_analyzer.py` (read that file for the shape). It must carry: sections found
+    vs. expected; every dead nav link, naming the exact page id and screen title; duplicate
+    declarations; helper-ordering problems; JS reference errors; the before/after element counts
+    above; plainly what you changed and why; and, if you edited `draft.v<N>.html` in place instead
+    of writing `draft.v<N+1>.html`, say so and why.
+
+    2. THEN nothing else.
+
+    3. LAST, the trailing decision object and NOTHING after it — no closing remark, not even a
+    blank line:
+
+
+    {"decision": "ok"}
+
+
+    If you edited `draft.v<N>.html` in place instead of creating `draft.v<N+1>.html` (the size
+    exception above), add two more keys instead, still with nothing after the object:
+    {"decision": "ok", "edited_in_place": true, "final_draft": "draft.v<N>.html"}. Omit both keys
+    when you did create a new version.
+
+
+    "decision" is exactly ok or broken, lowercase — ok once everything is verified clean after your
+    fixes, broken if you could not fix something or a count dropped. The router reads the STRICTLY
+    TRAILING JSON object at the very end of your reply and fails closed if anything follows it.
+
+
+    THERE IS NO TASK-LIST FENCE IN THIS REPLY — you fix things yourself, you do not hand a list to
+    another step. NEVER type a backtick anywhere in your reply, for any reason.'
+  route:
+    default_next: story-layer
+    loop_max_iterations: 2
+    outcomes:
+      ok:
+        target: story-layer
+        trigger: step
+      broken:
+        target: structure-check
+        trigger: step
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    write_files: true
+  validators:
+  - html_element_floor
+# Save-step design decision (fix for the run a786cc27 truncation defect): the old save step made
+# story-layer read_file the finished draft.v<N>.html and write_file that content to a brand-new
+# draft.v<N+1>.html, so publish_from_glob (highest draft.v*.html wins) would ship the copy. That
+# round trip forces a ~65KB document through a model reply/tool-call argument, which is exactly
+# what got truncated to 20KB with 9 of 10 screens gone. There is no exec/cp here and no native
+# "copy" tool — read_file->write_file is the ONLY way to duplicate a file with this toolset, and
+# it carries the identical reproduce-from-memory risk regardless of whether it runs before or
+# after the edits. That means a genuine "keep draft.v<N> pristine as a fallback" is unreachable
+# without re-introducing the very risk being fixed. Call made: drop the duplicate entirely — edit
+# draft.v<N>.html in place with edit_file (as the affordance edits already do) and let it stand as
+# the highest-numbered draft.v*.html, so nothing ever needs to be reproduced whole. Traded away:
+# an untouched pre-story-layer snapshot on disk. Mitigated by: the mandatory before/after element
+# self-check below, which must catch and repair any drop before the step is allowed to finish, and
+# by the human/validation gates immediately after this step, which stop a bad result before publish.
+- agent: custom-agent
+  consumes:
+  - html_file
+  - review_report
+  depends_on:
+  - custom-agent:structure-check
+  fix:
+    max_attempts: 2
+  # human gates are always redoable (user rule 2026-09-04)
+  gates:
+  - human
+  - validation
+  instance_id: story-layer
+  name: Prototype Validator
+  produces:
+  - html_file
+  prompt: "You make the prototype usable without changing a single fact in it.\n\nFIND THE DRAFT: run `ls draft.v*.html`, find the HIGHEST version number N present, and read that file,\n`draft.v<N>.html` — never guess which version is current, never read an older one.\n\nBASELINE COUNT, before any edit: count how many times `<section data-page=`, `<input`, `<select` and `<button`\neach occur in `draft.v<N>.html` exactly as you just read it, and hold those four numbers — you will re-count the\nsame four after your edits and compare.\n\nADD THE AFFORDANCES, with edit_file, to `draft.v<N>.html`:\n- a landing screen that names the workbench and lists the journeys, each a link to that journey's first screen;\n- one plain sentence at the top of each screen saying what the screen is for, derived only from its own content;\n- Back and Next controls following the navigation the screens already declare;\n- a step indicator showing position within the current journey;\n- grouping of long content under headings that already exist.\n\nHARD LIMIT: you may not add, remove or reword any field, label, caption, option, value or rule, and you may not add a\nscreen that carries business content. Everything you add is navigation, orientation or grouping.\n\nReply with a list of exactly what you added, so it can be recorded as an accepted deviation.\n\nYOU EDIT `draft.v<N>.html` IN PLACE — you never create `draft.v<N+1>.html` and you never call read_file then\nwrite_file to reproduce the whole document. That round trip forces a document far bigger than any reply can hold\nback through the model, and the model silently re-authors a truncated fraction of it from memory instead of\ncopying it byte for byte — that is the exact defect this rule exists to prevent. Your edit_file calls above already\nlanded on `draft.v<N>.html`, so it is already the finished draft the moment they are done, and it is already the\nhighest-numbered `draft.v*.html` file on disk. You never write `prototype.html` yourself — after you finish, the\nengine copies the highest-numbered `draft.v<N>.html` to `prototype.html` byte-for-byte, mechanically. Your job ends\nthe moment your edits to `draft.v<N>.html` are correct and verified below.\n\nSELF-CHECK BEFORE YOU FINISH: re-count the same four things — `<section data-page=`, `<input`, `<select` and\n`<button` — in `draft.v<N>.html` now that your edits are applied, and compare each to your BASELINE count from\nbefore you started. If any of the four dropped, you destroyed content: go back and fix it with edit_file before\nyou reply — never finish with a dropped count. State all four numbers, before and after, in your reply.\n\nCOMPUTE THE FIDELITY COUNT YOURSELF: nothing hands you an aggregate count, so build it from source. Run\n`ls review/` and read every `review/r<n>.md` file it lists — each ends with a line `SCREENS <implemented>/<specified>`\nfor that journey. Sum the implemented numbers and sum the specified numbers across every file to get the run's total\nimplemented/specified count, and note any screen or field those same files report missing or invented. That sum is\nwhat point 4 below reports — never estimate it.\n\nTHEN present the finished result, in plain prose — this reply IS the presentation:\n1. WHAT WAS BUILT — draft.v<N>.html, its size, and how many screens it actually contains.\n2. SOURCE DOCUMENTS — the documents from reading-plan.md that fed it.\n3. WHAT IT COVERS — each journey by name with its screens, in flow order.\n4. FIDELITY — the implemented/specified counts you just summed from every `review/r<n>.md` file, and any screen or\n   field those files report still missing or invented. Do not soften this.\n5. WHAT I ADDED — the affordances above, listed as accepted deviations.\n6. INTEGRITY CHECK — the four before/after counts from your SELF-CHECK above (`<section data-page=`, `<input`,\n   `<select`, `<button`), stated plainly.\nEvery number comes from a file you read, never an estimate."
+  redoable: true
+  require_render: true
+  strategy: single_shot
+  tools:
+    exec: false
+    read_files: true
+    tool_sets:
+    - prototype_emit_only
+    write_files: true
+  validators:
+  - html_element_floor
+- agent: custom-agent
+  consumes:
+  - html_file
+  depends_on:
+  - custom-agent:story-layer
+  gates:
+  - validation
+  instance_id: publish
+  mechanical: publish
+  name: Publisher
+  produces:
+  - html_file
+  require_render: true
+  validators:
+  - html_static
+  - html_render
+user_launchable: true
+version: 1

@@ -115,7 +115,7 @@ def test_the_terminal_status_set_has_exactly_one_definition():
     """
     from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
 
-    expected = {"completed", "cancelled", "failed", "degraded"}
+    expected = {"completed", "cancelled", "failed", "degraded", "diverted"}
     assert set(TERMINAL_RUN_STATUSES) == expected
 
     definitions = _find_literal_set_definitions(expected)

@@ -19,6 +19,7 @@ import {
   generateInstanceId,
   isValidInstanceId,
   manifestStepsToAgents,
+  manifestStepsToGateSelections,
 } from "./userWorkflows";
 import type { AgentDef } from "@/types/index";
 
@@ -61,11 +62,11 @@ describe("generateInstanceId / isValidInstanceId (R-03)", () => {
 });
 
 describe("agentsToManifestSteps / manifestStepsToAgents — lossless round trip (R-01..R-05)", () => {
-  it("a built-in step round-trips as agent_id with no instance_id", () => {
+  it("a built-in step round-trips as agent with no instance_id", () => {
     const steps = agentsToManifestSteps([mkAgent({ id: "researcher", name: "Researcher" })]);
     expect(steps).toEqual([
       {
-        agent_id: "researcher",
+        agent: "researcher",
         depends_on: [],
         gates: [],
         strategy: "single_shot",
@@ -107,6 +108,65 @@ describe("agentsToManifestSteps / manifestStepsToAgents — lossless round trip 
     expect(step.skills).toEqual(["market-research", "seo-audit"]);
   });
 
+  it("a route survives save -> reopen (spec 014 / T37 reopen)", () => {
+    const route = {
+      condition_agent: "researcher",
+      outcomes: { yes: { trigger: "step" as const, target: "writer" } },
+      default_next: "reviewer",
+    };
+    const agent = mkAgent({ id: "researcher", name: "Researcher", route });
+    const [step] = agentsToManifestSteps([agent]);
+    expect(step.route).toEqual(route);
+    const [restored] = manifestStepsToAgents([step]);
+    expect(restored.route).toEqual(route);
+  });
+
+  it("a route declares produces: [route_decision] on its decision source (R-27)", () => {
+    // condition_agent unset -> R-05 default: the routing step is its own source.
+    const [own] = agentsToManifestSteps([
+      mkAgent({
+        id: "researcher",
+        name: "Researcher",
+        route: { outcomes: { yes: { trigger: "step", target: "writer" } } },
+      }),
+    ]);
+    expect(own.produces).toEqual(["route_decision"]);
+
+    // condition_agent set -> the declaration lands on THAT step, not the router.
+    const [source, router] = agentsToManifestSteps([
+      mkAgent({ id: "reviewer", name: "Reviewer" }),
+      mkAgent({
+        id: "researcher",
+        name: "Researcher",
+        route: {
+          condition_agent: "reviewer",
+          outcomes: { yes: { trigger: "workflow", target: "self" } },
+        },
+      }),
+    ]);
+    expect(source.produces).toEqual(["route_decision"]);
+    expect(router.produces).toBeUndefined();
+  });
+
+  it("a custom-agent decision source resolves by bare instance_id too (R-27)", () => {
+    const [step] = agentsToManifestSteps([
+      mkAgent({
+        id: "node-1",
+        name: "Gate",
+        isCustom: true,
+        instance_id: "node-1",
+        // authored the human-facing way: the bare instance_id, not custom-agent:node-1
+        route: { condition_agent: "node-1", outcomes: { pass: { trigger: "step", target: "node-1" } } },
+      }),
+    ]);
+    expect(step.produces).toEqual(["route_decision"]);
+  });
+
+  it("no route means no produces declaration (parity)", () => {
+    const [step] = agentsToManifestSteps([mkAgent({ id: "researcher", name: "Researcher" })]);
+    expect(step.produces).toBeUndefined();
+  });
+
   it("a node with children compiles subagents.mode/max_parallel/steps (R-04)", () => {
     const parent = mkAgent({
       id: "parent-1",
@@ -137,7 +197,7 @@ describe("agentsToManifestSteps / manifestStepsToAgents — lossless round trip 
     expect(manifest).toEqual({
       steps: [
         {
-          agent_id: "researcher",
+          agent: "researcher",
           depends_on: [],
           gates: [],
           strategy: "single_shot",
@@ -207,5 +267,73 @@ describe("agentsToManifestSteps / manifestStepsToAgents — lossless round trip 
     const restored = manifestStepsToAgents(steps, (id) => (id === "researcher" ? library : undefined));
     expect(restored[0].role).toBe("Digs up facts");
     expect(restored[0].skills).toEqual(["market-research"]);
+  });
+
+  it("a mechanical step compiles with agent.mechanical set and no tools/prompt/strategy", () => {
+    const agent = mkAgent({
+      id: "pb-assemble",
+      name: "Assemble",
+      isCustom: true,
+      instance_id: "pb-assemble",
+      mechanical: "assemble_prototype",
+    });
+    const [step] = agentsToManifestSteps([agent]);
+    expect(step).toMatchObject({
+      agent: "custom-agent",
+      instance_id: "pb-assemble",
+      mechanical: "assemble_prototype",
+    });
+    expect(step.tools).toBeUndefined();
+    expect(step.prompt).toBeUndefined();
+    expect(step.strategy).toBeUndefined();
+  });
+
+  it("a mechanical step round-trips with mechanical preserved and gates carried", () => {
+    const agent = mkAgent({
+      id: "pb-assemble",
+      name: "Assemble",
+      isCustom: true,
+      instance_id: "pb-assemble",
+      mechanical: "assemble_prototype",
+    });
+    const steps = agentsToManifestSteps([agent]);
+    const restored = manifestStepsToAgents(steps);
+    expect(restored[0].mechanical).toBe("assemble_prototype");
+    expect(restored[0].prompt).toBeUndefined();
+    expect(restored[0].tools).toBeUndefined();
+  });
+
+  it("a leaf wave step with task_source and fanout round-trips correctly", () => {
+    const agent = mkAgent({
+      id: "screen-builder",
+      name: "Screen Builder",
+      isCustom: true,
+      instance_id: "screen-builder",
+    });
+    const selections = {
+      "screen-builder": {
+        strategy: "wave_scheduler" as const,
+        task_source: {
+          kind: "parsed" as const,
+          parser: "screen_plan",
+          target: "build/screens.json",
+          source_step: "pb-design",
+        },
+        fanout: { agent: "self" as const, mode: "parallel" as const, max_parallel: 6 },
+      },
+    };
+    const steps = agentsToManifestSteps([agent], selections);
+    const restored = manifestStepsToAgents(steps);
+    const restored_selections = manifestStepsToGateSelections(steps);
+
+    expect(restored_selections["screen-builder"]).toMatchObject({
+      strategy: "wave_scheduler",
+      task_source: {
+        kind: "parsed",
+        parser: "screen_plan",
+        target: "build/screens.json",
+      },
+      fanout: { agent: "self", mode: "parallel", max_parallel: 6 },
+    });
   });
 });

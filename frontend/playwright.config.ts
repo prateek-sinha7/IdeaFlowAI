@@ -36,6 +36,7 @@ export default defineConfig({
       testIgnore: /\.live\.spec\.ts$/,
       use: {
         ...devices["Desktop Chrome"],
+        channel: "chrome",
         // Ensure semantic locators and role-based queries
         actionTimeout: 10_000,
       },

@@ -1,0 +1,23 @@
+{
+  "url": "http://localhost:3000/create/ex_A2_branch",
+  "h": [
+    "H1:Provide the brief"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "Pitch an idea (v2) 0/4",
+    "@Notifications",
+    "@Account menu",
+    "@Back to dashboard",
+    "+ Attach file",
+    "Voice",
+    "Save workflow",
+    "Save as my version",
+    "Run workflow",
+    "Advanced 5 agents",
+    "Review gates no gates"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nBRANCH BY LANGUAGE\nProvide the brief\nSmallest possible example of a conditional gate picking one of three forward branches.\n+ Attach file\nVoice\nSave workflow\nSave as my version\nRun workflow\nAdvanced\n5 agents\nReview gates\nno gates"
+}

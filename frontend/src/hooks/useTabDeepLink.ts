@@ -28,6 +28,18 @@ import { useCallback, useRef, useState } from "react";
 export interface TabDeepLinkTarget {
   /** Generic string tab id (e.g. "preview" / "steps" / "files" / "audit"). */
   tab: string;
+  /** ISS-277: which agent inside that tab the request targets, when the URL named
+   *  one (`/runs/{id}/steps/{agentId}`). An OPAQUE run-scoped id the consumer only
+   *  matches against the run's own agent ids — never a workflow/agent name literal
+   *  (SC-001). Undefined for every request that names no agent. */
+  agentId?: string;
+  /** ISS-607/ISS-612: which RUN the request targets, when the requester knows one
+   *  (a narrator card's own `pipeline_run_id` — a revision's card carries the
+   *  REVISION's id, not the run whose lane is mounted). An OPAQUE id the consumer
+   *  only matches against the mounted run's own family members — never a
+   *  workflow/agent name literal (SC-001). Undefined for every request that names
+   *  no run, which is every URL-driven one. */
+  runId?: string;
   /** Monotonic single-use token — different per request, even for the same tab. */
   nonce: number;
 }
@@ -35,8 +47,10 @@ export interface TabDeepLinkTarget {
 export interface UseTabDeepLinkReturn {
   /** The pending target the consumer navigates to, or null when nothing pending. */
   pending: TabDeepLinkTarget | null;
-  /** Request opening a tab; mints a fresh nonce and sets it pending. */
-  requestOpenTab: (tab: string) => void;
+  /** Request opening a tab (optionally on a specific agent, optionally on a
+   *  specific run in the mounted run's family); mints a fresh nonce and sets it
+   *  pending. */
+  requestOpenTab: (tab: string, agentId?: string, runId?: string) => void;
   /** Read-and-clear the pending target (single-use). Returns null if nothing pending. */
   consume: () => TabDeepLinkTarget | null;
 }
@@ -54,8 +68,8 @@ export function useTabDeepLink(): UseTabDeepLinkReturn {
   // synchronously (independent of React's state-flush timing).
   const pendingRef = useRef<TabDeepLinkTarget | null>(null);
 
-  const requestOpenTab = useCallback((tab: string) => {
-    const target: TabDeepLinkTarget = { tab, nonce: nextNonce() };
+  const requestOpenTab = useCallback((tab: string, agentId?: string, runId?: string) => {
+    const target: TabDeepLinkTarget = { tab, agentId, runId, nonce: nextNonce() };
     pendingRef.current = target;
     setPending(target);
   }, []);

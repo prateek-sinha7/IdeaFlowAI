@@ -20,7 +20,8 @@ import {
   refreshOnce,
   SESSION_REFRESH_SKEW_MS,
 } from "@/lib/api";
-import { buildLoginRedirect } from "@/lib/authRedirect";
+import { isSafeRedirectPath } from "@/lib/authRedirect";
+import { routes } from "@/lib/routes";
 
 export interface AuthSessionProviderProps {
   children: ReactNode;
@@ -37,9 +38,18 @@ export function AuthSessionProvider({
 
     isRedirectingRef.current = true;
     // Full navigation intentionally discards protected in-memory state after
-    // the credential has been cleared. `buildLoginRedirect` permits only an
+    // the credential has been cleared. `isSafeRedirectPath` permits only an
     // internal return path, preventing an open-redirect at this boundary.
-    window.location.assign(buildLoginRedirect());
+    // `redirect` returns the user to where they were; `expired` shows the login
+    // page's "session expired" notice (FR-015 / ISS-322).
+    const { pathname, search, hash } = window.location;
+    const current = `${pathname}${search}${hash}`;
+    window.location.assign(
+      routes.login({
+        expired: true,
+        redirect: isSafeRedirectPath(current) ? current : undefined,
+      }),
+    );
   }, []);
 
   useEffect(() => {

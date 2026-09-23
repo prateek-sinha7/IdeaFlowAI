@@ -3,7 +3,7 @@ id: BUG-DEF-44-12-4-GROUNDED-CONTEXT
 type: bug
 kind: event
 title: DEF-44-12-4 — Bind the run-screen live state to the VIEWED run
-status: open
+status: resolved
 applies_to:
   phases: []
   modules:

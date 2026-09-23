@@ -1,19 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
+import { routes } from "@/lib/routes";
 import {
-  ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, ShieldCheck, Info,
+  ArrowLeft, CheckCircle2, AlertCircle, Check, ShieldCheck, Info,
 } from "lucide-react";
-import { getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities } from "@/lib/api";
+import { authedFetch, getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities, getConstitution } from "@/lib/api";
 import type { ModelOption, CapabilityModelEntry } from "@/lib/api";
+import { ENV } from "@/lib/env";
 import { TIER_PIPELINES, TIER_LABELS } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, type BadgeStatus } from "@/components/ui/Badge";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SecuritySection } from "@/components/settings/SecuritySection";
+import { UpgradePlanModal } from "@/components/settings/UpgradePlanModal";
 
 /**
  * The settings surface's tab ids. Exported so callers that deep-link into a
@@ -27,6 +32,10 @@ interface AccountSettingsProps {
   /**
    * Tab to open on. Defaults to "profile".
    *
+   * Seeded two ways: from the URL on a cold load (`/settings/ai-model` ->
+   * parseViewPath -> page.tsx -> DashboardLayout), and from in-app navigation
+   * (DashboardLayout's settingsRequest).
+   *
    * Mount-time only, by design: the active tab is local UI state that the user
    * owns once the surface is open, so a later prop change must not yank them off
    * the tab they just clicked. Callers that need to force a specific tab while
@@ -36,6 +45,18 @@ interface AccountSettingsProps {
    */
   initialSection?: SettingsSection;
 }
+
+// Same section->route mapping parseViewPath (routes.ts) reads on cold-mount, in
+// reverse — kept here since AccountSettings, unlike LibraryPage/AnalyticsPage,
+// previously had no router of its own, so a tab click never told the URL bar
+// which section it switched to (only a fresh /settings/{section} nav did).
+const SECTION_ROUTE: Record<SettingsSection, () => string> = {
+  profile: routes.settingsProfile,
+  model: routes.settingsAiModel,
+  limits: routes.settingsUsage,
+  constitution: routes.settingsConstitution,
+  security: routes.settingsSecurity,
+};
 
 // Pipeline display names — used by the Usage & Limits deliverable-access grid.
 const PIPELINE_DISPLAY: Record<string, { label: string; description: string }> = {
@@ -63,20 +84,31 @@ function getBasePipelines(tier: Tier): string[] {
   return all.filter(p => !p.endsWith("_revision")).filter(p => PIPELINE_DISPLAY[p]);
 }
 
-export function AccountSettings({ onBack, initialSection = "profile" }: AccountSettingsProps) {
-  const [section, setSection] = useState<SettingsSection>(initialSection);
+export function AccountSettings({ onBack, initialSection }: AccountSettingsProps) {
+  const router = useRouter();
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? "profile");
   const [email, setEmail] = useState("");
   const [userTier, setUserTier] = useState<Tier>("basic");
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // ISS-622: in-app confirmation dialog for unsaved constitution changes
+  const [confirmingDiscardConstitution, setConfirmingDiscardConstitution] = useState(false);
+  const [nextSection, setNextSection] = useState<SettingsSection | null>(null);
 
   // Password change
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
   const [changing, setChanging] = useState(false);
+  // Written only at submit time, and every text it carries asserts something
+  // about the three password fields, so any later edit makes it stale — each
+  // field's onChange clears it rather than leaving it to the next submit (ISS-244).
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Constitution editor (lifted from ConstitutionSection so parent onChange can see dirty state)
+  const [constitutionContent, setConstitutionContent] = useState("");
+  const [constitutionLoadedValue, setConstitutionLoadedValue] = useState("");
 
   // AI Model preference
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
@@ -85,6 +117,18 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
   const [pendingModel, setPendingModel] = useState<string | null>(null); // dropdown value before save
   const [savingModel, setSavingModel] = useState(false);
   const [modelMessage, setModelMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const commitDiscardConstitution = useCallback(() => {
+    setConfirmingDiscardConstitution(false);
+    if (!nextSection) return;
+    setSection(nextSection);
+    router.replace(SECTION_ROUTE[nextSection]());
+  }, [nextSection, router]);
+
+  const cancelDiscardConstitution = useCallback(() => {
+    setConfirmingDiscardConstitution(false);
+    setNextSection(null);
+  }, []);
 
   useEffect(() => {
     const token = getToken();
@@ -202,7 +246,17 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
           <Tabs
             tabs={SECTION_TABS}
             active={section}
-            onChange={id => setSection(id as SettingsSection)}
+            onChange={id => {
+              const next = id as SettingsSection;
+              // ISS-482: guard tab switch away from Constitution if draft differs from loaded value
+              if (section === "constitution" && constitutionContent !== constitutionLoadedValue) {
+                setNextSection(next);
+                setConfirmingDiscardConstitution(true);
+                return;
+              }
+              setSection(next);
+              router.replace(SECTION_ROUTE[next]());
+            }}
           />
         </div>
 
@@ -255,32 +309,22 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
                 <div className="space-y-3.5 max-w-md">
                   <div>
                     <label htmlFor="current-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Current password</label>
-                    <div className="relative">
-                      <input id="current-password" type={showCurrent ? "text" : "password"} value={currentPassword}
-                        onChange={e => setCurrentPassword(e.target.value)}
-                        className={`${inputClass} pr-10`}
-                        placeholder="Enter current password" />
-                      <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700">
-                        {showCurrent ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
+                    <PasswordInput id="current-password" value={currentPassword}
+                      onChange={e => { setCurrentPassword(e.target.value); setMessage(null); }}
+                      className={inputClass}
+                      placeholder="Enter current password" />
                   </div>
                   <div>
                     <label htmlFor="new-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">New password</label>
-                    <div className="relative">
-                      <input id="new-password" type={showNew ? "text" : "password"} value={newPassword}
-                        onChange={e => setNewPassword(e.target.value)}
-                        className={`${inputClass} pr-10`}
-                        placeholder="At least 8 characters" />
-                      <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700">
-                        {showNew ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
+                    <PasswordInput id="new-password" value={newPassword}
+                      onChange={e => { setNewPassword(e.target.value); setMessage(null); }}
+                      className={inputClass}
+                      placeholder="At least 8 characters" />
                   </div>
                   <div>
                     <label htmlFor="confirm-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Confirm new password</label>
-                    <input id="confirm-password" type="password" value={confirmPassword}
-                      onChange={e => setConfirmPassword(e.target.value)}
+                    <PasswordInput id="confirm-password" value={confirmPassword}
+                      onChange={e => { setConfirmPassword(e.target.value); setMessage(null); }}
                       className={inputClass}
                       placeholder="Re-enter new password" />
                   </div>
@@ -344,7 +388,12 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
                       >
                         <option value="">System Default (Claude Haiku 4.5)</option>
                         {availableModels.map(m => (
-                          <option key={m.id} value={m.id}>{m.name} · {m.tier}</option>
+                          // ISS-430: disabled + lock suffix for models the account's tier
+                          // may not use, so the gate is visible before Save rather than
+                          // only surfacing as a 403 banner after the fact.
+                          <option key={m.id} value={m.id} disabled={m.allowed === false}>
+                            {m.allowed === false ? "🔒 " : ""}{m.name}
+                          </option>
                         ))}
                       </select>
                       {/* Description + tier badge of selected model */}
@@ -427,7 +476,7 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
                   <p className="text-[13.5px] font-semibold text-ink-900">{TIER_LABELS[userTier]} plan</p>
                   <p className="text-[11.5px] text-ink-500 mt-0.5">Your plan determines which deliverables you can run and the features available to you.</p>
                 </div>
-                <Button variant="secondary" size="sm" className="flex-shrink-0 px-3.5 py-2 text-brand">
+                <Button variant="secondary" size="sm" onClick={() => setUpgradeOpen(true)} className="flex-shrink-0 px-3.5 py-2 text-brand">
                   Manage plan
                 </Button>
               </div>
@@ -449,7 +498,12 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
 
           {/* ── CONSTITUTION ── */}
           {section === "constitution" && (
-            <ConstitutionSection />
+            <ConstitutionSection
+              content={constitutionContent}
+              setContent={setConstitutionContent}
+              loadedValue={constitutionLoadedValue}
+              setLoadedValue={setConstitutionLoadedValue}
+            />
           )}
 
           {/* ── SECURITY ── two-factor authentication (was /settings/security) */}
@@ -459,6 +513,50 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
 
         </AnimatePresence>
       </div>
+
+      {upgradeOpen && <UpgradePlanModal tier={userTier} onClose={() => setUpgradeOpen(false)} />}
+
+      {/* ISS-622: in-app "discard unsaved constitution" confirmation dialog */}
+      {confirmingDiscardConstitution && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discard-constitution-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={cancelDiscardConstitution}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-[var(--radius-card)] bg-surface-card border border-line-border shadow-[var(--elevation-modal)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="discard-constitution-title"
+              className="mb-2 font-semibold text-ink-900 text-[15px]"
+            >
+              Discard unsaved changes?
+            </h2>
+            <p className="mb-5 text-sm text-ink-500">
+              You have unsaved changes to your constitution. Discard them?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDiscardConstitution}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-ink-700 border border-line-border bg-surface-warm hover:bg-surface-paper transition-colors"
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                onClick={commitDiscardConstitution}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -467,25 +565,57 @@ export function AccountSettings({ onBack, initialSection = "profile" }: AccountS
 // Constitution Section (T074b — FR-012)
 // ---------------------------------------------------------------------------
 
-function ConstitutionSection() {
-  const [content, setContent] = useState("");
+// The ceiling the editor displays. One constant, read by the counter, the
+// textarea's maxLength and the Save-disable check, so the number on screen is
+// a limit that is actually enforced.
+const CONSTITUTION_MAX_CHARS = 4000;
+
+interface ConstitutionSectionProps {
+  content: string;
+  setContent: (c: string) => void;
+  loadedValue: string;
+  setLoadedValue: (v: string) => void;
+}
+
+function ConstitutionSection({ content, setContent, loadedValue, setLoadedValue }: ConstitutionSectionProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [status, setStatus] = useState<"idle" | "saved" | "deleted" | "error">("idle");
 
+  // ISS-622: in-app confirmation dialog for deleting constitution
+  const [confirmingDeleteConstitution, setConfirmingDeleteConstitution] = useState(false);
+
+  // ISS-581: React StrictMode double-invokes the mount effect, so the GET can
+  // fire twice. If the second response arrives AFTER the user has started
+  // typing, the unconditional setContent(loaded) overwrites their draft.
+  // This ref flips to true the first time the user edits the textarea and
+  // prevents any subsequent fetch response from clobbering their work.
+  const userHasEdited = useRef(false);
+
   // Load current constitution on mount
   useEffect(() => {
     const token = getToken();
     if (!token) { setLoading(false); return; }
-    fetch("/api/settings/constitution", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((data) => { setContent(data.content || ""); })
+    // ISS-799: getConstitution, not a hand-rolled authedFetch — this effect is
+    // double-invoked by `next dev` and the two invocations had nothing to share,
+    // so the GET fired twice. The shared GET cache in lib/api.ts gives them one
+    // response; its PUT/DELETE below evict it. Still FR-015-safe: the shared
+    // path handles the 401 that this `.catch(() => {})` would otherwise swallow.
+    getConstitution(token)
+      .then((data) => {
+        const loaded = data.content || "";
+        // Only overwrite editor content if the user hasn't started typing yet.
+        // A second invocation from StrictMode or an in-flight duplicate request
+        // must not silently undo a draft the user is actively editing.
+        if (!userHasEdited.current) {
+          setContent(loaded);
+        }
+        setLoadedValue(loaded);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [setContent, setLoadedValue]);
 
   const handleSave = async () => {
     const token = getToken();
@@ -493,13 +623,17 @@ function ConstitutionSection() {
     setSaving(true);
     setStatus("idle");
     try {
-      const r = await fetch("/api/settings/constitution", {
+      const r = await authedFetch(`${ENV.API_URL}/api/settings/constitution`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: content.trim() }),
       });
-      if (r.ok) setStatus("saved");
-      else setStatus("error");
+      if (r.ok) {
+        setStatus("saved");
+        setLoadedValue(content.trim());
+      } else {
+        setStatus("error");
+      }
     } catch {
       setStatus("error");
     } finally {
@@ -508,23 +642,41 @@ function ConstitutionSection() {
   };
 
   const handleDelete = async () => {
+    // ISS-320: "Clear" sits beside "Save constitution" and reads like a draft
+    // reset, but it is a hard DELETE of the instructions prepended to every
+    // agent on every run, with no undo. Gate it behind a confirmation dialog
+    // — Save stays a one-click action, the destructive twin does not.
+    setConfirmingDeleteConstitution(true);
+  };
+
+  const commitDeleteConstitution = useCallback(async () => {
+    setConfirmingDeleteConstitution(false);
     const token = getToken();
     if (!token) return;
     setDeleting(true);
     setStatus("idle");
     try {
-      const r = await fetch("/api/settings/constitution", {
+      const r = await authedFetch(`${ENV.API_URL}/api/settings/constitution`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (r.ok) { setContent(""); setStatus("deleted"); }
-      else setStatus("error");
+      if (r.ok) {
+        setContent("");
+        setLoadedValue("");
+        setStatus("deleted");
+      } else {
+        setStatus("error");
+      }
     } catch {
       setStatus("error");
     } finally {
       setDeleting(false);
     }
-  };
+  }, [setContent, setLoadedValue]);
+
+  const cancelDeleteConstitution = useCallback(() => {
+    setConfirmingDeleteConstitution(false);
+  }, []);
 
   return (
     <motion.div
@@ -549,7 +701,7 @@ function ConstitutionSection() {
       <Card className="overflow-hidden shadow-[var(--elevation-raised)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line-divider">
           <span className="text-[11.5px] font-semibold text-ink-700">Global instructions</span>
-          <span className="text-[11px] text-ink-300 tabular-nums">{content.length} / 4000 chars</span>
+          <span className="text-[11px] text-ink-300 tabular-nums">{content.length} / {CONSTITUTION_MAX_CHARS} chars</span>
         </div>
         {loading ? (
           <div className="h-56 flex items-center justify-center">
@@ -558,9 +710,10 @@ function ConstitutionSection() {
         ) : (
           <textarea
             value={content}
-            onChange={(e) => { setContent(e.target.value); setStatus("idle"); }}
+            onChange={(e) => { userHasEdited.current = true; setContent(e.target.value); setStatus("idle"); }}
             aria-label="Constitution content"
             name="constitution"
+            maxLength={CONSTITUTION_MAX_CHARS}
             placeholder={"# My Constitution\n\n## Principle 1 — Quality First\nEvery output must be production-ready…\n\n## Principle 2 — Security\nNever expose secrets or PII…"}
             className="w-full h-64 text-[13px] text-ink-800 bg-surface-card px-4 py-3.5 resize-none focus:outline-none font-mono leading-relaxed"
           />
@@ -597,12 +750,54 @@ function ConstitutionSection() {
         <Button
           variant="primary"
           onClick={handleSave}
-          disabled={saving || loading || !content.trim()}
+          disabled={saving || loading || !content.trim() || content.length > CONSTITUTION_MAX_CHARS}
           className="px-5 py-2.5"
         >
           {saving ? "Saving…" : "Save constitution"}
         </Button>
       </div>
+
+      {/* ISS-622: in-app "delete constitution" confirmation dialog */}
+      {confirmingDeleteConstitution && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-constitution-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={cancelDeleteConstitution}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-[var(--radius-card)] bg-surface-card border border-line-border shadow-[var(--elevation-modal)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="delete-constitution-title"
+              className="mb-2 font-semibold text-ink-900 text-[15px]"
+            >
+              Clear your constitution?
+            </h2>
+            <p className="mb-5 text-sm text-ink-500">
+              This permanently deletes the saved instructions prepended to every agent on every run.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDeleteConstitution}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-ink-700 border border-line-border bg-surface-warm hover:bg-surface-paper transition-colors"
+              >
+                Keep constitution
+              </button>
+              <button
+                type="button"
+                onClick={commitDeleteConstitution}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

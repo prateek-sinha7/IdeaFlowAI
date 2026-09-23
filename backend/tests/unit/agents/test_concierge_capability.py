@@ -129,6 +129,42 @@ def test_propose_tools_invoke_no_execution_seam(
     assert called == [], f"a propose_* tool invoked an execution seam: {called}"
 
 
+def test_collecting_proposal_tools_chain_drops_id_not_in_allowed_set() -> None:
+    """L3-fix1: propose_chain only surfaces a target_id the caller actually offered.
+
+    Live bug (git-versioning L3): with no chain_hints on offer, the concierge model
+    called propose_chain(target_id="chain_1") — an invented id — which reached
+    POST /api/runs as an invalid pipeline_type (400) after the FE had already shown a
+    confirm chip / optimistic "Done" state. ``_collecting_proposal_tools`` is the one
+    site every live chain proposal passes through, so an id outside
+    ``allowed_chain_ids`` must never reach the collector — regardless of whether the
+    allowed set is merely wrong or empty (no hints offered at all, this bug's case).
+    """
+    collector: list = []
+    tools = concierge_mod._collecting_proposal_tools(collector, frozenset({"ppt"}))
+    propose_chain = next(t for t in tools if t.name == "propose_chain")
+
+    invented = propose_chain.invoke({"target_id": "chain_1", "rationale": "r"})
+    assert isinstance(invented, ProposalIntent)
+    assert invented.params["target_id"] == ""
+    assert collector == []
+
+    valid = propose_chain.invoke({"target_id": "ppt", "rationale": "r"})
+    assert valid.params["target_id"] == "ppt"
+    assert collector == [valid]
+
+
+def test_collecting_proposal_tools_chain_drops_everything_with_no_hints_offered() -> None:
+    """Same as above, the exact L3 shape: zero allowed ids (nothing was offered)."""
+    collector: list = []
+    tools = concierge_mod._collecting_proposal_tools(collector)
+    propose_chain = next(t for t in tools if t.name == "propose_chain")
+
+    invented = propose_chain.invoke({"target_id": "chain_1"})
+    assert invented.params["target_id"] == ""
+    assert collector == []
+
+
 # ── read-scoping: owner+workspace ScopedStore, IDOR → 404 (T-33-02-01) ───────────
 
 
@@ -344,6 +380,44 @@ def test_converse_runs_scripted_model_through_runner_offline() -> None:
     assert out == "Here is what I found in the run. "
 
 
+def test_converse_surfaces_a_swallowed_stream_error_instead_of_empty_text() -> None:
+    """A non-transient model failure comes back as a MESSAGE, never as "".
+
+    ``DeepAgentRunner.astream_events`` swallows anything that is not a transient
+    throttle into ``{"type": "error", ...}`` rather than raising. The converse loop
+    only accumulates ``chunk`` events, so before this arm existed such a failure
+    produced an EMPTY answer — the user saw a blank assistant reply and the cause
+    (e.g. an expired Bedrock API key: "Authentication failed") lived only in the
+    server log. Offline: the scripted model raises, no Bedrock.
+    """
+    scripted = ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["unused"], usage=(0, 0))],
+        raise_exc=RuntimeError(
+            "AccessDeniedException: Authentication failed: "
+            "Please make sure your API Key is valid."
+        ),
+    )
+
+    class _NoopStore:
+        async def read_events(self, run_id: str, after_seq: int) -> list:
+            return []
+
+    ctx = SimpleNamespace(
+        model=scripted,
+        scoped_store=_NoopStore(),
+        run_id="run-authfail",
+        owner_id="owner-A",
+        workspace_id="ws-A",
+        conversation_context=None,
+        compiled=None,
+    )
+
+    impl = ConciergeCapability()
+    out = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "what happened?"))
+    assert out, "a swallowed stream error must not return an empty answer"
+    assert "Authentication failed" in out
+
+
 def test_converse_streams_deltas_to_on_chunk_in_order() -> None:
     """With an ``on_chunk`` sink, converse emits ordered text deltas whose join == return.
 
@@ -487,6 +561,48 @@ def test_converse_surfaces_proposals_on_ctx_and_second_drain_is_empty() -> None:
     assert drained[0].params["action"] == "approve"
     # A second drain of the same ctx returns [] — the buffer was cleared.
     assert ConciergeCapability.drain_proposals(ctx) == []
+
+
+def _chaining_model(target_id: str) -> ScriptedFakeChatModel:
+    """A scripted model that proposes chaining to ``target_id`` via propose_chain."""
+    import json
+
+    return ScriptedFakeChatModel(
+        [
+            _ScriptedTurn(
+                texts=["Chaining. "],
+                tool_calls=[("propose_chain", json.dumps({"target_id": target_id}), "c_1")],
+                usage=(10, 5),
+            ),
+            _ScriptedTurn(texts=["Done."], usage=(8, 4)),
+        ]
+    )
+
+
+def test_converse_drops_a_chain_target_the_model_invented_with_no_hints_on_offer() -> None:
+    """L3-fix1, end-to-end through converse: ctx carries no chain_hints (this run has
+    none to offer, exactly the L3 scenario) — the model calling propose_chain with an
+    invented id surfaces NO proposal, so the app layer never sees a bogus target_id."""
+    ctx = _concierge_ctx(_chaining_model("chain_1"), "run-chain-none", "owner-A")
+    impl = ConciergeCapability()
+
+    asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "chain this"))
+
+    assert ConciergeCapability.drain_proposals(ctx) == []
+
+
+def test_converse_surfaces_a_chain_proposal_when_the_id_matches_a_hint() -> None:
+    """Control: a target_id the FE actually offered via chain_hints still proposes."""
+    ctx = _concierge_ctx(_chaining_model("ppt"), "run-chain-ok", "owner-A")
+    ctx.chain_hints = [{"id": "ppt", "label": "Presentation"}]
+    impl = ConciergeCapability()
+
+    asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "chain this"))
+
+    drained = ConciergeCapability.drain_proposals(ctx)
+    assert len(drained) == 1
+    assert drained[0].channel == "chain"
+    assert drained[0].params["target_id"] == "ppt"
 
 
 def test_no_self_scoped_proposal_buffer_on_capability() -> None:

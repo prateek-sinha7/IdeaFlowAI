@@ -613,3 +613,305 @@ class TestResolverDirect:
                 env["ws"]._resolve_owned_parent_run_id(_ExplodingDb(), falsy, owner.id)
                 is None
             )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Task 5.4 — Revision concurrency guard (Requirement 3)
+#
+# Tests the _has_active_chain_revision helper and its integration into
+# _mint_revision_row / the POST /{run_id}/revisions endpoint.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _seed_run_with_parent(
+    env,
+    owner_id: str,
+    *,
+    run_type: str,
+    status: str,
+    parent_run_id: str | None = None,
+) -> str:
+    """Seed a WorkflowRun row with an explicit status and optional parent link."""
+    run_id = str(uuid.uuid4())
+    db = env["Session"]()
+    try:
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=owner_id,
+                owner_id=owner_id,
+                title="test run",
+                type=run_type,
+                status=status,
+                input="x",
+                agent_count=1,
+                parent_run_id=parent_run_id,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    return run_id
+
+
+class TestHasActiveChainRevision:
+    """Unit tests for the _has_active_chain_revision helper directly."""
+
+    def test_no_children_returns_false(self, env):
+        """A parent with no child runs at all is not blocked."""
+        from app.api.run_commands import _has_active_chain_revision
+
+        owner = _seed_user(env, "owner")
+        parent_id = _seed_parent(env, owner.id)
+        db = env["Session"]()
+        try:
+            result = _has_active_chain_revision(db, parent_id, owner.id)
+        finally:
+            db.close()
+        assert result is False
+
+    def test_terminal_child_does_not_block(self, env):
+        """A completed / failed / cancelled child does NOT block a new revision."""
+        from app.api.run_commands import _has_active_chain_revision
+
+        owner = _seed_user(env, "owner")
+        parent_id = _seed_parent(env, owner.id)
+
+        for terminal_status in (
+            "completed",
+            "failed",
+            "cancelled",
+            "degraded",
+            "diverted",
+        ):
+            _seed_run_with_parent(
+                env,
+                owner.id,
+                run_type="ppt_revision",
+                status=terminal_status,
+                parent_run_id=parent_id,
+            )
+
+        db = env["Session"]()
+        try:
+            result = _has_active_chain_revision(db, parent_id, owner.id)
+        finally:
+            db.close()
+        assert result is False, "terminal children must not block a new revision"
+
+    def test_active_direct_child_blocks(self, env):
+        """A non-terminal direct child revision blocks a concurrent second one."""
+        from app.api.run_commands import _has_active_chain_revision
+
+        owner = _seed_user(env, "owner")
+        parent_id = _seed_parent(env, owner.id)
+        _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="revising",
+            parent_run_id=parent_id,
+        )
+
+        db = env["Session"]()
+        try:
+            result = _has_active_chain_revision(db, parent_id, owner.id)
+        finally:
+            db.close()
+        assert result is True
+
+    def test_active_grandchild_blocks_via_chain_root(self, env):
+        """Requirement 3 AC3: the guard is keyed on the chain ROOT.
+
+        When a grandchild (v2→v3) is still active, posting a new revision
+        against the grandparent (v1) must also be blocked — both share the same
+        chain root.
+        """
+        from app.api.run_commands import _has_active_chain_revision
+
+        owner = _seed_user(env, "owner")
+        # v1 — the chain root
+        root_id = _seed_parent(env, owner.id)
+        # v2 — a completed child of v1
+        v2_id = _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="completed",
+            parent_run_id=root_id,
+        )
+        # v3 — an ACTIVE grandchild of v1 (child of v2)
+        _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="revising",
+            parent_run_id=v2_id,
+        )
+
+        db = env["Session"]()
+        try:
+            # Posting against the grandparent (root_id) must be blocked because
+            # v3 is a non-terminal family member.
+            result = _has_active_chain_revision(db, root_id, owner.id)
+        finally:
+            db.close()
+        assert result is True, (
+            "an active grandchild revision must block a new revision against any "
+            "member of the same chain"
+        )
+
+    def test_cross_owner_child_does_not_block(self, env):
+        """An active revision owned by a DIFFERENT user is invisible (IDOR guard)."""
+        from app.api.run_commands import _has_active_chain_revision
+
+        owner = _seed_user(env, "owner")
+        other = _seed_user(env, "other")
+        parent_id = _seed_parent(env, owner.id)
+
+        # Seed a child that belongs to `other`, not `owner`.
+        child_id = str(uuid.uuid4())
+        db = env["Session"]()
+        try:
+            db.add(
+                WorkflowRun(
+                    id=child_id,
+                    user_id=other.id,
+                    owner_id=other.id,
+                    title="x",
+                    type="ppt_revision",
+                    status="revising",
+                    input="x",
+                    agent_count=1,
+                    parent_run_id=parent_id,
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        db = env["Session"]()
+        try:
+            result = _has_active_chain_revision(db, parent_id, owner.id)
+        finally:
+            db.close()
+        assert result is False, "cross-owner active children must not block the owner"
+
+    def test_db_error_degrades_to_false(self, env, monkeypatch):
+        """Requirement 3 AC2: a DB error during the check must never block a launch."""
+        from app.api.run_commands import _has_active_chain_revision
+        from unittest.mock import MagicMock
+
+        broken_db = MagicMock()
+        broken_db.query.side_effect = RuntimeError("DB connection lost")
+
+        result = _has_active_chain_revision(broken_db, "any-run-id", "any-user")
+        assert result is False, "a DB error must degrade gracefully to False"
+
+
+class TestRevisionConcurrencyEndpoint:
+    """Integration tests: POST /{run_id}/revisions returns HTTP 409 when a
+    non-terminal revision is already active in the same chain (Requirement 3).
+    """
+
+    def test_second_revision_while_first_is_active_returns_409(self, env, monkeypatch):
+        """Requirement 3 AC1: a second concurrent revision is rejected with 409
+        and the documented error code 'revision_already_in_progress'.
+        """
+        _install_stub(env, monkeypatch, lambda k: _noop_complete(k))
+        owner = _seed_user(env, "owner")
+        parent_id = _seed_parent(env, owner.id)
+
+        # Seed an already-active (non-terminal) revision child
+        _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="revising",
+            parent_run_id=parent_id,
+        )
+
+        env["state"]["user"] = owner
+        resp = _post_revision(env, parent_id, "ppt_output", "Make it better.")
+        assert resp.status_code == 409, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "revision_already_in_progress"
+        assert "a revision is already in progress" in detail["error"]
+        assert detail["recoverable"] is False
+
+    def test_revision_allowed_when_all_siblings_are_terminal(self, env, monkeypatch):
+        """A completed sibling revision must NOT block a new one (Req 3)."""
+        _install_stub(env, monkeypatch, lambda k: _noop_complete(k))
+        owner = _seed_user(env, "owner")
+        parent_id = _seed_parent(env, owner.id)
+
+        # Seed a completed (terminal) child — must NOT block
+        _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="completed",
+            parent_run_id=parent_id,
+        )
+
+        env["state"]["user"] = owner
+        resp = _post_revision(env, parent_id, "ppt_output", "Another pass.")
+        assert resp.status_code == 200, resp.text
+        assert "run_id" in resp.json()
+
+    def test_second_revision_against_grandparent_also_blocked(self, env, monkeypatch):
+        """Requirement 3 AC3: guard keyed on chain root, not source_run_id.
+
+        When the GRANDPARENT is used as the parent_run_id for a new revision,
+        but an active revision exists deeper in the chain, the endpoint must
+        still return 409.
+        """
+        _install_stub(env, monkeypatch, lambda k: _noop_complete(k))
+        owner = _seed_user(env, "owner")
+        root_id = _seed_parent(env, owner.id)
+
+        # v2 (terminal)
+        v2_id = _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="completed",
+            parent_run_id=root_id,
+        )
+        # v3 (active — blocks any new revision in this family)
+        _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="revising",
+            parent_run_id=v2_id,
+        )
+
+        env["state"]["user"] = owner
+        # Posting against the root (v1) should still be blocked because v3 is active
+        resp = _post_revision(env, root_id, "ppt_output", "From root.")
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "revision_already_in_progress"
+
+    def test_lock_released_after_revision_completes(self, env, monkeypatch):
+        """Requirement 3 AC4: once the first revision reaches a terminal status,
+        the lock is released and a new revision can be created.
+        """
+        _install_stub(env, monkeypatch, lambda k: _noop_complete(k))
+        owner = _seed_user(env, "owner")
+        parent_id = _seed_parent(env, owner.id)
+
+        # Seed a previously active revision that is now complete
+        _seed_run_with_parent(
+            env,
+            owner.id,
+            run_type="ppt_revision",
+            status="failed",  # terminal
+            parent_run_id=parent_id,
+        )
+
+        env["state"]["user"] = owner
+        resp = _post_revision(env, parent_id, "ppt_output", "After failure.")
+        # Must succeed — the earlier revision is terminal, lock is released
+        assert resp.status_code == 200, resp.text
+        assert "run_id" in resp.json()

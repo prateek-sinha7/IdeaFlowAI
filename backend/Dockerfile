@@ -167,6 +167,30 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# LibreOffice, headless — the converter for .docx / .xlsx / .pptx uploads
+# (spec 019, FR-027). This is the ONE apt layer spec 019 admits: `pdf_tools`
+# turns an Office file into a PDF here and then materialises it with exactly the
+# code a native PDF takes, so there is no second extractor to keep in step.
+#
+# It also repairs spec 017's deck check. `pptx_tools._render_slides` has always
+# shelled out to `soffice`, so on a developer machine (Homebrew LibreOffice) it
+# converted and passed, while in THIS image it found nothing and passed anyway —
+# green in both places for opposite reasons (FR-027a).
+#
+# --no-install-recommends is what keeps this at the low end of its range: it
+# drops the Java runtime, the GUI stack and the sample documents. Only the three
+# filters we actually convert are installed; fonts-liberation is metric-compatible
+# with Arial/Times so a Word document paginates close to where Word put it.
+# No poppler: rendering is pypdfium2, in-process (FR-042).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libreoffice-writer \
+        libreoffice-calc \
+        libreoffice-impress \
+        fonts-liberation \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Bring the pre-built venv across.
 COPY --from=builder /opt/venv /opt/venv
 

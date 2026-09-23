@@ -174,6 +174,7 @@ class _FakeRunner:
         total_tasks=None,
         task_block=None,
         skeleton=None,
+        invocation_gated=True,
     ):
         # WR-01 (07-09): the task-2+ skeleton is passed via a dedicated `skeleton`
         # param (no longer nested into task_block); record it for assertions.

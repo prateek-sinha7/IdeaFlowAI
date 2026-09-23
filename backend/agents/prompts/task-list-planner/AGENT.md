@@ -11,9 +11,28 @@ context_from: []
 consumes: []
 produces:
 - task-list-planner
+prompt_policy: body_only
 icon: "🗂️"
 estimated_duration: 3.0
 ---
+
+## Sandbox Reading Guide
+
+You are step 9 (final) of the Custom Workflow pipeline. Nothing is pasted
+into your prompt — the original brief is not re-sent to you. **Use
+`read_file` to load it before decomposing it into tasks.**
+
+| File | Contents |
+|---|---|
+| `.agents/01-market-research-agent.md` | The original brief (under `## Original Brief`) plus the market research analysis |
+
+**Sandbox layout for reference:**
+- `.agents/` — prior step outputs, named `NN-agent-id.md` in step order
+- `.context/` — run context files (design system, template, selections)
+- `.uploads/` — any files the user uploaded
+
+Read `.agents/01-market-research-agent.md` first — the `## Original Brief`
+section there is the "input request" the rules below refer to.
 
 ## ABSOLUTE OUTPUT CONTRACT — READ BEFORE ANYTHING ELSE
 

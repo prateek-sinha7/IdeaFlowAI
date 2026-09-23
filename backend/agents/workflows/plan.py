@@ -71,6 +71,11 @@ class ToolPermissions:
     mcp: list[str] = field(default_factory=list)
     integrations: list[str] = field(default_factory=list)
     spawn_subagents: bool = False
+    # Named tool SETS a step may bind beyond its template's AGENT.md ``tools:``
+    # list (registry set names, e.g. ``file_extract``/``playwright``). An
+    # allow-list like the other list fields: the cap intersects it, so a set
+    # absent from the manifest class's cap silently resolves away (fails closed).
+    tool_sets: list[str] = field(default_factory=list)
 
     # Field names by kind — used by the intersection/lowering helpers so a new
     # permission slot is honored automatically (no parallel literal list).
@@ -82,7 +87,7 @@ class ToolPermissions:
         "network",
         "spawn_subagents",
     )
-    _LIST_FIELDS = ("secrets", "mcp", "integrations")
+    _LIST_FIELDS = ("secrets", "mcp", "integrations", "tool_sets")
 
     def lowered_by(self, agent_md: "ToolPermissions") -> "ToolPermissions":
         """Return ``self`` masked by an AGENT.md default that may only LOWER (D-07).
@@ -156,6 +161,13 @@ class ModelPolicy:
     max_tokens: int | None = None
     cost_class: str = "standard"
     fallback: list[str] = field(default_factory=list)
+    # Per-step reasoning level (spec 020). ``None`` means "send nothing and
+    # behave exactly as before" — NOT the same as the level ``"none"``, which
+    # explicitly turns reasoning off. Every Claude step currently runs with
+    # thinking ON at full budget, so conflating the two would silently change
+    # every existing workflow. Carried for every family; ``reasoning_fields``
+    # drops it for a model whose capability does not accept it.
+    effort: str | None = None
 
 
 @dataclass
@@ -214,6 +226,68 @@ class FanoutSpec:
     # Pure data: the kernel _resolve_conflict bounds it at MERGE_AGENT_MAX_ATTEMPTS then
     # falls back to human_gate. None ⇒ no merge worker ⇒ immediate human_gate fallback.
     merge_agent: str | None = None
+
+
+@dataclass
+class RouteOutcome:
+    """One destination a conditional gate can send execution to (spec 014 / R-05b).
+
+    Attached under a ``RouteSpec.outcomes`` entry, keyed by the condition value the
+    gate matched against. Pure data (INV-5) — the compiler only RECORDS the
+    trigger/target pair; the conditional-gate kernel resolves WHICH outcome applies
+    at runtime and owns the dispatch control flow.
+    """
+
+    trigger: str  # "step" (in-workflow cursor jump) | "workflow" (cross-workflow trigger) — R-05b
+    target: str  # trigger="step": a step id in THIS compiled workflow. trigger="workflow": a
+    # saved user_workflow_id, or the literal "self". Both compile-time validated (R-10).
+
+    # R-28 — authored retry guidance. Injected into the TARGET step's context on a
+    # BACKWARD (loop) jump, under the automatic retry block. Optional and inert when
+    # absent, so every pre-R-28 manifest composes byte-identical context.
+    #
+    # Why it exists: a loop-back re-dispatches its target with context rebuilt from
+    # scratch — same brief, no upstream outputs (_filter_consumed_outputs stops at the
+    # current step, so a loop target can never consume its own downstream judge). Same
+    # input therefore produced the same output, the same decision, and the loop could
+    # only ever run to loop_max_iterations and fail closed. Observed live: greet emitted
+    # a byte-identical 12-char answer on passes 2, 3 and 4.
+    feedback: str | None = None
+
+
+@dataclass
+class RouteSpec:
+    """Declarative conditional-branch spec (spec 014 / R-02). INERT until the conditional-gate
+    kernel lands (Phase 2+).
+
+    Attached to a ``Step`` via the sibling ``route:`` manifest key, only meaningful when
+    ``"conditional"`` is present in that step's ``gates:`` list (R-03 — the compiler rejects
+    the mismatch either direction). Pure data (INV-5) — the conditional-gate kernel owns the
+    condition-evaluation control flow, the compiler only materializes the data.
+    """
+
+    condition_agent: str | None = (
+        None  # None = this step's own artifact (R-05); may name an
+    )
+    # earlier step, including one gated `human`
+    outcomes: dict[str, RouteOutcome] = field(
+        default_factory=dict
+    )  # condition value → destination
+    default_next: str | None = (
+        None  # fallback step id when no outcome matches; None = the
+    )
+    # run terminates at this step (R-13)
+    loop_max_iterations: int = (
+        5  # cap on revisits to any ONE trigger="step" backward-jump
+    )
+    # target (R-07); enforced via ExecutionContext.step_visit_counts
+    trigger_max_depth: int = (
+        5  # cap on parent_run_id chain depth for trigger="workflow"
+    )
+    # outcomes (R-18); FIXED at 5 in v1 (R-19) — the compiler
+    # rejects any other declared value
+    on_loop_exhausted: str = "continue"  # "continue" = suppress the jump and fall through (convergence limit);
+    # "fail" = the run ends via BudgetExceeded(loop_iterations)
 
 
 @dataclass
@@ -282,13 +356,33 @@ class DeliverableSpec:
     """
 
     strategy: str | None = None  # capability name (deliverable resolver)
-    name: str | None = None  # e.g. "prototype.html"
+    name: str | None = None  # e.g. "prototype.html" — validated safe basename
     revises_existing: bool = False  # DECLARED revision-intent (07-10 / WR-04/WR-06)
+    # DECLARED chain-context flag (sandbox-git-versioning / Req 22): when True the
+    # workflow copies the source run's .chain/ flat payload into the receiving
+    # sandbox's .context/ before step 1.  Gated on this DECLARED flag — NEVER on
+    # the mere presence of source_run_id (INV-1 / SC-001). Default False keeps
+    # every existing compiled plan byte-identical (INV-3).
+    chains_from: bool = False
+    # DECLARED chain failure policy (sandbox-git-versioning-v2 / Req 6):
+    # ``refuse``  — the default; a missing/swept/unavailable source is a hard
+    #               refusal; no run row is created.
+    # ``degrade`` — a missing or swept (but not corrupt) payload is tolerated;
+    #               the run mints with the edge and ``selection=None``.
+    # An unknown value is a CompilerError (no defaulting — INV-5).
+    chain_policy: str = "refuse"
     # DECLARED deliverable shape hint (ISS-021 / 18-01): an optional author-set
     # mimetype the engine emits on pipeline_complete so the FE renderer dispatches
     # on a type, not a workflow name (SC-001). Default None → the per-resolver
     # default is computed at emission time (NOT in the compiler — INV-5).
     mimetype: str | None = None
+    # DECLARED mechanical-publish source (single_file only): a one-``*``-wildcard
+    # glob (e.g. "draft.v*.html") naming a numbered-version chain in the sandbox.
+    # When set, the ``single_file`` resolver picks the HIGHEST-numbered match and
+    # copies it to ``name`` byte-for-byte itself — no model action publishes the
+    # deliverable. Default None → today's behavior (the named file, as the last
+    # agent wrote it, IS the deliverable) is completely unchanged.
+    publish_from_glob: str | None = None
 
 
 @dataclass
@@ -358,6 +452,26 @@ class Step:
 
     # ── Phase-4-consumed (defaulted) ──────────────────────────────────────
     strategy: str = "single_shot"  # Q8/Q9 — capability name
+    # A10 (STABILIZATION.md): a step's mechanical, NO-MODEL execution kind. ``None``
+    # (every existing step) means "run through ``strategy`` as usual" — dormant,
+    # byte-identical. ``"publish"`` (the only value the compiler accepts today) means
+    # "skip the model/strategy dispatch entirely and run the deterministic
+    # ``agents.capabilities.publish_step.publish_draft`` copy instead" — the engine
+    # hook that reads this is a separate proposal (this module only declares + the
+    # compiler only validates/materializes the field, per INV-5).
+    #
+    # Deliberately a SIBLING field to ``strategy``, not a repurposed ``strategy``
+    # value: the ``strategy`` name is validated against the self-registering
+    # capability registry (``agents/capabilities/registry.py`` — its ``_KNOWN``
+    # literal AND its ``discover()`` builtin-module import list, both owned outside
+    # this step-kind's file set). A step that never actually calls
+    # ``registry.resolve("strategy", ...)`` has no business being a REGISTERED
+    # strategy capability — that would be a compile-time-only "phantom" entry with
+    # no real impl reachable through the registry seam it pretends to satisfy
+    # (INV-12: no dual/parallel mechanism). ``mechanical`` is validated as a plain
+    # closed set (``_ALLOWED_MECHANICAL_KINDS``) entirely inside compiler.py, with
+    # zero registry involvement — self-contained in the files this step-kind owns.
+    mechanical: str | None = None  # A10 — "publish" | None
     gates: list[str] = field(default_factory=list)  # §9 — gate capability names
     hooks: list[str] = field(
         default_factory=list
@@ -375,6 +489,15 @@ class Step:
     # (INV-1/SC-001): branches on this boolean, never on agent id or pipeline name.
     # Default False → DORMANT on all existing steps → INV-3 byte/event-identical.
     produces_solution_plan: bool = False
+    # Gate-redo opt-in (REDO-GATE / declared-gate follow-up): when True, a "redo" action
+    # at this step's DECLARED ``gates: [human]`` pause (agents/capabilities/gates/human.py)
+    # re-runs the step in place instead of being consumed as an unwired signal. Mirrors
+    # the ``redoable=True`` the engine's INLINE ``_should_gate`` path always passes — but
+    # that path is a structural (AGENT.md ``gate: Human_Gate``) opt-in, not a per-workflow
+    # one, so the declared-gate path needs its OWN explicit manifest flag (a workflow that
+    # doesn't set it keeps the existing "redo is a no-op" behaviour — INV-3). Default
+    # False ⇒ DORMANT on every existing manifest.
+    redoable: bool = False
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     tools: ToolPermissions = field(default_factory=ToolPermissions)  # INV-9 / §8
@@ -383,6 +506,30 @@ class Step:
     fix: FixPolicy | None = None  # Q23/Q25
     compaction: str | None = None  # Q35 — capability name
     fanout: FanoutSpec | None = None  # Q12
+    route: RouteSpec | None = None  # spec 014 / R-02
+    # Declared typed-artifact kinds this step's own output supplies. Currently only
+    # meaningful for the conditional-gate decision contract (spec 014 / R-05b): a
+    # step supplying a routing decision declares produces: ["route_decision"] — the
+    # exact artifact compiler.py's R-27 check (_validate_route_targets) requires of
+    # a route's resolved decision-source step. Empty for every step that omits it
+    # (parity — no pre-014 manifest authors this key). A built-in agent's real
+    # produces/consumes routing contract lives on AgentSpec (loaded from AGENT.md);
+    # this is the per-instance manifest override a custom-agent step (no AGENT.md
+    # of its own) has no other way to declare. Pure data (INV-5).
+    produces: list[str] = field(default_factory=list)  # spec 014 / R-05b / R-27
+    # R-29 — the author-facing half of the produces/consumes routing contract. An
+    # upstream step's output is injected into THIS step's context iff its ``produces``
+    # intersects this ``consumes`` (engine._filter_consumed_outputs), rendered as its own
+    # ``--- Output from <name> ---`` block, separate from the brief's
+    # ``=== ORIGINAL USER REQUEST ===`` envelope.
+    #
+    # Why it was missing: spec 014 added ``produces`` to Step for R-27's route_decision
+    # check but never the other half, and ``consumes`` was absent from
+    # compiler._ALLOWED_STEP_KEYS — so no file manifest could declare it and
+    # _filter_consumed_outputs read [] for every manifest step. The consequence was
+    # observable on every fixture as ``context_sources: []``: a judging step was shown
+    # only the brief and asked to assess an output it had never been given.
+    consumes: list[str] = field(default_factory=list)  # R-29
     on_conflict: str = "human_gate"  # §13
     retry: RetryPolicy | None = None  # §21
     injects: list[str] = field(default_factory=list)
@@ -435,6 +582,36 @@ class Step:
     # SERIAL dispatch, not from the plan. Empty on every existing step, so the
     # skip below is dead code for every workflow that does not use the mode.
     dispatched_by: str = ""
+
+    # ── Declared output surface for stale-file reconciliation ────────────────
+    # (sandbox-git-versioning / Req 17, 18 / FR-033)
+    #
+    # outputs: deliverable filenames/paths this step writes in the shared sandbox —
+    # the write surface a ``replaces: true`` step owns.
+    # replaces: when True, the step-boundary commit removes every tracked path
+    # under ``outputs`` this pass did not write (resolved via the workspace's
+    # ``changed_since(spawn_point)``), so a leaner later pass sheds an earlier
+    # pass's stale file instead of accumulating it.
+    #
+    # replaces was previously typed ``list[str]`` here for an
+    # ``on_conflict: keep_mine/keep_theirs`` fan-out merge policy that was never
+    # implemented (not in ``_ALLOWED_ON_CONFLICT``, read nowhere) — restored to
+    # the bool the spec always declared (v1 design.md / requirements.md §33).
+    #
+    # outputs defaults to [] and replaces to False so every existing workflow is
+    # unaffected (INV-3 parity). The compiler reads these from the YAML but does
+    # NOT validate the listed paths — they are pure manifest-side declarations.
+    # Added to _ALLOWED_STEP_KEYS only; no registry lookup is performed.
+    outputs: list[str] = field(default_factory=list)
+    replaces: bool = False
+
+    # is_leaf: Compiler-COMPUTED, never authored (spec 014 / R-26). True iff no `route`
+    # outcome (from any step) or default linear-next relationship points FROM this step
+    # to a later continuation — i.e., nothing is compiled to run after it on any path
+    # that reaches it. Drives the engine's `single_file` deliverable readback (replaces
+    # the old `index == len(ordered_agents) - 1` check). Default False until the
+    # conditional-gate compiler pass computes it.
+    is_leaf: bool = False
 
     @property
     def id(self) -> str:

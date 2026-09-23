@@ -12,7 +12,7 @@ import {
   Plus,
   BookMarked,
 } from "lucide-react";
-import { getToken } from "@/lib/api";
+import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 
 interface SkillManagerProps {
@@ -34,6 +34,9 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // ISS-622: in-app confirmation dialog replacing window.confirm
+  const [confirmingDeleteSkill, setConfirmingDeleteSkill] = useState(false);
+
   // Load skill content when opened
   const loadSkill = useCallback(async () => {
     if (!agentId) return;
@@ -44,7 +47,10 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     setLoadError(null);
 
     try {
-      const response = await fetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
+      // FR-015: authedFetch, not bare fetch — a 401 here fell into the
+      // `setSkillContent("")` else-branch and looked like "no skill saved"
+      // instead of an expired session.
+      const response = await authedFetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.ok) {
@@ -71,7 +77,7 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     setSaveSuccess(false);
 
     try {
-      const response = await fetch(`${ENV.API_URL}/api/agents/skills`, {
+      const response = await authedFetch(`${ENV.API_URL}/api/agents/skills`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -93,13 +99,22 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
   }, [agentId, skillContent]);
 
   // Delete skill
-  const deleteSkill = useCallback(async () => {
+  const deleteSkill = useCallback(() => {
+    // ISS-480: same unguarded-destroy pattern as ISS-320 (Constitution "Clear").
+    // An irreversible DELETE /api/agents/skills/{id} fired on click with no
+    // confirmation — replicate FIX-385's in-app confirmation dialog (the pattern
+    // DashboardLayout already uses for unsaved-changes navigation guards).
+    setConfirmingDeleteSkill(true);
+  }, []);
+
+  const commitDeleteSkill = useCallback(async () => {
+    setConfirmingDeleteSkill(false);
     if (!agentId) return;
     const token = getToken();
     if (!token) return;
 
     try {
-      await fetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
+      await authedFetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -109,6 +124,10 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
       console.error("Failed to delete skill:", err);
     }
   }, [agentId]);
+
+  const cancelDeleteSkill = useCallback(() => {
+    setConfirmingDeleteSkill(false);
+  }, []);
 
   // Handle file upload
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,6 +307,48 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
           </div>
         </motion.div>
       </motion.div>
+
+      {/* ISS-622: in-app "delete skill" confirmation dialog */}
+      {confirmingDeleteSkill && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-skill-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={cancelDeleteSkill}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-[var(--radius-card)] bg-surface-card border border-line-border shadow-[var(--elevation-modal)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="delete-skill-title"
+              className="mb-2 font-semibold text-ink-900 text-[15px]"
+            >
+              Delete this agent's saved skill?
+            </h2>
+            <p className="mb-5 text-sm text-ink-500">
+              This permanently removes the SKILL.md that is prepended to every run.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDeleteSkill}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-ink-700 border border-line-border bg-surface-warm hover:bg-surface-paper transition-colors"
+              >
+                Keep skill
+              </button>
+              <button
+                type="button"
+                onClick={commitDeleteSkill}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AnimatePresence>
   );
 }

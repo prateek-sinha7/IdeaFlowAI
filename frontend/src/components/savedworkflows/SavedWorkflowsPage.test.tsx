@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import type { UserWorkflowSummary } from "@/lib/api";
+import { routes } from "@/lib/routes";
 
 // ─────────────────────────────────────────────────────────────────
 // Mocks. Hoisted by vitest before module imports.
@@ -22,6 +23,7 @@ const mockGetUserWorkflows =
 const mockCreateUserWorkflow = vi.fn();
 const mockRenameUserWorkflow = vi.fn();
 const mockDeleteUserWorkflow = vi.fn();
+const mockRouterPush = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
@@ -52,6 +54,17 @@ vi.mock("motion/react", () => ({
     },
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockRouterPush,
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => ({
+    get: vi.fn(() => null),
+  }),
 }));
 
 // Imported AFTER the mocks so the component picks up the mocked deps.
@@ -175,7 +188,7 @@ describe("SavedWorkflowsPage — kebab a11y (aria + Escape)", () => {
     const openTrigger = screen.getByRole("button", { name: "Workflow actions" });
     expect(openTrigger).toHaveAttribute("aria-expanded", "true");
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem")).toHaveLength(3);
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(4);
 
     // Escape closes the menu and the trigger reflects the collapsed state (a11y).
     openTrigger.focus();
@@ -253,5 +266,16 @@ describe("SavedWorkflowsPage — kebab CRUD is real, not static text (D-15)", ()
     expect(mockDeleteUserWorkflow.mock.calls[0][1]).toBe("uw-1");
     // Optimistic removal after the server delete resolved.
     await waitFor(() => expect(screen.queryByText("My saved workflow")).toBeNull());
+  });
+
+  it("Edit → calls router.push with routes.workflowEdit(id)", async () => {
+    const user = userEvent.setup();
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("My saved workflow");
+
+    await openKebabAndClick(user, "Edit");
+
+    await waitFor(() => expect(mockRouterPush).toHaveBeenCalledTimes(1));
+    expect(mockRouterPush).toHaveBeenCalledWith(routes.workflowEdit("uw-1"));
   });
 });

@@ -1,0 +1,13 @@
+{
+  "workflow": "speckit",
+  "specName": "014-conditional-gates",
+  "branch": "014-conditional-gates",
+  "selectedAt": "2026-08-20T14:41:48.945Z",
+  "currentStep": "plan",
+  "status": "planned",
+  "history": [
+    {"step": "specify", "at": "2026-08-20T14:41:48.945Z"},
+    {"step": "clarify", "at": "2026-08-20T15:57:00.000Z"},
+    {"step": "plan", "at": "2026-08-20T17:01:00.000Z"}
+  ]
+}

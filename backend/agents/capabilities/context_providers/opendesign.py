@@ -42,6 +42,16 @@ RAW_BLOCK_PREFIX = "\x00RAW\x00"
     "context_provider",
     "opendesign",
     description="Inject OpenDesign template / design-system / craft context into the agent prompt.",
+    # CAP-03 / D-02: on the USER palette so a composed workflow can declare it
+    # (the composer's Context-provider control). The least privileged of the five
+    # registered context providers — it injects PUBLIC catalog content (templates,
+    # design systems, craft rules) and nothing owner-scoped: unlike `repo` /
+    # `previous_run` it has no `source_run_id` accessor and reaches no other
+    # owner's data, and the template/design-system ids arrive on the REQUEST (not
+    # the manifest), validated against the catalog at the launch boundary — an
+    # unknown id raises LookupError → 400 before a run is minted, so a manifest
+    # cannot name an arbitrary path through this capability.
+    user_allowed=True,
 )
 class OpenDesignProvider:
     """Compose the od / template / example injection blocks (``name='opendesign'``).

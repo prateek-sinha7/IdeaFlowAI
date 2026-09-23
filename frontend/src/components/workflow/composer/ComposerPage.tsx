@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowLeft, Save, Play, Plus, GitBranch, LayoutList, Sparkles, Loader2, Check, Paperclip } from "lucide-react";
+import { ArrowLeft, Save, Play, Plus, GitBranch, LayoutList, Sparkles, Loader2, Check, Paperclip, Palette, Layout, X, AlertCircle } from "lucide-react";
 import { IdentityCard } from "./IdentityCard";
 import { AgentRow } from "./AgentRow";
 import { SubAgentReadOnlyList } from "./SubAgentReadOnlyList";
 import { SummaryRail } from "./SummaryRail";
-import { CanvasView } from "./CanvasView";
+import { CanvasView, deliverableStrategyLabel } from "./CanvasView";
+import { DesignPickerModal, type DesignSelection } from "./DesignPickerModal";
+import { MAX_OPTIONAL } from "./treeLayout";
 import {
   HooksTab,
   PIPELINE_LABEL,
@@ -17,15 +19,19 @@ import {
 } from "../AgentsPopup";
 import { AgentLibrary } from "../AgentLibrary";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import {
   getAgentRecommendations,
   COMPANION_GROUPS,
   resolveDispatchType,
+  withPrototypeTaskLoop,
   useBriefAttachments,
   BriefAttachBox,
+  orderedStagedUploadIds,
 } from "../IdeaInputPage";
 import { saveUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
-import { agentMatchesPipelineType } from "@/lib/workflowIcons";
+import { getTemplateThumbnailUrl } from "@/lib/prototype-api";
+import { getPPTTemplateThumbnailUrl } from "@/lib/ppt-api";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import {
   addChildInTree,
@@ -33,23 +39,79 @@ import {
   collectAgentIds,
   findAgentInTree,
   instantiateIfTemplate,
+  agentsToManifestSteps,
   manifestStepsToAgents,
+  manifestStepsToGateSelections,
   type ManifestStep,
 } from "@/store/api/userWorkflows";
-import type { AgentDef, WorkflowCapabilities, WorkflowRunConfig, WorkflowType } from "@/types/index";
+import type { AgentDef, DesignMode, WorkflowCapabilities, WorkflowRunConfig, WorkflowType } from "@/types/index";
 
 // Spec 012 (R-27/T30): once a node carries a per-node skill, a custom prompt,
 // or a sub-agent tree, Save must persist the FULL `{"steps": [...]}` manifest
 // (not the flat EMP-03 selections map) so those fields — and the tree shape
 // itself — survive a reload (`backend/app/api/user_workflows.py::_project`
 // sniffs the `"steps"` key to tell the two shapes apart).
-function needsFullManifest(agents: AgentDef[]): boolean {
+// Spec 014 (R-02/T37): a non-empty conditional-gate `route` is the same kind
+// of per-node, non-flat-list data — it only round-trips via `ManifestStep.route`,
+// which the flat EMP-03 selections map has no field for.
+function needsFullManifest(agents: AgentDef[], runConfig?: WorkflowRunConfig): boolean {
+  // A declared context provider is WORKFLOW-level data that exists nowhere but
+  // the manifest — the compact selections map is `dict[str, dict]` keyed by
+  // agent id, with no room for it. Without this clause a composition of plain
+  // built-in agents saves as selections and silently drops the declaration.
+  if (runConfig?.contextProvider) return true;
   return agents.some(
     (a) =>
       a.isCustom ||
       !!a.prompt ||
       (a.skills?.length ?? 0) > 0 ||
-      (a.children?.length ?? 0) > 0,
+      (a.children?.length ?? 0) > 0 ||
+      Object.keys(a.route?.outcomes ?? {}).length > 0,
+  );
+}
+
+// The composer's from-scratch Workflow-tab settings. Module-level so the state
+// seed below and `needsFullManifestOnSave` compare against the SAME literal.
+const DEFAULT_RUN_CONFIG: WorkflowRunConfig = {
+  deliverable: { strategy: "streamed_text", name: "output.md" },
+  planner: "skip",
+  clarify: { mode: "skip", defaults: [] },
+};
+
+function runConfigIsFromScratchDefault(runConfig: WorkflowRunConfig): boolean {
+  return (
+    runConfig.deliverable?.strategy === DEFAULT_RUN_CONFIG.deliverable?.strategy &&
+    runConfig.deliverable?.name === DEFAULT_RUN_CONFIG.deliverable?.name &&
+    (runConfig.planner ?? "skip") === "skip" &&
+    (runConfig.clarify?.mode ?? "skip") === "skip" &&
+    (runConfig.clarify?.defaults?.length ?? 0) === 0
+  );
+}
+
+// BUG-20260828-005700 (ISS-196/203/204/205/206) — `needsFullManifest` above is a
+// pure function of the NODE list, so it cannot see the OTHER half of a manifest:
+// the Workflow tab's `runConfig` (deliverable/planner/clarify), which ONLY
+// `buildWorkflowManifest` serialises. A composition of all-stock agents — a
+// built-in opened on the canvas, or a from-scratch save where the user changed
+// nothing but the Workflow tab — therefore sent NO `manifest` key at all, the
+// row persisted NULL, and the deliverable silently reverted to the server
+// default: a copy of the `ppt` built-in came back as a generic streamed-text
+// markdown workflow instead of a .pptx one.
+//
+// So also persist the full manifest whenever this canvas was seeded from a real
+// manifest (a built-in via `/workflows/{type}/canvas`, or a saved row's steps),
+// or the Workflow tab holds anything other than the from-scratch default.
+function needsFullManifestOnSave(
+  agents: AgentDef[],
+  runConfig: WorkflowRunConfig,
+  builtinCanvasType?: string,
+  initialManifestSteps?: ManifestStep[],
+): boolean {
+  return (
+    needsFullManifest(agents) ||
+    !!builtinCanvasType ||
+    (initialManifestSteps?.length ?? 0) > 0 ||
+    !runConfigIsFromScratchDefault(runConfig)
   );
 }
 
@@ -88,6 +150,15 @@ interface ComposerPageProps {
    * dropped every custom agent and sub-agent.
    */
   initialManifestSteps?: ManifestStep[];
+  /** The saved row's whole manifest, when editing one: every top-level key the
+   *  canvas does not model (limits, seed_files, ...) is carried through Save
+   *  unchanged. Without it a save silently dropped `limits`. */
+  initialManifest?: Record<string, unknown> | null;
+  /** Set when this canvas is showing a BUILT-IN workflow (`/workflows/{type}/canvas`).
+   *  There is no WorkflowDefinition row behind a file-backed manifest, so the surface
+   *  is explore-and-copy: edits Run fine, but Save creates a NEW workflow the user owns
+   *  rather than overwriting anything. Undefined for a saved workflow. */
+  builtinCanvasType?: string;
   initialSelections?: SelectionsMap;
   initialName?: string;
   initialDescription?: string;
@@ -109,9 +180,23 @@ interface ComposerPageProps {
   initialRunConfig?: WorkflowRunConfig;
   /** SURF-03 — a known backend workflow id whose declared per-step caps are surfaced. */
   workflowId?: string;
+  /**
+   * ISS-275 — "this surface holds work that Back would discard". Reported to the
+   * parent (DashboardLayout), whose single shared `handleBackNav` confirms before
+   * it navigates. The guard lives there, not on this component's Back button, so
+   * every page that routes through that one handler can feed it the same signal
+   * instead of sprinkling a `confirm()` into each `onClick`.
+   */
+  onUnsavedChange?: (dirty: boolean) => void;
 }
 
-const MAX_OPTIONAL = 8;
+// Root-chain cap for a custom composition. Raised from 8 to 16 (spec 019): a
+// document-driven pipeline is legitimately longer than eight steps — ingest,
+// per-document read, per-document audit, synthesis, a coverage gate, a journey
+// brief, then specify/plan/analyze/build/validate and a fidelity gate is twelve.
+// Frontend-only guardrail: nothing on the backend caps root-step count, and the
+// compiler validates the real limits (DAG, capability grants, subagent depth).
+// Lives in treeLayout so CanvasView's cap tooltips read the SAME number.
 
 /**
  * 41-04 — the full-page Composer surface (mainView='composer'). ADDITIVE: a NEW
@@ -131,12 +216,15 @@ export function ComposerPage({
   onRun,
   initialAgentIds,
   initialManifestSteps,
+  initialManifest,
+  builtinCanvasType,
   initialSelections,
   initialName,
   initialDescription,
   initialUserWorkflowId,
   initialRunConfig,
   workflowId,
+  onUnsavedChange,
 }: ComposerPageProps) {
   const { libraryAgents: LIBRARY_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
   const { attachedHooks } = useSkillsHooks();
@@ -160,6 +248,20 @@ export function ComposerPage({
   const [justSaved, setJustSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  // ISS-353 — synchronous mutex for Save. `saving` (React state) gates the
+  // button's `disabled` prop, but React state updates are async: a second
+  // rapid click can land BEFORE `setSaving(true)` re-renders the button, so
+  // two concurrent `handleSave` invocations both reach `saveUserWorkflow` on
+  // an as-yet-unsaved workflow — creating two rows. A ref flip is synchronous
+  // and is checked at the top of the handler, same shape as ISS-245's fix.
+  const isSavingRef = useRef(false);
+  // ISS-767 — the same missing in-flight guard on the LAUNCH side, sibling of
+  // ISS-729 (QA-SG-002). `handleRunOnce` has two unguarded entry points (the
+  // "Run once" button and the brief's Cmd/Ctrl+Enter shortcut), so the guard
+  // lives in the handler rather than on either call site. Ref = correctness,
+  // state = the visible disabled feedback, exactly as isSavingRef/`saving`.
+  const submittingRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   // What-to-build instruction for Run once — lives in the canvas's Brief node
   // (CanvasView renders it as a selectable node with its own rail box) rather
@@ -192,6 +294,17 @@ export function ComposerPage({
 
   // Shared data model: the pipeline agent order + the per-agent SelectionsMap.
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => {
+    console.log("[wf] 7. ComposerPage mount", {
+      workflowType,
+      initialManifestSteps: initialManifestSteps?.length ?? 0,
+      initialAgentIds: initialAgentIds?.length ?? 0,
+      libraryLoaded: ALL_LIBRARY_AGENTS.length,
+      source: initialManifestSteps?.length
+        ? "manifest"
+        : initialAgentIds?.length
+          ? "agentIds"
+          : "EMPTY — nothing was handed in",
+    });
     // Manifest first — see `initialManifestSteps`: `agent_ids` is frozen at
     // create time, so it is the wrong source for a re-saved composition.
     if (initialManifestSteps?.length) {
@@ -204,23 +317,276 @@ export function ComposerPage({
         .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
         .filter(Boolean) as AgentDef[];
     }
-    return LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, workflowType)).sort(
-      (a, b) => a.order - b.order,
-    );
+    // A brand-new "Compose a custom workflow" (no saved manifest, no saved
+    // agent ids) starts from a genuinely empty canvas — not a hardcoded
+    // library template. `"custom"` is the only workflowType this component
+    // ever mounts for (DashboardLayout's COMPOSER_ENABLED_TYPES), so there is
+    // no other case this fallback needs to serve.
+    return [];
   });
-  const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
+  // The lazy initializer above runs once at mount, from whatever
+  // ALL_LIBRARY_AGENTS (Redux, populated async at sign-in) happens to hold at
+  // that instant — same race as the LaunchWizard 0-agents bug. Two different
+  // failure shapes depending on which branch above ran:
+  //  - initialAgentIds: every id's lookup misses -> .filter(Boolean) drops
+  //    them all -> a genuinely empty canvas for a saved workflow that has agents.
+  //  - initialManifestSteps: manifestStepToAgent falls back to a per-step
+  //    placeholder (generic icon/description/duration) when lookup misses, so
+  //    the canvas isn't empty, but every agent shows the wrong icon/description.
+  // Re-run the SAME reconstruction exactly once, the first time the library
+  // actually has data, so either case self-heals once it loads — a no-op if
+  // the library was already populated at mount (the common case).
+
+  // ISS-275 — the composition as last seeded (or last saved). Anything that
+  // differs from it is work "Back" would silently throw away. `null` means
+  // "recapture on the next commit": set at mount, by the library re-seed below,
+  // and by a successful save.
+  const unsavedBaseline = useRef<string | null>(null);
+
+  const resyncedAgentsFromLibrary = useRef(false);
+  useEffect(() => {
+    if (resyncedAgentsFromLibrary.current || ALL_LIBRARY_AGENTS.length === 0) return;
+    resyncedAgentsFromLibrary.current = true;
+    // ISS-275: re-seeding REPLACES the roster with the same saved composition,
+    // so the unsaved-work baseline below has to be recaptured from it — the one
+    // taken at mount was read before this ran and would read as a user edit.
+    if (initialManifestSteps?.length || initialAgentIds?.length) unsavedBaseline.current = null;
+    if (initialManifestSteps?.length) {
+      setPipelineAgents(
+        manifestStepsToAgents(initialManifestSteps, (id) =>
+          ALL_LIBRARY_AGENTS.find((a) => a.id === id),
+        ),
+      );
+    } else if (initialAgentIds?.length) {
+      setPipelineAgents((prev) =>
+        prev.length > 0
+          ? prev
+          : (initialAgentIds
+              .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+              .filter(Boolean) as AgentDef[]),
+      );
+    }
+  }, [ALL_LIBRARY_AGENTS, initialManifestSteps, initialAgentIds]);
+
+  // ISS-275 — report unsaved work to the parent's shared Back guard. Covers the
+  // name and the roster (add/remove/reorder/rename), which is what a discard
+  // actually costs; per-node skill/prompt edits do not move it on their own.
+  const unsavedSnapshot = `${name}\u0000${pipelineAgents.map((a) => `${a.id}:${a.name}`).join(",")}`;
+  useEffect(() => {
+    if (unsavedBaseline.current === null) unsavedBaseline.current = unsavedSnapshot;
+    onUnsavedChange?.(unsavedSnapshot !== unsavedBaseline.current);
+    return () => onUnsavedChange?.(false);
+  }, [unsavedSnapshot, onUnsavedChange]);
+
+  const [selections, setSelections] = useState<SelectionsMap>(() => {
+    // `gates` lives on `selections`, not on the reconstructed AgentDef, so a
+    // reopened manifest-based save needs it merged back in here — see
+    // `manifestStepsToGateSelections`. Manifest wins per-agent for the
+    // `gates` key specifically (it's the persisted source of truth); every
+    // other already-loaded selection field (validators, retry, …) is kept.
+    if (!initialManifestSteps?.length) return initialSelections ?? {};
+    const gateSelections = manifestStepsToGateSelections(initialManifestSteps);
+    const merged: SelectionsMap = { ...(initialSelections ?? {}) };
+    for (const [agentId, patch] of Object.entries(gateSelections)) {
+      merged[agentId] = { ...merged[agentId], ...patch };
+    }
+    return merged;
+  });
+
+  // Same race, different state. `selections` is seeded by a useState INITIALIZER too,
+  // so when the props arrive asynchronously — a cold `/workflows/{type}/canvas` load,
+  // where page.tsx fetches the manifest after this has already mounted — the agents
+  // self-heal via the effect below but the GATES never do. Observed directly: the
+  // canvas drew all three steps of ex_A4_human_divert while the header said
+  // "0 review gate" and the conditional step carried no Route badge, because
+  // `selections` was still {} and CanvasView reads gates from there.
+  //
+  // Re-derive them the first time real manifest steps show up. Manifest wins for the
+  // `gates` key only — every other lever the user has already touched is preserved.
+  // Rebuild the tree when manifest steps ARRIVE, not just when the library does.
+  //
+  // The library-resync effect below is one-shot: it burns its ref the first time
+  // ALL_LIBRARY_AGENTS is non-empty. On a COLD load the library is still empty at that
+  // moment, so it returns early and gets a second chance once both are ready — which is
+  // why direct `/workflows/{type}/canvas` URLs worked. On a CLIENT-SIDE navigation the
+  // library is already populated, so it fired with no props, set its ref, and never ran
+  // again — the canvas stayed empty even though page.tsx's fetch resolved a tick later.
+  //
+  // Keyed on the props themselves, so it fires whenever they actually change.
+  const seededFromManifest = useRef(false);
+  useEffect(() => {
+    if (seededFromManifest.current || !initialManifestSteps?.length) return;
+    seededFromManifest.current = true;
+    setPipelineAgents(
+      manifestStepsToAgents(initialManifestSteps, (id) =>
+        ALL_LIBRARY_AGENTS.find((a) => a.id === id),
+      ),
+    );
+  }, [initialManifestSteps, ALL_LIBRARY_AGENTS]);
+
+  const resyncedGatesFromManifest = useRef(false);
+  useEffect(() => {
+    if (resyncedGatesFromManifest.current || !initialManifestSteps?.length) return;
+    resyncedGatesFromManifest.current = true;
+    const gateSelections = manifestStepsToGateSelections(initialManifestSteps);
+    if (Object.keys(gateSelections).length === 0) return;
+    setSelections((prev) => {
+      const merged = { ...prev };
+      for (const [agentId, patch] of Object.entries(gateSelections)) {
+        merged[agentId] = { ...merged[agentId], ...patch };
+      }
+      return merged;
+    });
+  }, [initialManifestSteps]);
   // Spec 012 (R-07/R-37) — workflow-level capability switches (internet toggle).
   const [capabilities, setCapabilities] = useState<WorkflowCapabilities>({});
   // Workflow-level run settings (deliverable/planner/clarify) — previously
   // hardcoded server-side defaults at launch (run_commands.py's Case 3
   // manifest synthesis); now UI-editable, persisted into manifest_json.
   const [runConfig, setRunConfig] = useState<WorkflowRunConfig>(
-    initialRunConfig ?? {
-      deliverable: { strategy: "streamed_text", name: "output.md" },
-      planner: "skip",
-      clarify: { mode: "skip", defaults: [] },
-    },
+    initialRunConfig ?? DEFAULT_RUN_CONFIG,
   );
+  // Design selection — the template + design system this RUN uses. Deliberately
+  // NOT part of runConfig/the manifest: it is per-run input (like the brief),
+  // not workflow structure, and it rides to the backend on the launch payload's
+  // existing `template_id` / `design_system_id` fields. Owned here so Simple and
+  // Canvas edit ONE selection through the shared DesignPickerModal.
+  const [design, setDesign] = useState<DesignSelection>({
+    templateId: null,
+    designSystemId: null,
+  });
+  const [designPickerOpen, setDesignPickerOpen] = useState(false);
+  const designMode: DesignMode = runConfig?.designMode ?? "web";
+  const designDeclared = runConfig?.contextProvider === "opendesign";
+  // Short label for the Brief-node button / Design card. Undefined when nothing
+  // is picked yet, so the callers fall back to their own "Select design" copy.
+  // What "declared but not supplied" means, mirroring the loaders rather than
+  // inventing a rule:
+  //   web  — a design system is ALWAYS required (`load_prototype_context` raises
+  //          LookupError without one, even on the no-template blank-canvas path,
+  //          which is why a missing template is fine here).
+  //   deck — a template is required (`load_ppt_od_context` has no blank-canvas
+  //          path); its design system is conditional on the template's own
+  //          `design_system.requires`, which the picker enforces.
+  // Nothing declared ⇒ never blocked: the run behaves exactly as it does today.
+  const designMissing =
+    designDeclared &&
+    (designMode === "web" ? !design.designSystemId : !design.templateId);
+
+  // The launch-payload slice for the design selection. Empty unless a provider
+  // is declared, so a workflow that never opted in sends exactly what it sends
+  // today. Custom bodies ride the same launch fields the wizard already uses.
+  const designLaunchParams = useMemo<Record<string, unknown>>(() => {
+    if (!designDeclared) return {};
+    return {
+      ...(design.templateId ? { template_id: design.templateId } : {}),
+      ...(design.designSystemId ? { design_system_id: design.designSystemId } : {}),
+      ...(design.customTemplateBody
+        ? { custom_template_body: design.customTemplateBody }
+        : {}),
+      ...(design.customDsBody ? { custom_ds_body: design.customDsBody } : {}),
+    };
+  }, [designDeclared, design]);
+
+  // The "+ Attach design" control — rendered beside "+ Attach file" inside the
+  // brief box, so Simple and the Canvas rail get the SAME affordance from one
+  // definition. Chips list what is picked, mirroring how attached files read.
+  const designAttachSlot = designDeclared ? (
+    <button
+      type="button"
+      onClick={() => setDesignPickerOpen(true)}
+      className="flex items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1.5 text-[11px] text-ink-400 transition-all hover:border-line-control hover:bg-surface-warm hover:text-ink-700"
+    >
+      <Palette className="h-3.5 w-3.5" /> + Attach design
+    </button>
+  ) : undefined;
+
+  // Listed UNDER the toolbar alongside the attached files, so a run's inputs
+  // read as one list regardless of which button added them.
+  const designChips = designDeclared ? (
+    <>
+      {(design.templateName ?? design.templateId) && (
+        <span className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
+          <Layout className="h-2.5 w-2.5" />
+          {design.templateName ?? design.templateId}
+          <button
+            type="button"
+            aria-label="Remove template"
+            onClick={() =>
+              setDesign((prev) => ({
+                ...prev,
+                templateId: null,
+                templateName: null,
+                customTemplateBody: null,
+              }))
+            }
+            className="ml-1 text-ink-400 hover:text-status-failed"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </span>
+      )}
+      {(design.designSystemName ?? design.designSystemId) && (
+        <span className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
+          <Palette className="h-2.5 w-2.5" />
+          {design.designSystemName ?? design.designSystemId}
+          <button
+            type="button"
+            aria-label="Remove design system"
+            onClick={() =>
+              setDesign((prev) => ({
+                ...prev,
+                designSystemId: null,
+                designSystemName: null,
+                customDsBody: null,
+              }))
+            }
+            className="ml-1 text-ink-400 hover:text-status-failed"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </span>
+      )}
+      {designMissing && (
+        <button
+          type="button"
+          onClick={() => setDesignPickerOpen(true)}
+          className="inline-flex items-center gap-1 rounded-lg border border-status-error/45 bg-status-error/10 px-2.5 py-1 text-[10px] font-semibold text-status-error transition-colors hover:bg-status-error/15"
+        >
+          <AlertCircle className="h-2.5 w-2.5" />
+          {designMode === "web" ? "Design system required" : "Template required"}
+        </button>
+      )}
+    </>
+  ) : undefined;
+
+  const designSummary = useMemo(() => {
+    const parts = [
+      design.templateName ?? (design.templateId ? design.templateId : null),
+      design.designSystemName ?? (design.designSystemId ? design.designSystemId : null),
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : undefined;
+  }, [design]);
+
+
+  // The SAME race as `seededFromManifest`/`resyncedGatesFromManifest` above, and
+  // the one piece of composer state that never got the treatment: `runConfig` is
+  // seeded by a useState INITIALIZER, and for a BUILT-IN canvas the prop arrives
+  // after mount — page.tsx fetches GET /api/workflows/<type> and builds
+  // `savedComposition.runConfig` from its real `deliverable`, but a built-in has
+  // no WorkflowDefinition row, so `savedComposition.id` stays undefined and
+  // DashboardLayout's remount-by-key (`key={savedComposition?.id ?? "new"}`)
+  // never fires to pick it up. The canvas showed streamed_text/output.md for a
+  // `ppt` built-in and Save/Run then carried that wrong value.
+  //
+  // Adopt the first real `initialRunConfig` that shows up; after that the user's
+  // own Workflow-tab edits own the state.
+  const seededRunConfig = useRef(false);
+  useEffect(() => {
+    if (seededRunConfig.current || !initialRunConfig) return;
+    seededRunConfig.current = true;
+    setRunConfig(initialRunConfig);
+  }, [initialRunConfig]);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
@@ -262,7 +628,19 @@ export function ComposerPage({
     };
   }, [workflowId]);
 
-  const deliverableLabel = PIPELINE_LABEL[workflowType] ?? workflowType;
+  // Hardcoded ("Custom"), not derived from `workflowType`: this component only
+  // ever legitimately represents the "custom" pipeline, but `workflowType` is a
+  // shared mutable variable other screens can leave stale — that stale value
+  // was showing as "User Stories · Composer" in the header for a workflow that
+  // was never actually a User Stories run. PIPELINE_LABEL is pipeline-TYPE
+  // vocabulary and belongs to the header eyebrow only.
+  const pipelineLabel = PIPELINE_LABEL.custom;
+  // ISS-340 — the identity card's "Deliverable type" is a DELIVERABLE STRATEGY,
+  // a different vocabulary: it used to render the pipeline label above, so every
+  // built-in opened at /workflows/<type>/canvas read "Custom" while CanvasView's
+  // combobox showed the real strategy off this same `runConfig`. Both now share
+  // one lookup, so the two tabs cannot disagree.
+  const deliverableLabel = deliverableStrategyLabel(runConfig?.deliverable?.strategy);
   const strategy = "sequential";
 
   const defaultAgentIds = new Set(
@@ -426,9 +804,12 @@ export function ComposerPage({
   })() : null;
 
   // ── Derived summary values (live, never fabricated — ND-AG) ───────────────────
-  const gateCount = pipelineAgents.filter(
-    (a) => (selections[a.id]?.gates?.length ?? 0) > 0 || !!a.gate,
-  ).length;
+  // Review gates (ADR-0013): only count human and before-human, not conditional.
+  // Conditional gates route execution; review gates pause for human decision.
+  const gateCount = pipelineAgents.filter((a) => {
+    const gateList = selections[a.id]?.gates ?? [];
+    return gateList.some((g) => g === "human" || g === "before-human");
+  }).length;
   const totalSec = pipelineAgents.reduce((s, a) => s + a.estimated_duration, 0);
   const estMinutes = Math.max(1, Math.round(totalSec / 60));
   const estDurationLabel = `~${estMinutes}m`;
@@ -446,11 +827,41 @@ export function ComposerPage({
   // ── Save-to-catalogue (owner-scoped, via the shared saveUserWorkflow dispatch) ──
   const handleSave = useCallback(
     async (wfName: string, wfDescription: string) => {
+      // ISS-353 — synchronous re-entrancy guard. React state (`saving`) updates
+      // asynchronously, so a second rapid click before the first re-render sees
+      // the disabled button can invoke this handler a second time. The ref is set
+      // synchronously at entry and cleared in `finally`, so concurrent invocations
+      // observe the lock immediately and return before any network call fires.
+      if (isSavingRef.current) return;
+      isSavingRef.current = true;
       setSaveError(null);
       setJustSaved(false);
+      // A DETACHED step has no incoming connection: nothing in the workflow
+      // would ever reach it, so it could never run. The canvas deliberately
+      // leaves such a node where the author put it rather than silently
+      // re-joining it to its array neighbour, which makes this the point where
+      // the unresolved edge has to be reported. Blocking (not warning) because
+      // saving an unreachable step is almost never the intent — and because the
+      // flag is authoring-only, so a saved manifest must never carry one.
+      const detached = pipelineAgents.filter((a) => a.detached).map((a) => a.name);
+      if (detached.length > 0) {
+        setSaveError(
+          detached.length === 1
+            ? `“${detached[0]}” isn’t connected to anything. Point a route outcome at it, or remove it, then save.`
+            : `${detached.length} steps aren’t connected to anything (${detached.join(", ")}). Point a route outcome at each, or remove them, then save.`,
+        );
+        // Release the ISS-353 lock: these guards return BEFORE the try whose
+        // `finally` clears it, so leaving it set made every later Save click a
+        // silent no-op for the rest of the page's life — no request, no new
+        // error, the banner still showing the first failure. Found by a real
+        // run: Save stopped working after one detached-step rejection.
+        isSavingRef.current = false;
+        return;
+      }
       const token = getToken();
       if (!token) {
         setSaveError("Not authenticated.");
+        isSavingRef.current = false;
         return;
       }
       setSaving(true);
@@ -483,8 +894,13 @@ export function ComposerPage({
         // LIST, so packing it into `selections` is rejected by pydantic before
         // any handler runs. The two fields are mutually exclusive (a 422 names
         // both) precisely because they write the same column.
-        const selectionsBody = needsFullManifest(pipelineAgents)
-          ? { manifest: buildWorkflowManifest(pipelineAgents, capabilities, selections, runConfig) }
+        const selectionsBody = needsFullManifestOnSave(
+          pipelineAgents,
+          runConfig,
+          builtinCanvasType,
+          initialManifestSteps,
+        )
+          ? { manifest: buildWorkflowManifest(pipelineAgents, capabilities, selections, runConfig, initialManifest) }
           : Object.keys(selections).length > 0
             ? { selections }
             : {};
@@ -502,7 +918,13 @@ export function ComposerPage({
           // clears the stored value); create omits an empty one rather than
           // persisting an explicit empty string — preserved exactly as before.
           ...(userWorkflowId || wfDescription ? { description: wfDescription } : {}),
-          base_pipeline_type: workflowType,
+          // Hardcoded, not `workflowType`: ComposerPage only ever legitimately
+          // represents "custom" (DashboardLayout's COMPOSER_ENABLED_TYPES), but
+          // `workflowType` is a shared mutable variable other screens (viewing
+          // a saved/history run, revising, chaining) also set — trusting it here
+          // let a stale value from one of those flows get persisted as this
+          // saved workflow's permanent base_pipeline_type.
+          base_pipeline_type: "custom",
           agent_ids: pipelineAgents.map((a) => a.id),
           ...selectionsBody,
           ...hooksBody,
@@ -539,14 +961,27 @@ export function ComposerPage({
           });
         }
         setJustSaved(true);
+        // ISS-275 — everything on screen is now persisted: rebaseline so Back
+        // stops warning about work that just went to the server.
+        unsavedBaseline.current = null;
         setTimeout(() => setJustSaved(false), 1800);
       } catch (e) {
         setSaveError((e as Error)?.message ?? "Failed to save workflow.");
       } finally {
+        isSavingRef.current = false;
         setSaving(false);
       }
     },
-    [workflowType, pipelineAgents, selections, capabilities, runConfig, attachedHooks, userWorkflowId],
+    [
+      pipelineAgents,
+      selections,
+      capabilities,
+      runConfig,
+      attachedHooks,
+      userWorkflowId,
+      builtinCanvasType,
+      initialManifestSteps,
+    ],
   );
 
   // ── Run-once (D-05 / D-CMP-RUN — through the EXISTING launch seam, ND-AG) ─────
@@ -565,18 +1000,44 @@ export function ComposerPage({
     if (!onRun) return;
     const trimmed = instruction.trim();
     if (!trimmed) return;
+    // ISS-333 — a brand-new "Compose a custom workflow" canvas starts with
+    // pipelineAgents=[], and handleRunOnce had no guard on this, so clicking
+    // "Run once" before adding any agent dispatched onRun with an empty roster
+    // — the backend fell back to the full 9-agent custom pool. Same guard
+    // IdeaInputPage.handleRun already applies at its own call site.
+    if (pipelineAgents.length === 0) return;
+    // Lives HERE and not only on the Run button, because the button is not the
+    // only way in: the Simple-view brief passes `onSubmitShortcut={() =>
+    // handleRunOnce(briefText)}`, so Cmd/Ctrl+Enter launched straight past the
+    // button's copy of this check. The backend cannot catch it either — Case 3
+    // leaves `agents` None, so `missing_template_context` is skipped and
+    // od_context silently resolves to None. Open the picker instead of running a
+    // workflow that declares opendesign with nothing to inject.
+    if (designMissing) {
+      setDesignPickerOpen(true);
+      return;
+    }
+    // ISS-767 — set AFTER the early returns above (FIX-345's placement rule), so
+    // a bail-out never leaves the latch stuck. Nothing clears it: `onRun` reaches
+    // startPipeline, which flips isRunning=true synchronously, and the surface
+    // auto-transitions to mainView="execution" — this page unmounts whether or
+    // not the POST itself succeeds.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
     // KAN-91: compose attached-file content into the message at send time —
     // the EXACT same block format/behavior as IdeaInputPage.handleRun (the
     // textarea itself stays clean; the extracted text only appears here).
     const brief = `${trimmed}${briefAttachments.fileBlocks}`;
-    const gateAgentIds = pipelineAgents
-      .filter((a) => (selections[a.id]?.gates?.length ?? 0) > 0 || !!a.gate)
-      .map((a) => a.id);
-
     // Resolve the dispatch type and deliverable override from the chosen agent set.
     // This is the exact same call IdeaInputPage.handleRun makes — single source
-    // via the exported resolveDispatchType (INV-12, no duplication).
-    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, workflowType);
+    // via the exported resolveDispatchType (INV-12, no duplication). Passed
+    // "custom" literally, not the `workflowType` prop: resolveDispatchType
+    // short-circuits to `baseType` verbatim whenever it isn't "custom"
+    // (IdeaInputPage.tsx:449), so a stale `workflowType` (shared, mutable,
+    // set by unrelated screens) would dispatch/label this run under the
+    // wrong pipeline type — ComposerPage only ever legitimately means "custom".
+    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, "custom");
 
     // ADR-0010 — fold each agent's per-agent SKILLS into its selections entry.
     //
@@ -611,6 +1072,15 @@ export function ComposerPage({
     const mergedSelections = effectiveDeliverable
       ? { ...withSkills, __deliverable__: effectiveDeliverable }
       : withSkills;
+    // FIX-111 / ISS-766 — the same rule IdeaInputPage applies, from the same
+    // helper: a composed `prototype-build` launches on `task_loop` (one worker
+    // per planned task, one shared file) unless the composer already carries an
+    // explicit strategy for that step.
+    const launchSelections = withPrototypeTaskLoop(
+      mergedSelections,
+      pipelineAgents,
+      effectiveDeliverable?.name,
+    );
 
     // Case 3 (R-27/T30/T36 shape — a per-node skill, custom prompt, or sub-agent
     // tree) needs the backend to compile the saved manifest_json directly
@@ -626,10 +1096,44 @@ export function ComposerPage({
     // USER_WORKFLOW_MANIFEST branch uses them instead of falling back to a
     // saved-but-stale manifest or its own hardcoded default.
     const extraParams: Record<string, unknown> = {
-      ...(Object.keys(mergedSelections).length > 0 ? { selections: mergedSelections } : {}),
-      ...(gateAgentIds.length > 0 ? { gate_agent_ids: gateAgentIds } : {}),
-      ...(needsFullManifest(pipelineAgents) && userWorkflowId
-        ? { user_workflow_id: userWorkflowId }
+      ...(Object.keys(launchSelections).length > 0 ? { selections: launchSelections } : {}),
+      // `gate_agent_ids` is deliberately NOT sent. A composer workflow declares its
+      // gates in the manifest (`step.gates`), and the engine evaluates those on its
+      // own — the field is a SEPARATE, older mechanism for picking which agents get
+      // the AGENT.md-static `Human_Gate`, and sending it at all takes the step off
+      // the declared path:
+      //
+      //   list INCLUDING the step -> _should_gate true -> inline_gated true -> the
+      //     DECLARED gate is deduped away (WR-02) and the INLINE post-step gate runs
+      //     instead. That one reviews the step's OWN output and never goes through
+      //     kernel_services.run_human_gate, which is the only place the
+      //     artifact_kind="conditional_gate" choices payload is published — so the
+      //     outcome chips cannot render, by construction.
+      //   list OMITTING the step  -> declared gate skipped outright.
+      //   omitted / None          -> falls back to the agent's AGENT.md `gate:`
+      //     attribute; the custom-agent template declares none, so nothing dedupes
+      //     and the DECLARED before-human gate fires. This is the only correct case.
+      //
+      // It is also why a bare `pipeline_type` launch of the same shape always worked:
+      // it sends no gate_agent_ids and so stays None.
+      // Deliberately still the NARROW node-shape gate, not `needsFullManifestOnSave`
+      // (ISS-206): this decides where the RUN's STEPS come from, and Run already
+      // sends `deliverable`/`planner`/`clarify` unconditionally below — so the
+      // Workflow tab has no bearing on it. Widening it here would make a reopened
+      // saved workflow launch from its stored manifest (`user_workflow_id`,
+      // trust="db") and silently ignore roster edits the user had not saved yet.
+      ...(needsFullManifest(pipelineAgents, runConfig)
+        ? userWorkflowId
+          // Saved: the row IS the source of truth; the backend compiles its
+          // manifest_json (trust="db") and ignores agent_ids.
+          ? { user_workflow_id: userWorkflowId }
+          // UNSAVED: send the tree inline. A composition of custom-agent instances
+          // has bare, dynamically-generated ids that the flat allow-list can never
+          // accept, so before this "Run once" on an edited-but-unsaved composition
+          // 400'd with invalid_agent_ids and the only way forward was to save first.
+          // Compiles at trust="user" server-side — stricter than a saved row's
+          // trust="db" — so privileged grants are still refused.
+          : { manifest: { steps: agentsToManifestSteps(pipelineAgents, selections) } }
         : {}),
       ...(effectiveDeliverable ? { deliverable: effectiveDeliverable } : {}),
       ...(runConfig?.planner ? { planner: runConfig.planner } : {}),
@@ -640,23 +1144,85 @@ export function ComposerPage({
       ...(briefAttachments.attachedImages.length > 0
         ? { images: briefAttachments.attachedImages }
         : {}),
+      // UPLD-05 — staged raw documents, same shape/condition as IdeaInputPage.
+      ...(briefAttachments.stagedUploads.length > 0
+        ? { staged_upload_ids: orderedStagedUploadIds(briefAttachments.stagedUploads) }
+        : {}),
+      // Design context — the run's template / design system. These are fields
+      // `LaunchCommand` ALREADY declares, and useWorkflow merges extraParams onto
+      // the payload verbatim (`Object.assign(payload, context)`), so nothing new
+      // is plumbed. Sent only when this workflow declares a context provider;
+      // omitted otherwise, leaving the payload byte-identical to today.
+      ...designLaunchParams,
     };
+    // A BUILT-IN opened on the canvas and not yet changed runs as ITSELF: its own
+    // pipeline_type, no agent_ids. Sending the flat list instead is what produced
+    // 400 invalid_agent_ids — a composed workflow's nodes are custom-agent instances
+    // with bare ids ("emoji"), and the launch endpoint allow-lists agent_ids against
+    // registry membership for `custom`, which has never heard of them. Omitting them
+    // makes the backend source the roster from the compiled plan (run_commands.py's
+    // `else` branch), which IS this workflow — the same thing the launch panel does.
+    //
+    // The manifest already carries the per-step levers, gates and deliverable, so the
+    // composed extras are dropped too: they are keyed on bare ids and would not match
+    // the composed spec ids the engine works in.
+    //
+    // Once the user CHANGES something, this no longer describes what is on screen, so
+    // it falls through to the normal path — which for a custom-agent tree means Save
+    // as copy first (the documented Case-3 rule: an unsaved composition of dynamic
+    // instance ids cannot be launched flat).
+    const builtinIds = (initialManifestSteps ?? []).map((st) =>
+      st.agent === "custom-agent" ? st.instance_id : st.agent,
+    );
+    const currentIds = pipelineAgents.map((a) => a.id);
+    const unmodifiedBuiltin =
+      !!builtinCanvasType &&
+      builtinIds.length > 0 &&
+      builtinIds.length === currentIds.length &&
+      builtinIds.every((id, i) => id === currentIds[i]);
+
+    if (unmodifiedBuiltin) {
+      const builtinExtras = {
+        ...(briefAttachments.attachedImages.length > 0
+          ? { images: briefAttachments.attachedImages }
+          : {}),
+        ...(briefAttachments.stagedUploads.length > 0
+          ? { staged_upload_ids: orderedStagedUploadIds(briefAttachments.stagedUploads) }
+          : {}),
+        // An unmodified built-in canvas runs as ITSELF, and a built-in that
+        // declares `opendesign` (prototype / ppt / ppt_v2) needs its template
+        // ids just as much as a composed run does — this branch returns early,
+        // so without them the launch reaches the loader with nothing picked.
+        ...designLaunchParams,
+      };
+      onRun(
+        builtinCanvasType as typeof dispatchType,
+        brief,
+        [],
+        Object.keys(builtinExtras).length > 0 ? builtinExtras : undefined,
+      );
+      return;
+    }
+
     onRun(
       dispatchType,
       brief,
-      pipelineAgents.map((a) => a.id),
+      currentIds,
       Object.keys(extraParams).length > 0 ? extraParams : undefined,
     );
   }, [
     onRun,
     pipelineAgents,
     selections,
-    workflowType,
     userWorkflowId,
+    builtinCanvasType,
+    initialManifestSteps,
     runConfig,
     capabilities,
     briefAttachments.fileBlocks,
     briefAttachments.attachedImages,
+    designLaunchParams,
+    designMissing,
   ]);
 
   const segBtn = (id: "simple" | "canvas", label: string, Icon: typeof GitBranch) => (
@@ -688,7 +1254,7 @@ export function ComposerPage({
         </button>
         <div className="min-w-0 flex-1">
           <p className="mb-0.5 font-sans text-[10px] font-semibold uppercase tracking-[0.15em] text-ink-300">
-            {deliverableLabel} · Composer
+            {builtinCanvasType ? `${initialName || builtinCanvasType} · copy` : `${pipelineLabel} · Composer`}
           </p>
           {/* Name + description edit directly here now — no more "Save" dialog
               popping up every time just to type/change these two fields. */}
@@ -726,7 +1292,7 @@ export function ComposerPage({
           <span className="h-3 w-px flex-none bg-line-faint-row" />
           <span className="whitespace-nowrap">
             <span className="tabular-nums">{gateCount}</span>{" "}
-            <span className="font-normal text-ink-300">review gate</span>
+            <span className="font-normal text-ink-300">review gate{gateCount !== 1 ? "s" : ""}</span>
           </span>
           <span className="h-3 w-px flex-none bg-line-faint-row" />
           <span className="whitespace-nowrap tabular-nums">{estDurationLabel}</span>
@@ -746,10 +1312,14 @@ export function ComposerPage({
           type="button"
           onClick={() => {
             if (briefText.trim().length < 3) {
-              // Not enough of a brief yet — focus it wherever the user
-              // already is, rather than always jumping to Canvas: Simple
-              // has its own Brief card now, so switching away from it would
-              // fight the view the user is actually looking at.
+              // ISS-431 — the brief guard was silently focus-only, identical
+              // to ISS-315's empty-name save guard before FIX-375. Replicate
+              // FIX-375's pattern: report through the saveError banner so the
+              // author gets visible feedback, not just a regained focus they
+              // might not notice. The banner is cleared at the next save or
+              // run attempt (setSaveError(null) at handleSave head, or on
+              // the next handleRunOnce call that clears it first).
+              setSaveError("Add a brief of at least 3 characters before running.");
               if (view === "simple") {
                 briefTextareaRef.current?.focus();
               } else {
@@ -757,18 +1327,39 @@ export function ComposerPage({
               }
               return;
             }
+            // ISS-333 — guard against running with no agents; clear any prior error.
+            if (pipelineAgents.length === 0) {
+              setSaveError("Add at least one agent before running.");
+              return;
+            }
+            setSaveError(null);
+            // Declared a design provider but never picked one — open the
+            // picker rather than launching a run whose agents would silently
+            // get no design context (the backend cannot catch this: Case 3
+            // leaves `agents` None, so the missing_template_context guard is
+            // skipped, and od_context would just resolve to None).
+            if (designMissing) {
+              setDesignPickerOpen(true);
+              return;
+            }
             handleRunOnce(briefText);
           }}
-          disabled={!onRun}
+          disabled={!onRun || isSubmitting}
           title={
             !onRun
               ? "Run wiring lands in 41-06"
-              : briefText.trim().length < 3
-                ? "Add a brief first"
-                : undefined
+              : pipelineAgents.length === 0
+                ? "Add at least one agent first"
+                : briefText.trim().length < 3
+                  ? "Add a brief first"
+                  : designMissing
+                    ? designMode === "web"
+                      ? "Pick a design system first"
+                      : "Pick a template first"
+                  : undefined
           }
           className={`inline-flex items-center gap-1.5 rounded-[10px] border border-line-control bg-surface-card px-3.5 py-2.5 font-sans text-[12.5px] font-semibold text-ink-700 transition-colors enabled:hover:border-line-faint enabled:hover:bg-surface-warm enabled:active:scale-[0.97] disabled:opacity-40 ${
-            briefText.trim().length < 3 ? "opacity-60" : ""
+            pipelineAgents.length === 0 || briefText.trim().length < 3 ? "opacity-60" : ""
           }`}
         >
           <Play className="h-3.5 w-3.5" />
@@ -778,6 +1369,11 @@ export function ComposerPage({
           type="button"
           onClick={() => {
             if (!name.trim()) {
+              // The title tooltip is hover-only, so a click on an unnamed
+              // workflow used to be a silent no-op. Report it through the same
+              // saveError banner the detached-step / not-authenticated guards
+              // in handleSave already use.
+              setSaveError("Name the workflow first, then save.");
               nameInputRef.current?.focus();
               return;
             }
@@ -803,7 +1399,7 @@ export function ComposerPage({
           ) : (
             <>
               <Save className="h-3.5 w-3.5" />
-              Save workflow
+              {builtinCanvasType ? "Save as copy" : "Save workflow"}
             </>
           )}
         </button>
@@ -844,6 +1440,9 @@ export function ComposerPage({
             briefFocusSignal={briefFocusSignal}
             resetLayoutSignal={canvasResetLayoutSignal}
             briefAttachments={briefAttachments}
+            briefLeftExtra={designAttachSlot}
+            briefBelowExtra={designChips}
+            designSummary={designSummary}
           />
         ) : (
           <div className="h-full overflow-y-auto">
@@ -889,6 +1488,8 @@ export function ComposerPage({
                     textareaRef={briefTextareaRef}
                     onSubmitShortcut={() => handleRunOnce(briefText)}
                     rows={4}
+                    leftExtra={designAttachSlot}
+                    belowExtra={designChips}
                   />
                 </div>
               </div>
@@ -1093,6 +1694,19 @@ export function ComposerPage({
         // the same built-in agent be picked twice (once nested, once root).
         existingAgentIds={collectAgentIds(pipelineAgents)}
       />
+
+      {/* Design picker — ONE surface, opened from both the Canvas Brief node
+          and the Simple view's Design card. Only mounted when the workflow
+          declares a context provider. */}
+      {designDeclared && (
+        <DesignPickerModal
+          open={designPickerOpen}
+          onClose={() => setDesignPickerOpen(false)}
+          designMode={designMode}
+          value={design}
+          onChange={setDesign}
+        />
+      )}
     </div>
   );
 }

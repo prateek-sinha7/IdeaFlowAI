@@ -337,6 +337,24 @@ class TestRevisionDisposal:
 
 
 class _FakeDb:
+    """Enough of a Session for `_dispose_concierge_proposal`.
+
+    The Concierge revision path sources the parent's existing HTML from the
+    `WorkflowRun.output` column before minting the child, so a `close`-only
+    double raises AttributeError before the seam under test is reached.
+    `.first()` returning None is the honest shape here: these cases assert the
+    mint/drive wiring, not the html carry-over.
+    """
+
+    def query(self, *_a, **_k):
+        return self
+
+    def filter(self, *_a, **_k):
+        return self
+
+    def first(self):
+        return None
+
     def close(self):
         pass
 

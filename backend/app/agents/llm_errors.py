@@ -61,6 +61,11 @@ _BEDROCK_CODE_MAP: dict[str, tuple[str, bool]] = {
     # Auth / config
     "AccessDeniedException": ("auth_error", False),
     "UnauthorizedException": ("auth_error", False),
+    # A4 (STABILIZATION.md): the two codes an expired/invalid Bedrock bearer
+    # token actually raises alongside AccessDeniedException — previously
+    # unmapped, so they fell through to the generic internal_error message.
+    "UnrecognizedClientException": ("auth_error", False),
+    "ExpiredTokenException": ("auth_error", False),
     "ResourceNotFoundException": ("api_key_missing", False),
     # Validation (caller-side; not retryable)
     "ValidationException": ("internal_error", False),
@@ -121,6 +126,21 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
     ):  # pragma: no cover — botocore is always installed when Bedrock is in use
         pass
 
+    # ---- Anthropic (direct API, local dev) ---------------------------------
+    # A4 (STABILIZATION.md): the ANTHROPIC_API_KEY tier's equivalent of an
+    # expired/invalid Bedrock credential — a 401/403 the anthropic SDK raises
+    # as AuthenticationError/PermissionDeniedError, both APIStatusError
+    # subclasses exposing `.status_code`. Checked generically on status code
+    # rather than the two subclass names so a future SDK version's renamed/
+    # added 401/403 subtype is still caught.
+    try:
+        import anthropic as anthropic_exc
+
+        if isinstance(exc, anthropic_exc.APIStatusError) and exc.status_code in (401, 403):
+            return LLMErrorPayload(_message_for("auth_error"), "auth_error", False)
+    except ImportError:  # pragma: no cover — anthropic is always installed when used
+        pass
+
     # ---- Fallback ----------------------------------------------------------
     return LLMErrorPayload(_message_for("internal_error"), "internal_error", True)
 
@@ -129,7 +149,13 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
 # replaces the generic copy when the frontend chooses not to render its own.
 _USER_MESSAGES: dict[str, str] = {
     "api_key_missing": "AI service is not configured. Please contact the administrator.",
-    "auth_error": "AI service authentication failed. Please contact the administrator.",
+    # A4: names the actual failure class (an expired/invalid credential) without
+    # naming a provider, token value, ARN or region — still secret-free, but no
+    # longer indistinguishable from every other "something's wrong" message.
+    "auth_error": (
+        "AI service rejected its credentials — the token may be expired or invalid. "
+        "Please contact the administrator."
+    ),
     "rate_limit": "Too many requests. Please wait a moment and try again.",
     "timeout": "The AI service took too long to respond. Please try again.",
     "connection_error": "Unable to reach the AI service. Please check your connection and try again.",

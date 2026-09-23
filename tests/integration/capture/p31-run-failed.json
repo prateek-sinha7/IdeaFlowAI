@@ -1,0 +1,32 @@
+{
+  "url": "http://localhost:3000/runs/af1a40c0-5f65-47dd-90bf-afd48a660ef8",
+  "status": "Failed",
+  "type": "CUSTOM",
+  "tabs": [
+    "Steps",
+    "Files",
+    "Workspace",
+    "Audit"
+  ],
+  "tabCount": 4,
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "Pitch an idea (v2) 0/4",
+    "@Notifications",
+    "@Account menu",
+    "Back to history",
+    "Open in Steps",
+    "Reopen & fix from the failed step",
+    "Edit brief & run again",
+    "@Attach files",
+    "@Voice input",
+    "@Send message",
+    "Steps",
+    "Files",
+    "Workspace",
+    "Audit"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nBack to history\nCUSTOM\nFailed\nGreet the user. Ask which language to greet in.\n46s\n·\n2/5 agents\n·\n9.3K tokens\nRun started\nOpen in Steps\nWhat went wrong\nOpen in Steps\nWhat went wrong\n• The run stopped before completing. Reopen to resume.\nResume options\nReopen & fix from the failed step\nEdit brief & run again\nv1 · partial\nRun failed\nSteps\nFiles\nWorkspace\nAudit\nOutput will appear here"
+}

@@ -41,6 +41,7 @@ async def test_prototype_revision_deliverable_byte_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-631")
 async def test_prototype_revision_event_snapshot() -> None:
     """Lock the normalized semantic event stream for ``prototype_revision`` (SAFE-02 / SAFE-03)."""
     events = await _drive("prototype_revision")

@@ -108,7 +108,7 @@ class Report:
 #: box running MIGRATIONS that do not match its CODE, and reading the head off
 #: the same checkout the code came from would make the check tautological — it
 #: would agree with itself no matter what the database says.
-EXPECTED_ALEMBIC_HEAD = "0040"
+EXPECTED_ALEMBIC_HEAD = "0050"
 
 
 def _check_db(db, report: Report) -> None:

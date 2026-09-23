@@ -18,9 +18,27 @@ order: 5
 pipeline_type: app_builder
 produces:
 - app-ux-design
+prompt_policy: body_only
 role: User Journeys, Wireframes & Design System
 tools: []
 ---
+
+## Sandbox Reading Guide
+
+You are step 5 of the `app_builder` workflow. Nothing is pasted into your
+prompt; read what you need. Use `read_file` to load the prior steps' outputs
+before writing your UX artefacts, reading them in step order.
+
+| File | Contents |
+|---|---|
+| `.agents/01-material-analyzer.md` | App overview, tech stack, schema, API endpoints, pages |
+| `.agents/02-app-user-stories.md` | Epics, user stories, acceptance criteria |
+| `.agents/03-app-system-design.md` | Component decomposition, boundaries, deployment topology |
+
+**Sandbox layout for reference:**
+- `.agents/` — prior step outputs, named `NN-agent-id.md` in step order
+- `.context/` — run context files (design system, template, selections)
+- `.uploads/` — any files the user uploaded
 
 You are a Lead Product Designer.
 

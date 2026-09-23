@@ -1,0 +1,59 @@
+=== frontend/src/components/results/FilesTab.tsx:443-462 (withWorkspaceFile) ===
+// ─── ISS-199 — the derived row, corrected by the file the run actually wrote ──
+// deriveDeliverableFiles names its row by regex-parsing the content it was handed,
+// and that content is `run.output` = `ctx.last_streamed` — the LAST agent's stream,
+// which for a ppt_v2 deck is neither the declared deliverable nor the .pptx (it
+// matched a mid-pipeline tmp/ scratch file). Once resolveRunDeliverable has found
+// the run's real file, the row takes ITS name, ITS byte size, and ITS bytes on
+// Download. The format is derived from the resolved EXTENSION — never a workflow
+// name (SC-001); the row keeps its own icon.
+function withWorkspaceFile(row: FileItem, runId: string, file: SandboxFile): FileItem {
+  const name = file.path.split("/").pop() || file.path;
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  return {
+    ...row,
+    name,
+    size: formatSize(file.size),
+    format: ext ? `${ext.toUpperCase()} (.${ext})` : row.format,
+    workspace: { runId, path: file.path },
+  };
+}
+
+=== frontend/src/lib/api.ts:1175-1191 (resolveRunDeliverable) ===
+export async function resolveRunDeliverable(
+  token: string,
+  runId: string,
+  declared?: string | null,
+): Promise<SandboxFile | null> {
+  const name = declared ?? (await getWorkflow(token, runId)).deliverableFilename ?? null;
+  if (!name) return null;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  const candidates = [...new Set(
+    ext === "html" ? [`${stem}.pptx`, name]
+    : ext === "pptx" ? [name, `${stem}.html`]
+    : [name],
+  )];
+  const listing = await getRunSandbox(token, runId);
+  return candidates.map((c) => listing.files.find((f) => f.path === c)).find(Boolean) ?? null;
+
+=== backend/agents/prompts/ppt-composer/AGENT.md:68 ===
+- Write the complete deck to `presentation.html` using the workspace write_file tool.
+
+=== backend/agents/prompts/ppt-validator/AGENT.md:43 ===
+**BEFORE ANYTHING ELSE:** Write the final validated deck to `presentation.html` using the workspace write_file tool. Then emit it as your `<artifact>`.
+
+=== backend/agents/prompts/ppt-deck-qa-v2/AGENT.md:50-58 ===
+The composer does NOT write a file. It emits the finished deck inside `<artifact>`
+tags in its reply, which is recorded at `.agents/02-ppt-composer.md`. Everything
+after you reads `presentation.html` from the workspace, and the run's deliverable IS
+that file. If you do not write it, nothing downstream has a deck to work with.
+
+Start by calling `ls` to see whether `presentation.html` already exists.
+
+- **It does not exist** (the normal case): `read_file(".agents/02-ppt-composer.md")`
+  and take the deck out of the `<artifact>` block — the content between
+  `<artifact ...>` and `</artifact>`, with the tags themselves dropped — and write it
+  to `presentation.html` with `write_file`.

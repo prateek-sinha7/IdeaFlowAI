@@ -27,17 +27,38 @@ import type { Tier } from "@/lib/entitlements";
 import { canRunPipeline, TIER_LABELS, getUpgradeTier } from "@/lib/entitlements";
 import { baseWorkflowType } from "@/lib/workflowChaining";
 import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
-import { selectWorkflowWizardPath } from "@/store/slices/globalSlice";
+import { fetchRecentRuns, selectWorkflowWizardPath } from "@/store/slices/globalSlice";
 import type { UserWorkflowSummary, AnalyticsSummary } from "@/lib/api";
 import { getAnalyticsSummary, getToken } from "@/lib/api";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type { WorkflowSummary } from "@/store/api/workflows";
 
 // ─── sessionStorage cache helpers ───────────────────────────────────────────
 const CACHE_KEY_RECENTS   = "vlc_home_recents_v1";
 
-function readCache<T>(key: string): T[] {
-  if (typeof window === "undefined") return [];
+/**
+ * ISS-188/ISS-201: the recents cache must belong to ONE account. sessionStorage
+ * survives a soft (client-side) account switch within a tab, so an unscoped key
+ * hands the next account the previous one's run titles, token usage and cost.
+ * The JWT's `sub` claim (the user id — backend/app/core/security.py) is the only
+ * user identity available at first paint; `state.auth.user` is populated later,
+ * by getMe(). It also survives a token refresh, which mints a new token for the
+ * same user. Returns null when there is no decodable identity, in which case the
+ * cache is not touched at all — a lost instant-paint, never another account's data.
+ */
+function recentsCacheKey(): string | null {
+  const payload = getToken()?.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as { sub?: string };
+    return claims.sub ? `${CACHE_KEY_RECENTS}:${claims.sub}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCache<T>(key: string | null): T[] {
+  if (typeof window === "undefined" || !key) return [];
   try {
     const raw = sessionStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T[]) : [];
@@ -46,8 +67,8 @@ function readCache<T>(key: string): T[] {
   }
 }
 
-function writeCache<T>(key: string, data: T[]): void {
-  if (typeof window === "undefined") return;
+function writeCache<T>(key: string | null, data: T[]): void {
+  if (typeof window === "undefined" || !key) return;
   try { sessionStorage.setItem(key, JSON.stringify(data)); } catch { /* quota exceeded — ignore */ }
 }
 
@@ -128,14 +149,27 @@ export function HomeLaunchGrid({
   const recentRunsStatus = useAppSelector((state) => state.global.recentRunsStatus);
   const recentRunsError = useAppSelector((state) => state.global.recentRunsError);
 
-  // Redux is the instant-paint seed (fetchRecentRuns, same preload as
-  // workflows — see store/listenerMiddleware.ts); dashboard/page.tsx's own
-  // live-synced recentRuns prop (kept fresh via SSE) supersedes it once it
-  // arrives, via the effect below.
+  // QA-PS-035/036/038/041/046: this component is the only reader of the seed
+  // below, so it fetches it on its own mount; the signedIn preload used to,
+  // on every route. Same guard the listener applied, read from the store at
+  // dispatch time rather than this render's status, so StrictMode's double
+  // effect run still fetches once and a session's result is reused.
+  const dispatch = useAppDispatch();
+  useEffect(() => {
+    dispatch((next, getState) => {
+      const status = getState().global.recentRunsStatus;
+      if (status !== "loading" && status !== "succeeded") void next(fetchRecentRuns());
+    });
+  }, [dispatch]);
+
+  // Redux is the instant-paint seed (fetchRecentRuns, dispatched above);
+  // the live-synced recentRuns prop (RunConnectionProvider's list via
+  // dashboard/page.tsx, kept fresh via SSE) supersedes it once it arrives,
+  // via the effect below.
   const [recents, setRecents] = useState<WorkflowRun[]>(() => {
     if (recentRunsProp && recentRunsProp.length > 0) return recentRunsProp.slice(0, RECENTS_LIMIT);
     if (reduxRecentRuns.length > 0) return reduxRecentRuns.slice(0, RECENTS_LIMIT);
-    return readCache<WorkflowRun>(CACHE_KEY_RECENTS);
+    return readCache<WorkflowRun>(recentsCacheKey());
   });
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [inspectId, setInspectId] = useState<string | null>(null);
@@ -150,7 +184,7 @@ export function HomeLaunchGrid({
     if (recentRunsProp && recentRunsProp.length > 0) {
       const sliced = recentRunsProp.slice(0, RECENTS_LIMIT);
       setRecents(sliced);
-      writeCache(CACHE_KEY_RECENTS, sliced);
+      writeCache(recentsCacheKey(), sliced);
     }
   }, [recentRunsProp]);
 
@@ -160,10 +194,21 @@ export function HomeLaunchGrid({
     if ((!recentRunsProp || recentRunsProp.length === 0) && reduxRecentRuns.length > 0 && recents.length === 0) {
       const sliced = reduxRecentRuns.slice(0, RECENTS_LIMIT);
       setRecents(sliced);
-      writeCache(CACHE_KEY_RECENTS, sliced);
+      writeCache(recentsCacheKey(), sliced);
+    } else if (
+      (!recentRunsProp || recentRunsProp.length === 0) &&
+      reduxRecentRuns.length === 0 &&
+      recentRunsStatus === "succeeded" &&
+      recents.length > 0
+    ) {
+      // ISS-188: a fetch that genuinely resolved to ZERO runs must clear the
+      // cached list, not leave a stale non-empty one on screen. Without this
+      // branch an empty result is indistinguishable from "not fetched yet".
+      setRecents([]);
+      writeCache(recentsCacheKey(), []);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reduxRecentRuns]);
+  }, [reduxRecentRuns, recentRunsStatus]);
 
   // Fetch per-deliverable analytics (38-05: time estimate) on mount.
   useEffect(() => {
@@ -179,8 +224,6 @@ export function HomeLaunchGrid({
     };
     void fetchAnalytics();
   }, []);
-
-  void recentRunsStatus;
 
   // ─── Prompt (controlled-optional) ─────────────────────────────────────────
   // Brief/onBriefChange/onBuild props retained in interface for API compat

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { WifiOff, RefreshCw } from "lucide-react";
@@ -29,11 +29,16 @@ import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
-import { CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
+import { CHAIN_BRIEF_KEY, CHAIN_CONTEXT_BLOCK_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { useWorkflowChaining } from "@/hooks/useWorkflowMetadata";
 import { selectWorkflowWizardPath } from "@/store/slices/globalSlice";
 import { parseRunInput } from "@/lib/runInput";
 import { getToken, getChainContext, getRunFamily, getWorkflow, postCancel, postRevision, postResume } from "@/lib/api";
+// T9 (015-frontend-routing, FR-001/FR-004): every mainView-setting call site
+// below additionally pushes the matching path via routes.*, additively.
+import { routes } from "@/lib/routes";
+import { goBackOr } from "@/lib/navigation";
+import { isComposerWorkflow, runConfigFromManifest } from "@/store/api/userWorkflows";
 import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -41,6 +46,41 @@ import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
 // KAN-128 (FIX-141): content-derived filename for the left chat panel deliverable card
 import { deriveDeliverableFilename } from "@/components/results/FilesTab";
+
+/**
+ * T8 (015-frontend-routing, FR-011): the `savedComposition` state's shape,
+ * named so `initialSavedComposition` below (the cold-mount seed from
+ * page.tsx) and the state's own useState initializer share one definition
+ * instead of two hand-kept-in-sync copies.
+ */
+export type SavedComposition = {
+  agentIds: string[];
+  /** The saved row's `manifest_json.steps`, when it has one. The Composer
+   *  prefers this over `agentIds`, which is frozen at create time and so
+   *  misreports any composition edited after the first save. */
+  manifestSteps?: import("@/types/index").ManifestStep[];
+  /** The saved row's WHOLE manifest_json, so a save preserves the top-level
+   *  keys the canvas does not model (limits, seed_files, ...). A composer save
+   *  that rebuilt the manifest from steps alone dropped `limits`, and the next
+   *  run fell back to the engine's default cap of 8 subagents. */
+  manifest?: Record<string, unknown> | null;
+  modelOverrides: Record<string, string>;
+  selections: Record<string, Record<string, unknown>>;
+  brief?: string;
+  gateAgentIds?: string[];
+  // 41-04 — edit-from-My-Workflows carries the saved name/description into the
+  // full-page Composer (mainView='composer') so it mounts PRE-LOADED.
+  name?: string;
+  description?: string;
+  // The saved row's own id (WorkflowDefinition.id) — lets the Composer PATCH
+  // this existing row on Save instead of always POSTing a duplicate (avoids
+  // the "already exists" 409 when re-saving an edited saved workflow).
+  id?: string;
+  // The saved row's deliverable/planner/clarify (Workflow-tab rail state) —
+  // without this the Composer always re-initializes to its hardcoded default
+  // on reopen, so a saved .html deliverable silently reverted to .md.
+  runConfig?: import("@/types/index").WorkflowRunConfig;
+};
 
 export interface DashboardLayoutProps {
   activeChatId: string | null;
@@ -72,10 +112,18 @@ export interface DashboardLayoutProps {
   onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
+  /** ISS-757: false until page.tsx's initial getWorkflows has settled. Lets the
+   *  header tell "still loading" from "confirmed zero runs" — an empty
+   *  `recentRuns` means both. */
+  recentRunsLoaded?: boolean;
   /** Pre-fetched user-launchable workflow definitions from page.tsx. When supplied,
    *  HomeLaunchGrid uses them as initial state and skips its own getWorkflowDefinitions
    *  fetch, so the card grid appears instantly alongside the recents strip. */
   homeWorkflows?: WorkflowSummary[];
+  /** Pre-fetched saved (DB) workflows from page.tsx for the saved-workflows surface.
+   *  When supplied, WorkflowHistory can build saved-workflow chain targets without
+   *  an extra fetch (B3 fix). */
+  savedWorkflows?: import("@/lib/api").UserWorkflowSummary[];
   /**
    * Per-run agents-completed count from the run store. Keyed by run id.
    * Enables AppHeader to show live agent progress for ALL concurrent runs,
@@ -100,7 +148,10 @@ export interface DashboardLayoutProps {
    * the SSE stream and update the content-source so the execution view reflects
    * the selected running run.
    */
-  onSwitchToLiveRun?: (runId: string) => void;
+  // ISS-775 (QA-SG-004): the implementation is async (it replays the run's
+  // durable log), and the callers below await it before navigating — so the
+  // promise has to survive this type, not be flattened to void.
+  onSwitchToLiveRun?: (runId: string) => void | Promise<void>;
   /**
    * FIX-203: the backend run id of a background (non-viewed) concurrent run that
    * just completed. Set by page.tsx on every pipeline_complete for a run that is
@@ -116,6 +167,12 @@ export interface DashboardLayoutProps {
    * run at launch time, so backgroundCompletedRunId can find it on completion.
    */
   backgroundStartedRunId?: string | null;
+  /**
+   * ISS-648/ISS-649: FIX-203's bridge for a background (non-tracked) run's other
+   * transitions — failed, cancelled, gate paused ("gate"), gate resumed ("running").
+   * The viewed-run effects never see them, so the notification never changed.
+   */
+  backgroundRunTransition?: { runId: string; to: "failed" | "cancelled" | "gate" | "running" } | null;
   // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
   // failed/cancelled run is reopened it carries no content, so the run's
   // server-persisted status is threaded down to PreviewPanel to render the
@@ -130,6 +187,10 @@ export interface DashboardLayoutProps {
   // failed agents (the live pipelineState can't name them). Threaded straight to
   // PreviewPanel's DegradedRunAffordance; unknown ids fall back to the raw id.
   reopenedAgentNameById?: Record<string, string>;
+  // ISS-739 (QA-PS-014) — true while page.tsx's reopen fetch for the viewed run
+  // is in flight. Pure passthrough to PreviewPanel, which is the only surface
+  // that can tell "still fetching" from "empty run" with it.
+  isLoadingRunData?: boolean;
   questionnaireData?: {
     questions: {
       id: string; question: string; options: string[]; answerType?: string;
@@ -182,7 +243,12 @@ export interface DashboardLayoutProps {
     modelOverrides?: Record<string, string>;
     selections?: Record<string, Record<string, unknown>>;
     images?: { name: string; mime_type: string; data: string }[];
+    stagedUploadIds?: string[];
     agentIds?: string[];
+    /** Which web pipeline to launch. Absent = `prototype`. Mirrors the deck
+     *  side's `pipelineType` (spec 017) so a second web deliverable —
+     *  `prototype_v2` — launches itself instead of silently starting `prototype`. */
+    pipelineType?: string;
   } | null;
   onClearPendingOdProto?: () => void;
   pendingOdPptParams?: {
@@ -192,7 +258,10 @@ export interface DashboardLayoutProps {
     modelOverrides?: Record<string, string>;
     selections?: Record<string, Record<string, unknown>>;
     images?: { name: string; mime_type: string; data: string }[];
+    stagedUploadIds?: string[];
     agentIds?: string[];
+    /** Which deck pipeline to launch (spec 017). Absent = `ppt`. */
+    pipelineType?: string;
   } | null;
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
@@ -262,11 +331,55 @@ export interface DashboardLayoutProps {
   ) => string;
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call
   // onRequestOpenTab; PreviewPanel consumes deepLinkTarget for all tabs.
-  onRequestOpenTab?: (tab: string) => void;
+  onRequestOpenTab?: (tab: string, agentId?: string, runId?: string) => void;
   deepLinkTarget?: import("@/hooks/useTabDeepLink").TabDeepLinkTarget | null;
+  /**
+   * T6 (015-frontend-routing, FR-001/FR-003): the screen `parseViewPath`
+   * resolved from the URL on this mount, from page.tsx. Read once by the
+   * `mainView` useState initializer below so a cold-opened route (e.g.
+   * `/runs`, `/library/agents`) lands on that screen instead of always
+   * starting at "home". Undefined for routes with no MainView equivalent
+   * (e.g. `/create/ppt`), which fall back to the existing default logic.
+   */
+  initialMainView?: MainView;
+  /** Cold-load only: the pipeline_type from a generic `/create/{type}` URL, so a
+   *  typed/refreshed/shared link opens the launch panel on the RIGHT workflow.
+   *  Undefined on the click path, which sets workflowType directly before pushing. */
+  initialWorkflowType?: string;
+  /** Set when the canvas is showing a BUILT-IN workflow (`/workflows/{type}/canvas`).
+   *  Its manifest is a file on disk with no WorkflowDefinition row behind it, so the
+   *  composer runs copy-only: Run works on your edits, Save creates a NEW workflow you
+   *  own instead of overwriting anything. Undefined for a saved workflow, whose Save
+   *  legitimately overwrites its own row. */
+  builtinCanvasType?: string;
+  /**
+   * T8 (015-frontend-routing, FR-011): a saved workflow's composition,
+   * fetched by page.tsx on a cold mount of `/workflows/{id}/edit`. Seeds
+   * the SAME `savedComposition` state `handleLaunchSaved` populates on a
+   * click-driven launch, so a direct URL open pre-loads the Composer
+   * identically. Undefined/null for every other route (e.g.
+   * `/workflows/new`), which leaves `savedComposition` at its existing
+   * blank default.
+   */
+  initialSavedComposition?: SavedComposition | null;
+  /**
+   * SC-001 fix: the settings sub-tab `parseViewPath` resolved from the URL
+   * on this mount (e.g. `/settings/ai-model`), from page.tsx. Passed straight
+   * through to `AccountSettings`' own `initialSection` prop — AccountSettings
+   * fully unmounts/remounts on every `mainView` change (conditional render
+   * below), so no re-sync effect is needed the way `initialMainView` needs one.
+   */
+  initialSettingsSection?: SettingsSection;
+  /**
+   * ISS-230: the `/versions/{v}` pin `parseViewPath` resolved from the URL on
+   * this render, from page.tsx — the single source of truth for WHICH version
+   * is on screen. Threaded straight through to PreviewPanel, and re-applied to
+   * every tab route below so a tab switch cannot silently drop it.
+   */
+  pinnedVersion?: string;
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
+export type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
 
 // ISS-054 / KAN-160: stable empty fallback for non-live callers and existing tests
 // (preserves referential identity across renders). Live proposals now come from
@@ -280,6 +393,47 @@ const RUN_CONCIERGE_PROPOSALS: LaneProposal[] = [];
 const COMPOSER_ENABLED_TYPES = new Set<WorkflowType>([
   "custom",
 ] as WorkflowType[]);
+
+// T9 (015-frontend-routing): map a WorkflowType entering the "input" MainView
+// to its /create/{mode} route. Only ppt/prototype/app/user-stories have a
+// dedicated creation URL (contracts/route-map.md) — ppt/prototype never reach
+// here (HomeLaunchGrid.handleClick intercepts them into the wizard first), so
+// only app_builder/user_stories map onto a specific mode; every other type
+// (migration, mulesoft_to_springboot, dotnet_to_azure) has no dedicated URL in
+// the contract and falls back to the catalog page.
+function createRouteForType(type: WorkflowType): string {
+  if (type === "app_builder") return routes.createApp();
+  if (type === "user_stories") return routes.createUserStories();
+  // Every other type has no dedicated URL segment in the contract. A bare
+  // routes.create() ("/create") parses back to screen "create" -> mainView
+  // "home" (page.tsx's initialMainViewFor), which the URL-sync effect there
+  // then uses to STOMP the optimistic setMainView("input") above back to
+  // "home" — silently bouncing the click for any dynamic catalog id (a
+  // conditional-gate sample pipeline, any future non-hardcoded type) with no
+  // error at all. A per-type path parses as its own "create-workflow" screen
+  // instead (routes.ts's parseViewPath), which initialMainViewFor maps
+  // straight to "input" — no stomp, and it carries the pipelineType so a
+  // cold load of the same URL (typed, refreshed, shared) resolves the same
+  // launch panel too, not just the optimistic in-app click.
+  return `/create/${encodeURIComponent(type)}`;
+}
+
+// T9 (015-frontend-routing): the header's free-navigation targets, matched to
+// their routes.* builder. "library"/"settings" land on their default sub-tab
+// (contracts/route-map.md's redirect-only /library and /settings entries).
+function headerNavRoute(
+  page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+): string {
+  switch (page) {
+    case "home": return routes.home();
+    case "library": return routes.library();
+    case "history": return routes.runHistory();
+    case "settings": return routes.settingsProfile();
+    case "analytics": return routes.analytics();
+    case "catalog": return routes.create();
+    case "saved-workflows": return routes.workflows();
+  }
+}
 
 export function DashboardLayout({
   activeChatId,
@@ -305,10 +459,13 @@ export function DashboardLayout({
   reopenedRunStatus,
   reopenedFailedAgents,
   reopenedAgentNameById,
+  isLoadingRunData,
   onStartPipeline,
   onResetPipeline,
   recentRuns,
+  recentRunsLoaded,
   homeWorkflows,
+  savedWorkflows,
   runAgentsCompletedMap,
   contentSourceRunId,
   contentSourceRunType,
@@ -316,6 +473,7 @@ export function DashboardLayout({
   onSwitchToLiveRun,
   backgroundCompletedRunId,
   backgroundStartedRunId,
+  backgroundRunTransition,
   questionnaireData,
   activePipelineRunId,
   lastCancelledRunId,
@@ -345,13 +503,64 @@ export function DashboardLayout({
   onRevisionLaunched,
   onRequestOpenTab,
   deepLinkTarget,
+  initialMainView,
+  initialWorkflowType,
+  builtinCanvasType,
+  initialSavedComposition,
+  initialSettingsSection,
+  pinnedVersion,
 }: DashboardLayoutProps) {
   const router = useRouter();
+
+  // Handle tab selection in PreviewPanel by syncing to the URL
+  const handlePreviewPanelTabSelect = useCallback((tab: string, version?: string | null) => {
+    if (!contentSourceRunId) return;
+
+    // ISS-296: an explicit `version` argument is the Version menu changing WHICH
+    // version is pinned (a number to pin, `null` for back-to-live) — it wins over
+    // whatever the URL carries, so the menu writes the pin instead of leaving it
+    // in one component's memory. Omitted, the current pin rides along unchanged.
+    const pin = version === undefined ? pinnedVersion : (version ?? undefined);
+
+    // Map PreviewPanel tab ids to routes. The pin rides along on every one of
+    // them (ISS-230): a tab is a view switch, not a change of WHICH version is
+    // being viewed, so dropping it here silently reverted the URL, the fetches
+    // and the rendered data to the root run (v1).
+    const routeMap: Record<string, string> = {
+      "preview": routes.runDetail(contentSourceRunId, pin),
+      "thinking": routes.runSteps(contentSourceRunId, pin),
+      "files": routes.runFiles(contentSourceRunId, pin),
+      "workspace": routes.runWorkspace(contentSourceRunId, pin),
+      "audit": routes.runAudit(contentSourceRunId, pin),
+    };
+
+    const targetRoute = routeMap[tab];
+    if (!targetRoute || targetRoute === window.location.pathname) return;
+
+    // SHALLOW url update — deliberately NOT router.push. A run tab is a
+    // client-side view switch, not a navigation: the run, its stream and its
+    // panel are already mounted. router.push changes the [...view] catch-all
+    // params, which REMOUNTS page.tsx (see its T6/T7 comments — "confirmed
+    // live"), wiping every page-local run state (pipelineState, run type,
+    // brief) and forcing a full re-fetch/durable replay. Until that settled
+    // (~1s) the freshly-mounted PreviewPanel sat on its "preview" default and
+    // only then jumped to the clicked tab — the visible jerk on Steps/Files/
+    // Workspace/Audit. pushState keeps the URL shareable/refreshable and
+    // updates usePathname (Next patches it, app-router.js:252) without
+    // touching the router tree, so nothing remounts and nothing refetches.
+    window.history.pushState(null, "", targetRoute);
+  }, [contentSourceRunId, pinnedVersion]);
+
   // The app-level SSE connection — the sole run transport (44-06). Commands ride
   // its REST up-channel; useRunStream owns Last-Event-ID replay.
   const runConnection = useRunConnection();
   const chainInto = useWorkflowChaining();
   const [mainView, setMainView] = useState<MainView>(() => {
+    // T6 (015-frontend-routing): a cold-opened URL wins over the default —
+    // page.tsx resolved this from the path via parseViewPath.
+    if (initialMainView) {
+      return initialMainView;
+    }
     // If an od_prototype or ppt run is staged (user came from the wizard),
     // start directly in execution view — avoids the home screen flash while
     // waiting for the WebSocket to connect and fire the pipeline.
@@ -363,13 +572,46 @@ export function DashboardLayout({
     }
     return "home";
   });
+  // T9 (015-frontend-routing, FR-004): browser back/forward changes the URL
+  // without calling any of the setMainView-adjacent handlers above — Next's
+  // router re-renders page.tsx with new params (initialMainView is recomputed
+  // there on every navigation), but the useState initializer above only runs
+  // once on mount. Re-sync mainView to the prop whenever it changes so a
+  // back/forward press lands on the screen the URL now shows. A no-op on
+  // forward pushes (the triggering handler already set the same mainView
+  // directly) and skipped when initialMainView is undefined (routes with no
+  // MainView equivalent fall back to whatever mainView already is).
+  useEffect(() => {
+    if (initialMainView && initialMainView !== mainView) {
+      setMainView(initialMainView);
+    }
+  }, [initialMainView, mainView]);
+
   // Which Account Settings tab a navigation asked for, plus a monotonic nonce so
   // that asking for the SAME tab twice still forces a fresh mount (see
   // handleNavigate). Only read while mainView === "settings".
+  //
+  // Seeded from `initialSettingsSection` rather than a hardcoded "profile":
+  // that prop is the URL-derived tab (parseViewPath -> page.tsx), so a cold load
+  // of /settings/ai-model opens on AI Model, while in-app navigation still goes
+  // through setSettingsRequest. One source of truth for the tab, two ways in.
   const [settingsRequest, setSettingsRequest] = useState<{ section: SettingsSection; nonce: number }>(
-    { section: "profile", nonce: 0 },
+    () => ({ section: initialSettingsSection ?? "profile", nonce: 0 }),
   );
+  // Same reason as the mainView re-sync above: back/forward between
+  // /settings/{tab} URLs changes the prop without going through handleNavigate.
+  // Bumping the nonce is what actually re-applies it — the settings view is
+  // keyed on it, so this remounts AccountSettings with the new initialSection.
+  useEffect(() => {
+    if (initialSettingsSection && initialSettingsSection !== settingsRequest.section) {
+      setSettingsRequest((prev) => ({ section: initialSettingsSection, nonce: prev.nonce + 1 }));
+    }
+  }, [initialSettingsSection, settingsRequest.section]);
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
+    // A cold-loaded /create/{type} URL wins: without this the panel silently
+    // opened on the "user_stories" default below, so a shared or refreshed link
+    // launched the WRONG workflow rather than the one the URL named.
+    if (initialWorkflowType) return initialWorkflowType as WorkflowType;
     if (typeof window !== "undefined") {
       if (sessionStorage.getItem("prototype.pending")) return "prototype";
       if (sessionStorage.getItem("ppt.pending")) return "ppt";
@@ -518,6 +760,22 @@ export function DashboardLayout({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backgroundCompletedRunId]);
 
+  // ISS-648/ISS-649: same lookup as FIX-203 for a background run's failure,
+  // cancellation and gate pause/resume. markGateResumed no-ops unless paused.
+  useEffect(() => {
+    if (!backgroundRunTransition) return;
+    const { runId, to } = backgroundRunTransition;
+    const notif = notifications.find(
+      n => (n.workflowRunId === runId || n.id === `pipeline-${runId}`) && (n.status === "running" || n.status === "gate")
+    );
+    if (!notif) return;
+    if (to === "failed") markFailed(notif.id);
+    else if (to === "cancelled") markCancelled(notif.id);
+    else if (to === "gate") markGatePaused(notif.id);
+    else markGateResumed(notif.id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backgroundRunTransition]);
+
   // FIX-205: when a background concurrent run's pipeline_start arrives, stamp its
   // workflowRunId onto the notification created at launch time (before the run id
   // was known). handleRunPipeline creates notifications with pipeline-${Date.now()}
@@ -565,6 +823,20 @@ export function DashboardLayout({
       // FIX-155: only reset if odProtoNotifCreated hasn't fired yet for the new
       // run (avoids clearing a freshly-created od_prototype notification).
       const incomingRunId = pipelineState.pipelineRunId;
+      // T9/T25 (015-frontend-routing, FR-010): the single funnel every launch
+      // path's pipelineRunId flows through, regardless of whether the specific
+      // launch handler already knew a run id at its own call site (several
+      // don't — the backend hasn't minted one yet, see handleRunPipeline).
+      // Kept unconditional (not gated behind the mainView check above) so a
+      // later run replacing an already-"execution" view still gets its own
+      // URL. `pipelineState.pipelineRunId` is in the dep array below (not just
+      // isRunning/pipeline_type) because the run id routinely arrives on a
+      // LATER pipeline_start frame that re-announces the SAME isRunning/type —
+      // without that dependency this effect would run once (id still
+      // undefined) and never again for that launch, silently dropping the push.
+      if (incomingRunId) {
+        router.push(routes.runStream(incomingRunId));
+      }
       if (incomingRunId && currentPipelineNotifId.current) {
         if (!odProtoNotifCreated.current) {
           // KAN-88 stale-label fix: only reset currentPipelineNotifId when it
@@ -611,7 +883,7 @@ export function DashboardLayout({
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineState?.isRunning, pipelineState?.pipeline_type]);
+  }, [pipelineState?.isRunning, pipelineState?.pipeline_type, pipelineState?.pipelineRunId]);
 
   // Capture output when pipeline completes (for chaining)
   useEffect(() => {
@@ -893,6 +1165,12 @@ export function DashboardLayout({
       // until the first pipeline_start event arrives (the same pattern the
       // onStartPipeline path and the wizard launch path already follow).
       setMainView("execution");
+      // T9 fix (015-frontend-routing, FR-004/FR-010): do NOT push contentSourceRunId
+      // here — it's the PARENT run being revised, not the new revision run this
+      // POST creates. Pushing it raced T7/T11's cold-mount guard (page.tsx) into a
+      // stale-then-refetch cycle. The pipelineRunId-reactive effect (:662) pushes
+      // routes.runStream once the real revision run id arrives via its own
+      // pipeline_start frame (attachRun in the .then() below wires that up).
       void postRevision(getToken() ?? "", contentSourceRunId, {
         target_artifact_type: "ppt_output",
         instruction,
@@ -966,6 +1244,30 @@ export function DashboardLayout({
       onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedHooks, { source_workflow_run_id: contentSourceRunId || undefined, _display_title: instruction.slice(0, 60) });
     }
   }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedHooks]);
+
+  // Handle Custom / DB-workflow revision (B8 fix)
+  // Uses the REST POST /{id}/revisions endpoint so the server discovers the right
+  // pipeline (custom_revision) from the parent's WorkflowRun.type, rather than
+  // the frontend having to know the workflow's internal shape. No prior content
+  // to embed — the custom_revision pipeline's custom-revision-planner reads the
+  // parent sandbox via the previous_run context provider.
+  const handleReviseCustom = useCallback((instruction: string) => {
+    if (!contentSourceRunId) return;
+    setMainView("execution");
+    void postRevision(getToken() ?? "", contentSourceRunId, {
+      target_artifact_type: "custom_output",
+      instruction,
+    })
+      .then(({ run_id }) => {
+        if (run_id) {
+          runConnection.attachRun(run_id);
+          onRevisionLaunched?.(run_id);
+        }
+      })
+      .catch((e) => console.error("postRevision (custom) failed", e));
+    setWorkflowType("custom_revision");
+    if (onResetPipeline) onResetPipeline();
+  }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
 
   // Handle incoming questionnaire data from WebSocket
   // FIX-201 (KAN-168): also clear questionnaireQuestions when questionnaireData
@@ -1049,7 +1351,14 @@ export function DashboardLayout({
     if (launchedProtoParamsRef.current === pendingOdProtoParams) return;
     launchedProtoParamsRef.current = pendingOdProtoParams;
     setMainView("execution");
-    setWorkflowType("prototype");
+    // T9 fix (015-frontend-routing, FR-004/FR-010): sourceRunId here is the
+    // PARENT run this od_prototype revision chains from, not the new run about
+    // to be launched — pushing it raced T7/T11's cold-mount guard (page.tsx),
+    // see the fuller rationale at the postRevision push above (:1005). The
+    // pipelineRunId-reactive effect (:662) pushes the real new run's URL once
+    // its own pipeline_start frame arrives.
+    const webPipeline = (pendingOdProtoParams.pipelineType ?? "prototype") as WorkflowType;
+    setWorkflowType(webPipeline);
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     if (onClearPendingOdProto) onClearPendingOdProto();
@@ -1070,6 +1379,10 @@ export function DashboardLayout({
       ...(pendingOdProtoParams.modelOverrides && Object.keys(pendingOdProtoParams.modelOverrides).length > 0 ? { model_overrides: pendingOdProtoParams.modelOverrides } : {}),
       ...(pendingOdProtoParams.selections && Object.keys(pendingOdProtoParams.selections).length > 0 ? { selections: pendingOdProtoParams.selections } : {}),
       ...(pendingOdProtoParams.images && pendingOdProtoParams.images.length > 0 ? { images: pendingOdProtoParams.images } : {}),
+      // UPLD-05: the raw documents the wizard staged at attach time. `ingest_staged_uploads`
+      // moves them into the run's `.uploads/` — without this a file-reading workflow starts
+      // with an empty `.uploads/` and its planner has nothing to read.
+      ...(pendingOdProtoParams.stagedUploadIds && pendingOdProtoParams.stagedUploadIds.length > 0 ? { staged_upload_ids: pendingOdProtoParams.stagedUploadIds } : {}),
     };
 
     if (onStartPipeline) {
@@ -1082,13 +1395,13 @@ export function DashboardLayout({
       odProtoNotifId.current = notifId;
       currentPipelineNotifId.current = notifId;
       currentPipelineNotifRunId.current = null; // FIX-194: will be set by reactive effect once pipelineRunId arrives
-      addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
+      addRunningNotification(notifId, webPipeline, pendingOdProtoParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdProtoParams.agentIds ?? [];
       if (connectionStatus === "connected") {
-        onStartPipeline("prototype", pendingOdProtoParams.brief, agentIds, attachedHooks, extraParams);
+        onStartPipeline(webPipeline, pendingOdProtoParams.brief, agentIds, attachedHooks, extraParams);
       } else {
         pendingStartOnConnectRef.current = {
-          type: "prototype",
+          type: webPipeline,
           message: pendingOdProtoParams.brief,
           agentIds,
           extraParams,
@@ -1108,8 +1421,15 @@ export function DashboardLayout({
     // StrictMode mount-invoke early-returns without a second mint.
     if (launchedPptParamsRef.current === pendingOdPptParams) return;
     launchedPptParamsRef.current = pendingOdPptParams;
+    // Spec 017: `ppt` and `ppt_v2` ride the same staging pipe (identical draft
+    // shape, identical wizard), so the draft names the pipeline. Absent = `ppt`,
+    // which is every draft written before ppt_v2 existed.
+    const deckPipeline = (pendingOdPptParams.pipelineType ?? "ppt") as WorkflowType;
     setMainView("execution");
-    setWorkflowType("ppt");
+    // T9 fix (015-frontend-routing, FR-004/FR-010): same reasoning as the
+    // pendingOdProtoParams effect above (:1163) — sourceRunId is the PARENT run,
+    // not the new one; the pipelineRunId-reactive effect (:662) pushes the real URL.
+    setWorkflowType(deckPipeline);
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     if (onClearPendingOdPpt) onClearPendingOdPpt();
@@ -1129,6 +1449,7 @@ export function DashboardLayout({
       ...(pendingOdPptParams.modelOverrides && Object.keys(pendingOdPptParams.modelOverrides).length > 0 ? { model_overrides: pendingOdPptParams.modelOverrides } : {}),
       ...(pendingOdPptParams.selections && Object.keys(pendingOdPptParams.selections).length > 0 ? { selections: pendingOdPptParams.selections } : {}),
       ...(pendingOdPptParams.images && pendingOdPptParams.images.length > 0 ? { images: pendingOdPptParams.images } : {}),
+      ...(pendingOdPptParams.stagedUploadIds && pendingOdPptParams.stagedUploadIds.length > 0 ? { staged_upload_ids: pendingOdPptParams.stagedUploadIds } : {}),
     };
 
     if (onStartPipeline) {
@@ -1139,13 +1460,13 @@ export function DashboardLayout({
       odPptNotifId.current = notifId;
       currentPipelineNotifId.current = notifId;
       currentPipelineNotifRunId.current = null; // FIX-194: will be set by reactive effect once pipelineRunId arrives
-      addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
+      addRunningNotification(notifId, deckPipeline, pendingOdPptParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdPptParams.agentIds ?? [];
       if (connectionStatus === "connected") {
-        onStartPipeline("ppt" as WorkflowType, pendingOdPptParams.brief, agentIds, attachedHooks, extraParams);
+        onStartPipeline(deckPipeline, pendingOdPptParams.brief, agentIds, attachedHooks, extraParams);
       } else {
         pendingStartOnConnectRef.current = {
-          type: "ppt" as WorkflowType,
+          type: deckPipeline,
           message: pendingOdPptParams.brief,
           agentIds,
           extraParams,
@@ -1160,29 +1481,25 @@ export function DashboardLayout({
   // WorkflowType) cannot express. We stash it here and thread it into IdeaInputPage
   // as the launch-preload seeds. Cleared on a normal select so a non-saved launch
   // starts from the empty filter (no stale seed bleed — T-21-12).
-  const [savedComposition, setSavedComposition] = useState<{
-    agentIds: string[];
-    /** The saved row's `manifest_json.steps`, when it has one. The Composer
-     *  prefers this over `agentIds`, which is frozen at create time and so
-     *  misreports any composition edited after the first save. */
-    manifestSteps?: import("@/types/index").ManifestStep[];
-    modelOverrides: Record<string, string>;
-    selections: Record<string, Record<string, unknown>>;
-    brief?: string;
-    gateAgentIds?: string[];
-    // 41-04 — edit-from-My-Workflows carries the saved name/description into the
-    // full-page Composer (mainView='composer') so it mounts PRE-LOADED.
-    name?: string;
-    description?: string;
-    // The saved row's own id (WorkflowDefinition.id) — lets the Composer PATCH
-    // this existing row on Save instead of always POSTing a duplicate (avoids
-    // the "already exists" 409 when re-saving an edited saved workflow).
-    id?: string;
-    // The saved row's deliverable/planner/clarify (Workflow-tab rail state) —
-    // without this the Composer always re-initializes to its hardcoded default
-    // on reopen, so a saved .html deliverable silently reverted to .md.
-    runConfig?: import("@/types/index").WorkflowRunConfig;
-  } | null>(null);
+  // T8 (015-frontend-routing, FR-011): seeded from `initialSavedComposition`
+  // (page.tsx's cold-mount fetch for `/workflows/{id}/edit`) so a direct URL
+  // open pre-loads the Composer exactly like a click-driven `handleLaunchSaved`
+  // does. Undefined/null (e.g. `/workflows/new`) keeps the existing blank default.
+  const [savedComposition, setSavedComposition] = useState<SavedComposition | null>(
+    initialSavedComposition ?? null
+  );
+  // T8: the fetch behind `initialSavedComposition` is async and resolves AFTER
+  // this component has already mounted (unlike `initialMainView`, which
+  // page.tsx computes synchronously from the URL) — so the useState
+  // initializer above only catches it on the rare render where it's already
+  // resolved. Sync it in via an effect so the normal case (fetch still in
+  // flight at mount) still lands.
+  useEffect(() => {
+    if (initialSavedComposition) {
+      setSavedComposition(initialSavedComposition);
+    }
+  }, [initialSavedComposition]);
+
 
   // Fused Home (SHELL-02 SC-1) — the launcher-brief captured on the home landing,
   // and the pending brief handed to the input view for the generic launch path.
@@ -1196,8 +1513,50 @@ export function DashboardLayout({
   const handleSelectFeature = useCallback((type: WorkflowType) => {
     setSavedComposition(null);
     setWorkflowType(type);
+    // A wizard-launched workflow goes to its wizard, wherever the click came
+    // from. HomeLaunchGrid checked this map itself, so every OTHER caller —
+    // SavedWorkflowsPage, the revise path, a cold /create/{type} URL — fell
+    // through to the plain brief panel instead, skipping the template and
+    // design-system step the run actually requires.
+    const wizardPath = selectWorkflowWizardPath(baseWorkflowType(type));
+    if (wizardPath) { router.push(wizardPath); return; }
     setMainView(COMPOSER_ENABLED_TYPES.has(type) ? "composer" : "input");
-  }, []);
+    router.push(COMPOSER_ENABLED_TYPES.has(type) ? routes.workflowNew() : createRouteForType(type));
+  }, [router]);
+
+  // "Open in full canvas" (AgentsPopup header -> IdeaInputPage -> here): take the
+  // composition the launch panel is holding RIGHT NOW — including any edits made in
+  // the Advanced modal that were never saved anywhere — and reopen it in the
+  // full-page Composer. The modal already renders composer/CanvasView, so this is the
+  // same canvas at full size, not a second surface.
+  //
+  // No `id` is carried on purpose. A built-in pipeline is a workflow.yaml on disk with
+  // no WorkflowDefinition row, so there is nothing to PATCH; the Composer's Save must
+  // POST a NEW saved workflow owned by the user. Passing an id here would make Save
+  // try to overwrite a row that does not exist. Editing a genuinely saved workflow
+  // keeps its id via the savedComposition already in state.
+  // "Open in full canvas". NAVIGATION ONLY — deliberately no state and no
+  // sessionStorage handoff.
+  //
+  // Both existed before `/workflows/{type}/canvas` did, to carry the composition
+  // across the remount that happens when page.tsx briefly renders null. The URL now
+  // carries the workflow's identity and the composer refetches its manifest on mount,
+  // so neither is needed — and both caused a worse bug than they solved: going BACK
+  // from the canvas left `savedComposition` applied to the launch panel, whose
+  // `initialAgentIds` restore resolves ids against ALL_LIBRARY_AGENTS. A composed
+  // step (`custom-agent:emoji`) has no library entry, so every id was dropped and the
+  // panel showed "0 agents" — and the sessionStorage copy made it survive a refresh.
+  //
+  // Trade-off, accepted: unsaved edits made inside the Advanced modal do not travel to
+  // the full canvas; it opens the workflow as authored. Carrying them needs a channel
+  // that is scoped to the composer screen rather than read by whatever mounts next.
+  const handleOpenInCanvas = useCallback(() => {
+    const canvasType = workflowType && !COMPOSER_ENABLED_TYPES.has(workflowType)
+      ? workflowType
+      : undefined;
+    setMainView("composer");
+    router.push(canvasType ? routes.workflowCanvas(canvasType) : routes.workflowNew());
+  }, [router, workflowType]);
 
   // Fused Home launcher: carry the typed brief into the input view, then reuse the
   // existing home→input seam. Wizard-routed types (prototype/ppt/requiresWizard) are
@@ -1268,7 +1627,7 @@ export function DashboardLayout({
         description: saved.description ?? undefined,
       };
       sessionStorage.setItem("ppt.draft", JSON.stringify(draft));
-      router.push("/workflow/create?mode=ppt");
+      router.push(routes.workflowCreateLegacy("ppt"));
       return;
     }
 
@@ -1295,13 +1654,14 @@ export function DashboardLayout({
         description: saved.description ?? undefined,
       };
       sessionStorage.setItem("prototype.draft", JSON.stringify(draft));
-      router.push("/workflow/create?mode=prototype");
+      router.push(routes.workflowCreateLegacy("prototype"));
       return;
     }
 
     setSavedComposition({
       agentIds: saved.agent_ids,
       manifestSteps: saved.manifest?.steps,
+      manifest: (saved.manifest as Record<string, unknown> | undefined) ?? null,
       modelOverrides: saved.model_overrides ?? {},
       selections: saved.selections ?? {},
       brief: typeof saved.selections?._wizard?.brief === "string"
@@ -1316,11 +1676,7 @@ export function DashboardLayout({
       // Deliverable/planner/clarify live INSIDE manifest_json (there is no
       // top-level column for them — UserWorkflowResponse has no such fields),
       // so they only exist here when the row is manifest-shaped (Case 3).
-      runConfig: {
-        ...(saved.manifest?.deliverable ? { deliverable: saved.manifest.deliverable } : {}),
-        ...(saved.manifest?.planner ? { planner: saved.manifest.planner } : {}),
-        ...(saved.manifest?.clarify ? { clarify: saved.manifest.clarify } : {}),
-      },
+      runConfig: runConfigFromManifest(saved.manifest),
     });
     const launchedType = saved.base_pipeline_type as WorkflowType;
     setWorkflowType(launchedType);
@@ -1328,7 +1684,13 @@ export function DashboardLayout({
     // the saved agents + selections (D-CMP-ENTRY) only for Composer-enabled types
     // (currently just `custom`); everything else opens the old brief/Input flow,
     // mirroring handleSelectFeature.
-    setMainView(COMPOSER_ENABLED_TYPES.has(launchedType) ? "composer" : "input");
+    // `isComposerWorkflow`, not the stamped type alone: `base_pipeline_type` is
+    // immutable after create, so a row stamped with a stale type could never
+    // open in the Composer again. A composed manifest is proof of origin.
+    setMainView(
+      COMPOSER_ENABLED_TYPES.has(launchedType) || isComposerWorkflow(saved) ? "composer" : "input",
+    );
+    router.push(routes.workflowRun(saved.id));
   }, [router, attachHook, clearAttachedSkillsHooks]);
 
   // Run the pipeline from Input page — triggers questionnaire first
@@ -1341,6 +1703,12 @@ export function DashboardLayout({
   const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => {
     setWorkflowInput(message);
     setMainView("execution");
+    // T9/T25 (015-frontend-routing): no run id exists yet at this call site —
+    // the backend mints one only once onStartPipeline's POST resolves, and
+    // contentSourceRunId here would be a stale, unrelated PREVIOUS run (this is
+    // a fresh launch, not a revision/chain of it). Pushing it would show a wrong
+    // URL. The pipelineRunId-reactive effect above pushes routes.runStream once
+    // the real id arrives via the pipeline_start frame.
     setWorkflowType(resolvedType);
 
     // Reset previous pipeline state so left panel clears
@@ -1398,23 +1766,71 @@ export function DashboardLayout({
   // Go back to home
   const handleGoHome = useCallback(() => {
     setMainView("home");
+    router.push(routes.home());
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
     if (!isPipelineRunning && onResetPipeline) onResetPipeline();
-  }, [onResetPipeline, isPipelineRunning]);
+  }, [onResetPipeline, isPipelineRunning, router]);
 
-  // "Edit brief & run again" — navigate to the input view so the user can
-  // modify their brief and start a fresh run (does NOT resume from checkpoint).
-  // Pre-fills the brief from submittedBrief when available so the user can edit
-  // rather than retype from scratch. Resets pipeline state so the input page
-  // starts clean (no stale failed-run overlay).
-  const handleEditBrief = useCallback(() => {
-    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
-    setResumeError(null);
+  // In-app "Back" buttons: go back one history step (T9's initialMainView
+  // re-sync effect above picks up the URL change) instead of always jumping
+  // home, so Back returns to wherever the user actually came from. Falls back
+  // to handleGoHome only when there's no prior in-app entry to go back to
+  // (e.g. a direct/shared URL landed straight on this screen).
+  //
+  // ISS-275 — Back is also the one control that throws away whatever the screen
+  // it is leaving never persisted. The mounted page reports that through
+  // `handleUnsavedChange` (a ref, so the guard reads the live value without
+  // re-creating this callback) and Back confirms before discarding it. Kept
+  // here, in the one handler all five page mounts already route through,
+  // rather than as a per-page `confirm()` in five separate onClicks.
+  // ISS-622: use in-app dialog state instead of window.confirm (which was
+  // re-introduced by a prior fix and banned by S-19-17).
+  const hasUnsavedWork = useRef(false);
+  const handleUnsavedChange = useCallback((dirty: boolean) => {
+    hasUnsavedWork.current = dirty;
+  }, []);
+
+  // ISS-622: in-app "unsaved changes" confirmation — replaces window.confirm.
+  // When hasUnsavedWork is true, Back sets this to true (showing the dialog)
+  // rather than navigating immediately. The two dialog buttons call
+  // commitBackNav (proceed) or cancelBackNav (stay). This defers the navigation
+  // without blocking the main thread and without a native browser dialog.
+  const [confirmingBackNav, setConfirmingBackNav] = useState(false);
+
+  const commitBackNav = useCallback(() => {
+    setConfirmingBackNav(false);
     setQuestionnaireQuestions([]);
-    setMainView("input");
-  }, [isPipelineRunning, onResetPipeline]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    goBackOr(router, () => {
+      setMainView("home");
+      router.push(routes.home());
+    });
+  }, [onResetPipeline, isPipelineRunning, router]);
+
+  const cancelBackNav = useCallback(() => {
+    setConfirmingBackNav(false);
+  }, []);
+
+  const handleBackNav = useCallback(() => {
+    if (hasUnsavedWork.current) {
+      // Show the in-app confirmation dialog instead of window.confirm.
+      setConfirmingBackNav(true);
+      return;
+    }
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    goBackOr(router, () => {
+      setMainView("home");
+      router.push(routes.home());
+    });
+  }, [onResetPipeline, isPipelineRunning, router]);
+
 
   // Chain to another pipeline using previous output as context
   const handleChainPipeline = useCallback(async (nextType: WorkflowType) => {
@@ -1446,7 +1862,7 @@ export function DashboardLayout({
       // Concierge-chained run never sets workflowInput in DashboardLayout).
       let ctxBriefFallback = "";
       // Clear any stale context_block from a previous chain before writing new one.
-      sessionStorage.removeItem("chain.context_block");
+      sessionStorage.removeItem(CHAIN_CONTEXT_BLOCK_KEY);
       sessionStorage.setItem(CHAIN_FROM_KEY, chainFromType || workflowType);
       if (sourceRunId) {
         sessionStorage.setItem(CHAIN_SOURCE_RUN_ID_KEY, sourceRunId);
@@ -1455,7 +1871,7 @@ export function DashboardLayout({
           if (token) {
             const ctx = await getChainContext(token, sourceRunId);
             if (ctx.context_block) {
-              sessionStorage.setItem("chain.context_block", ctx.context_block);
+              sessionStorage.setItem(CHAIN_CONTEXT_BLOCK_KEY, ctx.context_block);
             }
             ctxBriefFallback = ctx.brief || "";
           }
@@ -1472,25 +1888,19 @@ export function DashboardLayout({
 
     setWorkflowType(nextType);
 
-    // Fetch structured context from the source run
-    let contextBlock = "";
+    // Fetch ctx.brief from the source run (brief-only — context is now delivered
+    // via .context/ files by the chain_context provider, not injected as text
+    // into the agent message — Requirement 22 / task 7.4).
     let ctxBrief = "";
     if (sourceRunId) {
       try {
         const token = getToken();
         if (token) {
           const ctx = await getChainContext(token, sourceRunId);
-          contextBlock = ctx.context_block;
           ctxBrief = ctx.brief || "";
         }
       } catch {
-        // Fallback: use the old approach
-        const isHtmlOutput = workflowType === "ppt" || workflowType === "ppt_revision" ||
-          workflowType === "prototype" || workflowType === "prototype_revision" ||
-          workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision";
-        contextBlock = isHtmlOutput
-          ? `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n[${workflowType} output — HTML file]\n=== END PREVIOUS CONTEXT ===`
-          : `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${lastPipelineOutput.slice(0, 4000)}\n=== END PREVIOUS CONTEXT ===`;
+        // Non-fatal — brief is a display convenience; the run still starts.
       }
     }
 
@@ -1506,16 +1916,21 @@ export function DashboardLayout({
     const parsedChain = parseRunInput(workflowInput);
     const parsedBrief = parsedChain.revisionInstruction ?? parsedChain.brief;
     const chainBrief = parsedBrief || ctxBrief;
-    const enrichedInput = contextBlock
-      ? `${chainBrief}\n\n${contextBlock}`.trim()
-      : chainBrief;
+    // Context is now delivered as files via .context/ (chain_context provider).
+    // Do NOT inject a text context block — that would double-deliver the context
+    // to every agent (once as a message block, once via .context/ files).
+    const briefMessage = chainBrief;
 
     // FIX-150: switch to execution view synchronously before onResetPipeline /
     // onStartPipeline so the execution panel is mounted before the first SSE
     // frame arrives. Mirrors handleChainFromHistory.
     setMainView("execution");
+    // T9 fix (015-frontend-routing, FR-004/FR-010): sourceRunId is the run being
+    // chained FROM, not the new chained run this launches — same reasoning as
+    // the postRevision push above (:1005). The pipelineRunId-reactive effect
+    // (:662) pushes the real new run's URL once its pipeline_start frame arrives.
     if (onResetPipeline) onResetPipeline();
-    setWorkflowInput(enrichedInput);
+    setWorkflowInput(briefMessage);
 
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
@@ -1523,17 +1938,17 @@ export function DashboardLayout({
       currentPipelineNotifRunId.current = null; // FIX-194
       // chainBrief is the stripped user brief (no markers); use it as the
       // notification title so the panel never shows raw context block text.
-      const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
+      const chainNotifTitle = (chainBrief || briefMessage).slice(0, 60);
       addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
       { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
-        onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: chainBrief });
+        onStartPipeline(nextType, briefMessage, [], attachedHooks, { _display_title: chainBrief, ...(sourceRunId ? { source_workflow_run_id: sourceRunId } : {}) });
       } else {
-        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [], extraParams: { _display_title: chainBrief } };
+        pendingStartOnConnectRef.current = { type: nextType, message: briefMessage, agentIds: [], extraParams: { _display_title: chainBrief, ...(sourceRunId ? { source_workflow_run_id: sourceRunId } : {}) } };
       }
     }
-  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, contentSourceRunId, onStartPipeline, onResetPipeline, connectionStatus, attachedHooks, addRunningNotification]);
+  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, contentSourceRunId, onStartPipeline, onResetPipeline, connectionStatus, attachedHooks, addRunningNotification, router]);
 
   // Chain to another pipeline starting from a historical run. The user is
   // viewing a past WorkflowRun in the history view; they pick a next
@@ -1541,7 +1956,12 @@ export function DashboardLayout({
   // enrichment (NOT the current dashboard state, which is stale for the
   // run they just opened from history). After dispatching we switch to
   // the execution view so the new pipeline shows the agent progress.
-  const handleChainFromHistory = useCallback(async (run: WorkflowRun, nextType: WorkflowType) => {
+  //
+  // B3 fix: userWorkflowId is the saved-workflow DB id when the user picks
+  // a saved workflow as the chain target. When provided it is included in
+  // extraParams so the backend uses USER_WORKFLOW_FLAT/MANIFEST launch shape
+  // alongside source_workflow_run_id. When absent the behaviour is unchanged.
+  const handleChainFromHistory = useCallback(async (run: WorkflowRun, nextType: WorkflowType, userWorkflowId?: string) => {
     const wizardPath = selectWorkflowWizardPath(baseWorkflowType(nextType));
     if (wizardPath) {
       sessionStorage.setItem(CHAIN_FROM_KEY, run.type);
@@ -1552,15 +1972,15 @@ export function DashboardLayout({
           if (token) {
             const ctx = await getChainContext(token, run.id);
             if (ctx.context_block) {
-              sessionStorage.setItem("chain.context_block", ctx.context_block);
+              sessionStorage.setItem(CHAIN_CONTEXT_BLOCK_KEY, ctx.context_block);
             } else {
-              sessionStorage.removeItem("chain.context_block");
+              sessionStorage.removeItem(CHAIN_CONTEXT_BLOCK_KEY);
             }
           }
         } catch { /* non-fatal */ }
       } else {
         sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
-        sessionStorage.removeItem("chain.context_block");
+        sessionStorage.removeItem(CHAIN_CONTEXT_BLOCK_KEY);
       }
       // FIX-217: write chain.brief AFTER getChainContext awaits so both keys are
       // settled in sessionStorage before router.push triggers wizard render.
@@ -1570,39 +1990,39 @@ export function DashboardLayout({
       return;
     }
 
-    // Fetch structured context from the source run
-    let contextBlock = "";
+    // Fetch ctx.brief from the source run (brief-only — context is now delivered
+    // via .context/ files by the chain_context provider, not injected as text
+    // into the agent message — Requirement 22 / task 7.4).
+    let historyCtxBrief = "";
     try {
       const token = getToken();
       if (token && run.id) {
         const ctx = await getChainContext(token, run.id);
-        contextBlock = ctx.context_block;
+        historyCtxBrief = ctx.brief || "";
       }
     } catch {
-      // Fallback
-      const isHtmlOutput = run.type === "ppt" || run.type === "ppt_revision" ||
-        run.type === "prototype" || run.type === "prototype_revision" ||
-        run.type === "prototype_large_revision" || run.type === "prototype_feature_revision";
-      const baseOutput = isHtmlOutput
-        ? `[${run.title || run.type} output — HTML file]`
-        : (run.output || "").slice(0, 4000);
-      if (baseOutput) {
-        contextBlock = `=== CONTEXT FROM PREVIOUS PIPELINE (${run.type}) ===\n${baseOutput}\n=== END PREVIOUS CONTEXT ===`;
-      }
+      // Non-fatal — brief is a display convenience; the run still starts.
     }
 
     // Workstream C1 (INV-12): same single-parser rewire as handleChainPipeline.
     const parsedHistory = parseRunInput(run.input || "");
-    const historyBrief = parsedHistory.revisionInstruction ?? parsedHistory.brief;
-    const enrichedInput = contextBlock ? `${historyBrief}\n\n${contextBlock}`.trim() : historyBrief;
+    const historyBrief = (parsedHistory.revisionInstruction ?? parsedHistory.brief) || historyCtxBrief;
+    // Context is now delivered as files via .context/ (chain_context provider).
+    // Do NOT inject a text context block — that would double-deliver the context
+    // to every agent (once as a message block, once via .context/ files).
+    const briefMessage = historyBrief;
 
     setWorkflowType(nextType);
-    setWorkflowInput(enrichedInput);
+    setWorkflowInput(briefMessage);
     setLastPipelineOutput(run.output || "");
     setCompletedPipelineTypes((prev) =>
       prev.includes(run.type as WorkflowType) ? prev : [...prev, run.type as WorkflowType],
     );
     setMainView("execution");
+    // T9 fix (015-frontend-routing, FR-004/FR-010): run.id is the historical run
+    // being chained FROM, not the new chained run — same reasoning as the
+    // postRevision push above (:1005). The pipelineRunId-reactive effect (:662)
+    // pushes the real new run's URL once its pipeline_start frame arrives.
     if (onResetPipeline) onResetPipeline();
 
     if (onStartPipeline) {
@@ -1611,17 +2031,17 @@ export function DashboardLayout({
       currentPipelineNotifRunId.current = null; // FIX-194
       // historyBrief is the stripped user brief (no markers); use it so the
       // panel never shows raw context block text for history-chained runs.
-      const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
+      const historyNotifTitle = (historyBrief || briefMessage).slice(0, 60);
       addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
       { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
-        onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: historyBrief });
+        onStartPipeline(nextType, briefMessage, [], attachedHooks, { _display_title: historyBrief, ...(run.id ? { source_workflow_run_id: run.id } : {}), ...(userWorkflowId ? { user_workflow_id: userWorkflowId } : {}) });
       } else {
-        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [], extraParams: { _display_title: historyBrief } };
+        pendingStartOnConnectRef.current = { type: nextType, message: briefMessage, agentIds: [], extraParams: { _display_title: historyBrief, ...(run.id ? { source_workflow_run_id: run.id } : {}), ...(userWorkflowId ? { user_workflow_id: userWorkflowId } : {}) } };
       }
     }
-  }, [onStartPipeline, onResetPipeline, connectionStatus, attachedHooks, addRunningNotification]);
+  }, [onStartPipeline, onResetPipeline, connectionStatus, attachedHooks, addRunningNotification, router]);
 
   // Handle questionnaire answers.
   //
@@ -1767,6 +2187,7 @@ export function DashboardLayout({
     cancelNavigatingHomeRef.current = true;
     // Navigate home and reset state IMMEDIATELY — before any async work
     setMainView("home");
+    router.push(routes.home());
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
@@ -1784,7 +2205,7 @@ export function DashboardLayout({
         );
       }, 200);
     }
-  }, [activePipelineRunId, onSubmitQuestionnaire, onResetPipeline]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, onResetPipeline, router]);
 
   // Handle "Reject & cancel pipeline" from the ReviewGatePanel.
   // KAN-95: the raw onRejectReview prop (from page.tsx) only sends the WS message
@@ -1797,10 +2218,11 @@ export function DashboardLayout({
     cancelNavigatingHomeRef.current = true;
     // Navigate home and reset state immediately
     setMainView("home");
+    router.push(routes.home());
     if (onResetPipeline) onResetPipeline();
     // Delegate to page.tsx for the WS send + reviewGateData clear
     if (onRejectReview) onRejectReview(gateKey);
-  }, [onRejectReview, onResetPipeline]);
+  }, [onRejectReview, onResetPipeline, router]);
 
   // Header navigation — free navigation even while pipeline runs.
   //
@@ -1819,7 +2241,8 @@ export function DashboardLayout({
       setSettingsRequest((prev) => ({ section: requested, nonce: prev.nonce + 1 }));
     }
     setMainView(page as MainView);
-  }, []);
+    router.push(headerNavRoute(page));
+  }, [router]);
 
   // ─── Phase 31 (CHATUI-01/02/03) — run chat lane derivations ──────────────────
   // The revise handler selected by the run TYPE (the SAME expression the
@@ -1848,13 +2271,100 @@ export function DashboardLayout({
       ? recentRuns?.find((r) => r.id === contentSourceRunId)?.type
       : undefined);
   const effectiveReviseType = viewedRunType ?? workflowType;
+
+  // "Edit brief & run again" — navigate to the input view so the user can
+  // modify their brief and start a fresh run (does NOT resume from checkpoint).
+  // Pre-fills the brief from submittedBrief when available so the user can edit
+  // rather than retype from scratch. Resets pipeline state so the input page
+  // starts clean (no stale failed-run overlay).
+  // FIX-216c-adjacent: use effectiveReviseType (the VIEWED run's own type), not
+  // the bare workflowType state — same staleness handleChainPipeline already
+  // guards against (workflowType can still be a previous run's type when
+  // viewing a history-reopened run of a different type).
+  // ISS-218 / ISS-235: actually carry the brief across. This handler navigated
+  // with NO payload at all, so the composer it opens showed whatever its own
+  // prefill slot already held — nothing (blank, ISS-218), or a value left over
+  // from an earlier navigation (a foreign brief, ISS-235). Seed it with the
+  // VIEWED run's own brief (same source as runHeaderTitleFull below), writing
+  // BOTH slots the push can land in, since `createRouteForType` has two
+  // possible destinations: `/create/{ppt|ppt_v2|prototype}` renders LaunchWizard
+  // (page.tsx's `wizardModeFor` early-return, OUTSIDE this component), which
+  // seeds its brief from the same one-shot `*.draft` hand-off handleLaunchSaved
+  // already writes; every other type stays in this component's "input" view,
+  // where IdeaInputPage's `initialInput` reads `pendingHomeBrief`.
+  // ISS-218/ISS-235 — "Edit brief & run again" must open the composer holding
+  // THIS run's brief.
+  //
+  // It used to read the brief off `recentRuns`:
+  //     recentRuns?.find(r => r.id === contentSourceRunId)?.input
+  // but `GET /api/runs` deliberately omits the heavy `input`/`output`/
+  // `agent_outputs` columns (runs.py: "Heavy fields ... are excluded — fetch the
+  // full run"). So that lookup resolved to `undefined` for EVERY run, fell
+  // through to `submittedBrief` — which is empty on a cold load of a run this
+  // session did not launch — and opened an empty textarea. Confirmed live on two
+  // separate failed runs before this fix.
+  //
+  // The run id is fetched individually, which is what the list endpoint's own
+  // docstring prescribes. `submittedBrief` stays as the fallback for the
+  // in-session case and for a fetch that fails.
+  const handleEditBrief = useCallback(() => {
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    setResumeError(null);
+    setQuestionnaireQuestions([]);
+
+    const reviseBase = baseWorkflowType(effectiveReviseType);
+    const openComposerWith = (editedBrief: string) => {
+      setPendingHomeBrief(editedBrief || undefined);
+      // Which sessionStorage slot the wizard will read, or undefined when this
+      // type stays on IdeaInputPage (which reads `pendingHomeBrief` instead).
+      //
+      // This MUST agree with LaunchWizard's own `STEPPER_MODE`
+      // ({prototype, prototype_v2} -> "web" -> prototype.draft;
+      //  {ppt, ppt_v2} -> "deck" -> ppt.draft) and with page.tsx's
+      // `wizardModeFor`, which is what actually decides that /create/{type}
+      // renders the wizard at all.
+      //
+      // It used to gate on `selectWorkflowWizardPath`, whose table omits
+      // `prototype_v2` — so for a prototype_v2 run the hand-off was skipped
+      // entirely while `wizardModeFor` still rendered the wizard, and the brief
+      // sat in `pendingHomeBrief` where nothing on that route reads it. The old
+      // `reviseBase === "prototype" ? ... : "ppt.draft"` ternary would have put
+      // it in the DECK slot even if the gate had let it through.
+      const draftKey = { prototype: "prototype.draft", prototype_v2: "prototype.draft",
+                         ppt: "ppt.draft", ppt_v2: "ppt.draft" }[reviseBase];
+      if (draftKey) {
+        sessionStorage.setItem(draftKey, JSON.stringify({ brief: editedBrief }));
+      }
+      setMainView("input");
+      router.push(createRouteForType(effectiveReviseType));
+    };
+
+    const token = getToken();
+    if (!contentSourceRunId || !token) {
+      openComposerWith(submittedBrief || "");
+      return;
+    }
+    // Navigation waits for the brief: the wizard reads `prototype.draft`/
+    // `ppt.draft` from sessionStorage as it mounts, so writing them after the
+    // push would land too late and leave the textarea empty again.
+    void getWorkflow(token, contentSourceRunId)
+      .then((run) => openComposerWith(run?.input || submittedBrief || ""))
+      .catch(() => openComposerWith(submittedBrief || ""));
+  }, [isPipelineRunning, onResetPipeline, effectiveReviseType, router, contentSourceRunId, submittedBrief]);
+
   const activeReviseHandler =
-    (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
+    // ISS-252: ppt_v2 is a deck run (spec 017) — it produces the same HTML
+    // deliverable as ppt and must resolve to handleRevisePpt, not undefined.
+    (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_v2" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
     (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
       || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
       || !!prototypeContent) ? handleRevisePrototype :
     (effectiveReviseType === "app_builder" || effectiveReviseType === "app_builder_revision") ? handleReviseAppBuilder :
+    // B8 fix: custom / DB-workflow runs now have a revision handler. The
+    // custom_revision pipeline (custom-revision-planner + custom-revision-builder)
+    // is registered and the backend guard passes for these runs.
+    (effectiveReviseType === "custom" || effectiveReviseType === "custom_revision") ? handleReviseCustom :
     undefined;
 
   // ─── 43-02 (A.1 CRUX) — Concierge send seam + confirm round-trip ─────────────
@@ -2015,11 +2525,15 @@ export function DashboardLayout({
   const laneClarifyOpen = (questionnaireQuestions.length > 0 || clarifyPreparing) && (!!pendingPipelineRun || !!activePipelineRunId);
   // Terminal keys off the GENERIC plan-05 markers (cancelled / failed /
   // degraded) — never a workflow name (SC-001, LIVE-STATE-CONTRACT §1).
+  // R-20/R-28 (014-conditional-gates): divertedTo is also a terminal marker
+  // (set by the pipeline_diverted reducer case) — without it here, a diverted
+  // run fell through to "complete"/"idle" and LaneRunHeader's diverted-aware
+  // "terminal" branch was never reached.
   const runLaneState: RunLaneState =
     reviewGateData && isPipelineRunning ? "gate" :
     laneClarifyOpen ? "clarify" :
     isPipelineRunning ? "building" :
-    (pipelineState?.failed || pipelineState?.cancelled || pipelineState?.degraded) ? "terminal" :
+    (pipelineState?.failed || pipelineState?.cancelled || pipelineState?.degraded || pipelineState?.divertedTo) ? "terminal" :
     laneHasDeliverable ? "complete" :
     "idle";
 
@@ -2031,8 +2545,12 @@ export function DashboardLayout({
   // which is stale on history-reopened runs (it stays "user_stories" by default
   // until a wizard runs, while effectiveReviseType correctly reflects
   // contentSourceRunType e.g. "ppt" or "od_prototype").
+  // ISS-252: ppt_v2 is a deck run (spec 017) — its deliverable lives in the ppt
+  // content slot (page.tsx routes ppt_v2 output to setPptContent). Without this
+  // the lane's DeliverableCard fell through to userStoryContent, naming the deck
+  // "deliverable" instead of the correct ppt-derived filename.
   const laneActiveContent =
-    effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision"
+    effectiveReviseType === "ppt" || effectiveReviseType === "ppt_v2" || effectiveReviseType === "ppt_revision"
       ? pptContent
       : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
         || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
@@ -2042,6 +2560,7 @@ export function DashboardLayout({
     effectiveReviseType || workflowType || "user_stories",
     laneActiveContent || undefined,
     pipelineState?.deliverableFilename,
+    genericDeliverable?.mimetype,
   );
 
   // Phase 39 (RUNUI-06) — the live run title for the lane header. BUG-001: bind
@@ -2114,7 +2633,11 @@ export function DashboardLayout({
         // firing finishes the pass and re-opens this same gate; it does NOT continue
         // to the build (live 5ecb990f: approve seq 24654 -> gate 24655, and only the
         // SECOND approval reached agent_start). Keyed on the generic in-flight flag.
-        approveLabel: reviewGateData.revisionInFlight
+        approveLabel: reviewGateData.artifactKind === "conditional_gate"
+          // A routed gate renders one button per declared outcome; there is no
+          // single Approve button for this label to name.
+          ? undefined
+          : reviewGateData.revisionInFlight
           ? "Approve & finish the revision"
           : reviewGateData.artifactKind === "summary"
           ? "Accept & continue to build"
@@ -2158,7 +2681,8 @@ export function DashboardLayout({
   const headerPage = mainView === "library" ? "library" :
     mainView === "catalog" ? "catalog" :
     mainView === "history" ? "history" :
-    mainView === "settings" ? "history" :
+    mainView === "settings" ? "settings" :
+    mainView === "analytics" ? "analytics" :
     mainView === "saved-workflows" ? "saved-workflows" :
     mainView === "input" ? "workflow" :
     mainView === "execution" ? "execution" : "home";
@@ -2203,11 +2727,32 @@ export function DashboardLayout({
         isPipelineRunning={isPipelineRunning}
         pipelineType={effectiveReviseType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
-        pipelineAgentsTotal={pipelineState?.agents?.length ?? 0}
+        pipelineAgentsTotal={pipelineState?.agents?.length || pipelineState?.agentCount || 0}
         activePipelineRunId={pipelineState?.pipelineRunId ?? null}
         runAgentsCompletedMap={runAgentsCompletedMap}
-        onGoToPipeline={() => setMainView("execution")}
+        onGoToPipeline={(clickedRunId) => {
+          // T9 fix (015-frontend-routing): call onSwitchToLiveRun BEFORE push
+          // to pre-set contentSourceRunId/runStore viewport synchronously,
+          // matching onViewRunningPipeline's fix above.
+          // ISS-647: prefer the run the header passed — this closure's
+          // pipelineState is still the previous run mid-switch (or none).
+          const runId = clickedRunId ?? pipelineState?.pipelineRunId;
+          if (runId) {
+            setMainView("execution");
+            // ISS-778 (QA-SG-004): the same await-then-push the bell panel does
+            // below — router.push remounts page.tsx, and the remount flips
+            // useRunStateStore's mountedRef to false, so a switch still in
+            // flight when it fires writes its replay into a throwaway entry and
+            // the run it switched to never lands. The switch never rejects (it
+            // swallows its own fetch errors), so navigation cannot be stranded.
+            void (async () => {
+              await onSwitchToLiveRun?.(runId);
+              router.push(routes.runStream(runId));
+            })();
+          }
+        }}
         recentRuns={recentRuns}
+        recentRunsLoaded={recentRunsLoaded}
         onSwitchToLiveRun={(runId) => {
           // FIX-201 (KAN-168): sync currentPipelineNotifId and currentPipelineNotifRunId
           // when switching via the header badge dropdown. Mirrors the onViewResults fix.
@@ -2216,11 +2761,14 @@ export function DashboardLayout({
             currentPipelineNotifId.current = targetNotif.id;
             currentPipelineNotifRunId.current = runId;
           }
-          onSwitchToLiveRun?.(runId);
+          // ISS-778 (QA-SG-004): return the switch so AppHeader's own callers can
+          // await it before they navigate.
+          return onSwitchToLiveRun?.(runId);
         }}
         onSelectWorkflowRun={(run) => {
           onSelectWorkflowRun?.(run);
           setMainView("execution");
+          router.push(routes.runStream(run.id));
         }}
         notifications={notifications.filter(n => n.status !== "running" && n.status !== "gate")}
         unreadCount={unreadCount}
@@ -2256,7 +2804,18 @@ export function DashboardLayout({
                 currentPipelineNotifId.current = targetNotif.id;
                 currentPipelineNotifRunId.current = targetRunId;
               }
-              onSwitchToLiveRun(targetRunId);
+              // ISS-775 (QA-SG-004): navigate only once the switch has settled.
+              // router.push remounts page.tsx under the [...view] catch-all, and
+              // that remount flips useRunStateStore's mountedRef to false — a
+              // durable replay still in flight when the push fires lands in a
+              // throwaway entry, leaving the switch to be redone by T11's own
+              // second fetch (the multi-second delay, and the retry that
+              // "sometimes works"). The switch swallows its own fetch errors, so
+              // awaiting it can never strand the navigation.
+              void (async () => {
+                await onSwitchToLiveRun(targetRunId);
+                router.push(routes.runStream(targetRunId));
+              })();
             }
             setMainView("execution");
           } else if (n.status === "completed") {
@@ -2271,15 +2830,18 @@ export function DashboardLayout({
               if (cached) {
                 onSelectWorkflowRun?.(cached);
                 setMainView("execution");
+                router.push(routes.runStream(runId));
               } else {
                 const token = getToken();
                 if (token && onSelectWorkflowRun) {
                   setMainView("execution");
+                  router.push(routes.runStream(runId));
                   void getWorkflow(token, runId)
                     .then((fetchedRun) => { onSelectWorkflowRun(fetchedRun); })
                     .catch(() => { /* non-fatal */ });
                 } else {
                   setMainView("execution");
+                  router.push(routes.runStream(runId));
                 }
               }
             };
@@ -2308,12 +2870,15 @@ export function DashboardLayout({
               if (matched) {
                 onSelectWorkflowRun?.(matched);
                 setMainView("execution");
+                router.push(routes.runStream(matched.id));
               } else {
                 setMainView("history");
+                router.push(routes.runHistory());
               }
             }
           } else {
             setMainView("history");
+            router.push(routes.runHistory());
           }
         }}
       />
@@ -2357,7 +2922,7 @@ export function DashboardLayout({
                   brief={homeBrief}
                   onBriefChange={setHomeBrief}
                   onBuild={() => handleHomeSelectFeature("custom" as WorkflowType)}
-                  onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
+                  onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runDetail(run.id)); }}
                   recentRuns={recentRuns}
                 />
               </div>
@@ -2375,7 +2940,16 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <LibraryPage />
+              {/* ISS-624: LibraryPage calls useSearchParams() which requires a
+                  Suspense boundary in the Next.js App Router. Without it a hard
+                  refresh of /library?tab=hooks (or ?tab=skills) produces an empty
+                  body because the component suspends at the SSR/static phase.
+                  The fallback is intentionally null — the mounted/auth gate in
+                  page.tsx already ensures nothing renders until the client is
+                  ready, so there is no visible flash. */}
+              <Suspense fallback={null}>
+                <LibraryPage />
+              </Suspense>
             </motion.div>
           )}
 
@@ -2389,12 +2963,33 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
+              <WorkflowHistory onBack={handleBackNav} onChainPipeline={handleChainFromHistory}
+            recentRuns={recentRuns}
+            savedWorkflows={savedWorkflows}
             activeRunId={pipelineState?.pipelineRunId ?? null}
-            onViewRunningPipeline={() => setMainView("execution")}
-            onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
+            onViewRunningPipeline={(runId) => {
+              // T9 fix (015-frontend-routing): call onSwitchToLiveRun BEFORE
+              // router.push so page.tsx's state holders are set synchronously
+              // (contentSourceRunId, runStore viewport, activePipelineRunId)
+              // before the remount wipes them. Without this, the T11 fast path
+              // in page.tsx is the only restore path — which works, but only
+              // after the async durable-replay .then() resolves, leaving the
+              // chat lane blank on first render.
+              // ISS-656: navigate to the run WorkflowHistory passed, not a re-read of pipelineState.
+              if (runId) {
+                onSwitchToLiveRun?.(runId);
+                setMainView("execution");
+                router.push(routes.runStream(runId));
+              }
+            }}
+            onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runDetail(run.id)); }}
             onReviseUserStory={(instruction, content, sourceRunId) => {
               setMainView("execution");
+              // T9 fix (015-frontend-routing, FR-004/FR-010): sourceRunId is the
+              // PARENT run being revised, not the new revision run — same
+              // reasoning as the postRevision push at :1005. The
+              // pipelineRunId-reactive effect (:662) pushes the real URL once
+              // the new run's pipeline_start frame arrives.
               setWorkflowType("user_stories_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
@@ -2406,6 +3001,7 @@ export function DashboardLayout({
             }}
             onRevisePpt={(instruction, content, sourceRunId) => {
               setMainView("execution");
+              // T9 fix (015-frontend-routing, FR-004/FR-010): see onReviseUserStory above.
               setWorkflowType("ppt_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
@@ -2415,6 +3011,7 @@ export function DashboardLayout({
             }}
             onRevisePrototype={(instruction, content, sourceRunId) => {
               setMainView("execution");
+              // T9 fix (015-frontend-routing, FR-004/FR-010): see onReviseUserStory above.
               setWorkflowType("prototype_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
@@ -2424,6 +3021,7 @@ export function DashboardLayout({
             }}
             onReviseAppBuilder={(instruction, content, sourceRunId) => {
               setMainView("execution");
+              // T9 fix (015-frontend-routing, FR-004/FR-010): see onReviseUserStory above.
               setWorkflowType("app_builder_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
@@ -2448,7 +3046,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <AccountSettings onBack={handleGoHome} initialSection={settingsRequest.section} />
+              <AccountSettings initialSection={settingsRequest.section} onBack={handleBackNav} />
             </motion.div>
           )}
 
@@ -2462,7 +3060,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <AnalyticsPage onBack={handleGoHome} />
+              <AnalyticsPage onBack={handleBackNav} />
             </motion.div>
           )}
 
@@ -2492,7 +3090,7 @@ export function DashboardLayout({
             >
               <IdeaInputPage
                 workflowType={workflowType}
-                onBack={handleGoHome}
+                onBack={handleBackNav}
                 onRun={handleRunPipeline}
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
@@ -2507,6 +3105,7 @@ export function DashboardLayout({
                 // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
                 // server-side and the strip simply does not render.
                 workflowId={workflowType}
+                onOpenInCanvas={handleOpenInCanvas}
               />
             </motion.div>
           )}
@@ -2526,8 +3125,26 @@ export function DashboardLayout({
               className="h-full"
             >
               <ComposerPage
+                // T8 (015-frontend-routing, FR-011): ComposerPage seeds its OWN
+                // internal state from these initial* props via useState
+                // initializers (read once, at ITS first mount) — fine for the
+                // click-driven `handleLaunchSaved` path, where savedComposition
+                // is already populated in the SAME tick `mainView` flips to
+                // "composer". But a cold-mount of `/workflows/{id}/edit` renders
+                // "composer" (synchronously, from the URL) BEFORE the async
+                // savedComposition fetch resolves — so ComposerPage's first
+                // mount would lock in blank props, and the later-arriving real
+                // data would have nothing to re-derive into. Keying on the
+                // saved row's id forces a clean remount once it arrives, so
+                // ComposerPage's initializers see the real data on ITS first
+                // (post-fetch) mount instead. Stable ("new" or one fixed id)
+                // for the rest of a normal editing session — Save doesn't
+                // write back into savedComposition, so this key never churns
+                // mid-edit.
+                key={savedComposition?.id ?? "new"}
                 workflowType={workflowType}
-                onBack={handleGoHome}
+                onBack={handleBackNav}
+                onUnsavedChange={handleUnsavedChange}
                 // 41-06 (D-05 / D-CMP-RUN) — Run-once launches the composed workflow
                 // through the EXISTING onStartPipeline → startPipeline seam, mirroring
                 // the revision launch sites (reset → onStartPipeline with the SAME arg
@@ -2549,6 +3166,8 @@ export function DashboardLayout({
                 // IdeaInputPage (which doesn't even use it) instead of here,
                 // silently dropping the whole sub-agent tree on every reload.
                 initialManifestSteps={savedComposition?.manifestSteps}
+                initialManifest={savedComposition?.manifest}
+                builtinCanvasType={builtinCanvasType}
                 initialSelections={
                   savedComposition?.selections
                     ? (Object.fromEntries(
@@ -2609,13 +3228,31 @@ export function DashboardLayout({
                       // that drives the mid-reply "reading run data…" indicator.
                       replyStreaming={runChatReplyStreaming}
                       pipelineState={pipelineState}
+                      // The viewed run's persisted `error` (already fetched into
+                      // recentRuns via getWorkflow/normalizeWorkflowRun) — the
+                      // terminal-failed panel's fallback when no live per-agent
+                      // error is available (e.g. a driver-level exception).
+                      runError={viewedRun?.error}
                       onRequestOpenTab={onRequestOpenTab}
                       // Phase 39 (RUNUI-06) — wire the lane run header's 39-01
                       // slots with the real DashboardLayout data: Back-to-history
                       // navigation, the live run title (clean backend title, else
                       // the submitted brief), and the generic run type (SC-001 —
                       // the pipeline_type string, never a workflow-name branch).
-                      onBackToHistory={() => setMainView("history")}
+                      // ISS-741 (QA-SG-003): pop the `/runs` entry the run
+                      // row click came from instead of PUSHING a second one —
+                      // the extra entry left `/runs/{id}` on the stack, so Run
+                      // History's own (correct) Back popped straight back into
+                      // this run and the two screens looped. Same guard as
+                      // handleBackNav; the URL-sync effect above re-syncs
+                      // mainView, so setMainView is only needed on the
+                      // no-history-to-pop fallback.
+                      onBackToHistory={() => {
+                        goBackOr(router, () => {
+                          setMainView("history");
+                          router.push(routes.runHistory());
+                        });
+                      }}
                       runTitle={runHeaderTitle}
                       runTitleFull={runHeaderTitleFull}
                       runType={effectiveReviseType || pipelineState?.pipeline_type}
@@ -2709,10 +3346,13 @@ export function DashboardLayout({
                       reopenedRunStatus={reopenedRunStatus}
                       reopenedFailedAgents={reopenedFailedAgents}
                       reopenedAgentNameById={reopenedAgentNameById}
+                      isLoadingRunData={isLoadingRunData}
                       runFamily={runFamily}
                       liveRunId={contentSourceRunId ?? null}
+                      pinnedVersion={pinnedVersion}
                       runInput={submittedBrief}
                       deepLinkTarget={deepLinkTarget}
+                      onTabSelect={handlePreviewPanelTabSelect}
                       // Phase 32 (plan 06 → 07/08) — additive gate/clarify passthrough
                       // so a future Steps surface can host the SAME inline gate/clarify
                       // affordances the lane uses. Mirrors the RunChatLane wiring;
@@ -2766,8 +3406,56 @@ export function DashboardLayout({
             }
           }
           setMainView("execution");
+          if (toast.workflowRunId) {
+            router.push(routes.runStream(toast.workflowRunId));
+          }
         }}
       />
+
+      {/* ISS-622: in-app "unsaved changes" confirmation dialog — replaces window.confirm
+          in handleBackNav so the product has no native browser dialogs outside of
+          file-download affordances (S-19-17). Shown only when the user clicks Back
+          while hasUnsavedWork is true. */}
+      {confirmingBackNav && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-changes-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={cancelBackNav}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-[var(--radius-card)] bg-surface-card border border-line-border shadow-[var(--elevation-modal)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="unsaved-changes-title"
+              className="mb-2 font-semibold text-ink-900 text-[15px]"
+            >
+              Leave without saving?
+            </h2>
+            <p className="mb-5 text-sm text-ink-500">
+              You have unsaved changes. Leaving now will discard them.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelBackNav}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-ink-700 border border-line-border bg-surface-warm hover:bg-surface-paper transition-colors"
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                onClick={commitBackNav}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Leave anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

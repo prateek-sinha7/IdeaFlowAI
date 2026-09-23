@@ -38,10 +38,11 @@
  *   const { pipelineState, questionnaireData, reviewGateData } = store.viewed;
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import type { PipelineRunState, WorkflowType, RunFamily } from "@/types/index";
 import { deriveSpecRevisionCount, handlePipelineMessage } from "@/hooks/useWorkflow";
+import { getToken } from "@/lib/api";
 
 // ─── Per-run state shape ───────────────────────────────────────────────────────
 
@@ -127,8 +128,24 @@ export interface WaveGroup {
   waveIndex: number;
   step?: string;
   taskIds: string[];
+  /**
+   * How many waves and tasks the PLAN holds, from `wave_started` (both
+   * optional — an older backend sends neither). Without them the panel could
+   * only count what it had already seen, so a 34-task build read "0 / 1 done"
+   * during its first wave with no way to tell that from a finished job.
+   */
+  waveTotal?: number;
+  taskTotal?: number;
   status: string;
-  workers: Array<{ agent: string; status: string; worker?: number }>;
+  workers: Array<{
+    agent: string; status: string; worker?: number;
+    /** This worker's own wave task ("s01"). */
+    taskId?: string;
+    /** Set only on a task agent a wave member spawned — the member's taskId. */
+    parentTaskId?: string;
+    /** Why it failed, verbatim from the backend. */
+    error?: string;
+  }>;
 }
 
 export interface GenericDeliverable {
@@ -252,6 +269,29 @@ export interface RunStateStoreReturn {
   remove: (runId: string) => void;
 }
 
+// ─── Store lifetime ────────────────────────────────────────────────────────────
+
+// ISS-679 (QA-PS-002): the per-run maps live at module scope, above the router.
+// page.tsx, the only caller, remounts on every router.push under [...view]. A
+// per-mount map lost each background run's roster, which only pipeline_start
+// seeds, so its agent_complete frames became no-ops and the bell panel and header
+// read "0 of N agents" for good. A full reload still starts empty.
+const runStates = new Map<string, PerRunState>();
+const agentStartTimesByRun = new Map<string, React.MutableRefObject<Record<string, number>>>();
+
+// The user the maps belong to (undefined until the first mount claims them).
+let runStatesOwner: string | null | undefined;
+
+/** The signed-in user's id, the JWT `sub`: the identity ISS-188/ISS-201 scope per-account caches by. */
+function signedInUserId(): string | null {
+  try {
+    const payload = getToken()?.split(".")[1] ?? "";
+    return (JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as { sub?: string }).sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Hook implementation ───────────────────────────────────────────────────────
 
 /**
@@ -271,11 +311,41 @@ export interface RunStateStoreReturn {
  */
 export function useRunStateStore(): RunStateStoreReturn {
   // The actual per-run store — a ref so background run updates don't re-render.
-  const storeRef = useRef<Map<string, PerRunState>>(new Map());
+  // ISS-679: it points at the module-scope map above, so it survives a remount.
+  const storeRef = useRef<Map<string, PerRunState>>(runStates);
 
   // Per-run agent start time refs (needed by handlePipelineMessage for duration calc).
   // Keyed by runId, each value is a Record<agentId, startTimeMs>.
-  const agentStartTimesMapRef = useRef<Map<string, React.MutableRefObject<Record<string, number>>>>(new Map());
+  const agentStartTimesMapRef = useRef<Map<string, React.MutableRefObject<Record<string, number>>>>(agentStartTimesByRun);
+
+  // False once this page instance has unmounted (see getOrCreate).
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    // The maps outlive this page, so they must not outlive the account: after a
+    // client-side sign-out and sign-in, another user starts from nothing.
+    const owner = signedInUserId();
+    if (owner !== runStatesOwner) {
+      runStates.clear();
+      agentStartTimesByRun.clear();
+      runStatesOwner = owner;
+    }
+    return () => {
+      mountedRef.current = false;
+      // Only in-flight runs cross a remount. A finished run is rebuilt from its
+      // durable log when reopened, and that replay needs a fresh entry. Replayed
+      // into an entry that already holds the run, pipeline_start's re-announce
+      // resets agentStartEventIds while the seq cursor skips every replayed
+      // agent_start, so the revision banner (ISS-063) reads 0.
+      for (const [runId, entry] of runStates) {
+        if (!entry.pipelineState.isRunning) {
+          runStates.delete(runId);
+          agentStartTimesByRun.delete(runId);
+        }
+      }
+    };
+  }, []);
 
   // Which run is currently in the viewport.
   //
@@ -311,9 +381,20 @@ export function useRunStateStore(): RunStateStoreReturn {
   // on every SSE frame → rapid re-renders → flickering agent circles and L2 views.
   const lastProjectedPipelineStateRef = useRef<object | null>(null);
 
+  // ISS-673: background writes never re-render, yet page.tsx reads every run's
+  // completedCount during render (runAgentsCompletedMap -> header badge, "N Running"
+  // dropdown, notification panel), so those froze at "0 of N agents". Tick only when
+  // a non-viewed run's count moves: one render per agent, not per frame (FIX-224).
+  const [, setBackgroundProgressTick] = useState(0);
+
   // ── Internal helpers ─────────────────────────────────────────────────────────
 
   const getOrCreate = useCallback((runId: string): PerRunState => {
+    // ISS-679: an unmounted page's leftover async work writes to a throwaway entry,
+    // as it did when the map died with the page. A reopen click starts a replay here
+    // and then router.push remounts; the new page replays the same run, and a second
+    // replay into the shared entry would zero a finished run's revision count.
+    if (!mountedRef.current) return makeInitialRunState(runId);
     if (!storeRef.current.has(runId)) {
       storeRef.current.set(runId, makeInitialRunState(runId));
     }
@@ -321,6 +402,7 @@ export function useRunStateStore(): RunStateStoreReturn {
   }, []);
 
   const getAgentStartTimes = useCallback((runId: string): React.MutableRefObject<Record<string, number>> => {
+    if (!mountedRef.current) return { current: {} };
     if (!agentStartTimesMapRef.current.has(runId)) {
       agentStartTimesMapRef.current.set(runId, { current: {} });
     }
@@ -378,21 +460,39 @@ export function useRunStateStore(): RunStateStoreReturn {
     if (WAVE_EVENT_TYPES.includes(msg.type)) {
       const data = (msg.data as Record<string, unknown> | undefined) ?? msg;
       const waveIndex = typeof data.wave_index === "number" ? (data.wave_index as number) : undefined;
-      if (waveIndex === undefined) return;
+      // A task agent spawned BY a wave member carries no wave_index of its own —
+      // it names its parent instead. Route it into the group that owns that task
+      // rather than dropping it (which is why nested workers never rendered).
+      const parentTaskId = typeof data.parent_task_id === "string"
+        ? (data.parent_task_id as string) : undefined;
+      if (waveIndex === undefined && parentTaskId === undefined) return;
       const step = typeof data.step === "string" ? (data.step as string) : undefined;
 
       const prev = entry.waveGroups;
       const next = prev.map((w) => ({ ...w, workers: [...w.workers] }));
-      let group = next.find((w) => w.waveIndex === waveIndex && w.step === step);
-      if (!group) {
-        group = { waveIndex, step, taskIds: [], status: "pending", workers: [] };
-        next.push(group);
+      let found: WaveGroup | undefined;
+      if (waveIndex === undefined) {
+        // Nested child — it names its parent instead of a wave. Route it into the
+        // group that owns that task; a child whose parent's wave has not been seen
+        // yet has nothing to nest under, so drop it rather than invent a group.
+        found = next.find((w) => w.taskIds.includes(parentTaskId as string)
+          || w.workers.some((wk) => wk.taskId === parentTaskId));
+        if (!found) return;
+      } else {
+        found = next.find((w) => w.waveIndex === waveIndex && w.step === step);
+        if (!found) {
+          found = { waveIndex, step, taskIds: [], status: "pending", workers: [] };
+          next.push(found);
+        }
       }
+      const group = found;
 
       if (msg.type === "wave_started") {
         group.taskIds = Array.isArray(data.task_ids)
           ? (data.task_ids as unknown[]).map((t) => String(t))
           : group.taskIds;
+        if (typeof data.wave_total === "number") group.waveTotal = data.wave_total as number;
+        if (typeof data.task_total === "number") group.taskTotal = data.task_total as number;
         group.status = "running";
       } else if (msg.type === "wave_completed") {
         group.status = "completed";
@@ -404,11 +504,17 @@ export function useRunStateStore(): RunStateStoreReturn {
         const status = typeof data.status === "string" ? data.status as string
           : msg.type === "subagent_spawned" ? "running" : "completed";
         const workerIndex = typeof data.worker === "number" ? data.worker as number : undefined;
+        const taskId = typeof data.task_id === "string" ? (data.task_id as string) : undefined;
+        // Worker index restarts at 0 per spawn call, so a member and its children
+        // collide on it. parentTaskId separates the two levels.
         const existing = group.workers.find((wk) =>
-          workerIndex !== undefined ? wk.worker === workerIndex : wk.worker === undefined && wk.agent === agent
+          wk.parentTaskId === parentTaskId && (
+            workerIndex !== undefined ? wk.worker === workerIndex
+              : wk.worker === undefined && wk.agent === agent)
         );
-        if (existing) { existing.status = status; existing.agent = agent; }
-        else group.workers.push({ agent, status, worker: workerIndex });
+        const err = typeof data.error === "string" ? (data.error as string) : undefined;
+        if (existing) { existing.status = status; existing.agent = agent; if (err) existing.error = err; }
+        else group.workers.push({ agent, status, worker: workerIndex, taskId, parentTaskId, error: err });
       }
 
       entry.waveGroups = next;
@@ -422,10 +528,39 @@ export function useRunStateStore(): RunStateStoreReturn {
     const pipelineFrameTypes = [
       "pipeline_start", "agent_start", "agent_thinking", "agent_chunk",
       "agent_complete", "agent_error", "pipeline_complete", "pipeline_failed",
-      "pipeline_cancelled", "planner_start", "planner_complete", "planner_timeout",
+      "pipeline_cancelled",
+      // pipeline_diverted (014-conditional-gates, T38 live case): without this,
+      // handleFrame's allowlist below silently dropped the frame before it ever
+      // reached handlePipelineMessage's existing "pipeline_diverted" case, so
+      // entry.pipelineState.divertedTo was never set and LaneRunHeader's live
+      // "Diverted to X" terminal treatment (pipelineState?.divertedTo) never fired.
+      "pipeline_diverted",
+      // agent_skipped (014-conditional-gates follow-up): same allowlist trap —
+      // without this, a conditional gate's skipped-sibling event never reached
+      // handlePipelineMessage's "agent_skipped" case, so StepsOverviewSpine kept
+      // showing the skipped step's default status instead of "Skipped".
+      "agent_skipped",
+      "planner_start", "planner_complete", "planner_timeout",
       "planner_error", "gate_status", "clarification_limit_reached",
       "agent_input", "tool_call", "tool_result", "workflow_validated",
       "task_progress", "task_loop_progress", "pipeline_reconnected",
+      // Gate frames reach the reducer for their TIMESTAMPS only (pipelineState.gateOpen
+      // -> waitingSeconds). Without them the 28m 29s run faba87c9 spent parked at review
+      // gates is time the reducer sees pass with nothing running and cannot attribute, so
+      // the busy/waiting split never adds up to the run header. The gate UI still comes
+      // from page.tsx's own handler; these cases touch one boolean.
+      "review_gate_ready", "review_gate_approved",
+      // wave_skipped/wave_repair — a zero-task wave (rendered distinct from a
+      // real completion) and a repaired dropped-task wave (warning row).
+      "wave_skipped", "wave_repair",
+      // ISS-117: validator_result / gate_passed / gate_blocked were omitted from
+      // the allowlist, so the early-return at the `if (!pipelineFrameTypes.includes
+      // (msg.type)) return;` guard below silently dropped them on replay.
+      // ValidationResultCard in AgentDetailPanel gates on `passed === undefined`
+      // and renders nothing — so no run reopened from history ever showed a gate
+      // verdict. These three types rehydrate `validationPassed` / `validationIssues`
+      // via handlePipelineMessage's existing cases; no new reducer needed.
+      "validator_result", "gate_passed", "gate_blocked",
     ];
 
     if (!pipelineFrameTypes.includes(msg.type)) return;
@@ -442,6 +577,7 @@ export function useRunStateStore(): RunStateStoreReturn {
       entry.pipelineState = next;
     };
 
+    const completedBefore = entry.pipelineState.completedCount;
     handlePipelineMessage(flatMsg, fakeSetState as React.Dispatch<React.SetStateAction<PipelineRunState>>, agentStartTimes);
 
     // ISS-063: the ONE writer of specRevisionCount. Derived from the restart history
@@ -458,6 +594,8 @@ export function useRunStateStore(): RunStateStoreReturn {
         lastProjectedPipelineStateRef.current = entry.pipelineState;
         project({ ...entry });
       }
+    } else if (entry.pipelineState.completedCount !== completedBefore) {
+      setBackgroundProgressTick((t) => t + 1);
     }
   }, [getOrCreate, getAgentStartTimes, project, setViewedRun]);
 

@@ -1,0 +1,56 @@
+# ex_publish_step — hello-world fixture for STABILIZATION.md A10/A9's
+# `mechanical: publish` step kind, driven end-to-end via the offline scripted-model
+# harness (tests/agents/_scripted_model.py::_drive), for
+# tests/agents/test_validation_retry.py's engine-level publish-hook test.
+#
+# Two steps:
+#   1. draft  — writes draft.v1.html via the native write_file tool (scripted).
+#   2. publish — mechanical: publish, no model. Copies the highest
+#      draft.v*.html match onto the deliverable name (prototype.html) and
+#      streams it as its own output.
+#
+# Exists purely as an engine-dispatch fixture (like ex_A1_loop) — not a real
+# product pipeline, so user_launchable: false.
+
+id: ex_publish_step
+user_launchable: false
+is_beta: true
+display_name: Publish Step Fixture
+short_name: Publish Fixture
+icon: FileCheck
+description: Smallest possible example of a mechanical publish step following a drafting step.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: prototype.html
+  publish_from_glob: draft.v*.html
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: draft
+  name: Draft
+  prompt: Write draft.v1.html via write_file.
+  gates: []
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+
+- agent: custom-agent
+  instance_id: publish
+  name: Publish
+  mechanical: publish
+  depends_on: ["custom-agent:draft"]
+  gates: []
+
+name: Publish Step Fixture

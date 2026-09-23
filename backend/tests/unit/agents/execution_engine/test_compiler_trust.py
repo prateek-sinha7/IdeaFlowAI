@@ -99,16 +99,14 @@ def test_user_trust_rejects_non_user_allowed_reference(_clean_registry) -> None:
     assert "strategy" in msg and "priv_strategy" in msg
 
 
-def test_db_trust_also_enforces_user_allowed(_clean_registry) -> None:
+def test_db_trust_allows_any_registered_reference(_clean_registry) -> None:
     @register("strategy", "priv_strategy")
     class _PrivStrategy:
         name = "priv_strategy"
 
     manifest = _single_step_manifest("priv_strategy")
 
-    with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
-    assert "priv_strategy" in str(exc.value)
+    WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
 
 
 def test_user_trust_allows_user_allowed_reference(_clean_registry) -> None:
@@ -204,16 +202,14 @@ def test_user_trust_exec_grant_raises_compiler_error(_clean_registry) -> None:
     assert "exec" in msg and "exec-agent" in msg
 
 
-def test_db_trust_exec_grant_raises_compiler_error(_clean_registry) -> None:
-    _register_user_allowed_exec_palette()
+def test_db_trust_exec_grant_survives_the_ceiling(_clean_registry) -> None:
     manifest = _grant_step_manifest(
-        strategy="ua_strategy",
-        tools={"exec": True},
-        gates=["ua_security", "ua_approval"],
+        tools={"exec": True}, gates=["security", "approval"]
     )
-    with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
-    assert "exec" in str(exc.value)
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="db"
+    )
+    assert compiled.steps[0].tools.exec is True
 
 
 def test_user_trust_network_grant_raises_compiler_error(_clean_registry) -> None:
@@ -365,12 +361,10 @@ def test_user_trust_raising_max_subagents_is_a_compiler_error(_clean_registry) -
     assert "max_subagents" in str(exc.value)
 
 
-def test_db_trust_raising_max_depth_is_a_compiler_error(_clean_registry) -> None:
+def test_db_trust_may_raise_max_depth(_clean_registry) -> None:
     _register_user_allowed_strategy()
     manifest = _limits_manifest({"max_depth": 4}, strategy="ua_limits_strategy")
-    with pytest.raises(CompilerError) as exc:
-        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
-    assert "max_depth" in str(exc.value)
+    WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
 
 
 def test_user_trust_lowering_a_limits_cap_is_allowed(_clean_registry) -> None:

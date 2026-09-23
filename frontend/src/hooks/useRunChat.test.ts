@@ -89,9 +89,14 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     const m = result.current.messages[0];
     expect(m.role).toBe("assistant");
     expect(m.cardKind).toBe("gate");
-    // FIX-128: `target` is the milestone ANCHOR, kept as `anchor` — it is NOT
-    // aliased onto `tab` (a panel tab id), which PreviewPanel would then drop.
-    expect(m.deepLink).toEqual({ anchor: "gate:run-1", nonce: 7 });
+    // FIX-128 / ISS-614: `target` is the milestone ANCHOR ("gate:run-1"), NOT a
+    // panel tab id. It must never be aliased onto `tab` — PreviewPanel drops an
+    // unknown tab id, which is exactly what broke "Open in Steps"/"Open in
+    // Preview". It used to be parsed into a `deepLink.anchor` field; that field
+    // had no application reader (only this test), so FIX-413 deleted it. A frame
+    // carrying only `target` therefore yields NO descriptor at all, and the card
+    // falls back to its kind's generic defaultTab (ResultCard.tsx:113).
+    expect(m.deepLink).toBeUndefined();
     expect(m.deepLink?.tab).toBeUndefined();
   });
 
@@ -558,4 +563,42 @@ describe("useRunChat — family-anchored transcript reducer", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  // ISS-664 / QA-PS-006: seedTranscript's `isTerminalRun` auto-resolve must only
+  // fire for a run that actually reached "completed" — an unresolved gate never
+  // got a `review_gate_approved` frame, so a run that ended via rejection/
+  // failure/diversion (all currently folded into the same `isTerminalRun: true`
+  // reopen flag by callers) must NOT have that gate flip to resolved: true on
+  // reopen, since ResultCard renders resolved:true as "review approved".
+  it.fails(
+    "ISS-664: does not auto-resolve a gate that a terminal-but-not-approved run left pending",
+    () => {
+      const conn = makeConn();
+      const { result } = renderHook(() =>
+        useRunChat({ runId: "run-cancelled", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+      );
+
+      const gateFrame: RunChatFrame = {
+        type: "chat_reply",
+        data: {
+          event_id: "evt-gate-1",
+          seq: 1,
+          message_id: "gate-1",
+          text: "",
+          card_kind: "gate",
+          agent_name: "Plan Agent",
+          run_id: "run-cancelled",
+        },
+      };
+
+      // Reopening a CANCELLED run (rejected gate, never approved) still passes
+      // isTerminalRun: true — the same flag a genuinely completed run uses.
+      act(() => {
+        result.current.seedTranscript([gateFrame], true);
+      });
+
+      const gate = result.current.messages.find((m) => m.cardKind === "gate");
+      expect(gate?.resolved).not.toBe(true);
+    },
+  );
 });

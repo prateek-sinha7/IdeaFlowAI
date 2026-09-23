@@ -27,9 +27,11 @@ imports the kernel (``agents.execution_engine``) or the web layer.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 
+from agents.capabilities.model_catalog import REASONING_EFFORT_LEVELS, ModelCatalog
 from agents.capabilities.registry import CapabilityRegistry
 from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX
 from agents.workflows.manifest import WorkflowManifest
@@ -42,6 +44,8 @@ from agents.workflows.plan import (
     Limits,
     ModelPolicy,
     RetryPolicy,
+    RouteOutcome,
+    RouteSpec,
     Step,
     TaskSource,
     ToolPermissions,
@@ -80,6 +84,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         # consumed in Phase 4 (authored in the 15 manifests)
         "agent",
         "strategy",
+        "mechanical",   # A10 — the no-model step kind (plan.py:Step.mechanical)
         "gates",
         "hooks",  # declared executable-hook capabilities (08-08 / CR-01/WR-03)
         "validators",
@@ -92,6 +97,9 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "model",
         "fix",
         "fanout",
+        "route",
+        "produces",     # spec 014 / R-05b: declared typed-artifact kinds (R-27's produces check)
+        "consumes",     # R-29: the matching half — which upstream outputs reach this step
         "on_conflict",
         "retry",
         "injects",
@@ -103,6 +111,12 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "skills",  # per-step skill ids (R-01)
         "subagents",  # declarative child-step group (R-02/R-04)
         "produces_solution_plan",  # post-step solution-plan extraction flag
+        "redoable",     # declared-gate redo opt-in (REDO-GATE follow-up)
+        # sandbox-git-versioning / Req 17, 18: declared output surface for fan-out
+        # merge conflict-resolution. Read from the YAML verbatim; never registry-
+        # validated (pure manifest-side declarations — INV-5).
+        "outputs",
+        "replaces",
     }
 )
 
@@ -151,12 +165,40 @@ _ALLOWED_FANOUT_KEYS: frozenset[str] = frozenset(
     {"mode", "max_parallel", "agent", "count", "workers", "merge_agent"}
 )
 
+# EXACTLY the keys a step ``route:`` dict may declare (D-08 at the nested level /
+# spec 014 / conditional gates). ``condition_agent``/``outcomes`` define the condition
+# expression and the branching targets; ``default_next`` provides the fallback;
+# ``loop_max_iterations``/``trigger_max_depth`` bound loop/trigger recursion. Pure data
+# (INV-5): the conditional gate kernel owns the condition evaluation control flow, the
+# compiler only materializes the data.
+_ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
+    {"condition_agent", "outcomes", "default_next", "loop_max_iterations", "trigger_max_depth", "on_loop_exhausted"}
+)
+
+# EXACTLY the keys a step ``route.outcomes:`` dict may declare (D-08 at the nested level /
+# spec 014 / conditional outcomes). ``trigger`` is the condition predicate that must match;
+# ``target`` names the next step to dispatch to. Pure data (INV-5): conditional routing
+# evaluates the trigger expression and selects the target, purely declarative.
+# ``feedback`` (R-28) is authored guidance injected into the target step's context on a
+# BACKWARD jump — still pure data (INV-5): the compiler only records the string, the
+# kernel decides when it applies.
+_ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset(
+    {"trigger", "target", "feedback"}
+)
+
 # EXACTLY the §13 on_conflict policy set a step may declare (FANOUT-08). The kernel
 # ``_resolve_conflict`` dispatches on these four; an unknown policy is rejected at
 # compile time (fail-loud) rather than silently falling back to human_gate.
 _ALLOWED_ON_CONFLICT: frozenset[str] = frozenset(
     {"human_gate", "merge_agent", "partial", "abort"}
 )
+
+# EXACTLY the ``mechanical`` step-kind values a step may declare (A10 /
+# STABILIZATION.md). "publish" copies the highest ``deliverable.publish_from_glob``
+# match onto the deliverable name; "assemble_prototype" pours ``parts/*.html`` into
+# the fixed shell and validates (agents/capabilities/assemble_step.py). No model is
+# involved in either. Closed set, same fail-loud precedent as ``_ALLOWED_ON_CONFLICT``.
+_ALLOWED_MECHANICAL_KINDS: frozenset[str] = frozenset({"publish", "assemble_prototype"})
 
 # EXACTLY the keys a step ``tools:`` grant block may declare (D-08 at the nested
 # level / D-07). These are the §8 ToolPermissions grant fields — pure data, no
@@ -170,13 +212,13 @@ _ALLOWED_TOOLS_KEYS: frozenset[str] = ALLOWED_GRANT_KEYS
 # Manifest trust context (CAP-03 / D-02)
 # ---------------------------------------------------------------------------
 
-# The trust levels a manifest source carries. ``file`` and ``builtin`` are
-# TRUSTED (engineer-authored, version-controlled) — they may reference any
-# registered capability. ``user`` / ``db`` are UNTRUSTED — every reference is
+# The trust levels a manifest source carries. ``file``, ``builtin`` and ``db``
+# are TRUSTED (engineer-authored, version-controlled) — they may reference any
+# registered capability. ``user`` is UNTRUSTED — every reference is
 # additionally checked against the per-capability ``user_allowed`` flag, so a
-# user/DB manifest can never reference a privileged capability (exec/secrets/
+# user manifest can never reference a privileged capability (exec/secrets/
 # spawn/powerful runtimes) the engineer did not mark user-grantable.
-_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin"})
+_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +243,44 @@ _LIMITS_DEFAULT_CEILING: dict[str, int] = {
     # user/db manifest declaring max_tokens only constrains itself, so it is never a
     # "raise above the ceiling" — it is omitted from the raise-rejection set.
 }
+
+
+# ---------------------------------------------------------------------------
+# Reserved-path registry — compile-time cross-run selector guard
+# (Requirement 18 AC 9–13, Requirement 16 AC 4, V2-Q7)
+# ---------------------------------------------------------------------------
+#
+# Derived from ``app.agents.sandbox.RESERVED_PATHS`` — the single canonical
+# registry. Import-linter prevents the compiler from importing ``app.*``, so
+# the set is defined inline here but MUST remain byte-identical to
+# ``RESERVED_PATHS`` in ``sandbox.py``. Task 2.7's test_reserved_path_registry
+# asserts that both sets agree, so any drift fails the test immediately.
+#
+# Includes both trailing-slash form and bare name so a manifest author cannot
+# bypass the guard by omitting the slash. ``.chain-legacy/`` is the v2 addition.
+_COMPILER_RESERVED_PATHS: frozenset[str] = frozenset({
+    ".uploads/",
+    ".logs/",
+    ".verify/",
+    ".browser/",
+    ".agents/",
+    ".chain/",
+    ".context/",
+    "skills/",
+    "conversation_history/",
+    ".chain-legacy/",
+    # bare names (no trailing slash) — also blocked
+    ".uploads",
+    ".logs",
+    ".verify",
+    ".browser",
+    ".agents",
+    ".chain",
+    ".context",
+    "skills",
+    "conversation_history",
+    ".chain-legacy",
+})
 
 
 class WorkflowCompiler:
@@ -261,6 +341,14 @@ class WorkflowCompiler:
                 raise CompilerError(f"unknown input_provider '{ip}' in {where}")
             self._check_trust(registry, "input_provider", ip, trusted, where)
 
+        # ── Reserved-path guard on seed_files.from_run (Requirement 18 AC 9–13) ──
+        # A declared cross-run file selector that names a reserved path is rejected
+        # at compile time with a CompilerError NAMING the offending entry (Requirement
+        # 18 AC 11). A rejected entry must NOT fall back to a default seed set
+        # (Requirement 18 AC 12). Both the trailing-slash form and the bare name are
+        # checked so a manifest author cannot bypass the guard by omitting the slash.
+        self._validate_seed_files_reserved(manifest, where)
+
         deliverable = self._compile_deliverable(manifest, registry, trusted)
 
         # ── Trust-conditional Limits materialization (FANOUT-09 / OBS-01) ─────
@@ -273,10 +361,27 @@ class WorkflowCompiler:
         limits = self._compile_limits(getattr(manifest, "limits", None), trusted, where)
 
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
+        # R-09 regression guard (spec 014): _validate_dag's Kahn-algorithm graph
+        # must be built ONLY from step.depends_on and must NEVER read
+        # route.outcomes — identical carve-out to fanout/task_source today (route
+        # targets are a separate, dedicated resolution pass — _validate_route_targets
+        # below — invisible to the DAG's cycle check). Zero changes to _validate_dag
+        # itself back this: the assertion inspects its live source rather than
+        # duplicating/re-deriving its graph, so a future edit that folds route data
+        # into the Kahn graph trips this immediately.
+        assert "route" not in inspect.getsource(self._validate_dag), (
+            "R-09 violated: _validate_dag must never reference step.route/outcomes"
+        )
         self._validate_dag(steps)
 
         # ── Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05) ───────
         self._validate_fanout_source_upstream(steps)
+
+        # ── Conditional-route target resolution guard (spec 014 / R-10/R-27) ──
+        self._validate_route_targets(steps)
+
+        # ── Leaf computation (spec 014 / R-26) ─────────────────────────────────
+        self._compute_is_leaf(steps)
 
         clarify_raw = manifest.clarify or {}
         clarify = ClarifySpec(
@@ -396,6 +501,52 @@ class WorkflowCompiler:
                 f"capability ({kind!r}, {name!r}) is not user-allowed in {where} "
                 f"— a user/db manifest may not reference it (CAP-03)"
             )
+
+    @staticmethod
+    def _validate_seed_files_reserved(manifest: WorkflowManifest, where: str) -> None:
+        """Reject any ``seed_files.from_run`` entry that names a reserved path.
+
+        Compile-time enforcement of Requirement 18 AC 9–13 and Requirement 16 AC 4:
+        a declared cross-run file selector MUST NOT name a reserved sandbox path.
+        Both trailing-slash and bare forms are checked. A rejected entry raises a
+        ``CompilerError`` NAMING the offending entry (Requirement 18 AC 11) and
+        the rejection does NOT fall back to a default seed set (Requirement 18
+        AC 12) — the ``CompilerError`` stops compilation entirely.
+
+        Uses ``_COMPILER_RESERVED_PATHS`` (the inline copy of ``RESERVED_PATHS``
+        from ``app.agents.sandbox``). Also checks the normalized path form so that
+        ``"./.chain/x"`` and ``"../escape"`` cannot bypass the guard. Normalization
+        is ``posixpath.normpath`` (forward-slash semantics; OS-independent). A
+        leading ``./`` is stripped before the check so ``./skills`` is caught the
+        same as ``skills`` or ``skills/``.
+        """
+        import posixpath  # stdlib; local import to avoid adding a top-level import
+
+        seed_files = getattr(manifest, "seed_files", None) or {}
+        if not isinstance(seed_files, dict):
+            return
+        from_run = seed_files.get("from_run")
+        if not from_run:
+            return
+        for entry in from_run:
+            raw = str(entry)
+            # Normalize: collapse .., strip ./ prefix
+            normalized = posixpath.normpath(raw)
+            if normalized in (".", "/", ""):
+                normalized = ""
+            # Re-add trailing slash when original had one
+            if raw.endswith("/") and normalized and not normalized.endswith("/"):
+                normalized += "/"
+            for form in (raw, normalized):
+                if not form:
+                    continue
+                for reserved in _COMPILER_RESERVED_PATHS:
+                    if form == reserved or form.startswith(reserved):
+                        raise CompilerError(
+                            f"seed_files.from_run entry {raw!r} names reserved path "
+                            f"{reserved!r} in {where} — reserved paths must not appear "
+                            f"in a cross-run file selector (Requirement 18 AC 11)"
+                        )
 
     # ── instance_id / prompt / subagents validation (spec 012) ──────────────
 
@@ -743,11 +894,49 @@ class WorkflowCompiler:
             raise CompilerError(f"unknown strategy '{strategy}' in {where}")
         self._check_trust(registry, "strategy", strategy, trusted, where)
 
+        # ── Mechanical (no-model) step kind (A10) ─────────────────────────────
+        # Validated as a plain closed set — deliberately NOT a registry capability
+        # (see plan.py:Step.mechanical for why). ``tools:`` is rejected alongside it:
+        # a mechanical step never runs an agent, so a tool-permission grant has
+        # nothing to bind to and would silently do nothing if merely ignored
+        # (D-17 "accepted-but-dropped" is a compile error, not a silent no-op).
+        # ``gates:``/``validators:`` are NOT restricted — a human gate before
+        # publish, or html_static/html_render validators on the published file,
+        # are both meaningful on this step kind.
+        mechanical = raw.get("mechanical")
+        if mechanical is not None:
+            if mechanical not in _ALLOWED_MECHANICAL_KINDS:
+                raise CompilerError(
+                    f"unknown mechanical step kind {mechanical!r} in {where} — "
+                    f"must be one of {sorted(_ALLOWED_MECHANICAL_KINDS)} (A10)"
+                )
+            if raw.get("tools") is not None:
+                raise CompilerError(
+                    f"{where} declares mechanical: {mechanical!r} AND a tools: "
+                    f"grant — a mechanical step runs no agent, so a tool grant "
+                    f"has nothing to bind to (A10)"
+                )
+
         gates = list(raw.get("gates", []) or [])
         for gate in gates:
             if not registry.is_registered("gate", gate):
                 raise CompilerError(f"unknown gate '{gate}' in {where}")
             self._check_trust(registry, "gate", gate, trusted, where)
+
+        # At most ONE human-family gate per step. A HITL pause is keyed durably on
+        # ``gate_key = f"{run_id}:{agent_id}:{visit_count}"`` (engine.py) — the gate
+        # NAME is not part of it — so two HITL gates on the same step in the same
+        # visit would resolve to the same durable slot: the second pause would read
+        # the first one's resolution and the run would advance past a review nobody
+        # answered. Rejecting it here makes that a compile error naming the step
+        # rather than a silent mis-resume at runtime.
+        _hitl = [g for g in gates if g in ("human", "before-human", "approval")]
+        if len(_hitl) > 1:
+            raise CompilerError(
+                f"step in {where} declares more than one human-review gate "
+                f"({', '.join(sorted(_hitl))}) — a step may declare at most one, "
+                f"because all HITL gates share one durable gate_key per visit"
+            )
 
         # Declared executable hooks (08-08 / CR-01/WR-03): a step fires ONLY the
         # hooks it declares here (filtered by permission at the firing point) — NOT
@@ -875,6 +1064,41 @@ class WorkflowCompiler:
         # (parity — every existing manifest is untouched).
         fanout = self._compile_fanout(raw.get("fanout"), where)
 
+        # ── Declarative conditional route (spec 014 / R-02) ──────────────────
+        # The ``route`` key was already in _ALLOWED_STEP_KEYS but never constructed
+        # (declared-but-inert). Materialize it now, mirroring the fanout precedent
+        # above. A step with no ``route`` key keeps ``route=None`` (parity — every
+        # existing manifest is untouched).
+        route = self._compile_route(raw.get("route"), where)
+
+        # Declared typed-artifact kinds this step supplies (spec 014 / R-05b). Only
+        # currently checked by R-27 (a route's decision-source step must declare
+        # produces: ["route_decision"]) — pure data pass-through otherwise, same
+        # accepted-but-materialized precedent as the fields above. A step omitting
+        # the key keeps the dataclass default ([]) — parity.
+        produces = list(raw.get("produces") or [])
+        # R-29: pure data pass-through, same shape as ``produces`` above. The match is a
+        # plain set intersection of arbitrary strings (engine._filter_consumed_outputs),
+        # so a label like "greeting" is as valid as a registered artifact kind.
+        consumes = list(raw.get("consumes") or [])
+
+        # ── R-03 cross-field check (spec 014): gates:[conditional] ⇔ route: ────
+        # A one-off check, NOT a generalized "capability requires gate" mechanism
+        # (scope discipline — plan.md RISK-01: no existing sibling key cross-
+        # validates against gates: today, so a general mechanism is speculative
+        # until a second capability needs one).
+        if "conditional" in gates and (route is None or not route.outcomes):
+            raise CompilerError(
+                f"{where} declares gates: [conditional] but has no route (or "
+                f"route.outcomes is empty) — route: is required when "
+                f"gates: [conditional] is declared (R-03)"
+            )
+        if route is not None and route.outcomes and "conditional" not in gates:
+            raise CompilerError(
+                f"{where} declares route: but is missing gates: [conditional] — "
+                f"gates: [conditional] is required when route: is declared (R-03)"
+            )
+
         # ── Declared on_conflict policy (Phase 11 / §13 / FANOUT-08 / CR-03) ──
         # Carry the authored policy onto the compiled Step (it was silently dropped
         # before — a manifest declaring ``on_conflict: abort`` was downgraded to the
@@ -912,6 +1136,18 @@ class WorkflowCompiler:
         # YAML value (e.g. "true") to True without raising. Default False → DORMANT
         # on all existing steps → INV-3 byte/event-identical on the 5 goldens.
         produces_solution_plan = bool(raw.get("produces_solution_plan", False))
+        # Declared-gate redo opt-in (REDO-GATE follow-up): same coercion idiom.
+        redoable = bool(raw.get("redoable", False))
+
+        # ── Declared output surface (sandbox-git-versioning / Req 17, 18 / FR-033) ──
+        # outputs: deliverable filenames/paths this step writes; replaces: bool —
+        # when True the step-boundary commit reconciles stale files under
+        # ``outputs`` (Step.replaces docstring in plan.py has the full mechanism).
+        # Both are pure manifest-side declarations — the compiler reads them
+        # verbatim without any registry lookup or path validation (INV-5).
+        # Default []/False → parity for every existing manifest (INV-3).
+        outputs = list(raw.get("outputs") or [])
+        replaces = bool(raw.get("replaces", False))
 
         # ── Per-instance identity + scoping (spec 012 R-01/R-02) ──────────────
         # instance_id/prompt/subagents were already validated (shape, uniqueness,
@@ -936,6 +1172,7 @@ class WorkflowCompiler:
         return Step(
             agent_id=agent_id,
             strategy=strategy,
+            mechanical=mechanical,
             gates=gates,
             hooks=hooks,
             task_source=task_source,
@@ -945,6 +1182,9 @@ class WorkflowCompiler:
             require_render=require_render,
             tools=effective_tools,
             fanout=fanout,
+            route=route,
+            produces=produces,
+            consumes=consumes,
             on_conflict=on_conflict,
             model=model,
             retry=retry,
@@ -965,6 +1205,9 @@ class WorkflowCompiler:
             # or two steps writing prototype.html could co-schedule.
             conflict_keys=[instance_id] if instance_id else [],
             produces_solution_plan=produces_solution_plan,
+            redoable=redoable,
+            outputs=outputs,
+            replaces=replaces,
         )
 
     def _compile_task_source(
@@ -1039,6 +1282,105 @@ class WorkflowCompiler:
         )
 
     @staticmethod
+    def _compile_route(raw_route: object, where: str) -> "RouteSpec | None":
+        """Map a step ``route:`` dict → a typed ``RouteSpec`` (spec 014 / INV-5).
+
+        ``None`` (no ``route:`` key) → ``None`` (parity — the step is not a conditional
+        gate). A declared block strict-key rejects any non-route field (INV-5; a
+        control-flow/DSL field has nowhere to live) and coerces each value onto the
+        RouteSpec slot. Each ``outcomes`` entry strict-key rejects any non-outcome
+        field, validates ``trigger`` is exactly ``"step"`` or ``"workflow"``, and
+        validates ``target`` is a non-empty string — building a typed ``RouteOutcome``
+        per entry. ``trigger_max_depth`` is fixed at ``5`` in v1 (R-19, clarified): a
+        declared value other than ``5`` is rejected here (the field's own default is
+        already ``5``, so an author omitting the key is unaffected). The compiler only
+        RECORDS the declaration — the condition evaluation / dispatch control flow
+        lives inside the conditional-gate kernel, never here (INV-5 / no DSL).
+        """
+        if raw_route is None:
+            return None
+        if not isinstance(raw_route, dict):
+            raise CompilerError(
+                f"step 'route' must be a mapping in {where}; "
+                f"got {type(raw_route).__name__}"
+            )
+        extra = set(raw_route) - _ALLOWED_ROUTE_KEYS
+        if extra:
+            raise CompilerError(
+                f"unknown route key(s) {sorted(extra)} in {where} — manifests "
+                f"are pure data; a control-flow/DSL field has nowhere to live (INV-5)"
+            )
+
+        raw_outcomes = raw_route.get("outcomes") or {}
+        if not isinstance(raw_outcomes, dict):
+            raise CompilerError(
+                f"route 'outcomes' must be a mapping in {where}; "
+                f"got {type(raw_outcomes).__name__}"
+            )
+        outcomes: dict[str, RouteOutcome] = {}
+        for outcome_key, raw_outcome in raw_outcomes.items():
+            if not isinstance(raw_outcome, dict):
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} must be a mapping in {where}; "
+                    f"got {type(raw_outcome).__name__}"
+                )
+            extra_outcome = set(raw_outcome) - _ALLOWED_OUTCOME_KEYS
+            if extra_outcome:
+                raise CompilerError(
+                    f"unknown route outcome key(s) {sorted(extra_outcome)} in "
+                    f"{where} — manifests are pure data; a control-flow/DSL field "
+                    f"has nowhere to live (INV-5)"
+                )
+            trigger = raw_outcome.get("trigger")
+            if trigger not in ("step", "workflow"):
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} in {where} has invalid "
+                    f"trigger {trigger!r} — must be exactly 'step' or 'workflow' "
+                    f"(R-05b)"
+                )
+            target = raw_outcome.get("target")
+            if not isinstance(target, str) or not target.strip():
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} in {where} has a missing or "
+                    f"empty 'target' — must be a non-empty string"
+                )
+            feedback = raw_outcome.get("feedback")
+            if feedback is not None and not isinstance(feedback, str):
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} in {where} has a non-string "
+                    f"'feedback' ({type(feedback).__name__}) — must be a string "
+                    f"or omitted (R-28)"
+                )
+            outcomes[outcome_key] = RouteOutcome(
+                trigger=trigger, target=target, feedback=feedback
+            )
+
+        trigger_max_depth = raw_route.get("trigger_max_depth", 5)
+        if trigger_max_depth != 5:
+            raise CompilerError(
+                f"route.trigger_max_depth={trigger_max_depth!r} in {where} — "
+                f"the ONLY valid declared value in v1 is 5 (R-19, clarified); "
+                f"omit the key to use the default"
+            )
+
+        on_loop_exhausted = raw_route.get("on_loop_exhausted", "continue")
+        if on_loop_exhausted not in {"continue", "fail"}:
+            raise CompilerError(
+                f"route.on_loop_exhausted={on_loop_exhausted!r} in {where} — "
+                f"valid values are 'continue' or 'fail'; "
+                f"omit the key to use the default ('continue')"
+            )
+
+        return RouteSpec(
+            condition_agent=raw_route.get("condition_agent"),
+            outcomes=outcomes,
+            default_next=raw_route.get("default_next"),
+            loop_max_iterations=raw_route.get("loop_max_iterations", 5),
+            trigger_max_depth=trigger_max_depth,
+            on_loop_exhausted=on_loop_exhausted,
+        )
+
+    @staticmethod
     def _compile_model_policy(raw_model: object, where: str) -> "ModelPolicy | None":
         """Map a step/workflow ``model:`` dict → a typed ``ModelPolicy`` (WIRE-01 / D-14).
 
@@ -1055,18 +1397,35 @@ class WorkflowCompiler:
                 f"step/workflow 'model' must be a mapping in {where}; "
                 f"got {type(raw_model).__name__}"
             )
-        allowed = {"model", "max_tokens", "cost_class", "fallback"}
+        allowed = {"model", "max_tokens", "cost_class", "fallback", "effort"}
         extra = set(raw_model) - allowed
         if extra:
             raise CompilerError(
                 f"unknown model key(s) {sorted(extra)} in {where} — manifests are "
                 f"pure data; only {sorted(allowed)} are valid ModelPolicy keys (INV-5)"
             )
+        # Validate the effort against THIS model's own levels, not the global
+        # superset: `xhigh` is real on GPT-5.6 and meaningless on Claude, so a
+        # superset check would accept a value the provider rejects at runtime.
+        # Bedrock validates the level too, so this is defence in depth with a
+        # better error message — it names the step.
+        effort = raw_model.get("effort")
+        if effort is not None:
+            declared = raw_model.get("model")
+            entry = ModelCatalog().resolve(declared) if declared else None
+            valid = entry.reasoning.levels if entry is not None else REASONING_EFFORT_LEVELS
+            if effort not in valid:
+                raise CompilerError(
+                    f"invalid model effort {effort!r} in {where} — "
+                    f"{declared or 'the default model'} accepts "
+                    f"{sorted(valid) if valid else 'no effort at all'}"
+                )
         return ModelPolicy(
             model=raw_model.get("model"),
             max_tokens=raw_model.get("max_tokens"),
             cost_class=raw_model.get("cost_class", "standard"),
             fallback=list(raw_model.get("fallback", []) or []),
+            effort=effort,
         )
 
     @staticmethod
@@ -1251,15 +1610,71 @@ class WorkflowCompiler:
         # DECLARED revision-intent (07-10 / WR-04): copied verbatim onto the compiled
         # model (default False). Coerced to bool so a truthy/None YAML scalar lands as
         # a clean flag; NO workflow-name knowledge lives here (INV-1).
+        # ``chains_from`` is the DECLARED chain-context flag (sandbox-git-versioning /
+        # Req 22): when True the chain_context provider copies the source run's flat
+        # .chain/ payload into the receiving sandbox's .context/.
+        # Gated on this declared flag — NEVER on the mere presence of source_run_id
+        # (INV-1 / SC-001). Coerced to bool (same treatment as revises_existing).
+        # ``chain_policy`` is the DECLARED failure policy (sandbox-git-versioning-v2 /
+        # Req 6): ``refuse`` (default) or ``degrade``. An unknown value fails
+        # compilation — NO defaulting (INV-5).
         # ``mimetype`` is a thin pass-through (ISS-021 / 18-01): copied verbatim from
         # the manifest (default None). NO defaulting logic lives here — the
         # per-resolver default is computed at emission time (INV-5: no DSL/defaulting
         # in the compiler).
+        chains_from = bool(raw.get("chains_from", False))
+        raw_name: str | None = raw.get("name")
+        raw_chain_policy: str = raw.get("chain_policy", "refuse")
+
+        # ── name validation: must be a safe basename when present ──────────
+        # Required when chains_from is True (no resolvable output name → error).
+        # When present, it must contain no path separator, must not be '.' or '..',
+        # and must not case-insensitively collide with the two reserved .chain/
+        # filenames (logs.jsonl and summary.md).
+        _RESERVED_CHAIN_NAMES = {"logs.jsonl", "summary.md"}
+        _PATH_SEPARATORS = frozenset("/\\:")
+        if raw_name is not None:
+            if any(sep in raw_name for sep in _PATH_SEPARATORS):
+                raise CompilerError(
+                    f"deliverable.name {raw_name!r} in workflow '{manifest.id}' "
+                    f"must be a plain basename — path separators (/, \\\\, :) are "
+                    f"not allowed"
+                )
+            if raw_name in (".", ".."):
+                raise CompilerError(
+                    f"deliverable.name {raw_name!r} in workflow '{manifest.id}' "
+                    f"must not be '.' or '..'"
+                )
+            if raw_name.lower() in _RESERVED_CHAIN_NAMES:
+                raise CompilerError(
+                    f"deliverable.name {raw_name!r} in workflow '{manifest.id}' "
+                    f"collides with a reserved .chain/ filename "
+                    f"({sorted(_RESERVED_CHAIN_NAMES)}) — choose a different name"
+                )
+        if chains_from and not raw_name:
+            raise CompilerError(
+                f"workflow '{manifest.id}' declares chains_from=true but "
+                f"deliverable.name is absent or empty — a chainable workflow "
+                f"must declare a resolvable output name"
+            )
+
+        # ── chain_policy validation (INV-5: no defaulting, unknown → error) ─
+        _VALID_CHAIN_POLICIES = {"refuse", "degrade"}
+        if raw_chain_policy not in _VALID_CHAIN_POLICIES:
+            raise CompilerError(
+                f"deliverable.chain_policy {raw_chain_policy!r} in workflow "
+                f"'{manifest.id}' is unknown — must be one of "
+                f"{sorted(_VALID_CHAIN_POLICIES)}"
+            )
+
         return DeliverableSpec(
             strategy=strategy,
-            name=raw.get("name"),
+            name=raw_name,
             revises_existing=bool(raw.get("revises_existing", False)),
+            chains_from=chains_from,
+            chain_policy=raw_chain_policy,
             mimetype=raw.get("mimetype"),
+            publish_from_glob=raw.get("publish_from_glob"),
         )
 
     # ── Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05 / INV-5) ──
@@ -1298,6 +1713,210 @@ class WorkflowCompiler:
                         f"step (D9 / FANOUT-05)"
                     )
             upstream.add(step.agent_id)
+
+    # ── Conditional-route target resolution guard (spec 014 / R-10) ──────────
+
+    @staticmethod
+    def _validate_route_targets(steps: list[Step]) -> None:
+        """Reject a conditional-route outcome or ``default_next`` whose target does
+        not resolve (spec 014 / R-10).
+
+        Pure-data, INV-5-safe post-compile pass over the already-compiled ``steps``
+        (mirrors ``_validate_fanout_source_upstream`` in structure — runs once,
+        after the full step list compiles, at the same point that guard and
+        ``_validate_dag`` already run). For every step's ``route.outcomes[...]``:
+
+          * ``trigger == "step"``: ``target`` MUST be the ``agent_id`` of a step in
+            THIS workflow's compiled step set — else a ``CompilerError`` NAMING the
+            step, the outcome's condition-value key, and the unresolved target.
+          * ``trigger == "workflow"``: ``target`` MUST be the literal ``"self"`` OR
+            a reference to a real saved ``user_workflow_id``. Existing-helper
+            search (as directed by this task): ``agents/registry.py`` has no
+            ``user_workflow_id``/``WorkflowDefinition`` lookup of any kind.
+            ``app/api/user_workflows.py`` has exactly one —
+            ``_owned(db: Session, workflow_id: str, user: User) -> WorkflowDefinition``
+            (`:413`, the sole non-test ``WorkflowDefinition``-by-id query in the
+            codebase) — but it is owner-scoped
+            (``WorkflowDefinition.user_id == user.id``), requires a live DB
+            ``Session`` + the request's ``User``, and raises ``HTTPException`` — a
+            web-layer, per-request helper. ``compile()`` receives only
+            ``(manifest, registry, trust)``; it never gets a db session or a user
+            (confirmed by ``_compile_check_manifest`` in that same file, which
+            already compiles with ``trust="db"`` and zero db/user context), and
+            this module's own docstring is explicit that it "NEVER imports the
+            kernel ... or the web layer." Calling ``_owned`` from here would
+            require threading a DB session + user through every ``compile()``
+            call site (engine.py's ``compile_for_run``, ``_compile_check_manifest``,
+            tests, …) — a signature/layering change, not a reuse. So a
+            non-``"self"`` target is accepted here as a SYNTACTIC reference only
+            (already non-empty-string-validated by ``_compile_route``); its DB
+            existence/ownership is authoritatively resolved by that SAME
+            ``_owned`` helper at launch/trigger time (kernel_services.py's
+            ``run_trigger_workflow``), exactly as this manifest's other
+            ``trust="db"`` references already defer ownership checks to the
+            request-scoped launch path.
+          * ``default_next``, when declared, is validated the SAME way as a
+            ``trigger: "step"`` target (R-10).
+
+        Resolvable id set: a step's own ``agent_id`` (the identifier every OTHER
+        compile-time reference — ``depends_on``, ``fanout.task_source.source_step``
+        — matches against) PLUS, for a custom-agent instance, its bare
+        ``instance_id`` too. A custom-agent step's ``agent_id`` is the synthesized
+        ``"custom-agent:<instance_id>"`` (`_compile_step`, R-03a/D-01) — but the
+        checked-in reference fixtures (``ex_A1_loop``/
+        ``branch_new``/…) author every ``route`` target as the bare
+        ``instance_id`` (e.g. ``target: greet``, matching the step declaring
+        ``instance_id: greet``), the natural human-facing id a workflow author
+        writes. Accepting both forms is parity for a non-custom-agent step (whose
+        ``instance_id`` is ``""`` and adds nothing to the set) and is what makes
+        those fixtures compile (plan.md's own acceptance bar for this task).
+
+        Name-free (INV-1 / SC-001): the check compares ids against the
+        already-compiled step-id set, never a workflow/agent-name literal.
+
+        Also extended with R-27 (spec 014): for every step whose ``route.outcomes``
+        is non-empty, the DECISION SOURCE — ``route.condition_agent`` if set, else
+        the step itself (R-05) — must declare ``produces: ["route_decision"]`` in
+        the manifest. Resolved via the SAME dual agent_id/instance_id lookup as the
+        outcome-target check above (``by_name``), so an author-facing bare
+        ``instance_id`` reference on ``condition_agent`` resolves exactly like an
+        outcome ``target`` does. An unresolvable ``condition_agent`` and a resolved
+        step missing the declaration are both a ``CompilerError`` naming the step
+        and its (attempted) decision-source step.
+        """
+        step_ids = {s.agent_id for s in steps} | {
+            s.instance_id for s in steps if s.instance_id
+        }
+        # R-27: the same dual-identity lookup as step_ids above, but keyed to the
+        # Step object itself (not just its id) so the decision-source's `produces`
+        # can be read once resolved.
+        by_name: dict[str, Step] = {}
+        for s in steps:
+            by_name[s.agent_id] = s
+            if s.instance_id:
+                by_name[s.instance_id] = s
+        for step in steps:
+            route = step.route
+            if route is None:
+                continue
+            where = f"step '{step.agent_id}'"
+            for outcome_key, outcome in route.outcomes.items():
+                if outcome.trigger == "step" and outcome.target not in step_ids:
+                    raise CompilerError(
+                        f"route outcome {outcome_key!r} in {where} has "
+                        f"trigger='step' target {outcome.target!r} which does not "
+                        f"name a step id in this compiled workflow (R-10)"
+                    )
+                # trigger == "workflow": "self" is always valid; any other target
+                # is a syntactic user_workflow_id reference only — see docstring
+                # above for why its DB existence is not (and cannot be) checked
+                # here.
+            if route.default_next is not None and route.default_next not in step_ids:
+                raise CompilerError(
+                    f"route.default_next {route.default_next!r} in {where} does "
+                    f"not name a step id in this compiled workflow (R-10)"
+                )
+
+            # ── R-27: the route's decision source must declare produces ───────
+            if route.outcomes:
+                decision_ref = route.condition_agent or step.agent_id
+                decision_step = by_name.get(decision_ref)
+                if decision_step is None:
+                    raise CompilerError(
+                        f"route.condition_agent {route.condition_agent!r} in "
+                        f"{where} does not name a step id in this compiled "
+                        f"workflow (R-27)"
+                    )
+                if "route_decision" not in decision_step.produces:
+                    raise CompilerError(
+                        f"{where}'s conditional route reads its decision from "
+                        f"step '{decision_step.agent_id}' (resolved decision "
+                        f"source), but that step does not declare "
+                        f"produces: ['route_decision'] in the manifest — a "
+                        f"conditional gate's decision source MUST declare the "
+                        f"typed artifact its outcome match is read from (R-27)"
+                    )
+
+    # ── Leaf computation (spec 014 / R-26) ────────────────────────────────────
+
+    @staticmethod
+    def _compute_is_leaf(steps: list[Step]) -> None:
+        """Set ``Step.is_leaf`` for every step (R-26): a pure graph-shape pass over
+        the already-validated ``route``/``depends_on`` data — no new data source.
+
+        Runs once, after ``_validate_route_targets`` (so every ``outcome.target`` /
+        ``default_next`` is already known to resolve — R-10) and after
+        ``_validate_dag`` (so ``depends_on`` is already known cycle-free — no
+        ordering dependency either way, just a natural "after the graph is proven
+        sane" placement, mirroring where ``_validate_fanout_source_upstream`` sits).
+
+        A step has "nothing compiled to run after it" (is a leaf) unless ONE of:
+
+          * it is named in some OTHER step's ``depends_on`` — that step is
+            compiled to run after it regardless of route/array position;
+          * it declares a non-empty ``route.outcomes`` with at least one
+            ``trigger == "step"`` outcome, or a ``default_next`` — its own route
+            IS its continuation (a route-having step never falls through to plain
+            array-adjacency; a ``trigger == "workflow"`` outcome does not count —
+            R-13 stops THIS run, it does not continue within this compiled
+            workflow, so an all-workflow-trigger route with no ``default_next``
+            makes the step a leaf);
+          * it has no route, and the step immediately following it in manifest
+            order exists AND is not itself named as a ``trigger == "step"``
+            outcome target / ``default_next`` anywhere in the workflow — plain
+            array-adjacency is the step's implicit continuation UNLESS that next
+            step is really a branch sibling reached only via a jump (the
+            ``ex_A2_branch`` case: ``say_hello``/``say_hola`` sit
+            array-adjacent under one shared route step, R-26's whole point — a
+            naive index+1 check would wrongly mark ``say_hello`` as non-leaf).
+
+        For a workflow with no ``route`` anywhere (every pre-014 manifest), this
+        collapses to exactly the old ``index == len(steps) - 1`` check (parity) —
+        ``jump_target_idx`` is empty, so only the last array position lacks a
+        next-step index.
+        """
+        index_of: dict[str, int] = {}
+        for i, step in enumerate(steps):
+            index_of[step.agent_id] = i
+            if step.instance_id:
+                index_of[step.instance_id] = i
+
+        depended_on: set[str] = set()
+        for step in steps:
+            depended_on.update(step.depends_on or [])
+
+        # FORWARD jump targets only: a target at a HIGHER index than its routing
+        # step is a branch sibling reached by the jump (the ex_A2_branch case this
+        # set exists for). A target at a LOWER index is a LOOP-BACK (Coverage
+        # Check → Synthesizer "incomplete", Fidelity → prototype-plan "gaps") —
+        # the target is still every earlier step's legitimate array-adjacent
+        # continuation, and counting it here made the step BEFORE it a false
+        # leaf: observed live as a run "completing" right after the parallel
+        # reading group, never reaching Synthesizer.
+        jump_target_idx: set[int] = set()
+        for step in steps:
+            if step.route is None:
+                continue
+            src_idx = index_of.get(step.agent_id, -1)
+            for outcome in step.route.outcomes.values():
+                if outcome.trigger == "step" and outcome.target in index_of:
+                    if index_of[outcome.target] > src_idx:
+                        jump_target_idx.add(index_of[outcome.target])
+            if step.route.default_next and step.route.default_next in index_of:
+                if index_of[step.route.default_next] > src_idx:
+                    jump_target_idx.add(index_of[step.route.default_next])
+
+        for i, step in enumerate(steps):
+            if step.agent_id in depended_on:
+                step.is_leaf = False
+                continue
+            if step.route is not None and step.route.outcomes:
+                has_next = any(
+                    o.trigger == "step" for o in step.route.outcomes.values()
+                ) or bool(step.route.default_next)
+                step.is_leaf = not has_next
+                continue
+            step.is_leaf = (i + 1 >= len(steps)) or ((i + 1) in jump_target_idx)
 
     # ── DAG validation (no duplicate agents, no cycle) ───────────────────────
 

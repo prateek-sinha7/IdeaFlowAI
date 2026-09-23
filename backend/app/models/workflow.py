@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
@@ -30,6 +31,16 @@ class WorkflowRun(Base):
         # DESC (migration 0030). Declared here so `alembic check` / test_alembic.py
         # see the model and the migration agree.
         Index("ix_workflow_runs_user_created", "user_id", "created_at"),
+        # ISS-637: the sparse unique share-token index created by migration 0040.
+        # Declared here — with the same partial WHERE clause — so the model and
+        # the migration agree and `alembic check` / test_alembic.py see no drift.
+        Index(
+            "uq_workflow_runs_share_token",
+            "share_token",
+            unique=True,
+            sqlite_where=text("share_token IS NOT NULL"),
+            postgresql_where=text("share_token IS NOT NULL"),
+        ),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -102,6 +113,13 @@ class WorkflowRun(Base):
     # workspace_id scope (above), so no new authz surface (D-12).
     selections_json = Column(JSON, nullable=True)
 
+    # Migration 0040 — resume fidelity for composed runs. The RAW manifest dict a
+    # USER_WORKFLOW_MANIFEST / inline-manifest launch executed. NULL for every
+    # registry/file-pipeline run. `engine.resume_run` recompiles this and threads
+    # it through `compiled_override`, so a restart-resumed composed run drives the
+    # SAME steps it launched with instead of the generic `custom` registry roster.
+    manifest_json = Column(JSON, nullable=True)
+
     # KAN-120 (added additively by migration 0027). The launch-time od_context
     # dict (template_body, design_system, etc.) for OpenDesign runs (od_ppt,
     # od_prototype). Persisted at run CREATION so resume_run can reconstruct it
@@ -127,6 +145,42 @@ class WorkflowRun(Base):
     # collapse the first two. Every legacy run stays NULL → gate_agent_ids=None
     # on resume, the pre-fix behavior (INV-3 parity).
     gate_agent_ids_json = Column(JSON, nullable=True)
+
+    # Added additively by migration 0033. The step id at which a diverged/diverted
+    # run (child of parent_run_id via the conditional gate) was triggered. Frontend
+    # uses this to render "← Continued from {parent run}, step {step_id}" in the
+    # run-breadcrumb. Nullable: legacy runs or runs not diverted via conditional
+    # gates stay NULL (no step_id exists for the trigger). Populated by T41.
+    diverted_at_step_id = Column(String, nullable=True)
+
+    # Added additively by migration 0040. Public share token for Option-B
+    # deliverable sharing: any bearer of this token can view the run's
+    # deliverable at GET /s/{token} without authenticating.
+    #   share_token      — cryptographically random 32-byte URL-safe token;
+    #                      NULL = run has not been shared / share was revoked.
+    #   share_expires_at — optional expiry (NULL = permanent until revoked).
+    # IDOR: the /s/ route echoes ONLY output + deliverable_mimetype — never
+    # input, agent_outputs, token_usage, owner_id, or any PII.
+    share_token = Column(String, nullable=True)
+    share_expires_at = Column(DateTime, nullable=True)
+
+    # Added additively by migration 0041. The git tag name assigned to a
+    # completed run (e.g. "v1", "v2"). NULL for every run that did not reach
+    # the completed terminal status (diverted, cancelled, failed, degraded) or
+    # that was created before git versioning was enabled. Set by the post_run
+    # finalizer in engine.py after create_tag() succeeds (task 6.3).
+    git_tag = Column(String, nullable=True)
+
+    # Added additively by migration 0044. Whether the run's output payload can
+    # be chained (used as the input context for a downstream run).
+    #   NULL    = unknown — pre-migration rows or runs whose chainability has
+    #             not yet been evaluated.
+    #   True    = payload is chainable; a downstream run may inherit it.
+    #   False   = payload is NOT chainable; non_chainable_reason explains why.
+    # non_chainable_reason carries a human-readable explanation when
+    # payload_chainable is False; NULL otherwise.
+    payload_chainable = Column(Boolean, nullable=True)
+    non_chainable_reason = Column(String, nullable=True)
 
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])

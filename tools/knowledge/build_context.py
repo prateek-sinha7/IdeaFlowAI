@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Build .knowledge/CONTEXT.md, the compacted navigation pack.
 
 Procedure and section contract: skills/velocity/prime.md
@@ -34,7 +35,7 @@ CARDS_DIR = KNOWLEDGE / "cards"
 ARCH_DIR = KNOWLEDGE / "architecture"
 OUT_PATH = KNOWLEDGE / "CONTEXT.md"
 
-CLOSED_STATUSES = {"done", "closed", "resolved", "superseded"}
+CLOSED_STATUSES = {"done", "closed", "resolved", "superseded", "accepted"}
 
 # ---------------------------------------------------------------------------
 # Section 1 — hand-authored, condensed from ARCHITECTURE.md's opening.
@@ -99,10 +100,15 @@ SECTION_2 = """## 2. Invariants and boundaries
 # ---------------------------------------------------------------------------
 # Section 5 — hand-authored usage note.
 # ---------------------------------------------------------------------------
+# Section 5 carries two live counts, so it is a TEMPLATE, not a constant:
+# the hardcoded "951 + 36" went stale at 1181 cards and understated the very
+# cost the section exists to warn about. Substituted with .replace(), NOT
+# .format() -- the section also contains the literal filename pattern
+# {YYYYMMDD}[-{HHMM}]-{ID}.md, which .format() would try to interpolate.
 SECTION_5 = """## 5. Retrieval protocol
 
 **NEVER read or grep `cards/*.md` or `architecture/*.md` in bulk.** That is
-951 + 36 files; it blows out the context window and buries the answer. The
+{n_cards} + {n_arch} files; it blows out the context window and buries the answer. The
 index exists so you never have to. Reading whole directories is the single
 worst thing you can do in this knowledge base.
 
@@ -285,14 +291,11 @@ def build_section_3(cards):
     lines.append("")
 
 
-    # adr — the only type listed individually (single card, load-bearing).
-    adr_entries = by_type.get("adr", [])
-    lines.append(f"**adr ({len(adr_entries)}):**")
-    for fm in adr_entries:
-        cid = fm.get("id")
-        title = fm.get("title", cid)
-        lines.append(f"- [{cid}](cards/{fm['_filename']}) — {title}")
-    lines.append("")
+    # adr was once listed card-by-card here, back when a single decision record
+    # existed and the list cost ~150 chars. At 36 it cost 5,159 — 88% of this
+    # pack's budget overrun — to restate INDEX.md in a weaker form: this listed
+    # `title`, INDEX.md lists `compact_summary`. Every type now routes the same
+    # way, through the index. Do not reinstate a per-card list for any type.
 
     lines.append(
         "Start every card lookup at [INDEX.md](INDEX.md) — one line per card, "
@@ -377,7 +380,7 @@ def main():
     prior_built_at = ""
     if OUT_PATH.exists():
         m_ba = re.search(
-            r"^built_at:\s*(\S+)", OUT_PATH.read_text(encoding="utf-8"), re.M
+            r"^built_at:\s*(\S+)", OUT_PATH.read_text(encoding="utf-8", errors="replace"), re.M
         )
         if m_ba:
             prior_built_at = m_ba.group(1)
@@ -406,7 +409,7 @@ def main():
 
     body = "\n".join([
         frontmatter,
-        "# Velocity — Context Pack",
+        "# Velocity -- Context Pack",
         "",
         SECTION_1.rstrip(),
         "",
@@ -414,16 +417,18 @@ def main():
         "",
         sec3,
         sec4,
-        SECTION_5.rstrip(),
+        SECTION_5.replace("{n_cards}", f"{len(cards):,}")
+                 .replace("{n_arch}", str(len(list(ARCH_DIR.glob('*.md')))))
+                 .rstrip(),
         "",
     ])
 
     if OUT_PATH.exists():
-        prior = OUT_PATH.read_text(encoding="utf-8")
+        prior = OUT_PATH.read_text(encoding="utf-8", errors="replace")
         if prior.replace(f"built_at: {built_at}", "") == body.replace(f"built_at: {built_at}", ""):
             print(f"Wrote {OUT_PATH} (unchanged)")
             return
-    OUT_PATH.write_text(body, encoding="utf-8")
+    OUT_PATH.write_text(body, encoding='utf-8', newline='\n')
 
     approx_tokens = len(body) // 4
     print(f"Wrote {OUT_PATH} ({len(body)} chars, ~{approx_tokens} tokens)")

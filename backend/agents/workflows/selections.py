@@ -41,10 +41,14 @@ from agents.workflows.manifest import WorkflowManifest
 # verbatim onto the raw step dict so the compiler's strict-key rejection — INV-5 —
 # names it, never this module). Kept aligned with compiler._ALLOWED_STEP_KEYS.
 _LEVER_KEYS: frozenset[str] = frozenset(
+    # "effort" rides INSIDE the step's model block (see below), so it needs no
+    # _ALLOWED_STEP_KEYS entry — but it MUST be listed here, or it is carried
+    # verbatim onto the raw step and rejected by the compiler's strict-key check.
     {
         "validators",
         "gates",
         "model",
+        "effort",
         "retry",
         "injects",
         "compaction",
@@ -138,6 +142,13 @@ def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
     if model is not None:
         # The compiler's _compile_model_policy reads a ``{model: <id>}`` mapping.
         step["model"] = {"model": model} if isinstance(model, str) else model
+
+    # Per-step reasoning level (spec 020). ``setdefault`` so a selection carrying
+    # ONLY an effort still produces a valid model block, and one carrying both
+    # keeps the model id.
+    effort = sel.get("effort")
+    if effort is not None:
+        step.setdefault("model", {})["effort"] = effort
 
     retry = sel.get("retry")
     if retry is not None:

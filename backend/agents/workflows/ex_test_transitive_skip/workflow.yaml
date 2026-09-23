@@ -1,0 +1,105 @@
+# ex_test_transitive_skip — regression fixture for the b80eff36 transitive-skip
+# bug: a conditional gate routes "ok" straight to ``finisher``, so its sibling
+# outcome's target ``planner`` is reported ``agent_skipped`` directly (the
+# existing skipped_targets mechanism). ``builder`` (which `depends_on` ONLY
+# ``planner``, one hop downstream) must ALSO be reported skipped, not silently
+# left with zero events. ``finisher`` verifies the safety rail: a step with a
+# LIVE (non-skipped) dependency must still run even though one of its OTHER
+# deps (``planner``) was skipped.
+#
+#   1. side-input (no deps, always runs)
+#   2. gate (gates:[conditional], produces:[route_decision], depends_on:[side-input])
+#        |___ outcome: gaps ___> 3. planner    (NOT taken — reported skipped)
+#        |___ outcome: ok   ___> 5. finisher   (taken directly)
+#
+#   3. planner   depends_on: [gate]                — direct skip target
+#   4. builder   depends_on: [planner]              — must be TRANSITIVELY skipped
+#   5. finisher  depends_on: [planner, side-input]  — must still run (side-input live)
+
+id: ex_test_transitive_skip
+user_launchable: false
+is_beta: true
+display_name: Transitive Skip Regression
+short_name: Transitive Skip
+icon: GitBranch
+description: Regression fixture — a downstream step must be skipped when its only upstream is skipped.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: side-input
+  name: Side Input
+  prompt: Write one line.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: gate
+  name: Decision Gate
+  produces: ["route_decision"]
+  prompt: |
+    Reply with exactly one line, no markdown: {"decision": "ok"} or {"decision": "gaps"}.
+  gates:
+  - conditional
+  depends_on:
+  - custom-agent:side-input
+  route:
+    default_next: finisher
+    outcomes:
+      gaps: {trigger: step, target: planner}
+      ok: {trigger: step, target: finisher}
+
+- agent: custom-agent
+  instance_id: planner
+  name: Planner
+  prompt: 'Respond with exactly: "planned"'
+  gates: []
+  depends_on:
+  - custom-agent:gate
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: builder
+  name: Builder
+  prompt: 'Respond with exactly: "built"'
+  gates: []
+  depends_on:
+  - custom-agent:planner
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: finisher
+  name: Finisher
+  prompt: 'Respond with exactly: "finished"'
+  gates: []
+  depends_on:
+  - custom-agent:planner
+  - custom-agent:side-input
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Transitive Skip Regression

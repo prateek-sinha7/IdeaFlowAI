@@ -11,7 +11,7 @@
  */
 
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
-import { ApiError, getToken } from "@/lib/api";
+import { ApiError, getToken, handleSessionExpiry, isSessionExpiryExempt } from "@/lib/api";
 import { ENV } from "@/lib/env";
 
 export const http = axios.create({
@@ -33,6 +33,17 @@ http.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response) {
+      // FR-015 — this axios instance is a second shared request path (Library's
+      // agent/skill/hook fetches and everything else in store/api/ go through
+      // it, bypassing lib/api.ts's fetchWithAuth entirely), so it needs its own
+      // 401 -> session-expired redirect rather than relying on the fetch-based
+      // path to cover it. Same exempt list as lib/api.ts so a failed login or
+      // change-password 401 here (if ever wired up) shows its own inline error
+      // instead of bouncing back to /login.
+      const path = error.config?.url ?? "";
+      if (error.response.status === 401 && !isSessionExpiryExempt(path)) {
+        handleSessionExpiry();
+      }
       const body = error.response.data as { detail?: unknown } | undefined;
       return Promise.reject(
         new ApiError(error.response.status, body?.detail ?? body ?? error.message)

@@ -200,6 +200,22 @@ def _extract_consumed_block(text: str) -> str:
     return text[i:j]
 
 
+_M10_XFAIL_REASON = (
+    "M10 (GIT_VERSIONING_TASKS.md Phase M / GAPS §0.2, §0.3 step 0, FR-030 rows "
+    "20/21): prototype-build is now migrated (prompt_policy: governance), so the "
+    "unconditional pre-Phase-7 world-state paste this oracle enforces (TEMPLATE "
+    "COMPLIANCE — row 21; injection parts / DS body / skeleton — row 20) is "
+    "DELIBERATELY retired for it, the opposite direction from what 07-09 fixed. "
+    "GAPS's own FR-030 ledger already anticipated this file re-diverging: row 20 "
+    "'acknowledged xfail drift in test_context_message_oracle.py'. Re-flipped to "
+    "xfail rather than rewritten: the oracle's whole job is pinning the LEGACY "
+    "unconditional contract, which is precisely what Q4 deletes — an updated "
+    "oracle would just be re-deriving `_compose_context_message`'s new output, "
+    "duplicating test_characterization_prototype.py's already-re-pinned golden."
+)
+
+
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
 @pytest.mark.asyncio
 async def test_routed_build_prompt_equals_oracle_byte_for_byte() -> None:
     """07-09 ACCEPTANCE: the routed prototype-build context_message == the oracle bytes.
@@ -248,6 +264,7 @@ async def test_routed_build_prompt_equals_oracle_byte_for_byte() -> None:
     )
 
 
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
 @pytest.mark.asyncio
 async def test_routed_build_task_2_equals_oracle_byte_for_byte() -> None:
     """07-09 WR-01: the routed task-2 build prompt == the oracle (skeleton block present).
@@ -300,6 +317,7 @@ async def test_routed_build_task_2_equals_oracle_byte_for_byte() -> None:
     )
 
 
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
 @pytest.mark.asyncio
 async def test_routed_build_prompt_has_template_compliance_now() -> None:
     """CR-01 restored: the routed build prompt now CARRIES TEMPLATE COMPLIANCE on every task.
@@ -354,6 +372,7 @@ def _golden_build_context_messages(golden_name: str) -> list[str]:
     return out
 
 
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
 @pytest.mark.parametrize("golden_name", ["prototype.events.json"])
 def test_regenerated_golden_build_prompt_equals_oracle(golden_name: str) -> None:
     """T-07-09-02: the regenerated build-agent context_message in the golden == the oracle.

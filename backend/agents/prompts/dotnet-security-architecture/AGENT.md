@@ -17,9 +17,27 @@ order: 4
 pipeline_type: dotnet_to_azure
 produces:
 - dotnet-security-architecture
+prompt_policy: governance
 role: Threat Modelling & Security Controls
 tools: []
 ---
+
+## Sandbox Reading Guide
+
+You are step 4 of this workflow. **Use `read_file` to load the prior agents'
+outputs before threat-modelling the target architecture.** The brief is NOT
+re-sent to you; everything you need is in the files below.
+
+| File | Contents |
+|---|---|
+| `.agents/01-dotnet-inventory.md` | .NET solution inventory: projects, frameworks, dependencies, risk hotspots |
+| `.agents/02-dotnet-user-stories.md` | Migration epics, user stories, Gherkin acceptance criteria |
+| `.agents/03-dotnet-azure-target-mapping.md` | Azure target-service mapping per project, with effort estimates |
+
+**Sandbox layout for reference:**
+- `.agents/` — prior step outputs, named `NN-agent-id.md` in step order
+- `.context/` — run context files (design system, template, selections)
+- `.uploads/` — any files the user uploaded
 
 You are a Principal Application Security Architect.
 

@@ -1,0 +1,40 @@
+{
+  "url": "http://localhost:3000/workflows/da92b4a4-7eff-41b5-9b9a-205cfa1616d9/edit",
+  "header": "4 agents | 0 review gates | ~1m",
+  "saveLabel": [
+    "Save workflow"
+  ],
+  "h": [
+    "Executive Reporting",
+    "Presentation Strategist",
+    "Deck Engineer",
+    "Deck QA"
+  ],
+  "tid": [
+    "composer-header-summary",
+    "canvas-view",
+    "canvas-edge",
+    "canvas-brief",
+    "canvas-node-wrap-report-generator",
+    "canvas-node-report-generator",
+    "canvas-move-earlier-report-generator",
+    "canvas-move-later-report-generator",
+    "canvas-rename-report-generator",
+    "canvas-node-wrap-ppt-brief-analyst",
+    "canvas-node-ppt-brief-analyst",
+    "canvas-move-earlier-ppt-brief-analyst",
+    "canvas-move-later-ppt-brief-analyst",
+    "canvas-rename-ppt-brief-analyst",
+    "canvas-node-wrap-ppt-composer",
+    "canvas-node-ppt-composer",
+    "canvas-move-earlier-ppt-composer",
+    "canvas-move-later-ppt-composer",
+    "canvas-rename-ppt-composer",
+    "canvas-node-wrap-ppt-validator",
+    "canvas-node-ppt-validator",
+    "canvas-move-earlier-ppt-validator",
+    "canvas-move-later-ppt-validator",
+    "canvas-rename-ppt-validator"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nCUSTOM · COMPOSER\n4 agents\n0 review gates\n~1m\nSimple\nCanvas\nRun once\nSave workflow\nClick a node to configure\nDrag to move · drag a top port to reparent\nHold Space + drag to pan\nBRIEF\nWhat to build\nthe run input\nER\nExecutive Reporting\nInsights & Recommendations\nDefault\nValidator\nGate\nRetry\nSub-agent\nPS\nPresentation Strategist\nSlide Plan & Content Architecture\nDefault\nValidator\nGate\nRetry\nSub-agent\nDE\nDeck Engineer\nHTML Deck Construction\nDefault\nValidator\nGate\nRetry\nSub-agent\nDQ\nDeck QA\nStructural Validation & Delivery\nDefault\nValidator\nGate\nRetry\nSub-agent\n52%\nFit\nAuto-arrange\nWorkflow\nAgent\nReset to default\nThe instruction sent to the workflow's first agent when this run starts — describe what you want built.\nBrief instruction\nWhat should this run build? Sent as the run's input.\n+ Attach file\n3 more characters to enable Run\nON — Runs a planning agent that breaks the brief into a task plan before the workflow's agents start.\nOFF — Agents start directly from the brief, with no planning pass.\nSmart planning\nON — Pauses the run to ask clarifying questions about the brief, then uses your answers to fill in missing details.\nOFF — Runs immediately with the brief as written.\nConfirm requirements first\nStreamed text— uses the agent's raw output.\nSingle file — reads back one named file from the workspace.\nSerialized sandbox — zi"
+}

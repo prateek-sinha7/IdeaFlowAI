@@ -613,7 +613,15 @@ def test_post_accepts_synthetic_custom_agent_ids_when_manifest_present(api):
     body = _manifest_body(agent_ids=["agent-1", "agent-2"], model_overrides=None)
     r = client.post("/api/user-workflows", json=body)
     assert r.status_code == 201, r.text
-    assert r.json()["agent_ids"] == ["agent-1", "agent-2"]
+    # The point of this test is that the save is ACCEPTED (no 422 from the coarse
+    # allow-list). `agent_ids` on the way back out now describes the MANIFEST's
+    # composition rather than echoing the submitted list: for a manifest row the
+    # submitted ids are vestigial (the request model just requires a non-empty
+    # list) and the legacy `agents` column they land in goes stale on the first
+    # canvas edit, because PATCH strips agent_ids — which is what made the Saved
+    # Workflows card read "4 agents" for a 12-step workflow. See
+    # test_user_workflows_agent_count.py. Same COUNT, composition-derived ids.
+    assert r.json()["agent_ids"] == [_AGENT_A, "custom-agent:research-a"]
 
 
 def test_post_rejects_manifest_and_selections_together(api):

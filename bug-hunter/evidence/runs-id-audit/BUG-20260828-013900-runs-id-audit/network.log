@@ -1,0 +1,30 @@
+GET http://localhost:8000/api/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/gate-events => 200 OK
+Response body: {"workflow_id":"b9feac1c-ec21-4531-8ba7-bb391786993e","gate_events":[]}
+
+GET http://localhost:8000/api/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/events?after=0 => 200 OK
+Event type counts in response (raw ground truth):
+  agent_chunk: 7837
+  agent_thinking: 1784
+  tool_call: 44
+  tool_result: 44
+  chat_reply: 4
+  agent_start: 4
+  agent_input: 4
+  agent_skills: 4
+  agent_complete: 4
+  workflow_validated: 1
+  planner_start: 1
+  planner_complete: 1
+  gate_status: 1   <-- the ONLY real gate-type event in the whole run
+  questionnaire_ready: 1
+  questionnaire_complete: 1
+  pipeline_start: 1
+  pipeline_complete: 1
+  Total: 9737 events
+
+Observation: the run genuinely produced exactly ONE gate_status event, and the
+dedicated /gate-events endpoint returns an EMPTY array for this run. Yet the
+rendered Audit tab UI labels 96 of its 100 rows "GOVERNANCE"/"GATE" with a
+"Passed" badge -- these 96 rows are synthesized client-side from ordinary
+tool_call (44) and tool_result (44) events plus assorted "before step"/"after
+step" markers (8), none of which are gate events per the backend's own data.

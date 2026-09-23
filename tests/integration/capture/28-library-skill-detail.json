@@ -1,0 +1,43 @@
+{
+  "url": "http://localhost:3000/library/skills/accessibility",
+  "h": [
+    "H1:Library",
+    "H2:Accessibility (WCAG 2.2)",
+    "H3:ACCESSIBILITY (WCAG 2.2)",
+    "H3:WHEN TO USE",
+    "H3:CORE CONCEPTS",
+    "H3:HOW IT WORKS",
+    "H3:ACCESSIBILITY ARCHITECTURE DIAGRAM",
+    "H3:CROSS-PLATFORM MAPPING",
+    "H3:EXAMPLES",
+    "H3:ANTI-PATTERNS TO AVOID",
+    "H3:BEST PRACTICES CHECKLIST",
+    "H3:REFERENCES",
+    "H3:RELATED SKILLS"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "@Notifications",
+    "@Account menu",
+    "Agents 93",
+    "Skills 186",
+    "Hooks 8",
+    "All",
+    "Collaboration",
+    "Creative",
+    "Debugging",
+    "Planning",
+    "Research",
+    "Security",
+    "Specialist",
+    "Testing",
+    "Workflow",
+    "Copy content",
+    "@",
+    "Copy"
+  ],
+  "dialogs": 0,
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nLibrary\n93 agents · 186 skills · 8 hooks · tap any item to see its capabilities\nAgents 93\nSkills 186\nHooks 8\nAll\nCollaboration\nCreative\nDebugging\nPlanning\nResearch\nSecurity\nSpecialist\nTesting\nWorkflow\nAccessibility (WCAG 2.2)\nPLANNING\nDesign, implement, and audit WCAG 2.2 AA accessibility for Web and native apps. Use for ARIA roles, contrast, and focus order when building or reviewing UI components.\naccessibility\nView →\nAccessibility Auditor\nSPECIALIST\nWeb accessibility specialist for WCAG compliance, ARIA implementation, and inclusive design. Expert in semantic HTML, keyboard navigation, and assistive technology compatibility.\naccessibility\nwcag\naria\nView →\nAccessibility Compliance\nSECURITY\nImplement WCAG 2.2 compliant interfaces with mobile accessibility, inclusive design patterns, and assistive technology support.\nwcag\naria\nscreen-reader\nView →\nAndroid Clean Architecture\nPLANNING\nClean Architecture patterns for Android and Kotlin Multiplatform projects — module structure, dependency rules, UseCases, Repositories, and data layer patterns.\nandroid\nclean\narchitecture\nView →\nAngular Developer Guidelines\nTESTING\nGenerate Angular code and guidance for signals, forms, DI, routing, SSR, accessibility, animations, and testing. Use when scaffolding or reviewing any Angular project or component.\nangular\ndeveloper\nView →\nAPI Connector Builder\nTESTING\nBuild a new API connector or provider by matching the target repo's existing integration pattern exactly. Use when adding one more integration without inventing a second architecture.\napi\nconnector\nbuilder\nView →\nAPI Design Patterns\nWORKFLOW\nREST API design patterns including resource naming, status codes, pagination, filtering, error responses, versioning, and rate limiting for production APIs.\napi\nopenapi\nrest\nView →\nArchitecture Decision Records\nPLANNING\nCapture architectural decisions made during a session as structured ADRs with context, alternatives, and rationale. Use when a significant tech choice is made or when asked why.\narchitecture\ndecision\nrecords\nView →\nAuth Patterns\nSECURITY\nMaster authentication and authorization patterns including JWT, OAuth2, session management, and RBAC.\nauthentication\nauthorization\njwt\nView →\nAWS Cloud Patterns\nWORKFLOW\nAWS cloud patterns for Lambda, ECS, S3, DynamoDB, and Infrastructure as Code with CDK/Terraform.\naws\nlambda\ndynamodb\nView →\nBackend Architect\nSPECIALIST\nExpert backend architect specializing in scalable API design, microservices "
+}

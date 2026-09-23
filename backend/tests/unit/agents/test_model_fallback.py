@@ -128,6 +128,7 @@ async def _drive_one_agent(
         session_model_id=primary,
         haiku_default=_settings.BEDROCK_INFERENCE_PROFILE_ID,
         catalog=ModelCatalog(),
+        _region_override="",  # disable geo-prefix normalization for this test
     )
     # Arm the active fallback chain the engine retry loop drives (06-03 set_chain/advance).
     resolver.set_chain(primary)

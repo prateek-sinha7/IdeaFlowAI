@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from agents.execution_engine.ndjson_adapter import run_prototype_pipeline
 from app.core.config import settings
 from app.core.dependencies import get_current_user
+from app.core.http_client import default_ssl_context
 from app.models.user import User
 from app.services import od_loader
 
@@ -360,7 +361,9 @@ async def fetch_url_for_template(
     MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=10.0, verify=default_ssl_context()
+        ) as client:
             response = await client.get(
                 url,
                 headers={
@@ -402,4 +405,7 @@ async def fetch_url_for_template(
         )
     except Exception as exc:
         logger.warning("fetch-url failed for %s: %s", url, exc)
-        raise HTTPException(status_code=502, detail=f"URL fetch failed: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach that URL. Check the address and try again.",
+        )

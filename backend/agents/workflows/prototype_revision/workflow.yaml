@@ -36,7 +36,12 @@ steps:
   strategy: single_shot
   gates: []
   produces_solution_plan: true
-  tools: {read_files: false}
+  # M10 (GAPS §0.3/§1 P1 Q4 rollout): read_files was false because the agent
+  # relied entirely on the CURRENT PROTOTYPE HTML block pasted by
+  # _compose_context_message (row 18). Migrating this agent off `default`
+  # retires that paste (`not _is_migrated`), so it now needs to read
+  # `prototype.html` itself — see its Sandbox Reading Guide.
+  tools: {read_files: true}
 
 # Step 1: Apply the revision (was step 0)
 - agent: prototype-revision-agent

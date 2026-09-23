@@ -44,4 +44,17 @@ class WaveRun(Base):
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
+    # Added additively by migration 0045 (sandbox git versioning task 5.1).
+    # Records the outcome of a merge operation performed during or after this
+    # wave's execution.  All columns nullable — waves that never involve a merge
+    # keep NULL.
+    #   merge_state     — "clean" | "conflict" | "partial" | "aborted"
+    #   merge_applied   — JSON list of applied branch names
+    #   merge_conflicts — JSON conflict details (paths, conflict markers, etc.)
+    #   merge_strategy  — merge strategy used (e.g. "ours", "theirs", "recursive")
+    merge_state = Column(String, nullable=True)
+    merge_applied = Column(String, nullable=True)  # JSON list
+    merge_conflicts = Column(String, nullable=True)  # JSON blob
+    merge_strategy = Column(String, nullable=True)
+
     __table_args__ = (Index("ix_wave_runs_run", "run_id"),)

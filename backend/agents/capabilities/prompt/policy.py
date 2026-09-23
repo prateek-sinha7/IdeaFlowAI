@@ -1,29 +1,45 @@
-"""agents/capabilities/prompt/policy.py — the default PromptAssemblyPolicy (08-05 / F1 / §30).
+"""agents/capabilities/prompt/policy.py — PromptAssemblyPolicy registry (08-05 / F1 / §30).
 
-Lifts the factory's hardcoded inline block-append order (F1) into a registered
-``PromptAssemblyPolicy`` capability. The factory's ``_compose_system_prompt`` joined a
-FIXED block order with ``"\\n\\n"``:
+Lifts the factory's hardcoded inline block-append order (F1) into registered
+``PromptAssemblyPolicy`` capabilities.  Three policies ship here:
 
-    injects → guardrails → skills → hooks → constitution → prompt_body
+``default``
+    The full 7-block order — byte-identical to the old inline path for every
+    existing agent.  The 5 characterization snapshots gate it (NEVER re-baseline).
 
-(see ``backend/CLAUDE.md`` § "Skills vs Guardrails vs Hooks"). This policy reproduces
-that order + join BYTE-IDENTICALLY so the composed prompt is unchanged for every
-existing agent (the 5 characterization snapshots gate it — RESEARCH Pitfall 2; NEVER
-re-baseline).
+``body_only`` (Requirement 29 AC1)
+    Emits ONLY ``prompt_body`` — the system prompt is exactly the agent's AGENT.md.
+    Drops six blocks: ``tool_availability``, ``injects``, ``guardrails``, ``skills``,
+    ``hooks``, ``constitution``.  Losing the Constitution as a side effect of a
+    formatting change is NOT acceptable — governed agents must use ``governance``
+    instead (Requirement 29 AC3).
+
+``governance`` (Requirement 29 AC2)
+    A curated four-block order for agents that carry a Constitution or behavioral
+    hooks: ``guardrails → hooks → constitution → prompt_body``.  Retains the
+    three blocks that comprise governed-agent behaviour while still dropping the
+    injection boilerplate (injects / skills / tool_availability) that Seam-2
+    removal makes redundant.
+
+Seam 1 vs Seam 2 (Phase Z, GAPS §0.3 step N+1)
+    This module governs **seam 1 only** — the per-agent SYSTEM PROMPT assembled
+    by ``assemble()`` above. ``prompt_policy`` (``default`` / ``body_only`` /
+    ``governance``) still selects a real, distinct order here for every agent.
+    **Seam 2** — the per-agent CONTEXT MESSAGE built by
+    ``ExecutionEngine._compose_context_message`` — no longer varies by
+    ``prompt_policy`` at all: Phase Z deleted every ``if not _is_migrated:``
+    world-block branch there, so every agent gets the same (brief-to-first-
+    agent-only, no pasted world state) treatment regardless of which policy
+    named here it carries. ``default`` stays a valid, live policy name for THIS
+    module; it no longer means anything for seam 2.
 
 Block model
 -----------
 ``assemble(blocks, ctx)`` takes a mapping ``category -> block(s)`` where each value is
 either a single ``str`` block or a ``list[str]`` of blocks (skills/guardrails can be
-multiple). Blocks are emitted in ``DEFAULT_ORDER``; an absent/empty category contributes
-NOTHING (it was simply not appended in the inline path), EXCEPT ``prompt_body``, which
-the inline path ALWAYS appended (even when empty) — so it is always emitted to preserve
-the exact join. Empty-string blocks inside a list are dropped (mirroring the inline
-``if content:`` guards). The present blocks are joined with ``"\\n\\n"`` — byte-identical
-to ``"\\n\\n".join(blocks)``.
-
-The constitution slot (F4) plugs in here in 08-06; this plan feeds it the factory's
-existing ``_inject_constitution`` output unchanged.
+multiple). Blocks are emitted in the policy's ``order`` tuple; an absent/empty category
+contributes NOTHING, EXCEPT ``prompt_body`` in ``default``, which the old inline path
+ALWAYS appended (even when empty).
 
 Import purity (import-linter): imports ONLY the registry decorator + stdlib typing.
 """
@@ -58,41 +74,44 @@ DEFAULT_ORDER: tuple[str, ...] = (
     "prompt_body",
 )
 
+# body_only — AGENT.md is the whole system prompt (Requirement 29 AC1).
+# Dropping all six wrapper blocks means the Constitution is also absent — that is
+# intentional for *ungoverned* agents, and the compiler warns when a governed agent
+# (one with guardrails, hooks, or a Constitution) picks this order (Req 29 AC3/5).
+BODY_ONLY_ORDER: tuple[str, ...] = ("prompt_body",)
+
+# governance — preserves the three blocks that define governed-agent behaviour while
+# dropping the Seam-2 injection boilerplate (Requirement 29 AC2).
+GOVERNANCE_ORDER: tuple[str, ...] = ("guardrails", "hooks", "constitution", "prompt_body")
+
 # The block join separator — the inline path used ``"\n\n".join(blocks)``.
 _JOIN = "\n\n"
 
 
-@register(
-    "prompt",
-    "default",
-    user_allowed=True,
-    description="The default prompt-assembly policy (injects, guardrails, skills, hooks, constitution, body).",
-)
-class DefaultPromptAssemblyPolicy:
-    """The default ``PromptAssemblyPolicy`` — fixed order, ``"\\n\\n"`` join (``name='default'``).
+class _BasePolicy:
+    """Shared ``assemble`` implementation for all policies.
 
-    Reproduces the factory's inline block-append composition byte-for-byte:
-    emits the present blocks in ``DEFAULT_ORDER`` joined with ``"\\n\\n"``. The
-    ``prompt_body`` category is ALWAYS emitted (the inline path always appended it);
-    every other category is emitted only when it carries a non-empty block (mirroring
-    the inline ``if content:`` / ``if injects`` guards).
+    Subclasses set ``order`` and whether ``prompt_body`` is always emitted.
     """
 
-    name = "default"
-    order = DEFAULT_ORDER
+    #: Ordered tuple of block-category names this policy emits.
+    order: tuple[str, ...] = DEFAULT_ORDER
+    #: When True the policy always emits ``prompt_body`` (even when absent/empty),
+    #: matching the old inline path that unconditionally appended it.
+    always_emit_body: bool = True
 
     def assemble(self, blocks: dict[str, Any], ctx: Any) -> str:
         """Compose the final system prompt from a ``category -> block(s)`` mapping.
 
-        Byte-identical to the inline ``"\\n\\n".join(blocks)`` over the same ordered,
-        present blocks. ``blocks[category]`` may be a ``str`` or a ``list[str]``;
-        ``None``/empty entries are skipped (except ``prompt_body``, always emitted).
+        Emits categories from ``self.order`` in order; absent or empty entries are
+        skipped (except ``prompt_body`` when ``always_emit_body`` is True).
+        ``blocks[category]`` may be a ``str`` or a ``list[str]``.
         """
         ordered: list[str] = []
         for category in self.order:
             value = blocks.get(category)
-            if category == "prompt_body":
-                # The inline path ALWAYS appended spec.prompt_body (even if empty),
+            if category == "prompt_body" and self.always_emit_body:
+                # The old inline path ALWAYS appended spec.prompt_body (even if empty),
                 # so emit it unconditionally to preserve the exact join boundary.
                 ordered.append("" if value is None else _as_one(value))
                 continue
@@ -102,6 +121,71 @@ class DefaultPromptAssemblyPolicy:
                 if block:  # mirror the inline ``if content:`` / non-empty guards
                     ordered.append(block)
         return _JOIN.join(ordered)
+
+
+@register(
+    "prompt",
+    "default",
+    user_allowed=True,
+    description=(
+        "The default prompt-assembly policy "
+        "(tool_availability, injects, guardrails, skills, hooks, constitution, body)."
+    ),
+)
+class DefaultPromptAssemblyPolicy(_BasePolicy):
+    """Full 7-block order — byte-identical to the pre-08-05 inline path.
+
+    The 5 characterization snapshots gate this output; NEVER re-baseline.
+    """
+
+    name = "default"
+    order = DEFAULT_ORDER
+    always_emit_body = True
+
+
+@register(
+    "prompt",
+    "body_only",
+    user_allowed=True,
+    description=(
+        "Body-only prompt policy — system prompt is exactly the agent's AGENT.md. "
+        "Do NOT use for governed agents (use 'governance' to retain the Constitution)."
+    ),
+)
+class BodyOnlyPromptAssemblyPolicy(_BasePolicy):
+    """Body-only policy: ``prompt_body`` is the entire system prompt (Requirement 29 AC1).
+
+    Emits ONLY ``prompt_body`` — six blocks are dropped: ``tool_availability``,
+    ``injects``, ``guardrails``, ``skills``, ``hooks``, ``constitution``.
+    The compiler warns when a governed agent (one with ``guardrails``, ``hooks``, or
+    a ``constitution`` in its build context) selects this policy (Req 29 AC3/5).
+    """
+
+    name = "body_only"
+    order = BODY_ONLY_ORDER
+    always_emit_body = True
+
+
+@register(
+    "prompt",
+    "governance",
+    user_allowed=True,
+    description=(
+        "Governance prompt policy for agents with a Constitution or behavioral hooks "
+        "(guardrails, hooks, constitution, body)."
+    ),
+)
+class GovernancePromptAssemblyPolicy(_BasePolicy):
+    """Governance policy: retains the three governed-agent blocks (Requirement 29 AC2).
+
+    Order: ``guardrails → hooks → constitution → prompt_body``.  Drops the Seam-2
+    injection boilerplate (``injects``, ``skills``, ``tool_availability``) while
+    preserving every block that defines governed-agent behaviour.
+    """
+
+    name = "governance"
+    order = GOVERNANCE_ORDER
+    always_emit_body = True
 
 
 def _iter_blocks(value: Any) -> list[str]:

@@ -1,0 +1,12 @@
+[     495ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[     526ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[     920ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[     981ms] [LOG] [Fast Refresh] done in 162ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[    4695ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[    5200ms] [LOG] [Fast Refresh] done in 607ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[    7136ms] [LOG] [wf] 5. AgentsPopup mount undefined {seededSelections: Object, agents: Array(3)} @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[    7136ms] [LOG] [wf] 5. AgentsPopup mount undefined {seededSelections: Object, agents: Array(3)} @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   10570ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   10794ms] [LOG] [Fast Refresh] done in 325ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   13835ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431
+[   14096ms] [LOG] [Fast Refresh] done in 367ms @ http://localhost:3000/_next/static/chunks/0epc_next_dist_00ofd-_._.js:2431

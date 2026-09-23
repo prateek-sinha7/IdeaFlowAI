@@ -200,4 +200,3 @@ class TestStripFabricatedToolXml:
             "<function_calls><invoke name='b'>"
         )
         assert _strip_fabricated_tool_xml(polluted) == "kept prose"
-

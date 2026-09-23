@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,10 @@ class AgentContext:
     """
 
     user_request: str  # Original user message
+    # display_name: the composer's user-facing step label (roster spec overlay,
+    # FIX-266). Only used for logging — load_agent_spec cannot know it (a
+    # custom-agent instance's name lives in the run manifest, not AGENT.md).
+    display_name: str = ""
     agent_outputs: dict[str, str] = field(default_factory=dict)
     attached_skills: list[dict] = field(default_factory=list)
     attached_hooks: list[dict] = field(default_factory=list)
@@ -52,6 +56,10 @@ class AgentContext:
     # ``agent_skills`` event. Typed ``object`` to keep the app-layer import lazy.
     skills_delivery: object | None = None
     model: str | None = None  # User-selected model ID (overrides system default)
+    # Per-step reasoning level (spec 020), resolved by ModelResolver.resolve_effort
+    # and threaded to build_model. None = send nothing / behave as before; it is
+    # NOT the level "none", which explicitly turns reasoning off.
+    effort: str | None = None
     # od_context carries loaded template / design-system / craft content for
     # agents that declare an `injects` capability (od_prototype / od_ppt).
     # Keys: template_body, ds_id, ds_body, craft_block, template_id,
@@ -167,6 +175,76 @@ def _resolve_step_skills(ids: list[str]) -> list[dict]:
     return resolved
 
 
+import re as _re
+
+_INJECT_FROM_RE = _re.compile(r"\{\{INJECT_FROM:([^}]+)\}\}")
+_INJECT_FALLBACK = "<!-- -->"
+
+
+def _resolve_sandbox_injections(
+    skills: list[dict] | None,
+    sandbox: object,
+) -> list[dict] | None:
+    """Replace ``{{INJECT_FROM:<relpath>}}`` markers in skill bodies with the
+    content read from that sandbox-relative path.
+
+    Design goals (all must hold):
+    - **Transparent to engine, stager, and agent** — the engine passes a plain
+      skill list; the stager writes whatever body it receives; the agent reads a
+      normal skill body.  None of them know injection happened.
+    - **No-op for normal skills** — a skill with no marker is returned
+      byte-identical via the fast-path early return.  Zero allocation.
+    - **Never raises** — every file read is wrapped in a broad ``except`` so a
+      missing path, unreadable file, or unexpected sandbox error never propagates
+      into ``create_runner`` or the step loop.
+    - **Safe fallback** — when the source file cannot be read the marker is
+      replaced with ``<!-- -->`` (an invisible HTML comment).  The skill still
+      stages; the agent sees nothing harmful and produces no output from the
+      skill body.  The stager is unaffected.
+    """
+    if not skills:
+        return skills
+
+    # Fast path: return immediately when no skill body contains the marker
+    # prefix.  This is the common case for every pipeline that never uses
+    # injection markers — the list is returned as the same object, no copies.
+    if not any(_INJECT_FROM_RE.search(s.get("content") or "") for s in skills):
+        return skills
+
+    result: list[dict] = []
+    for skill in skills:
+        body: str = skill.get("content") or ""
+        if not _INJECT_FROM_RE.search(body):
+            # No marker in this skill — pass through unchanged.
+            result.append(skill)
+            continue
+
+        def _replace(match: _re.Match) -> str:  # noqa: ANN202
+            relpath = match.group(1).strip()
+            try:
+                path_for = getattr(sandbox, "path_for", None)
+                if not callable(path_for):
+                    return _INJECT_FALLBACK
+                target = path_for(relpath)
+                if not target.exists():
+                    logger.debug(
+                        "_resolve_sandbox_injections: source not found: %s", relpath
+                    )
+                    return _INJECT_FALLBACK
+                return target.read_text(encoding="utf-8").strip()
+            except Exception:  # noqa: BLE001 — best-effort, never raises
+                logger.debug(
+                    "_resolve_sandbox_injections: failed to read %s",
+                    relpath,
+                    exc_info=True,
+                )
+                return _INJECT_FALLBACK
+
+        result.append({**skill, "content": _INJECT_FROM_RE.sub(_replace, body)})
+
+    return result
+
+
 class TemplateMissingError(Exception):
     """Raised when an agent declares `injects` but the referenced template
     cannot be located. The ExecutionEngine catches this and halts the Workflow
@@ -271,14 +349,16 @@ def create_runner(
 
     spec = load_agent_spec(agent_id)
 
-    logger.info("==> %s (%s)", spec.id.upper(), spec.name.upper())
+    logger.info("==> %s (%s)", spec.id.upper(), (ctx.display_name or spec.name).upper())
     logger.debug("create_runner %s", agent_id)
 
-    # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. SHARED across every
-    # agent in the pipeline run, so files (prototype.html, code-gen outputs)
-    # written by one agent persist for the next — hence keyed on ctx.run_id
-    # ONLY (NOT on the per-agent ``thread_id``). The runner roots its deepagents
-    # FilesystemBackend at ``sandbox.root`` (traversal-proof).
+    # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<chain_root>/. SHARED across
+    # every agent in the pipeline run AND across every revision in the chain
+    # family, so files (prototype.html, code-gen outputs) written by run A are
+    # already present when run B starts. Keyed on ctx.run_id which holds the
+    # chain-root id (task 5.2 / sandbox-git-versioning): the engine passes
+    # _chain_root_id as run_id in the AgentContext so this site always resolves
+    # to the chain root without needing its own DB walk.
     #   - Missing user_id ⇒ "anon" (RunSandbox additionally sanitises empty/
     #     unsafe segments to its own "anonymous"/"run" fallbacks).
     #   - Missing run_id ⇒ "adhoc": gives an isolated, deterministic dir for the
@@ -299,6 +379,21 @@ def create_runner(
         if ctx.step_skills
         else ctx.attached_skills
     )
+    # Transparently resolve any {{INJECT_FROM:<relpath>}} markers in skill bodies
+    # before the stager receives the payload.  No-op for every skill that has no
+    # marker — the list is returned as-is.  The stager, engine, and agent are
+    # unaware this step exists.
+    _skills = _resolve_sandbox_injections(_skills, sandbox)
+    # The skills actually handed to stage_skills, kept on the ctx alongside
+    # ``skills_delivery`` (same D-03 per-run-state seam). The engine's
+    # ``agent_skills`` event used to advertise ``attached_skills`` — the RUN-attached
+    # set — which is empty for a manifest-declared per-step skill, so a skill that was
+    # genuinely staged and costed was never advertised to the UI and the
+    # "Advertised skills" card could not render. ``skills_delivery.staged`` carries
+    # only ids, and the event needs name + content, so the resolved dicts are what
+    # gets kept. Identical to ``attached_skills`` whenever no step skills are
+    # declared, so every existing run advertises exactly what it did before.
+    ctx.skills_resolved = list(_skills or [])
     delivery = stage_skills(
         sandbox,
         _skills,
@@ -313,7 +408,14 @@ def create_runner(
     # Tools are resolved BEFORE prompt composition (13-02 / F4): the composed
     # prompt needs to know whether the agent has literally zero callable tools
     # so the anti-fabrication ``tool_availability`` preamble can be injected.
-    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx)
+    # The sandbox is built + ensure()d above; pass it so a sandbox-bound tool set
+    # (spec 017's pptx tools) binds to THIS run's dir — including a fan-out
+    # worker's isolated override. agent_id is passed for per-agent browser context
+    # isolation (spec 018 / FR-010). thread_id is threaded to bind_sandbox so
+    # concurrent wave workers (same agent_id) each get their own BrowserContext.
+    custom_tools, exclude_builtin_tools = _resolve_runner_tools(
+        spec, ctx, sandbox, agent_id=agent_id, thread_id=thread_id
+    )
     if delivery.staged:
         # A run with staged skills needs the full filesystem tool set (read AND
         # write) on every agent so it can actually carry out a skill's
@@ -352,9 +454,18 @@ def create_runner(
     # PLANNING_TOOLS; MCP-bound agents flip exclude_builtin False — none of
     # those receive the preamble (their prompts stay byte-identical).
     no_tools = exclude_builtin_tools and not custom_tools
+    # Whether this step actually has write_file bound — reuses the same
+    # denied_tools computed just above (F-06 follow-up / audit.md #6): a step
+    # without it must never be told to call it in "How to deliver" below.
+    has_write_access = "write_file" not in denied_tools
     # Compose the system prompt — guardrails/skills/hooks/constitution/injection/
     # body, in the fixed injection order (see ``_compose_system_prompt``).
-    system_prompt = _compose_system_prompt(spec, ctx, no_tools=no_tools)
+    system_prompt = _compose_system_prompt(
+        spec,
+        ctx,
+        no_tools=no_tools,
+        has_write_access=has_write_access,
+    )
 
     # ``max_tokens`` is intentionally NOT passed: the runner's ``build_model``
     # already defaults to ``settings.MAX_OUTPUT_TOKENS``, so leaving it unset
@@ -372,6 +483,7 @@ def create_runner(
             system_prompt=system_prompt,
             tools=custom_tools,
             model=ctx.model,
+            effort=ctx.effort,
             run_sandbox=sandbox,
             checkpointer=checkpointer,
             # Checkpoint thread is per agent-invocation (caller-controlled): the
@@ -438,7 +550,13 @@ edit_file, or to-do blocks. Any file content you produce must appear directly
 in your response as plain text. Respond with prose or structured text only."""
 
 
-def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -> str:
+def _compose_system_prompt(
+    spec,
+    ctx: AgentContext,
+    *,
+    no_tools: bool = False,
+    has_write_access: bool = True,
+) -> str:
     """Compose the system prompt via the registered ``PromptAssemblyPolicy`` (08-05 / F1/F3).
 
     Builds a named-block mapping and delegates block ORDER + join to the
@@ -458,7 +576,6 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     """
     from agents.capabilities.hooks.behavioral import render_behavioral_block
     from agents.capabilities.registry import CapabilityRegistry, discover
-    from agents.capabilities.skills.providers import extract_ui_skill_blocks
     from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name
 
     blocks: dict[str, object] = {}
@@ -521,35 +638,6 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
             guardrail_items.append(f"## Guardrail: {guardrail_name}\n\n{content}")
     if guardrail_items:
         blocks["guardrails"] = guardrail_items
-
-    # 2. Skills — via the ``ui`` skill_provider (versioned blocks; SKILL-01). The
-    # factory consumes the versioned blocks' ``content`` for the prompt slot.
-    # Rendered as one structured block per skill under a shared ``=== SKILLS ===``
-    # header — id/when have no data source today (SkillBlock carries content/
-    # version/name/source only) so they're left empty rather than guessed.
-    #
-    # spec 011 R-03: run-attached skill BODIES are no longer injected — they are staged
-    # to <sandbox>/skills/ and advertised by deepagents (the model reads one on demand).
-    # The per-user DISK skill (ctx.disk_skill / D6) keeps its eager block and is the ONLY
-    # input to the unchanged render below.
-    disk_skill = getattr(ctx, "disk_skill", None)
-    skill_blocks = extract_ui_skill_blocks(
-        [{"content": disk_skill}] if disk_skill else []
-    )
-    skill_entries = [b for b in skill_blocks if b.content]
-    if skill_entries:
-        rendered_skills = [
-            f"--- SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
-            f"id: \n"
-            f"name: {b.name}\n"
-            f"when: \n"
-            f"prompt: {b.content}"
-            f"--- END SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
-            for b in skill_entries
-        ]
-        blocks["skills"] = (
-            "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
-        )
 
     # 3. Hooks — via the ``behavioral`` hook_provider (the legacy prompt-only hook
     # survives as a non-executable sub-type; the ## Active Behavioral Hooks block render).
@@ -627,16 +715,50 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
         # reads the final imperative as the thing to say echoes it back as its
         # entire output (observed on Bedrock Haiku: joke-<topic>.md contained
         # the instruction, not a joke). A headed block reads as a directive.
-        parts.append(
-            f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
-            "Its content is your answer — never this instruction."
-        )
+        #
+        # Gated on has_write_access (audit.md #6): a step whose tools:write_files
+        # is false has no write_file bound — telling it to call one anyway is
+        # what was driving the confused/empty replies AND the "excluded" tool
+        # calls that still executed (observed live: a write-less step's final
+        # reply going empty because it wrote its real answer to a file instead,
+        # which the conditional gate can't read route_decision from). A
+        # write-less step's own prompt (already in `parts` via ctx.step_prompt)
+        # is its complete instruction; nothing else to append here.
+        if has_write_access:
+            parts.append(
+                f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
+                "Its content is your answer — never this instruction."
+            )
         prompt_body = "\n\n".join(parts)
 
     blocks["prompt_body"] = prompt_body
 
     discover()  # ensure the prompt policy is bound (idempotent)
-    policy = CapabilityRegistry().resolve("prompt", "default")
+    # Requirement 29 AC4: read policy name from manifest (spec.prompt_policy)
+    # rather than hardcoding "default".  None / absent → "default" so every
+    # existing agent stays byte-identical (INV-3).
+    policy_name: str = getattr(spec, "prompt_policy", None) or "default"
+    policy = CapabilityRegistry().resolve("prompt", policy_name)
+
+    # Requirement 29 AC3/5: warn when a governed agent (one with guardrails,
+    # behavioral hooks, or a pre-warmed Constitution) selects the body-only
+    # policy — that order silently drops the Constitution as a side effect.
+    # Losing the Constitution must NEVER happen silently.
+    if policy_name == "body_only":
+        has_guardrails = bool(getattr(spec, "guardrails", None))
+        has_hooks = bool(getattr(ctx, "attached_hooks", None))
+        has_constitution = bool(blocks.get("constitution"))
+        if has_guardrails or has_hooks or has_constitution:
+            logger.warning(
+                "_compose_system_prompt: agent=%s uses 'body_only' policy but is "
+                "governed (guardrails=%r hooks=%r constitution=%r) — "
+                "the Constitution and guardrails will be DROPPED. "
+                "Use 'governance' policy to retain them (Requirement 29 AC3).",
+                getattr(spec, "id", "?"),
+                has_guardrails,
+                has_hooks,
+                has_constitution,
+            )
     composed = policy.assemble(blocks, ctx)
     # Trace only — count and size, never the prompt body itself (it can be
     # large and carries user content). Logged AFTER assembly so it reports
@@ -649,6 +771,15 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
         len(composed),
     )
     return composed
+
+
+# Defensive ceiling for the injected Constitution block (ISS-402). The saved value
+# is bounded only by WorkflowMemory's 1,048,576-char store cap, and this block is
+# prepended to EVERY governed agent's prompt on EVERY run — so an oversized paste
+# inflates every future run's prompt invisibly. 32,000 chars is 8x the Settings
+# editor's 4,000-char product ceiling (FIX-364), so nothing a user can save today —
+# nor the over-limit values saved before that ceiling was enforced — is trimmed.
+_CONSTITUTION_MAX_CHARS = 32_000
 
 
 def _inject_constitution(ctx: AgentContext) -> str:
@@ -666,10 +797,29 @@ def _inject_constitution(ctx: AgentContext) -> str:
     where the deleted ``_mem``-only running-loop branch silently dropped it. Returns the
     empty string when no Constitution is pre-warmed (graceful no-op; the characterization
     runs carry none → snapshots byte-identical).
+
+    Bounded at ``_CONSTITUTION_MAX_CHARS`` before injection (ISS-402): this is the one
+    place every governed agent's Constitution block is assembled, so the size guard
+    lives here once rather than in any AGENT.md or manifest.
     """
     constitution = getattr(ctx, "prewarmed_constitution", None)
     if not constitution:
         return ""
+
+    # The ONLY truncation point in the injection path (ISS-402) — one guard here
+    # covers every governed agent and every workflow, current and future.
+    if len(constitution) > _CONSTITUTION_MAX_CHARS:
+        omitted = len(constitution) - _CONSTITUTION_MAX_CHARS
+        logger.warning(
+            "_inject_constitution: Constitution exceeds the %d-char injection "
+            "ceiling — truncated, %d chars omitted",
+            _CONSTITUTION_MAX_CHARS,
+            omitted,
+        )
+        constitution = (
+            constitution[:_CONSTITUTION_MAX_CHARS]
+            + f"\n\n[... Constitution truncated — {omitted} chars omitted ...]"
+        )
 
     return (
         "## Constitution (Governing Principles — Supreme Authority)\n\n"
@@ -978,7 +1128,47 @@ def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def _resolve_custom_tool_keys(keys: list[str]) -> list:
+_PPTX_TOOL_KEYS = frozenset(
+    {
+        "render_pptx",
+        "verify_pptx_layout",
+        "extract_pptx_shapes",
+        "screenshot_pptx",
+        "extract_computed_styles",
+    }
+)
+
+_PLAYWRIGHT_TOOL_KEYS = frozenset(
+    {
+        "playwright_navigate",
+        "playwright_snapshot",
+        "playwright_click",
+        "playwright_type",
+        "playwright_take_screenshot",
+        "playwright_console_messages",
+        "playwright_wait_for",
+        "playwright_evaluate",
+        "playwright_close",
+    }
+)
+
+_FILE_EXTRACT_TOOL_KEYS = frozenset(
+    {
+        "extract_text",
+        "file_info",
+        "file_find",
+        "file_page_image",
+    }
+)
+
+
+def _resolve_custom_tool_keys(
+    keys: list[str],
+    ctx: AgentContext | None = None,
+    sandbox: Any = None,
+    agent_id: str | None = None,
+    thread_id: str | None = None,
+) -> list:
     """Map provider-emitted custom-tool KEYS → concrete tool objects (08-03 / F2).
 
     The kernel-side ``tool_provider`` capabilities (``agents/capabilities/tools/``)
@@ -989,6 +1179,23 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
 
       * ``"report_task_complete"`` → the store-free runner tool (one tool).
       * ``"planning"``             → the whole ``PLANNING_TOOLS`` set (a list).
+      * the four ``pptx`` keys     → the pptx tools, bound to THIS run's sandbox.
+      * the nine ``playwright`` keys → the playwright tools, bound to THIS run's sandbox.
+
+    ``ctx`` and ``sandbox`` are optional and default to None so every existing
+    caller and test is unchanged; only the pptx keys read them, and only to hand
+    the tools a place to write (spec 017).
+
+    ``sandbox`` is the RUN sandbox ``create_runner`` has already built and
+    ``ensure()``d — passed explicitly BECAUSE there is nothing to read it off
+    otherwise. The first cut looked for ``ctx.runner.sandbox``, and ``AgentContext``
+    has no ``runner`` field at all: the runner does not exist yet when tools are
+    resolved (tools are an INPUT to building it). Every pptx key therefore hit the
+    no-sandbox branch and was skipped, and ``ppt-code-generator`` ran with no tools —
+    it emitted PptxGenJS as prose and no .pptx was ever built.
+
+    A key that needs the sandbox and has none still resolves to nothing rather than
+    raising: an unbound tool would write outside the run.
 
     De-dups ``report_task_complete`` (in case both prototype set names co-occur),
     preserving the byte-identical custom-tool list the deleted switch produced.
@@ -999,7 +1206,12 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
     # Lazy imports keep the factory import light (the heavy stack loads only on bind).
     from agents.capabilities.tools.internet import web_fetch, web_search
     from agents.planner.tools import PLANNING_TOOLS
-    from app.agents.tools.runner_tools import report_task_complete, spawn_subagents
+    from app.agents.deep_agent_runner import _RESERVED_PATH_GUARD_SENTINEL
+    from app.agents.tools.runner_tools import (
+        ask_user,
+        report_task_complete,
+        spawn_subagents,
+    )
 
     resolved: list = []
     for key in keys:
@@ -1022,6 +1234,77 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
             # =False at the registry, so a user/db manifest can never grant it — CAP-03).
             if spawn_subagents not in resolved:
                 resolved.append(spawn_subagents)
+        elif key == "ask_user":
+            # The store-free HITL request emitter. Same contract as
+            # spawn_subagents: it asks nothing and pauses nothing — the ENGINE
+            # fulfils the request via ClarifyEngine. user_allowed=False at the
+            # registry, so no user/db manifest can grant it (CAP-03).
+            if ask_user not in resolved:
+                resolved.append(ask_user)
+        elif key == "reserved_path_guard":
+            # Requirement 18 AC 3, V2-Q7 — SGV2-GAP-001/002 closure.
+            # The sentinel is NOT a LangChain tool; it signals DeepAgentRunner to
+            # attach _ReservedPathGuardMiddleware.  It is appended exactly once
+            # (de-duplication via identity check on the singleton) and then
+            # removed from self.tools in DeepAgentRunner.__init__ so it is never
+            # handed to the model.
+            if _RESERVED_PATH_GUARD_SENTINEL not in resolved:
+                resolved.append(_RESERVED_PATH_GUARD_SENTINEL)
+        elif key in _PPTX_TOOL_KEYS:
+            # spec 017 — bound only when the step declares tools: [pptx]
+            # (user_allowed=False at the registry, so no user/db manifest can
+            # name it). The sandbox is ambient per-run state, never a model
+            # argument, so it is bound onto the module rather than passed.
+            if sandbox is None:
+                logger.warning(
+                    "pptx tool key %r requested with no run sandbox — skipping "
+                    "(the tools would have nowhere safe to write)",
+                    key,
+                )
+                continue
+            from app.agents.tools import pptx_tools
+
+            pptx_tools.bind_sandbox(sandbox)
+            concrete = getattr(pptx_tools, key)
+            if concrete not in resolved:
+                resolved.append(concrete)
+        elif key in _PLAYWRIGHT_TOOL_KEYS:
+            # spec 018 — bound only when the step declares tools: [playwright]
+            # (user_allowed=False at the registry, so no user/db manifest can
+            # name it). The sandbox is ambient per-run state, never a model
+            # argument, so it is bound onto the module rather than passed.
+            if sandbox is None:
+                logger.warning(
+                    "playwright tool key %r requested with no run sandbox — skipping "
+                    "(the tools would have nowhere safe to write)",
+                    key,
+                )
+                continue
+            from app.agents.tools import playwright
+
+            playwright.bind_sandbox(
+                sandbox, agent_id=agent_id or "unknown", worker_key=thread_id
+            )
+            concrete = getattr(playwright, key)
+            if concrete not in resolved:
+                resolved.append(concrete)
+        elif key in _FILE_EXTRACT_TOOL_KEYS:
+            # spec 019 — bound only when the step declares tools: [file_extract]
+            # (user_allowed=True at the registry). The sandbox is ambient per-run state,
+            # never a model argument, so it is bound onto the module rather than passed.
+            if sandbox is None:
+                logger.warning(
+                    "document tool key %r requested with no run sandbox — skipping "
+                    "(the tools would have nowhere safe to write)",
+                    key,
+                )
+                continue
+            from app.agents.tools import file_extract_tools
+
+            file_extract_tools.bind_sandbox(sandbox)
+            concrete = getattr(file_extract_tools, key)
+            if concrete not in resolved:
+                resolved.append(concrete)
         else:
             raise ValueError(
                 f"unknown custom-tool key '{key}' emitted by a tool_provider; "
@@ -1030,7 +1313,13 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
     return resolved
 
 
-def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
+def _resolve_runner_tools(
+    spec,
+    ctx: AgentContext,
+    sandbox: Any = None,
+    agent_id: str | None = None,
+    thread_id: str | None = None,
+) -> tuple[list, bool]:
     """Resolve spec.tools to the (custom_tools, exclude_builtin_tools) pair via the
     ``tool_provider`` registry (08-03 / F2 — replaces the closed switch, INV-12).
 
@@ -1086,7 +1375,14 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
     custom_keys: list[str] = []
     exclude = True  # AND-accumulator: a set needing native fs flips it False
 
-    for set_name in spec.tools:
+    # Grant-declared tool sets (Composer tool-pack toggles): the step's EFFECTIVE
+    # permissions carry ``tool_sets`` already cap-intersected by the compiler, so
+    # anything present here survived the trust cap — union it with the template's
+    # own ``spec.tools`` declaration. No compiled step bound ⇒ nothing to add.
+    granted_sets = list(getattr(ctx.step_tools, "tool_sets", None) or [])
+    set_names = list(spec.tools) + [s for s in granted_sets if s not in spec.tools]
+
+    for set_name in set_names:
         provider = registry.resolve("tool", set_name)
         keys, set_exclude = provider.provide(spec, ctx)
         for key in keys:
@@ -1115,7 +1411,9 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
             return (mcp_tools, False)
         return ([], False)
 
-    resolved = _resolve_custom_tool_keys(custom_keys)
+    resolved = _resolve_custom_tool_keys(
+        custom_keys, ctx, sandbox, agent_id=agent_id, thread_id=thread_id
+    )
     # Union the pre-warmed MCP tools after the registered keys (a pre-bound MCP tool
     # needs the native fs surface, so it flips exclude off too — INV-13 augment).
     if mcp_tools:

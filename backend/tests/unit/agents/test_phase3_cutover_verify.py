@@ -39,7 +39,12 @@ guards share one source of truth.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from langchain_core.tools import tool
@@ -285,12 +290,49 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         # test_chat_event_neutrality), keeping them byte/event-identical (INV-3).
         # 33-03 introduced NO other new event type (answers reuse ``chat_reply``).
         "concierge_proposal",
+        # ── Fan-out worker lifecycle events (kernel run_fanout, engine.py fanout.py) ──
+        # ``subagent_spawned`` / ``subagent_result`` are emitted per worker by the
+        # kernel ``run_fanout`` spawn path (agents/execution_engine/fanout.py:573,588,
+        # 579,632) for any ``subagents: {mode: parallel|sequential}`` group or
+        # declarative ``fanout_batch``/``wave_scheduler`` step. ``merge_started`` /
+        # ``merge_completed`` (fanout.py:917,927,960,1078) bracket the post-collect
+        # fragment merge. ``artifact_fallback`` (engine.py:4994-5001) fires when the
+        # ``single_file`` deliverable resolver falls back to streamed text because the
+        # declared file was never written (agents/capabilities/deliverables/
+        # single_file.py) — the expected path for a text-only scripted fan-out parent.
+        # All genuinely real production vocabulary — undeclared here until the 003-05
+        # fanout-family characterization suite (sample_subagents_parallel) surfaced the
+        # gap the same way the ``agent_skills`` / ``gate_blocked`` omissions were found
+        # above.
+        "subagent_spawned",
+        "subagent_result",
+        "merge_started",
+        "merge_completed",
+        "artifact_fallback",
         # ── Revision Analyzer events (prototype-revision-analyzer feature) ───────
         # revision_analyzer_complete — emitted by run_analyzer after the analyzer
         # agent returns, with payload {tier, solution_preview}. Added to the
         # vocabulary so the INV-3 golden suite recognises it without re-baselining
         # the 5 existing characterization goldens (which never trigger the analyzer).
         "revision_analyzer_complete",
+        # ── Sandbox Git Versioning V2 events (spec 003 / Task 9.2) ─────────────
+        # ``chain_context_unavailable`` — emitted by context_providers/chain_context.py
+        # when the admitted chain payload is unavailable at install time (departure N3,
+        # Requirement 6 AC 16 / Requirement 20 AC 4). Carries a bounded reason code
+        # (one of: source_running, source_not_finalized, source_non_chainable,
+        # source_payload_missing, source_provenance_conflict). No PII, secrets,
+        # file contents, diffs, internal paths, or another owner's run id.
+        # Parity-neutral: the scripted characterization harness has no chaining,
+        # so this fires on NONE of the 5 goldens (INV-3 safe).
+        "chain_context_unavailable",
+        # ``run_finalization_failed`` — emitted by finalize_terminal_run (engine.py)
+        # when the run completes in a degraded state (Requirement 5 AC 3 /
+        # Requirement 20 AC 5). Carries the bounded degraded_reason from the
+        # finalization record. No PII, secrets, file contents, diffs, internal
+        # paths, or another owner's run id.
+        # Parity-neutral: the scripted characterization harness never triggers
+        # a degraded finalization, so this fires on NONE of the 5 goldens (INV-3 safe).
+        "run_finalization_failed",
     }
 )
 
@@ -349,3 +391,169 @@ _REQUIRED_DATA_KEYS = {
 # the strategy routing test (test_strategies). The run-level cumulative list still
 # lives on ``ectx.completed_tasks`` (CTX-01/CTX-02); only the engine-internal driver
 # this class poked at is gone.
+
+
+# ===========================================================================
+# ISSUE-023 / GAPS §1 P1 (D7, Rev 7) — the two v2 types are PRODUCED, not just
+# declared
+# ===========================================================================
+#
+# Commit ``e7305f9dd`` appended ``chain_context_unavailable`` and
+# ``run_finalization_failed`` to ``_DOCUMENTED_EVENT_TYPES`` above — the 18-line
+# diff ISSUE-023 cites. That set is an ALLOW-LIST: ``TestNewEngineEventVocabulary``
+# asserts ``seen_types ⊆ _DOCUMENTED_EVENT_TYPES``, so adding a name only WIDENS
+# what is permitted and can never fail. Nothing anywhere asserted that either
+# producer actually emits its event, nor that the payload stays inside the bounded
+# shape the comments above promise:
+#   * ``test_event_contract.py`` builds both payloads as dict literals in the test
+#     body and asserts against its own literals, and its DB/SSE cases insert
+#     ``RunEvent`` rows by hand — that covers ScopedStore and replay, not emission.
+#   * ``test_finalizer_v2.py::test_i2_…`` names ``run_finalization_failed`` in its
+#     docstring but asserts only ``record.published_status`` / ``degraded_reason``.
+#   * ``test_phase5_chaining.py::TestGracefulDegradationV2`` covers the two DORMANT
+#     provider paths that return ``{}`` before any emit.
+# The two tests below drive the real producers and close that gap.
+
+
+_BOUNDED_CHAIN_REASONS = frozenset({
+    "source_running",
+    "source_not_finalized",
+    "source_non_chainable",
+    "source_payload_missing",
+    "source_provenance_conflict",
+})
+
+
+class _RecordingQueue:
+    """Spy for the engine's event queue — records what a producer enqueues.
+
+    Only ``put_nowait`` is used by both emit sites; nothing else is needed and a
+    real ``asyncio.Queue`` would bind the test to a specific event loop.
+    """
+
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def put_nowait(self, item: dict[str, Any]) -> None:
+        self.events.append(item)
+
+    def of_type(self, event_type: str) -> list[dict[str, Any]]:
+        return [e for e in self.events if e.get("type") == event_type]
+
+
+class TestV2EventTypesAreEmittedByTheirProducers:
+    """Forward guard for the two Sandbox-Git-Versioning-V2 event types."""
+
+    def test_chain_context_unavailable_is_emitted_with_a_bounded_payload(self) -> None:
+        """``ChainContextProvider`` emits it when an admitted chain has no payload.
+
+        Drives the real provider: ``chains_from`` declared, a source run id set,
+        ``chain_selection`` None (admitted under ``chain_policy: degrade`` with no
+        payload) — the branch at ``chain_context.py:176-189``.
+        """
+        from agents.capabilities.context_providers.chain_context import (
+            ChainContextProvider,
+        )
+        import types as _types
+
+        queue = _RecordingQueue()
+        source_run_id = "src-run-abc123"
+        ctx = _types.SimpleNamespace(
+            run_id="dest-run-xyz789",
+            compiled_plan=_types.SimpleNamespace(
+                deliverable=_types.SimpleNamespace(
+                    chains_from=True,
+                    chain_policy="degrade",
+                ),
+            ),
+            chain_source_run_id=source_run_id,
+            chain_selection=None,
+            runner=None,
+            event_queue=queue,
+        )
+
+        result = asyncio.run(ChainContextProvider().load(ctx))
+
+        assert result == {}, "the provider's side effect is the copy; it returns {}"
+
+        emitted = queue.of_type("chain_context_unavailable")
+        assert len(emitted) == 1, (
+            "an admitted-but-payload-less chain must emit exactly one "
+            f"chain_context_unavailable; queue held {queue.events!r}"
+        )
+        assert "chain_context_unavailable" in _DOCUMENTED_EVENT_TYPES
+
+        data = emitted[0].get("data", {})
+        assert set(data.keys()) == {"event", "source_run_id", "reason"}, (
+            "payload must stay bounded (Req 20 AC 4) — no paths, diffs, or "
+            f"exception text; got {sorted(data.keys())}"
+        )
+        assert data["source_run_id"] == source_run_id
+        assert data["reason"] in _BOUNDED_CHAIN_REASONS, (
+            f"reason must be one of the five bounded codes; got {data['reason']!r}"
+        )
+
+    def test_run_finalization_failed_is_emitted_on_a_degraded_finalization(
+        self, tmp_path: Path
+    ) -> None:
+        """``finalize_terminal_run`` emits it when the run publishes degraded.
+
+        Drives the real finalizer against a real git sandbox with
+        ``last_commit_blocked`` set — the metadata-only snapshot degrades the
+        attempt (``engine.py:1868``) and the emit site at ``engine.py:2193`` must
+        announce it before the terminal event.
+        """
+        if not shutil.which("git"):
+            pytest.skip("git not available")
+
+        # Reuse the finalizer suite's real-git sandbox harness rather than
+        # duplicating 120 lines of it here.
+        from tests.agents.test_finalizer_v2 import (
+            _make_ectx,
+            _plant_logs,
+            _plant_output,
+            _setup_sandbox,
+        )
+        from agents.execution_engine import engine as eng
+
+        sandbox, run_id = _setup_sandbox(tmp_path)
+        _plant_output(sandbox)
+        _plant_logs(sandbox, run_id)
+
+        queue = _RecordingQueue()
+        ectx = _make_ectx(run_id, sandbox)
+        ectx.last_commit_blocked = True
+        ectx.event_queue = queue
+        eng._finalize_terminal_run_started.discard(run_id)
+
+        with (
+            patch("app.models.database.SessionLocal", side_effect=lambda: MagicMock()),
+            patch("app.models.workflow.WorkflowRun", MagicMock()),
+            patch("app.models.run_finalization.RunFinalization", MagicMock()),
+        ):
+            record = asyncio.run(
+                eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
+            )
+
+        assert record is not None and record.published_status == "degraded", (
+            "a blocked payload must publish degraded; got "
+            f"{getattr(record, 'published_status', None)!r}"
+        )
+
+        emitted = queue.of_type("run_finalization_failed")
+        assert len(emitted) == 1, (
+            "a degraded finalization must emit exactly one run_finalization_failed; "
+            f"queue held {[e.get('type') for e in queue.events]!r}"
+        )
+        assert "run_finalization_failed" in _DOCUMENTED_EVENT_TYPES
+
+        data = emitted[0].get("data", {})
+        assert set(data.keys()) == {"run_id", "reason"}, (
+            "payload must stay bounded (Req 20 AC 5) — no paths, diffs, or "
+            f"exception text; got {sorted(data.keys())}"
+        )
+        assert data["run_id"] == run_id
+        assert data["reason"] == record.degraded_reason == "payload_blocked", (
+            "the event's reason must be the record's bounded degraded_reason; got "
+            f"event={data['reason']!r} record={record.degraded_reason!r}"
+        )

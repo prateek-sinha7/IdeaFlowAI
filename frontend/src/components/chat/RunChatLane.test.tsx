@@ -57,6 +57,10 @@ describe("RunChatLane", () => {
     const narrator: ChatMessage = {
       ...assistantMsg("n1", "Your deliverable is ready."),
       cardKind: "deliverable",
+      // ISS-607/ISS-612: the family transcript stitches sibling runs' narrator
+      // cards into one lane, so the card's deep-link has to carry the run that
+      // MINTED it — not just a tab id for whichever run is mounted.
+      runId: "revision-run-id",
     };
     renderWithProviders(
       <RunChatLane
@@ -68,7 +72,7 @@ describe("RunChatLane", () => {
       "deliverable",
     );
     fireEvent.click(screen.getByTestId("chat-result-card-link"));
-    expect(onRequestOpenTab).toHaveBeenCalledWith("preview");
+    expect(onRequestOpenTab).toHaveBeenCalledWith("preview", undefined, "revision-run-id");
   });
 
   it("streaming turn shows the live cursor + markdown body", () => {

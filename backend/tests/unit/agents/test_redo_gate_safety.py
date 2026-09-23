@@ -40,6 +40,7 @@ from agents.capabilities.gates.base import (  # noqa: E402
 )
 from agents.capabilities.gates.approval import ApprovalGate  # noqa: E402
 from agents.capabilities.gates.human import HumanGate  # noqa: E402
+from app.agents.sandbox import RunSandbox  # noqa: E402
 
 
 # ===========================================================================
@@ -202,12 +203,20 @@ def _make_ectx(run_id: str, gate_agent_ids=None):
 
 async def _drive_agent(engine, spec, ectx, results, ordered, index=0):
     events: list[dict] = []
+    # A real RunSandbox, not None: _run_agent unconditionally reads sandbox.run_id
+    # when building the AgentContext (engine.py, ``run_id=sandbox.run_id``), which
+    # is never None in production — ``execute()`` constructs the sandbox
+    # unconditionally before any agent runs. Rooted under the harness's own
+    # _RUNS_ROOT (already patched onto settings by _EngineHarness) so it needs no
+    # extra cleanup.
+    sandbox = RunSandbox(ectx.disk_principal, ectx.run_id)
+    sandbox.ensure()
     async for ev in engine._run_agent(
         spec,
         index,
         ordered,
         "Build me a thing for managing tasks.",
-        None,  # sandbox — text-only agents never touch it
+        sandbox,
         ectx.run_id,
         "user_stories",
         engine._default_planning_context("Build me a thing for managing tasks."),

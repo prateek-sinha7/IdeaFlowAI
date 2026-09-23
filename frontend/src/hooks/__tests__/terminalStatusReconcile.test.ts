@@ -135,7 +135,7 @@ describe("INV-12 — the live terminal events ROUTE THROUGH terminalMarkers", ()
     // divergent terminal-status list INV-12 exists to prevent. Both must also
     // match the backend's TERMINAL_STATUSES (chat_router.py).
     const page = readFileSync(
-      resolve(__dirname, "..", "..", "app", "dashboard", "page.tsx"),
+      resolve(__dirname, "..", "..", "app", "[...view]", "page.tsx"),
       "utf8",
     );
     const gate = page.match(/REOPEN_TERMINAL_STATUSES = new Set\(\[([^\]]*)\]\)/);
@@ -151,7 +151,7 @@ describe("INV-12 — the live terminal events ROUTE THROUGH terminalMarkers", ()
       .sort();
 
     expect(mapKeys).toEqual(gateSet);
-    expect(mapKeys).toEqual(["cancelled", "completed", "degraded", "failed"]);
+    expect(mapKeys).toEqual(["cancelled", "completed", "degraded", "diverted", "failed"]);
   });
 
   it("behavioural proof of the routing: the EVENT still yields the same markers", () => {

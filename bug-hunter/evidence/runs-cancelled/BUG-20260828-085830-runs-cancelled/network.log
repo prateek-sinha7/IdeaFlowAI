@@ -1,0 +1,2 @@
+GET /api/runs/a8dfa959-e233-4ddf-87ce-d9a942cefde3 -> status: "cancelled", error: null
+GET /api/runs/a8dfa959-e233-4ddf-87ce-d9a942cefde3/events -> tail: agent_error, agent_error, pipeline_failed (seq 29), chat_reply (seq 30)

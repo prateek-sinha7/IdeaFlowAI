@@ -19,6 +19,11 @@ Bedrock / uvicorn). Covers the full UPLD-01 contract:
     INV-3 dormancy).
   * **Single-impl guard (INV-12)** — ``extract_upload_text`` returns exactly what
     the ``/api/files/extract-text`` endpoint path returns for the same bytes.
+  * **Staged-upload concurrency (UPLD-05 bug fix)** — N concurrently-staged
+    documents all land (N files + N manifest entries) even when one stage's
+    ingest fails (per-stage isolation, not a whole-batch abort); the run
+    manifest's order equals the CLIENT's submission order regardless of which
+    stage response happened to resolve first.
 
 Lives in the INTEGRATION suite: the two-layer ownership gate needs REAL rows (Layer 1 is
 an ORM filter, Layer 2 is the scoped store's default-deny), every cap assertion is "413/415
@@ -753,3 +758,179 @@ class TestSingleExtractionImpl:
         )
         assert resp.status_code == 200
         assert resp.json()["text"] == helper_out == "SHARED-IMPL-TEXT"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Staged-upload ordering (UPLD-05) — ingest_staged_uploads trusts the CALLER's
+# stage_ids order; the client (not the backend) is the only place true attach
+# order is known. See run_files.py's BUG 2 docstring.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _stage(env, user, name: str, content: bytes = b"body") -> str:
+    """Stage one file for ``user`` via the real endpoint; returns its stage_id."""
+    env["state"]["user"] = user
+    resp = env["client"].post(
+        "/api/runs/uploads/stage",
+        files=[("files", (name, content, "text/plain"))],
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["stage_id"]
+
+
+def _manifest_names(env, user_id, run_id) -> list[str]:
+    import json
+
+    sb = _sandbox(env, user_id, run_id)
+    raw = sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+    return [entry["name"] for entry in json.loads(raw)]
+
+
+class TestStagedUploadOrdering:
+    def test_ingest_preserves_given_stage_ids_order(self, env):
+        """Given stage_ids [A, B, C] (an arbitrary order — NOT staging/arrival
+        order), the resulting manifest lands in exactly that order."""
+        import asyncio
+
+        from app.api.run_files import ingest_staged_uploads
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+
+        # Stage in one order, but hand ingest_staged_uploads a DELIBERATELY
+        # different order — proving the function trusts the given list, not
+        # some backend-derived staging order.
+        stage_c = _stage(env, user, "3-verdant.pptx")
+        stage_a = _stage(env, user, "1-crimson.pdf")
+        stage_b = _stage(env, user, "2-amber.docx")
+        given_order = [stage_a, stage_b, stage_c]
+
+        asyncio.get_event_loop().run_until_complete(
+            ingest_staged_uploads(
+                user_id=user.id, workspace_id="ws-1", run_id=run_id,
+                stage_ids=given_order,
+            )
+        )
+
+        assert _manifest_names(env, user.id, run_id) == [
+            "1-crimson.pdf", "2-amber.docx", "3-verdant.pptx",
+        ]
+
+    def test_failing_stage_does_not_drop_stages_queued_behind_it(self, env, monkeypatch):
+        """BUG 1: a stage whose persist raises is skipped, but every stage
+        queued AFTER it in stage_ids order still lands."""
+        import asyncio
+
+        from app.api import run_files as rf_module
+        from app.api.run_files import ingest_staged_uploads
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+
+        stage_a = _stage(env, user, "a.txt")
+        stage_b = _stage(env, user, "b.txt")
+        stage_c = _stage(env, user, "c.txt")
+
+        real_persist = rf_module._persist_documents
+
+        async def _boom_for_b(store, *, user_id, workspace_id, run_id, validated):
+            if any(name == "b.txt" for name, *_ in validated):
+                raise RuntimeError("simulated persist failure")
+            return await real_persist(
+                store, user_id=user_id, workspace_id=workspace_id,
+                run_id=run_id, validated=validated,
+            )
+
+        monkeypatch.setattr(rf_module, "_persist_documents", _boom_for_b)
+
+        asyncio.get_event_loop().run_until_complete(
+            ingest_staged_uploads(
+                user_id=user.id, workspace_id="ws-1", run_id=run_id,
+                stage_ids=[stage_a, stage_b, stage_c],
+            )
+        )
+
+        # b.txt's stage failed and is skipped; a.txt and c.txt (queued AFTER
+        # the failing stage) both still land, in order.
+        assert _manifest_names(env, user.id, run_id) == ["a.txt", "c.txt"]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Durable mirror at staged adoption with no workspace yet (bug repro + fix) —
+# ``ingest_staged_uploads`` runs BEFORE the engine mints the run's workspace, so
+# ``workspace_id=None`` is the deterministic case here, not a rare race (see the
+# comment above the guard in run_files.py's ``_persist_documents``).
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestDurableMirrorNoWorkspaceYet:
+    def test_staged_adoption_with_no_workspace_skips_mirror_without_raising(
+        self, env, monkeypatch, caplog
+    ):
+        """``ingest_staged_uploads(workspace_id=None)`` must NOT attempt the
+        doomed ``artifact_refs`` insert (NOT NULL on workspace_id) — the sandbox
+        files still land, zero ``upload_text`` rows are written, and exactly one
+        clean WARNING is logged (no exception, no raised error)."""
+        import asyncio
+        import logging
+
+        from app.api.run_files import ingest_staged_uploads
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        monkeypatch.setattr(env["rf"], "extract_upload_text",
+                            lambda name, data: "EXTRACTED DOC TEXT")
+
+        stage_id = _stage(env, user, "report.pdf", b"%PDF-bytes")
+
+        with caplog.at_level(logging.WARNING, logger="app.api.run_files"):
+            asyncio.get_event_loop().run_until_complete(
+                ingest_staged_uploads(
+                    user_id=user.id, workspace_id=None, run_id=run_id,
+                    stage_ids=[stage_id],
+                )
+            )
+
+        # Sandbox landing is unaffected — the durable mirror is best-effort only.
+        assert _manifest_names(env, user.id, run_id) == ["report.pdf"]
+        sb = _sandbox(env, user.id, run_id)
+        assert sb.path_for(".uploads/report.pdf.txt").read_text(
+            encoding="utf-8"
+        ) == "EXTRACTED DOC TEXT"
+
+        # No durable upload_text row — never attempted with a None workspace_id.
+        assert _upload_text_rows(env, run_id) == []
+
+        # Exactly one clean warning; never the raw exception / row content.
+        mirror_warnings = [
+            rec for rec in caplog.records
+            if rec.levelno == logging.WARNING and "durable mirror" in rec.getMessage()
+        ]
+        assert len(mirror_warnings) == 1
+        msg = mirror_warnings[0].getMessage()
+        assert "skipped" in msg
+        assert "EXTRACTED DOC TEXT" not in msg
+        assert run_id in msg
+
+    def test_upload_files_endpoint_with_known_workspace_still_writes_mirror(
+        self, env, monkeypatch
+    ):
+        """Sanity check the guard is scoped to the None case: the live
+        ``upload_files`` endpoint (run already carries a real workspace_id, per
+        ``_owned_run``'s ``ws-1`` default) still dual-writes the durable mirror
+        exactly as before this fix."""
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)  # workspace_id="ws-1" on the WorkflowRun row
+        env["state"]["user"] = user
+        monkeypatch.setattr(env["rf"], "extract_upload_text",
+                            lambda name, data: "EXTRACTED DOC TEXT")
+
+        resp = _post(env, run_id,
+                     [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))])
+        assert resp.status_code == 200, resp.text
+
+        rows = _upload_text_rows(env, run_id)
+        assert {r.location for r in rows} == {
+            ".uploads/report.pdf.txt", ".uploads/manifest.json",
+        }
+        assert all(r.workspace_id == "ws-1" for r in rows)

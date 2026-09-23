@@ -66,6 +66,10 @@ vi.mock("@/lib/api", () => {
     return Boolean(data && typeof data === "object" && "challenge" in data);
   }
   return {
+    // The page's mount-time "already signed in?" guard reads this. Every test
+    // in this file drives the sign-in form itself, so the stub answers
+    // "anonymous" and the form renders.
+    getToken: () => null,
     login: loginMock,
     respondToLoginChallenge: respondToLoginChallengeMock,
     isAuthChallenge,

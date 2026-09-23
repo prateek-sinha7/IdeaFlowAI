@@ -48,7 +48,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from agents.capabilities import registry as registry_mod
-from agents.capabilities.model_catalog import ModelCatalog
+from agents.model_policy import selectable_models
 from agents.capabilities.registry import CapabilityRegistry
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -86,7 +86,17 @@ class CapabilityEntry(BaseModel):
 
 
 class ModelCatalogEntry(BaseModel):
-    """One model-picker entry, projected from ``ModelCatalog`` (MODEL-04)."""
+    """One model-picker entry, projected from ``ModelCatalog`` (MODEL-04).
+
+    RFN-002b: pricing rates added (USD per 1 M tokens, scaled from the catalog's
+    per-single-token ``Pricing`` dataclass × 1 000 000) so the Analytics page can
+    build a fully dynamic model-details panel without a hardcoded rate table.
+    ``reasoning_mode``/``reasoning_levels`` are projected off the catalog's
+    ``Reasoning`` capability (spec 020) — they replace a ``thinking_supported``
+    bool derived from an id-substring tuple.
+    All new fields have safe defaults so existing callers that don't read them
+    are unaffected (purely additive).
+    """
 
     id: str
     label: str
@@ -96,6 +106,23 @@ class ModelCatalogEntry(BaseModel):
     provider: str
     context_window: int
     user_allowed: bool
+    # RFN-002b — pricing rates in USD per 1 M tokens (catalog Pricing × 1e6).
+    # 5-minute cache-write TTL is the default; 1-hour rate omitted (rare usage).
+    input_rate_per_1m: float = 0.0
+    output_rate_per_1m: float = 0.0
+    cache_read_rate_per_1m: float = 0.0
+    cache_write_5m_rate_per_1m: float = 0.0
+    # How this model does reasoning, projected straight off the catalog
+    # capability (spec 020 / FR-14). Replaces `thinking_supported`, which was
+    # derived from a `_THINKING_FRAGMENTS` tuple that had DRIFTED from its copy
+    # in model_factory (it carried an extra "opus-4"), so the Analytics page was
+    # telling users Opus 4.5/4.6 used adaptive thinking while the runtime sent
+    # them budget_tokens. One source now, and the UI reads the real mode.
+    #
+    # `reasoning_levels` is also what the composer's Effort dropdown renders, so
+    # adding a model never needs a frontend change (SC-001).
+    reasoning_mode: str = "none"
+    reasoning_levels: list[str] = []
 
 
 class CapabilitiesPalette(BaseModel):
@@ -153,8 +180,19 @@ def list_capabilities(
             provider=m.provider,
             context_window=m.context_window,
             user_allowed=m.user_allowed,
+            # RFN-002b — scale per-single-token rates → per-1M-token rates.
+            # The regional inference-profile +10 % premium is NOT applied here
+            # because the analytics page shows catalog base rates (operator info),
+            # not per-run billed amounts (which already live in token_usage.estimated_cost_usd).
+            input_rate_per_1m=round(m.pricing.input * 1_000_000, 4),
+            output_rate_per_1m=round(m.pricing.output * 1_000_000, 4),
+            cache_read_rate_per_1m=round(m.pricing.cache_read * 1_000_000, 4),
+            cache_write_5m_rate_per_1m=round(m.pricing.cache_write_5m * 1_000_000, 4),
+            reasoning_mode=m.reasoning.mode,
+            reasoning_levels=list(m.reasoning.levels),
         )
-        for m in ModelCatalog().list()
+        # spec 020 — deduped picker projection; see settings.AVAILABLE_MODELS.
+        for m in selectable_models()
     ]
 
     return CapabilitiesPalette(capabilities=capabilities, model_catalog=model_catalog)

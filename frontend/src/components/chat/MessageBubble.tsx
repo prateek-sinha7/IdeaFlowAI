@@ -42,7 +42,7 @@ interface MessageBubbleProps {
    */
   events?: AgentEvent[];
   /** The nonce'd deep-link seam a narrator ResultCard fires (borrow #6). */
-  onRequestOpenTab?: (tab: string) => void;
+  onRequestOpenTab?: (tab: string, agentId?: string, runId?: string) => void;
 }
 
 /**
@@ -212,7 +212,15 @@ export function MessageBubble({
           </div>
         </div>
         <div className="flex-1 min-w-0">
-          <ResultCard message={message} onRequestOpenTab={onRequestOpenTab} />
+          {/* ISS-607/ISS-612 — bind the card to the run that MINTED it. The
+              family transcript stitches sibling/child runs' narrator cards into
+              the mounted run's lane, so "Answer/Open in Steps" has to be able to
+              target a different family member; without the id the seam could
+              only switch tabs within whichever run happened to be mounted. */}
+          <ResultCard
+            message={message}
+            onRequestOpenTab={(tab) => onRequestOpenTab(tab, undefined, message.runId)}
+          />
         </div>
       </motion.div>
     );

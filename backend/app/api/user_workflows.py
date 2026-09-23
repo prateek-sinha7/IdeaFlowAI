@@ -42,7 +42,7 @@ from datetime import datetime
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_principal, get_current_user
@@ -232,6 +232,28 @@ class SaveUserWorkflowRequest(BaseModel):
     # None/absent == none attached.
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
+    # Spec 016 — the BUILT-IN id this save overrides for its owner ("ppt").
+    # Absent for an ordinary "save as a new workflow", which is what keeps the
+    # mechanism inert for everyone who has not opted in. When present, the POST
+    # UPSERTS: a second save of the same built-in updates the same row rather
+    # than 409ing, which is the "once, or overwritten always" the feature needs.
+    # A partial unique index on (user_id, overrides_pipeline_type) makes that a
+    # database guarantee rather than a racy pre-check.
+    overrides_pipeline_type: str | None = None
+    # The base manifest's `version` at save time, so a later "the original has
+    # changed since you customised it" notice has something to compare against.
+    base_version: int | None = None
+
+    # ISS-601: ``min_length=1`` counts RAW characters, so a whitespace-only name
+    # passes validation and persists a row with no visible label. Normalise here
+    # so the uniqueness check and the stored row both see the trimmed name.
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, v: str) -> str:
+        name = v.strip()
+        if not name:
+            raise ValueError("name must not be blank")
+        return name
 
     @model_validator(mode="after")
     def _reject_manifest_and_selections(self) -> SaveUserWorkflowRequest:
@@ -255,6 +277,24 @@ class UpdateUserWorkflowRequest(BaseModel):
     manifest: dict | None = None
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
+    # Spec 016 — the override checkbox. The ONE flag both the read endpoints and
+    # the launch resolve consult, so the screen and the run can never disagree
+    # about which plan is in force. Only meaningful on a row that actually
+    # overrides a built-in; setting it on an ordinary saved workflow is a no-op
+    # by construction (nothing looks the row up without
+    # `overrides_pipeline_type`), so it needs no extra guard.
+    override_enabled: bool | None = None
+
+    # ISS-601 — see SaveUserWorkflowRequest._strip_name.
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        name = v.strip()
+        if not name:
+            raise ValueError("name must not be blank")
+        return name
 
     @model_validator(mode="after")
     def _reject_manifest_and_selections(self) -> UpdateUserWorkflowRequest:
@@ -280,8 +320,26 @@ class UserWorkflowResponse(BaseModel):
     manifest: dict | None = None
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
+    # Spec 016 — None/False on every ordinary saved workflow.
+    overrides_pipeline_type: str | None = None
+    override_enabled: bool = False
+    base_version: int | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class SyncFromFileRequest(BaseModel):
+    """POST body for ``sync-from-file`` — which file-backed pipeline to sync FROM."""
+
+    pipeline_type: str
+
+
+class SyncFromFileResponse(BaseModel):
+    """The structural diff between the row's PRIOR ``manifest_json`` and the file it
+    was just synced from — one line per dotted path where the two disagreed.
+    """
+
+    diff: list[str]
 
 
 # --- Helpers ---------------------------------------------------------------
@@ -378,10 +436,6 @@ def _compile_selections_trust_user(
 
 def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
     """Project an ORM row to the API response (parse ``agents`` JSON)."""
-    try:
-        agent_ids = json.loads(row.agents) if row.agents else []
-    except (ValueError, TypeError):
-        agent_ids = []
     # EMP-03: the compact selections map round-trips through ``manifest_json``
     # (NULL → None == no selections). Spec 012 (R-27/R-29) overloads the SAME
     # column with a full step-based manifest ({"steps": [...]}) once a per-step
@@ -393,6 +447,43 @@ def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
     _is_manifest = isinstance(stored, dict) and "steps" in stored
     selections = stored if isinstance(stored, dict) and not _is_manifest else None
     manifest = stored if _is_manifest else None
+
+    # A MANIFEST-shaped row's composition lives in the manifest, NOT in the
+    # legacy ``agents`` column, and the two drift apart by design: `saveUserWorkflow`
+    # (frontend lib/api.ts) strips `agent_ids` on every update because PATCH treats
+    # the composition as immutable post-create — true for an agent_ids-backed row,
+    # false for a Composer one, where adding/removing/nesting steps persists through
+    # `manifest_json` alone. So ``agents`` stays frozen at whatever the workflow held
+    # the day it was created while the manifest keeps growing.
+    #
+    # Observed on the "PDF to Prototype" workflow: ``agents`` held 4 ids from its
+    # first save (none of which still exist in the composition) while the manifest
+    # had 12 steps, so the Saved Workflows card read "4 agents" for a 12-step
+    # workflow — and the page's "total agents" stat summed the same stale field.
+    #
+    # Read-side only: nothing writes ``agents`` differently, so an agent_ids-backed
+    # row is projected byte-identically to before.
+    if _is_manifest:
+        # Step identity mirrors the ENGINE's: a custom step is `{agent}:{instance_id}`
+        # ("custom-agent:oa2v5f-rk5oy0" — the exact form the manifest's own
+        # `depends_on` edges use), a built-in step is just its agent name
+        # ("prototype-specify"). Composing it this way keeps the ids unique, since
+        # every custom step shares the literal agent name "custom-agent" and would
+        # otherwise collapse into one repeated entry.
+        agent_ids = []
+        for _step in stored.get("steps") or []:
+            if not isinstance(_step, dict):
+                continue
+            _agent = _step.get("agent")
+            if not _agent:
+                continue
+            _inst = _step.get("instance_id")
+            agent_ids.append(f"{_agent}:{_inst}" if _inst else _agent)
+    else:
+        try:
+            agent_ids = json.loads(row.agents) if row.agents else []
+        except (ValueError, TypeError):
+            agent_ids = []
     return UserWorkflowResponse(
         id=row.id,
         name=row.name,
@@ -404,6 +495,9 @@ def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
         manifest=manifest,
         attached_skills=row.attached_skills,
         attached_hooks=row.attached_hooks,
+        overrides_pipeline_type=row.overrides_pipeline_type,
+        override_enabled=bool(row.override_enabled),
+        base_version=row.base_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -481,6 +575,87 @@ def _migrate_attached_skills_to_steps(db: Session, row: WorkflowDefinition) -> N
     row.manifest_json = {**manifest, "steps": new_steps}
     db.commit()
     db.refresh(row)
+
+
+def _load_file_manifest_dict(pipeline_type: str) -> dict:
+    """Read ``agents/workflows/<resolved-id>/workflow.yaml`` — the SAME dict
+    ``compile_for_run`` compiles, byte for byte (no lossy dataclass round-trip through
+    ``WorkflowManifest``). ``load_manifest`` validates it first (raising the identical
+    ``FileNotFoundError`` / ``ManifestValidationError`` the engine would raise at run
+    entry) before the raw ``yaml.safe_load`` dict is returned for storage — that raw
+    dict, not a reconstruction, is what ``build_manifest_from_dict`` parses internally
+    either way, so storing it is storing exactly what the file says.
+
+    Imports ``agents.execution_engine.engine`` locally, mirroring
+    ``_compile_check_manifest`` above — the module docstring's "MUST NOT import
+    agents.execution_engine" is a module-level-import rule; both functions honor it
+    the same way, lazily, at the one call site that actually needs the compiled-plan
+    seam.
+    """
+    from agents.execution_engine.engine import _WORKFLOWS_DIR, resolve_alias
+    from agents.workflows.manifest import load_manifest
+
+    manifest_id = resolve_alias(pipeline_type)
+    load_manifest(manifest_id, _WORKFLOWS_DIR)
+    path = _WORKFLOWS_DIR / manifest_id / "workflow.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+_DIFF_MISSING = object()  # sentinel: this path is absent on one side of the diff
+
+
+def _short_diff_value(value: object) -> str:
+    """Size-bounded, one-line rendering of a diffed leaf value.
+
+    A step ``prompt`` can run to several KB — the diff must stay a list of pinpointed
+    mismatches, never a text dump of two whole prompts.
+    """
+    if value is _DIFF_MISSING:
+        return "<absent>"
+    if isinstance(value, str):
+        return repr(value) if len(value) <= 80 else f"<str len={len(value)}: {value[:77]!r}...>"
+    if isinstance(value, (dict, list)):
+        return f"<{type(value).__name__} len={len(value)}>"
+    return repr(value)
+
+
+def _flatten_diff(a: object, b: object, path: str = "") -> list[str]:
+    """Recursive structural diff over a dict/list/scalar tree.
+
+    Every path where the two trees disagree is one line; a dict/list whose CONTENTS
+    differ is walked, never dumped whole, so the output is a list of pinpointed
+    mismatches rather than two unreadable blobs.
+    """
+    if a == b:
+        return []
+    if isinstance(a, dict) and isinstance(b, dict):
+        out: list[str] = []
+        for key in sorted(set(a) | set(b)):
+            out.extend(
+                _flatten_diff(
+                    a.get(key, _DIFF_MISSING),
+                    b.get(key, _DIFF_MISSING),
+                    f"{path}.{key}" if path else str(key),
+                )
+            )
+        return out
+    if isinstance(a, list) and isinstance(b, list):
+        out = []
+        for i in range(max(len(a), len(b))):
+            av = a[i] if i < len(a) else _DIFF_MISSING
+            bv = b[i] if i < len(b) else _DIFF_MISSING
+            out.extend(_flatten_diff(av, bv, f"{path}[{i}]"))
+        return out
+    return [f"{path}: {_short_diff_value(a)} != {_short_diff_value(b)}"]
+
+
+def _diff_manifest_dicts(old: dict | None, new: dict) -> list[str]:
+    """Structural diff of two manifest dicts — every dotted-path/``[index]`` where the
+    OLD row's ``manifest_json`` and the NEW file-derived dict disagree, one line each.
+    ``old=None`` (a row with no manifest_json yet) diffs against ``{}``, so every
+    top-level key in ``new`` reports as newly added rather than raising.
+    """
+    return _flatten_diff(old or {}, new)
 
 
 # --- Endpoints -------------------------------------------------------------
@@ -607,7 +782,58 @@ def create_user_workflow(
         )
         .first()
     )
-    if existing:
+    # ── Spec 016: an OVERRIDE save UPSERTS rather than 409ing ─────────────────
+    # "Save once, or overwrite always": a second save of the same built-in must
+    # update the same row. The partial unique index on
+    # (user_id, overrides_pipeline_type) makes at-most-one a database guarantee;
+    # this is the path that keeps the user from having to delete-then-resave.
+    #
+    # Deliberately BEFORE the duplicate-name check: an override is identified by
+    # the built-in it overrides, never by its name, so re-saving under the same
+    # name is the NORMAL case here and must not 409.
+    _ov_target = body.overrides_pipeline_type
+    if _ov_target:
+        if _ov_target not in SUPPORTED_PIPELINE_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown workflow to override: {_ov_target!r}",
+            )
+        prior = (
+            db.query(WorkflowDefinition)
+            .filter(
+                WorkflowDefinition.user_id == current_user.id,
+                WorkflowDefinition.source == "user",
+                WorkflowDefinition.overrides_pipeline_type == _ov_target,
+            )
+            .first()
+        )
+        if prior is not None:
+            prior.name = body.name
+            prior.description = body.description
+            prior.agents = json.dumps(sorted_ids)
+            prior.base_pipeline_type = body.base_pipeline_type
+            prior.model_overrides = body.model_overrides
+            prior.manifest_json = (
+                _validated_manifest(body.manifest, f"workflow:{body.name}")
+                or body.selections
+                or None
+            )
+            prior.attached_skills = body.attached_skills or None
+            prior.attached_hooks = body.attached_hooks or None
+            prior.base_version = body.base_version
+            # Re-saving an override turns it back ON: the user just chose to
+            # keep these steps, so leaving it switched off would silently
+            # discard the save they were looking at.
+            prior.override_enabled = True
+            db.commit()
+            db.refresh(prior)
+            logger.info(
+                "override: user %s updated their %s override (row %s)",
+                current_user.id, _ov_target, prior.id,
+            )
+            return _project(prior)
+
+    if existing and not _ov_target:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A saved workflow named {body.name!r} already exists",
@@ -639,6 +865,10 @@ def create_user_workflow(
         ),
         attached_skills=(body.attached_skills or None),
         attached_hooks=(body.attached_hooks or None),
+        # Spec 016 — NULL/False for every ordinary saved workflow.
+        overrides_pipeline_type=_ov_target,
+        override_enabled=bool(_ov_target),
+        base_version=body.base_version,
     )
     db.add(row)
     db.commit()
@@ -731,6 +961,9 @@ def update_user_workflow(
     if body.description is not None:
         row.description = body.description
 
+    if body.override_enabled is not None:
+        row.override_enabled = body.override_enabled
+
     if body.model_overrides is not None:
         try:
             current_agent_ids = set(json.loads(row.agents) if row.agents else [])
@@ -789,3 +1022,58 @@ def delete_user_workflow(
     db.delete(row)
     db.commit()
     return None
+
+
+@router.post("/{workflow_id}/sync-from-file", response_model=SyncFromFileResponse)
+def sync_user_workflow_from_file(
+    workflow_id: str,
+    body: SyncFromFileRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Overwrite this row's ``manifest_json`` with its source ``workflow.yaml``, verbatim.
+
+    A workflow authored as a file manifest and then edited/saved through the canvas can
+    drift from the file it started from — the canvas save shape does not carry every step
+    key the compiler now supports (``validators``/``fix``/``task_source``/``fanout``/
+    ``route.default_next``/``injects``/``redoable``/…), so a round-trip through a canvas
+    save silently drops them. This endpoint re-reads the file directly and writes it back
+    unmodified — the SAME conversion ``scripts/sync_workflow_from_file.py`` uses for an
+    offline sync (``_load_file_manifest_dict`` / ``_diff_manifest_dicts``), so an operator
+    and this endpoint can never disagree about what "matches the file" means.
+
+    Cross-owner / missing row → 404 (IDOR→404, ``_owned``). Only a ``pipeline_type`` in
+    ``SUPPORTED_PIPELINE_TYPES`` with an actual ``workflow.yaml`` on disk is syncable —
+    anything else is a 422 naming the reason.
+    """
+    from agents.loader import SUPPORTED_PIPELINE_TYPES
+    from agents.workflows.manifest import ManifestValidationError
+
+    if body.pipeline_type not in SUPPORTED_PIPELINE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown pipeline_type: {body.pipeline_type!r}",
+        )
+
+    row = _owned(db, workflow_id, current_user)
+
+    try:
+        new_manifest = _load_file_manifest_dict(body.pipeline_type)
+    except (FileNotFoundError, ManifestValidationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"No usable file manifest for pipeline_type {body.pipeline_type!r}: {exc}",
+        ) from exc
+
+    old_manifest = row.manifest_json if isinstance(row.manifest_json, dict) else None
+    diff = _diff_manifest_dicts(old_manifest, new_manifest)
+
+    row.manifest_json = new_manifest
+    db.commit()
+    db.refresh(row)
+
+    logger.info(
+        "sync-from-file: workflow %s synced from pipeline_type=%s (%d field(s) changed)",
+        workflow_id, body.pipeline_type, len(diff),
+    )
+    return SyncFromFileResponse(diff=diff)

@@ -1,0 +1,1289 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Fix `backend/app/agents/runtime/local.py` `merge_worktree` to classify CalledProcessError as refused-to-start vs ran-and-found-conflicts": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862053895
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862087438
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862273636
+      }
+    ],
+    "1.2 Fix `backend/agents/capabilities/merge/git_3way.py` fragment loop to commit between fragment merges": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862054727
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862286133
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862558806
+      }
+    ],
+    "1.3 Write ship-blocker acceptance tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862055139
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862571636
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863163436
+      }
+    ],
+    "2.1 Add git init (idempotent) with an initial commit to `backend/app/agents/runtime/local.py` LocalWorkspace": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862055659
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863177501
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863292070
+      }
+    ],
+    "2.2 Seed .gitignore covering exactly eight paths inside the same git init call": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862055910
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863298187
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863701671
+      }
+    ],
+    "2.3 Write ship-blocker acceptance tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862056140
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863707915
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863970013
+      }
+    ],
+    "3.1 Add _CHAIN_PREFIX constant to `backend/app/agents/sandbox.py` and update RunSandbox": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862056369
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863984951
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788864229415
+      }
+    ],
+    "3.2 Add post_run hook event and fire-once finalizer to `backend/agents/execution_engine/engine.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862056624
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788864241677
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788864817128
+      }
+    ],
+    "3.3 Implement .chain/{run_id}/ writer on the post_run event": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862056821
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788864830257
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788865204075
+      }
+    ],
+    "3.4 Add reserved-prefix guard to `backend/agents/capabilities/context_providers/previous_run.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862057015
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788865218395
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788865609096
+      }
+    ],
+    "3.5 Add .chain/ section to `frontend/src/components/results/SandboxTab.tsx`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862057297
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788865621929
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788865897575
+      }
+    ],
+    "3.6 Write Phase 1 tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862057512
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788865911438
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788866425749
+      }
+    ],
+    "4.1 Thread has_git=True as global default through RunSandbox and LocalWorkspace in `backend/app/agents/sandbox.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862057698
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788866440131
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788866752423
+      }
+    ],
+    "4.2 Add commit_all passthrough on RunSandbox with has_git guard and warning": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862057893
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788866766006
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788867525528
+      }
+    ],
+    "4.3 Implement step-boundary commit in `engine.py` before routing decision": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862058114
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788867539819
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788867795617
+      }
+    ],
+    "4.4 Add pre_commit and post_commit hook events; wire secret_scan.py": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862058433
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788867808358
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788868043848
+      }
+    ],
+    "4.5 Exclude .git/, .gitignore, and skills/ from deliverable walk and list_files in `sandbox.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862058745
+      },
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788868059677
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788868611911
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788868856311
+      }
+    ],
+    "4.6 Add outputs and replaces step fields to `plan.py` and `compiler.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862058989
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788868870598
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788869278277
+      }
+    ],
+    "4.7 Add git gc --auto on post_run and instrument disk growth per terminal run": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862059195
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788869293465
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788869834802
+      }
+    ],
+    "4.8 Assert fan-out ordering and all four on_conflict policies exercised by test": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862059544
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788869851415
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788870459699
+      }
+    ],
+    "4.9 Write Phase 2 tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862059758
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788870475745
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788870813763
+      }
+    ],
+    "5.1 Implement chain-root walk with visited-set cycle guard in `engine.py` _execute_impl": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862060017
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788870829780
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788871758466
+      }
+    ],
+    "5.2 Update all seven RunSandbox construction sites to use the chain root": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862060279
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788871776738
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788873376649
+      }
+    ],
+    "5.3 Fix TTL sweeper chain-awareness in `sandbox.py` sweep_expired and `main.py` — SAME PR as 5.1": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862060580
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788873394963
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788873583085
+      }
+    ],
+    "5.4 Add server-side revision concurrency lock in `run_commands.py` _mint_revision_row — SAME PR as 5.1": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862061008
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788873600577
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788889453142
+      }
+    ],
+    "5.5 Short-circuit redundant previous_run seeding in `context_providers/previous_run.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862061304
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874453235
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874468178
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874774272
+      }
+    ],
+    "5.6 Root-resolve cross-run reads in `previous_run.py` and `kernel_services.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862061573
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874453372
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874780026
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788875750571
+      }
+    ],
+    "5.7 Rename run log, validator evidence, and browser artifacts to per-run paths": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862061882
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874453459
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788875756434
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788876626105
+      }
+    ],
+    "5.8 Disable version picker with explicit notice in `RunHeader.tsx` VersionMenu": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862062107
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874453551
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788876632134
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788877185578
+      }
+    ],
+    "5.9 Implement wip: commit on cancel/fail and dirty-tree reconciliation on resume": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862062346
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874453648
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788877191676
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788878211988
+      }
+    ],
+    "5.10 Add revision_ordinal and chain_source_run_id fields to ExecutionContext in `context.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862062719
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874453752
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788878218891
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788878825862
+      }
+    ],
+    "5.11 Write Phase 3 tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862062953
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874453881
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788878832543
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788879486894
+      }
+    ],
+    "6.1 Add create_tag and list_tags to `local.py` LocalWorkspace via duck-typing": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862063189
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454009
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788879494442
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788879716193
+      }
+    ],
+    "6.2 Add git_tag nullable column to WorkflowRun via one additive Alembic migration": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862063418
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454118
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788879723029
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788880120720
+      }
+    ],
+    "6.3 Implement tag creation on the terminal path via post_run in `engine.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862063732
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454237
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788880127504
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788880430096
+      }
+    ],
+    "6.4 Add git_tag field to API response and frontend type": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862063992
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454369
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788880437862
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788880940878
+      }
+    ],
+    "6.5 Add ref validation against list_tags() before any git subprocess call": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862064248
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454520
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788880948566
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788882066516
+      }
+    ],
+    "6.6 Write Phase 4 tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862064499
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454637
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788882074709
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788883239304
+      }
+    ],
+    "7.1 Add declared chain flag to `compiler.py` and `plan.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862064812
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454763
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788883247787
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788883430838
+      }
+    ],
+    "7.2 Write source_run_id for the first time in `run_commands.py` _mint_revision_row and _launch_run_core": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862065118
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874454879
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788883438691
+      }
+    ],
+    "7.3 Implement chain_context context provider as new file `context_providers/chain_context.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862065365
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874455014
+      },
+      {
+        "executionId": "38611e50-5da2-488a-905a-cb9450da8690",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788884401674
+      }
+    ],
+    "7.4 Retire or gate frontend enrichedInput assembly in `DashboardLayout.tsx` handleChainPipeline and handleChainFromHistory": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862065596
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874455141
+      }
+    ],
+    "7.5 Write Phase 5 tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862065868
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874455295
+      },
+      {
+        "executionId": "38611e50-5da2-488a-905a-cb9450da8690",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788884924351
+      },
+      {
+        "executionId": "38611e50-5da2-488a-905a-cb9450da8690",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788886380363
+      }
+    ],
+    "8.1 Write .context/ at sandbox open before step 1 in `launch_context.py` resolve_launch_od_context": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862066112
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874455431
+      },
+      {
+        "executionId": "38611e50-5da2-488a-905a-cb9450da8690",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788886397800
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788889459822
+      }
+    ],
+    "8.2 Fix resume_run to rebuild ectx.od_context from .context/ files — SAME change as 8.1": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862066361
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874455577
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788889470541
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788889986951
+      }
+    ],
+    "8.3 Register body-only and governance prompt policy orders in `capabilities/prompt/policy.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862066582
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874456003
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788889997777
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890401903
+      }
+    ],
+    "8.4 Implement ref-scoped workspace browsing in `run_files.py` and `local.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862066907
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874456222
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890414421
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890437689
+      }
+    ],
+    "8.5 Re-enable version picker on real git tags in `RunHeader.tsx`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862067147
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874456518
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890448745
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890460354
+      }
+    ],
+    "8.6 Repoint agent input-prompt viewer in `AgentThinkingTab.tsx` and `AgentDetailPanel.tsx`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862067606
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874456736
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890466373
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890907330
+      }
+    ],
+    "8.7 Correct prompt_overrides.py API docstring and defer full override migration": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862068010
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874456973
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890919398
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890938158
+      }
+    ],
+    "8.8 Add delete_branch: bool = True parameter to `local.py` remove_worktree": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862068310
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874457219
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890944358
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890957292
+      }
+    ],
+    "8.9 Write Phase 6 tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862068727
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874457519
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788890963172
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892235656
+      }
+    ],
+    "9.1 Rewrite AGENT.md files per workflow and set manifests to new policy — cheapest workflows first, prototype last": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862069175
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874457816
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892246830
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892445528
+      }
+    ],
+    "9.2 Extend is_first_agent in `engine.py` _compose_context_message to gate the brief to agent 1 only": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862069738
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874458088
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892457981
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892611315
+      }
+    ],
+    "9.3 Retarget retry and HITL feedback in _compose_context_message to the retrying agent only": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862070146
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874458343
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892623267
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892657218
+      }
+    ],
+    "9.4 Move PLANNER.md write to after clarify rounds merge in `engine.py`": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862070541
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874458653
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892664295
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892784701
+      }
+    ],
+    "9.5 Delete Seam 2 code once the last workflow is off the default policy": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862071028
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874459044
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892790935
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892829766
+      }
+    ],
+    "9.6 Write Phase 7 tests": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862071359
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874459297
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892836285
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788894362493
+      }
+    ],
+    "10.1 Run SC-001 and INV-1 banned-pattern checks": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862071664
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874459550
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788894378112
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788895223833
+      }
+    ],
+    "10.2 Run INV-3 golden suite with SNAPSHOT_UPDATE unset": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862072016
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874459784
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788895230002
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788895765074
+      }
+    ],
+    "10.3 Run full acceptance checklist from the design Testing Strategy section": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862072415
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874460134
+      },
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788895778598
+      }
+    ],
+    "10.4 Run ruff, pyright, and lint-imports on all modified files": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862072761
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874460389
+      }
+    ],
+    "10.5 Verify disk growth instrumentation is live": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788862073117
+      },
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788874460633
+      }
+    ],
+    "1. Fix merge_worktree false-clean merge (SHIP-BLOCKER)": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863163565
+      }
+    ],
+    "2. Add git init with initial commit and gitignore seeding (SHIP-BLOCKER)": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788863970100
+      }
+    ],
+    "3. Implement .chain/ payload foundation": [
+      {
+        "executionId": "f2c69a04-999e-420d-b07b-1bd787788624",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788866425869
+      }
+    ],
+    "4. Add git foundation to every sandbox": [
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788870813847
+      }
+    ],
+    "6. Implement version tagging": [
+      {
+        "executionId": "c9b0c8c2-023e-4f26-9446-9c6076ccfcb6",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788883239420
+      }
+    ],
+    "7. Implement file-based chaining": [
+      {
+        "executionId": "38611e50-5da2-488a-905a-cb9450da8690",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788886380449
+      }
+    ],
+    "5. Implement sandbox reuse — shared directory for revision families": [
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788889453842
+      }
+    ],
+    "8. Implement prompt policy, tag UI, and context files": [
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788892235730
+      }
+    ],
+    "9. Seam 2 removal and per-workflow prompt migration": [
+      {
+        "executionId": "2adfcd86-a15a-461c-bd4a-ca1b9c4d2b44",
+        "chatSessionId": "sess_185e9fcf-6868-404b-9228-aee6279f7833",
+        "timestamp": 1788894362582
+      }
+    ]
+  }
+}

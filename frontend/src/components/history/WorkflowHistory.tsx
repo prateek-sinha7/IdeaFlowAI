@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
@@ -10,8 +11,10 @@ import {
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow, getRunFamily, getRunArtifacts } from "@/lib/api";
 import { parseClarificationArtifacts } from "@/lib/clarifications";
+import { routes } from "@/lib/routes";
 // KAN-116 (Bug 3): clean === markers from titles stored in DB (safety net for existing data).
 import { parseRunInput } from "@/lib/runInput";
+import { isPlausibleFilePath } from "@/lib/parsers/filePath";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
@@ -23,9 +26,10 @@ import { AuditTab } from "@/components/results/AuditTab";
 import type { WorkflowRun, WorkflowType, AgentRunState, RunFamily, ClarifyRound } from "@/types/index";
 import { resolveReopenMimetype } from "@/types/index";
 import { useWorkflowChaining } from "@/hooks/useWorkflowMetadata";
+import { CHAIN_SOURCE_STATUS_KEY } from "@/lib/workflowChaining";
 // Revision Families (B2 / D3): client-side grouping by rootRunId + the family
 // root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
-import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, bucketAndSortFamilies, type HistorySortKey } from "./RevisionFamilyView";
+import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, filterBucketFor, bucketAndSortFamilies, buildDivertLinks, type HistorySortKey } from "./RevisionFamilyView";
 // SHELL-03: the terminal-run detail's summary surfaces (KPI / per-agent breakdown /
 // version timeline / failure banner) render via the single-source RunDetailPage
 // (fed by getRunSummary) — no dual implementation with the deliverable wrapper.
@@ -33,7 +37,10 @@ import { RunDetailPage } from "./RunDetailPage";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
-  onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType) => void;
+  /** B3 fix: optional third arg userWorkflowId carries the saved-workflow DB id
+   *  when the user picks a saved workflow as the chain target. Absent → built-in
+   *  workflow chain, behaviour unchanged. */
+  onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType, userWorkflowId?: string) => void;
   // Revision Families (B1): each revise callback gains a required sourceRunId
   // (selectedRun.id) so the launched revision links its parent run — history
   // revisions previously sent no parent and produced orphan runs.
@@ -45,13 +52,29 @@ interface WorkflowHistoryProps {
   // of opening the history detail. activeRunId is the current pipeline's run id;
   // onViewRunningPipeline switches the main view to "execution".
   activeRunId?: string | null;
-  onViewRunningPipeline?: () => void;
+  onViewRunningPipeline?: (runId: string) => void;
   // BUG-002: route a row tap into the SHARED run screen (execution-chat-lane +
   // composer + DEF-44-12-4 durable seed + DEF-44-12-3 SSE attach) — the same
   // wiring the Home-recents path uses — instead of WorkflowHistory's divergent
   // internal RunDetailPage (one-shot summary, no SSE, no chat lane). When absent,
   // the legacy setSelectedRun internal-detail fallback is preserved.
   onOpenRun?: (run: WorkflowRun) => void;
+  // T38 (014-conditional-gates, R-20 live case): page.tsx's own `recentRuns`
+  // state — refetched there on pipeline_diverted/failed/etc. WorkflowHistory
+  // previously fetched its OWN `runs` state once on mount and never re-synced,
+  // so an already-open history panel showed nothing new until the panel was
+  // closed and reopened. This prop is read only for its REFERENCE identity (a
+  // change-signal to re-fetch our own `runs`, below) — its contents are never
+  // read directly, since `getWorkflows(token, { limit: 50 })` here already
+  // returns the same shape (with an accurate `total`) that produced it.
+  recentRuns?: WorkflowRun[];
+  /** B3 fix: pre-fetched saved (DB) workflows from page.tsx/DashboardLayout.
+   *  Used to build saved-workflow chain targets alongside the built-in ones in
+   *  the "Suggested next steps" panel. A saved workflow appears as a chain target
+   *  when chainInto(sourceRunBaseType) contains a ChainTarget whose id matches
+   *  the saved workflow's base_pipeline_type — reusing the same manifest
+   *  declaration system. When absent the panel shows only built-in targets. */
+  savedWorkflows?: import("@/lib/api").UserWorkflowSummary[];
 }
 
 // ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
@@ -74,6 +97,9 @@ function parseFilesForIDE(markdown: string): ParsedFile[] {
   const add = (path: string, content: string) => {
     path = path.trim();
     if (!path || !content.trim() || seen.has(path)) return;
+    // ISS-323: a prose heading ("### Via Node.js") matches the heading/bold
+    // regexes as well as a real path does — a real file path has no whitespace.
+    if (!isPlausibleFilePath(path)) return;
     const name = path.split("/").pop() || path;
     if (!name.includes(".") && !/^(Dockerfile|Makefile|Procfile)$/i.test(name)) return;
     seen.add(path);
@@ -139,8 +165,10 @@ function cleanDisplayTitle(
   return runInput ? (extractFromInput(runInput) || fallback) : fallback;
 }
 
-export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun }: WorkflowHistoryProps) {
+export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun, recentRuns, savedWorkflows }: WorkflowHistoryProps) {
   const chainInto = useWorkflowChaining();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [totalRuns, setTotalRuns] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -163,7 +191,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // duration — all derived from fields already on each row (no fetch).
   const [sortKey, setSortKey] = useState<HistorySortKey>("recent");
   const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking" | "audit">("preview");
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // ISS-414 (replicate FIX-372): store the whole run row so DeleteModal can
+  // name the run being deleted — same shape as `renameRow` / `deleteRow` in
+  // SavedWorkflowsPage.tsx. Previously tracked only the id, leaving the dialog
+  // body fully generic and indistinguishable across near-duplicate titles.
+  const [deleteRow, setDeleteRow] = useState<WorkflowRun | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   // Revision Families (B2 / D3): which family roots are expanded in the list,
@@ -172,12 +204,23 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // KAN-84: revision moved from thin right-panel bar to left-panel next-steps
   const [reviseOpen, setReviseOpen] = useState(false);
   const [revisionText, setRevisionText] = useState("");
-  const revisionRef = useRef<HTMLTextAreaElement>(null);
+  // ISS-198: IntersectionObserver sentinel — fires handleLoadMore when the
+  // bottom of the list scrolls into view, wiring the already-implemented
+  // handleLoadMore that was dead code (no trigger existed).
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  // Focus revision textarea when opened
+  const revisionRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (reviseOpen && revisionRef.current) revisionRef.current.focus();
   }, [reviseOpen]);
+
+  // T12: Read filter/sort state from URL on mount
+  useEffect(() => {
+    const type = searchParams.get("type") || "all";
+    const sort = searchParams.get("sort") as HistorySortKey || "recent";
+    setFilterType(type);
+    setSortKey(sort);
+  }, []);
 
   useEffect(() => {
     const token = getToken();
@@ -192,6 +235,79 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       .finally(() => setLoading(false));
   }, [filterType]);
 
+  // T38 (014-conditional-gates, R-20 live case): re-fetch, WITHOUT the
+  // skeleton-loading flash above, whenever the parent's `recentRuns` changes
+  // reference — i.e. whenever page.tsx itself refetched for any live pipeline
+  // event (diverted/failed/waiting_for_user/resumed/...). Skips the very first
+  // render (the mount effect above already covers it) by comparing against the
+  // ref's own initial value.
+  const recentRunsRef = useRef(recentRuns);
+  useEffect(() => {
+    if (recentRunsRef.current === recentRuns) return;
+    recentRunsRef.current = recentRuns;
+    const token = getToken();
+    if (!token) return;
+    getWorkflows(token, { limit: 50 })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
+      .catch(() => {});
+  }, [recentRuns]);
+
+  // Manual + auto refresh — same "no skeleton flash" shape as the T38 silent
+  // refetch above, just user/timer-triggered instead of recentRuns-triggered.
+  // Re-requests however many rows are already loaded so a Load More'd list
+  // doesn't silently truncate back to 50 on refresh.
+  const [isRefreshingRuns, setIsRefreshingRuns] = useState(false);
+  const [runsRefreshMs, setRunsRefreshMs] = useState(0);
+  // Counts down in whole seconds so the Refresh button can show it directly —
+  // ticks the actual refresh at 0 rather than running a second, driftable timer.
+  const [runsSecondsLeft, setRunsSecondsLeft] = useState(0);
+  const refreshRuns = useCallback(() => {
+    const token = getToken();
+    if (!token) return;
+    setIsRefreshingRuns(true);
+    getWorkflows(token, { limit: Math.max(50, runs.length) })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setIsRefreshingRuns(false);
+        // Resume the countdown only once the fetch actually finishes, so a
+        // slow refresh doesn't silently eat into the next interval.
+        if (runsRefreshMs) setRunsSecondsLeft(runsRefreshMs / 1000);
+      });
+  }, [runs.length, runsRefreshMs]);
+  const handleManualRefreshRuns = useCallback(() => {
+    refreshRuns();
+    if (runsRefreshMs) setRunsSecondsLeft(runsRefreshMs / 1000);
+  }, [refreshRuns, runsRefreshMs]);
+  // Ticks the countdown down to 0 and HOLDS there — it does not trigger the
+  // refresh or reset itself. That split matters: "Reloading" must reflect
+  // however long the fetch actually takes, not just the one tick it started
+  // on, so the reset-to-full lives in refreshRuns's `.finally()` above, fired
+  // only when the fetch truly completes.
+  useEffect(() => {
+    if (!runsRefreshMs) {
+      setRunsSecondsLeft(0);
+      return;
+    }
+    setRunsSecondsLeft(runsRefreshMs / 1000);
+    const id = setInterval(() => {
+      setRunsSecondsLeft((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [runsRefreshMs]);
+  // Fires the refresh exactly once, the moment the countdown reaches 0.
+  useEffect(() => {
+    if (runsRefreshMs && runsSecondsLeft === 0 && !isRefreshingRuns) {
+      refreshRuns();
+    }
+  }, [runsSecondsLeft, runsRefreshMs, isRefreshingRuns, refreshRuns]);
+
   const handleLoadMore = useCallback(() => {
     const token = getToken();
     if (!token || loadingMore || runs.length >= totalRuns) return;
@@ -204,18 +320,41 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       .finally(() => setLoadingMore(false));
   }, [runs.length, totalRuns, loadingMore]);
 
-  const handleSelectRun = useCallback(async (run: WorkflowRun) => {
+  // ISS-198: wire the already-implemented handleLoadMore to an
+  // IntersectionObserver on the sentinel div at the bottom of the list.
+  // `handleLoadMore` guards itself (`runs.length >= totalRuns || loadingMore`),
+  // so the observer just needs to call it whenever the sentinel is visible.
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) handleLoadMore();
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [handleLoadMore]);
+
+  const handleSelectRun = useCallback(async (run: WorkflowRun, opts?: { forChain?: boolean }) => {
     // KAN-96: if this run is the currently-active pipeline, navigate to the
     // live execution view rather than opening the static history detail.
     if (activeRunId && run.id === activeRunId && onViewRunningPipeline) {
-      onViewRunningPipeline();
+      onViewRunningPipeline(run.id);
       return;
     }
     // BUG-002: route the tap into the shared run screen (parity with Home-recents)
-    // instead of the divergent internal RunDetailPage. Carry-over: cross-workflow
-    // chaining (onChainPipeline) + the VersionTimeline version-switch stay reachable
-    // via the History LIST rows; retiring the internal detail (INV-3) is a follow-up.
-    if (onOpenRun) {
+    // instead of the divergent internal RunDetailPage. T3-chaining-reachable:
+    // the prior "carry-over" comment here claimed cross-workflow chaining stayed
+    // reachable via the History LIST rows, but nothing implemented that — once
+    // onOpenRun is set (the real DashboardLayout call site always sets it), this
+    // branch always won and the internal detail's chain panel below was dead
+    // code. opts.forChain is the row's explicit "Chain" menu action opting OUT
+    // of the redirect so that panel is reachable again; the plain row click
+    // (opts undefined) still redirects — the default "open this run" behaviour
+    // is unchanged.
+    if (onOpenRun && !opts?.forChain) {
       onOpenRun(run);
       return;
     }
@@ -235,7 +374,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       setSelectedOutput(full.output || null);
     } catch {}
     finally { setLoadingDetail(false); }
-  }, [activeRunId, onViewRunningPipeline]);
+  }, [activeRunId, onViewRunningPipeline, onOpenRun]);
 
   // Revision Families (B2 / D4): load a chosen version into the SAME detail surface
   // so BOTH the RunDetailPage summary column AND the deliverable/files/thinking/audit
@@ -308,30 +447,39 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const handleDeleteClick = useCallback((runId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setOpenMenuId(null);
-    setDeleteConfirmId(runId);
-  }, []);
+    // ISS-414 (replicate FIX-372): store the whole run row — the id alone
+    // gave the dialog nothing to display. Find the run from the loaded array.
+    const run = runs.find((r) => r.id === runId) ?? null;
+    setDeleteRow(run ?? { id: runId } as WorkflowRun);
+  }, [runs]);
 
   const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteConfirmId) return;
+    if (!deleteRow) return;
     const token = getToken();
     if (!token) return;
     setDeleteError(null);
     try {
-      await deleteWorkflow(token, deleteConfirmId);
-      setRuns((prev) => prev.filter((r) => r.id !== deleteConfirmId));
-      if (selectedRun?.id === deleteConfirmId) { setSelectedRun(null); setSelectedOutput(null); }
-      setDeleteConfirmId(null);
+      await deleteWorkflow(token, deleteRow.id);
+      setRuns((prev) => prev.filter((r) => r.id !== deleteRow.id));
+      // ISS-209: keep totalRuns in sync after a delete so handleLoadMore's
+      // offset bookkeeping remains correct once a Load More trigger exists.
+      setTotalRuns((prev) => Math.max(0, prev - 1));
+      if (selectedRun?.id === deleteRow.id) { setSelectedRun(null); setSelectedOutput(null); }
+      setDeleteRow(null);
     } catch {
       setDeleteError("Failed to delete run. Please try again.");
     }
-  }, [deleteConfirmId, selectedRun]);
+  }, [deleteRow, selectedRun]);
 
   // Revision Families (B2): the per-run filter predicate, extracted so the
   // grouped list can match a family if ANY member matches (UI-SPEC Surface 1).
   // Same normalize-then-match logic as before (od_prototype→prototype, od_ppt→
-  // ppt, strip _revision; search on title) — via the SHARED baseWorkflowType.
+  // ppt, strip _revision; search on title) — via the SHARED filterBucketFor,
+  // which additionally folds every non-framework type (a conditional-gate
+  // sample pipeline, a retired/renamed id, ...) into "custom" so the Custom
+  // tab actually shows every custom run, not just literal type === "custom".
   const matchesFilter = useCallback((r: WorkflowRun) => {
-    const baseType = baseWorkflowType(r.type);
+    const baseType = filterBucketFor(r.type);
     const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
     const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchType && matchSearch;
@@ -351,7 +499,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const detailWorkflowType = (selectedRun?.type ?? "custom") as WorkflowType;
   const detailIsAppBuilder = detailWorkflowType === "app_builder" || detailWorkflowType === "app_builder_revision";
 
-  const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null; input_tokens?: number; output_tokens?: number; total_tokens?: number }[]>(() => {
+  const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null; input_tokens?: number; output_tokens?: number; total_tokens?: number; model_id?: string }[]>(() => {
     if (!selectedRun?.agentOutputs) return [];
     try {
       const raw = selectedRun.agentOutputs;
@@ -377,6 +525,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           existing.total_tokens = ((existing.total_tokens as number) || 0) + ((a.total_tokens as number) || 0);
           // Keep the last output (most recent/final result)
           if ((a.output as string)?.trim()) existing.output = a.output;
+          // RFN-001 — keep-last model_id (same pattern as output above): for a
+          // build agent that re-runs, the most recent agent_complete is the
+          // authoritative model for the chip.
+          if ((a as Record<string, unknown>).model_id) existing.model_id = (a as Record<string, unknown>).model_id;
         } else {
           seen.set(aid, deduped.length);
           deduped.push({ ...a });
@@ -419,6 +571,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       contextSources: (a as Record<string, unknown>).context_sources as import("@/types/index").ContextSource[] | undefined,
       toolCalls: (a as Record<string, unknown>).tool_calls as import("@/types/index").ToolCallEntry[] | undefined,
       thinkingText: (a as Record<string, unknown>).thinking_text as string | undefined,
+      // RFN-001 — carry the persisted per-agent model id through to AgentRunState
+      // so the model chip renders when a completed run is reopened from history.
+      modelId: (a as Record<string, unknown>).model_id as string | undefined,
     }));
   }, [detailAgentOutputs]);
 
@@ -442,8 +597,16 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const revisionParentVersion = reopenParentIdx >= 0 ? reopenParentIdx + 1 : undefined;
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
     const isAppBuilder = detailIsAppBuilder;
-    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
-    const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision";
+    // ISS-214 — `ppt_v2` belongs in the ppt slot here exactly as PreviewPanel.tsx
+    // :578's renderType folds it in (spec 017 — the same HTML deck; it differs
+    // only in ALSO producing a .pptx). This check had never gained that
+    // normalization, so a reopened ppt_v2 deck fell through to the generic
+    // branch: no pptContent for the Files tab, no PPTPreview for the deliverable.
+    const isPpt = workflowType === "ppt" || workflowType === "ppt_v2" || workflowType === "ppt_revision";
+    const isPrototype = workflowType === "prototype"
+      || workflowType === "prototype_revision"
+      || workflowType === "prototype_large_revision"
+      || workflowType === "prototype_feature_revision";
     // ─── ISS-021 (18-03) — 2nd facet: the reopen generic fallback ─────────────
     // The OLD `isMarkdown = isCustom` swallowed HTML deliverables into
     // MarkdownPreview (escaped HTML). Replace it with a structural "no known
@@ -488,10 +651,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     // the summary column, so we suppress the neutral "No preview available" for it.
     // STRICTLY server-status-gated on the PERSISTED status (never a client
     // empty==failed guess), SC-001 (generic status, no workflow-name branch).
+    // ISS-391: "diverted" belongs in the same suppression — it is likewise a
+    // terminal, non-resumable status whose absent deliverable the summary column
+    // now explains (ISS-395), so the neutral "No preview available" would double
+    // up on messaging here exactly as it would for the other three.
     const reopenTerminalFailure =
       selectedRun.status === "failed" ||
       selectedRun.status === "cancelled" ||
-      selectedRun.status === "degraded";
+      selectedRun.status === "degraded" ||
+      selectedRun.status === "diverted";
 
     return (
       <div className="h-full flex bg-surface-paper">
@@ -507,22 +675,33 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               runId={selectedRun.id}
               onBack={() => { setSelectedRun(null); setSelectedOutput(null); }}
               activeRunId={activeRunId}
-              onViewRunningPipeline={onViewRunningPipeline ? () => onViewRunningPipeline() : undefined}
+              onViewRunningPipeline={onViewRunningPipeline}
               onSelectVersion={handleSelectVersion}
             />
           </div>
 
-          {/* Suggested next steps — always-visible footer for completed runs.
-              Lets the user chain the historical output into another pipeline
-              without having to re-run from the home page. Excludes the
-              already-completed pipeline (incl. its `_revision` form) via
-              the shared chainInto() rule (backend-owned via useWorkflowChaining,
-              Plan 34-01). */}
-          {selectedRun.status === "completed" &&
+          {/* Suggested next steps — always-visible footer for completed and
+              payload-chainable non-success runs. Lets the user chain the
+              historical output into another pipeline without having to re-run
+              from the home page. Excludes the already-completed pipeline (incl.
+              its `_revision` form) via the shared chainInto() rule
+              (backend-owned via useWorkflowChaining, Plan 34-01).
+              SGV2 11.7: non-success runs with payloadChainable===true are
+              offered with a warning; runs with payloadChainable===false show
+              chain options as unavailable with the nonChainableReason. */}
+          {(selectedRun.status === "completed" ||
+            // SGV2 11.7: only terminal non-success statuses can offer chain options.
+            ((selectedRun.status === "failed" ||
+              selectedRun.status === "cancelled" ||
+              selectedRun.status === "degraded" ||
+              selectedRun.status === "diverted") &&
+             onChainPipeline !== undefined &&
+             chainInto(baseWorkflowType(selectedRun.type)).length > 0)) &&
            (() => {
              // Determine which revise callback applies to this run type
              const reviseCallback = (() => {
                if (!selectedOutput) return undefined;
+               if (selectedRun.status !== "completed") return undefined;
                if (isPrototype && onRevisePrototype) return (instruction: string) => onRevisePrototype(instruction, selectedOutput, selectedRun.id);
                if (isPpt && onRevisePpt) return (instruction: string) => onRevisePpt(instruction, selectedOutput, selectedRun.id);
                if (isUserStory && onReviseUserStory) return (instruction: string) => onReviseUserStory(instruction, selectedOutput, selectedRun.id);
@@ -531,7 +710,21 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
              })();
              const reviseLabel = isPrototype ? "Revise Prototype" : isPpt ? "Revise Presentation" : isUserStory ? "Revise User Stories" : isAppBuilder ? "Revise App Blueprint" : "Revise";
              const chainOptions = onChainPipeline ? chainInto(baseWorkflowType(selectedRun.type)) : [];
-             if (!reviseCallback && chainOptions.length === 0) return null;
+             // B3 fix: saved-workflow chain targets — any saved workflow whose
+             // base_pipeline_type is already a chain target for this source run type
+             // (i.e., it appears in chainOptions) is presented alongside the built-in.
+             // Uses the same chainInto / chained_from declaration system; no new API.
+             const builtInChainIds = new Set(chainOptions.map((o) => o.id));
+             const savedChainOptions: import("@/lib/api").UserWorkflowSummary[] =
+               onChainPipeline && savedWorkflows
+                 ? savedWorkflows.filter((sw) => builtInChainIds.has(sw.base_pipeline_type))
+                 : [];
+             // SGV2 11.7: whether this run is a non-success source (failed/cancelled/degraded).
+             const isNonSuccess = selectedRun.status !== "completed";
+             // payloadChainable is undefined on legacy/completed runs — treat undefined as chainable
+             // for completed runs, and as not-chainable for non-success runs (safe default).
+             const canChain = !isNonSuccess || selectedRun.payloadChainable === true;
+             if (!reviseCallback && chainOptions.length === 0 && savedChainOptions.length === 0) return null;
              return (
                <div className="border-t border-line-divider px-3 py-3 bg-surface-warm flex-shrink-0">
                  <div className="flex items-center gap-1.5 mb-2 px-1">
@@ -540,6 +733,29 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                      Suggested next steps
                    </p>
                  </div>
+                 {/* SGV2 11.7: non-success source status notice. Not color-alone:
+                     includes text label, icon, and description. */}
+                 {isNonSuccess && chainOptions.length > 0 && (
+                   <div
+                     role="note"
+                     className="mb-2 flex items-start gap-2 rounded-lg border border-[var(--status-running-border)] bg-[var(--status-running-fill)] px-2.5 py-2"
+                   >
+                     {/* Non-color indicator: exclamation icon */}
+                     <span aria-hidden="true" className="flex-shrink-0 text-[10px] font-bold text-status-running leading-tight mt-px">!</span>
+                     <div>
+                       <p className="text-[10px] font-semibold text-status-running leading-tight">
+                         {canChain
+                           ? `This run ${selectedRun.status} — output may be incomplete`
+                           : `This run ${selectedRun.status} — output not available for chaining`}
+                       </p>
+                       {canChain && (
+                         <p className="mt-0.5 text-[9px] text-status-running/80 leading-snug">
+                           Only partial output will be passed to the next pipeline.
+                         </p>
+                       )}
+                     </div>
+                   </div>
+                 )}
                  <div className="space-y-1.5">
                    {/* KAN-84: Revision button in left sidebar */}
                    {reviseCallback && (
@@ -603,21 +819,122 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                    {onChainPipeline && chainOptions.map((opt) => (
                      <button
                        key={opt.id}
-                       onClick={() => { if (!opt.beta) onChainPipeline(selectedRun, opt.id as WorkflowType); }}
-                       disabled={opt.beta}
+                       onClick={() => {
+                         if (opt.beta || !canChain) return;
+                         // SGV2 11.7: write source status to sessionStorage so the
+                         // wizard can show the pre-launch warning for non-success runs.
+                         if (isNonSuccess) {
+                           sessionStorage.setItem(CHAIN_SOURCE_STATUS_KEY, selectedRun.status);
+                         } else {
+                           sessionStorage.removeItem(CHAIN_SOURCE_STATUS_KEY);
+                         }
+                         onChainPipeline(selectedRun, opt.id as WorkflowType);
+                       }}
+                       disabled={opt.beta || !canChain}
+                       aria-disabled={opt.beta || !canChain}
+                       aria-describedby={!canChain ? `chain-unavailable-${opt.id}` : undefined}
                        className={`group w-full flex items-center justify-between rounded-xl border px-3 py-2 text-left transition-all ${
-                         opt.beta
+                         opt.beta || !canChain
                            ? "cursor-not-allowed border-line-border bg-surface-white opacity-60"
+                           : isNonSuccess
+                           ? "border-[var(--status-running-border)] bg-surface-white hover:border-amber-400 hover:bg-amber-500 hover:shadow-md"
                            : "border-brand/20 bg-surface-white hover:border-brand hover:bg-brand hover:shadow-md"
                        }`}
                      >
                        <div className="min-w-0">
-                         <p className={`text-[11px] font-semibold transition-colors ${opt.beta ? "text-ink-400" : "text-ink-900 group-hover:text-white"}`}>{opt.label}</p>
-                         <p className={`text-[9px] leading-snug transition-colors ${opt.beta ? "text-ink-400" : "text-ink-500 group-hover:text-white/80"}`}>
-                           {opt.beta ? "Coming Soon" : `Chain this run into ${opt.label}`}
+                         <p className={`text-[11px] font-semibold transition-colors ${
+                           opt.beta || !canChain
+                             ? "text-ink-400"
+                             : isNonSuccess
+                             ? "text-ink-900 group-hover:text-white"
+                             : "text-ink-900 group-hover:text-white"
+                         }`}>{opt.label}</p>
+                         <p className={`text-[9px] leading-snug transition-colors ${
+                           opt.beta
+                             ? "text-ink-400"
+                             : !canChain
+                             ? "text-ink-400"
+                             : isNonSuccess
+                             ? "text-ink-500 group-hover:text-white/80"
+                             : "text-ink-500 group-hover:text-white/80"
+                         }`}>
+                           {opt.beta
+                             ? "Coming Soon"
+                             : !canChain
+                             ? (selectedRun.nonChainableReason ?? "Output not available for chaining")
+                             : isNonSuccess
+                             ? `Chain this run's partial output into ${opt.label}`
+                             : `Chain this run into ${opt.label}`}
+                         </p>
+                         {/* SGV2 11.7: hidden description for screen readers explaining unavailability. */}
+                         {!canChain && (
+                           <span id={`chain-unavailable-${opt.id}`} className="sr-only">
+                             {`Cannot chain: ${selectedRun.nonChainableReason ?? "output not available for chaining"}`}
+                           </span>
+                         )}
+                       </div>
+                       <ArrowRight className={`h-3 w-3 flex-shrink-0 ml-2 transition-all ${
+                         opt.beta || !canChain
+                           ? "text-ink-300"
+                           : isNonSuccess
+                           ? "text-amber-500 group-hover:text-white group-hover:translate-x-0.5"
+                           : "text-brand group-hover:text-white group-hover:translate-x-0.5"
+                       }`} />
+                     </button>
+                   ))}
+                   {/* B3 fix: saved-workflow chain targets — rendered after built-in
+                       targets using the same visual style. Each button carries the
+                       saved workflow's id as userWorkflowId so DashboardLayout can
+                       include it in the launch payload alongside source_workflow_run_id. */}
+                   {savedChainOptions.map((sw) => (
+                     <button
+                       key={`saved-${sw.id}`}
+                       onClick={() => {
+                         if (!canChain) return;
+                         if (isNonSuccess) {
+                           sessionStorage.setItem(CHAIN_SOURCE_STATUS_KEY, selectedRun.status);
+                         } else {
+                           sessionStorage.removeItem(CHAIN_SOURCE_STATUS_KEY);
+                         }
+                         onChainPipeline!(selectedRun, sw.base_pipeline_type as WorkflowType, sw.id);
+                       }}
+                       disabled={!canChain}
+                       aria-disabled={!canChain}
+                       className={`group w-full flex items-center justify-between rounded-xl border px-3 py-2 text-left transition-all ${
+                         !canChain
+                           ? "cursor-not-allowed border-line-border bg-surface-white opacity-60"
+                           : isNonSuccess
+                           ? "border-[var(--status-running-border)] bg-surface-white hover:border-amber-400 hover:bg-amber-500 hover:shadow-md"
+                           : "border-brand/20 bg-surface-white hover:border-brand hover:bg-brand hover:shadow-md"
+                       }`}
+                     >
+                       <div className="min-w-0">
+                         <p className={`text-[11px] font-semibold transition-colors truncate ${
+                           !canChain
+                             ? "text-ink-400"
+                             : "text-ink-900 group-hover:text-white"
+                         }`}>{sw.name}</p>
+                         <p className={`text-[9px] leading-snug transition-colors ${
+                           !canChain
+                             ? "text-ink-400"
+                             : isNonSuccess
+                             ? "text-ink-500 group-hover:text-white/80"
+                             : "text-ink-500 group-hover:text-white/80"
+                         }`}>
+                           {!canChain
+                             ? (selectedRun.nonChainableReason ?? "Output not available for chaining")
+                             : isNonSuccess
+                             ? `Chain this run's partial output into ${sw.name}`
+                             : `Chain this run into ${sw.name}`}
                          </p>
                        </div>
-                       <ArrowRight className={`h-3 w-3 flex-shrink-0 ml-2 transition-all ${opt.beta ? "text-ink-300" : "text-brand group-hover:text-white group-hover:translate-x-0.5"}`} />
+                       <ArrowRight className={`h-3 w-3 flex-shrink-0 ml-2 transition-all ${
+                         !canChain
+                           ? "text-ink-300"
+                           : isNonSuccess
+                           ? "text-amber-500 group-hover:text-white group-hover:translate-x-0.5"
+                           : "text-brand group-hover:text-white group-hover:translate-x-0.5"
+                       }`} />
                      </button>
                    ))}
                  </div>
@@ -806,12 +1123,19 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               /* Files tab */
               <FilesTab
                 workflowType={workflowType}
+                /* ISS-199 — the run id is what lets FilesTab name its deliverable
+                   row from the run's own workspace instead of from the text the
+                   last agent streamed. The main run screen threads it already
+                   (PreviewPanel); this second call site never had. */
+                runId={selectedRun.id}
                 userStoryContent={(isUserStory || isAppBuilder) ? selectedOutput || undefined : undefined}
                 pptContent={isPpt ? selectedOutput || undefined : undefined}
                 prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
                 genericDeliverable={
                   isGeneric && selectedOutput
-                    ? { mimetype: genericMimetype, filename: undefined, content: selectedOutput }
+                    /* ISS-214 — the run's DECLARED name, which sat unread on the
+                       same object; `undefined` here fell back to `deliverable.<ext>`. */
+                    ? { mimetype: genericMimetype, filename: selectedRun.deliverableFilename || undefined, content: selectedOutput }
                     : undefined
                 }
                 agentOutputs={
@@ -833,7 +1157,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
         {/* Delete modal */}
         <AnimatePresence>
-          {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteConfirmId(null); setDeleteError(null); }} error={deleteError} />}
+          {deleteRow && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteRow(null); setDeleteError(null); }} error={deleteError} runName={deleteRow.title ?? undefined} />}
         </AnimatePresence>
       </div>
     );
@@ -844,16 +1168,30 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // per family root; the type-filter counts each family ONCE under its base type.
   const families = groupRunsByFamily(runs);
   const visibleFamilies = families.filter((g) => g.members.some(matchesFilter));
+  // R-20 (014-conditional-gates, T38): the diverted-run <-> triggered-run card
+  // links, reconstructed purely from the already-fetched runs' status/parentRunId
+  // (historical case — no extra fetch, no live event required).
+  const divertLinks = buildDivertLinks(runs);
   // SHELL-02: layer the Today/Earlier/Older buckets + the chosen sort OVER the
   // family grouping (fields already on each row — no fetch, no backend change).
   const sections = bucketAndSortFamilies(visibleFamilies, sortKey);
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
-  const typeCounts: Record<string, number> = { all: families.length };
+  // ISS-198 + ISS-213: the "All" chip now shows the true total (totalRuns) from
+  // the server response, matching the header. Per-type chips still reflect the
+  // loaded families (family card counts, not raw run counts) — this is option 2
+  // from ISS-219: chips are in "family card" units, the header/All chip is in
+  // "total runs" units. The tension is documented in ISS-219; a future change
+  // can tighten the per-type counts once the backend grows per-bucket aggregates.
+  const typeCounts: Record<string, number> = { all: totalRuns };
   families.forEach((g) => {
-    // Count the FAMILY once under its base type (normalized from the root).
-    const base = baseWorkflowType(g.root.type);
+    // Count the FAMILY once under its filter bucket (one of the 4 frameworks,
+    // or "custom" for every non-framework type — see filterBucketFor).
+    const base = filterBucketFor(g.root.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
+  // ISS-207/208/213: flag when the loaded window is smaller than the true total
+  // so search, sort and chip counts render an honest "partial scope" notice.
+  const isPartiallyLoaded = runs.length < totalRuns;
 
   return (
     <div className="h-full flex flex-col bg-surface-paper">
@@ -866,10 +1204,36 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           >
             <ArrowLeft className="h-4 w-4 text-ink-500" />
           </button>
-          <div>
+          <div className="flex-1">
             <h1 className="text-[18px] font-normal italic text-ink-900 leading-tight font-serif">Run History</h1>
-            <p className="text-[11px] text-ink-400 mt-0.5">{runs.length} runs</p>
+            <p className="text-[11px] text-ink-400 mt-0.5">{totalRuns} runs</p>
           </div>
+          <button
+            type="button"
+            onClick={handleManualRefreshRuns}
+            disabled={isRefreshingRuns}
+            aria-label={runsRefreshMs ? `Refresh run history — next auto-refresh in ${runsSecondsLeft}s` : "Refresh run history"}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-line-border bg-surface-white px-2.5 py-1 text-[11px] font-medium text-ink-600 transition-colors hover:bg-surface-warm disabled:opacity-50"
+          >
+            {isRefreshingRuns ? (
+              <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+            )}
+            {runsRefreshMs ? `${runsSecondsLeft}s` : "Refresh"}
+          </button>
+          <select
+            aria-label="Auto-refresh interval"
+            value={runsRefreshMs}
+            onChange={(e) => setRunsRefreshMs(Number(e.target.value))}
+            className="appearance-none rounded-[var(--radius-button)] border border-line-border bg-surface-white px-2 py-1 text-[11px] font-medium text-ink-600 transition-colors hover:bg-surface-warm"
+          >
+            <option value={0}>Auto-refresh: Off</option>
+            <option value={10000}>Every 10s</option>
+            <option value={15000}>Every 15s</option>
+            <option value={30000}>Every 30s</option>
+            <option value={60000}>Every 1m</option>
+          </select>
         </div>
 
         {/* Search */}
@@ -885,6 +1249,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             className="w-full pl-9 pr-4 py-2 text-[12px] bg-surface-warm border border-line-border rounded-lg focus:outline-none focus:border-line-control transition-colors placeholder:text-ink-400"
           />
         </div>
+        {/* ISS-207/208/213: partial-scope notice — search, sort, and filter chips
+            operate only on the loaded window when more runs exist on the server.
+            Scroll to load more; the IntersectionObserver appends pages automatically. */}
+        {isPartiallyLoaded && (
+          <p className="mt-1.5 text-[10px] text-ink-400 leading-snug">
+            Showing {runs.length} of {totalRuns} runs — scroll down to load more
+          </p>
+        )}
 
         {/* 40-06: type-filter chips + Sort tabs on ONE row (mock History: chips
             left flex-1, the Sort segmented control right) — over the live/seeded
@@ -899,7 +1271,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               return (
                 <button
                   key={type}
-                  onClick={() => setFilterType(type)}
+                  onClick={() => {
+                    setFilterType(type);
+                    router.replace(routes.runHistory({
+                      type: type === "all" ? undefined : type,
+                      sort: sortKey === "recent" ? undefined : sortKey,
+                    }));
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                     filterType === type
                       ? "bg-brand text-white"
@@ -938,7 +1316,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   <button
                     key={opt.key}
                     type="button"
-                    onClick={() => setSortKey(opt.key)}
+                    onClick={() => {
+                      setSortKey(opt.key);
+                      router.replace(routes.runHistory({
+                        type: filterType === "all" ? undefined : filterType,
+                        sort: opt.key === "recent" ? undefined : opt.key,
+                      }));
+                    }}
                     aria-pressed={active}
                     aria-label={`Sort by ${opt.key}`}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
@@ -1059,18 +1443,31 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                       openMenuId={openMenuId}
                       onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
                       onDeleteClick={handleDeleteClick}
+                      divertLinks={divertLinks}
                     />
                   ))}
                 </div>
               </section>
             ))}
+            {/* ISS-198: Load More sentinel — the IntersectionObserver fires
+                handleLoadMore whenever this div scrolls into view. Hidden once
+                all runs are loaded (runs.length >= totalRuns). */}
+            {runs.length < totalRuns && (
+              <div ref={loadMoreRef} className="flex items-center justify-center py-4">
+                {loadingMore ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-ink-300" aria-label="Loading more runs" />
+                ) : (
+                  <span className="text-[10px] text-ink-400">Load more</span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Delete modal */}
       <AnimatePresence>
-        {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteConfirmId(null); setDeleteError(null); }} error={deleteError} />}
+        {deleteRow && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteRow(null); setDeleteError(null); }} error={deleteError} runName={deleteRow.title ?? undefined} />}
       </AnimatePresence>
 
       {/* Close menu on outside click */}
@@ -1081,7 +1478,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   );
 }
 
-function DeleteModal({ onConfirm, onCancel, error }: { onConfirm: () => void; onCancel: () => void; error?: string | null }) {
+function DeleteModal({ onConfirm, onCancel, error, runName }: { onConfirm: () => void; onCancel: () => void; error?: string | null; runName?: string }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   // a11y: focus the primary action on open + Escape closes the dialog.
   useEffect(() => {
@@ -1119,7 +1516,11 @@ function DeleteModal({ onConfirm, onCancel, error }: { onConfirm: () => void; on
           </div>
         </div>
         <p className="text-[12px] text-ink-500 leading-relaxed mb-5">
-          The workflow run and all its output will be permanently deleted.
+          {/* ISS-414 (replicate FIX-372): name the run so the user can confirm
+              they chose the right one before an irreversible delete. */}
+          {runName
+            ? <>&ldquo;{runName}&rdquo; and all its output will be permanently deleted.</>
+            : "The workflow run and all its output will be permanently deleted."}
         </p>
         {error && (
           <p className="text-[11px] text-status-failed mb-3 px-1">{error}</p>
@@ -1134,7 +1535,7 @@ function DeleteModal({ onConfirm, onCancel, error }: { onConfirm: () => void; on
           <button
             ref={confirmRef}
             onClick={onConfirm}
-            className="flex-1 rounded-xl bg-ink-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-ink-800 transition-colors"
+            className="flex-1 rounded-xl bg-ink-900 px-4 py-2.5 text-[12px] font-medium text-surface-white hover:bg-ink-800 transition-colors"
           >
             Delete
           </button>

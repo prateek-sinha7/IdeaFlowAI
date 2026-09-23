@@ -60,6 +60,13 @@ def _uvicorn_graceful_window_seconds() -> float:
     return float(match.group(1))
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# 1. Reachability — a real subprocess, a live stream, a real SIGTERM
+# ════════════════════════════════════════════════════════════════════════════
+# Deliberately NOT an import of app.main: booting the real application runs
+# restore_non_terminal_runs() (main.py:238), which auto-resumes in-flight runs. This
+# app mirrors only the shape under test — a lifespan whose shutdown half records that
+# it ran, and the same sse_starlette.EventSourceResponse run_stream.py:421 uses.
 def _stop_grace_period_seconds() -> float:
     """docker's hard SIGKILL ceiling for the backend service."""
     text = DOCKER_COMPOSE.read_text(encoding="utf-8")
@@ -213,7 +220,7 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
         except subprocess.TimeoutExpired:
             pytest.fail(
                 f"uvicorn did not exit within {wait_budget}s of SIGTERM while an SSE "
-                f"stream was live. Markers written: {marker.read_text(encoding="utf-8") if marker.exists() else '(none)'}"
+                f"stream was live. Markers written: {marker.read_text(encoding='utf-8') if marker.exists() else '(none)'}"
             )
         elapsed = time.monotonic() - started
     finally:
@@ -263,16 +270,25 @@ def _teardown_budget_seconds(*, stop_runs: bool) -> float:
       pump cancel-and-wait           run_shutdown.py:174-176
       [stop-runs] driver drain       run_shutdown.py:233-235   (only when SHUTDOWN_STOP_RUNS)
       [stop-runs] driver escalation  run_shutdown.py:247-249   (only when SHUTDOWN_STOP_RUNS)
+      checkpointer pool close        checkpointer.py:140-152   (ISS-106)
 
-    BOUNDED waits only. Step 4's close_checkpointer() awaits pool.close() with no timeout
-    (checkpointer.py:142), so the true worst case is unbounded and this guard cannot see
-    it — ISS-106. What this test does catch is a drain budget growing past the grace period.
+    Every wait on the path is bounded, so this really is the worst case: ISS-106 wrapped
+    step 4's pool.close() in asyncio.wait_for(SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS), which
+    was previously untimeouted and invisible to this arithmetic.
     """
     from app.core.config import settings
 
     concierge = settings.SHUTDOWN_CONCIERGE_DRAIN_SECONDS
     task = settings.SHUTDOWN_TASK_DRAIN_SECONDS
-    total = _uvicorn_graceful_window_seconds() + concierge + task + task + task
+    checkpointer_close = settings.SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS
+    total = (
+        _uvicorn_graceful_window_seconds()
+        + concierge
+        + task
+        + task
+        + task
+        + checkpointer_close
+    )
     if stop_runs:
         total += 2 * task
     return total

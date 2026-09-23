@@ -238,6 +238,39 @@ describe("AdvancedExpander — 51-06 fan-out control (FANOUT-01)", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("switching the mode to Waves persists the wave_scheduler shape, not fanout_batch", async () => {
+    const onSelectionsChange = vi.fn();
+    render(
+      <AdvancedExpander
+        agents={PRODUCER_THEN_WORKER}
+        onSelectionsChange={onSelectionsChange}
+      />,
+    );
+    await expandRow(/advanced — writer/i);
+    await userEvent.click(
+      screen.getByLabelText(/fan out over a list for writer/i),
+    );
+
+    await userEvent.selectOptions(
+      screen.getByLabelText(/fan-out mode for writer/i),
+      "wave_scheduler",
+    );
+
+    const last = onSelectionsChange.mock.calls.at(-1)?.[0];
+    expect(last["writer"]).toMatchObject({
+      strategy: "wave_scheduler",
+      // A wave parses a json task list, never `## Task N:` headings — a
+      // heading_tasks parser here yields zero waves and skips silently.
+      task_source: {
+        kind: "parsed",
+        parser: "json_tasks",
+        source_step: "prototype-plan",
+      },
+      fanout: { agent: "self", mode: "parallel" },
+      on_conflict: "human_gate",
+    });
+  });
+
   it("lists ONLY earlier agents in the source picker (never this row or later)", async () => {
     const THREE = [
       { id: "step-a", name: "Alpha" },

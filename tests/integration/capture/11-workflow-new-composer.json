@@ -1,0 +1,50 @@
+{
+  "url": "http://localhost:3000/workflows/new",
+  "h": [],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "Pitch an idea (v2) 0/4",
+    "@Notifications",
+    "@Account menu",
+    "@Back",
+    "Simple",
+    "Canvas",
+    "Run once",
+    "Save workflow",
+    "@Add agent",
+    "@Zoom out",
+    "@Zoom in",
+    "Fit",
+    "Auto-arrange",
+    "Workflow",
+    "Agent",
+    "Reset to default",
+    "+ Attach file",
+    "@Smart planning",
+    "@Confirm requirements first",
+    "@Internet access"
+  ],
+  "tab": [],
+  "sw": [
+    "Smart planning",
+    "Confirm requirements first",
+    "Internet access"
+  ],
+  "inp": [
+    "input[workflow-name]",
+    "input[workflow-description]",
+    "textarea[brief]",
+    "input[file]",
+    "select[deliverable-strategy]",
+    "input[output-filename]",
+    "select[output-format]"
+  ],
+  "tid": [
+    "composer-header-summary",
+    "canvas-view",
+    "canvas-brief"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nCUSTOM · COMPOSER\n0 agents\n0 review gates\n~1m\nSimple\nCanvas\nRun once\nSave workflow\nClick a node to configure\nDrag to move · drag a top port to reparent\nHold Space + drag to pan\nBRIEF\nWhat to build\nthe run input\n100%\nFit\nAuto-arrange\nWorkflow\nAgent\nReset to default\nThe instruction sent to the workflow's first agent when this run starts — describe what you want built.\nBrief instruction\nWhat should this run build? Sent as the run's input.\n+ Attach file\n3 more characters to enable Run\nON — Runs a planning agent that breaks the brief into a task plan before the workflow's agents start.\nOFF — Agents start directly from the brief, with no planning pass.\nSmart planning\nON — Pauses the run to ask clarifying questions about the brief, then uses your answers to fill in missing details.\nOFF — Runs immediately with the brief as written.\nConfirm requirements first\nStreamed text— uses the agent's raw output.\nSingle file — reads back one named file from the workspace.\nSerialized sandbox — zips the whole workspace.\nDeliverable\nStreamed text — agent's raw output\nSingle file — one file from the workspace\nSerialized sandbox — zip the workspace\nMarkdown (.md)\nHTML (.html)\nInternet access"
+}

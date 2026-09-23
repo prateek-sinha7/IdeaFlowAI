@@ -62,11 +62,14 @@ logger = logging.getLogger(__name__)
 # validator:       html_static, html_render, spec_plan_coverage, task_done_when, design_quality  (08-04)
 #                  code_compile, code_test, code_lint  (10-04 / EXEC-02 — exec via the handle)
 #                  api_prefix  (19-02 / ISS-005 — infra /api/v1 backstop, user_allowed=True)
+#                  journeys_coverage, html_element_floor, fragment_field_coverage
+#                  (pdf_to_prototype A1 — mechanical self-validation for the steps
+#                  that lose the most content and previously had no deterministic check)
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
 # context_provider: opendesign, previous_run, repo (09-03), uploaded_files (30-02 / UPLD-03)
 # input_provider:  run_images  (260707-edw — image-input Wave 1, user_allowed=True)
 # task_parser:     heading_tasks
-# gate:            human, validation, approval, security  (08-02)
+# gate:            human, validation, approval, security, conditional  (08-02, spec 014 / T17)
 # tool:            workspace, prototype, prototype_emit_only, planning  (08-03 / F2)
 # compaction:      html_skeleton
 # post_step:       revision_validation, api_prefix_audit  (19-02 / ISS-005 — event-free infra audit)
@@ -77,6 +80,7 @@ logger = logging.getLogger(__name__)
 # hook:            behavioral  (08-05 / F3 — non-executable hook sub-type)
 #                  secret_scan, otel_tracing  (08-07 / HOOK-01..04 / OBS-02 — executable hooks)
 #                  audit_logger  (KAN-73 — default lifecycle audit hook, user_allowed=True)
+#                  provenance_audit  (task 9.1 / Req 19 — post_commit observer, user_allowed=False)
 # ---------------------------------------------------------------------------
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
@@ -100,6 +104,10 @@ _KNOWN: set[tuple[str, str]] = {
     ("validator", "code_compile"),  # 10-04 / EXEC-02 — py_compile via the exec handle
     ("validator", "code_test"),  # 10-04 / EXEC-02 — pytest via the exec handle
     ("validator", "code_lint"),  # 10-04 / EXEC-02 — ruff check via the exec handle
+    ("validator", "journeys_coverage"),  # pdf_to_prototype A1
+    ("validator", "html_element_floor"),  # pdf_to_prototype A1
+    ("validator", "fragment_field_coverage"),  # pdf_to_prototype A1
+    ("validator", "screens_plan_coverage"),  # prototype v3 — screens.json spec coverage
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -111,23 +119,38 @@ _KNOWN: set[tuple[str, str]] = {
         "input_provider",
         "run_images",
     ),  # 260707-edw — image-input Wave 1 (user_allowed=True)
+    ("input_provider", "pdf_pages"),  # spec 019
     ("task_parser", "heading_tasks"),
     ("task_parser", "json_tasks"),  # 12-01 / WAVE-02 (structured task list)
+    ("task_parser", "screen_plan"),  # prototype v3 — screens.json expanded by code
     ("gate", "human"),
+    (
+        "gate",
+        "before-human",
+    ),  # spec 014 follow-up — the PRE-step half of the HITL split
     ("gate", "validation"),
     ("gate", "approval"),  # 08-02
     ("gate", "security"),  # 08-02
+    ("gate", "conditional"),  # spec 014 / T17
     ("tool", "workspace"),  # 08-03 / F2
     ("tool", "prototype"),  # 08-03 / F2
     ("tool", "prototype_emit_only"),  # 08-03 / F2
     ("tool", "planning"),  # 08-03 / F2
     ("tool", "spawn_subagents"),  # 11-01 / FANOUT-01 (user_allowed=False)
+    ("tool", "pptx"),  # spec 017 (user_allowed=False — writes a
+    # binary into the sandbox via a node subprocess)
+    ("tool", "file_extract"),  # spec 019
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("post_step", "api_prefix_audit"),  # 19-02 / ISS-005 — event-free infra audit
     ("model_catalog", "default"),
     ("runtime", "langchain_deepagents"),  # 08-05 / F5
     ("prompt", "default"),  # 08-05 / F1
+    ("prompt", "body_only"),  # sandbox-git-versioning Req 29 AC1 — body-only policy
+    (
+        "prompt",
+        "governance",
+    ),  # sandbox-git-versioning Req 29 AC2 — governed-agent policy
     ("skill", "ui"),  # 08-05 / F3 / SKILL-01
     ("skill", "disk"),  # 08-05 / F3 / SKILL-01
     ("skill", "template"),  # 08-05 / F3 / SKILL-01
@@ -139,6 +162,10 @@ _KNOWN: set[tuple[str, str]] = {
         "hook",
         "audit_logger",
     ),  # KAN-73 (executable, non-blocking, default lifecycle audit)
+    (
+        "hook",
+        "provenance_audit",
+    ),  # task 9.1 / Req 19 (post_commit observer, non-blocking)
     (
         "runtime_env",
         "local",
@@ -165,6 +192,10 @@ _KNOWN: set[tuple[str, str]] = {
         "context_provider",
         "conversation",
     ),  # 33 / D-08 — compacted chat run_events as context
+    (
+        "context_provider",
+        "chain_context",
+    ),  # sandbox-git-versioning / task 7.3 — file-based chain payload
     ("chat", "concierge"),  # 33 / D-05 (new KIND — free string, no if/elif)
     ("mcp_server", "github"),  # 09-05 / MCP-02 — read-scoped (user_allowed=True)
     ("mcp_server", "gitlab"),  # 09-05 / MCP-02 — read-scoped (user_allowed=True)
@@ -188,6 +219,11 @@ _KNOWN: set[tuple[str, str]] = {
         "integration_provider",
         "slack",
     ),  # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("mechanical", "publish"),  # A10 — deterministic draft copy, no model
+    (
+        "mechanical",
+        "assemble_prototype",
+    ),  # prototype v3 — parts → prototype.html + validation
 }
 
 
@@ -308,14 +344,19 @@ def discover() -> None:
         "agents.capabilities.merge.html_fragment",
         "agents.capabilities.task_parsers.heading_tasks",
         "agents.capabilities.task_parsers.json_tasks",  # 12-01 / WAVE-02
+        "agents.capabilities.task_parsers.screen_plan",  # prototype v3 — code-expanded plan
         "agents.capabilities.deliverables.single_file",
         "agents.capabilities.deliverables.serialized_sandbox",
         "agents.capabilities.deliverables.streamed_text",
         "agents.capabilities.deliverables.ppt",
         "agents.capabilities.deliverables.repo_diff",  # 09-04 / REPO-04
+        "agents.capabilities.tools.file_extract",  # spec 019
+        "agents.capabilities.publish_step",  # A10 — mechanical: publish capability
+        "agents.capabilities.assemble_step",  # prototype v3 — mechanical: assemble_prototype
         "agents.capabilities.context_providers.opendesign",
         "agents.capabilities.context_providers.previous_run",
         "agents.capabilities.input_providers.run_images",  # 260707-edw — image-input Wave 1
+        "agents.capabilities.input_providers.pdf_pages",  # spec 019
         "agents.capabilities.compaction.html_skeleton",
         "agents.capabilities.post_steps.revision_validation",
         "agents.capabilities.post_steps.api_prefix_audit",  # 19-02 / ISS-005 — event-free infra audit
@@ -326,6 +367,12 @@ def discover() -> None:
         "agents.capabilities.validators.spec_plan_coverage",
         "agents.capabilities.validators.api_prefix",  # 19-02 / ISS-005 — infra /api/v1 backstop
         "agents.capabilities.validators.task_done_when",
+        # pdf_to_prototype A1 — mechanical self-validation for journey-designer,
+        # story-layer/assembler/structure-check, and screen-builder/review-revision.
+        "agents.capabilities.validators.journeys_coverage",
+        "agents.capabilities.validators.html_element_floor",
+        "agents.capabilities.validators.fragment_field_coverage",
+        "agents.capabilities.validators.screens_plan_coverage",  # prototype v3
         # 10-04 / EXEC-02 — the three code validators that drive gated exec. They
         # reach exec ONLY via the runner/workspace handle (never spawn directly,
         # never import app.*); kernel-side + pure-stdlib (the argv targets python/
@@ -341,6 +388,10 @@ def discover() -> None:
         # 30-02 / UPLD-03 — the uploaded_files context provider (kernel-pure: reads
         # the run's own .uploads sidecar via the ctx.runner handle, never app.*).
         "agents.capabilities.context_providers.uploaded_files",
+        # sandbox-git-versioning / task 7.3 — file-based chain payload (kernel-pure:
+        # reads source sandbox via RunSandbox constructed from chain root id; no app.*
+        # import at module level — deferred import pattern for _find_chain_root).
+        "agents.capabilities.context_providers.chain_context",
         # 33 / D-08 — the two kernel-pure bounded-chat-history capabilities (the
         # concierge is NOT here — it is app-side, landing in 33-02). Both reach only
         # the ctx-scoped read surface / the registry, never app.*.

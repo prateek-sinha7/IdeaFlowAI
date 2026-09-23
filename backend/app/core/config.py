@@ -122,11 +122,24 @@ class Settings(BaseSettings):
     # cross-region inference-profile ID, and the EU regions the profile fans
     # out to.
     BEDROCK_MODEL_ID: str = "anthropic.claude-haiku-4-5-20251001-v1:0"
-    # Cross-region inference profile is the safest default for eu-central-1.
-    # See module docstring for verification command. The application invokes
-    # the inference profile (not the foundation-model ID directly), so
-    # CloudWatch metrics dimension by this string.
-    BEDROCK_INFERENCE_PROFILE_ID: str = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # The GLOBAL default model for every run that sets no override (spec 020 /
+    # FR-13). The application invokes the inference profile (not the
+    # foundation-model ID directly), so CloudWatch metrics dimension by this
+    # string. This ONE line is the default: ~12 call sites read
+    # ``settings.BEDROCK_INFERENCE_PROFILE_ID`` and none carries its own literal,
+    # so an unset env var lands here and nowhere else.
+    #
+    # ⚠ DATA RESIDENCY — read before changing this to another `global.` profile.
+    # GPT-5.6 is published ONLY as Global CRIS: `list_inference_profiles` on
+    # eu-north-1 returns `global.openai.gpt-5.6-luna` and no `eu.openai.*` of any
+    # kind (verified 2026-09-22). `global.` routes to whichever region has
+    # capacity, WORLDWIDE, so every default run now leaves the EU. The Claude
+    # entries stay on `eu.` prefixes and keep EU residency; `global.anthropic.*`
+    # exists but was deliberately declined for exactly this reason.
+    #
+    # Revert = put back "eu.anthropic.claude-haiku-4-5-20251001-v1:0". One line,
+    # no other code changes, no data migration.
+    BEDROCK_INFERENCE_PROFILE_ID: str = "global.openai.gpt-5.6-luna"
     # Optional override for the coding agent in /flowin-handoff. Coding-task
     # quality benefits from Sonnet over Haiku; the test + compliance agents
     # stay on the default Haiku profile. Leave empty to use the default model
@@ -289,16 +302,16 @@ class Settings(BaseSettings):
     #    3  Concierge cancel-and-wait    run_shutdown.py step 1 escalation
     #    3  pump drain                   run_shutdown.py step 2b
     #    3  pump cancel-and-wait         run_shutdown.py step 2b escalation
+    #    1  checkpointer pool close      run_shutdown.py step 4 (ISS-106)
     #   ──
-    #   24  with SHUTDOWN_STOP_RUNS off. Turning it on adds a driver drain plus its
-    #       escalation (+3 +3) for 30s — AT the SIGKILL line, which is the arithmetic
+    #   25  with SHUTDOWN_STOP_RUNS off. Turning it on adds a driver drain plus its
+    #       escalation (+3 +3) for 31s — PAST the SIGKILL line, which is the arithmetic
     #       reason production keeps it off. tests/unit/test_shutdown_reachability.py
     #       asserts this sum against the parsed stop_grace_period instead of trusting
     #       this comment: the previous version claimed "under 25s" while omitting both
     #       escalations and the pump drain entirely.
-    #       These are the BOUNDED waits only. Step 4's close_checkpointer() awaits
-    #       pool.close() with no timeout (checkpointer.py:142), so it sits on top of
-    #       the 24s and the true worst case is unbounded — ISS-106.
+    #       Every wait on the path is now bounded: ISS-106 put a timeout around step 4's
+    #       pool.close(), which used to sit unbounded on top of the drains.
     # A Concierge turn owns the ONLY durable write of its chat_reply row
     # (run_commands.py:1356) and is explicitly never cancelled on client
     # disconnect - so it is AWAITED, not cancelled, and only cut past this bound.
@@ -306,6 +319,11 @@ class Settings(BaseSettings):
     # How long to wait for run-transport teardown (pump tasks after A2, queue
     # sentinels) before escalating to task.cancel().
     SHUTDOWN_TASK_DRAIN_SECONDS: float = 3.0
+    # ISS-106: how long step 4's close_checkpointer() may spend inside pool.close()
+    # before abandoning it. A wedged Postgres close (in-flight statement, dead socket,
+    # unresponsive server) used to be unbounded and sat AFTER every drain above, i.e.
+    # directly against the SIGKILL deadline, with the shutdown summary never logged.
+    SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS: float = 1.0
     # D8/D9 conflict switch - see the D8 investigation section I11. When False the
     # shutdown leaves in-flight runs non-terminal so the next boot's
     # restore_non_terminal_runs auto-resumes them (the shipped Phase 45-50 tier).
@@ -374,7 +392,11 @@ class Settings(BaseSettings):
     # tight per-agent iteration caps (build 3 / validate 8 / …) in favour of letting
     # agents explore + self-validate; this is only a runaway-loop backstop, not a
     # quality knob. Maps to LangGraph's recursion_limit.
-    AGENT_RECURSION_LIMIT: int = 400
+    # Raised 400 -> 1000 after run 17de7ccb: a 32-screen prototype walk spent 133
+    # model turns + 142 tool nodes doing real work (12 `edit_file` repairs) and was
+    # cut off one step after writing its screenshot. 400 was sized for a smaller
+    # prototype; it stopped being a runaway backstop and became a work ceiling.
+    AGENT_RECURSION_LIMIT: int = 1000
     # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
     # D6 (KAN-139): raised to 168 hours (7 days) to cover the revision-parent seed
     # window — the old 48h was too short for users creating revisions the next day.
@@ -418,6 +440,30 @@ class Settings(BaseSettings):
     # How often (seconds) the periodic sandbox sweep task runs in the background.
     # Default = 6 hours (21600s). Set lower in dev to observe sweeps faster.
     SANDBOX_SWEEP_INTERVAL_SECONDS: int = 21_600
+
+    # ── Cross-process revision-family lock (sandbox-git-versioning-v2 task 3.9) ─
+    # Maximum seconds any caller may wait to acquire the family lock keyed on
+    # (user_id, revision_root_id) before FamilyLockTimeout is raised. The lock
+    # serializes revision admission, sandbox open, dirty recovery, uploads, restore,
+    # and terminal finalization across processes. 120 s is generous enough to
+    # accommodate a long finalizer pass while still bounding how long an upload or
+    # revision-launch blocks before getting a clear failure.  The upload admission
+    # table in Requirement 10 AC 10 explicitly names a "bounded-wait" ceiling for
+    # the finalization-holds-lock case; this setting provides that ceiling uniformly.
+    FAMILY_LOCK_TIMEOUT_S: int = 120
+
+    # ── Browser URL policy (agent-browser-tools / FR-015) ────────────────────
+    # Comma-separated list of URL schemes/hosts the browser tool is permitted to
+    # visit. Each token controls:
+    #   - "file": local files, resolved through RunSandbox.path_for (traversal-proof,
+    #     cannot escape the run sandbox)
+    #   - "localhost": http(s) on localhost / 127.0.0.1 only
+    #   - "http": any http(s) URL (allows model-driven outbound egress from containers
+    #     holding database credentials — same trust surface as web_fetch — which is why
+    #     it is not in the default)
+    # Parsing/enforcement of this policy is in T3b and later; this setting is the
+    # configuration surface only.
+    BROWSER_URL_POLICY: str = "file,localhost"
 
     # RUN_DIR_TTL_HOURS: raised to 168h (7 days) to cover the revision-parent seed
     # window. The old 48h was too short — a run could be deleted before a user

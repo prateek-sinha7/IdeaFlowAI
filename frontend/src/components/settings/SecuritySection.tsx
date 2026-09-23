@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { ShieldCheck, ShieldAlert, Mail, Smartphone, RefreshCw } from "lucide-react";
@@ -109,10 +109,19 @@ export function SecuritySection() {
     void load();
   }, [load]);
 
+  // ISS-354: disabled={pending} only flips after a React commit, leaving a
+  // pre-render window where a second click re-enters the handler. This ref
+  // provides a synchronous in-task lock that closes that window, mirroring the
+  // submittingRef pattern from FIX-345 (login page).
+  const togglingRef = useRef(false);
+
   const toggleEmailMfa = useCallback(
     async (enable: boolean) => {
+      if (togglingRef.current) return;
+      togglingRef.current = true;
       const token = getToken();
       if (!token) {
+        togglingRef.current = false;
         router.replace(buildLoginRedirect());
         return;
       }
@@ -143,6 +152,7 @@ export function SecuritySection() {
         });
       } finally {
         setPending(false);
+        togglingRef.current = false;
       }
     },
     [router]
@@ -235,8 +245,9 @@ function SecurityPanel({
       <Card className="p-[22px] shadow-[var(--elevation-raised)]">
         <p className="text-[14px] font-semibold text-ink-900">Not available for this account</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-500">
-          This account&apos;s credentials are managed outside the application, so
-          two-factor authentication is configured separately.
+          This is a local account, so there are no second-factor methods to
+          manage here. Its password is stored by this application and can be
+          changed from the Profile tab.
         </p>
       </Card>
     );

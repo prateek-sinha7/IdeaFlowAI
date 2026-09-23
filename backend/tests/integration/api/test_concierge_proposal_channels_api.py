@@ -39,6 +39,8 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+import uuid as _uuid_mod
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -349,6 +351,18 @@ class TestConciergeEndpoint:
             return None
 
         monkeypatch.setattr(rc, "_drive_revision_to_queue", _noop_drive)
+
+        # The revision path runs the ANALYZER before minting (run_commands.py:1464),
+        # which builds a real ChatBedrockConverse — the ISS-102 guard fails the test
+        # rather than let it bill a provider. This case asserts the confirm ROUND
+        # TRIP, not the analyzer, so stub it at its source module (the import is
+        # function-local, so patching `rc` would not bind).
+        async def _fake_analyzer(**_k):
+            return "small", "analyzer solution"
+
+        import app.agents.revision_analyzer as _ra
+
+        monkeypatch.setattr(_ra, "run_analyzer", _fake_analyzer)
 
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="completed")

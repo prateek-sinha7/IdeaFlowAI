@@ -33,6 +33,20 @@ interface AgentLibraryProps {
   currentPipelineType?: string;
   canAddMore?: boolean;
   existingAgentIds?: string[];
+  /**
+   * Offer the blank `custom-agent` template? Default true (the composer canvas,
+   * where a user-defined step is the whole point).
+   *
+   * The LaunchWizard passes false. A step added there ends up in a run of a
+   * BUILT-IN — either directly or through a saved override — and a blank
+   * template compiles to a dynamic `custom-agent:<instance_id>` id that has no
+   * AGENT.md on disk and is absent from the static roster the launch's
+   * `agent_ids` allow-list is built from. Such a run is rejected at ingress with
+   * `invalid_agent_ids` (reproduced live on a ppt override carrying one), so
+   * offering the template there advertises a step that can be saved and drawn
+   * but never run. An override may only reuse agents that exist as files.
+   */
+  allowCustomAgentTemplate?: boolean;
 }
 
 const CATEGORIES_FALLBACK = [
@@ -63,12 +77,24 @@ function getInitials(name: string): string {
 export function AgentLibrary({
   isOpen, onClose, onAddAgent, onAddAsSubAgent, subAgentParentName,
   onSkillsChange, currentPipelineType, canAddMore = true, existingAgentIds = [],
+  allowCustomAgentTemplate = true,
 }: AgentLibraryProps) {
   // Fetch agents from Redux (populated by GET /api/agents/library via listenerMiddleware)
   const { allAgents: ALL_AGENTS } = useAgentLibrary();
   const workflows = useAppSelector((state) => state.global.workflows);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState(currentPipelineType || "all");
+  // ISS-420 / ISS-421: `currentPipelineType` can be a sub-pipeline type that
+  // CATEGORIES_FALLBACK does not know (e.g. "migration"), causing `activeCategory`
+  // to default to an unrecognised value — no tab highlights and the panel opens on
+  // "No agents found" because nothing in CATEGORIES_FALLBACK matches it. Validate
+  // against the static fallback list before accepting it as a default; unrecognised
+  // values fall back to "all". "all" and "custom" are always valid.
+  const KNOWN_CATEGORY_IDS = new Set(CATEGORIES_FALLBACK.map(c => c.id));
+  const [activeCategory, setActiveCategory] = useState(
+    currentPipelineType && KNOWN_CATEGORY_IDS.has(currentPipelineType)
+      ? currentPipelineType
+      : "all",
+  );
 
   // Build CATEGORIES dynamically from workflows, using short_name when available
   const CATEGORIES = [
@@ -86,19 +112,24 @@ export function AgentLibrary({
 
   // Use only existingAgentIds from parent — no local tracking
   // This ensures removed agents reappear in the library
-  const filteredAgents = ALL_AGENTS.filter((agent) => {
+  const categoryAgents = ALL_AGENTS.filter((agent) => {
     const matchesCategory = activeCategory === "all" || agentMatchesPipelineType(agent.pipeline_type, activeCategory);
     const matchesSearch =
       !searchQuery ||
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.role.toLowerCase().includes(searchQuery.toLowerCase());
+    const notHidden = currentPipelineType !== "custom" || !HIDDEN_FROM_CUSTOM.has(agent.id);
+    const templateAllowed = allowCustomAgentTemplate || !isCustomAgentTemplate(agent);
+    return matchesCategory && matchesSearch && notHidden && templateAllowed;
+  });
+
+  const filteredAgents = categoryAgents.filter((agent) => {
     // The blank custom-agent template is reusable N times, so "already added"
     // must never hide it — every add mints a new instance id.
     const notAlreadyAdded =
       isCustomAgentTemplate(agent) || !existingAgentIds.includes(agent.id);
-    const notHidden = currentPipelineType !== "custom" || !HIDDEN_FROM_CUSTOM.has(agent.id);
-    return matchesCategory && matchesSearch && notAlreadyAdded && notHidden;
+    return notAlreadyAdded;
   }).sort((a, b) => {
     // Sort beta workflows to the end
     const aPt = getPrimaryPipelineType(a.pipeline_type);
@@ -109,8 +140,21 @@ export function AgentLibrary({
     return aPt.localeCompare(bPt) || a.order - b.order;
   });
 
+  // A category can be empty because it holds no agents at all, or because every
+  // agent it holds is already on the canvas — the default tab is the current
+  // pipeline's own, where the second case is the norm (ISS-311). The generic
+  // copy reads as "this category has none", so name the real reason.
+  const allAlreadyAdded = filteredAgents.length === 0 && categoryAgents.length > 0;
+  const activeCategoryLabel = CATEGORIES.find((c) => c.id === activeCategory && c.id !== "all")?.label;
+  const emptyMessage = allAlreadyAdded
+    ? `All ${activeCategoryLabel ? `${activeCategoryLabel} ` : ""}agents are already on your canvas`
+    : "No agents found";
+
   const categoryCounts: Record<string, number> = { all: 0 };
   ALL_AGENTS.forEach((a) => {
+    // Mirror the list's own template gate, or the Custom badge counts a card
+    // the user cannot see.
+    if (!allowCustomAgentTemplate && isCustomAgentTemplate(a)) return;
     if (isCustomAgentTemplate(a) || !existingAgentIds.includes(a.id)) {
       categoryCounts.all = (categoryCounts.all || 0) + 1;
       const pt = getPrimaryPipelineType(a.pipeline_type);
@@ -209,7 +253,7 @@ export function AgentLibrary({
               <div className="flex-1 overflow-y-auto p-4" style={{ background: "var(--surface-warm)" }}>
                 {filteredAgents.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
-                    <p className="text-[13px] text-ink-400">No agents found</p>
+                    <p className="text-[13px] text-ink-400">{emptyMessage}</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">

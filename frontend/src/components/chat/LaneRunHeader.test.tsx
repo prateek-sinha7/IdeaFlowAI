@@ -195,6 +195,24 @@ describe("LaneRunHeader", () => {
     expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Failed");
   });
 
+  // Task 11.5 (Req 20): "degraded" must NOT render as "Done", "Completed", or
+  // "Issues" — it has its own distinct label text and amber tone.
+  it("shows a Degraded status token for a degraded terminal run (Req 20 distinctness)", () => {
+    render(
+      <LaneRunHeader
+        runState="terminal"
+        pipelineState={ps({ degraded: true })}
+      />,
+    );
+    const token = screen.getByTestId("lane-run-status");
+    expect(token).toHaveTextContent("Degraded");
+    // Amber tone — not the done/success tone.
+    expect(token).toHaveAttribute("data-status-tone", "amber");
+    // Semantically distinct: not the same text as completed or done.
+    expect(token).not.toHaveTextContent(/done/i);
+    expect(token).not.toHaveTextContent(/complete/i);
+  });
+
   it("always renders the Back-to-history link; the callback overrides the target", () => {
     const onBackToHistory = vi.fn();
     const { rerender } = render(
@@ -238,5 +256,63 @@ describe("LaneRunHeader", () => {
       />,
     );
     expect(screen.getByTestId("lane-run-type")).toHaveTextContent("Prototype");
+  });
+
+  // A14 — a review-loop cap absorbed with a resolved deliverable stays a clean
+  // "completed" run server-side (never degraded), but the cap message must
+  // still surface — amber, never red/Failed.
+  describe("A14 — warnings on a completed run", () => {
+    it("plain Done (no expander) when there are no warnings", () => {
+      render(<LaneRunHeader runState="complete" pipelineState={ps()} />);
+      expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Done");
+      expect(screen.queryByTestId("lane-run-warnings-toggle")).toBeNull();
+    });
+
+    it('"Completed with warnings" amber token + expander when warnings are present', () => {
+      render(
+        <LaneRunHeader
+          runState="complete"
+          pipelineState={ps({
+            warnings: [
+              "step 'review-planner' would be revisited 3 time(s), exceeding loop_max_iterations=2 (R-07) — stopped looping, continuing forward",
+            ],
+          })}
+        />,
+      );
+      const status = screen.getByTestId("lane-run-status");
+      expect(status).toHaveTextContent("Completed with warnings");
+      expect(status).toHaveAttribute("data-status-tone", "amber");
+      expect(screen.getByTestId("lane-run-warnings-toggle")).toHaveTextContent("1 warning");
+    });
+
+    it("expander lists every warning string verbatim, pluralized", () => {
+      render(
+        <LaneRunHeader
+          runState="complete"
+          pipelineState={ps({ warnings: ["first cap message", "second cap message"] })}
+        />,
+      );
+      expect(screen.getByTestId("lane-run-warnings-toggle")).toHaveTextContent("2 warnings");
+      const list = screen.getByTestId("lane-run-warnings-list");
+      expect(list).toHaveTextContent("first cap message");
+      expect(list).toHaveTextContent("second cap message");
+    });
+
+    it("an empty warnings array reads exactly like no warnings (Done, no expander)", () => {
+      render(<LaneRunHeader runState="complete" pipelineState={ps({ warnings: [] })} />);
+      expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Done");
+      expect(screen.queryByTestId("lane-run-warnings-toggle")).toBeNull();
+    });
+
+    it("never surfaces on a Failed terminal run, even if warnings are present", () => {
+      render(
+        <LaneRunHeader
+          runState="terminal"
+          pipelineState={ps({ failed: true, warnings: ["some cap message"] })}
+        />,
+      );
+      expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Failed");
+      expect(screen.queryByTestId("lane-run-warnings-toggle")).toBeNull();
+    });
   });
 });

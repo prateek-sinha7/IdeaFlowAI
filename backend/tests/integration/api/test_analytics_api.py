@@ -430,3 +430,152 @@ def test_mixed_window_counts_only_the_metered_run_in_the_delta(env):
     assert body["spend_full"] - body["spend"] == pytest.approx(0.320110 - 0.344028)
     assert body["metered_runs"] == 1
     assert body["kpis"]["total"] == 2
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# ISS-643 — pipeline_types in AgentRollup
+#
+# The per-agent rollup must carry the sorted list of distinct pipeline types
+# the agent was invoked from in the query window.  Derived from r.type on the
+# outer WorkflowRun row — no schema change, no per-agent event field.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _agent_outputs(*agents: dict) -> str:
+    """Minimal agent_outputs blob — only the fields _aggregate reads."""
+    return json.dumps(list(agents))
+
+
+def _seed_run_with_agents(
+    env,
+    user_id: str,
+    *,
+    pipeline_type: str,
+    agents: list[dict],
+    token_usage: str | None = None,
+    created_at: datetime | None = None,
+) -> str:
+    run_id = str(uuid.uuid4())
+    db = env["Session"]()
+    try:
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                title="t",
+                type=pipeline_type,
+                status="completed",
+                input="i",
+                agent_count=len(agents),
+                duration=5.0,
+                token_usage=token_usage or _token_usage(0.1, 100, 50),
+                model_id="claude-haiku",
+                agent_outputs=_agent_outputs(*agents),
+                created_at=created_at or datetime.now(timezone.utc),
+                session_id=user_id,
+            )
+        )
+        db.commit()
+        return run_id
+    finally:
+        db.close()
+
+
+def _agent(agent_id: str, name: str, tokens: int = 200) -> dict:
+    return {
+        "agent_id": agent_id,
+        "name": name,
+        "input_tokens": tokens // 2,
+        "output_tokens": tokens // 2,
+        "total_tokens": tokens,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
+
+
+def test_pipeline_types_single_pipeline(env):
+    """An agent that appears in only one pipeline type reports exactly that type."""
+    a = _seed_user(env)
+    _seed_run_with_agents(
+        env, a.id,
+        pipeline_type="prototype",
+        agents=[_agent("build-agent", "Build Agent")],
+    )
+    _seed_run_with_agents(
+        env, a.id,
+        pipeline_type="prototype",
+        agents=[_agent("build-agent", "Build Agent")],
+    )
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    agent_rows = {r["agent_id"]: r for r in body.get("agents", [])}
+    assert "build-agent" in agent_rows, f"agents keys: {list(agent_rows)}"
+    assert agent_rows["build-agent"]["pipeline_types"] == ["prototype"]
+
+
+def test_pipeline_types_multi_pipeline_agent(env):
+    """An agent used across multiple pipelines reports ALL of them, sorted."""
+    a = _seed_user(env)
+    # Same agent_id appears in three different pipeline runs.
+    for pt in ("ppt", "prototype", "user_stories"):
+        _seed_run_with_agents(
+            env, a.id,
+            pipeline_type=pt,
+            agents=[_agent("shared-agent", "Shared Agent")],
+        )
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    agent_rows = {r["agent_id"]: r for r in body.get("agents", [])}
+    assert "shared-agent" in agent_rows
+    # Sorted alphabetically (sorted() on strings).
+    assert agent_rows["shared-agent"]["pipeline_types"] == ["ppt", "prototype", "user_stories"]
+
+
+def test_pipeline_types_multiple_agents_in_same_run(env):
+    """Each agent in a run gets the run's pipeline_type, not each other's."""
+    a = _seed_user(env)
+    _seed_run_with_agents(
+        env, a.id,
+        pipeline_type="user_stories",
+        agents=[
+            _agent("agent-a", "Agent A", 300),
+            _agent("agent-b", "Agent B", 100),
+        ],
+    )
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    agent_rows = {r["agent_id"]: r for r in body.get("agents", [])}
+    assert agent_rows["agent-a"]["pipeline_types"] == ["user_stories"]
+    assert agent_rows["agent-b"]["pipeline_types"] == ["user_stories"]
+
+
+def test_pipeline_types_owner_isolation(env):
+    """pipeline_types for user A must never include runs belonging to user B."""
+    a = _seed_user(env)
+    b = _seed_user(env)
+
+    # A: prototype run with agent-x.
+    _seed_run_with_agents(
+        env, a.id,
+        pipeline_type="prototype",
+        agents=[_agent("agent-x", "Agent X")],
+    )
+    # B: ppt run with the SAME agent-x — must not appear in A's aggregate.
+    _seed_run_with_agents(
+        env, b.id,
+        pipeline_type="ppt",
+        agents=[_agent("agent-x", "Agent X")],
+    )
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    agent_rows = {r["agent_id"]: r for r in body.get("agents", [])}
+    assert agent_rows["agent-x"]["pipeline_types"] == ["prototype"]
+    assert "ppt" not in agent_rows["agent-x"]["pipeline_types"]

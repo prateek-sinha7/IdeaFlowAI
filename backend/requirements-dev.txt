@@ -79,3 +79,5 @@ testcontainers==4.9.0
 # resolution authority; both pins are exact so a fresh resolve cannot drift.
 pytest-xdist==3.8.0
 pytest-timeout==2.4.0
+# Local-only Ollama provider; model_factory imports it lazily behind USE_LOCAL_OLLAMA.
+langchain-ollama==1.1.0

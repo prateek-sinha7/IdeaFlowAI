@@ -1,0 +1,153 @@
+### Conditional Gate — cross-workflow trigger (spec 014 example A3)
+#
+# ONE conditional gate carrying BOTH trigger types, so the engine must dispatch
+# per-OUTCOME, not per-gate:
+#
+#   emoji -> language
+#     |__ english (trigger: step) ____> a-english   stays in THIS run, runs to
+#     |                                             pipeline_complete / status=completed
+#     |__ spanish (trigger: workflow) _> NEW run ex_A3_b_spanish
+#     |__ dutch   (trigger: workflow) _> NEW run ex_A3_c_dutch
+#                                        parent STOPS: pipeline_diverted / status=diverted
+#
+# The terminal state DIFFERS by outcome — that is the test. Three runners over ONE
+# manifest, generated from a single template so they cannot drift.
+#
+# THIS VARIANT: message "Hi" -> english -> trigger: step. The run stays whole and
+# ends on pipeline_complete. No child run may be minted.
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.ex_A3_divert.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh ex_A3_divert
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch ex_A3_divert. No agent_ids.
+{{
+	const apiLine = require('./lib/api-line.js');
+	// No agent_ids: the launch endpoint validates supplied ids against
+	// allowed_custom_agent_ids(), which does not know these fixtures' synthetic
+	// instance_ids. Omitting the key makes the backend source the roster from the
+	// compiled plan (backend/app/api/run_commands.py). Do not add agent_ids back.
+	const payload = {
+		pipeline_type: "ex_A3_divert",
+		message: "Hi",
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('POST /api/runs -> ' + response.statusCode + ' run=' + exports.runId);
+	}
+}}
+
+### 3. Stream to completion — the english outcome stays IN this run
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			const d = data.data || {};
+			if (data.type === 'agent_start') apiLine('agent_start: ' + d.agent_id);
+			else if (data.type === 'agent_complete') apiLine('agent_complete: ' + d.agent_id);
+			else if (data.type === 'pipeline_complete') { apiLine('pipeline_complete reached'); finish(); }
+			else if (data.type === 'pipeline_diverted') {
+				apiLine('✗ diverted on the ENGLISH path — the step arm should have kept this in-run', 'error');
+				finish();
+			}
+			else if (['pipeline_failed','pipeline_cancelled','budget_aborted','error'].includes(data.type)) { apiLine(data.type, 'error'); finish(); }
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 4. Parent run must have COMPLETED, not diverted
+GET {{apiRoot}}/api/runs/{{runId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const b = response.parsedBody || {};
+	if (b.status === 'completed') apiLine('✓ status = completed');
+	else apiLine('✗ expected status=completed, got ' + b.status, 'error');
+
+	// The divert arm never fired, so this column must never have been written.
+	if (!b.diverted_at_step_id) apiLine('✓ diverted_at_step_id is unset');
+	else apiLine('✗ diverted_at_step_id was set to ' + b.diverted_at_step_id + ' on the in-run path', 'error');
+}}
+
+### 5. Event assertions
+GET {{apiRoot}}/api/runs/{{runId}}/events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const events = response.parsedBody.events || [];
+	// REST /events nests under payload_json; only the SSE stream uses `data`.
+	const payloadOf = (e) => e.payload_json || e.data || {};
+	const isMine = (aid, id) => aid === id || (typeof aid === 'string' && aid.endsWith(':' + id));
+	const dispatches = (id) =>
+		events.filter(e => e.type === 'agent_start' && isMine(payloadOf(e).agent_id, id)).length;
+	const textOf = (id) => {
+		let buf = [], cap = false, out = null;
+		for (const e of events) {
+			const p = payloadOf(e), mine = isMine(p.agent_id, id);
+			if (e.type === 'agent_start' && mine) { cap = true; buf = []; }
+			else if (e.type === 'agent_chunk' && mine && cap) buf.push(p.chunk || '');
+			else if (e.type === 'agent_complete' && mine && cap) { cap = false; out = buf.join('').trim(); }
+		}
+		return out;
+	};
+
+	const blocked = events.filter(e => e.type === 'gate_blocked').map(e => payloadOf(e).step || '?');
+	if (blocked.length === 0) apiLine('\u2713 no gate_blocked — the conditional gate actually routed');
+	else apiLine('\u2717 conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run fell through instead of routing', 'error');
+
+	if (dispatches('emoji') === 1 && dispatches('language') === 1) apiLine('✓ emoji and language each ran once');
+	else apiLine('✗ emoji/language dispatch counts wrong', 'error');
+
+	if (dispatches('a-english') === 1) apiLine('✓ a-english ran in this run (trigger: step)');
+	else apiLine('✗ a-english ran ' + dispatches('a-english') + ' time(s), expected 1', 'error');
+
+	// Nothing to skip: a-english is the only other step and it ran.
+	const skipped = events.filter(e => e.type === 'agent_skipped').map(e => payloadOf(e).agent_id);
+	if (skipped.length === 0) apiLine('✓ no agent_skipped events');
+	else apiLine('✗ unexpected agent_skipped: ' + skipped.join(', '), 'error');
+
+	const got = textOf('a-english') || '';
+	if (got.includes('Hello, world!')) apiLine('✓ a-english output carries "Hello, world!"');
+	else apiLine('✗ a-english output missing "Hello, world!" (got: "' + got.slice(0, 60) + '")', 'error');
+}}

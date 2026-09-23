@@ -33,12 +33,20 @@ D-02 precedent). The pure ``build_waves`` + ``WaveBuildError`` live in THIS modu
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any, AsyncIterator
 
 from agents.capabilities import task_identity
 from agents.capabilities.registry import CapabilityRegistry, register
+from agents.capabilities.strategies._fanout_wave_stream import stream_wave_fanout
 from agents.workflows.plan import Task
+
+# WAVE-REPAIR: an EMPTY (or whitespace-only) target is treated as MISSING — evidence
+# the worker never actually wrote real content, same as an absent file. NOT a byte
+# minimum: a real fixture legitimately writes a 1-character file ("a"), and an
+# arbitrary size floor false-positived on it (caught in review — see the call site).
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +138,33 @@ def build_waves(tasks: list[Task]) -> list[list[Task]]:
     return waves
 
 
+# WAVE-REPAIR canary: a name unlikely to collide with any real deliverable, written
+# then read back through the SAME ``runner.sandbox`` handle the repair check reads
+# targets through, to positively prove writes actually round-trip before trusting a
+# "missing" verdict from it (see the call site for why this exists).
+_REPAIR_CANARY_PATH = ".wave_repair_canary"
+
+
+def _check_sandbox_round_trips(sandbox: Any) -> bool:
+    """True iff ``sandbox`` demonstrably persists a write and reads it back.
+
+    Best-effort and side-effect-cleaned: any exception (read-only handle, missing
+    write/read methods, ...) is treated as "can't prove it" → False, never raised.
+    """
+    try:
+        marker = "wave-repair-canary"
+        sandbox.write(_REPAIR_CANARY_PATH, marker)
+        ok = sandbox.read(_REPAIR_CANARY_PATH) == marker
+    except Exception:  # noqa: BLE001 — unprovable round-trip degrades to "don't trust it"
+        return False
+    finally:
+        try:
+            sandbox.path_for(_REPAIR_CANARY_PATH).unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001 — best-effort cleanup only
+            pass
+    return ok
+
+
 @register(
     "strategy",
     "wave_scheduler",
@@ -162,6 +197,11 @@ class WaveSchedulerStrategy:
 
     name = "wave_scheduler"
 
+    # ISS-131: spawn-only, exactly like fanout_batch — every wave is dispatched
+    # through ``run_fanout`` and the step's own agent is never run inline, so the
+    # inline review gate never fires for it.
+    runs_agent_inline = False
+
     def __init__(self) -> None:
         # Module-singleton registry (capabilities are stateless) — resolves the task
         # parser by NAME (D-02), exactly like fanout_batch / task_loop.
@@ -183,13 +223,29 @@ class WaveSchedulerStrategy:
         if task_source is not None and getattr(task_source, "parser", None):
             parser_name = task_source.parser
         parser = self._registry.resolve("task_parser", parser_name)
-        tasks = parser.parse(plan_output)
+        target = getattr(task_source, "target", None) if task_source else None
+        sandbox = getattr(runner, "sandbox", None)
+        if hasattr(parser, "parse_preferring_target"):
+            tasks = parser.parse_preferring_target(
+                plan_output, sandbox=sandbox, target=target
+            )
+        else:
+            tasks = parser.parse(plan_output)
 
         if not tasks:
             logger.warning(
                 "wave_scheduler: no tasks parsed from source_step=%s — no waves run",
                 source_step,
             )
+            yield {
+                "type": "wave_skipped",
+                "data": {
+                    "agent_id": step_id,
+                    "step": step_id,
+                    "reason": f"no tasks parsed from source_step={source_step}",
+                    "source_step": source_step,
+                },
+            }
             return
 
         # ── Partition into deterministic waves (raises pre-spawn on cycle/unknown ref) ─
@@ -258,6 +314,30 @@ class WaveSchedulerStrategy:
             if _cursor:
                 _completed_worker_task_ids = _cursor.get(step_id, set()) or set()
 
+        # ── Parent-step lifecycle (WS-EV) ──────────────────────────────────────────
+        # A wave step never passes through the kernel ``_run_agent`` — it dispatches
+        # workers via run_fanout instead — so the agent_start/agent_complete pair that
+        # every single_shot step emits was simply absent here. The UI node had no
+        # running state, no duration and no terminal tick, and ``_first_incomplete_step``
+        # had no terminal agent event to read on resume. Emitted as plain dicts, stamped
+        # by the engine's single emit boundary like every other event this strategy
+        # yields. Same shape as engine.py's pair, minus the fields only the dispatch
+        # loop knows (index/total/visit_count) — all optional on the wire.
+        _t0 = time.monotonic()
+        yield {
+            "type": "agent_start",
+            "data": {
+                "agent_id": step_id,
+                "name": getattr(step, "name", None) or step_id,
+            },
+        }
+
+        # WAVE-REPAIR canary result — computed lazily, once, on first use (see the
+        # per-wave repair block below): None = not checked yet, True/False = proven
+        # capable / not. Cached across waves so the round-trip write only happens once
+        # per run, not once per wave.
+        _sandbox_repair_capable: bool | None = None
+
         # ── Dispatch each wave through the SINGLE kernel run_fanout spawn path ──────
         # Each wave persists ONE owner-scoped wave_runs row (running -> terminal) and
         # emits wave_started/wave_completed/wave_failed events. The recorders are
@@ -291,7 +371,14 @@ class WaveSchedulerStrategy:
             # so the spawned subagent_runs row is stamped with the skip-cursor key at SPAWN
             # (fanout.py:388 threads request task_id → subagent_runs.task_id).
             requests = [
-                {"agent": "self", "input": t.body, "task_id": _key_by_id[t.id]}
+                {
+                    "agent": "self",
+                    "input": t.body,
+                    "task_id": _key_by_id[t.id],
+                    # The author id (s01…). task_id is a content HASH — correct for
+                    # the resume cursor, unreadable in a UI. Display only.
+                    "task_author_id": t.id,
+                }
                 for t in wave_tasks
             ]
 
@@ -315,32 +402,63 @@ class WaveSchedulerStrategy:
             row_id = await runner.record_wave_run(
                 step=step_id, wave_index=wave_index, task_ids=task_ids, status="running"
             )
+            # The PLAN totals ride along with every wave_started. The whole wave
+            # list is built before this loop, so the run knows from its first
+            # wave that there are four of them and thirty-four tasks in all — but
+            # only the current wave's ids were ever sent, so a reader watching a
+            # 34-task build saw "0 / 1 done" and no way to tell whether that was
+            # the whole job or the first hundredth of it. Optional on the wire,
+            # like every other field this strategy yields.
             yield {
                 "type": "wave_started",
                 "data": {
                     "step": step_id,
                     "wave_index": wave_index,
                     "task_ids": task_ids,
+                    "wave_total": len(waves),
+                    "task_total": sum(len(w) for w in waves),
                 },
             }
-            try:
-                async for event in runner.run_fanout(requests, ctx, step=step):
-                    # CR-06 (backend half): stamp the current wave_index + step onto the
-                    # subagent_spawned/subagent_result events as the strategy re-yields
-                    # them, so the FE (12-07) can fold worker leaves into their wave group.
-                    # run_fanout itself stays the generic flat-fanout path (INV-12 single
-                    # spawn home, no notion of waves) — the wave_index is the wave
-                    # strategy's knowledge, stamped at ITS re-yield boundary. The CONTRACT
-                    # 12-07 reads (recorded in 12-06-SUMMARY.md): flat on event ``data`` —
-                    # ``wave_index`` (number), ``step`` (string), and the existing
-                    # ``worker`` (number, unchanged). A copy of the data dict is stamped so
-                    # a shared/re-used run_fanout dict is never mutated under the kernel.
+
+            async def _dispatch_wave(disp_requests, disp_task_ids):
+                # CR-06 (backend half) + per-worker identity: ``stream_wave_fanout``
+                # stamps every WORKER-queue event with wave_index/step/task_id/
+                # worker_index/wave_total (the whole point — a wave clones one agent
+                # N times, so raw worker events all carry the parent's agent_id).
+                # subagent_spawned/subagent_result come off the run_fanout generator
+                # itself (not the worker queue), so they're stamped here, same as
+                # before (a copy of the data dict — a shared run_fanout dict is never
+                # mutated under the kernel).
+                async for event in stream_wave_fanout(
+                    runner,
+                    disp_requests,
+                    ctx,
+                    step=step,
+                    wave_index=wave_index,
+                    task_ids=disp_task_ids,
+                ):
                     if event.get("type") in ("subagent_spawned", "subagent_result"):
                         _data = dict(event.get("data") or {})
                         _data["wave_index"] = wave_index
                         _data["step"] = step_id
                         event = {**event, "data": _data}
                     yield event
+
+            try:
+                async for event in _dispatch_wave(requests, task_ids):
+                    yield event
+            except asyncio.CancelledError:
+                # ISS-098: ``CancelledError`` has inherited from ``BaseException`` (not
+                # ``Exception``) since Python 3.8, so a Stop-during-a-wave never reached the
+                # arm below and this wave's row was left reading ``running`` forever (only
+                # self-corrected by the WR-01 stale-row sweep on the next resume). Flip it to
+                # a terminal ``cancelled`` (a free-String status like WR-01's ``superseded``,
+                # NOT a schema change) and re-raise so cancellation propagates unchanged.
+                # A NARROW arm, not ``except BaseException`` — that would also catch the
+                # ``GeneratorExit`` thrown at the ``yield`` above when the consumer closes
+                # this generator, where awaiting/yielding is a RuntimeError.
+                await runner.update_wave_run(row_id, status="cancelled")
+                raise
             except Exception:
                 await runner.update_wave_run(row_id, status="failed")
                 yield {
@@ -361,3 +479,132 @@ class WaveSchedulerStrategy:
                     "task_ids": task_ids,
                 },
             }
+
+            # ── WAVE-REPAIR: assert every task's declared targets actually landed ──
+            # Evidence: a 5-task fidelity wave silently produced only 4 files; a
+            # 50-task wave silently dropped two screens. A "completed" wave never
+            # asserted its workers actually wrote what they were supposed to. This
+            # is non-fatal (repair, never fail the step) and bounded to ONE repair
+            # pass per wave (never loop forever).
+            #
+            # Two false-positive guards, found the hard way (a coordinator caught
+            # both from a single test run):
+            #
+            # 1. A ``runner.sandbox`` that can't positively be proven to round-trip
+            #    a write is NOT trusted to report "missing" — an offline/fake/mock
+            #    runner (every fixture in test_restart_resume.py /
+            #    test_sample_wave_workflow.py) never actually persists a worker's
+            #    output through this handle, so treating "read returned None" as
+            #    "genuinely missing" fired the repair pass on EVERY wave,
+            #    unconditionally doubling run_fanout dispatch cost. A cheap canary
+            #    write+read (once per run, not per wave) is the only way to tell
+            #    "target absent" from "this handle doesn't actually read what gets
+            #    written" apart — no sandbox, or a sandbox that fails the canary,
+            #    skips the whole check (same posture as no handle at all).
+            # 2. Never during a resume (``_resuming``): the mid-wave resume
+            #    contract already accounts for exactly the fan-out calls the
+            #    resumed wave needs — an extra repair-triggered ``run_fanout`` call
+            #    is a call the resume script/contract does not expect (observed:
+            #    a scripted crash on "call #2", and a run driven past its own
+            #    terminal ``completed`` status). Repair is a live-run-only concern;
+            #    a resumed wave's targets were already asserted before the crash.
+            sandbox = getattr(runner, "sandbox", None) if not _resuming else None
+            if sandbox is not None and _sandbox_repair_capable is None:
+                _sandbox_repair_capable = _check_sandbox_round_trips(sandbox)
+            if sandbox is not None and not _sandbox_repair_capable:
+                sandbox = None
+            if sandbox is not None:
+
+                def _target_missing(path: str) -> bool:
+                    try:
+                        content = sandbox.read(path)
+                    except Exception:  # noqa: BLE001 — a read failure counts as missing
+                        return True
+                    return content is None or not content.strip()
+
+                missing_tasks = [
+                    t
+                    for t in wave_tasks
+                    if t.targets and any(_target_missing(p) for p in t.targets)
+                ]
+                if missing_tasks:
+                    missing_ids = [t.id for t in missing_tasks]
+                    logger.warning(
+                        "wave_scheduler: wave %s step=%s missing targets for tasks %s "
+                        "— dispatching one repair pass",
+                        wave_index,
+                        step_id,
+                        missing_ids,
+                    )
+                    yield {
+                        "type": "wave_repair",
+                        "data": {
+                            "agent_id": step_id,
+                            "step": step_id,
+                            "wave_index": wave_index,
+                            "missing_task_ids": missing_ids,
+                            "count": len(missing_ids),
+                        },
+                    }
+                    repair_requests = [
+                        {
+                            "agent": "self",
+                            "input": t.body,
+                            "task_id": _key_by_id[t.id],
+                            # The author id (s01…). task_id is a content HASH — correct for
+                            # the resume cursor, unreadable in a UI. Display only.
+                            "task_author_id": t.id,
+                        }
+                        for t in missing_tasks
+                    ]
+                    try:
+                        async for event in _dispatch_wave(repair_requests, missing_ids):
+                            yield event
+                    except Exception as exc:  # noqa: BLE001 — repair stays non-fatal
+                        logger.warning(
+                            "wave_scheduler: repair pass for wave %s step=%s failed: %s",
+                            wave_index,
+                            step_id,
+                            exc,
+                        )
+
+                    still_missing = [
+                        t
+                        for t in missing_tasks
+                        if any(_target_missing(p) for p in t.targets)
+                    ]
+                    if still_missing:
+                        still_missing_ids = [t.id for t in still_missing]
+                        logger.warning(
+                            "wave_scheduler: wave %s step=%s targets still missing "
+                            "after repair: %s",
+                            wave_index,
+                            step_id,
+                            still_missing_ids,
+                        )
+                        yield {
+                            "type": "wave_repair",
+                            "data": {
+                                "agent_id": step_id,
+                                "step": step_id,
+                                "wave_index": wave_index,
+                                "missing_task_ids": still_missing_ids,
+                                "count": len(still_missing_ids),
+                            },
+                        }
+
+        # Every wave reached a terminal status — the step is done. A wave that FAILED
+        # re-raises above, so this is only reached on the all-completed path (the
+        # engine's own error handling owns the failure event, exactly as for any
+        # other strategy that raises).
+        yield {
+            "type": "agent_complete",
+            "data": {
+                "agent_id": step_id,
+                "name": getattr(step, "name", None) or step_id,
+                "duration": round(time.monotonic() - _t0, 2),
+                "output_length": 0,
+                "waves": len(waves),
+                "tasks": len(tasks),
+            },
+        }

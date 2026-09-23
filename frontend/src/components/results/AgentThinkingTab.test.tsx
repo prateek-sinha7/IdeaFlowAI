@@ -71,7 +71,7 @@ describe("AgentThinkingTab — Steps three-level navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Spec Writer/i }));
 
     // Breadcrumb "Steps / Spec Writer" is present in L2.
-    const breadcrumb = screen.getByRole("button", { name: /Steps \/ Spec Writer/i });
+    const breadcrumb = screen.getByRole("button", { name: /Steps\s*\/\s*Spec Writer/i });
     expect(breadcrumb).toBeInTheDocument();
 
     // The sticky Context-received panel renders from the LIVE contextSources —
@@ -87,7 +87,7 @@ describe("AgentThinkingTab — Steps three-level navigation", () => {
     render(<AgentThinkingTab agents={AGENTS} pipelineState={makePipelineState()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Spec Writer/i }));
-    const breadcrumb = screen.getByRole("button", { name: /Steps \/ Spec Writer/i });
+    const breadcrumb = screen.getByRole("button", { name: /Steps\s*\/\s*Spec Writer/i });
     fireEvent.click(breadcrumb);
 
     // Back on the overview: the status line + both spine rows are visible again.
@@ -144,6 +144,62 @@ describe("AgentThinkingTab — L3 task detail", () => {
 
     // L3 -> L2 back
     fireEvent.click(screen.getByRole("button", { name: /Build Agent \/ task detail/i }));
+    expect(screen.getByTestId("construction-block")).toBeInTheDocument();
+  });
+});
+
+// ── One panel per thing ───────────────────────────────────────────────────────
+// The construction block used to be selected on an agent-id regex alone, so a
+// WAVE step whose id merely contained "build" got a second panel over the same
+// tasks — "0 / 12 done" and placeholder "Task N" rows, because a wave step
+// reports no task_progress for it to read. The wave block already draws those
+// tasks with their real ids and status.
+
+const WAVE_BUILD_AGENT: AgentRunState = makeAgent({
+  id: "custom-agent:pb-build", name: "Builders", status: "running",
+  waveWorkers: [
+    { taskId: "h1", taskAuthorId: "layout", status: "done", waveIndex: 0 },
+    { taskId: "h2", taskAuthorId: "quote-01", status: "running", waveIndex: 1 },
+  ],
+});
+
+function waveOnlyPipeline(): PipelineRunState {
+  // No protoTotalTasks, no protoCompletedTaskCount, no task lists — a wave step
+  // emits wave/subagent lifecycle, never task_progress.
+  return {
+    isRunning: true, pipeline_type: "custom", agents: [WAVE_BUILD_AGENT],
+    currentAgentIndex: 0, totalDuration: 60, completedCount: 0,
+  };
+}
+
+describe("AgentThinkingTab — construction block is data-gated, not name-gated", () => {
+  it("a wave step named 'build' gets the wave block only", () => {
+    render(<AgentThinkingTab agents={[WAVE_BUILD_AGENT]} pipelineState={waveOnlyPipeline()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Builders/i }));
+
+    expect(screen.queryByTestId("construction-block")).toBeNull();
+    // The wave block is the one that has the data, and it still renders.
+    expect(screen.getByText(/quote-01/)).toBeInTheDocument();
+  });
+
+  it("a task_loop build still gets the construction block", () => {
+    // od_prototype / ppt_v2 report progress, so nothing changes for them.
+    render(<AgentThinkingTab agents={[BUILD_AGENT]} pipelineState={makeBuildPipeline()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Build Agent/i }));
+    expect(screen.getByTestId("construction-block")).toBeInTheDocument();
+  });
+
+  it("a planned-but-not-yet-started task loop still gets the block", () => {
+    // protoPlannedTasks arrives before any task completes — the block must show
+    // every task as pending rather than vanish until the first one lands.
+    const ps: PipelineRunState = {
+      ...makeBuildPipeline(),
+      protoCompletedTaskCount: 0,
+      protoCompletedTasks: [],
+      protoPlannedTasks: [{ number: 1, title: "Scaffold shared layout" }],
+    };
+    render(<AgentThinkingTab agents={[BUILD_AGENT]} pipelineState={ps} />);
+    fireEvent.click(screen.getByRole("button", { name: /Build Agent/i }));
     expect(screen.getByTestId("construction-block")).toBeInTheDocument();
   });
 });

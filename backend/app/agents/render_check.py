@@ -247,6 +247,11 @@ async def render_check(
     coverage_errors: list[str] = []
 
     try:
+        # Everything that touches `browser` MUST stay INSIDE this `async with`:
+        # leaving it tears the browser down, and the next `browser.new_page()`
+        # raises "Target page, context or browser has been closed" — which this
+        # function swallows into `page_errors` as a harness error, so the whole
+        # render validator silently returned zero findings on every call.
         async with async_playwright() as pw:
             try:
                 browser = await pw.chromium.launch(args=["--no-sandbox"])
@@ -261,10 +266,14 @@ async def render_check(
                 page = await browser.new_page()
                 page.on(
                     "console",
-                    lambda m: console_errors.append(m.text) if m.type == "error" else None,
+                    lambda m: console_errors.append(m.text)
+                    if m.type == "error"
+                    else None,
                 )
                 page.on("pageerror", lambda e: page_errors.append(str(e)))
-                await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
+                await page.goto(
+                    path.as_uri(), wait_until="networkidle", timeout=timeout_ms
+                )
                 if check_nav:
                     # Parse the app's route table ONCE (from the file source) so each
                     # exercised route's expected section can be resolved through it. A

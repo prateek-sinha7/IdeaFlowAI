@@ -36,6 +36,83 @@ function renderClarify(questions: ClarifyQuestion[]) {
   return { onSubmitAnswers, ...utils };
 }
 
+// ── Accept all recommended ────────────────────────────────────────────────────
+// One gap per question means a real corpus asks fifty of them at once. Clicking
+// "Use recommended" fifty times to agree with nearly all of them is the whole
+// cost of asking, so the footer answers every recommended question in one go.
+
+const Q3: ClarifyQuestion = {
+  id: "q3",
+  question: "Which billing plan?",
+  options: ["Monthly", "Quarterly"],
+  answerType: "single_choice",
+  recommendedAnswer: "Quarterly",
+};
+
+const Q_NO_REC: ClarifyQuestion = {
+  id: "q4",
+  question: "What should the error copy say?",
+  options: ["Inline", "Toast"],
+  answerType: "single_choice",
+};
+
+describe("InlineClarifyActions — accept all recommended", () => {
+  it("submits every recommendation in one click", () => {
+    const { onSubmitAnswers } = renderClarify([Q1, Q3]);
+    fireEvent.click(screen.getByTestId("chat-clarify-accept-all-recommended"));
+    expect(onSubmitAnswers).toHaveBeenCalledWith([
+      { question_id: "q1", answer: "List" },
+      { question_id: "q3", answer: "Quarterly" },
+    ]);
+  });
+
+  it("counts only the questions that carry a recommendation", () => {
+    renderClarify([Q1, Q3, Q_NO_REC]);
+    expect(screen.getByTestId("chat-clarify-accept-all-recommended")).toHaveTextContent(
+      "Accept all 2 recommended & continue",
+    );
+  });
+
+  it("leaves a question with no recommendation unanswered rather than guessing", () => {
+    const { onSubmitAnswers } = renderClarify([Q1, Q_NO_REC]);
+    fireEvent.click(screen.getByTestId("chat-clarify-accept-all-recommended"));
+    expect(onSubmitAnswers).toHaveBeenCalledWith([{ question_id: "q1", answer: "List" }]);
+  });
+
+  it("keeps an answer the user already chose over the recommendation for that one", () => {
+    // The user disagreed with q1 on purpose; accepting the rest must not undo it.
+    const { onSubmitAnswers } = renderClarify([Q1, Q_NO_REC]);
+    fireEvent.click(screen.getByText("Toast"));
+    fireEvent.click(screen.getByTestId("chat-clarify-accept-all-recommended"));
+    expect(onSubmitAnswers).toHaveBeenCalledWith([
+      { question_id: "q1", answer: "List" },
+      { question_id: "q4", answer: "Toast" },
+    ]);
+  });
+
+  it("splits a multi-select recommendation into its chips", () => {
+    const multiRec: ClarifyQuestion = { ...Q_MULTI, recommendedAnswer: "Auth, Export" };
+    const { onSubmitAnswers } = renderClarify([multiRec]);
+    fireEvent.click(screen.getByTestId("chat-clarify-accept-all-recommended"));
+    expect(onSubmitAnswers).toHaveBeenCalledWith([
+      { question_id: "q2", answer: "Auth, Export" },
+    ]);
+  });
+
+  it("is absent when nothing carries a recommendation", () => {
+    renderClarify([Q_MULTI, Q_NO_REC]);
+    expect(screen.queryByTestId("chat-clarify-accept-all-recommended")).toBeNull();
+  });
+
+  it("submits once — the run is already resuming on the second click", () => {
+    const { onSubmitAnswers } = renderClarify([Q1]);
+    const btn = screen.getByTestId("chat-clarify-accept-all-recommended");
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(onSubmitAnswers).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("InlineClarifyActions", () => {
   it("renders nothing when there are no questions", () => {
     const { container } = render(

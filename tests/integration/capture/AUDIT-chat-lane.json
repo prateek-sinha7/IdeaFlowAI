@@ -1,0 +1,97 @@
+{
+  "sweep": "5b — the concierge chat lane on the run page, across every run state",
+  "capturedAt": "2026-08-26",
+  "user": "qa-admin@flowinqa.com",
+
+  "whatItIs": "the left column of every run detail page. The tabs (Preview/Steps/Files/Workspace/Audit) are the RIGHT pane; the lane is beside them and persists across all five tabs and all five run-detail URLs. It is not a tab and not a modal.",
+
+  "testidSurface": {
+    "container": ["execution-chat-lane", "run-chat-lane"],
+    "header": ["lane-run-header", "lane-back", "lane-run-type", "lane-run-status", "lane-run-title", "lane-run-meta"],
+    "transcript": ["chat-lane-transcript", "chat-transcript", "chat-message", "chat-result-card", "chat-result-card-link"],
+    "adornments": ["lane-adornments-toggle", "lane-adornments", "lane-pipeline-mini", "lane-deliverable"],
+    "composer": ["chat-composer", "chat-attachments", "chat-send"],
+    "chaining": ["chat-chain-suggestions", "chat-chain-suggestion-chip", "chat-chain-suggestion-chip-beta"],
+    "note": "unlike /runs (which has ZERO testids — D-14), the lane is thoroughly instrumented. Use these, not text."
+  },
+
+  "composer": {
+    "textarea": {"name": "run-chat-message", "aria-label": "Chat message input", "placeholder": "Ask for a change or a follow-up…", "rows": 1},
+    "attachments": "input[type=file] behind 'Attach files'",
+    "voice": "'Voice · transcribe'",
+    "send": {"testid": "chat-send", "aria-label": "Send message"},
+    "enableRule": "chat-send is disabled while the textarea is empty and enables on the first character; clearing it disables again. Verified by dispatching input events, without sending."
+  },
+
+  "message": {
+    "testid": "chat-message",
+    "attributes": ["data-role", "data-message-id"],
+    "rolesObserved": ["narrator"],
+    "messageIdShapes": [
+      "chat_reply:<uuid>",
+      "chat_reply:pipeline_start:run:<runId>"
+    ],
+    "note": "every message on every run captured carried data-role='narrator'. No 'user' or 'assistant' role was produced by any seeded run — sending a message is the only way to create one, and that costs an LLM call."
+  },
+
+  "narratorVocabulary": [
+    "Before I build, I need to lock a few things down.  → Answer in Steps",
+    "Clarifications answered                            → Answer in Steps",
+    "Run started                                        → Open in Steps",
+    "Review approved — build continues                  (no action)",
+    "Cancelled by you                                   → Open in Steps",
+    "What went wrong                                    → Open in Steps",
+    "Deliverable / Delivered — open in Preview →        → Open in Preview"
+  ],
+
+  "adornments": {
+    "toggle": "lane-adornments-toggle, aria-expanded true|false",
+    "label": "'Run summary' + '<n> agents · <deliverable filename>' — the label does NOT change with state, only aria-expanded does",
+    "revealsWhenExpanded": ["lane-pipeline-mini (PIPELINE · N AGENTS, per-agent durations, 'Open Steps →')", "lane-deliverable (filename, 'open in preview →')"],
+    "note": "lane-adornments is in the DOM in BOTH states; only its contents change. Assert on aria-expanded or on lane-pipeline-mini, never on the presence of lane-adornments."
+  },
+
+  "chainSuggestions": {
+    "heading": "TAKE THIS FURTHER",
+    "observedOn": "the completed prototype run only",
+    "chips": [
+      {"testid": "chat-chain-suggestion-chip", "label": "Pitch an idea"},
+      {"testid": "chat-chain-suggestion-chip", "label": "Generate product requirements"},
+      {"testid": "chat-chain-suggestion-chip-beta", "label": "Build an end-to-end application", "badge": "SOON"}
+    ],
+    "note": "the -beta variant is a SEPARATE testid, not a modifier on the base one. A selector on chat-chain-suggestion-chip alone misses it; a prefix selector catches both.",
+    "absentOn": ["cancelled", "failed", "diverted", "completed ppt_v2"]
+  },
+
+  "perRunState": [
+    {"status": "Done", "type": "PROTOTYPE", "run": "d9693cbe", "lane": true, "textarea": true, "disabled": false, "send": true, "messages": 7, "chainChips": 3},
+    {"status": "Done", "type": "PPT V2", "run": "4a3b4728", "lane": true, "textarea": true, "disabled": false, "send": true, "messages": 4, "chainChips": 0},
+    {"status": "Done", "type": "EX A4 HUMAN GATE", "run": "115f3e39", "lane": true, "textarea": true, "disabled": false, "send": true, "messages": 3, "chainChips": 0},
+    {"status": "Failed", "type": "CUSTOM", "run": "af1a40c0", "lane": true, "textarea": true, "disabled": false, "send": true, "messages": 2, "chainChips": 0},
+    {"status": "Cancelled", "type": "PPT V2", "run": "8ff30d2e", "lane": true, "textarea": false, "disabled": null, "send": false, "messages": 2, "chainChips": 0},
+    {"status": "Diverted", "type": "EX A4 HUMAN DIVERT", "run": "940ca699", "lane": true, "textarea": false, "disabled": null, "send": false, "messages": 2, "chainChips": 0}
+  ],
+
+  "defects": {
+    "D-19": "composer availability is inconsistent across terminal states. A FAILED run keeps a fully enabled composer; CANCELLED and DIVERTED runs have chat-composer in the DOM but no textarea and no send button at all. Three terminal states, two different contracts, no visible rule.",
+    "D-21": "the completed prototype run's transcript repeats itself: 'Before I build, I need to lock a few things down.' and 'Clarifications answered' each appear TWICE, with different data-message-ids. Two clarification rounds would explain it, but the pairs are identical in text and offer the same action.",
+    "alsoNoted": "a DIVERTED run's lane never names the workflow it diverted to, and offers no link to the resulting run. Its last message is 'Review approved — build continues', which is what a non-diverted gate approval says too — the lane gives no way to follow the handoff."
+  },
+
+  "staleTestid": {
+    "tab-thinking": "the Steps tab's testid is still tab-thinking. Confirms D-08 — the stale 'Thinking' name survives in the testid and has leaked into the cancelled run's user-facing copy."
+  },
+
+  "notCaptured": {
+    "userAndAssistantRoles": "sending a message triggers a live LLM turn — real cost, and on a gated workflow it can create a gate only a human should answer. Flagged rather than spent.",
+    "waitingForUserLane": "the one seeded run that was waiting_for_user has since completed. The 'Answer in Steps' affordance is captured; the blocking gate state is not."
+  },
+
+  "screenshots": [
+    "screenshots/14-chat-lane/c01-lane-completed-prototype.png",
+    "screenshots/14-chat-lane/c02-lane-cancelled-readonly.png",
+    "screenshots/14-chat-lane/c03-lane-failed.png",
+    "screenshots/14-chat-lane/c04-lane-diverted.png",
+    "screenshots/14-chat-lane/c05-lane-completed-with-clarifications.png"
+  ]
+}

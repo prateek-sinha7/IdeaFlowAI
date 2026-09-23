@@ -1,0 +1,292 @@
+### Conditional Gate — loop to previous step (spec 014 example A1)
+#
+# Tests a conditional gate that loops back to an earlier step. Fully automatic —
+# no human gate, no tools:
+#
+#   emoji -> greet -> check (gates: [conditional]) -> done
+#              ^                 |
+#              |___ retry _______|___ ok ___> done
+#
+# The decision varies between passes because the WORK varies:
+#
+#   pass 1 -> greet says "Hello there!"        => no joke  => retry => back to greet
+#   pass 2 -> greet reads check's own {"decision": "retry"} out of the conversation
+#             and adds the joke                => joke     => ok    => done
+#
+# loop_max_iterations: 3 — a greeting that never acquires a joke fails closed with
+# budget_aborted rather than looping forever.
+#
+# Assertions (all on the EVENT STREAM and the gate_events rows — this workflow has
+# no tools and writes no files, so there is deliberately nothing to assert on an
+# artifact):
+# 1. Pipeline reaches pipeline_complete
+# 2. emoji runs 1x   — it sits OUTSIDE the loop and must never re-run
+# 3. greet runs 2x   — the loop-back actually happened (R-06/R-07/R-08)
+# 4. check runs 2x
+# 5. done  runs 1x
+# 6. No budget_aborted — 2 passes is under loop_max_iterations: 3
+# 7. gate-events shows exactly 2 conditional 'route' decisions, in order:
+#      pass 1  decision=retry target=greet   (the loop-back itself)
+#      pass 2  decision=ok    target=done
+# 8. No gate blocked
+# 9. done echoes the APPROVED greeting (the pass that satisfied check, not the
+#    rejected first one) — proves the loop's result reaches the final step
+# 10. the joke is the AUTHORED road-crossing line, and contains no "skeleton"
+#     (the previous authored joke — its reappearance means the step answered from
+#     memory rather than from the prompt)
+#
+# A conditional gate that routes emits NO SSE event (only a gate_events row), so
+# assertions 1-6 can only show WHICH STEPS ran; 7-8 are the only place the routing
+# DECISION itself is observable. Both halves are needed.
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.ex_A1_loop.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh ex_A1_loop
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch — loop workflow. No agent_ids.
+{{
+	const apiLine = require('./lib/api-line.js');
+	// No agent_ids here, deliberately: the launch endpoint validates any supplied agent_ids
+	// against allowed_custom_agent_ids(), which does not know the synthetic
+	// [instance_id]s used by these fixtures (emoji, greet, check, done).
+	// Omitting the key makes the backend source the roster from the compiled plan instead
+	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
+	//
+	// message is filler here, unlike the branch fixture: A1's decision comes from
+	// whether greet's own output contains a joke, not from the brief.
+	const payload = {
+		pipeline_type: "ex_A1_loop",
+		message: "Say hello to me.",
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('POST /api/runs -> ' + response.statusCode + ' run=' + exports.runId);
+	}
+}}
+
+### 3. Stream events over SSE, wait for completion
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+
+			const type = data.type;
+			const d = data.data || {};
+
+			if (type === 'agent_start') {
+				apiLine('agent_start: ' + d.agent_id);
+			} else if (type === 'agent_complete') {
+				apiLine('agent_complete: ' + d.agent_id);
+			} else if (type === 'gate_blocked') {
+				apiLine('gate_blocked: ' + JSON.stringify(d), 'error');
+			} else if (type === 'pipeline_complete') {
+				apiLine('pipeline_complete reached');
+				finish();
+			} else if (['pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(type)) {
+				apiLine(type + ': ' + JSON.stringify(d), 'error');
+				finish();
+			}
+		});
+
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 4. GET events history for assertions
+GET {{apiRoot}}/api/runs/{{runId}}/events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const events = response.parsedBody.events || [];
+
+	// TWO shape traps here, both of which have silently zeroed these counts before:
+	//
+	// 1. This REST endpoint nests the payload under `payload_json`, NOT `data` —
+	//    only the SSE stream uses `data`. Reading e.data.* here returns undefined
+	//    for every event, so every count comes back 0 on a run where the steps
+	//    plainly ran.
+	// 2. agent_ids carry the FULL composed id ("custom-agent:greet"), not the bare
+	//    instance_id — the same dual-identity the engine's own route resolver
+	//    handles with a suffix fallback (engine.py, _route_index).
+	const payloadOf = (e) => e.payload_json || e.data || {};
+	const dispatches = (id) => events.filter(e => {
+		if (e.type !== 'agent_start') return false;
+		const aid = payloadOf(e).agent_id;
+		return aid === id || (typeof aid === 'string' && aid.endsWith(':' + id));
+	}).length;
+
+	const expect = (label, actual, wanted) => {
+		if (actual === wanted) {
+			apiLine('✓ ' + label + ' ran ' + actual + 'x');
+		} else {
+			apiLine('✗ ' + label + ' ran ' + actual + 'x, expected ' + wanted + 'x', 'error');
+		}
+	};
+
+	// 3-6. Dispatch counts prove the loop ran exactly once and emoji stayed out of it.
+	expect('emoji', dispatches('emoji'), 1);
+	expect('greet', dispatches('greet'), 2);
+	expect('check', dispatches('check'), 2);
+	expect('done',  dispatches('done'),  1);
+
+	// 9. The deliverable must carry the APPROVED greeting — the pass that finally
+	//    satisfied `check`, not the rejected first one. This is the end-to-end proof
+	//    that the loop's result reaches the final step: `done` consumes ["greeting"],
+	//    and _filter_consumed_outputs serves the LATEST version.
+	const textOf = (agentId, nth) => {
+		let seen = 0, buf = [], capturing = false, out = null;
+		for (const e of events) {
+			const p = payloadOf(e);
+			const aid = p.agent_id;
+			const mine = aid === agentId || (typeof aid === 'string' && aid.endsWith(':' + agentId));
+			if (e.type === 'agent_start' && mine) { capturing = true; buf = []; }
+			else if (e.type === 'agent_chunk' && mine && capturing) { buf.push(p.chunk || ''); }
+			else if (e.type === 'agent_complete' && mine && capturing) {
+				capturing = false; seen += 1;
+				if (nth === undefined || seen === nth) out = buf.join('').trim();
+			}
+		}
+		return out;
+	};
+
+	const finalGreeting = textOf('greet');   // last dispatch = the approved one
+	const doneText      = textOf('done');
+	if (!finalGreeting || !doneText) {
+		apiLine('✗ could not reconstruct greet/done output from the event stream', 'error');
+	} else if (doneText.includes(finalGreeting)) {
+		apiLine('✓ done echoes the approved greeting: "' + finalGreeting.slice(0, 60) + '"');
+	} else {
+		apiLine('✗ done does not carry the approved greeting.', 'error');
+		apiLine('    approved: "' + finalGreeting.slice(0, 80) + '"');
+		apiLine('    done:     "' + doneText.slice(0, 80) + '"');
+	}
+
+	// 10. The joke must be the AUTHORED one. greet's prompt names a literal
+	//     road-crossing line; anything else means the step improvised instead of
+	//     obeying it (the drift that has already cost one run, where a step went
+	//     hunting the filesystem rather than using the context it was handed).
+	//     "skeleton" is checked explicitly: it was the previous authored joke, so
+	//     seeing it now means the model answered from memory, not from the prompt.
+	if (doneText) {
+		const lower = doneText.toLowerCase();
+		if (!lower.includes('cross the road')) {
+			apiLine('✗ deliverable is missing the authored road-crossing joke', 'error');
+		} else {
+			apiLine('✓ deliverable carries the authored road-crossing joke');
+		}
+		if (lower.includes('skeleton')) {
+			apiLine('✗ deliverable contains "skeleton" — the step improvised from memory ' +
+				'instead of using the authored line', 'error');
+		} else {
+			apiLine('✓ no "skeleton" — the authored line was followed');
+		}
+	}
+
+	// 1. Terminal state.
+	if (events.some(e => e.type === 'pipeline_complete')) {
+		apiLine('✓ pipeline_complete event found');
+	} else {
+		apiLine('✗ pipeline_complete not found', 'error');
+	}
+
+	// 7. 2 passes is under loop_max_iterations: 3 — the cap must NOT have fired.
+	if (events.some(e => e.type === 'budget_aborted')) {
+		apiLine('✗ budget_aborted fired — loop cap hit unexpectedly', 'error');
+	} else {
+		apiLine('✓ no budget_aborted (loop stayed under the cap of 3)');
+	}
+}}
+
+### 5. GET gate-events — the conditional gate's ACTUAL route decisions
+GET {{apiRoot}}/api/runs/{{runId}}/gate-events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const rows = response.parsedBody.gate_events || [];
+
+	// A conditional gate that routes successfully emits NO SSE event — it only
+	// writes a gate_events row (conditional.py: write_gate_event(..., GATE_ROUTE)).
+	// The event stream alone therefore cannot show WHICH branch was taken, only
+	// which steps ran. This is the only place the decision itself is observable.
+	for (const r of rows) {
+		const d = r.detail || {};
+		apiLine('gate_event: ' + r.step + ' [' + r.gate + '] -> ' + r.outcome +
+			(d.decision ? ' decision=' + d.decision : '') +
+			(d.target ? ' target=' + d.target : '') +
+			(d.reason ? ' reason=' + d.reason : ''));
+	}
+
+	const routes = rows.filter(r => r.gate === 'conditional' && r.outcome === 'route');
+
+	if (routes.length !== 2) {
+		apiLine('✗ expected 2 conditional route decisions, got ' + routes.length, 'error');
+	} else {
+		const first = routes[0].detail || {};
+		const second = routes[1].detail || {};
+		if (first.decision === 'retry' && first.target === 'greet') {
+			apiLine('✓ pass 1 routed retry -> greet (the loop-back, R-06/R-07/R-08)');
+		} else {
+			apiLine('✗ pass 1 routed ' + first.decision + ' -> ' + first.target +
+				', expected retry -> greet', 'error');
+		}
+		if (second.decision === 'ok' && second.target === 'done') {
+			apiLine('✓ pass 2 routed ok -> done');
+		} else {
+			apiLine('✗ pass 2 routed ' + second.decision + ' -> ' + second.target +
+				', expected ok -> done', 'error');
+		}
+	}
+
+	// The conditional gate must never have failed closed here — a gate_blocked row
+	// means check produced something unparseable as a decision.
+	const blocked = rows.filter(r => r.outcome === 'block');
+	if (blocked.length) {
+		apiLine('✗ ' + blocked.length + ' gate(s) blocked: ' +
+			blocked.map(r => r.step + '/' + r.gate + ' (' + (r.detail?.reason || '?') + ')').join(', '), 'error');
+	} else {
+		apiLine('✓ no gate blocked');
+	}
+}}

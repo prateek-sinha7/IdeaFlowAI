@@ -1,0 +1,2820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chroma Quote Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;510;590&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Berkeley+Mono&display=swap" rel="stylesheet">
+  
+  <style>
+    /* ── Linear Design System: CSS Variables ── */
+    :root {
+      /* Background Surfaces */
+      --bg-marketing: #08090a;
+      --bg-panel: #0f1011;
+      --bg-surface: #191a1b;
+      --bg-elevated: #28282c;
+      
+      /* Text Colors */
+      --fg-primary: #f7f8f8;
+      --fg-secondary: #d0d6e0;
+      --fg-tertiary: #8a8f98;
+      --fg-quaternary: #62666d;
+      --fg-muted: #62666d;
+      
+      /* Brand & Accent */
+      --accent-brand: #5e6ad2;
+      --accent-violet: #7170ff;
+      --accent-hover: #828fff;
+      --accent-lavender: #7a7fad;
+      
+      /* Status Colors */
+      --status-green: #27a644;
+      --status-emerald: #10b981;
+      
+      /* Borders */
+      --border-primary: #23252a;
+      --border-secondary: #34343a;
+      --border-tertiary: #3e3e44;
+      --border-subtle: rgba(255,255,255,0.05);
+      --border-standard: rgba(255,255,255,0.08);
+      --line-tint: #141516;
+      --line-tertiary: #18191a;
+      
+      /* Typography */
+      --font-inter: 'Inter Variable', 'SF Pro Display', -apple-system, system-ui, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      --font-mono: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+      
+      /* Spacing */
+      --spacing-xs: 4px;
+      --spacing-sm: 8px;
+      --spacing-md: 16px;
+      --spacing-lg: 24px;
+      --spacing-xl: 32px;
+      --spacing-2xl: 48px;
+      
+      /* Radius */
+      --radius-xs: 2px;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 12px;
+      --radius-pill: 9999px;
+      
+      /* Shadows */
+      --shadow-subtle: rgba(0,0,0,0.03) 0px 1.2px 0px;
+      --shadow-surface: rgba(0,0,0,0.1) 0px 4px 12px;
+      --shadow-elevated: rgba(0,0,0,0.4) 0px 2px 4px;
+      --shadow-inset: rgba(0,0,0,0.2) 0px 0px 12px 0px inset;
+      --shadow-focus: rgba(0,0,0,0.1) 0px 4px 12px;
+      --shadow-ring: rgba(0,0,0,0.2) 0px 0px 0px 1px;
+    }
+    
+    /* ── Global Typography & Reset ── */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: var(--font-inter);
+      background: var(--bg-marketing);
+      color: var(--fg-primary);
+      font-size: 16px;
+      font-weight: 400;
+      font-feature-settings: 'cv01', 'ss03';
+      line-height: 1.5;
+    }
+    
+    /* ── Topbar / Header ── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-standard);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--spacing-lg);
+      height: 64px;
+      gap: var(--spacing-md);
+    }
+    
+    .topbar .logo {
+      font-size: 18px;
+      font-weight: 590;
+      color: var(--fg-primary);
+      text-decoration: none;
+      letter-spacing: -0.36px;
+    }
+    
+    .topbar .logo-subtitle {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--fg-tertiary);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    
+    .topbar-spacer {
+      flex: 1;
+    }
+    
+    .topbar .nav-info {
+      text-align: right;
+    }
+    
+    .topbar .screen-title {
+      font-size: 14px;
+      font-weight: 510;
+      color: var(--fg-primary);
+      letter-spacing: -0.13px;
+    }
+    
+    .topbar .screen-module {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--fg-tertiary);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    
+    /* ── Sidebar Navigation ── */
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 64px;
+      width: 240px;
+      height: calc(100vh - 64px);
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-standard);
+      overflow-y: auto;
+      padding: var(--spacing-md) 0;
+      z-index: 99;
+    }
+    
+    .sidebar-group {
+      margin-bottom: var(--spacing-lg);
+      padding: 0 var(--spacing-md);
+    }
+    
+    .sidebar-group-title {
+      font-size: 11px;
+      font-weight: 510;
+      color: var(--fg-quaternary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: var(--spacing-xs) var(--spacing-md);
+      margin-bottom: var(--spacing-sm);
+    }
+    
+    .sidebar-link {
+      display: block;
+      padding: var(--spacing-sm) var(--spacing-md);
+      margin: 2px 0;
+      font-size: 13px;
+      font-weight: 510;
+      color: var(--fg-secondary);
+      text-decoration: none;
+      border-radius: var(--radius-md);
+      transition: all 150ms;
+      border-left: 3px solid transparent;
+      padding-left: calc(var(--spacing-md) - 3px);
+    }
+    
+    .sidebar-link:hover {
+      color: var(--fg-primary);
+      background: rgba(255,255,255,0.02);
+    }
+    
+    .sidebar-link.active {
+      color: var(--accent-violet);
+      background: rgba(113,112,255,0.12);
+      border-left: 3px solid var(--accent-violet);
+      padding-left: calc(var(--spacing-md) - 3px);
+    }
+    
+    /* ── Main Content Area ── */
+    .main-content {
+      margin-left: 240px;
+      padding: var(--spacing-xl) var(--spacing-xl);
+      min-height: calc(100vh - 64px);
+      background: var(--bg-marketing);
+    }
+    
+    /* ── Page Sections ── */
+    section[data-page] {
+      display: none;
+      width: 100%;
+      animation: fadeIn 150ms ease-in-out;
+    }
+    
+    section[data-page].is-active {
+      display: block;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    /* ── Page Container ── */
+    .page-container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-standard);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-2xl);
+      box-shadow: var(--shadow-ring);
+    }
+    
+    .page-header {
+      margin-bottom: var(--spacing-xl);
+      padding-bottom: var(--spacing-lg);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    
+    .page-header h1 {
+      font-size: 24px;
+      font-weight: 400;
+      color: var(--fg-primary);
+      letter-spacing: -0.288px;
+      line-height: 1.33;
+    }
+    
+    .page-header p {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--fg-quaternary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: var(--spacing-xs);
+    }
+    
+    /* ── Forms ── */
+    .form-section {
+      margin-bottom: var(--spacing-lg);
+    }
+    
+    .form-group {
+      margin-bottom: var(--spacing-lg);
+    }
+    
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 510;
+      color: var(--fg-primary);
+      letter-spacing: -0.13px;
+      margin-bottom: var(--spacing-sm);
+    }
+    
+    .form-label.required::after {
+      content: ' *';
+      color: var(--accent-violet);
+    }
+    
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 9px 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border-standard);
+      border-radius: var(--radius-md);
+      color: var(--fg-secondary);
+      font-family: var(--font-inter);
+      font-size: 14px;
+      font-weight: 400;
+      font-feature-settings: 'cv01', 'ss03';
+      transition: all 150ms;
+      outline: none;
+    }
+    
+    .form-input::placeholder, .form-textarea::placeholder {
+      color: var(--fg-quaternary);
+    }
+    
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: var(--accent-violet);
+      box-shadow: 0 0 0 1px rgba(113,112,255,0.2);
+    }
+    
+    .form-textarea {
+      resize: vertical;
+      min-height: 100px;
+      font-feature-settings: 'cv01', 'ss03';
+    }
+    
+    .form-select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23d0d6e0' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
+    }
+    
+    /* ── Radio & Checkbox ── */
+    .form-checkbox-group, .form-radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-sm);
+    }
+    
+    .form-checkbox-item, .form-radio-item {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+    }
+    
+    .form-checkbox-item input[type="checkbox"],
+    .form-radio-item input[type="radio"] {
+      width: 18px;
+      height: 18px;
+      appearance: none;
+      border: 1px solid var(--border-standard);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      background: rgba(255,255,255,0.02);
+      transition: all 150ms;
+    }
+    
+    .form-radio-item input[type="radio"] {
+      border-radius: 50%;
+    }
+    
+    .form-checkbox-item input[type="checkbox"]:checked,
+    .form-radio-item input[type="radio"]:checked {
+      background: var(--accent-violet);
+      border-color: var(--accent-violet);
+    }
+    
+    .form-checkbox-item label, .form-radio-item label {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--fg-secondary);
+      cursor: pointer;
+      line-height: 1.5;
+    }
+    
+    /* ── Buttons ── */
+    .button-bar {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--spacing-md);
+      margin-top: var(--spacing-2xl);
+      padding-top: var(--spacing-lg);
+      border-top: 1px solid var(--border-subtle);
+    }
+    
+    .button-bar-left {
+      display: flex;
+      gap: var(--spacing-sm);
+    }
+    
+    .button-bar-right {
+      display: flex;
+      gap: var(--spacing-sm);
+    }
+    
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--spacing-sm);
+      padding: 8px 16px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border-secondary);
+      color: var(--fg-secondary);
+      font-family: var(--font-inter);
+      font-size: 14px;
+      font-weight: 510;
+      font-feature-settings: 'cv01', 'ss03';
+      letter-spacing: -0.13px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 150ms;
+      text-decoration: none;
+      outline: none;
+    }
+    
+    .btn:hover:not(:disabled) {
+      background: rgba(255,255,255,0.04);
+      border-color: var(--border-tertiary);
+      color: var(--fg-primary);
+    }
+    
+    .btn:active:not(:disabled) {
+      transform: scale(0.99);
+    }
+    
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .btn-primary {
+      background: var(--accent-brand);
+      border-color: var(--accent-brand);
+      color: #ffffff;
+    }
+    
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+    
+    .btn-secondary {
+      background: rgba(255,255,255,0.02);
+      border-color: var(--border-standard);
+      color: var(--fg-secondary);
+    }
+    
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255,255,255,0.04);
+      border-color: var(--border-tertiary);
+      color: var(--fg-primary);
+    }
+    
+    .btn-danger {
+      background: rgba(255,255,255,0.02);
+      border-color: var(--border-standard);
+      color: var(--fg-secondary);
+    }
+    
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(220, 38, 38, 0.1);
+      border-color: #dc2626;
+      color: #fca5a5;
+    }
+    
+    /* ── Quote Box ── */
+    .quote-box {
+      margin-top: var(--spacing-xl);
+      padding: var(--spacing-lg);
+      background: rgba(255,255,255,0.01);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      border-left: 3px solid transparent;
+      font-size: 13px;
+      font-weight: 400;
+      line-height: 1.6;
+      font-feature-settings: 'cv01', 'ss03';
+    }
+    
+    .quote-box.bold {
+      font-weight: 590;
+    }
+    
+    .quote-box.italic {
+      font-style: italic;
+    }
+    
+    .quote-box.bold-italic {
+      font-weight: 590;
+      font-style: italic;
+    }
+    
+    .quote-box.underlined {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    
+    .quote-box.uppercase {
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    
+    .quote-box.small-caps {
+      font-variant: small-caps;
+      letter-spacing: 0.02em;
+    }
+    
+    .quote-box.monospace {
+      font-family: var(--font-mono);
+    }
+    
+    .quote-box.letter-spaced {
+      letter-spacing: 0.12em;
+    }
+    
+    .quote-box.strikethrough {
+      text-decoration: line-through;
+    }
+    
+    .quote-box.oblique {
+      font-style: oblique;
+    }
+    
+    /* ── Error & Validation ── */
+    .error-message {
+      display: block;
+      font-size: 12px;
+      color: #fca5a5;
+      margin-top: 4px;
+      margin-left: var(--spacing-xs);
+    }
+    
+    .form-input.error, .form-select.error, .form-textarea.error {
+      border-color: #dc2626;
+      background: rgba(220, 38, 38, 0.05);
+    }
+    
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .sidebar {
+        display: none;
+      }
+      
+      .main-content {
+        margin-left: 0;
+        padding: var(--spacing-md);
+      }
+      
+      .page-container {
+        padding: var(--spacing-lg);
+      }
+      
+      .topbar {
+        padding: 0 var(--spacing-md);
+        height: 56px;
+      }
+      
+      .topbar .nav-info {
+        display: none;
+      }
+      
+      .button-bar {
+        flex-direction: column-reverse;
+      }
+    }
+    
+    /* ── Utilities ── */
+    .flex {
+      display: flex;
+    }
+    
+    .items-center {
+      align-items: center;
+    }
+    
+    .justify-between {
+      justify-content: space-between;
+    }
+    
+    .gap-sm {
+      gap: var(--spacing-sm);
+    }
+    
+    .gap-md {
+      gap: var(--spacing-md);
+    }
+    
+    .mt-md {
+      margin-top: var(--spacing-md);
+    }
+    
+    .mb-md {
+      margin-bottom: var(--spacing-md);
+    }
+    
+    /* ── Landing Page ── */
+    .landing-container {
+      max-width: 600px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    
+    .landing-title {
+      font-size: 32px;
+      font-weight: 590;
+      color: var(--fg-primary);
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .landing-subtitle {
+      font-size: 16px;
+      color: var(--fg-secondary);
+      margin-bottom: var(--spacing-2xl);
+    }
+    
+    .journey-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-lg);
+    }
+    
+    .journey-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-standard);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-lg);
+      text-align: left;
+      transition: all 150ms;
+    }
+    
+    .journey-card:hover {
+      background: rgba(255,255,255,0.02);
+      border-color: var(--border-tertiary);
+    }
+    
+    .journey-card h3 {
+      font-size: 18px;
+      font-weight: 510;
+      color: var(--fg-primary);
+      margin-bottom: var(--spacing-xs);
+    }
+    
+    .journey-card p {
+      font-size: 14px;
+      color: var(--fg-tertiary);
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .journey-card-link {
+      display: inline-block;
+      padding: 8px 16px;
+      background: var(--accent-brand);
+      color: #ffffff;
+      border-radius: var(--radius-md);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 510;
+      transition: all 150ms;
+    }
+    
+    .journey-card-link:hover {
+      background: var(--accent-hover);
+    }
+    
+    /* ── Page Description ── */
+    .page-purpose {
+      font-size: 14px;
+      color: var(--fg-secondary);
+      margin-bottom: var(--spacing-lg);
+      padding: var(--spacing-md);
+      background: rgba(255,255,255,0.01);
+      border-left: 3px solid var(--accent-violet);
+      border-radius: var(--radius-md);
+    }
+    
+    /* ── Step Indicator ── */
+    .step-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--spacing-sm);
+      font-size: 12px;
+      color: var(--fg-tertiary);
+      margin-bottom: var(--spacing-lg);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    
+    .step-indicator-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--accent-violet);
+      border-radius: 50%;
+    }
+    
+    /* ── Navigation Footer ── */
+    .nav-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: var(--spacing-2xl);
+      padding-top: var(--spacing-lg);
+      border-top: 1px solid var(--border-subtle);
+      gap: var(--spacing-md);
+    }
+    
+    .nav-footer-left, .nav-footer-right {
+      flex: 1;
+    }
+    
+    .nav-footer-left {
+      text-align: left;
+    }
+    
+    .nav-footer-right {
+      text-align: right;
+    }
+    
+    .nav-footer-center {
+      flex: 1;
+      text-align: center;
+      font-size: 12px;
+      color: var(--fg-tertiary);
+    }
+  </style>
+  
+  <script>
+    /* ── SHARED STATE MANAGEMENT ── */
+    const state = {};
+    
+    function saveState(key, value) {
+      state[key] = value;
+      sessionStorage.setItem('chroma_' + key, JSON.stringify(value));
+    }
+    
+    function getState(key) {
+      if (key in state) return state[key];
+      const stored = sessionStorage.getItem('chroma_' + key);
+      if (stored) {
+        state[key] = JSON.parse(stored);
+        return state[key];
+      }
+      return null;
+    }
+    
+    function clearAllState() {
+      Object.keys(state).forEach(key => delete state[key]);
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.startsWith('chroma_')) sessionStorage.removeItem(key);
+      });
+    }
+    
+    function resetCurrentScreen() {
+      // Clears form fields on current screen without affecting state from other screens
+      // Called per-screen; implementation left to screen builders
+    }
+    
+    /* ── VALIDATION HELPERS ── */
+    function validateEffectiveDate(date) {
+      if (!date) return false;
+      const d = new Date(date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return d >= today;
+    }
+    
+    function validateNumeric(value) {
+      return value && !isNaN(parseFloat(value)) && isFinite(value);
+    }
+    
+    function validateYear(year) {
+      if (!validateNumeric(year)) return false;
+      const y = parseInt(year);
+      const currentYear = new Date().getFullYear();
+      return y >= 1980 && y <= currentYear;
+    }
+    
+    function validateDeductibleVsLiability(deductible, liabilityLimit) {
+      const deductibleMap = { '$250': 250, '$500': 500, '$1,000': 1000 };
+      const liabilityMap = { '$50,000': 50000, '$100,000': 100000, '$300,000': 300000, '$500,000': 500000 };
+      
+      const d = deductibleMap[deductible];
+      const l = liabilityMap[liabilityLimit];
+      return (d && l && d < l);
+    }
+    
+    function validateCardNumber(cardNumber) {
+      if (!cardNumber) return false;
+      return /^\d{16}$/.test(cardNumber.replace(/\s/g, ''));
+    }
+    
+    function validateCVV(cvv) {
+      if (!cvv) return false;
+      return /^\d{3}$/.test(cvv);
+    }
+    
+    function validateEmail(email) {
+      if (!email) return false;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      return emailRegex.test(email);
+    }
+    
+    function validateESignatureMatches(eSignature, clientName) {
+      if (!eSignature || !clientName) return false;
+      return eSignature.trim().toLowerCase() === clientName.trim().toLowerCase();
+    }
+    
+    /* ── NAVIGATION ── */
+    function navigateTo(screenId) {
+      window.location.hash = '#/' + screenId;
+    }
+    
+    function goBack() {
+      // Navigate backward in sequence; implementation in screen logic
+      window.history.back();
+    }
+    
+    /* ── UI / FORMATTING ── */
+    function formatCurrency(amount) {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }).format(amount);
+    }
+    
+    function formatDate(date) {
+      if (!date) return '';
+      const d = new Date(date);
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${month}/${day}/${year}`;
+    }
+    
+    function applyQuoteTextStyling(text, styleName, color) {
+      const classMap = {
+        'bold': 'bold',
+        'italic': 'italic',
+        'bold italic': 'bold-italic',
+        'underlined': 'underlined',
+        'uppercase': 'uppercase',
+        'small caps': 'small-caps',
+        'monospace': 'monospace',
+        'letter-spaced': 'letter-spaced',
+        'strikethrough': 'strikethrough',
+        'oblique': 'oblique'
+      };
+      return classMap[styleName] || '';
+    }
+    
+    function renderQuoteBox(screenId, quoteText, styling, color) {
+      const classList = applyQuoteTextStyling(quoteText, styling, color);
+      const quoteBox = document.createElement('div');
+      quoteBox.className = 'quote-box ' + classList;
+      quoteBox.textContent = quoteText;
+      quoteBox.style.borderLeftColor = color;
+      quoteBox.style.color = color;
+      return quoteBox;
+    }
+    
+    /* ── CONDITIONAL FIELD MANAGEMENT ── */
+    function showConditionalField(fieldId, condition) {
+      const field = document.getElementById(fieldId);
+      if (!field) return;
+      const container = field.closest('.form-group') || field.parentElement;
+      if (condition) {
+        container.style.display = 'block';
+      } else {
+        container.style.display = 'none';
+      }
+    }
+    
+    function validateConditionalFields(screenId) {
+      // Validates only visible mandatory fields; implementation per screen
+      return true;
+    }
+    
+    /* ── ROUTER ── */
+    const routes = {
+      "0": "0",
+      "1": "1",
+      "2": "2",
+      "3": "3",
+      "4": "4",
+      "5": "5",
+      "6": "6",
+      "7": "7",
+      "8": "8",
+      "9": "9",
+      "10": "10"
+    };
+    
+    const screenTitles = {
+      "0": "Chroma Quote Workbench",
+      "1": "Screen 1: Anchor",
+      "2": "Screen 2: Beacon",
+      "3": "Screen 3: Kindle",
+      "4": "Screen 4: Lantern",
+      "5": "Screen 5: Umbra",
+      "6": "Screen 6: Vellum",
+      "7": "Screen 7: Furrow",
+      "8": "Screen 8: Gossamer",
+      "9": "Screen 9: Plinth",
+      "10": "Screen 10: Quill"
+    };
+    
+    const screenModules = {
+      "0": "Home",
+      "1": "Chroma Quote Workbench — Module: Crimson",
+      "2": "Chroma Quote Workbench — Module: Crimson",
+      "3": "Chroma Quote Workbench — Module: Amber",
+      "4": "Chroma Quote Workbench — Module: Amber",
+      "5": "Chroma Quote Workbench — Module: Verdant",
+      "6": "Chroma Quote Workbench — Module: Verdant",
+      "7": "Chroma Quote Workbench — Module: Azure",
+      "8": "Chroma Quote Workbench — Module: Azure",
+      "9": "Chroma Quote Workbench — Module: Violet",
+      "10": "Chroma Quote Workbench — Module: Violet"
+    };
+    
+    function showPage(pageId) {
+      const resolvedId = routes[pageId];
+      if (!resolvedId) return;
+      
+      // Hide all sections
+      document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
+      
+      // Show requested section
+      const page = document.querySelector('section[data-page="' + resolvedId + '"]');
+      if (page) {
+        page.classList.add('is-active');
+        
+        // Update topbar
+        const screenTitle = document.querySelector('.screen-title');
+        const screenModule = document.querySelector('.screen-module');
+        if (screenTitle) screenTitle.textContent = screenTitles[resolvedId];
+        if (screenModule) screenModule.textContent = screenModules[resolvedId];
+        
+        // Update nav links
+        document.querySelectorAll('.sidebar-link').forEach(link => link.classList.remove('active'));
+        document.querySelector('.sidebar-link[href="#/' + resolvedId + '"]')?.classList.add('active');
+      }
+    }
+    
+    function handleRouteChange() {
+      const hash = window.location.hash.replace(/^#\/?/, '') || '0';
+      showPage(hash);
+    }
+    
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('load', handleRouteChange);
+    
+    // Delegated click handler for nav links
+    document.addEventListener('click', function(e) {
+      const link = e.target.closest('a[href^="#/"]');
+      if (link) {
+        e.preventDefault();
+        const pageId = link.getAttribute('href').slice(2);
+        showPage(pageId);
+        window.location.hash = '#/' + pageId;
+      }
+    });
+  </script>
+</head>
+<body>
+  <!-- ── TOPBAR ── -->
+  <div class="topbar">
+    <div class="logo">
+      <span class="logo-subtitle">Chroma</span><br>
+      Quote Workbench
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="nav-info">
+      <div class="screen-title">Screen 1: Anchor</div>
+      <div class="screen-module">Chroma Quote Workbench — Module: Crimson</div>
+    </div>
+  </div>
+  
+  <!-- ── SIDEBAR NAVIGATION ── -->
+  <nav class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">Crimson: Quote Initiation</div>
+      <a href="#/1" class="sidebar-link active">Screen 1: Anchor</a>
+      <a href="#/2" class="sidebar-link">Screen 2: Beacon</a>
+    </div>
+    
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">Amber: Applicant & Asset</div>
+      <a href="#/3" class="sidebar-link">Screen 3: Kindle</a>
+      <a href="#/4" class="sidebar-link">Screen 4: Lantern</a>
+    </div>
+    
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">Verdant: Risk & Discounts</div>
+      <a href="#/5" class="sidebar-link">Screen 5: Umbra</a>
+      <a href="#/6" class="sidebar-link">Screen 6: Vellum</a>
+    </div>
+    
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">Azure: Premium & Review</div>
+      <a href="#/7" class="sidebar-link">Screen 7: Furrow</a>
+      <a href="#/8" class="sidebar-link">Screen 8: Gossamer</a>
+    </div>
+    
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">Violet: Payment & Confirm</div>
+      <a href="#/9" class="sidebar-link">Screen 9: Plinth</a>
+      <a href="#/10" class="sidebar-link">Screen 10: Quill</a>
+    </div>
+  </nav>
+  
+  <!-- ── MAIN CONTENT ── -->
+  <div class="main-content">
+    <!-- ── PAGE 0: LANDING ── -->
+    <section data-page="0" class="is-active">
+      <div class="main-content">
+        <div class="landing-container">
+          <h1 class="landing-title">Chroma Quote Workbench</h1>
+          <p class="landing-subtitle">Select a module to begin or continue your insurance quote.</p>
+          
+          <div class="journey-list">
+            <div class="journey-card">
+              <h3>Crimson: Quote Initiation</h3>
+              <p>Start a new insurance quote by capturing the client and policy basics, then confirm coverage limits and add-ons.</p>
+              <a href="#/1" class="journey-card-link">Start Crimson Journey →</a>
+            </div>
+            
+            <div class="journey-card">
+              <h3>Amber: Applicant & Asset</h3>
+              <p>Capture applicant personal details and details of the vehicle or property being insured.</p>
+              <a href="#/3" class="journey-card-link">Start Amber Journey →</a>
+            </div>
+            
+            <div class="journey-card">
+              <h3>Verdant: Risk & Discounts</h3>
+              <p>Run a risk questionnaire covering claims history and offer available discounts before premium calculation.</p>
+              <a href="#/5" class="journey-card-link">Start Verdant Journey →</a>
+            </div>
+            
+            <div class="journey-card">
+              <h3>Azure: Premium & Review</h3>
+              <p>Summarise the calculated premium and payment cadence, and review the complete quote details.</p>
+              <a href="#/7" class="journey-card-link">Start Azure Journey →</a>
+            </div>
+            
+            <div class="journey-card">
+              <h3>Violet: Payment & Confirm</h3>
+              <p>Collect payment details to finalise the purchase, then confirm the transaction and provide confirmation.</p>
+              <a href="#/9" class="journey-card-link">Start Violet Journey →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    
+    <!-- ── PAGE 1: ANCHOR ── -->
+    <section data-page="1">
+<div class="page-container">
+  <div class="page-header">
+    <h1>Screen 1: Anchor</h1>
+    <p class="page-subtitle">Chroma Quote Workbench — Module: Crimson</p>
+  </div>
+  
+  <div class="step-indicator">
+    <span>Step 1 of 2</span>
+    <span class="step-indicator-dot"></span>
+    <span>Crimson: Quote Initiation</span>
+  </div>
+  
+  <div class="page-purpose">
+    Starts a new insurance quote by capturing the client and policy basics.
+  </div>
+
+  <div class="content-wrap">
+    <div class="form-card">
+      <h2 class="form-title">Start a New Insurance Quote</h2>
+      <p class="form-description">Capture the client and policy basics to begin the quotation process.</p>
+
+      <form id="anchor-form">
+        <!-- Client Name -->
+        <div class="form-group">
+          <label for="anchor-clientName" class="form-label">
+            Client Name <span class="required">*</span>
+          </label>
+          <input
+            type="text"
+            id="anchor-clientName"
+            class="form-input"
+            placeholder="Enter client name"
+            aria-required="true"
+          />
+          <span class="form-error" id="anchor-error-clientName"></span>
+        </div>
+
+        <!-- Policy Type -->
+        <div class="form-group">
+          <label for="anchor-policyType" class="form-label">
+            Policy Type <span class="required">*</span>
+          </label>
+          <select id="anchor-policyType" class="form-select" aria-required="true">
+            <option value="">— Select a policy type —</option>
+            <option value="Auto">Auto</option>
+            <option value="Home">Home</option>
+            <option value="Renters">Renters</option>
+            <option value="Umbrella">Umbrella</option>
+          </select>
+          <span class="form-error" id="anchor-error-policyType"></span>
+        </div>
+
+        <!-- Effective Date -->
+        <div class="form-group">
+          <label for="anchor-effectiveDate" class="form-label">
+            Effective Date <span class="required">*</span>
+          </label>
+          <input
+            type="date"
+            id="anchor-effectiveDate"
+            class="form-input"
+            aria-required="true"
+          />
+          <span class="form-error" id="anchor-error-effectiveDate"></span>
+        </div>
+
+        <!-- Notes -->
+        <div class="form-group">
+          <label for="anchor-notes" class="form-label">Notes</label>
+          <textarea
+            id="anchor-notes"
+            class="form-textarea"
+            placeholder="Enter any additional notes (optional)"
+            rows="4"
+          ></textarea>
+        </div>
+
+        <!-- Quote Text -->
+        <div class="quote-box">
+          <p class="quote-text">An anchor is only useful when you know the depth.</p>
+        </div>
+
+        <!-- Buttons -->
+        <div class="form-buttons">
+          <button
+            type="button"
+            id="anchor-cancelBtn"
+            class="btn btn-secondary"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            id="anchor-beginBtn"
+            class="btn btn-primary"
+            disabled
+          >
+            Begin Quote
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      <a href="#/0" class="btn btn-secondary">← Back to Home</a>
+    </div>
+    <div class="nav-footer-center">
+      <span>1 of 2</span>
+    </div>
+    <div class="nav-footer-right">
+      <button type="button" id="anchor-nextBtn" class="btn btn-primary" style="cursor: pointer;" onclick="location.hash='#/2'">Next Screen →</button>
+    </div>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 2: BEACON ── -->
+    <section data-page="2">
+<div class="page-header">
+  <h1 class="page-title">Screen 2: Beacon</h1>
+  <p class="page-subtitle">Chroma Quote Workbench — Module: Crimson</p>
+</div>
+
+<div class="step-indicator">
+  <span>Step 2 of 2</span>
+  <span class="step-indicator-dot"></span>
+  <span>Crimson: Quote Initiation</span>
+</div>
+
+<div class="page-purpose">
+  Confirms the coverage limits and optional add-ons for the quote.
+</div>
+
+<div class="container">
+  <div class="grid-2">
+    <!-- Form Column -->
+    <div>
+      <form id="beacon-form">
+        <div class="form-group">
+          <label for="beacon-liability" class="form-label">Liability Limit *</label>
+          <select id="beacon-liability" class="form-select" required>
+            <option value="">-- Select Liability Limit --</option>
+            <option value="$50,000">$50,000</option>
+            <option value="$100,000">$100,000</option>
+            <option value="$300,000">$300,000</option>
+            <option value="$500,000">$500,000</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="beacon-deductible" class="form-label">Deductible *</label>
+          <select id="beacon-deductible" class="form-input" required>
+            <option value="">-- Select Deductible --</option>
+            <option value="$250">$250</option>
+            <option value="$500">$500</option>
+            <option value="$1,000">$1,000</option>
+          </select>
+          <div id="beacon-deductible-error" style="display: none; color: #dc2626; font-size: 13px; margin-top: 4px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" id="beacon-roadside" class="form-checkbox" />
+            Add Roadside Assistance
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" id="beacon-rental" class="form-checkbox" />
+            Add Rental Reimbursement
+          </label>
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-top: 32px;">
+          <a href="#/1" class="btn btn-secondary">Back</a>
+          <button type="button" id="beacon-continue" class="btn btn-primary" disabled>Continue</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Quote Column -->
+    <div style="display: flex; align-items: center; justify-content: center; padding: 40px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
+      <p style="font-style: italic; color: #943022; font-size: 18px; text-align: center; line-height: 1.6;">
+        "A beacon does not move; it simply refuses to go out."
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const form = document.getElementById('beacon-form');
+  const liabilityInput = document.getElementById('beacon-liability');
+  const deductibleInput = document.getElementById('beacon-deductible');
+  const roadsideCheckbox = document.getElementById('beacon-roadside');
+  const rentalCheckbox = document.getElementById('beacon-rental');
+  const continueBtn = document.getElementById('beacon-continue');
+  const deductibleError = document.getElementById('beacon-deductible-error');
+
+  // Load saved state on page load
+  if (form) {
+    const savedLiability = getState('liabilityLimit');
+    const savedDeductible = getState('deductible');
+    const savedRoadside = getState('roadsideAssistance');
+    const savedRental = getState('rentalReimbursement');
+
+    if (savedLiability) liabilityInput.value = savedLiability;
+    if (savedDeductible) deductibleInput.value = savedDeductible;
+    if (savedRoadside) roadsideCheckbox.checked = true;
+    if (savedRental) rentalCheckbox.checked = true;
+
+    updateContinueButton();
+  }
+
+  function getState(key) {
+    if (window.appState && window.appState[key] !== undefined) {
+      return window.appState[key];
+    }
+    return null;
+  }
+
+  function updateContinueButton() {
+    const liability = liabilityInput.value.trim();
+    const deductible = deductibleInput.value.trim();
+    
+    // Cross-field validation: Deductible must be lower than Liability Limit
+    const liabilityMap = {
+      '$50,000': 50000,
+      '$100,000': 100000,
+      '$300,000': 300000,
+      '$500,000': 500000
+    };
+    const deductibleMap = {
+      '$250': 250,
+      '$500': 500,
+      '$1,000': 1000
+    };
+
+    const isValid = liability && deductible;
+    let showError = false;
+
+    if (isValid) {
+      const liabilityValue = liabilityMap[liability];
+      const deductibleValue = deductibleMap[deductible];
+      if (deductibleValue >= liabilityValue) {
+        showError = true;
+      }
+    }
+
+    if (showError) {
+      deductibleError.textContent = 'Deductible must be lower than Liability Limit';
+      deductibleError.style.display = 'block';
+      continueBtn.disabled = true;
+    } else {
+      deductibleError.style.display = 'none';
+      continueBtn.disabled = !isValid;
+    }
+
+    if (isValid && !showError) {
+      saveState('liabilityLimit', liability);
+      saveState('deductible', deductible);
+      saveState('roadsideAssistance', roadsideCheckbox.checked);
+      saveState('rentalReimbursement', rentalCheckbox.checked);
+    }
+  }
+
+  function saveState(key, value) {
+    if (!window.appState) window.appState = {};
+    window.appState[key] = value;
+  }
+
+  // Event listeners
+  liabilityInput.addEventListener('change', updateContinueButton);
+  deductibleInput.addEventListener('change', updateContinueButton);
+  roadsideCheckbox.addEventListener('change', updateContinueButton);
+  rentalCheckbox.addEventListener('change', updateContinueButton);
+
+  continueBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    
+    // Validate cross-field rule
+    const liability = liabilityInput.value.trim();
+    const deductible = deductibleInput.value.trim();
+    
+    if (!liability || !deductible) {
+      return;
+    }
+
+    const liabilityMap = {
+      '$50,000': 50000,
+      '$100,000': 100000,
+      '$300,000': 300000,
+      '$500,000': 500000
+    };
+
+    const deductibleMap = {
+      '$250': 250,
+      '$500': 500,
+      '$1,000': 1000
+    };
+
+    const liabilityNum = liabilityMap[liability];
+    const deductibleNum = deductibleMap[deductible];
+
+    if (deductibleNum >= liabilityNum) {
+      deductibleError.textContent = 'Deductible must be lower than Liability Limit';
+      deductibleError.style.display = 'block';
+      return;
+    }
+
+    // Save state and navigate
+    saveState('liabilityLimit', liability);
+    saveState('deductible', deductible);
+    saveState('roadsideAssistance', roadsideCheckbox.checked);
+    saveState('rentalReimbursement', rentalCheckbox.checked);
+    
+    location.hash = '#/3';
+  });
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/1" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">2 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/3'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    
+    <!-- ── PAGE 3: KINDLE ── -->
+    <section data-page="3">
+<div class="page-container">
+  <div class="page-header">
+    <h1 class="page-title">Screen 3: Kindle</h1>
+    <p class="page-subtitle">Chroma Quote Workbench — Module: Amber</p>
+  </div>
+  
+  <div class="step-indicator">
+    <span>Step 1 of 2</span>
+    <span class="step-indicator-dot"></span>
+    <span>Amber: Applicant & Asset</span>
+  </div>
+  
+  <div class="page-purpose">
+    Captures the applicant's personal details for underwriting.
+  </div>
+
+  <div class="form-container">
+    <form id="kindle-form">
+      <div class="form-group">
+        <label for="kindle-date-of-birth" class="form-label">
+          Date of Birth
+          <span class="form-required">*</span>
+        </label>
+        <input 
+          type="date" 
+          id="kindle-date-of-birth" 
+          class="form-input"
+          required
+        />
+        <div id="kindle-date-of-birth-error" class="form-error"></div>
+      </div>
+
+      <div class="form-group">
+        <label for="kindle-marital-status" class="form-label">
+          Marital Status
+          <span class="form-required">*</span>
+        </label>
+        <select 
+          id="kindle-marital-status" 
+          class="form-input form-select"
+          required
+        >
+          <option value="">Select marital status</option>
+          <option value="Single">Single</option>
+          <option value="Married">Married</option>
+          <option value="Divorced">Divorced</option>
+          <option value="Widowed">Widowed</option>
+        </select>
+        <div id="kindle-marital-status-error" class="form-error"></div>
+      </div>
+
+      <div class="form-group">
+        <label for="kindle-prior-insurance-carrier" class="form-label">
+          Prior Insurance Carrier
+        </label>
+        <input 
+          type="text" 
+          id="kindle-prior-insurance-carrier" 
+          class="form-input"
+        />
+        <div id="kindle-prior-insurance-carrier-error" class="form-error"></div>
+      </div>
+
+      <div class="form-group">
+        <label for="kindle-years-licensed" class="form-label">
+          Years Licensed
+          <span class="form-required">*</span>
+        </label>
+        <input 
+          type="text" 
+          id="kindle-years-licensed" 
+          class="form-input"
+          placeholder="Enter numeric value"
+          required
+        />
+        <div id="kindle-years-licensed-error" class="form-error"></div>
+      </div>
+    </form>
+
+    <div id="kindle-quote-box" class="quote-box" style="margin-top: 32px; color: #7D9422; text-transform: uppercase;"></div>
+  </div>
+
+  <div class="button-bar">
+    <button class="btn btn-secondary" id="kindle-back-btn">
+      ← Back
+    </button>
+    <button class="btn btn-primary" id="kindle-next-btn" disabled>
+      Next →
+    </button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const formEl = document.getElementById('kindle-form');
+  const backBtn = document.getElementById('kindle-back-btn');
+  const nextBtn = document.getElementById('kindle-next-btn');
+  
+  const dateOfBirthInput = document.getElementById('kindle-date-of-birth');
+  const maritalStatusInput = document.getElementById('kindle-marital-status');
+  const priorInsuranceInput = document.getElementById('kindle-prior-insurance-carrier');
+  const yearsLicensedInput = document.getElementById('kindle-years-licensed');
+  
+  const dateOfBirthError = document.getElementById('kindle-date-of-birth-error');
+  const maritalStatusError = document.getElementById('kindle-marital-status-error');
+  const priorInsuranceError = document.getElementById('kindle-prior-insurance-carrier-error');
+  const yearsLicensedError = document.getElementById('kindle-years-licensed-error');
+
+  // Render quote box
+  function renderQuoteBox() {
+    const quoteBox = document.getElementById('kindle-quote-box');
+    const quoteText = 'YOU CANNOT KINDLE WHAT YOU WILL NOT GATHER.';
+    quoteBox.textContent = quoteText;
+    quoteBox.style.textTransform = 'uppercase';
+    quoteBox.style.color = '#7D9422';
+    quoteBox.style.fontStyle = 'normal';
+    quoteBox.style.fontWeight = 'normal';
+    quoteBox.style.textDecoration = 'none';
+    quoteBox.style.padding = '16px';
+    quoteBox.style.border = '1px solid rgba(125, 148, 34, 0.2)';
+    quoteBox.style.borderRadius = '6px';
+    quoteBox.style.backgroundColor = 'rgba(125, 148, 34, 0.05)';
+    quoteBox.style.fontFamily = 'monospace';
+    quoteBox.style.fontSize = '14px';
+    quoteBox.style.lineHeight = '1.5';
+  }
+
+  // Clear error messages
+  function clearErrors() {
+    dateOfBirthError.textContent = '';
+    maritalStatusError.textContent = '';
+    priorInsuranceError.textContent = '';
+    yearsLicensedError.textContent = '';
+  }
+
+  // Validate Years Licensed is numeric
+  function validateYearsLicensed(value) {
+    return /^\d+$/.test(value.trim());
+  }
+
+  // Validate form
+  function validateForm() {
+    clearErrors();
+    let isValid = true;
+
+    // Check mandatory fields
+    if (!dateOfBirthInput.value) {
+      dateOfBirthError.textContent = 'Date of Birth is required';
+      isValid = false;
+    }
+
+    if (!maritalStatusInput.value) {
+      maritalStatusError.textContent = 'Marital Status is required';
+      isValid = false;
+    }
+
+    if (!yearsLicensedInput.value) {
+      yearsLicensedError.textContent = 'Years Licensed is required';
+      isValid = false;
+    } else if (!validateYearsLicensed(yearsLicensedInput.value)) {
+      yearsLicensedError.textContent = 'Years Licensed must be numeric';
+      isValid = false;
+    }
+
+    return isValid;
+  }
+
+  // Update Next button state
+  function updateButtonState() {
+    const allMandatoryFilled = 
+      dateOfBirthInput.value && 
+      maritalStatusInput.value && 
+      yearsLicensedInput.value;
+    
+    nextBtn.disabled = !allMandatoryFilled;
+  }
+
+  // Load saved state
+  function loadState() {
+    const saved = {
+      dateOfBirth: getState ? getState('dateOfBirth') : null,
+      maritalStatus: getState ? getState('maritalStatus') : null,
+      priorInsuranceCarrier: getState ? getState('priorInsuranceCarrier') : null,
+      yearsLicensed: getState ? getState('yearsLicensed') : null
+    };
+
+    if (saved.dateOfBirth) dateOfBirthInput.value = saved.dateOfBirth;
+    if (saved.maritalStatus) maritalStatusInput.value = saved.maritalStatus;
+    if (saved.priorInsuranceCarrier) priorInsuranceInput.value = saved.priorInsuranceCarrier;
+    if (saved.yearsLicensed) yearsLicensedInput.value = saved.yearsLicensed;
+
+    updateButtonState();
+  }
+
+  // Save state
+  function saveState() {
+    if (typeof saveState_fn !== 'undefined') {
+      saveState_fn('dateOfBirth', dateOfBirthInput.value);
+      saveState_fn('maritalStatus', maritalStatusInput.value);
+      saveState_fn('priorInsuranceCarrier', priorInsuranceInput.value);
+      saveState_fn('yearsLicensed', yearsLicensedInput.value);
+    }
+  }
+
+  // Event listeners
+  dateOfBirthInput.addEventListener('change', updateButtonState);
+  maritalStatusInput.addEventListener('change', updateButtonState);
+  yearsLicensedInput.addEventListener('input', updateButtonState);
+
+  // Back button
+  backBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    saveState();
+    navigateTo('2');
+  });
+
+  // Next button
+  nextBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (validateForm()) {
+      saveState();
+      navigateTo('4');
+    }
+  });
+
+  // Initialize
+  renderQuoteBox();
+  loadState();
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/2" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">1 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/4'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 4: LANTERN ── -->
+    <section data-page="4">
+<div class="page-container">
+  <div class="page-header">
+    <h1>Screen 4: Lantern</h1>
+    <p class="page-subtitle">Chroma Quote Workbench — Module: Amber</p>
+  </div>
+  
+  <div class="step-indicator">
+    <span>Step 2 of 2</span>
+    <span class="step-indicator-dot"></span>
+    <span>Amber: Applicant & Asset</span>
+  </div>
+  
+  <div class="page-purpose">
+    Records the vehicle or property being insured.
+  </div>
+
+  <form id="screen-4-form" class="form-content">
+    <!-- Asset Type: Radio Buttons -->
+    <div class="form-group">
+      <label class="form-label">Asset Type <span class="required">*</span></label>
+      <div class="radio-group" id="4-asset-type-group">
+        <label class="radio-label">
+          <input type="radio" name="asset-type" value="Vehicle" id="4-asset-type-vehicle" required>
+          <span>Vehicle</span>
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="asset-type" value="Property" id="4-asset-type-property" required>
+          <span>Property</span>
+        </label>
+      </div>
+      <div class="error-message" id="4-asset-type-error"></div>
+    </div>
+
+    <!-- Year: Text Input -->
+    <div class="form-group">
+      <label for="4-year" class="form-label">Year <span class="required">*</span></label>
+      <input type="text" id="4-year" name="year" class="form-input" placeholder="e.g., 2020" required>
+      <div class="error-message" id="4-year-error"></div>
+    </div>
+
+    <!-- Make/Model: Text Input -->
+    <div class="form-group">
+      <label for="4-make-model" class="form-label">Make/Model <span class="required">*</span></label>
+      <input type="text" id="4-make-model" name="make-model" class="form-input" placeholder="e.g., Toyota Camry" required>
+      <div class="error-message" id="4-make-model-error"></div>
+    </div>
+
+    <!-- Safety Features: Checkboxes -->
+    <div class="form-group">
+      <label class="form-label">Safety Features</label>
+      <div class="checkbox-group" id="4-safety-features-group">
+        <label class="checkbox-label">
+          <input type="checkbox" name="safety-features" value="Anti-lock Brakes" id="4-safety-alb">
+          <span>Anti-lock Brakes</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" name="safety-features" value="Alarm" id="4-safety-alarm">
+          <span>Alarm</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" name="safety-features" value="Sprinkler System" id="4-safety-sprinkler">
+          <span>Sprinkler System</span>
+        </label>
+      </div>
+    </div>
+  </form>
+
+  <!-- Quote Box -->
+  <div class="quote-box" id="4-quote-box" style="color: #709422; font-variant: small-caps;">
+    A lantern lights the step, not the journey.
+  </div>
+
+  <!-- Navigation Buttons -->
+  <div class="button-group">
+    <button class="btn btn-secondary" id="4-back-btn" onclick="location.hash='#/3'">Back</button>
+    <button class="btn btn-primary" id="4-next-btn" disabled>Next</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  const screenId = '4';
+  const form = document.getElementById('screen-4-form');
+  const assetTypeRadios = document.querySelectorAll('input[name="asset-type"]');
+  const yearInput = document.getElementById('4-year');
+  const makeModelInput = document.getElementById('4-make-model');
+  const safetyCheckboxes = document.querySelectorAll('input[name="safety-features"]');
+  const nextBtn = document.getElementById('4-next-btn');
+  const backBtn = document.getElementById('4-back-btn');
+
+  // Load saved state on screen load
+  function loadState() {
+    const saved = window.getState || function(key) {
+      try {
+        return JSON.parse(sessionStorage.getItem(key));
+      } catch {
+        return null;
+      }
+    };
+
+    const assetType = saved('assetType');
+    if (assetType) {
+      const radio = document.querySelector('input[name="asset-type"][value="' + assetType + '"]');
+      if (radio) radio.checked = true;
+    }
+
+    const year = saved('assetYear');
+    if (year) yearInput.value = year;
+
+    const makeModel = saved('assetMakeModel');
+    if (makeModel) makeModelInput.value = makeModel;
+
+    const features = saved('safetyFeatures');
+    if (features && Array.isArray(features)) {
+      features.forEach(function(feature) {
+        const checkbox = document.querySelector('input[name="safety-features"][value="' + feature + '"]');
+        if (checkbox) checkbox.checked = true;
+      });
+    }
+
+    validateForm();
+  }
+
+  // Validation function
+  function validateForm() {
+    let isValid = true;
+
+    // Check Asset Type
+    const assetTypeSelected = Array.from(assetTypeRadios).some(r => r.checked);
+    const assetTypeError = document.getElementById('4-asset-type-error');
+    if (!assetTypeSelected) {
+      assetTypeError.textContent = 'Please select an asset type';
+      isValid = false;
+    } else {
+      assetTypeError.textContent = '';
+    }
+
+    // Check Year
+    const yearError = document.getElementById('4-year-error');
+    if (!yearInput.value.trim()) {
+      yearError.textContent = 'Year is required';
+      isValid = false;
+    } else if (!window.validateYear || !window.validateYear(yearInput.value)) {
+      yearError.textContent = 'Year must be between 1980 and current year';
+      isValid = false;
+    } else {
+      yearError.textContent = '';
+    }
+
+    // Check Make/Model
+    const makeModelError = document.getElementById('4-make-model-error');
+    if (!makeModelInput.value.trim()) {
+      makeModelError.textContent = 'Make/Model is required';
+      isValid = false;
+    } else {
+      makeModelError.textContent = '';
+    }
+
+    nextBtn.disabled = !isValid;
+    return isValid;
+  }
+
+  // Event listeners for real-time validation
+  assetTypeRadios.forEach(function(radio) {
+    radio.addEventListener('change', validateForm);
+  });
+  yearInput.addEventListener('input', validateForm);
+  yearInput.addEventListener('change', validateForm);
+  makeModelInput.addEventListener('input', validateForm);
+
+  // Next button handler
+  nextBtn.addEventListener('click', function() {
+    if (validateForm()) {
+      // Save state
+      const saveState = window.saveState || function(key, value) {
+        try {
+          sessionStorage.setItem(key, JSON.stringify(value));
+        } catch (e) {
+          console.error('Failed to save state:', e);
+        }
+      };
+
+      const selectedAsset = Array.from(assetTypeRadios).find(r => r.checked)?.value;
+      saveState('assetType', selectedAsset);
+      saveState('assetYear', yearInput.value);
+      saveState('assetMakeModel', makeModelInput.value);
+
+      const selectedFeatures = Array.from(safetyCheckboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+      saveState('safetyFeatures', selectedFeatures);
+
+      location.hash = '#/5';
+    }
+  });
+
+  // Back button is already wired via onclick
+  
+  // Initialize on load
+  loadState();
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/3" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">2 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/5'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 5: UMBRA ── -->
+    <section data-page="5">
+<div class="page-container">
+  <div class="page-header">
+    <h1 class="page-title">Screen 5: Umbra</h1>
+    <p class="page-subtitle">Chroma Quote Workbench — Module: Verdant</p>
+  </div>
+  
+  <div class="step-indicator">
+    <span>Step 1 of 2</span>
+    <span class="step-indicator-dot"></span>
+    <span>Verdant: Risk & Discounts</span>
+  </div>
+  
+  <div class="page-purpose">
+    Runs a short risk questionnaire covering claims history.
+  </div>
+
+  <form id="umbra-form">
+    <!-- Prior Claims in Last 5 Years -->
+    <div class="form-group">
+      <fieldset>
+        <legend class="form-label">Prior Claims in Last 5 Years <span class="form-required">*</span></legend>
+        <div class="form-radio-group">
+          <div class="form-radio-item">
+            <input type="radio" name="prior-claims" value="Yes" id="prior-claims-yes">
+            <label for="prior-claims-yes">Yes</label>
+          </div>
+          <div class="form-radio-item">
+            <input type="radio" name="prior-claims" value="No" id="prior-claims-no">
+            <label for="prior-claims-no">No</label>
+          </div>
+        </div>
+        <span id="prior-claims-error" class="error-message"></span>
+      </fieldset>
+    </div>
+
+    <!-- Claims Count (Conditional) -->
+    <div class="form-group hidden" id="claims-count-group">
+      <label for="claims-count" class="form-label">Claims Count <span class="form-required">*</span></label>
+      <input type="text" id="claims-count" name="claims-count" class="form-input" placeholder="Enter number of claims">
+      <span id="claims-count-error" class="error-message"></span>
+    </div>
+
+    <!-- Credit-Based Insurance Consent -->
+    <div class="form-group">
+      <div class="form-checkbox-item">
+        <input type="checkbox" id="credit-insurance-consent" name="credit-insurance-consent">
+        <label for="credit-insurance-consent">I consent to a credit-based insurance score check <span class="form-required">*</span></label>
+      </div>
+      <span id="credit-insurance-consent-error" class="error-message"></span>
+    </div>
+
+    <!-- Quote Box -->
+    <div class="quote-box monospace" style="color: #229450; border-left-color: #229450;">Umbra is not absence; it is proof of light.</div>
+  </form>
+</div>
+
+<!-- Button Bar -->
+<div class="button-bar">
+  <div class="button-bar-left">
+    <button class="btn btn-secondary" onclick="navigateTo('4')">Back</button>
+  </div>
+  <div class="button-bar-right">
+    <button class="btn btn-primary" id="next-btn" onclick="handleNextClick()">Next</button>
+  </div>
+</div>
+
+<style>
+  .hidden {
+    display: none;
+  }
+</style>
+
+<script>
+(function() {
+  const screenId = '5';
+  const form = document.getElementById('umbra-form');
+  const priorClaimsYes = document.getElementById('prior-claims-yes');
+  const priorClaimsNo = document.getElementById('prior-claims-no');
+  const claimsCountGroup = document.getElementById('claims-count-group');
+  const claimsCountInput = document.getElementById('claims-count');
+  const creditConsentCheckbox = document.getElementById('credit-insurance-consent');
+  const nextBtn = document.getElementById('next-btn');
+
+  // Load saved state
+  function loadState() {
+    const priorClaims = getState('priorClaims');
+    const claimsCount = getState('claimsCount');
+    const creditConsent = getState('creditConsent');
+
+    if (priorClaims === 'Yes') {
+      priorClaimsYes.checked = true;
+      claimsCountGroup.classList.remove('hidden');
+    } else if (priorClaims === 'No') {
+      priorClaimsNo.checked = true;
+      claimsCountGroup.classList.add('hidden');
+    }
+
+    if (claimsCount) {
+      claimsCountInput.value = claimsCount;
+    }
+
+    if (creditConsent) {
+      creditConsentCheckbox.checked = true;
+    }
+
+    updateButtonState();
+  }
+
+  // Handle radio button change to show/hide Claims Count
+  function handlePriorClaimsChange() {
+    if (priorClaimsYes.checked) {
+      claimsCountGroup.classList.remove('hidden');
+    } else if (priorClaimsNo.checked) {
+      claimsCountGroup.classList.add('hidden');
+      claimsCountInput.value = ''; // Clear if switching to No
+    }
+    clearErrorMessages();
+    updateButtonState();
+  }
+
+  priorClaimsYes.addEventListener('change', handlePriorClaimsChange);
+  priorClaimsNo.addEventListener('change', handlePriorClaimsChange);
+
+  // Update button state on input
+  claimsCountInput.addEventListener('input', updateButtonState);
+  creditConsentCheckbox.addEventListener('change', updateButtonState);
+
+  // Validate and save state
+  function handleNextClick() {
+    clearErrorMessages();
+    let isValid = true;
+
+    // Validate Prior Claims selection
+    if (!priorClaimsYes.checked && !priorClaimsNo.checked) {
+      document.getElementById('prior-claims-error').textContent = 'Please select Yes or No';
+      isValid = false;
+    }
+
+    // Validate Claims Count (only if Prior Claims = Yes)
+    if (priorClaimsYes.checked) {
+      const claimsCount = claimsCountInput.value.trim();
+      if (!claimsCount) {
+        document.getElementById('claims-count-error').textContent = 'Claims Count is required';
+        isValid = false;
+      } else if (!validateNumeric(claimsCount)) {
+        document.getElementById('claims-count-error').textContent = 'Claims Count must be numeric';
+        isValid = false;
+      }
+    }
+
+    // Validate Credit Consent checkbox
+    if (!creditConsentCheckbox.checked) {
+      document.getElementById('credit-insurance-consent-error').textContent = 'You must consent to proceed';
+      isValid = false;
+    }
+
+    if (isValid) {
+      // Save state
+      saveState('priorClaims', priorClaimsYes.checked ? 'Yes' : 'No');
+      if (priorClaimsYes.checked) {
+        saveState('claimsCount', claimsCountInput.value.trim());
+      } else {
+        saveState('claimsCount', null);
+      }
+      saveState('creditConsent', creditConsentCheckbox.checked);
+
+      // Navigate
+      navigateTo('6');
+    }
+  }
+
+  // Update button enabled/disabled state
+  function updateButtonState() {
+    const priorClaimsSelected = priorClaimsYes.checked || priorClaimsNo.checked;
+    const creditConsentChecked = creditConsentCheckbox.checked;
+    let claimsCountValid = true;
+
+    if (priorClaimsYes.checked) {
+      const claimsCount = claimsCountInput.value.trim();
+      claimsCountValid = claimsCount !== '';
+    }
+
+    nextBtn.disabled = !priorClaimsSelected || !claimsCountValid || !creditConsentChecked;
+  }
+
+  // Clear error messages
+  function clearErrorMessages() {
+    document.querySelectorAll('#umbra-form .error-message').forEach(el => el.textContent = '');
+  }
+
+  // Initialize
+  window.addEventListener('load', loadState);
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/4" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">1 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/6'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 6: VELLUM ── -->
+    <section data-page="6">
+<div class="page-container">
+  <div class="page-header">
+    <h1>Screen 6: Vellum</h1>
+    <p>Chroma Quote Workbench — Module: Verdant</p>
+  </div>
+  
+  <div class="step-indicator">
+    <span>Step 2 of 2</span>
+    <span class="step-indicator-dot"></span>
+    <span>Verdant: Risk & Discounts</span>
+  </div>
+  
+  <div class="page-purpose">
+    Offers available discounts before premium calculation.
+  </div>
+
+  <form id="vellum-form">
+    <!-- Bundle with Home Policy -->
+    <div class="form-group">
+      <label class="form-label">
+        <input type="checkbox" id="bundle-home-policy" name="bundleDiscount" class="form-checkbox">
+        Bundle with Home Policy
+      </label>
+    </div>
+
+    <!-- Paperless Billing -->
+    <div class="form-group">
+      <label class="form-label">
+        <input type="checkbox" id="paperless-billing" name="paperlessDiscount" class="form-checkbox">
+        Paperless Billing
+      </label>
+    </div>
+
+    <!-- Good Student Discount -->
+    <div class="form-group">
+      <label class="form-label">
+        <input type="checkbox" id="good-student-discount" name="studentDiscount" class="form-checkbox">
+        Good Student Discount
+      </label>
+    </div>
+
+    <!-- Quote Box -->
+    <div class="quote-box underlined" style="color: #22945E; border-left-color: #22945E;">Vellum keeps what paper forgets.</div>
+  </form>
+</div>
+
+<!-- Button Bar -->
+<div class="button-bar">
+  <div class="button-bar-left">
+    <button class="btn btn-secondary" onclick="navigateTo('5')">Back</button>
+  </div>
+  <div class="button-bar-right">
+    <button class="btn btn-primary" id="vellum-next-btn" onclick="navigateTo('7')">Next</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  const bundleCheckbox = document.getElementById('bundle-home-policy');
+  const paperlessCheckbox = document.getElementById('paperless-billing');
+  const studentCheckbox = document.getElementById('good-student-discount');
+
+  // Initialize: load saved state if it exists
+  function initScreen() {
+    const bundleState = getState('bundleDiscount');
+    const paperlessState = getState('paperlessDiscount');
+    const studentState = getState('studentDiscount');
+
+    if (bundleState !== null) bundleCheckbox.checked = bundleState;
+    if (paperlessState !== null) paperlessCheckbox.checked = paperlessState;
+    if (studentState !== null) studentCheckbox.checked = studentState;
+  }
+
+  // Save state when checkboxes change
+  bundleCheckbox.addEventListener('change', function() {
+    saveState('bundleDiscount', this.checked);
+  });
+
+  paperlessCheckbox.addEventListener('change', function() {
+    saveState('paperlessDiscount', this.checked);
+  });
+
+  studentCheckbox.addEventListener('change', function() {
+    saveState('studentDiscount', this.checked);
+  });
+
+  // Initialize on load
+  initScreen();
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/5" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">2 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/7'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 7: FURROW ── -->
+    <section data-page="7">
+<div class="page-header">
+  <h1 class="page-title">Screen 7: Furrow</h1>
+  <p class="page-subtitle">Chroma Quote Workbench — Module: Azure</p>
+</div>
+
+<div class="step-indicator">
+  <span>Step 1 of 2</span>
+  <span class="step-indicator-dot"></span>
+  <span>Azure: Premium & Review</span>
+</div>
+
+<div class="page-purpose">
+  Summarises the calculated premium and payment cadence.
+</div>
+
+<div class="container">
+  <div class="card">
+    <h2 style="margin-top: 0; margin-bottom: 24px; font-size: 16px; font-weight: 500; color: var(--fg);">Summarises the calculated premium and payment cadence.</h2>
+    
+    <form id="furrow-form" style="margin-bottom: 32px;">
+      <div class="form-group">
+        <label class="form-label">Payment Plan *</label>
+        <select id="furrow-paymentPlan" class="form-input" required>
+          <option value="">Select a payment plan</option>
+          <option value="Monthly">Monthly</option>
+          <option value="Quarterly">Quarterly</option>
+          <option value="Semi-Annual">Semi-Annual</option>
+          <option value="Annual">Annual</option>
+          <option value="Paid in Full">Paid in Full</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <input type="checkbox" id="furrow-autopayEnrollment" style="margin-right: 6px;">
+          Auto-pay Enrollment
+        </label>
+      </div>
+    </form>
+
+    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); padding: 16px; border-radius: 4px; margin-bottom: 24px;">
+      <p style="margin: 0; font-size: 14px; color: #225094; letter-spacing: 0.12em;">A furrow is a decision the field must keep.</p>
+    </div>
+
+    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+      <a href="#/6" class="btn btn-secondary">Back</a>
+      <button id="furrow-next" class="btn btn-primary" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const paymentPlanSelect = document.getElementById('furrow-paymentPlan');
+  const autopayCheckbox = document.getElementById('furrow-autopayEnrollment');
+  const nextButton = document.getElementById('furrow-next');
+  
+  function updateButtonState() {
+    nextButton.disabled = !paymentPlanSelect.value;
+  }
+  
+  function handleNext() {
+    if (paymentPlanSelect.value) {
+      saveState('paymentPlan', paymentPlanSelect.value);
+      saveState('autopayEnrollment', autopayCheckbox.checked);
+      goToScreen('8');
+    }
+  }
+  
+  paymentPlanSelect.addEventListener('change', updateButtonState);
+  nextButton.addEventListener('click', handleNext);
+  
+  // Restore state if returning to this screen
+  const savedPaymentPlan = getReaderInitials ? getReaderInitials() : null; // placeholder for actual state getter
+  if (typeof window.appState !== 'undefined' && window.appState.paymentPlan) {
+    paymentPlanSelect.value = window.appState.paymentPlan;
+    autopayCheckbox.checked = window.appState.autopayEnrollment || false;
+    updateButtonState();
+  }
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/6" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">1 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/8'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 8: GOSSAMER ── -->
+    <section data-page="8">
+<div class="page-header">
+  <h1 class="page-title">Screen 8: Gossamer</h1>
+  <p class="page-subtitle">Chroma Quote Workbench — Module: Azure</p>
+</div>
+
+<div class="step-indicator">
+  <span>Step 2 of 2</span>
+  <span class="step-indicator-dot"></span>
+  <span>Azure: Premium & Review</span>
+</div>
+
+<div class="page-purpose">
+  Reviews the complete quote details and collects signature authorisation.
+</div>
+
+<div class="container">
+  <div class="grid-1" style="max-width: 600px;">
+    <form id="form-8">
+      <div class="form-group">
+        <label class="form-label">E-Signature <span style="color: var(--muted);">*</span></label>
+        <input type="text" id="input-8-esignature" class="form-input" placeholder="Enter your name" required />
+        <p class="form-hint" id="hint-8-esignature" style="color: var(--muted); font-size: 12px; margin-top: 4px; display: none;"></p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Signature Date <span style="color: var(--muted);">*</span></label>
+        <input type="date" id="input-8-signaturedate" class="form-input" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="input-8-termsagreed" />
+          <span>I agree to Terms</span>
+        </label>
+      </div>
+
+      <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius); padding: 16px; margin-bottom: 24px;">
+        <p style="font-style: italic; font-weight: bold; color: #224294; margin: 0; font-size: 14px;">
+          "Gossamer holds because it does not resist."
+        </p>
+      </div>
+
+      <div style="display: flex; gap: 12px;">
+        <a href="#/7" class="btn btn-secondary">Back</a>
+        <button type="button" id="btn-8-submit" class="btn btn-primary" disabled>Submit Quote</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>(function(){
+  // Get all input elements for this screen
+  const eSignatureInput = document.getElementById('input-8-esignature');
+  const signatureDateInput = document.getElementById('input-8-signaturedate');
+  const termsCheckbox = document.getElementById('input-8-termsagreed');
+  const submitBtn = document.getElementById('btn-8-submit');
+  const eSignatureHint = document.getElementById('hint-8-esignature');
+
+  // Set signature date default to today
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  signatureDateInput.value = `${yyyy}-${mm}-${dd}`;
+
+  // Helper: Get client name from state
+  function getClientName() {
+    // This would normally come from saveState/getState, but since we need to validate
+    // against the stored clientName, we'll need to retrieve it properly
+    // For now, assume there's a way to access it via the shared helpers
+    // In a real implementation, this would be: return getState('clientName') or similar
+    const stored = sessionStorage.getItem('state-clientName') || '';
+    return stored.trim();
+  }
+
+  // Validation function
+  function validateESignature(signature) {
+    const clientName = getClientName();
+    return signature.trim().toLowerCase() === clientName.toLowerCase();
+  }
+
+  // Enable/disable Submit button based on validation
+  function updateSubmitButtonState() {
+    const esigValue = eSignatureInput.value.trim();
+    const isTermsChecked = termsCheckbox.checked;
+    const isEsigValid = esigValue.length > 0 && validateESignature(esigValue);
+    const isDateFilled = signatureDateInput.value.length > 0;
+
+    // Show/hide validation hint
+    if (esigValue.length > 0 && !isEsigValid) {
+      const clientName = getClientName();
+      eSignatureHint.textContent = `Must match Client Name: "${clientName}"`;
+      eSignatureHint.style.display = 'block';
+    } else {
+      eSignatureHint.style.display = 'none';
+    }
+
+    // Enable submit only if all conditions met
+    submitBtn.disabled = !(isEsigValid && isTermsChecked && isDateFilled);
+  }
+
+  // Add event listeners
+  eSignatureInput.addEventListener('input', updateSubmitButtonState);
+  termsCheckbox.addEventListener('change', updateSubmitButtonState);
+  signatureDateInput.addEventListener('change', updateSubmitButtonState);
+
+  // Submit handler
+  submitBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    // Save state
+    sessionStorage.setItem('state-eSignature', eSignatureInput.value.trim());
+    sessionStorage.setItem('state-signatureDate', signatureDateInput.value);
+    sessionStorage.setItem('state-termsAgreed', termsCheckbox.checked ? 'true' : 'false');
+    // Navigate
+    window.location.hash = '#/9';
+  });
+
+  // Load state on init (if coming back from another screen)
+  function loadState() {
+    const savedEsig = sessionStorage.getItem('state-eSignature');
+    const savedDate = sessionStorage.getItem('state-signatureDate');
+    const savedTerms = sessionStorage.getItem('state-termsAgreed');
+
+    if (savedEsig) eSignatureInput.value = savedEsig;
+    if (savedDate) signatureDateInput.value = savedDate;
+    if (savedTerms === 'true') termsCheckbox.checked = true;
+
+    updateSubmitButtonState();
+  }
+
+  loadState();
+})();</script>
+
+<style>
+  #form-8 .form-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--fg);
+  }
+  #form-8 .form-checkbox input[type="checkbox"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+  .grid-1 {
+    display: block;
+  }
+</style>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/7" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">2 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/9'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 9: PLINTH ── -->
+    <section data-page="9">
+<div class="page-header">
+  <h1 class="page-title">Screen 9: Plinth</h1>
+  <p class="page-subtitle">Chroma Quote Workbench — Module: Violet</p>
+</div>
+
+<div class="step-indicator">
+  <span>Step 1 of 2</span>
+  <span class="step-indicator-dot"></span>
+  <span>Violet: Payment & Confirm</span>
+</div>
+
+<div class="page-purpose">
+  Collects payment details to finalise the quote purchase.
+</div>
+
+<div class="container">
+  <div class="grid-2">
+    <!-- Left: Form -->
+    <div>
+      <div class="card">
+        <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 24px; color: var(--fg);">Payment Details</h2>
+        
+        <form id="9-payment-form">
+          <!-- Card Number -->
+          <div class="form-group">
+            <label class="form-label">Card Number</label>
+            <input 
+              type="text" 
+              id="9-card-number" 
+              class="form-input" 
+              placeholder="1234 5678 9012 3456"
+              maxlength="16"
+              aria-required="true"
+            />
+            <span id="9-card-error" class="form-error" style="display:none; color: #dc2626; font-size: 12px; margin-top: 4px;"></span>
+          </div>
+
+          <!-- Expiration Date -->
+          <div class="form-group">
+            <label class="form-label">Expiration Date</label>
+            <input 
+              type="date" 
+              id="9-expiration-date" 
+              class="form-input"
+              aria-required="true"
+            />
+            <span id="9-expiration-error" class="form-error" style="display:none; color: #dc2626; font-size: 12px; margin-top: 4px;"></span>
+          </div>
+
+          <!-- CVV -->
+          <div class="form-group">
+            <label class="form-label">CVV</label>
+            <input 
+              type="text" 
+              id="9-cvv" 
+              class="form-input" 
+              placeholder="123"
+              maxlength="3"
+              aria-required="true"
+            />
+            <span id="9-cvv-error" class="form-error" style="display:none; color: #dc2626; font-size: 12px; margin-top: 4px;"></span>
+          </div>
+
+          <!-- Billing Zip -->
+          <div class="form-group">
+            <label class="form-label">Billing Zip</label>
+            <input 
+              type="text" 
+              id="9-billing-zip" 
+              class="form-input" 
+              placeholder="10001"
+              aria-required="true"
+            />
+            <span id="9-billing-zip-error" class="form-error" style="display:none; color: #dc2626; font-size: 12px; margin-top: 4px;"></span>
+          </div>
+
+          <!-- Button group -->
+          <div style="display: flex; gap: 12px; margin-top: 32px;">
+            <a href="#/8" class="btn btn-secondary" style="flex: 1; text-align: center;">Back</a>
+            <button type="button" id="9-pay-now" class="btn btn-primary" style="flex: 1;">Pay Now</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Right: Quote text & summary -->
+    <div>
+      <div class="card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08);">
+        <h3 style="font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 16px;">Module: Violet</h3>
+        
+        <p style="font-size: 16px; color: var(--fg); line-height: 1.6; margin-bottom: 24px;">
+          Collects payment details to finalise the quote purchase.
+        </p>
+
+        <!-- Quote text with strikethrough styling, colour #7D2294 -->
+        <div style="padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;">
+          <p style="font-size: 14px; color: #7D2294; text-decoration: line-through; margin: 0;">
+            "A plinth makes the ordinary deliberate."
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const cardInput = document.getElementById('9-card-number');
+  const expirationInput = document.getElementById('9-expiration-date');
+  const cvvInput = document.getElementById('9-cvv');
+  const billingZipInput = document.getElementById('9-billing-zip');
+  const payNowBtn = document.getElementById('9-pay-now');
+  
+  const cardError = document.getElementById('9-card-error');
+  const expirationError = document.getElementById('9-expiration-error');
+  const cvvError = document.getElementById('9-cvv-error');
+  const billingZipError = document.getElementById('9-billing-zip-error');
+
+  // Load saved state
+  function loadState() {
+    const saved = getState('cardNumber') || '';
+    const savedExpiry = getState('expirationDate') || '';
+    const savedCvv = getState('cvv') || '';
+    const savedZip = getState('billingZip') || '';
+    
+    cardInput.value = saved;
+    expirationInput.value = savedExpiry;
+    cvvInput.value = savedCvv;
+    billingZipInput.value = savedZip;
+    
+    validateForm();
+  }
+
+  // Clear errors
+  function clearErrors() {
+    cardError.style.display = 'none';
+    expirationError.style.display = 'none';
+    cvvError.style.display = 'none';
+    billingZipError.style.display = 'none';
+  }
+
+  // Validate form
+  function validateForm() {
+    clearErrors();
+    let isValid = true;
+
+    const cardNum = cardInput.value.trim();
+    if (!cardNum) {
+      cardError.textContent = 'Card Number is required.';
+      cardError.style.display = 'block';
+      isValid = false;
+    } else if (!validateCardNumber(cardNum)) {
+      cardError.textContent = 'Card Number must be exactly 16 digits.';
+      cardError.style.display = 'block';
+      isValid = false;
+    }
+
+    const expiry = expirationInput.value.trim();
+    if (!expiry) {
+      expirationError.textContent = 'Expiration Date is required.';
+      expirationError.style.display = 'block';
+      isValid = false;
+    }
+
+    const cvvVal = cvvInput.value.trim();
+    if (!cvvVal) {
+      cvvError.textContent = 'CVV is required.';
+      cvvError.style.display = 'block';
+      isValid = false;
+    } else if (!validateCVV(cvvVal)) {
+      cvvError.textContent = 'CVV must be exactly 3 digits.';
+      cvvError.style.display = 'block';
+      isValid = false;
+    }
+
+    const zip = billingZipInput.value.trim();
+    if (!zip) {
+      billingZipError.textContent = 'Billing Zip is required.';
+      billingZipError.style.display = 'block';
+      isValid = false;
+    }
+
+    payNowBtn.disabled = !isValid;
+    payNowBtn.style.opacity = isValid ? '1' : '0.5';
+    payNowBtn.style.cursor = isValid ? 'pointer' : 'not-allowed';
+
+    return isValid;
+  }
+
+  // Event listeners
+  cardInput.addEventListener('input', function() {
+    saveState('cardNumber', this.value);
+    validateForm();
+  });
+
+  expirationInput.addEventListener('change', function() {
+    saveState('expirationDate', this.value);
+    validateForm();
+  });
+
+  cvvInput.addEventListener('input', function() {
+    saveState('cvv', this.value);
+    validateForm();
+  });
+
+  billingZipInput.addEventListener('input', function() {
+    saveState('billingZip', this.value);
+    validateForm();
+  });
+
+  // Pay Now button handler
+  payNowBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    
+    if (validateForm()) {
+      // Save state before navigation
+      saveState('cardNumber', cardInput.value);
+      saveState('expirationDate', expirationInput.value);
+      saveState('cvv', cvvInput.value);
+      saveState('billingZip', billingZipInput.value);
+      
+      // Navigate to Screen 10: Quill
+      location.hash = '#/10';
+    }
+  });
+
+  // Initialize on load
+  loadState();
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/8" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">1 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <button type="button" class="btn btn-primary" onclick="location.hash='#/10'" style="cursor: pointer;">Next Screen →</button>
+  </div>
+</div>
+    </section>
+    
+    <!-- ── PAGE 10: QUILL ── -->
+    <section data-page="10">
+<div class="page-header">
+  <h1 class="page-title">Screen 10: Quill</h1>
+  <p class="page-subtitle">Chroma Quote Workbench — Module: Violet</p>
+</div>
+
+<div class="step-indicator">
+  <span>Step 2 of 2</span>
+  <span class="step-indicator-dot"></span>
+  <span>Violet: Payment & Confirm</span>
+</div>
+
+<div class="page-purpose">
+  Confirms the purchase and offers a copy of the confirmation.
+</div>
+
+<div class="container">
+  <div class="grid-1">
+    <!-- Quote text section -->
+    <div class="quote-box" style="font-style: oblique; color: #8B2294; margin-bottom: 32px; font-size: 16px; font-weight: 500;">
+      "A quill spends ink it cannot recall."
+    </div>
+
+    <!-- Email confirmation section -->
+    <div class="card" style="margin-bottom: 32px;">
+      <form id="s10-form">
+        <div class="form-group">
+          <label class="form-label">Email Confirmation Copy To</label>
+          <input 
+            type="text" 
+            id="s10-emailConfirmation" 
+            class="form-input" 
+            placeholder="optional"
+          />
+          <p class="form-help" style="font-size: 13px; color: var(--muted); margin-top: 8px;">
+            Leave blank to skip. Must be a valid email format if provided.
+          </p>
+        </div>
+
+        <div id="s10-emailError" class="error-message" style="display: none; color: #dc2626; font-size: 13px; margin-top: 8px;">
+          Please enter a valid email address.
+        </div>
+
+        <!-- Action buttons -->
+        <div class="button-group" style="display: flex; gap: 12px; margin-top: 32px;">
+          <button type="button" id="s10-downloadBtn" class="btn btn-primary" style="flex: 1;">
+            Download PDF
+          </button>
+          <a href="#/1" class="btn btn-secondary" style="flex: 1; justify-content: center; display: flex; align-items: center;">
+            Return to Dashboard
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // Get helper functions from parent scope
+  const getState = (key) => {
+    // Access the shared state from parent scope
+    return window._appState && window._appState[key];
+  };
+
+  const saveState = (key, value) => {
+    if (!window._appState) window._appState = {};
+    window._appState[key] = value;
+  };
+
+  const validateEmail = (email) => {
+    if (!email) return true; // Optional field
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  };
+
+  // Restore email if previously set
+  function initializeFields() {
+    const savedEmail = getState('emailConfirmation');
+    if (savedEmail) {
+      document.getElementById('s10-emailConfirmation').value = savedEmail;
+    }
+  }
+
+  // Download PDF button handler
+  document.getElementById('s10-downloadBtn').addEventListener('click', function() {
+    const emailInput = document.getElementById('s10-emailConfirmation').value.trim();
+    const errorEl = document.getElementById('s10-emailError');
+
+    // Validate email if provided
+    if (emailInput && !validateEmail(emailInput)) {
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    errorEl.style.display = 'none';
+
+    // Save email state
+    if (emailInput) {
+      saveState('emailConfirmation', emailInput);
+    }
+
+    // Simulate PDF download (in real app, this would generate a PDF)
+    alert('Confirmation PDF download initiated.\nConfirmation sent to: ' + (emailInput || '(no email)'));
+
+    // Stay on this screen (self-referential navigation)
+    // No action needed - button already specifies Screen 10
+  });
+
+  // Validate email on blur
+  document.getElementById('s10-emailConfirmation').addEventListener('blur', function() {
+    const value = this.value.trim();
+    const errorEl = document.getElementById('s10-emailError');
+    
+    if (value && !validateEmail(value)) {
+      errorEl.style.display = 'block';
+    } else {
+      errorEl.style.display = 'none';
+    }
+  });
+
+  // Initialize on page load
+  initializeFields();
+})();
+</script>
+
+<div class="nav-footer" style="margin-top: 32px; padding: 16px 0 0 0; border-top: 1px solid rgba(255,255,255,0.05);">
+  <div class="nav-footer-left">
+    <a href="#/9" class="btn btn-secondary">← Previous</a>
+  </div>
+  <div class="nav-footer-center">
+    <span style="font-size: 12px; color: var(--fg-tertiary);">2 of 2</span>
+  </div>
+  <div class="nav-footer-right">
+    <a href="#/0" class="btn btn-primary" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">Return to Home →</a>
+  </div>
+</div>
+    </section>
+  </div>
+</body>
+</html>

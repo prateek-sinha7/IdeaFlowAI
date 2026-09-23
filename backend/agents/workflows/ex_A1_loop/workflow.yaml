@@ -1,0 +1,184 @@
+# ex_A1_loop — hello-world for spec 014's LOOP case (A1).
+#
+# Steps (4 total; `greet` and `check` run once per loop pass):
+#
+#   1. emoji (picks an emoji, OUTSIDE the loop — never re-runs)
+#        |
+#        v
+#   2. greet (greets the user; adds a joke only when told to)
+#        ^                                     |
+#        |                                     v
+#        |                        3. check (gates: [conditional]) — POST-step.
+#        |                             |      Does the greeting contain a joke?
+#        |                             |
+#        |___ outcome: retry __________|___ outcome: ok ___> 4. done (echoes the greeting)
+#          (no joke — go back and       (joke present)
+#           greet again, with a joke)
+#
+# WHY THIS LOOPS WITHOUT A HUMAN. A conditional gate can only loop if its decision
+# CHANGES between passes, and a stateless tool-free step cannot vary its own answer
+# from a constant brief — which is why the previous version of this fixture, whose
+# `check` prompt hardcoded {"decision": "ok"}, could never exercise R-06/R-07/R-08.
+# Here the variation comes from the WORK: pass 1 produces a plain greeting, `check`
+# sees no joke and routes retry, and the route's R-28 `feedback` string is injected
+# into greet's context on the jump — that, and nothing in greet's own prompt, is what
+# makes pass 2 different. Fully automatic: no human gate, no tools, no state.
+#
+# `check` does NOT set route.condition_agent, so the gate reads check's OWN
+# route_decision (R-05b) — check JUDGES greet's output. That is what distinguishes
+# A1 from A4 (ex_A4_human_gate), where condition_agent makes an earlier step's
+# answer BE the decision (R-05).
+#
+# route.outcomes on step 3 ("check"): ok -> {step, done} | retry -> {step, greet}
+# loop_max_iterations: 3 — a greeting that never acquires a joke FAILS CLOSED after
+# 3 passes (BudgetExceeded -> budget_aborted), it does not loop forever.
+#
+# NO TOOLS ANYWHERE. Every assertion is on the EVENT STREAM (agent_start counts)
+# plus the gate_events rows — never on an artifact. That is the same recipe that
+# made ex_A2_branch pass: a fixture that asks a step to write a file is testing
+# prompt adherence, not gate routing.
+#
+# deliverable: single_file -> greeting.md. The run publishes ONE named artifact,
+# resolved from `done`'s output via single_file's last_streamed fallback (no tools
+# needed). GAP-01 does not apply: it only bites when the deliverable-producing step
+# is NOT the last compiled step, and here `done` is.
+
+id: ex_A1_loop
+user_launchable: true
+is_beta: false
+display_name: Retry Until It Passes
+short_name: Retry Loop
+icon: GitBranch
+description: Smallest possible example of a conditional gate looping back to an earlier step.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  # ONE named deliverable, not the whole sandbox. `serialized_sandbox` published every
+  # file in the run — four per-step `<step>-<brief-slug>.md` files written by the
+  # engine's artifact_fallback (emoji/greet/check/done) — so the Files tab showed four
+  # candidates with nothing marking the answer, including `check`'s
+  # `{"decision": "retry"}`, which is a routing internal and not a user artifact.
+  # Worse, `greet-...md` held PASS 1's rejected greeting while the typed graph had
+  # `greeting v2` — the most obvious file to open showed the wrong text.
+  #
+  # single_file resolves: (1) sandbox.read(name), else (3) ctx.last_streamed. `done`
+  # writes nothing, so it lands on (3) and its output IS greeting.md. GAP-01 (the
+  # readback only trusting the LAST compiled step) does not apply — `done` IS the last
+  # compiled step here.
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: emoji
+  name: Emoji Picker
+  prompt: Pick a random emoji.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: greet
+  name: Greet
+  # R-29: pairs with check's `consumes: ["greeting"]` so the greeting reaches the step
+  # that judges it. Without it check was shown ONLY the brief and asked whether "the
+  # greeting above" had a joke — it answered `retry` correctly, four times, on an input
+  # that never contained a greeting.
+  produces: ["greeting"]
+  # R-26 / _compute_is_leaf: without this, `emoji` is marked a LEAF and the run ends
+  # after one step. Rule 3 asks "is my next array slot stolen by a jump target?" —
+  # `greet` IS a jump target (check routes `retry -> greet`), so `emoji` looks like it
+  # precedes a branch sibling reachable only by a jump. It doesn't: a BACKWARD jump
+  # target is entered normally on the first pass. Declaring the real dependency makes
+  # rule 1 fire first ("something else runs after emoji") and settles it.
+  #
+  # The id MUST be the full composed "custom-agent:emoji". Rule 1 compares
+  # `step.agent_id` against the depends_on values, and unlike route targets
+  # (compiler._validate_route_targets / engine._route_index) it does NOT fall back to
+  # a bare-instance_id suffix match — `depends_on: [emoji]` compiles fine and does
+  # nothing at all.
+  depends_on: ["custom-agent:emoji"]
+  # Deliberately knows NOTHING about jokes. The requirement arrives ONLY via the
+  # R-28 retry feedback injected on the loop-back — that is the whole point of the
+  # fixture. Baking the joke into this prompt would let pass 2 succeed even if the
+  # feedback never landed, which is exactly the bug R-28 was written to fix.
+  prompt: |
+    Greet the user in one short sentence.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: check
+  name: Check
+  produces: ["route_decision"]      # R-05b — dedicated typed decision, not free text
+  consumes: ["greeting"]            # R-29 — greet's output, as its own labelled block
+  depends_on: ["custom-agent:greet"]
+  prompt: |
+    Look at the greeting above. Respond with exactly one line, no markdown, no code
+    fences, no explanation.
+
+    If the greeting contains a joke, respond with exactly:
+    {"decision": "ok"}
+
+    If the greeting does not contain a joke, respond with exactly:
+    {"decision": "retry"}
+  gates:
+  - conditional     # POST-step — routes on check's own route_decision
+  route:
+    outcomes:
+      ok:    {trigger: step, target: done}
+      # R-28 `feedback`: injected into greet's context on the jump, under the
+      # automatic "=== RETRY — pass N of M ===" block. Without it greet is
+      # re-dispatched with byte-identical context and can only repeat itself.
+      retry:
+        trigger: step
+        target: greet                          # loop back — R-06/R-07/R-08
+        feedback: >-
+          The greeting had no joke. Greet the user again in one short sentence and
+          include a "why did X cross the road?" joke this time.
+    loop_max_iterations: 3                    # 3 passes, then fail closed (R-07)
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: done
+  name: Done
+  # Completes the declared chain. Ordering seam (ADR-0004, engine.py ~1900): declared
+  # `depends_on` overrides the resolver's inferred DAG only where the two DISAGREE.
+  # Once `check` declares consumes:["greeting"], the resolver has a real edge to sort
+  # by and produced [emoji, greet, done, check] — `done` has no incoming edge, so it
+  # sorted ahead of `check`, the walk hit `done` at index 2, found a leaf and ended
+  # WITHOUT ever dispatching `check`. Declaring the full chain makes any such reorder a
+  # violation, so manifest order wins. It is also simply true: done runs after check.
+  depends_on: ["custom-agent:check"]
+  # R-29: the APPROVED greeting — the one that finally passed `check`. Without this
+  # `done` sees only the brief (context_sources: []) and cannot report what the loop
+  # actually converged on. _filter_consumed_outputs serves the LATEST version, so this
+  # is pass 2's joke greeting, not pass 1's rejected one.
+  consumes: ["greeting"]
+  prompt: |
+    Respond with the greeting above, exactly as written, and nothing else. No
+    preamble, no commentary, no extra lines.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Retry Loop

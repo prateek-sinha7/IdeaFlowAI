@@ -30,11 +30,14 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
-import { ApiError, getToken, getWorkflows } from "@/lib/api";
+import { ApiError, authedFetch, getToken, getWorkflows } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { parseSseBlock } from "@/lib/sseFrame";
+import type { WorkflowRun } from "@/types/index";
 import {
   useRunStream,
   type RunConnectionPhase,
@@ -70,6 +73,23 @@ const AUTO_STREAM_STATUSES = new Set([
   "generating",
   "revising",
 ]);
+
+/**
+ * ISS-220/236/237 — the resume remount gap. A resume (`handleResumeRun` →
+ * `DashboardLayout`'s `isRunning` effect → `router.push(routes.runStream(...))`)
+ * remounts `app/[...view]/page.tsx`, which unsubscribes its fan-out listeners on
+ * unmount and resubscribes fresh ones on mount. `fanout` had no buffering, so a
+ * frame dispatched in that window — e.g. the `pipeline_failed` a fast-failing
+ * resume emits ~3-5s later — reached no listener and was lost for good, freezing
+ * the live view on stale "Running · Starting…" state until a manual reload. Frames
+ * dispatched with ZERO subscribers are held here and replayed to the next
+ * subscriber(s) that join. Bounded by count AND age so a surface that never
+ * subscribes (e.g. /login) can neither grow the buffer without limit nor hand a
+ * stale burst to a subscriber that mounts much later; a remount gap is
+ * sub-second, so the window only has to cover a route commit.
+ */
+const GAP_REPLAY_MAX = 200;
+const GAP_REPLAY_MS = 15_000;
 
 export interface RunConnectionContextValue {
   /**
@@ -107,6 +127,22 @@ export interface RunConnectionContextValue {
    * posts to that run (`POST /api/runs/{id}/messages`) and resolves to null.
    */
   sendCommand: (runId: string | null, payload: Record<string, unknown>) => Promise<string | null>;
+  /**
+   * QA-PS-035/036/038/041/046: the user's run list (`GET /api/runs?limit=50`)
+   * that `refreshLiveRuns` fetches for the reattach, kept instead of discarded.
+   * It is the app shell's one run-list fetch: page.tsx hands it to AppHeader's
+   * "N Running" badge rather than fetching the same rows again.
+   */
+  recentRuns: WorkflowRun[];
+  /** ISS-757: false until the fetch for the current token settles. */
+  recentRunsLoaded: boolean;
+  /** page.tsx's SSE status patches and post-launch/divert refetches write here. */
+  setRecentRuns: Dispatch<SetStateAction<WorkflowRun[]>>;
+  /**
+   * Fetch the list unless it is already loaded or loading for the current
+   * token — a page remount is a no-op, a client-side sign-in loads it.
+   */
+  loadRecentRuns: () => void;
 }
 
 /**
@@ -123,6 +159,10 @@ const DEFAULT_VALUE: RunConnectionContextValue = {
   detachRun: () => {},
   subscribe: () => () => {},
   sendCommand: async () => null,
+  recentRuns: [],
+  recentRunsLoaded: false,
+  setRecentRuns: () => {},
+  loadRecentRuns: () => {},
 };
 
 const RunConnectionContext = createContext<RunConnectionContextValue>(DEFAULT_VALUE);
@@ -229,12 +269,24 @@ export function RunConnectionProvider({
   const [phases, setPhases] = useState<Record<string, RunConnectionPhase>>({});
   const [epoch, setEpoch] = useState(0);
   const subscribersRef = useRef<Set<(m: RunStreamMessage) => void>>(new Set());
+  // ISS-220/236/237: frames fanned out while `subscribersRef` was empty, kept for
+  // the next subscriber to join (see GAP_REPLAY_MAX/GAP_REPLAY_MS above).
+  const gapFramesRef = useRef<{ at: number; msg: RunStreamMessage }[]>([]);
 
   // BUG-013: liveRunIds = union(autoIds, focusedRunId). Both inputs live in refs
   // (not state) so `refreshLiveRuns`/`attachRun` stay dependency-free useCallbacks
   // — the union is materialized into the liveRunIds STATE by recomputeLiveRunIds.
   const autoIdsRef = useRef<string[]>([]);
   const focusedRunIdRef = useRef<string | null>(null);
+
+  // QA-PS-035/036/038/041/046: the run list refreshLiveRuns fetches, shared
+  // with page.tsx (see recentRuns on the context). `recentRunsTokenRef` is the
+  // token it belongs to: a different one (sign-in, account switch) empties it
+  // before its own fetch, so one identity never sees another's runs — the rule
+  // page.tsx's old token-keyed snapshot enforced.
+  const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
+  const [recentRunsLoaded, setRecentRunsLoaded] = useState(false);
+  const recentRunsTokenRef = useRef<string | null>(null);
 
   // Materialize union(autoIds, focus) into liveRunIds behind the set-diff identity
   // guard so an unchanged union keeps the SAME array identity (no child remount).
@@ -259,51 +311,74 @@ export function RunConnectionProvider({
   const refreshLiveRuns = useCallback(async () => {
     const t = getToken();
     setTokenState(t);
+    const firstLoad = t !== recentRunsTokenRef.current;
+    if (firstLoad) {
+      recentRunsTokenRef.current = t;
+      setRecentRuns([]);
+      setRecentRunsLoaded(false);
+    }
     if (!t) {
       autoIdsRef.current = [];
       focusedRunIdRef.current = null;
       setLiveRunIds([]);
       return;
     }
+    // KAN-125 MULTI-TAB FIX: only auto-attach runs that this browser TAB
+    // actually launched (restored from sessionStorage). A new tab has an
+    // empty sessionStorage set and should not inherit another tab's running
+    // workflows — those runs will have their SSE events blocked by the
+    // isForeignFrame guard in handleWebSocketMessage anyway, but not creating
+    // the SSE connections at all is cleaner and avoids wasting connections.
+    // Exception: the focusedRunId (set when the user explicitly attaches a
+    // run via attachRun) is always included regardless.
+    let tabOwnedIds = new Set<string>();
+    try {
+      const raw = sessionStorage.getItem("tab_launched_run_ids");
+      if (raw) {
+        const ids = JSON.parse(raw) as string[];
+        if (Array.isArray(ids)) tabOwnedIds = new Set<string>(ids);
+      }
+    } catch { /* ignore — non-fatal */ }
+
+    // QA-PS-035/036/038/041/046: query even when this tab owns no runs. ISS-782
+    // skipped it then, because every row was discarded; the rows are now kept
+    // as `recentRuns`, the only run list AppHeader's badge gets, so skipping
+    // would blind the badge. An empty tab-owned set just attaches nothing.
     try {
       const { runs } = await getWorkflows(t, { limit: 50 });
-      // KAN-125 MULTI-TAB FIX: only auto-attach runs that this browser TAB
-      // actually launched (restored from sessionStorage). A new tab has an
-      // empty sessionStorage set and should not inherit another tab's running
-      // workflows — those runs will have their SSE events blocked by the
-      // isForeignFrame guard in handleWebSocketMessage anyway, but not creating
-      // the SSE connections at all is cleaner and avoids wasting connections.
-      // Exception: the focusedRunId (set when the user explicitly attaches a
-      // run via attachRun) is always included regardless.
-      let tabOwnedIds = new Set<string>();
-      try {
-        const raw = sessionStorage.getItem("tab_launched_run_ids");
-        if (raw) {
-          const ids = JSON.parse(raw) as string[];
-          if (Array.isArray(ids)) tabOwnedIds = new Set<string>(ids);
-        }
-      } catch { /* ignore — non-fatal */ }
-
+      // Another identity took over while this was in flight — not its runs.
+      if (recentRunsTokenRef.current !== t) return;
+      setRecentRuns(runs);
       autoIdsRef.current = runs
         .filter((r) =>
-          AUTO_STREAM_STATUSES.has(r.status) &&
-          // Only auto-attach if this tab owns the run (has launched it previously)
-          // OR if the set is empty (e.g. a first-ever load where the active_pipeline_run_id
-          // session key is set — handled separately below).
-          (tabOwnedIds.size === 0 ? false : tabOwnedIds.has(r.id))
+          // Only auto-attach if this tab owns the run (has launched it previously).
+          AUTO_STREAM_STATUSES.has(r.status) && tabOwnedIds.has(r.id)
         )
         .map((r) => r.id);
       recomputeLiveRunIds();
     } catch {
       /* keep the prior attach set on a transient query failure */
+      if (recentRunsTokenRef.current !== t) return;
+      // A failed FIRST load is forgotten, so the next loadRecentRuns (a page
+      // remount) retries it rather than trusting an empty list for good.
+      if (firstLoad) recentRunsTokenRef.current = null;
     }
+    // ISS-757: settled — the header may now trust an empty list.
+    setRecentRunsLoaded(true);
   }, [recomputeLiveRunIds]);
 
+  const loadRecentRuns = useCallback(() => {
+    const t = getToken();
+    if (t && t !== recentRunsTokenRef.current) void refreshLiveRuns();
+  }, [refreshLiveRuns]);
+
   // Boot: resolve the token client-side and do the first server-derived attach.
+  // Through loadRecentRuns so page.tsx's own mount-time ask, which runs first
+  // (child effects before parent), and this one share a single fetch.
   useEffect(() => {
     setTokenState(getToken());
-    void refreshLiveRuns();
-  }, [refreshLiveRuns]);
+    loadRecentRuns();
+  }, [loadRecentRuns]);
 
   // D-14e: reconnect on tab focus / network online. A wake re-queries live runs
   // (the set may have changed while backgrounded) AND bumps the epoch so already
@@ -329,6 +404,18 @@ export function RunConnectionProvider({
   }, [refreshLiveRuns]);
 
   const fanout = useCallback((msg: RunStreamMessage) => {
+    // ISS-220/236/237: nobody is listening (the page remount gap) — hold the
+    // frame for the resubscriber instead of dropping it, ageing out and capping
+    // what we keep. Live delivery below clears the buffer: once a subscriber is
+    // registered again the gap is closed, so the held frames are replayed once.
+    if (subscribersRef.current.size === 0) {
+      const now = Date.now();
+      const held = gapFramesRef.current.filter((e) => now - e.at <= GAP_REPLAY_MS);
+      held.push({ at: now, msg });
+      gapFramesRef.current = held.slice(-GAP_REPLAY_MAX);
+      return;
+    }
+    gapFramesRef.current = [];
     subscribersRef.current.forEach((fn) => {
       try {
         fn(msg);
@@ -344,6 +431,20 @@ export function RunConnectionProvider({
 
   const subscribe = useCallback((fn: (m: RunStreamMessage) => void) => {
     subscribersRef.current.add(fn);
+    // ISS-220/236/237: replay whatever the fan-out held while there was no
+    // listener, so a page that remounted mid-run is told about the frames it was
+    // absent for. Every listener joining this commit gets them (page.tsx wires
+    // two — the pipeline reducer and the chat transcript); the reducers are
+    // idempotent by event_id and run-scope by `_sourceRunId`.
+    const now = Date.now();
+    gapFramesRef.current.forEach((e) => {
+      if (now - e.at > GAP_REPLAY_MS) return;
+      try {
+        fn(e.msg);
+      } catch {
+        /* a bad subscriber must not break the replay */
+      }
+    });
     return () => {
       subscribersRef.current.delete(fn);
     };
@@ -393,7 +494,10 @@ export function RunConnectionProvider({
       const url = runId
         ? `${ENV.API_URL}/api/runs/${runId}/messages`
         : `${ENV.API_URL}/api/runs`;
-      const res = await fetch(url, {
+      // FR-015: authedFetch, not bare fetch — this POST can't use request()
+      // (it content-negotiates an SSE body below), so it needs the shared
+      // 401 -> handleSessionExpiry() guard explicitly.
+      const res = await authedFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -486,9 +590,43 @@ export function RunConnectionProvider({
       // !res.ok check above (throws ApiError) — by this point res.ok is true.
       try {
         const body = (await res.json()) as
-          | { run_id?: string; id?: string }
+          | { run_id?: string; id?: string; chain_v2_accepted?: boolean }
           | null;
-        return body?.run_id ?? body?.id ?? null;
+        const launchedRunId = body?.run_id ?? body?.id ?? null;
+
+        // Task 11.8 (sandbox-git-versioning-v2, Req 21 AC 9): mixed-deploy
+        // detection — New FE + older BE.
+        //
+        // When the frontend sends `source_workflow_run_id` (v2 chain intent) but
+        // the backend response does NOT include `chain_v2_accepted: true`, the
+        // backend does not support v2 chaining.  The run starts but without any
+        // chain context.  Rather than silently launching without provenance
+        // (Requirement 21 AC 9), synthesise a `chain_context_unavailable` event
+        // via the subscriber fanout so the run surface renders the notice.
+        //
+        // The reason code `incompatible_backend` is a bounded, client-safe code
+        // that satisfies Requirement 20 AC 4's "distinct reason codes" mandate
+        // and Requirement 20 AC 8's unknown-reason fallback resilience (older
+        // frontends that don't recognise it will still show the generic message).
+        if (
+          launchedRunId &&
+          payload.source_workflow_run_id &&
+          !body?.chain_v2_accepted
+        ) {
+          fanout({
+            type: "chain_context_unavailable",
+            _sourceRunId: launchedRunId,
+            data: {
+              run_id: launchedRunId,
+              reason: "incompatible_backend",
+              message:
+                "Chain context could not be delivered: the backend does not " +
+                "support v2 chaining. The run will start without chain context.",
+            },
+          });
+        }
+
+        return launchedRunId;
       } catch {
         return null;
       }
@@ -502,8 +640,8 @@ export function RunConnectionProvider({
   );
 
   const value = useMemo<RunConnectionContextValue>(
-    () => ({ enabled, phase, liveRunIds, reattach, attachRun, detachRun, subscribe, sendCommand }),
-    [enabled, phase, liveRunIds, reattach, attachRun, detachRun, subscribe, sendCommand],
+    () => ({ enabled, phase, liveRunIds, reattach, attachRun, detachRun, subscribe, sendCommand, recentRuns, recentRunsLoaded, setRecentRuns, loadRecentRuns }),
+    [enabled, phase, liveRunIds, reattach, attachRun, detachRun, subscribe, sendCommand, recentRuns, recentRunsLoaded, loadRecentRuns],
   );
 
   return (

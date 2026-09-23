@@ -1,14 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Plus, Minus, Maximize, Globe, Info, LayoutGrid } from "lucide-react";
-import { CanvasNode } from "./CanvasNode";
+import { Plus, Minus, Maximize, Globe, Info, LayoutGrid, Palette } from "lucide-react";
+import {
+  CanvasNode,
+  ExternalWorkflowNode,
+  EXTERNAL_NODE_W,
+  useWorkflowPickerOptions,
+} from "./CanvasNode";
 import { CanvasConfigRail } from "./CanvasConfigRail";
-import { CHILD_W, collectTreeEdges, layoutChildren, type FlatPos } from "./treeLayout";
+import {
+  CHILD_W,
+  CHILD_H_EST,
+  MAX_OPTIONAL,
+  ROOT_H_EST,
+  TREE_ROW_GAP,
+  collectTreeEdges,
+  layoutChildren,
+  type FlatPos,
+} from "./treeLayout";
+import { computeRootLayout } from "./graphLayout";
 import { useAgentCapabilities, type SelectionsMap, type StepSelection } from "../AgentsPopup";
 import { BriefAttachBox, type BriefAttachments } from "../IdeaInputPage";
 import type {
   AgentDef,
+  ContextProviderName,
+  DesignMode,
   SubagentStrategy,
   WorkflowCapabilities,
   WorkflowRunConfig,
@@ -21,6 +38,7 @@ import {
   generateInstanceId,
   mapAgentInTree,
   removeAgentInTree,
+  resolveRouteTargetId,
 } from "@/store/api/userWorkflows";
 
 // ── Hand-rolled layout constants (px, shared by the nodes + the SVG edge layer;
@@ -43,7 +61,31 @@ const BRIEF_W = 118;
 // spacing between agent nodes.
 const START_X = BRIEF_X + BRIEF_W + NODE_GAP;
 const ARROW_INSET = 8; // stop the edge just short of the target port
+// Rendered height of an ExternalWorkflowNode (eyebrow row + name row + padding).
+// A constant, not a measurement: the node has fixed content, so there is nothing
+// to measure and no reason to add another layout-effect feedback path.
+const EXTERNAL_NODE_H = 58;
 const DRAG_THRESHOLD = 4; // px of mouse movement before a card-mousedown becomes a drag, not a click
+
+// ── Dot-grid ────────────────────────────────────────────────────────────────
+// The background lattice, in CANVAS units. It scales with zoom so it stays a
+// spatial reference rather than a fixed screen texture.
+const GRID_UNIT = 22;
+// …but only within a legible band. Zoom runs 0.1–1.5 here, and a naive
+// GRID_UNIT * zoom is 2.2px at the low end — a solid grey wash, not a grid. So
+// double the lattice until it clears GRID_MIN_PX, the same power-of-two
+// level-of-detail step an infinite canvas normally uses. Coarser grid, same
+// alignment: every dot of the zoomed-out lattice is still a dot of the
+// zoomed-in one.
+const GRID_MIN_PX = 12;
+/** On-screen dot spacing for a given zoom, LOD-stepped. */
+function gridSpacingFor(zoom: number): number {
+  let spacing = GRID_UNIT * zoom;
+  // Bounded loop: `spacing` at least doubles each pass, so it clears the
+  // threshold in ~log2 steps even for a pathological zoom near 0.
+  while (spacing > 0 && spacing < GRID_MIN_PX) spacing *= 2;
+  return spacing || GRID_UNIT;
+}
 
 /** Sentinel id for the Brief "node" — not a real agent, so it never collides
  *  with a minted instance id (those are always lowercase-hyphen shaped). */
@@ -58,11 +100,55 @@ function edgePath(sx: number, sy: number, ex: number, ey: number): string {
   return `M ${sx} ${sy} C ${sx + dx} ${sy}, ${ex - dx} ${ey}, ${ex} ${ey}`;
 }
 
+/** Row-break connector for a wrapped chain: out the right edge, down through
+ *  the gutter between rows, and back into the left port of the next row's
+ *  first node. A plain bezier here would cut one long diagonal straight
+ *  across every node in between. */
+function wrapEdgePath(sx: number, sy: number, ex: number, ey: number): string {
+  const out = sx + NODE_GAP * 0.45;      // clear the source card
+  const back = ex - NODE_GAP * 0.45;     // approach the target from its left
+  const midY = (sy + ey) / 2;            // turn in the gutter between the rows
+  const r = 14;
+  return [
+    `M ${sx} ${sy}`,
+    `L ${out - r} ${sy}`,
+    `Q ${out} ${sy} ${out} ${sy + r}`,
+    `L ${out} ${midY - r}`,
+    `Q ${out} ${midY} ${out - r} ${midY}`,
+    `L ${back + r} ${midY}`,
+    `Q ${back} ${midY} ${back} ${midY + r}`,
+    `L ${back} ${ey - r}`,
+    `Q ${back} ${ey} ${back + r} ${ey}`,
+    `L ${ex} ${ey}`,
+  ].join(" ");
+}
+
 /** A smooth VERTICAL cubic bezier (parent bottom → child top) — the
  *  sub-agent tree's connector curve, replacing the old 90°-elbow SVG path. */
 function verticalEdgePath(sx: number, sy: number, ex: number, ey: number): string {
   const dy = Math.max(20, (ey - sy) * 0.5);
   return `M ${sx} ${sy} C ${sx} ${sy + dy}, ${ex} ${ey - dy}, ${ex} ${ey}`;
+}
+
+/** Loop (back-edge) path: TOP of the source, straight up to the crest line,
+ *  straight across, straight down into the TOP of the target. Right-angle
+ *  corners, no curve — it leaves and arrives vertically so the arrowhead
+ *  points down into the target. `crest` is the y of the horizontal run; the
+ *  caller computes it just above the tallest node the loop passes over. */
+function loopArcPath(sx: number, sy: number, ex: number, ey: number, crest: number): string {
+  return `M ${sx} ${sy} L ${sx} ${crest} L ${ex} ${crest} L ${ex} ${ey}`;
+}
+
+/** Self-loop path: a route whose target IS its own source (e.g. Structure
+ *  Check's `broken` outcome re-running Structure Check). `loopArcPath` can't
+ *  draw this — source and target anchors coincide, so it degenerates into a
+ *  vertical spike that reads as coming from whatever node sits above. Instead
+ *  this is a small square hook on the source's own top-right corner: up from
+ *  the top edge, across past the right edge, down, and back in to the right
+ *  edge — a loop that stays visibly attached to one card (UML self-transition
+ *  convention) instead of a long line that could be misread as connecting two. */
+function selfLoopPath(x1: number, y1: number, x2: number, y2: number, bulge: number): string {
+  return `M ${x1} ${y1} L ${x1} ${y1 - bulge} L ${x2 + bulge} ${y1 - bulge} L ${x2 + bulge} ${y2} L ${x2} ${y2}`;
 }
 
 function isDescendant(node: AgentDef, targetId: string): boolean {
@@ -100,6 +186,23 @@ function flattenDescendants(agent: AgentDef): AgentDef[] {
   return out;
 }
 
+// ISS-340 — ONE label per deliverable strategy. The <option> texts in the rail's
+// "Deliverable strategy" select below AND ComposerPage's read-only "Deliverable
+// type" field both read this, so the Canvas and Simple tabs cannot describe the
+// same workflow differently ("Streamed text" vs a hardcoded "Custom").
+export const DELIVERABLE_STRATEGY_LABEL: Record<string, string> = {
+  streamed_text: "Streamed text — agent's raw output",
+  single_file: "Single file — one file from the workspace",
+  serialized_sandbox: "Serialized sandbox — zip the workspace",
+};
+
+// A strategy outside the map is DECLARED by a workflow and not user-grantable
+// (`ppt`) — name it honestly instead of mislabelling it as one of the three.
+export function deliverableStrategyLabel(strategy?: string): string {
+  const s = strategy ?? "streamed_text";
+  return DELIVERABLE_STRATEGY_LABEL[s] ?? `${s} — declared by this workflow`;
+}
+
 /**
  * 41-05 — the Composer's CANVAS view: a HAND-ROLLED node-graph visual designer
  * (D-04 / CMPUI-03), design-matched to `composer-canvas-proposal.html` (ND-AJ —
@@ -114,20 +217,20 @@ function flattenDescendants(agent: AgentDef): AgentDef[] {
  * as the Simple view — both bind to the same shared data model.
  */
 
-// The four small components below back the workflow-settings section (Spec
-// 012 R-07/R-37). Module-scope (not defined inside CanvasView's body): each
-// closes over no local state — every input is a prop — so defining any of
-// them per-render just recreates an identical component every render
-// (react-hooks/static-components).
+// Module-scope, not defined inside the component body: each closes over no
+// local state (every input is a prop), so defining it per-render recreates an
+// identical component every render (react-hooks/static-components).
 function Toggle({
   on,
   label,
   disabled = false,
+  describedBy,
   onToggle,
 }: {
   on: boolean;
   label: string;
   disabled?: boolean;
+  describedBy?: string;
   onToggle: () => void;
 }) {
   return (
@@ -136,6 +239,7 @@ function Toggle({
       role="switch"
       aria-checked={on}
       aria-label={label}
+      aria-describedby={describedBy}
       disabled={disabled}
       onClick={onToggle}
       className={`relative h-5 w-[34px] flex-none rounded-full transition-colors disabled:opacity-40 ${
@@ -165,8 +269,6 @@ function InfoHint({ children }: { children: ReactNode }) {
   );
 }
 
-// Same styled hover-tooltip box as InfoHint above, reused for a disabled
-// add/insert button's cap reason instead of a plain native `title=`.
 function CapTip({ reason, children }: { reason?: string; children: ReactNode }) {
   return (
     <span className="group relative inline-flex">
@@ -216,6 +318,9 @@ export function CanvasView({
   briefFocusSignal,
   resetLayoutSignal,
   briefAttachments,
+  briefLeftExtra,
+  briefBelowExtra,
+  designSummary,
 }: {
   pipelineAgents: AgentDef[];
   selections: SelectionsMap;
@@ -261,6 +366,16 @@ export function CanvasView({
    *  between Simple ⇄ Canvas shows the SAME attached files, not two
    *  independent sets. */
   briefAttachments: BriefAttachments;
+  /** Extra control rendered beside "+ Attach file" in the rail's brief box —
+   *  the SAME node Simple view passes to its own BriefAttachBox, so the design
+   *  affordance is one control in one place rather than two copies. */
+  briefLeftExtra?: ReactNode;
+  /** Chips listed under the brief box's toolbar — same node Simple passes. */
+  briefBelowExtra?: ReactNode;
+  /** Short "Template · Design system" label for the Brief node's design button,
+   *  or undefined when nothing is picked yet. Composed by ComposerPage, which
+   *  owns the selection and the catalog names. */
+  designSummary?: string;
 }) {
   // The Brief is selected by default — including the moment an EXISTING
   // workflow's canvas mounts — so opening a saved workflow always starts by
@@ -272,6 +387,28 @@ export function CanvasView({
 
   const [selectedId, setSelectedId] = useState<string | null>(BRIEF_ID);
   const [zoom, setZoom] = useState(1);
+  // On-screen dot spacing for the canvas background — see gridSpacingFor.
+  const gridSpacing = gridSpacingFor(zoom);
+
+  // Names for the external-workflow nodes. `useWorkflowPickerOptions` caches
+  // its fetch in a module-scoped promise shared with CanvasConfigRail's copy,
+  // so calling it here costs one extra subscription, not a second request.
+  const needsWorkflowNames = pipelineAgents.some((a) =>
+    Object.values(a.route?.outcomes ?? {}).some((o) => o.trigger === "workflow" && o.target),
+  );
+  const { workflows: canvasWorkflowOptions } = useWorkflowPickerOptions(needsWorkflowNames);
+  const workflowNameById = useMemo(
+    () => new Map((canvasWorkflowOptions ?? []).map((w) => [w.id, w.name])),
+    [canvasWorkflowOptions],
+  );
+  const workflowKindById = useMemo(
+    () => new Map((canvasWorkflowOptions ?? []).map((w) => [w.id, w.kind])),
+    [canvasWorkflowOptions],
+  );
+  const workflowShortNameById = useMemo(
+    () => new Map((canvasWorkflowOptions ?? []).map((w) => [w.id, w.shortName])),
+    [canvasWorkflowOptions],
+  );
   // Pan offset (screen px), applied ahead of `zoom` in the stage transform —
   // without this the stage was pinned at its layout origin (BRIEF_X/NODE_Y)
   // with no way to reach nodes that scrolled past the viewport edge as the
@@ -300,9 +437,42 @@ export function CanvasView({
   // ── Edge-drag-to-reparent — mousedown on a child's TOP port starts this;
   //    a dashed line follows the cursor to `reparentDrag.x/y` (stage space)
   //    until mouseup, which hit-tests against every node's rendered rect. ──
-  const [reparentDrag, setReparentDrag] = useState<{ childId: string; x: number; y: number } | null>(
-    null,
-  );
+  // Bumped when a node's Gate chip / Route badge is clicked, so the config rail
+  // jumps straight to its Config tab (where the gate + route controls live)
+  // instead of leaving the author on Overview.
+  const [openConfigSignal, setOpenConfigSignal] = useState(0);
+  const openNodeConfig = useCallback((id: string) => {
+    setSelectedId(id);
+    setOpenConfigSignal((n) => n + 1);
+  }, []);
+
+  //    `fromEdge` marks a drag that started by grabbing the drawn parent→child
+  //    LINE rather than the child's port. Only that variant treats an
+  //    empty-space drop as "detach" (promote the child back to the root chain);
+  //    a plain port drag that misses stays a no-op, as it always has.
+  const [reparentDrag, setReparentDrag] = useState<{
+    childId: string;
+    x: number;
+    y: number;
+    fromEdge?: boolean;
+  } | null>(null);
+
+  // The node a live drag is currently over. Drives the drop-target ring, so a
+  // connector drag says WHERE it will land instead of leaving you to guess from
+  // the ghost line's endpoint.
+  const [dropHoverId, setDropHoverId] = useState<string | null>(null);
+
+  // ── Chain-connect drag — offered ONLY while some step is detached. Dragging
+  //    from a node's right circle onto an orphan re-attaches it: the orphan
+  //    moves to sit immediately after the source in the array and its
+  //    `detached` flag clears. Position IS the structural connection here
+  //    (`depends_on` is derived from it at serialise time), so "connect A → O"
+  //    is exactly "put O straight after A" — no new edge field required.
+  const [chainConnectDrag, setChainConnectDrag] = useState<{
+    sourceId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // ComposerPage bumps briefFocusSignal every time Run is clicked while the
   // brief is too short — select the Brief node and put the cursor in its box.
@@ -317,6 +487,7 @@ export function CanvasView({
   useEffect(() => {
     if (resetLayoutSignal === undefined || resetLayoutSignal === 0) return;
     setDragOverrides({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetLayoutSignal]);
 
   // Each root card's TRUE vertical center (NODE_Y + its own rendered height /
@@ -326,6 +497,9 @@ export function CanvasView({
   // array: re-measures after every render/commit, but only writes state (and
   // triggers the one extra re-render) when a value actually changed.
   const [nodeCenterY, setNodeCenterY] = useState<Record<string, number>>({});
+  // See the backstop in the measuring effect below.
+  const MAX_REMEASURE = 20;
+  const remeasureCount = useRef(0);
   // The Brief pill's TOP is DERIVED, not fixed: its center is pinned to
   // node0's center (falling back to a sane default height before the first
   // measurement, or once there are no nodes at all) so the Brief→node0 edge
@@ -337,22 +511,65 @@ export function CanvasView({
       const el = stageRef.current?.querySelector<HTMLElement>(
         `[data-testid="canvas-node-${a.id}"]`,
       );
-      if (el) next[a.id] = NODE_Y + el.offsetHeight / 2;
+      // The card's NATURAL content height, summed from its in-flow children
+      // rather than read off the box. `offsetHeight`/`scrollHeight` both report
+      // the box AFTER the row-wide `min-height` we push back onto it, so either
+      // one makes this a feedback loop: taller box → taller max → taller
+      // min-height → taller box, until React's update-depth limit trips.
+      // Children give the unconstrained height; absolutely-positioned ones (the
+      // port dots, the rename/remove cluster) contribute nothing to flow.
+      if (el) {
+        let contentBottom = 0;
+        for (const child of Array.from(el.children) as HTMLElement[]) {
+          if (getComputedStyle(child).position === "absolute") continue;
+          contentBottom = Math.max(contentBottom, child.offsetTop + child.offsetHeight);
+        }
+        const padBottom = parseFloat(getComputedStyle(el).paddingBottom) || 0;
+        // Rounded: sub-pixel churn would re-trigger this effect forever.
+        next[a.id] = NODE_Y + Math.round((contentBottom + padBottom) / 2);
+      }
     }
     const keys = Object.keys(next);
     const changed =
       keys.length !== Object.keys(nodeCenterY).length ||
       keys.some((k) => nodeCenterY[k] !== next[k]);
-    if (changed) setNodeCenterY(next);
+    // Backstop. This effect has no dependency array, so it runs after every
+    // commit and writes state — one bad measurement that never settles takes
+    // the whole canvas down with "Maximum update depth exceeded" (which is
+    // exactly what a min-height derived from a min-height-constrained read
+    // did). The measurement above is now feedback-free, but a layout loop
+    // must degrade into a slightly-off diagram, never a crashed page: after
+    // MAX_REMEASURE consecutive writes we stop and keep the last values. The
+    // counter resets whenever a render settles without a change, so ordinary
+    // editing re-measures freely.
+    if (changed && remeasureCount.current < MAX_REMEASURE) {
+      remeasureCount.current += 1;
+      setNodeCenterY(next);
+    } else if (!changed) {
+      remeasureCount.current = 0;
+    }
 
     const briefEl = stageRef.current?.querySelector<HTMLElement>('[data-testid="canvas-brief"]');
     if (briefEl && briefEl.offsetHeight !== briefHeight) setBriefHeight(briefEl.offsetHeight);
   });
-  const centerYOf = useCallback(
-    (id: string) => nodeCenterY[id] ?? PORT_Y,
-    [nodeCenterY],
-  );
-  const briefCenterY = pipelineAgents.length > 0 ? centerYOf(pipelineAgents[0].id) : PORT_Y;
+  // ONE shared port height for every root card, not each card's own half-
+  // height. Cards are not all the same height (a conditional step carries an
+  // extra Route badge, a step with skills carries chips), so per-card centers
+  // put neighbouring ports at different heights and every left→right edge came
+  // out sloped. Anchoring the whole spine to the tallest card's center makes a
+  // same-row chain edge exactly horizontal, which is the point of the
+  // arrangement — and `portTop`, below, moves the port dots to match so the
+  // line still starts and ends on them.
+  const rowPortOffset = useMemo(() => {
+    const measured = pipelineAgents
+      .map((a) => nodeCenterY[a.id])
+      .filter((v): v is number => typeof v === "number");
+    return measured.length > 0 ? Math.max(...measured) - NODE_Y : PORT_Y - NODE_Y;
+  }, [pipelineAgents, nodeCenterY]);
+  const briefCenterY = pipelineAgents.length > 0 ? NODE_Y + rowPortOffset : PORT_Y;
+  // Push the row's tallest natural height back onto every root card, so each
+  // card's own centre — where its ports sit — lands on the shared edge line.
+  const rowCardHeight = rowPortOffset * 2;
   const briefTop = briefCenterY - briefHeight / 2;
 
   // Space-to-pan (Figma/Miro convention). Guarded against typing targets so
@@ -405,27 +622,54 @@ export function CanvasView({
   useEffect(() => {
     panRef.current = pan;
   }, [pan]);
+  /** Zoom to `nextZoom` while keeping the canvas point under (anchorX, anchorY)
+   *  — viewport coordinates — pinned in place.
+   *
+   *  The stage's transformOrigin is `0 0`, so changing `zoom` on its own always
+   *  zooms about the viewport's top-left CORNER: the content lunges toward that
+   *  corner on zoom-out and away from it on zoom-in. Every zoom entry point has
+   *  to move `pan` in the opposite direction to compensate, which is what this
+   *  does. The wheel handler had this math inline; the +/- buttons never had it
+   *  at all, which is why zooming out with them threw the graph off-screen.
+   *  Sharing one helper is what stops the two paths drifting apart again. */
+  const zoomAbout = useCallback((nextZoom: number, anchorX: number, anchorY: number) => {
+    const currentZoom = zoomRef.current;
+    const currentPan = panRef.current;
+    if (nextZoom === currentZoom) return;
+    setPan({
+      x: anchorX - ((anchorX - currentPan.x) / currentZoom) * nextZoom,
+      y: anchorY - ((anchorY - currentPan.y) / currentZoom) * nextZoom,
+    });
+    setZoom(nextZoom);
+  }, []);
+
+  /** The +/- buttons: same compensation as the wheel, anchored on the viewport
+   *  CENTRE since a button press has no cursor position to zoom about. */
+  const zoomByStep = useCallback(
+    (delta: number) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      const next = Math.min(1.5, Math.max(0.1, Math.round((zoomRef.current + delta) * 10) / 10));
+      zoomAbout(next, (rect?.width ?? 0) / 2, (rect?.height ?? 0) / 2);
+    },
+    [zoomAbout],
+  );
+
   useEffect(() => {
     const canvasEl = canvasRef.current;
     if (!canvasEl) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = canvasEl.getBoundingClientRect();
-      const cursorX = e.clientX - rect.left;
-      const cursorY = e.clientY - rect.top;
-      const currentZoom = zoomRef.current;
-      const currentPan = panRef.current;
       const factor = Math.exp(-e.deltaY * 0.001);
-      const nextZoom = Math.min(1.5, Math.max(0.1, Math.round(currentZoom * factor * 100) / 100));
-      setPan({
-        x: cursorX - ((cursorX - currentPan.x) / currentZoom) * nextZoom,
-        y: cursorY - ((cursorY - currentPan.y) / currentZoom) * nextZoom,
-      });
-      setZoom(nextZoom);
+      const nextZoom = Math.min(
+        1.5,
+        Math.max(0.1, Math.round(zoomRef.current * factor * 100) / 100),
+      );
+      zoomAbout(nextZoom, e.clientX - rect.left, e.clientY - rect.top);
     };
     canvasEl.addEventListener("wheel", onWheel, { passive: false });
     return () => canvasEl.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [zoomAbout]);
   useEffect(() => {
     if (!isPanning) return;
     const onMove = (e: MouseEvent) => {
@@ -469,10 +713,16 @@ export function CanvasView({
     const contentH = maxY - minY + PAD * 2;
     const viewportW = canvasEl.clientWidth;
     const viewportH = canvasEl.clientHeight;
-    const nextZoom = Math.min(1, Math.max(0.1, Math.min(viewportW / contentW, viewportH / contentH)));
+    // Round ONCE, then use that same value for both. Rounding only `zoom` while
+    // deriving `pan` from the unrounded ratio centres the content for a zoom
+    // that is never applied, leaving it a few px off after every Fit.
+    const nextZoom =
+      Math.round(
+        Math.min(1, Math.max(0.1, Math.min(viewportW / contentW, viewportH / contentH))) * 100,
+      ) / 100;
     const contentCenterX = (minX + maxX) / 2;
     const contentCenterY = (minY + maxY) / 2;
-    setZoom(Math.round(nextZoom * 100) / 100);
+    setZoom(nextZoom);
     setPan({
       x: viewportW / 2 - contentCenterX * nextZoom,
       y: viewportH / 2 - contentCenterY * nextZoom,
@@ -506,8 +756,15 @@ export function CanvasView({
   // it's carved out here rather than falling through to that "first node"
   // fallback — that fallback exists for a removed SELECTION, not for Brief.
   const isBriefSelected = selectedId === BRIEF_ID;
+  // Selecting an external-workflow node resolves to the STEP that routes to it.
+  // Its id is `${sourceId}::${outcomeKey}`, which is not an agent, so a plain
+  // lookup would blank the rail on click. Showing the owning gate instead is
+  // both non-empty and the thing you'd actually want to edit from there.
+  const selectedAgentId = selectedId?.includes("::") ? selectedId.split("::")[0] : selectedId;
   const foundAgent =
-    !isBriefSelected && selectedId ? findAgentInTree(pipelineAgents, selectedId) : null;
+    !isBriefSelected && selectedAgentId
+      ? findAgentInTree(pipelineAgents, selectedAgentId)
+      : null;
   const selAgent = isBriefSelected ? null : foundAgent ?? pipelineAgents[0] ?? null;
   // Root-array index — only meaningful when the selected node IS a root node
   // (drives the fan-out rail's `priorAgents`); -1 for a nested selection.
@@ -558,6 +815,112 @@ export function CanvasView({
   const handleSkillsChange = (id: string, skills: string[]) => {
     onTreeChange?.(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, skills })));
   };
+
+  /** Swap a ROOT step with its neighbour — `dir` -1 = earlier, +1 = later.
+   *
+   *  The WHOLE step moves. A step's sub-agents live nested inside it in
+   *  `pipelineAgents` (`agent.children`), so swapping the array entries carries
+   *  the entire subtree with it — there is no separate child bookkeeping to do.
+   *
+   *  Routes are left alone on purpose: a route target names a node id, not an
+   *  index, so reordering cannot invalidate one. What CAN change is which pairs
+   *  are chain-adjacent, and that is exactly the edit the user is asking for.
+   */
+  const moveRootStep = (id: string, dir: -1 | 1) => {
+    const from = pipelineAgents.findIndex((a) => a.id === id);
+    const to = from + dir;
+    if (from < 0 || to < 0 || to >= pipelineAgents.length) return;
+    const next = [...pipelineAgents];
+    [next[from], next[to]] = [next[to], next[from]];
+    // Keep `order` contiguous — it drives the displayed sequence downstream.
+    onTreeChange?.(next.map((a, i) => ({ ...a, order: i + 1 })));
+  };
+  // T35 (spec 014 / R-02) — the route-editor write-through CanvasNode's
+  // `onRouteChange` docstring flagged as missing. Same shape as every other
+  // tree-edit handler above: round-trips through `onTreeChange` into the SAME
+  // `pipelineAgents` state Save persists (ComposerPage.tsx `buildWorkflowManifest`
+  // reads `agent.route` off this).
+  /** Recompute every root step's `detached` flag from the tree.
+   *
+   *  A step is detached when NOTHING feeds it — no route outcome points at it
+   *  AND it has no structural predecessor. It keeps an incoming edge when:
+   *    • it is nested (a sub-agent always has its parent), or
+   *    • it is the first root step (the Brief always feeds it), or
+   *    • its chain predecessor does not branch away, in which case the plain
+   *      structural edge — suppressed only WHILE it was a route target —
+   *      simply comes back.
+   *
+   *  DERIVED, not sticky. Losing a route does not by itself orphan a step, so
+   *  attaching a condition to a step that already had a parent and then
+   *  removing it no longer flags a perfectly connected step. Derivation also
+   *  catches the mirror case a diff missed: turning a gate ON suppresses its
+   *  successor's chain edge, which orphans that successor just as really.
+   *
+   *  This does NOT reintroduce the silent auto-reconnect the flag exists to
+   *  prevent — the reconnect it allows is a real predecessor that was only ever
+   *  hidden by the route, never an arbitrary array neighbour behind a branch. */
+  const reconcileDetached = (tree: AgentDef[]): AgentDef[] => {
+    // Every id in the tree, so a target authored in EITHER form resolves to the
+    // node it actually feeds. Comparing the raw target flagged a perfectly
+    // routed step "Not connected" whenever the manifest used the backend id.
+    const known = new Set<string>();
+    const collectIds = (list: AgentDef[]) => {
+      for (const a of list) {
+        known.add(a.id);
+        if (a.children?.length) collectIds(a.children);
+      }
+    };
+    collectIds(tree);
+    const routeTargets = new Set<string>();
+    const walk = (list: AgentDef[]) => {
+      for (const a of list) {
+        for (const o of Object.values(a.route?.outcomes ?? {})) {
+          if (o.trigger === "step" && o.target) {
+            routeTargets.add(resolveRouteTargetId(o.target, (id) => known.has(id)));
+          }
+        }
+        if (a.children?.length) walk(a.children);
+      }
+    };
+    walk(tree);
+    const branches = (a: AgentDef) =>
+      (selections[a.id]?.gates ?? []).includes("conditional") &&
+      Object.keys(a.route?.outcomes ?? {}).length > 0;
+
+    let out = tree;
+    tree.forEach((a, i) => {
+      const fed = routeTargets.has(a.id) || i === 0 || !branches(tree[i - 1]);
+      if (!!a.detached !== !fed) {
+        out = mapAgentInTree(out, a.id, (n) => ({ ...n, detached: !fed }));
+      }
+    });
+    return out;
+  };
+
+  // Reconcile after ANY change that can alter reachability, not just a route
+  // edit: toggling the `conditional` gate lives in `selections` (not the tree),
+  // and adding/removing/reordering steps changes who precedes whom. Safe as an
+  // effect because `reconcileDetached` returns the SAME array reference when
+  // nothing needs changing, so this settles in one pass and cannot loop.
+  useEffect(() => {
+    const next = reconcileDetached(pipelineAgents);
+    if (next !== pipelineAgents) onTreeChange?.(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineAgents, selections]);
+
+  const handleRouteChange = (id: string, route: AgentDef["route"]) => {
+    const next = reconcileDetached(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, route })));
+    onTreeChange?.(next);
+  };
+  // Capabilities tab / "How this step runs" write-through (task C) — same
+  // tree-update path as `handleRouteChange`; `undefined` clears `mechanical`
+  // and reverts the step to a model agent.
+  const handleMechanicalChange = (id: string, mechanical: string | undefined) => {
+    onTreeChange?.(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, mechanical })));
+  };
+  const handleInjectsChange = (id: string, injects: string[]) => {
+    onTreeChange?.(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, injects: injects.length ? injects : undefined })));
+  };
   const handlePromptChange = (id: string, prompt: string) => {
     onTreeChange?.(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, prompt })));
   };
@@ -567,6 +930,211 @@ export function CanvasView({
     );
   };
 
+  // Branch auto-arrange. A branch is a FAN, not a staircase:
+  //
+  //            ┌──▶ C
+  //   A ─▶ B ──┼──▶ D          (3 targets: the middle one sits level with B)
+  //            └──▶ E
+  //
+  // so every target of one conditional step shares ONE column immediately
+  // right of its source, and the group is spread vertically symmetric about
+  // the source's own row. The earlier version only offset Y and left X on the
+  // flat array-order staircase, which put each target in its own column —
+  // a diagonal, not a fan.
+  //
+  // Columns are assigned by walking the root array once: a node not already
+  // claimed by some branch group takes the next free column; a group's members
+  // are all pinned to `source.col + 1`, so the nodes AFTER a group resume at
+  // the column just past it rather than leaving N-1 empty columns behind.
+  // Backward/loop targets are excluded — a loop target is a real EARLIER node
+  // with an established position, and re-placing it would fight that.
+  const ROW_GAP = 64; // clear air between two stacked nodes' bounding boxes
+
+  // How much room each root node really occupies, INCLUDING its sub-agent fan.
+  // Measured once at a neutral origin (layoutChildren is pure), so it can feed
+  // the column/row solver below without the solver feeding back into it.
+  // Without this the layout was index-based: a node with three sub-agents
+  // spans ~900px, but the next column still started one NODE_W+GAP along, so a
+  // branch target landed on top of the previous step's children.
+  const subtreeExtent = useMemo(() => {
+    const m = new Map<string, { halfWidth: number; below: number }>();
+    for (const a of pipelineAgents) {
+      if (!a.children || a.children.length === 0) {
+        m.set(a.id, { halfWidth: NODE_W / 2, below: 0 });
+        continue;
+      }
+      let left = -NODE_W / 2;
+      let right = NODE_W / 2;
+      let bottom = 0;
+      for (const [, p] of layoutChildren(a, 0, 0)) {
+        left = Math.min(left, p.x - p.width / 2);
+        right = Math.max(right, p.x + p.width / 2);
+        bottom = Math.max(bottom, p.y + CHILD_H_EST);
+      }
+      m.set(a.id, { halfWidth: Math.max(right, -left), below: bottom });
+    }
+    return m;
+  }, [pipelineAgents]);
+
+  // ── THE ARRANGEMENT CONTRACT ────────────────────────────────────────────
+  //
+  //  Two axes, no exceptions:
+  //    • step → step  is HORIZONTAL (180°). The main flow is one straight line.
+  //    • step → sub-agent is VERTICAL (90°). Fans drop straight down.
+  //
+  //  R1 — THE SPINE IS STRAIGHT. Every node that is not a branch target sits at
+  //       row 0. The left→right path is therefore always dead horizontal.
+  //
+  //  R2 — BRANCH ROWS. For a conditional source S with n forward targets, stack
+  //       the targets one card apart:
+  //           top(i) = i * (cardH + ROW_GAP)
+  //           H      = n*cardH + (n-1)*ROW_GAP
+  //       then anchor the stack against S:
+  //           n ODD  → the middle target m=(n-1)/2 is LEVEL with S:
+  //                    delta = row(S) - top(m)          → flow continues at 180°
+  //           n EVEN → no middle exists, so centre the stack on S:
+  //                    delta = row(S) + cardH/2 - H/2   → symmetric about S
+  //           row(Tᵢ) = top(i) + delta
+  //       n=1 puts the one target on the spine; n=3 and n=5 keep their middle on
+  //       it; n=2, n=4 and n=6 split evenly above and below with nothing on it.
+  //       One formula, every n. `delta` is relative to row(S), so a branch whose
+  //       target is itself conditional nests correctly with no special case.
+  //
+  //  R3 — THE SUB-AGENT BAND (see `childBandTop`). Every fan in the workflow
+  //       starts at ONE y, below the lowest root node. That is what keeps fans
+  //       off branch targets — moving the fans down rather than shoving the
+  //       columns apart, which would spread the diagram for no reason. With no
+  //       branches every row is 0 and the band lands directly under the spine,
+  //       exactly where it always was.
+  //
+  //  R4 — COLUMN X (see `columnX`). Because fans live in their own band, a
+  //       column only has to clear the NEXT column's fan, never its node:
+  //           x(c+1) = x(c) + max(NODE_W + NODE_GAP, fanW(c) + fanW(c+1) + NODE_GAP)
+  //       For a workflow with no sub-agents this reduces to the plain uniform
+  //       NODE_W + NODE_GAP — it only widens where two adjacent fans genuinely
+  //       would have collided.
+  //
+  //  Columns themselves are assigned by one walk of the root array: an unclaimed
+  //  node takes the next free column; a group's members all pin to source.col+1,
+  //  so nodes after a group resume just past it rather than leaving n-1 columns
+  //  empty. Backward/loop targets are skipped — they are real earlier nodes with
+  //  positions of their own.
+  const { rootLayout, workflowSlots } = useMemo(
+    () => computeRootLayout(pipelineAgents, selections, rowPortOffset),
+    [pipelineAgents, selections, rowPortOffset],
+  );
+
+  // R3 — the single y every sub-agent fan starts at: below the lowest root node
+  // in the whole graph. `layoutChildren` drops its first child row by
+  // ROOT_H_EST + TREE_ROW_GAP from the `rootTopY` it is handed, so hand it a
+  // top that makes that landing point the band.
+  const childBandTop = useMemo(() => {
+    const cardH = rowPortOffset * 2;
+    let lowest = 0;
+    for (const a of pipelineAgents) lowest = Math.max(lowest, rootLayout.get(a.id)?.row ?? 0);
+    return NODE_Y + lowest + Math.max(cardH, ROOT_H_EST) + ROW_GAP - ROOT_H_EST - TREE_ROW_GAP;
+  }, [pipelineAgents, rootLayout, rowPortOffset]);
+
+  // R4 — cumulative column x, widened only where adjacent fans would touch.
+  const columnGeom = useMemo(() => {
+    const fanW = new Map<number, number>();
+    for (const a of pipelineAgents) {
+      const col = rootLayout.get(a.id)?.col ?? 0;
+      fanW.set(
+        col,
+        Math.max(fanW.get(col) ?? NODE_W / 2, subtreeExtent.get(a.id)?.halfWidth ?? NODE_W / 2),
+      );
+    }
+    const cols = [...fanW.keys()].sort((p, q) => p - q);
+    const xs = new Map<number, number>();
+    const ys = new Map<number, number>();
+
+    // ── Wrap a long straight chain into rows ────────────────────────────────
+    //
+    // A purely sequential workflow laid out as one row is N x 356px wide and
+    // ~90px tall: an 11-step chain forces Fit down to 35% — every label
+    // unreadable — while the canvas sits empty above and below a hairline of
+    // nodes. Wrapping it into a block trades unused height for readable width.
+    //
+    // Deliberately NARROW in scope: only a chain with no branches, no route
+    // targets and no sub-agent trees wraps. The moment a graph has real shape,
+    // its shape IS the information and the ranking below stays exactly as it was.
+    // A node plus its gap is ~356px and the canvas is ~950px wide, so about
+    // three fit at 100%; wrapping at four keeps five steps near full zoom.
+    const isStraightChain =
+      cols.length > 3 &&
+      cols.length === pipelineAgents.length &&
+      cols.every((c, i) => c === i) &&
+      pipelineAgents.every((a) => (rootLayout.get(a.id)?.row ?? 0) === 0) &&
+      pipelineAgents.every((a) => !a.children || a.children.length === 0);
+    // Four per row at most, then BALANCED across however many rows that needs —
+    // so five steps read 3 + 2, not 4 + 1.
+    const MAX_PER_ROW = 4;
+    const perRow = isStraightChain
+      ? Math.ceil(cols.length / Math.ceil(cols.length / MAX_PER_ROW))
+      : cols.length;
+    const rowPitch = Math.max(rowPortOffset * 2, ROOT_H_EST) + ROW_GAP;
+
+    let x = START_X;
+    cols.forEach((col, i) => {
+      const rowIndex = Math.floor(i / perRow);
+      if (isStraightChain && i % perRow === 0) x = START_X;
+      xs.set(col, x);
+      ys.set(col, NODE_Y + rowIndex * rowPitch);
+      const next = cols[i + 1];
+      if (next === undefined) return;
+      x += Math.max(
+        NODE_W + NODE_GAP,
+        (fanW.get(col) ?? NODE_W / 2) + (fanW.get(next) ?? NODE_W / 2) + NODE_GAP,
+      );
+    });
+    return { xs, ys, perRow, wrapped: isStraightChain };
+  }, [pipelineAgents, rootLayout, subtreeExtent, rowPortOffset]);
+  const columnX = columnGeom.xs;
+  const columnY = columnGeom.ys;
+
+  // Base (pre-drag) geometry of every external-workflow node, keyed
+  // `${sourceId}::${outcomeKey}`. Defined here, above `positionOf`, because
+  // positionOf has to resolve these ids too — they are draggable nodes, and the
+  // drag gesture reads its start position through positionOf.
+  const externalSlotById = useMemo(() => {
+    const m = new Map<
+      string,
+      { x: number; y: number; sourceId: string; outcomeKey: string; target: string }
+    >();
+    for (const agent of pipelineAgents) {
+      for (const [outcomeKey, o] of Object.entries(agent.route?.outcomes ?? {})) {
+        if (o.trigger !== "workflow" || !o.target) continue;
+        const key = `${agent.id}::${outcomeKey}`;
+        const slot = workflowSlots.get(key);
+        if (!slot) continue;
+        // External-workflow nodes render in the fan to the right of their gate.
+        // Normally this column has step targets and columnX has an entry for it.
+        // For gates with ONLY workflow outcomes (no step targets), columnX lacks
+        // this column — compute x from the gate's position + offset instead of
+        // falling back to START_X (which would render left of the gate).
+        const x = columnX.get(slot.col) ?? (() => {
+          const gateCol = rootLayout.get(agent.id)?.col ?? 0;
+          const gateX = columnX.get(gateCol) ?? nodeLeft(gateCol);
+          return gateX + NODE_W + NODE_GAP;
+        })();
+        m.set(key, {
+          // CENTRE the external node in its column. `columnX` is a LEFT edge
+          // sized for a NODE_W (260) step card, but an external node is only
+          // EXTERNAL_NODE_W (190) wide, so sharing the left edge put its centre
+          // 35px left of the step targets sharing that column — a visible
+          // stagger within one gate's fan (ISS-176).
+          x: x + (NODE_W - EXTERNAL_NODE_W) / 2,
+          y: NODE_Y + slot.row,
+          sourceId: agent.id,
+          outcomeKey,
+          target: o.target,
+        });
+      }
+    }
+    return m;
+  }, [pipelineAgents, workflowSlots, columnX, rootLayout]);
+
   // ── Sub-agent tree layout — computed fresh from pipelineAgents every
   //    render (cheap, pure function; no DOM measurement needed for nested
   //    levels, see treeLayout.ts). Root positions come from the EXISTING
@@ -575,12 +1143,17 @@ export function CanvasView({
     const merged = new Map<string, FlatPos>();
     pipelineAgents.forEach((agent, i) => {
       if (!agent.children || agent.children.length === 0) return;
-      const rootCenterX = nodeLeft(i) + NODE_W / 2;
-      const positions = layoutChildren(agent, rootCenterX, NODE_Y);
+      // Follow the branch layout's column/row, not the raw array index — a
+      // fanned-out branch target moves, and its sub-agents have to move with it.
+      const slot = rootLayout.get(agent.id);
+      const rootCenterX = (columnX.get(slot?.col ?? i) ?? nodeLeft(slot?.col ?? i)) + NODE_W / 2;
+      // R3: every fan starts at the SHARED band, not under its own row —
+      // that is what keeps a fan clear of a branch target below the spine.
+      const positions = layoutChildren(agent, rootCenterX, childBandTop);
       for (const [id, pos] of positions) merged.set(id, pos);
     });
     return merged;
-  }, [pipelineAgents]);
+  }, [pipelineAgents, rootLayout, columnX, childBandTop]);
 
   const allDescendants = useMemo(
     () => pipelineAgents.flatMap((a) => flattenDescendants(a)),
@@ -604,6 +1177,7 @@ export function CanvasView({
     [depthOf],
   );
 
+
   // Effective position of ANY node (root or nested), with free-drag override
   // applied on top.
   const positionOf = useCallback(
@@ -611,7 +1185,20 @@ export function CanvasView({
       const override = dragOverrides[id];
       const rootIndex = pipelineAgents.findIndex((a) => a.id === id);
       if (rootIndex >= 0) {
-        const base = { x: nodeLeft(rootIndex), y: NODE_Y, width: NODE_W };
+        const slot = rootLayout.get(id);
+        const base = {
+          x: columnX.get(slot?.col ?? rootIndex) ?? nodeLeft(slot?.col ?? rootIndex),
+          y: (columnY.get(slot?.col ?? rootIndex) ?? NODE_Y) + (slot?.row ?? 0),
+          width: NODE_W,
+        };
+        return override ? { ...base, x: override.x, y: override.y } : base;
+      }
+      // External-workflow nodes are not agents and have no childPositions
+      // entry, but they ARE draggable, so positionOf has to resolve them too —
+      // handleCardMouseDown reads the current position through this.
+      const wf = externalSlotById.get(id);
+      if (wf) {
+        const base = { x: wf.x, y: wf.y, width: EXTERNAL_NODE_W };
         return override ? { ...base, x: override.x, y: override.y } : base;
       }
       const pos = childPositions.get(id);
@@ -619,7 +1206,7 @@ export function CanvasView({
       const base = { x: pos.x - pos.width / 2, y: pos.y, width: pos.width };
       return override ? { ...base, x: override.x, y: override.y } : base;
     },
-    [dragOverrides, pipelineAgents, childPositions],
+    [dragOverrides, pipelineAgents, childPositions, rootLayout, columnX, columnY, externalSlotById],
   );
 
   // ── Free-drag (any node) ────────────────────────────────────────────────
@@ -671,17 +1258,75 @@ export function CanvasView({
       y: (clientY - rect.top - panRef.current.y) / zoomRef.current,
     };
   }, []);
-  const handlePortMouseDown = (childId: string) => (e: React.MouseEvent) => {
+  /** The node whose rendered rect contains (x, y), excluding `exceptId`.
+   *  The SAME 180px-tall box both drags already hit-test against on mouseup —
+   *  factored out so the highlight shown mid-drag and the drop actually taken
+   *  on release can never disagree. */
+  const hitTestNodeAt = useCallback(
+    (x: number, y: number, exceptId?: string): string | null => {
+      for (const candidate of [...pipelineAgents, ...allDescendants]) {
+        if (candidate.id === exceptId) continue;
+        const pos = positionOf(candidate.id);
+        if (x >= pos.x && x <= pos.x + pos.width && y >= pos.y && y <= pos.y + 180) {
+          return candidate.id;
+        }
+      }
+      return null;
+    },
+    [pipelineAgents, allDescendants, positionOf],
+  );
+
+  const hasOrphan = pipelineAgents.some((a) => a.detached);
+  const handleChainConnectMouseDown = (sourceId: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
     const { x, y } = stageXYFromClient(e.clientX, e.clientY);
-    setReparentDrag({ childId, x, y });
+    setChainConnectDrag({ sourceId, x, y });
+  };
+  useEffect(() => {
+    if (!chainConnectDrag) return;
+    const onMove = (e: MouseEvent) => {
+      const { x, y } = stageXYFromClient(e.clientX, e.clientY);
+      setChainConnectDrag((prev) => (prev ? { ...prev, x, y } : prev));
+      const over = hitTestNodeAt(x, y, chainConnectDrag.sourceId);
+      // Only an ORPHAN is a legal drop here, so only an orphan lights up.
+      setDropHoverId(over && findAgentInTree(pipelineAgents, over)?.detached ? over : null);
+    };
+    const onUp = (e: MouseEvent) => {
+      const { x, y } = stageXYFromClient(e.clientX, e.clientY);
+      const targetId = hitTestNodeAt(x, y, chainConnectDrag.sourceId);
+      const target = targetId ? findAgentInTree(pipelineAgents, targetId) : null;
+      if (target?.detached) {
+        const without = pipelineAgents.filter((a) => a.id !== targetId);
+        const at = without.findIndex((a) => a.id === chainConnectDrag.sourceId);
+        const next = [...without];
+        next.splice(at + 1, 0, { ...target, detached: false });
+        onTreeChange?.(next);
+      }
+      setChainConnectDrag(null);
+      setDropHoverId(null);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chainConnectDrag?.sourceId, pipelineAgents]);
+
+  const handlePortMouseDown = (childId: string, fromEdge = false) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const { x, y } = stageXYFromClient(e.clientX, e.clientY);
+    setReparentDrag({ childId, x, y, fromEdge });
   };
   useEffect(() => {
     if (!reparentDrag) return;
     const onMove = (e: MouseEvent) => {
       const { x, y } = stageXYFromClient(e.clientX, e.clientY);
       setReparentDrag((prev) => (prev ? { ...prev, x, y } : prev));
+      setDropHoverId(hitTestNodeAt(x, y, reparentDrag!.childId));
     };
     const onUp = (e: MouseEvent) => {
       const { x, y } = stageXYFromClient(e.clientX, e.clientY);
@@ -728,8 +1373,16 @@ export function CanvasView({
       }
       if (newParentId) {
         onTreeChange?.(moveAgentInTree(pipelineAgents, reparentDrag!.childId, newParentId));
+      } else if (reparentDrag!.fromEdge && depthOf(reparentDrag!.childId) > 0) {
+        // Grabbed the drawn parent→child line and let go over empty canvas:
+        // that IS the "delete this line" gesture. The tree has no way to
+        // express a parentless sub-agent, so detaching means promoting the
+        // child back onto the root chain (BRIEF_ID) — the same target the
+        // Brief-pill drop above uses.
+        onTreeChange?.(moveAgentInTree(pipelineAgents, reparentDrag!.childId, BRIEF_ID));
       }
       setReparentDrag(null);
+      setDropHoverId(null);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -744,22 +1397,121 @@ export function CanvasView({
   // override — `centerYOf` alone only ever encodes a DOM-measured height
   // offset from the fixed NODE_Y baseline, so it silently drifted from a
   // dragged node's real position (D-04 follow-up: edges must track drags).
+  //  Uses the SHARED rowPortOffset, not this card's own measured center, so
+  //  two nodes on the same row always yield the same Y — a flat edge.
   const actualCenterY = useCallback(
-    (id: string) => positionOf(id).y + (centerYOf(id) - NODE_Y),
-    [positionOf, centerYOf],
+    (id: string) => positionOf(id).y + rowPortOffset,
+    [positionOf, rowPortOffset],
   );
+
+  // The positioned external-workflow nodes (spec 014 / R-22) — one per
+  // `trigger:"workflow"` outcome that has a target, placed in the row slot R2
+  // allocated for it. These are references to a SEPARATE run, not steps of this
+  // one, which is why they render as their own smaller node kind rather than
+  // the target workflow's steps inlined here.
+  const externalWorkflowNodes = [...externalSlotById.entries()].map(([key, slot]) => {
+    const live = positionOf(key);
+    return { key, ...slot, x: live.x, y: live.y };
+  });
 
   // ── Edge list — main chain (Brief→node0→…) PLUS every tree edge, all
   //    tinted brand when either endpoint is the current selection (a
   //    "what's this node connected to" hint highlight). ────────────────────
-  type EdgeSpec = { key: string; sx: number; sy: number; ex: number; ey: number; curved: boolean; active: boolean };
-  const chainEdges: EdgeSpec[] = pipelineAgents.map((a, i) => {
+  // `childId` is set on TREE edges only — it is what makes the drawn line
+  // grabbable (re-parent) and droppable-into-empty-space (detach). Chain edges
+  // leave it undefined: their order IS the array order, so there is no field a
+  // "delete this line" gesture could write to.
+  type EdgeSpec = { key: string; sx: number; sy: number; ex: number; ey: number; curved: boolean; active: boolean; wrap?: boolean; childId?: string };
+  // A step that BRANCHES has no structural successor: its outgoing edges are
+  // the amber route lines, one per outcome. Drawing the blue chain edge too
+  // put a brown AND a blue line on the same branch point, implying a
+  // sequential hand-off that will never happen (the run jumps to whichever
+  // outcome matched). This mirrors `deriveDependsOn`, which already drops the
+  // chain-predecessor `depends_on` edge for a route target.
+  const branchesAway = (id: string) =>
+    (selections[id]?.gates ?? []).includes("conditional") &&
+    Object.keys(findAgentInTree(pipelineAgents, id)?.route?.outcomes ?? {}).length > 0;
+  // Every node that some conditional step routes INTO — FORWARD targets only.
+  // A forward target (target index > source index) is reachable ONLY via the
+  // amber route edge, so it must not also receive the blue chain edge from its
+  // predecessor (suppressing two parents). A BACKWARD (loop) target is entered
+  // normally on the first pass and re-entered by the loop; per backend contract
+  // (workflows/ex_A1_loop/workflow.yaml), it must keep the normal blue chain
+  // edge on its first arrival. Same rule `deriveDependsOn` applies to the
+  // persisted `depends_on`, so the drawing and the compiled graph agree.
+  const stepOrder = new Map(pipelineAgents.map((a, i) => [a.id, i]));
+  /** Every id the canvas can actually anchor an edge to. */
+  const canvasIds = useMemo(
+    () => new Set([...pipelineAgents, ...allDescendants].map((a) => a.id)),
+    [pipelineAgents, allDescendants],
+  );
+
+  /** What to CALL a step on an edge label.
+   *
+   *  The edge itself is anchored by id, which is unique (R-03). A label is for
+   *  reading, so it uses the step's name — "Builders ↺3" tells you where the
+   *  loop goes; "pb-build ↺3" does not. Names are NOT unique, though: two steps
+   *  may share one, and a label that names both equally would be worse than the
+   *  id. So a name that is unique on this canvas stands alone, and a repeated
+   *  one carries its id to stay unambiguous. */
+  const nameOfStep = useCallback(
+    (id: string): string => {
+      const all = [...pipelineAgents, ...allDescendants];
+      const step = all.find((a) => a.id === id);
+      if (!step?.name) return id;
+      const sharesName = all.filter((a) => a.name === step.name).length > 1;
+      return sharesName ? `${step.name} (${id})` : step.name;
+    },
+    [pipelineAgents, allDescendants],
+  );
+
+  /** A route target as the CANVAS knows it.
+   *
+   *  The compiler requires `route.outcomes[*].target` to be a step's backend
+   *  agent id (R-10) — `custom-agent:<instance_id>` for a composed step. The
+   *  canvas keys its nodes on the bare `instance_id`, so a manifest authored
+   *  with the canonical id matched nothing here: every such outcome was
+   *  filtered out and drawn as no edge at all, while the node still reported
+   *  "1 outcome". Resolve both forms, the same dual lookup the save path
+   *  already does for `condition_agent`. */
+  const resolveRouteTarget = useCallback(
+    (target: string): string => resolveRouteTargetId(target, (id) => canvasIds.has(id)),
+    [canvasIds],
+  );
+
+  const routeTargetIds = new Set(
+    [...pipelineAgents, ...allDescendants]
+      .filter((a) => (selections[a.id]?.gates ?? []).includes("conditional"))
+      .flatMap((a) => {
+        const sourceIndex = stepOrder.get(a.id) ?? -1;
+        return Object.values(a.route?.outcomes ?? {})
+          .filter((o) => o.trigger === "step" && o.target)
+          .filter((o) => {
+            // Forward only: include target if target index > source index.
+            // If source index is -1 (sub-agent, not in pipelineAgents), treat as forward.
+            const targetIndex = stepOrder.get(resolveRouteTarget(o.target)) ?? -1;
+            return sourceIndex === -1 || targetIndex > sourceIndex;
+          })
+          .map((o) => resolveRouteTarget(o.target as string));
+      }),
+  );
+  const hasChainEdge = (i: number) => {
+    if (i === 0) return true; // Brief → first node always draws
+    // A detached node has no incoming edge at all — that is the whole point of
+    // the flag. Drawing the chain edge here is exactly the auto-reconnect it
+    // exists to prevent.
+    if (pipelineAgents[i].detached) return false;
+    if (branchesAway(pipelineAgents[i - 1].id)) return false;
+    return !routeTargetIds.has(pipelineAgents[i].id);
+  };
+  const chainEdges: EdgeSpec[] = pipelineAgents.flatMap((a, i) => {
     const prevId = i === 0 ? BRIEF_ID : pipelineAgents[i - 1].id;
+    if (!hasChainEdge(i)) return [];
     const sx = i === 0 ? BRIEF_X + BRIEF_W : positionOf(prevId).x + NODE_W;
     const sy = i === 0 ? briefCenterY : actualCenterY(prevId);
     const ex = positionOf(a.id).x - ARROW_INSET;
     const ey = actualCenterY(a.id);
-    return {
+    return [{
       key: `chain-${i}`,
       sx,
       sy,
@@ -767,10 +1519,15 @@ export function CanvasView({
       ey,
       curved: false,
       active: selectedId === a.id || selectedId === prevId,
-    };
+      // The next step wrapped onto a lower row: route it, don't cut across.
+      wrap: ey - sy > 40 && ex < sx,
+    }];
   });
   const treeEdges: EdgeSpec[] = pipelineAgents.flatMap((rootAgent, i) => {
-    const rootBottomY = positionOf(rootAgent.id).y + 2 * (centerYOf(rootAgent.id) - NODE_Y);
+    // The card's real bottom. Root cards are all padded to the row height
+    // (`minCardHeight`), so that — not this card's own natural height — is
+    // where the trunk to its sub-agents leaves from.
+    const rootBottomY = positionOf(rootAgent.id).y + rowPortOffset * 2;
     return collectTreeEdges(rootAgent).map(({ parentId, childId }) => {
       const parentPos = positionOf(parentId);
       const childPos = positionOf(childId);
@@ -787,37 +1544,259 @@ export function CanvasView({
         ey,
         curved: true,
         active: selectedId === parentId || selectedId === childId,
+        childId,
       };
     });
   });
   const edges = [...chainEdges, ...treeEdges];
 
+  // ── Route edges (spec 014 / R-23, T45) — an ADDITIVE layer drawn on top of
+  //    the unchanged chainEdges/treeEdges above (no node x/y repositioning):
+  //    one new edge per trigger:step outcome of a `gates:[conditional]` step,
+  //    resolved by instance_id against the SAME positionOf/actualCenterY the
+  //    structural edges already use. trigger:workflow outcomes are skipped —
+  //    ExternalWorkflowNode (T36) already represents those inline on the
+  //    node, so a duplicate in-canvas edge would be redundant. ────────────
+  const stepOrderIndex = useMemo(() => {
+    const order = new Map<string, number>();
+    let i = 0;
+    const walk = (list: AgentDef[]) => {
+      for (const a of list) {
+        order.set(a.id, i++);
+        if (a.children?.length) walk(a.children);
+      }
+    };
+    walk(pipelineAgents);
+    return order;
+  }, [pipelineAgents]);
+
+
+
+  // A nested node has no DOM-measured height (unlike a root card, via
+  // nodeCenterY) — CHILD_H_EST/2 mirrors the same fixed estimate
+  // treeLayout.ts already assumes for that card's own row spacing.
+  const routeAnchorY = useCallback(
+    (id: string) => {
+      const isRoot = pipelineAgents.some((a) => a.id === id);
+      return isRoot ? actualCenterY(id) : positionOf(id).y + 78;
+    },
+    [pipelineAgents, actualCenterY, positionOf],
+  );
+
+  type RouteEdgeSpec = {
+    key: string;
+    sourceId: string;
+    targetId?: string;
+    outcomeKey: string;
+    sx: number;
+    sy: number;
+    ex: number;
+    ey: number;
+    backward: boolean;
+    loopStagger: number; // only meaningful when backward — R-23's "stagger per edge index"
+    crestY?: number; // backward only — just above the tallest node the loop passes over
+    label: string; // the condition value this outcome fires on
+  };
+  // Fan-out origin: a conditional node's outgoing port IS the diamond
+  // (CanvasNode's `port` helper renders the right port as one instead of a
+  // circle), and EVERY outcome's edge starts at that single point — the same
+  // spot the circular port occupies on a non-branching node. An earlier
+  // version offset alternate edges to the diamond's top/bottom tips, which
+  // made three branches look like they sprouted from three different places.
+  const routeEdges: RouteEdgeSpec[] = [];
+  let loopIndex = 0;
+  for (const agent of [...pipelineAgents, ...allDescendants]) {
+    // Gates live on the SelectionsMap lever (mirrors CanvasNode's own
+    // `conditionalOn` check) — `route` itself is the AgentDef field.
+    if (!(selections[agent.id]?.gates ?? []).includes("conditional")) continue;
+    const stepOutcomes = Object.entries(agent.route?.outcomes ?? {}).filter(
+      ([, o]) =>
+        o.trigger === "step" && o.target && stepOrderIndex.has(resolveRouteTarget(o.target)),
+    );
+    const sourcePos = positionOf(agent.id);
+    const sourceCenterY = routeAnchorY(agent.id);
+    const sourceOrder = stepOrderIndex.get(agent.id) ?? 0;
+    for (const [outcomeKey, outcome] of stepOutcomes) {
+      const targetId = resolveRouteTarget(outcome.target);
+      const targetPos = positionOf(targetId);
+      const ey = routeAnchorY(targetId);
+      const targetOrder = stepOrderIndex.get(targetId) ?? 0;
+      // The loop case (R-23): a target at or before the source's own order —
+      // the same "ancestor" relationship isDescendant/moveAgentInTree guard
+      // against for a plain reparent, except a route edge MUST be able to
+      // target it.
+      const backward = targetOrder <= sourceOrder;
+      if (backward) loopIndex += 1;
+      // A self-edge (a step routing back to ITSELF, e.g. Structure Check's
+      // `broken ↺2`) is a degenerate case of "backward" — source and target
+      // are literally the same node, so the generic loop anchors below would
+      // collapse to one point. Anchored on the source's own top-right corner
+      // instead (leave/return points), independent of any target lookup.
+      const selfLoop = targetId === agent.id;
+      // A LOOP leaves the TOP of the source and enters the TOP of the target,
+      // arcing over everything in between. Anchoring it on the sides like a
+      // forward branch drags it back through the whole main flow line, which is
+      // exactly what a back-edge should stay clear of. Top-to-top is also how a
+      // loop reads at a glance: up, back, down.
+      //
+      // A FORWARD branch keeps the side anchors — it leaves the diamond on the
+      // source's right edge and enters the target's left.
+      const facingRight = targetPos.x >= sourcePos.x;
+      const geom = selfLoop
+        ? {
+            sx: sourcePos.x + sourcePos.width - 28,
+            sy: sourcePos.y,
+            ex: sourcePos.x + sourcePos.width,
+            ey: sourcePos.y + 28,
+          }
+        : backward
+          ? {
+              sx: sourcePos.x + sourcePos.width / 2,
+              sy: positionOf(agent.id).y,
+              ex: targetPos.x + targetPos.width / 2,
+              ey: targetPos.y,
+            }
+          : {
+              sx: facingRight ? sourcePos.x + sourcePos.width : sourcePos.x,
+              sy: sourceCenterY,
+              ex: facingRight ? targetPos.x : targetPos.x + targetPos.width,
+              ey,
+            };
+      // A loop crests just above the tallest node it passes over — near the
+      // row, but clear of anything in its horizontal span — staggered per loop
+      // so two loop-backs over the same span don't sit on each other. Only
+      // nodes with a real position count (a collapsed child resolves to 0,0).
+      let crestY: number | undefined;
+      if (backward && !selfLoop) {
+        const x0 = Math.min(geom.sx, geom.ex);
+        const x1 = Math.max(geom.sx, geom.ex);
+        let topInSpan = Math.min(geom.sy, geom.ey);
+        for (const other of [
+          ...pipelineAgents,
+          ...allDescendants.filter((d) => childPositions.has(d.id)),
+        ]) {
+          const p = positionOf(other.id);
+          if (p.x < x1 && p.x + p.width > x0) topInSpan = Math.min(topInSpan, p.y);
+        }
+        crestY = topInSpan - 28 - (loopIndex - 1) * 20;
+      }
+      routeEdges.push({
+        key: `route-${agent.id}-${outcomeKey}`,
+        sourceId: agent.id,
+        targetId,
+        outcomeKey,
+        ...geom,
+        backward,
+        loopStagger: backward ? loopIndex - 1 : 0,
+        crestY,
+        // A loop edge names its cap: "dutch ↺5". The bound exists either way
+        // (engine default 5) — showing it stops a loop reading as unbounded.
+        // The label names the step it goes to, not its id. A loop back to
+        // "pb-build" tells a reader nothing; "Builders" is the card they can
+        // see at the other end of the arc.
+        // A self-loop's target IS the source, so naming it says nothing the card
+        // does not already say — that one keeps the outcome key. A loop to
+        // ANOTHER step names it: "Builders ↺3" tells a reader where the arc
+        // lands; "pb-build ↺3" makes them go and look it up.
+        label: backward
+          ? selfLoop
+            ? `${outcomeKey} ↺${agent.route?.loop_max_iterations ?? 5}`
+            : `${nameOfStep(targetId)} ↺${agent.route?.loop_max_iterations ?? 5}`
+          : `${outcomeKey} → ${nameOfStep(targetId)}`,
+      });
+    }
+  }
+  // …and one edge per external-workflow node, so a `trigger:"workflow"` outcome
+  // is as visible on the canvas as a `trigger:"step"` one. Always forward (the
+  // node is placed in the source's own fan, one column right), so it draws with
+  // the same horizontal cubic as every other forward route edge.
+  for (const wf of externalWorkflowNodes) {
+    const sourcePos = positionOf(wf.sourceId);
+    routeEdges.push({
+      key: `route-wf-${wf.key}`,
+      sourceId: wf.sourceId,
+      outcomeKey: wf.outcomeKey,
+      sx: sourcePos.x + sourcePos.width,
+      sy: routeAnchorY(wf.sourceId),
+      ex: wf.x - ARROW_INSET,
+      ey: wf.y + EXTERNAL_NODE_H / 2,
+      backward: false,
+      loopStagger: 0,
+      label: wf.outcomeKey,
+    });
+  }
+
   // Inter-node insert affordances (between consecutive ROOT nodes only,
   // matching the old canvas exactly — no insert between Brief and node0) +
   // a chain-end add.
-  const inserts = pipelineAgents.slice(1).map((_, k) => {
+  // HEAD insert — between the Brief pill and the FIRST agent. Without this there
+  // is nowhere to add a step before step 1: `inserts` below starts at index 1
+  // (it pairs consecutive nodes, so it can only ever produce slots BETWEEN two
+  // agents), and `emptyAdd` only renders on an empty canvas. So on any workflow
+  // with at least one agent, prepending was simply unreachable from the canvas.
+  //
+  // Guarded on the first agent actually being in the leftmost column: if it has
+  // been dragged or ranked elsewhere (a detached node, or a branch target that
+  // ranked deeper), the midpoint would land somewhere meaningless.
+  const headAdd =
+    pipelineAgents.length > 0 && rootLayout.get(pipelineAgents[0].id)?.col === 0
+      ? {
+          key: "head-add",
+          x: (BRIEF_X + BRIEF_W + positionOf(pipelineAgents[0].id).x) / 2,
+          y: (briefCenterY + actualCenterY(pipelineAgents[0].id)) / 2,
+          insertBeforeId: pipelineAgents[0].id,
+        }
+      : null;
+
+  const inserts = pipelineAgents.slice(1).flatMap((_, k) => {
     const i = k; // between node i and node i+1
-    return {
+    // An insert affordance sits ON a chain edge, so it only exists where one
+    // does — same predicate, plus a guard against two siblings of one branch
+    // group (same column: the midpoint would land on top of them rather than
+    // between them).
+    if (!hasChainEdge(i + 1)) return [];
+    if (rootLayout.get(pipelineAgents[i].id)?.col === rootLayout.get(pipelineAgents[i + 1].id)?.col)
+      return [];
+    return [{
       key: `ins-${i}`,
       x: (positionOf(pipelineAgents[i].id).x + NODE_W + positionOf(pipelineAgents[i + 1].id).x) / 2,
       y: (actualCenterY(pipelineAgents[i].id) + actualCenterY(pipelineAgents[i + 1].id)) / 2,
       // The new agent should land right BEFORE node i+1 — i.e. between i and i+1.
       insertBeforeId: pipelineAgents[i + 1].id,
-    };
+    }];
   });
-  const chainEndX =
-    pipelineAgents.length > 0
-      ? positionOf(pipelineAgents[pipelineAgents.length - 1].id).x + NODE_W + NODE_GAP / 2
-      : BRIEF_X + BRIEF_W + NODE_GAP / 2;
-  const chainEndY =
-    pipelineAgents.length > 0
-      ? actualCenterY(pipelineAgents[pipelineAgents.length - 1].id)
-      : briefCenterY;
+  // Every LEAF gets its own "+" on its right, not just one at the end of the
+  // array. Branching means there is no single tail any more: a 2-way gate
+  // leaves two dead ends, and each of them needs somewhere to continue from.
+  // A leaf is a root step with no outgoing edge of either colour — it does not
+  // branch away (no amber route lines) and nothing draws a blue chain edge
+  // from it. The insert lands directly after that leaf in array order.
+  const leafAdds = pipelineAgents
+    .map((a, i) => ({ a, i }))
+    .filter(({ a, i }) => {
+      if (branchesAway(a.id)) return false;
+      return !(i + 1 < pipelineAgents.length && hasChainEdge(i + 1));
+    })
+    .map(({ a, i }) => ({
+      key: `leaf-add-${a.id}`,
+      x: positionOf(a.id).x + NODE_W + NODE_GAP / 2,
+      y: actualCenterY(a.id),
+      insertBeforeId: pipelineAgents[i + 1]?.id,
+    }));
+  // Empty canvas: one "+" just right of the Brief pill.
+  const emptyAdd =
+    pipelineAgents.length === 0
+      ? { x: BRIEF_X + BRIEF_W + NODE_GAP / 2, y: briefCenterY }
+      : null;
 
   // ── Spec 012 (R-07/R-37) — workflow-level settings (deliverable/planner/
   //    clarify/internet). These apply to the whole run, not a single node, so
   //    they live under the Brief instruction (the workflow-level selection),
   //    not the per-node rail. ─────────────────────────────────────────────
+
+  // Same styled hover-tooltip box as InfoHint above, reused for a disabled
+  // add/insert button's cap reason instead of a plain native `title=`.
+
   const deliverableStrategy = runConfig?.deliverable?.strategy ?? "streamed_text";
   const deliverableName = runConfig?.deliverable?.name ?? "output.md";
   const plannerOn = (runConfig?.planner ?? "skip") === "run";
@@ -836,11 +1815,19 @@ export function CanvasView({
     ],
     serialized_sandbox: [{ value: ".zip", label: "Zip archive (.zip)" }],
   };
+  // The strategies the composer can OFFER — the user-allowed resolvers. A
+  // workflow may declare one outside this set (see the <option> note below).
+  const KNOWN_STRATEGIES = new Set(["streamed_text", "single_file", "serialized_sandbox"]);
   const formatOptions = FORMAT_OPTIONS[deliverableStrategy] ?? FORMAT_OPTIONS.streamed_text;
   const currentExt = deliverableName.slice(deliverableName.lastIndexOf("."));
+  // Keep a DECLARED extension the composer cannot offer (ppt's
+  // `presentation.pptx`) instead of snapping to `.md` — same reason as the
+  // unofferable-strategy <option> below.
   const currentFormat = formatOptions.some((f) => f.value === currentExt)
     ? currentExt
-    : formatOptions[0].value;
+    : !KNOWN_STRATEGIES.has(deliverableStrategy) && currentExt
+      ? currentExt
+      : formatOptions[0].value;
   const withExtension = (name: string, ext: string) => {
     const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
     return `${base || "output"}${ext}`;
@@ -850,8 +1837,24 @@ export function CanvasView({
     : deliverableName;
   const formatLocked = formatOptions.length <= 1;
 
+  // ISS-246 — these controls are read-only wherever the host forwards no change
+  // callback (AgentsPopup, which shows the workflow's own DECLARED run config
+  // and never accepts an edit). The `disabled` attribute alone is indistinguish-
+  // able from a broken control, so every gated one points at a single visible
+  // reason — the same "disabled + explanation" pairing CanvasConfigRail's
+  // "Execute commands" toggle already uses.
+  const LOCKED_NOTE_ID = "workflow-settings-locked-note";
+  const runConfigLockedNote = onRunConfigChange ? undefined : LOCKED_NOTE_ID;
+  const capabilitiesLockedNote = onCapabilitiesChange ? undefined : LOCKED_NOTE_ID;
+
   const workflowSettingsSection = (
     <div className="flex flex-col gap-3.5 border-t border-line-divider px-[18px] py-3.5">
+      {(runConfigLockedNote || capabilitiesLockedNote) && (
+        <p id={LOCKED_NOTE_ID} className="font-serif text-[10px] leading-relaxed text-ink-300">
+          Read-only — these run settings come from this workflow&apos;s own configuration and cannot
+          be changed here.
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
           <OnOffHint
@@ -864,6 +1867,7 @@ export function CanvasView({
           on={plannerOn}
           label="Smart planning"
           disabled={!onRunConfigChange}
+          describedBy={runConfigLockedNote}
           onToggle={() => patchRunConfig({ planner: plannerOn ? "skip" : "run" })}
         />
       </div>
@@ -879,6 +1883,7 @@ export function CanvasView({
           on={clarifyOn}
           label="Confirm requirements first"
           disabled={!onRunConfigChange}
+          describedBy={runConfigLockedNote}
           onToggle={() =>
             patchRunConfig({
               clarify: clarifyOn ? { mode: "skip", defaults: [] } : { mode: "auto", defaults: [] },
@@ -908,6 +1913,7 @@ export function CanvasView({
           name="deliverable-strategy"
           value={deliverableStrategy}
           disabled={!onRunConfigChange}
+          aria-describedby={runConfigLockedNote}
           onChange={(e) => {
             const strategy = e.target.value;
             const nextExt = (FORMAT_OPTIONS[strategy] ?? FORMAT_OPTIONS.streamed_text)[0].value;
@@ -917,9 +1923,25 @@ export function CanvasView({
           }}
           className="w-full rounded-[8px] border border-line-control bg-surface-white px-2 py-1.5 font-sans text-[11.5px] text-ink-900 focus:border-brand focus:outline-none"
         >
-          <option value="streamed_text">Streamed text — agent&apos;s raw output</option>
-          <option value="single_file">Single file — one file from the workspace</option>
-          <option value="serialized_sandbox">Serialized sandbox — zip the workspace</option>
+          {Object.entries(DELIVERABLE_STRATEGY_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+          {/* A DECLARED strategy the composer cannot offer. The three options
+              above are exactly the `user_allowed=True` deliverable resolvers; a
+              file-backed workflow may declare one that is not user-grantable
+              (`ppt` is the live example — `deliverable: {strategy: ppt}`).
+              Without this option the <select> has no matching value and renders
+              BLANK or snaps to the first entry, which is how the ppt rail came
+              to claim its output was streamed markdown. Read-only by nature: the
+              control is disabled whenever there is no onRunConfigChange, and a
+              user could not have picked this value in the first place. */}
+          {!KNOWN_STRATEGIES.has(deliverableStrategy) && (
+            <option value={deliverableStrategy}>
+              {deliverableStrategyLabel(deliverableStrategy)}
+            </option>
+          )}
         </select>
 
         <div className="mt-2 flex items-center gap-2">
@@ -929,6 +1951,7 @@ export function CanvasView({
             name="output-filename"
             value={deliverableBaseName}
             disabled={!onRunConfigChange}
+            aria-describedby={runConfigLockedNote}
             onChange={(e) =>
               patchRunConfig({
                 deliverable: {
@@ -945,6 +1968,7 @@ export function CanvasView({
             name="output-format"
             value={currentFormat}
             disabled={!onRunConfigChange || formatLocked}
+            aria-describedby={runConfigLockedNote}
             onChange={(e) =>
               patchRunConfig({
                 deliverable: {
@@ -960,7 +1984,10 @@ export function CanvasView({
                 {f.label}
               </option>
             ))}
-          </select>
+                      {!formatOptions.some((f) => f.value === currentFormat) && (
+              <option value={currentFormat}>{currentFormat} — declared</option>
+            )}
+</select>
         </div>
       </div>
 
@@ -973,10 +2000,91 @@ export function CanvasView({
           on={!!capabilities?.internet}
           label="Internet access"
           disabled={!onCapabilitiesChange}
+          describedBy={capabilitiesLockedNote}
           onToggle={() =>
             onCapabilitiesChange?.({ ...capabilities, internet: !capabilities?.internet })
           }
         />
+      </div>
+
+      {/* Context provider — WORKFLOW-level, deliberately not the per-node Tools
+          tab: it compiles to `ectx.compiled_context_providers`, which is run-wide,
+          so a per-step control would silently change every step. Only
+          `opendesign` is offered (see ContextProviderName in types/index.ts for
+          why the other four registered providers are withheld). */}
+      <div className="border-t border-line-divider pt-3.5">
+        <div className="mb-1.5 flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
+          <InfoHint>
+            <div>
+              <span className="font-semibold text-ink-900">None</span> — agents get no design
+              context, exactly as today.
+            </div>
+            <div className="mt-1">
+              <span className="font-semibold text-ink-900">OpenDesign</span> — the template and
+              design system you pick at run time are injected into every agent that accepts them.
+            </div>
+          </InfoHint>
+          Context provider
+        </div>
+        <select
+          aria-label="Context provider"
+          name="context-provider"
+          value={runConfig?.contextProvider ?? ""}
+          disabled={!onRunConfigChange}
+          onChange={(e) => {
+            const value = e.target.value;
+            patchRunConfig(
+              value
+                ? {
+                    contextProvider: value as ContextProviderName,
+                    // Seed a family so the picker has something to render; the
+                    // user can switch it on the next line.
+                    designMode: runConfig?.designMode ?? "web",
+                  }
+                : { contextProvider: null, designMode: undefined },
+            );
+          }}
+          className="w-full rounded-[8px] border border-line-control bg-surface-white px-2 py-1.5 font-sans text-[11.5px] text-ink-900 focus:border-brand focus:outline-none"
+        >
+          <option value="">None</option>
+          <option value="opendesign">OpenDesign — templates &amp; design systems</option>
+        </select>
+
+        {/* Which template family the design picker offers. Presentation only —
+            the launch boundary derives the LOADER profile from the chosen
+            template's own `mode`, so a stale value here cannot mis-route a run. */}
+        {runConfig?.contextProvider === "opendesign" && (
+          <div className="mt-2">
+            <div className="mb-1.5 flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
+              <InfoHint>
+                <div>
+                  <span className="font-semibold text-ink-900">Web</span> — HTML page templates,
+                  for prototype-building agents.
+                </div>
+                <div className="mt-1">
+                  <span className="font-semibold text-ink-900">Deck</span> — slide templates, for
+                  presentation agents.
+                </div>
+                <div className="mt-1 text-ink-400">
+                  One design applies to the whole run, so a workflow that builds both needs two
+                  chained runs.
+                </div>
+              </InfoHint>
+              Design mode
+            </div>
+            <select
+              aria-label="Design mode"
+              name="design-mode"
+              value={runConfig?.designMode ?? "web"}
+              disabled={!onRunConfigChange}
+              onChange={(e) => patchRunConfig({ designMode: e.target.value as DesignMode })}
+              className="w-full rounded-[8px] border border-line-control bg-surface-white px-2 py-1.5 font-sans text-[11.5px] text-ink-900 focus:border-brand focus:outline-none"
+            >
+              <option value="web">Web — page templates</option>
+              <option value="deck">Deck — slide templates</option>
+            </select>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -992,7 +2100,14 @@ export function CanvasView({
         }`}
         style={{
           background:
-            "radial-gradient(circle at 1px 1px, var(--line-faint) 1.2px, transparent 0) 0 0 / 22px 22px, var(--surface-paper)",
+            "radial-gradient(circle at 1px 1px, var(--line-faint) 1.2px, transparent 0), var(--surface-paper)",
+          // The grid belongs to the CANVAS, not the screen. This element is
+          // never transformed (the stage below carries translate+scale), so the
+          // lattice has to be scaled by hand — otherwise the dots keep a fixed
+          // 22px screen spacing while the nodes grow and shrink around them,
+          // and the grid stops being a spatial reference at any zoom but 100%.
+          // Translation was already handled; only the size was missing.
+          backgroundSize: `${gridSpacing}px ${gridSpacing}px`,
           backgroundPosition: `${pan.x}px ${pan.y}px`,
         }}
       >
@@ -1028,23 +2143,124 @@ export function CanvasView({
               <marker id="arwb" markerWidth="9" markerHeight="9" refX="6.5" refY="4.5" orient="auto">
                 <path d="M1 1 L7 4.5 L1 8 Z" fill="var(--brand)" />
               </marker>
+              {/* Route-edge arrowhead (T45, redesigned) — amber for every
+                  route edge, forward or backward: brown lines now behave
+                  like the blue structural edges above (solid, one
+                  consistent style) rather than backward getting a separate
+                  dashed/red "loop warning" treatment. */}
+              <marker id="arw-route" markerWidth="9" markerHeight="9" refX="6.5" refY="4.5" orient="auto">
+                <path d="M1 1 L7 4.5 L1 8 Z" fill="var(--status-amber)" />
+              </marker>
+              {/* Resting (unselected) route arrowhead — neutral, matching the
+                  structural edges' resting colour. */}
+              <marker id="arw-route-dim" markerWidth="9" markerHeight="9" refX="6.5" refY="4.5" orient="auto">
+                <path d="M1 1 L7 4.5 L1 8 Z" fill="var(--line-faint)" />
+              </marker>
             </defs>
-            {edges.map((e) => (
-              <path
-                key={e.key}
-                data-testid="canvas-edge"
-                data-active={e.active ? "true" : "false"}
-                d={
-                  e.curved
-                    ? verticalEdgePath(e.sx, e.sy, e.ex, e.ey)
-                    : edgePath(e.sx, e.sy, e.ex, e.ey)
-                }
-                fill="none"
-                stroke={e.active ? "var(--brand)" : "var(--line-faint)"}
-                strokeWidth={e.active ? 2 : 1.75}
-                markerEnd={e.curved ? undefined : `url(#${e.active ? "arwb" : "arw"})`}
-              />
-            ))}
+            {edges.map((e) => {
+              const d = e.curved
+                ? verticalEdgePath(e.sx, e.sy, e.ex, e.ey)
+                : e.wrap
+                  ? wrapEdgePath(e.sx, e.sy, e.ex, e.ey)
+                  : edgePath(e.sx, e.sy, e.ex, e.ey);
+              return (
+                <g key={e.key}>
+                  {/* Wide invisible grab band under the hairline — same
+                      pattern the amber route edges use. Only TREE edges get
+                      one: dragging it re-parents the child (drop on a node) or
+                      detaches it back to the root chain (drop on empty canvas). */}
+                  {e.childId && (
+                    <path
+                      data-testid="canvas-edge-grab"
+                      d={d}
+                      fill="none"
+                      stroke="transparent"
+                      strokeWidth={14}
+                      style={{ pointerEvents: "stroke", cursor: "grab" }}
+                      onMouseDown={handlePortMouseDown(e.childId, true)}
+                    />
+                  )}
+                  <path
+                    data-testid="canvas-edge"
+                    data-active={e.active ? "true" : "false"}
+                    d={d}
+                    fill="none"
+                    stroke={e.active ? "var(--brand)" : "var(--line-faint)"}
+                    strokeWidth={e.active ? 2 : 1.75}
+                    markerEnd={e.curved ? undefined : `url(#${e.active ? "arwb" : "arw"})`}
+                  />
+                </g>
+              );
+            })}
+            {/* Route edges (T45, redesigned) — a forward target dips
+                modestly above/below the row (alternating per the diamond's
+                top/bottom origin); a backward/loop target arcs further
+                above it, staggered per loop index so overlapping loop-backs
+                don't sit on top of one another. Both render the SAME solid
+                amber style now ("brown lines behave like blue lines" — no
+                separate dashed/red loop treatment), and each carries a
+                label naming the condition value that fires it. */}
+            {routeEdges.map((e) => {
+              // A FORWARD route now draws with the very same horizontal cubic
+              // the blue chain edges use, so a branch reads as the same kind of
+              // connector in a different colour — leaves the diamond
+              // horizontally, enters the target's left edge horizontally. The
+              // old quadratic "bulge" arc bowed off the row and met the target
+              // at an angle, which is what made brown lines look unlike blue.
+              //
+              // BACKWARD (loop) targets arc over the top instead — see
+              // `loopArcPath`. Anchored top-to-top, so it never cuts back
+              // through the main flow line. The crest is computed where the edge is
+              // built: just above the tallest node in the loop's span, staggered per loop.
+              const selfLoop = e.sourceId === e.targetId;
+              const crest = e.crestY ?? Math.min(e.sy, e.ey) - 28;
+              const path = selfLoop
+                ? selfLoopPath(e.sx, e.sy, e.ex, e.ey, 30 + e.loopStagger * 14)
+                : e.backward
+                  ? loopArcPath(e.sx, e.sy, e.ex, e.ey, crest)
+                  : edgePath(e.sx, e.sy, e.ex, e.ey);
+              // Label anchor: the curve's own midpoint for a forward/backward
+              // edge. A self-loop instead sits just outside its own loop —
+              // "beside the loop", never floating between two cards, since
+              // there's only ever one card here.
+              const labelX = selfLoop ? e.ex + 6 : (e.sx + e.ex) / 2;
+              const labelY = selfLoop
+                ? e.sy - 10
+                : e.backward
+                  ? crest - 8
+                  : (e.sy + e.ey) / 2;
+              // Dash carries the meaning — "conditional: may or may not run" —
+              // so colour is free to carry SELECTION instead, exactly like the
+              // blue structural edges. At rest the line is neutral; it goes
+              // amber only when one of its endpoints is the selected node.
+              const active = selectedId === e.sourceId || selectedId === e.targetId;
+              const routeStroke = active ? "var(--status-amber)" : "var(--line-faint)";
+              return (
+                <g key={e.key}>
+                  <path
+                    data-testid="canvas-route-edge"
+                    data-direction={selfLoop ? "self" : e.backward ? "backward" : "forward"}
+                    data-active={active ? "true" : "false"}
+                    d={path}
+                    fill="none"
+                    stroke={routeStroke}
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    markerEnd={`url(#${active ? "arw-route" : "arw-route-dim"})`}
+                  />
+                  <text
+                    data-testid="canvas-route-edge-label"
+                    x={labelX}
+                    y={labelY - 4}
+                    textAnchor={selfLoop ? "start" : "middle"}
+                    className="font-sans text-[9.5px] font-semibold"
+                    fill={active ? "var(--status-amber)" : "var(--ink-300)"}
+                  >
+                    {e.label}
+                  </text>
+                </g>
+              );
+            })}
             {/* live ghost line while dragging a connector to reparent */}
             {reparentDrag &&
               (() => {
@@ -1056,6 +2272,26 @@ export function CanvasView({
                       childPos.y,
                       reparentDrag.x,
                       reparentDrag.y,
+                    )}
+                    fill="none"
+                    stroke="var(--brand)"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                  />
+                );
+              })()}
+            {/* live preview line while dragging a chain-connect handle */}
+            {chainConnectDrag &&
+              (() => {
+                const pos = positionOf(chainConnectDrag.sourceId);
+                return (
+                  <path
+                    data-testid="canvas-chain-connect-preview"
+                    d={edgePath(
+                      pos.x + pos.width,
+                      actualCenterY(chainConnectDrag.sourceId),
+                      chainConnectDrag.x,
+                      chainConnectDrag.y,
                     )}
                     fill="none"
                     stroke="var(--brand)"
@@ -1098,6 +2334,15 @@ export function CanvasView({
             <div className="mt-0.5 truncate font-serif text-[10px] text-ink-300">
               {briefText.trim() || "the run input"}
             </div>
+            {/* The design selection is summarised here for context; picking
+                happens through the "+ Attach design" control in the brief box,
+                which the rail and Simple view share. */}
+            {runConfig?.contextProvider === "opendesign" && designSummary && (
+              <div className="mt-1.5 flex items-center gap-1.5 font-sans text-[10px] text-brand-on-dark">
+                <Palette className="h-3 w-3 flex-none" />
+                <span className="truncate">{designSummary}</span>
+              </div>
+            )}
             <span
               className={`absolute top-1/2 -right-[6px] h-[11px] w-[11px] -translate-y-1/2 rounded-full border-2 bg-surface-near-black ${
                 isBriefSelected ? "border-brand" : "border-ink-700"
@@ -1126,8 +2371,24 @@ export function CanvasView({
                 onRename={handleRename}
                 onSkillsChange={handleSkillsChange}
                 onCardMouseDown={handleCardMouseDown(agent.id)}
+                onOpenConfig={() => openNodeConfig(agent.id)}
+                dropTarget={dropHoverId === agent.id}
+                onChainConnectMouseDown={
+                  hasOrphan && !agent.detached ? handleChainConnectMouseDown(agent.id) : undefined
+                }
+                minCardHeight={rowCardHeight}
                 modelOptions={modelOptions}
                 addChildDisabledReason={addChildDisabledReason(agent)}
+                // Reorder arrows — root steps only, and only where there IS a
+                // neighbour to swap with (undefined ⇒ the arrow renders disabled).
+                onMoveEarlier={
+                  onTreeChange && i > 0 ? () => moveRootStep(agent.id, -1) : undefined
+                }
+                onMoveLater={
+                  onTreeChange && i < pipelineAgents.length - 1
+                    ? () => moveRootStep(agent.id, 1)
+                    : undefined
+                }
               />
             );
           })}
@@ -1153,6 +2414,11 @@ export function CanvasView({
                 onRename={handleRename}
                 onSkillsChange={handleSkillsChange}
                 onCardMouseDown={handleCardMouseDown(agent.id)}
+                onOpenConfig={() => openNodeConfig(agent.id)}
+                dropTarget={dropHoverId === agent.id}
+                onChainConnectMouseDown={
+                  hasOrphan && !agent.detached ? handleChainConnectMouseDown(agent.id) : undefined
+                }
                 onPortMouseDown={handlePortMouseDown(agent.id)}
                 modelOptions={modelOptions}
                 addChildDisabledReason={addChildDisabledReason(agent)}
@@ -1160,21 +2426,41 @@ export function CanvasView({
             );
           })}
 
+          {/* External-workflow reference nodes (spec 014 / R-22) — the target
+              of a `trigger:"workflow"` outcome. A reference to a SEPARATE run,
+              never that workflow's steps inlined here. */}
+          {externalWorkflowNodes.map((wf) => (
+            <ExternalWorkflowNode
+              key={wf.key}
+              workflowId={wf.target}
+              workflowNameById={workflowNameById}
+              workflowShortNameById={workflowShortNameById}
+              workflowKindById={workflowKindById}
+              left={wf.x}
+              top={wf.y}
+              selected={selectedId === wf.key}
+              onSelect={() => setSelectedId(wf.key)}
+              onMouseDown={handleCardMouseDown(wf.key)}
+            />
+          ))}
+
           {/* insert affordances ON the edges (between consecutive root nodes) —
               solid card + darker icon so the dot-grid canvas doesn't show
               through and wash it out; the disabled state stays legible
               (opacity-70, not 40) and explains WHY instead of just fading
               into the background looking broken. */}
-          {inserts.map((ins) => (
+          {[...(headAdd ? [headAdd] : []), ...inserts].map((ins) => (
             <span
               key={ins.key}
               className="absolute z-[5] -translate-x-1/2 -translate-y-1/2"
               style={{ left: ins.x, top: ins.y }}
             >
-              <CapTip reason={canAddMore ? undefined : "Maximum 8 root agents are allowed"}>
+              <CapTip reason={canAddMore ? undefined : `Maximum ${MAX_OPTIONAL} root agents are allowed`}>
                 <button
                   type="button"
-                  aria-label="Add agent"
+                  aria-label={`Insert agent before step ${
+                    pipelineAgents.findIndex((a) => a.id === ins.insertBeforeId) + 1
+                  }`}
                   disabled={!canAddMore}
                   onClick={() => onAddAgent(ins.insertBeforeId)}
                   className="grid h-[24px] w-[24px] place-items-center rounded-[7px] border border-line-control bg-surface-card text-[15px] leading-none text-ink-700 shadow-[0_1px_4px_rgba(17,17,20,0.14)] enabled:hover:border-brand enabled:hover:text-brand disabled:cursor-not-allowed disabled:opacity-70"
@@ -1185,23 +2471,72 @@ export function CanvasView({
             </span>
           ))}
 
-          {/* add-agent affordance at the chain end */}
-          <span
-            className="absolute z-[5] -translate-x-1/2 -translate-y-1/2"
-            style={{ left: chainEndX, top: chainEndY }}
-          >
-          <CapTip reason={canAddMore ? undefined : "Maximum 8 root agents are allowed"}>
-          <button
-            type="button"
-            aria-label="Add agent"
-            disabled={!canAddMore}
-            onClick={() => onAddAgent()}
-            className="grid h-[30px] w-[30px] place-items-center rounded-[8px] border border-line-control bg-surface-card text-ink-700 shadow-[0_1px_4px_rgba(17,17,20,0.14)] enabled:hover:border-brand enabled:hover:text-brand disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            <Plus className="h-[18px] w-[18px]" />
-          </button>
-          </CapTip>
-          </span>
+          {/* add-agent affordance on EVERY leaf's right (plus the empty-canvas
+              case) — see `leafAdds`. */}
+          {[
+            ...leafAdds,
+            ...(emptyAdd ? [{ key: "leaf-add-empty", ...emptyAdd, insertBeforeId: undefined }] : []),
+          ].map((add) => {
+            // A slot with no `insertBeforeId` APPENDS to the end of the chain, and
+            // for a last-streamed deliverable the last step's output IS the
+            // deliverable (engine: `ectx.last_streamed = results[-1].output`). So
+            // appending here silently replaces the deck / the backlog with whatever
+            // the new agent happens to say — no error, no warning, the run just
+            // delivers the wrong artifact. `single_file` and `serialized_sandbox`
+            // read named files back off the sandbox instead and are immune, which is
+            // why this is keyed on the DECLARED strategy rather than blanket-blocked.
+            // Keyed on the DECLARED strategy, never the composer default. A custom
+            // composition has no declared deliverable — `runConfig` is absent — and
+            // there appending IS the point: the chain the user is building ends in
+            // the step that produces the result. Using the `?? "streamed_text"`
+            // fallback here would have disabled the composer's own append slot.
+            const declaredStrategy = runConfig?.deliverable?.strategy;
+            const appendsAtEnd = add.insertBeforeId === undefined && pipelineAgents.length > 0;
+            // The "runConfig is absent for custom compositions" assumption above
+            // went stale: the save round-trip now stores Run-settings, so a saved
+            // composition reopens with `streamed_text`/`output.md` DEFAULTS and
+            // the append slot locked out of the author's own chain. For a chain
+            // of composed (custom-agent) steps, extending the end is the point —
+            // a streamed deliverable simply follows the new last step. Only a
+            // BUILT-IN canvas's curated deliverable (the deck, the backlog)
+            // still earns the block.
+            const isComposedChain = pipelineAgents.some((a) => a.isCustom);
+            const eatsDeliverable =
+              appendsAtEnd &&
+              (declaredStrategy === "ppt" ||
+                (declaredStrategy === "streamed_text" && !isComposedChain));
+            const blockedReason = !canAddMore
+              ? `Maximum ${MAX_OPTIONAL} root agents are allowed`
+              : eatsDeliverable
+                ? `The last step's output is this workflow's deliverable (${deliverableName}). Adding a step after it would replace ${deliverableName} with the new step's output — insert it before another step instead.`
+                : undefined;
+            return (
+            <span
+              key={add.key}
+              className="absolute z-[5] -translate-x-1/2 -translate-y-1/2"
+              style={{ left: add.x, top: add.y }}
+            >
+              <CapTip reason={blockedReason}>
+                <button
+                  type="button"
+                  aria-label={
+                    add.insertBeforeId === undefined
+                      ? "Add agent at end"
+                      : `Insert agent before step ${
+                          pipelineAgents.findIndex((a) => a.id === add.insertBeforeId) + 1
+                        }`
+                  }
+                  disabled={!canAddMore || eatsDeliverable}
+                  onClick={() => onAddAgent(add.insertBeforeId)}
+                  className="grid h-[30px] w-[30px] place-items-center rounded-[8px] border border-line-control bg-surface-card text-ink-700 shadow-[0_1px_4px_rgba(17,17,20,0.14)] enabled:hover:border-brand enabled:hover:text-brand disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  <Plus className="h-[18px] w-[18px]" />
+                </button>
+              </CapTip>
+            </span>
+            );
+          })}
+
         </div>
 
         {/* zoom / Fit / Auto-arrange controls */}
@@ -1210,7 +2545,7 @@ export function CanvasView({
             <button
               type="button"
               aria-label="Zoom out"
-              onClick={() => setZoom((z) => Math.max(0.1, Math.round((z - 0.1) * 10) / 10))}
+              onClick={() => zoomByStep(-0.1)}
               className="grid place-items-center border-r border-line-faint-row px-2.5 py-2 text-ink-500 hover:text-ink-900"
             >
               <Minus className="h-3.5 w-3.5" />
@@ -1221,7 +2556,7 @@ export function CanvasView({
             <button
               type="button"
               aria-label="Zoom in"
-              onClick={() => setZoom((z) => Math.min(1.5, Math.round((z + 0.1) * 10) / 10))}
+              onClick={() => zoomByStep(0.1)}
               className="grid place-items-center border-l border-line-faint-row px-2.5 py-2 text-ink-500 hover:text-ink-900"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -1282,6 +2617,12 @@ export function CanvasView({
                 onCapabilitiesChange?.({ ...capabilities, internet: false });
               }}
               disabled={!onRunConfigChange && !onCapabilitiesChange}
+              // ISS-368 — this button sits in the tab header, outside
+              // `workflowSettingsSection`, but is gated the same way, so it
+              // points at the same read-only note.
+              aria-describedby={
+                !onRunConfigChange && !onCapabilitiesChange ? LOCKED_NOTE_ID : undefined
+              }
               className="flex-none font-sans text-[11px] font-semibold text-ink-400 transition-colors hover:text-ink-700 disabled:opacity-40"
             >
               Reset to default
@@ -1312,6 +2653,8 @@ export function CanvasView({
                   attachments={briefAttachments}
                   textareaRef={briefInputRef}
                   rows={5}
+                  leftExtra={briefLeftExtra}
+                  belowExtra={briefBelowExtra}
                 />
               </div>
               <p className="font-serif text-[10px] text-ink-300">
@@ -1334,6 +2677,11 @@ export function CanvasView({
             onPromptChange={handlePromptChange}
             onStrategyChange={handleStrategyChange}
             onRename={handleRename}
+            onRouteChange={handleRouteChange}
+            onMechanicalChange={handleMechanicalChange}
+            onInjectsChange={handleInjectsChange}
+            openConfigSignal={openConfigSignal}
+            allSteps={[...pipelineAgents, ...allDescendants]}
           />
         )}
 

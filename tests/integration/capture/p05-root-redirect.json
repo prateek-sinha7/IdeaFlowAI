@@ -1,0 +1,14 @@
+{
+  "asked": "/",
+  "landedOn": "/dashboard",
+  "authed": true,
+  "renders": "null — the component returns null and redirects in useEffect",
+  "source": "frontend/src/app/page.tsx",
+  "logic": "getToken() ? routes.home() : routes.login()",
+  "notes": [
+    "CORRECTION to MANIFEST row A1: the redirect is NOT unconditional to /login. With a token it goes to /dashboard; without one, to /login.",
+    "the branch is on token PRESENCE only — an expired or forged token still routes to /dashboard, and the API 401 is what actually stops you",
+    "client-side redirect from a null render: there is a blank frame first, so wait for the settled URL"
+  ],
+  "screenshot": "screenshots/01-auth/p05-root-redirect.png"
+}

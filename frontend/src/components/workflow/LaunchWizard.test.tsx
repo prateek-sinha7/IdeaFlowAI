@@ -15,7 +15,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
+import { act } from "@testing-library/react";
 import { DRAFT_SCENARIOS, PROTO_AGENTS, PPT_AGENTS } from "./__fixtures__/launchContract";
+import { buildLaunchDraft } from "@/lib/launchDraft";
 import type { AgentDef } from "@/types/index";
 
 const pushMock = vi.fn();
@@ -24,15 +26,35 @@ const createUserWorkflowMock = vi.fn().mockResolvedValue({ id: "wf-1" });
 // from the same mocked module for its own footer save button — stubbed here so
 // it doesn't resolve to undefined if a test ever exercises that button.
 const saveUserWorkflowMock = vi.fn().mockResolvedValue({ id: "wf-1" });
+const extractFileTextMock = vi.fn();
+const stageRunFileMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
 }));
 vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
-  extractFileText: vi.fn(),
+  // ISS-321 — the wizard now reads the signed-in tier to gate an
+  // unentitled launch. Entitled here, so every assertion below stays on
+  // the un-gated path these tests were written for.
+  getMe: vi.fn().mockResolvedValue({ id: "u1", email: "qa@flowinqa.com", tier: "enterprise" }),
+  extractFileText: (...args: unknown[]) => extractFileTextMock(...args),
+  stageRunFile: (...args: unknown[]) => stageRunFileMock(...args),
   createUserWorkflow: (...args: unknown[]) => createUserWorkflowMock(...args),
   saveUserWorkflow: (...args: unknown[]) => saveUserWorkflowMock(...args),
+  // Spec 016 — the wizard asks whether THIS user has saved an override of the
+  // built-in. Answering "no override" keeps every assertion in this file on the
+  // un-overridden path, which is the point: they pin the existing behaviour as
+  // unchanged for a user who has not opted in.
+  getWorkflowDetail: vi.fn().mockResolvedValue({
+    id: "ppt",
+    steps: [],
+    manifest_steps: null,
+    has_override: false,
+    is_overridden: false,
+    override_id: null,
+  }),
+  setWorkflowOverrideEnabled: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("@/lib/prototype-api", () => ({
   listPrototypeTemplates: vi.fn().mockResolvedValue([
@@ -116,6 +138,28 @@ const golden = (name: string) => {
   return s.expected;
 };
 
+/**
+ * The golden draft as the WIZARD writes it today.
+ *
+ * FIX-323 made the wizard always send `gate_agent_ids` (`touched: true` from
+ * mount), so an empty selection reaches the backend as an explicit "no gates"
+ * instead of an absent field it would fill from its own defaults. The frozen
+ * fixtures in `launchContract.ts` model the RETIRED route-split flow, where the
+ * field was omitted while untouched — they are the oracle
+ * `launchDraft.parity.test.ts` pins `buildLaunchDraft` against byte-for-byte, so
+ * they must NOT be edited to chase the component.
+ *
+ * Instead, re-serialize the scenario's own inputs through that same
+ * independently-pinned builder with the one field FIX-323 adds. The chain stays
+ * honest: builder ≡ frozen oracle (parity suite), component ≡ builder + FIX-323
+ * (here).
+ */
+const goldenAsWizardWrites = (name: string) => {
+  const s = DRAFT_SCENARIOS.find((x) => x.name === name);
+  if (!s) throw new Error(`missing scenario ${name}`);
+  return buildLaunchDraft(s.mode, { ...s.inputs, gatesTouched: true, gateAgentIds: [] }).draftJson;
+};
+
 // Create test agents matching the expected library
 const createTestAgents = (): AgentDef[] => {
   const protoAgents: AgentDef[] = PROTO_AGENTS.map((id, idx) => ({
@@ -148,6 +192,8 @@ beforeEach(() => {
   pushMock.mockClear();
   createUserWorkflowMock.mockClear();
   saveUserWorkflowMock.mockClear();
+  extractFileTextMock.mockReset();
+  stageRunFileMock.mockReset();
 });
 
 describe("LaunchWizard — real-component launch parity (byte-identical per mode)", () => {
@@ -162,7 +208,9 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     const g = golden("prototype · base (template + ds + brief)");
-    expect(sessionStorage.getItem("prototype.draft")).toBe(g.draftJson);
+    expect(sessionStorage.getItem("prototype.draft")).toBe(
+      goldenAsWizardWrites("prototype · base (template + ds + brief)"),
+    );
     expect(sessionStorage.getItem("prototype.pending")).toBe("true");
     expect(pushMock).toHaveBeenCalledWith("/dashboard");
   });
@@ -178,7 +226,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(sessionStorage.getItem("prototype.draft")).toBe(
-      golden("prototype · blank canvas (no template)").draftJson,
+      goldenAsWizardWrites("prototype · blank canvas (no template)"),
     );
   });
 
@@ -193,7 +241,8 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     const g = golden("ppt · base (ds required)");
-    expect(sessionStorage.getItem("ppt.draft")).toBe(g.draftJson);
+    const gJson = goldenAsWizardWrites("ppt · base (ds required)");
+    expect(sessionStorage.getItem("ppt.draft")).toBe(gJson);
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
   });
 
@@ -207,7 +256,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(sessionStorage.getItem("ppt.draft")).toBe(
-      golden("ppt · ds not required (designSystemId null)").draftJson,
+      goldenAsWizardWrites("ppt · ds not required (designSystemId null)"),
     );
   });
 
@@ -223,7 +272,8 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     const g = golden("ppt · custom template (customTemplateBody + designSystemId null)");
-    expect(sessionStorage.getItem("ppt.draft")).toBe(g.draftJson);
+    const gJson = goldenAsWizardWrites("ppt · custom template (customTemplateBody + designSystemId null)");
+    expect(sessionStorage.getItem("ppt.draft")).toBe(gJson);
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
   });
 });
@@ -245,7 +295,7 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     // Launch wrote the ppt contract, not prototype.
-    expect(sessionStorage.getItem("ppt.draft")).toBe(golden("ppt · base (ds required)").draftJson);
+    expect(sessionStorage.getItem("ppt.draft")).toBe(goldenAsWizardWrites("ppt · base (ds required)"));
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
     expect(sessionStorage.getItem("prototype.draft")).toBeNull();
   });
@@ -331,7 +381,7 @@ describe("LaunchWizard — ported behaviors", () => {
 
     await waitFor(() => expect(createUserWorkflowMock).toHaveBeenCalledTimes(1));
     const [, body] = createUserWorkflowMock.mock.calls[0];
-    expect(body.base_pipeline_type).toBe("od_prototype");
+    expect(body.base_pipeline_type).toBe("prototype");
     expect(body.selections._wizard.brief).toBe("Savable");
     expect(body.selections._wizard.templateId).toBe("kanban");
   });
@@ -382,10 +432,9 @@ describe("LaunchWizard — ported behaviors", () => {
     expect(screen.getByText(/Continuing from your/i)).toBeInTheDocument();
   });
 
-  it("WR-07: chaining launch composes finalBrief=contextBlock and threads sourceRunId", async () => {
+  it("WR-07: chaining launch threads sourceRunId and clears the key (v2: context block no longer injected into brief)", async () => {
     const user = userEvent.setup();
     sessionStorage.setItem("chain.from", "user_stories");
-    sessionStorage.setItem("chain.context_block", "PRIOR CONTEXT");
     sessionStorage.setItem("chain.source_run_id", "run-42");
     renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Brief editor hidden when chaining — the topic comes from the prior run.
@@ -395,7 +444,8 @@ describe("LaunchWizard — ported behaviors", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
-    expect(draft.brief).toBe("PRIOR CONTEXT"); // isChaining && contextBlock → finalBrief = contextBlock
+    // v2: context block is no longer injected — brief is the user-typed brief (empty here).
+    expect(draft.brief).toBe("");
     expect(draft.sourceRunId).toBe("run-42"); // pulled from chain.source_run_id
     expect(sessionStorage.getItem("prototype.pending")).toBe("true");
   });
@@ -429,7 +479,6 @@ describe("LaunchWizard — BUG-014: chain.source_run_id must not leak into a fre
   it("a genuine chain (chain.from + chain.source_run_id → isChaining=true) still threads the source id and clears the key", async () => {
     const user = userEvent.setup();
     sessionStorage.setItem("chain.from", "user_stories");
-    sessionStorage.setItem("chain.context_block", "PRIOR CONTEXT");
     sessionStorage.setItem("chain.source_run_id", "run-42");
     renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Brief editor hidden when chaining — the topic comes from the prior run.
@@ -442,5 +491,178 @@ describe("LaunchWizard — BUG-014: chain.source_run_id must not leak into a fre
     expect(draft.sourceRunId).toBe("run-42");
     // Consume-once: the key is cleared afterward so it can't leak into the next launch.
     expect(sessionStorage.getItem("chain.source_run_id")).toBeNull();
+  });
+});
+
+// N3 / ISSUE-001 — where the three chain-source cases live, and why.
+// Full trace: gaps-run/journal/N3.md (fix attempts 1–3).
+//
+// Requirement 21 splits this across three components, and the wizard owns
+// exactly one third of it:
+//  - AC 9, mixed-deploy `incompatible_backend` → RunConnectionProvider.test.tsx
+//    ("mixed-deploy chain launch"). The reason code is produced in the
+//    `POST /api/runs` response handler
+//    (`launchedRunId && payload.source_workflow_run_id && !body?.chain_v2_accepted`).
+//    `handleLaunch` below never calls that endpoint — it writes a draft to
+//    sessionStorage and navigates away, so this component is already unmounted
+//    when the response lands.
+//  - AC 11, a non-chainable source shown unavailable with its
+//    `non_chainable_reason` → WorkflowHistory.test.tsx ("non-success chain
+//    sources"). The source LIST is WorkflowHistory's "Suggested next steps"
+//    panel — the only frontend reader of `payloadChainable` /
+//    `nonChainableReason`. This wizard is downstream of the pick and reads
+//    neither (`CHAIN_SOURCE_NON_CHAINABLE_REASON_KEY` in workflowChaining.ts
+//    has no writer or reader anywhere in the frontend — dead constant).
+//  - AC 12, the acknowledged pre-launch warning naming the source's published
+//    status → HERE. Fed by CHAIN_SOURCE_STATUS_KEY, whose only production
+//    writer is WorkflowHistory.tsx (`setItem(KEY, selectedRun.status)` with
+//    status in {failed, cancelled, degraded, diverted}), so the two tests
+//    below drive it with real terminal status strings — never a reason code
+//    this component cannot receive.
+//
+// gap-closure-review.md's "recommended action" named this file for all three
+// (it calls the wizard "the picker"); GIT_VERSIONING_TASKS row N3 and
+// GIT_VERSIONING_GAPS §1 P0 #9 inherited that. Corrected by technical-lead
+// review on 2026-09-11 — see the amended row and journal/N3.md "fix attempt 3".
+describe("LaunchWizard — SGV2 11.7: non-success chain-source warning (real CHAIN_SOURCE_STATUS_KEY values)", () => {
+  it("status 'failed': accessible warning names the status; Continue stays disabled while unacknowledged", async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem("chain.from", "user_stories");
+    sessionStorage.setItem("chain.source_run_id", "run-failed-source");
+    sessionStorage.setItem("chain.v2.source_status", "failed");
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
+
+    // Brief editor hidden when chaining — the topic comes from the prior run.
+    await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
+
+    expect(screen.getByText(/Source run failed — output may be incomplete/i)).toBeInTheDocument();
+
+    const alertContainer = screen.getByRole("alert");
+    expect(alertContainer).toHaveAttribute("aria-live", "assertive");
+
+    const acknowledgeCheckbox = screen.getByLabelText(
+      /I understand the output may be incomplete and want to proceed/i,
+    );
+    expect(acknowledgeCheckbox).not.toBeChecked();
+
+    // canContinue's first check is `if (chainSourceStatus && !warningAcknowledged) return false`,
+    // so Continue is disabled purely on the unacknowledged warning — independent
+    // of the pre-existing hasBuildInput/ISS-155 gate that WR-07 and "genuine
+    // chain" above already document as broken for the chaining path.
+    await user.click(await screen.findByTestId("pick-ds"));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+    await user.click(acknowledgeCheckbox);
+    expect(acknowledgeCheckbox).toBeChecked();
+  });
+
+  it("status 'degraded': warning names both the status and the partial-output risk; checkbox toggles both ways", async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem("chain.from", "user_stories");
+    sessionStorage.setItem("chain.source_run_id", "run-degraded-source");
+    sessionStorage.setItem("chain.v2.source_status", "degraded");
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
+
+    await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
+
+    expect(screen.getByText(/Source run degraded — output may be incomplete/i)).toBeInTheDocument();
+    expect(screen.getByText(/run you are chaining from/i)).toBeInTheDocument();
+    expect(screen.getByText(/partial or missing/i)).toBeInTheDocument();
+
+    const acknowledgeCheckbox = screen.getByLabelText(
+      /I understand the output may be incomplete and want to proceed/i,
+    );
+    expect(acknowledgeCheckbox).not.toBeChecked();
+    await user.click(acknowledgeCheckbox);
+    expect(acknowledgeCheckbox).toBeChecked();
+    await user.click(acknowledgeCheckbox);
+    expect(acknowledgeCheckbox).not.toBeChecked();
+  });
+});
+
+describe("UPLD-05 — the wizard stages raw documents, not only inlined text", () => {
+  /**
+   * The wizard used to ONLY inline `extractFileText`'s capped flat text into the
+   * brief. A file-reading workflow never sees that: prototype_v2's `fi-planner`
+   * opens `.uploads/manifest.json` and calls `extract_text` on the real files,
+   * and `.uploads/` is populated ONLY from `staged_upload_ids`. So a wizard
+   * launch reached the planner with an empty `.uploads/` and died on the first
+   * step — the workflow was unlaunchable from its own declared surface.
+   *
+   * The ids must also come back in ATTACH order: stage responses resolve
+   * concurrently, so the fast one lands first. This drives the two files with
+   * DELIBERATELY INVERTED resolution to prove attach order survives.
+   */
+  const attachDocsAndLaunch = async () => {
+    const user = userEvent.setup();
+    extractFileTextMock.mockImplementation((_t: unknown, f: File) =>
+      Promise.resolve({ filename: f.name, text: `text of ${f.name}`, truncated: false }),
+    );
+    // Hand-held deferreds so resolution order is DETERMINISTIC, not a race on timers.
+    const settle: Record<string, (v: { stage_id: string }) => void> = {};
+    stageRunFileMock.mockImplementation(
+      (_t: unknown, f: File) => new Promise<{ stage_id: string }>((resolve) => { settle[f.name] = resolve; }),
+    );
+
+    const { container } = renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
+    });
+    await user.type(await screen.findByLabelText("Brief"), "Build from the attached docs");
+    await user.click(screen.getByTestId("pick-web"));
+    await user.click(await screen.findByTestId("pick-ds"));
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, [
+      new File(["%PDF-1.4"], "a-first.pdf", { type: "application/pdf" }),
+      // A TEXT document: read client-side for the inlined preview, but it must be
+      // staged all the same — `.uploads/` is what the workflow's planner opens.
+      new File(["from,to\ndispatched,travelling"], "b-second.csv", { type: "text/csv" }),
+      new File(["docx"], "c-third.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    ]);
+    await waitFor(() => expect(Object.keys(settle)).toHaveLength(3));
+    // Resolve in REVERSE attach order — the arrival order the component actually
+    // appends in, and the reverse of the order the draft must end up in.
+    await act(async () => {
+      settle["c-third.docx"]({ stage_id: "stage-c-third.docx" });
+      settle["b-second.csv"]({ stage_id: "stage-b-second.csv" });
+      settle["a-first.pdf"]({ stage_id: "stage-a-first.pdf" });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    return JSON.parse(sessionStorage.getItem("prototype.draft") ?? "null");
+  };
+
+  it("carries the stage ids into the launch draft, in attach order", async () => {
+    const draft = await attachDocsAndLaunch();
+    expect(draft.stagedUploadIds).toEqual([
+      "stage-a-first.pdf", "stage-b-second.csv", "stage-c-third.docx",
+    ]);
+  });
+
+  it("stages TEXT documents too — a .csv read client-side must still reach .uploads/", async () => {
+    const draft = await attachDocsAndLaunch();
+    expect(stageRunFileMock.mock.calls.map((c) => (c[1] as File).name)).toContain("b-second.csv");
+    expect(draft.stagedUploadIds).toContain("stage-b-second.csv");
+  });
+
+  it("still inlines the extracted text — staging ADDS a path, it does not replace one", async () => {
+    const draft = await attachDocsAndLaunch();
+    expect(draft.brief).toContain("text of a-first.pdf");
+    expect(draft.brief).toContain("text of c-third.docx");
+  });
+
+  it("omits the key entirely when nothing was attached (parity with the retired flow)", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
+    });
+    await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
+    await user.click(screen.getByTestId("pick-web"));
+    await user.click(await screen.findByTestId("pick-ds"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(sessionStorage.getItem("prototype.draft")).not.toContain("stagedUploadIds");
   });
 });

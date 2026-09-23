@@ -1,0 +1,937 @@
+[
+{
+"type": "pipeline_start",
+"pipeline_type": "custom",
+"seq": 2,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T17:44:34.242336+00:00",
+"agent_count": 17,
+"event_id": "18753d36-ef18-471a-8845-81afb5fffd9e",
+"agents": [
+{
+"id": "custom-agent:oa2v5f-rk5oy0",
+"name": "Document Ingest",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-34cpzv",
+"name": "Reader 1",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-2keaco",
+"name": "Reader 2",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-grxt34",
+"name": "Reader 3",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-6bdv7y",
+"name": "Reader 4",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-wscqg4",
+"name": "Reader 5",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-1fib5c",
+"name": "Reading Supervisor",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-wmvl34",
+"name": "Synthesizer",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-y16vzf",
+"name": "Coverage Check",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-7bvqht",
+"name": "Journey Designer",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "prototype-specify",
+"name": "Spec Writer Agent",
+"role": "",
+"icon": "",
+"order": 1
+},
+{
+"id": "prototype-plan",
+"name": "Task Planner Agent",
+"role": "",
+"icon": "",
+"order": 2
+},
+{
+"id": "prototype-analyze",
+"name": "Spec Kit Analyzer",
+"role": "",
+"icon": "",
+"order": 3
+},
+{
+"id": "prototype-build",
+"name": "Build Agent",
+"role": "",
+"icon": "",
+"order": 4
+},
+{
+"id": "prototype-validate",
+"name": "Validation Agent",
+"role": "",
+"icon": "",
+"order": 5
+},
+{
+"id": "custom-agent:oa2v5f-o7giy7",
+"name": "Fidelity Check",
+"role": "",
+"icon": "",
+"order": 10
+},
+{
+"id": "custom-agent:oa2v5f-31tx21",
+"name": "Prototype Presenter",
+"role": "",
+"icon": "",
+"order": 10
+}
+],
+"resume_offset": 0
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-rk5oy0",
+"seq": 4,
+"ts": "2026-09-01T17:44:34.267554+00:00",
+"event_id": "003b7e25-5d23-44eb-8f26-7ade8d8e3751",
+"index": 0,
+"name": "Document Ingest"
+},
+{
+"type": "agent_complete",
+"duration": 18.95,
+"agent_id": "custom-agent:oa2v5f-rk5oy0",
+"seq": 281,
+"ts": "2026-09-01T17:44:53.212554+00:00",
+"event_id": "0d4df473-4aed-4b19-8cb5-0bc53e538dac",
+"index": 0,
+"name": "Document Ingest"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-34cpzv",
+"seq": 287,
+"ts": "2026-09-01T17:44:54.215979+00:00",
+"event_id": "0b4e141d-ecb7-4e9a-ba55-846a45231787",
+"index": 1,
+"name": "Reader 1"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-2keaco",
+"seq": 290,
+"ts": "2026-09-01T17:44:54.231469+00:00",
+"event_id": "5ff25d68-ec47-4de1-9f6e-329a73bc03cd",
+"index": 2,
+"name": "Reader 2"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-grxt34",
+"seq": 293,
+"ts": "2026-09-01T17:44:54.246008+00:00",
+"event_id": "78d6df5c-899f-4586-b400-d8a1dadd7c37",
+"index": 3,
+"name": "Reader 3"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-6bdv7y",
+"seq": 296,
+"ts": "2026-09-01T17:44:54.263643+00:00",
+"event_id": "9acdf93c-ef37-48a1-b46f-6de7699eb472",
+"index": 4,
+"name": "Reader 4"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-wscqg4",
+"seq": 299,
+"ts": "2026-09-01T17:44:54.279842+00:00",
+"event_id": "47a10bca-d47e-4ca5-996c-a08d4719c8bb",
+"index": 5,
+"name": "Reader 5"
+},
+{
+"type": "agent_complete",
+"duration": 7.11,
+"agent_id": "custom-agent:oa2v5f-wscqg4",
+"seq": 1010,
+"ts": "2026-09-01T17:45:01.181016+00:00",
+"event_id": "827a140b-7f6a-4669-8dd2-a81979e560c4",
+"index": 5,
+"name": "Reader 5"
+},
+{
+"type": "agent_complete",
+"duration": 49.78,
+"agent_id": "custom-agent:oa2v5f-34cpzv",
+"seq": 1368,
+"ts": "2026-09-01T17:45:43.023726+00:00",
+"event_id": "c3ae5d91-54cb-4b12-a636-4686725e2564",
+"index": 1,
+"name": "Reader 1"
+},
+{
+"type": "agent_complete",
+"duration": 58.91,
+"agent_id": "custom-agent:oa2v5f-2keaco",
+"seq": 1471,
+"ts": "2026-09-01T17:45:52.537060+00:00",
+"event_id": "5ba13c6c-c641-4b29-85cf-b2cf47276663",
+"index": 2,
+"name": "Reader 2"
+},
+{
+"type": "agent_complete",
+"duration": 85.45,
+"agent_id": "custom-agent:oa2v5f-grxt34",
+"seq": 1601,
+"ts": "2026-09-01T17:46:19.230123+00:00",
+"event_id": "0e09313c-93bb-475a-89db-2525638c9fb4",
+"index": 3,
+"name": "Reader 3"
+},
+{
+"type": "agent_complete",
+"duration": 125.63,
+"agent_id": "custom-agent:oa2v5f-6bdv7y",
+"seq": 1730,
+"ts": "2026-09-01T17:46:59.547740+00:00",
+"event_id": "4a2db494-6bff-436e-89a0-2947b2bb5a27",
+"index": 4,
+"name": "Reader 4"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-1fib5c",
+"seq": 1738,
+"ts": "2026-09-01T17:46:59.601190+00:00",
+"event_id": "51c8e4af-ff45-4d7f-9391-c5cb0a66b6d9",
+"index": 6,
+"name": "Reading Supervisor"
+},
+{
+"type": "agent_complete",
+"duration": 304.45,
+"agent_id": "custom-agent:oa2v5f-1fib5c",
+"seq": 2214,
+"ts": "2026-09-01T17:52:04.055275+00:00",
+"event_id": "3f79dd50-0490-434f-88d4-6d190f67cd22",
+"index": 6,
+"name": "Reading Supervisor"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-wmvl34",
+"seq": 2215,
+"ts": "2026-09-01T17:52:04.062598+00:00",
+"event_id": "17d3cb30-a9ff-44c9-97c4-ebedb48e4779",
+"index": 7,
+"name": "Synthesizer"
+},
+{
+"type": "agent_complete",
+"duration": 328.36,
+"agent_id": "custom-agent:oa2v5f-wmvl34",
+"seq": 2968,
+"ts": "2026-09-01T17:57:32.422711+00:00",
+"event_id": "692f2543-8577-4349-b8fa-c70b977bb979",
+"index": 7,
+"name": "Synthesizer"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-y16vzf",
+"seq": 2969,
+"ts": "2026-09-01T17:57:32.432961+00:00",
+"event_id": "5706c492-82b0-4ba6-b27f-bf684ecf6773",
+"index": 8,
+"name": "Coverage Check"
+},
+{
+"type": "agent_complete",
+"duration": 92.96,
+"agent_id": "custom-agent:oa2v5f-y16vzf",
+"seq": 4726,
+"ts": "2026-09-01T17:59:05.397324+00:00",
+"event_id": "b3180ede-f07f-4d67-9370-5a7c7ffff36d",
+"index": 8,
+"name": "Coverage Check"
+},
+{
+"type": "agent_skipped",
+"agent_id": "custom-agent:oa2v5f-7bvqht",
+"seq": 4727,
+"ts": "2026-09-01T17:59:05.406841+00:00",
+"event_id": "8995dd31-eae2-4539-a58b-1b4c07b07518"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-wmvl34",
+"seq": 4728,
+"ts": "2026-09-01T17:59:05.410710+00:00",
+"visit_count": 1,
+"event_id": "b6f489b6-e5d5-4db8-88f2-85905307f8a1",
+"index": 7,
+"name": "Synthesizer"
+},
+{
+"type": "agent_complete",
+"duration": 385.27,
+"agent_id": "custom-agent:oa2v5f-wmvl34",
+"seq": 5653,
+"ts": "2026-09-01T18:05:30.677491+00:00",
+"visit_count": 1,
+"event_id": "ecb6be31-e8f1-43bc-9af3-c6475f73d68d",
+"index": 7,
+"name": "Synthesizer"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-y16vzf",
+"seq": 5654,
+"ts": "2026-09-01T18:05:30.683367+00:00",
+"event_id": "110f00e1-1d4f-402d-b9f3-6133dbe4a988",
+"index": 8,
+"name": "Coverage Check"
+},
+{
+"type": "agent_complete",
+"duration": 42.38,
+"agent_id": "custom-agent:oa2v5f-y16vzf",
+"seq": 6676,
+"ts": "2026-09-01T18:06:13.062055+00:00",
+"event_id": "a018aac4-d218-476b-a611-22412c8521c5",
+"index": 8,
+"name": "Coverage Check"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-7bvqht",
+"seq": 6677,
+"ts": "2026-09-01T18:06:13.070519+00:00",
+"event_id": "04cd171e-b090-4e7d-aed9-70916facf561",
+"index": 9,
+"name": "Journey Designer"
+},
+{
+"type": "agent_complete",
+"duration": 354.88,
+"agent_id": "custom-agent:oa2v5f-7bvqht",
+"seq": 7306,
+"ts": "2026-09-01T18:12:07.951324+00:00",
+"event_id": "c077e6fe-2500-40d8-bedf-5538d4ec81f3",
+"index": 9,
+"name": "Journey Designer"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "custom-agent:oa2v5f-7bvqht",
+"seq": 7307,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:12:07.962800+00:00",
+"event_id": "d60f192e-9f17-4c54-b01f-8b1c1c29c618"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "custom-agent:oa2v5f-7bvqht",
+"seq": 7309,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:14:10.256962+00:00",
+"event_id": "aa696177-67d7-4ac7-ac0d-9f02083aa2be"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-specify",
+"seq": 7310,
+"ts": "2026-09-01T18:14:10.272195+00:00",
+"event_id": "01b0ab5a-18f1-4357-b603-1d78e0eef2d9",
+"index": 10,
+"name": "Spec Writer Agent"
+},
+{
+"type": "agent_complete",
+"duration": 80.33,
+"agent_id": "prototype-specify",
+"seq": 10388,
+"ts": "2026-09-01T18:15:30.600738+00:00",
+"event_id": "2b3e4038-55c2-43b0-aa10-a6e61c24c84a",
+"index": 10,
+"name": "Spec Writer Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-specify",
+"seq": 10389,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:15:30.611807+00:00",
+"event_id": "603c44b4-09f5-4c75-8ee4-092dd6b78e10"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-specify",
+"seq": 10391,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:16:33.409494+00:00",
+"event_id": "7aef35e9-62ca-4918-bd83-86d3d06d4b0c"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-plan",
+"seq": 10392,
+"ts": "2026-09-01T18:16:33.430334+00:00",
+"event_id": "c6872d14-77bd-47c8-a0bb-dcd630900aa6",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "agent_complete",
+"duration": 144.91,
+"agent_id": "prototype-plan",
+"seq": 15612,
+"ts": "2026-09-01T18:18:58.341235+00:00",
+"event_id": "4e41fc8f-7a61-4f60-93dc-24be85f057f9",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-plan",
+"seq": 15613,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:18:58.352290+00:00",
+"event_id": "e8762467-9926-4e30-b8ad-3748bbc4be4e"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-plan",
+"seq": 15615,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:19:29.018872+00:00",
+"event_id": "110ad998-f698-4747-af03-f276a8b48d4d"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-analyze",
+"seq": 15616,
+"ts": "2026-09-01T18:19:29.072901+00:00",
+"event_id": "745e7fc2-c88c-4602-8066-c138388a756d",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "agent_complete",
+"duration": 91.32,
+"agent_id": "prototype-analyze",
+"seq": 18170,
+"ts": "2026-09-01T18:21:00.387776+00:00",
+"event_id": "e931e123-4963-43cb-a579-e09cc87151ce",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-analyze",
+"seq": 18171,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:21:00.396526+00:00",
+"event_id": "22b6429e-8a17-4e05-8c28-dde07947cb30"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-specify",
+"seq": 18173,
+"ts": "2026-09-01T18:22:02.719850+00:00",
+"event_id": "93bccfe9-b464-4cfa-b710-0cdea2251035",
+"index": 10,
+"name": "Spec Writer Agent"
+},
+{
+"type": "agent_complete",
+"duration": 175.2,
+"agent_id": "prototype-specify",
+"seq": 25225,
+"ts": "2026-09-01T18:24:57.928616+00:00",
+"event_id": "9a7e90dc-0e1b-4136-b74b-3c70dd25cb2f",
+"index": 10,
+"name": "Spec Writer Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-specify",
+"seq": 25226,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:24:57.941697+00:00",
+"event_id": "62deb82f-27de-45b3-b3a6-3bcff9fc050c"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-specify",
+"seq": 25228,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:25:38.127173+00:00",
+"event_id": "28cc49b8-b09c-439c-a9b0-7ff6edf02972"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-plan",
+"seq": 25229,
+"ts": "2026-09-01T18:25:38.149199+00:00",
+"event_id": "d76935dc-aa39-415d-9ed5-278191e2a52a",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "agent_complete",
+"duration": 248.87,
+"agent_id": "prototype-plan",
+"seq": 35197,
+"ts": "2026-09-01T18:29:47.015584+00:00",
+"event_id": "f96bb7ba-bca8-4a3f-babc-f3c69f9b589d",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-plan",
+"seq": 35198,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:29:47.028774+00:00",
+"event_id": "400ab243-f1f7-4f9a-bf39-3c2abb623686"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-plan",
+"seq": 35200,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:30:15.125154+00:00",
+"event_id": "e9330f0b-e8fc-45b5-951d-c067232e0796"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-analyze",
+"seq": 35201,
+"ts": "2026-09-01T18:30:15.154804+00:00",
+"event_id": "ddd7fc0c-59d8-4f2d-9e33-f0e361cffc45",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "agent_complete",
+"duration": 48.95,
+"agent_id": "prototype-analyze",
+"seq": 36714,
+"ts": "2026-09-01T18:31:04.096719+00:00",
+"event_id": "402d010b-896d-493c-96ed-d66560ee1d46",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-analyze",
+"seq": 36715,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:31:04.105243+00:00",
+"event_id": "d97800d6-88af-4c42-902a-09ce39abb045"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-analyze",
+"seq": 36717,
+"ts": "2026-09-01T18:34:17.444486+00:00",
+"event_id": "f5a5a134-1d93-40f9-bea5-f395d70f8220",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "agent_complete",
+"duration": 78.33,
+"agent_id": "prototype-analyze",
+"seq": 38796,
+"ts": "2026-09-01T18:35:35.778392+00:00",
+"event_id": "49b76a8f-4523-4621-a90e-de01bf53f45d",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-analyze",
+"seq": 38797,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:35:35.786386+00:00",
+"event_id": "4030c98e-6a7e-4005-8ba9-ca6c7be134c5"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-analyze",
+"seq": 38799,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:36:13.759622+00:00",
+"event_id": "d146d23d-ddd8-497d-8ee2-c318b4610c42"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-analyze",
+"seq": 38800,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:36:13.818581+00:00",
+"event_id": "fdd747da-c345-4992-8bee-f1461599715e"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-specify",
+"seq": 38802,
+"ts": "2026-09-01T18:37:16.372291+00:00",
+"event_id": "b6117bde-d848-4ac4-a6ba-4e3fad4debba",
+"index": 10,
+"name": "Spec Writer Agent"
+},
+{
+"type": "agent_complete",
+"duration": 122.65,
+"agent_id": "prototype-specify",
+"seq": 43713,
+"ts": "2026-09-01T18:39:19.021174+00:00",
+"event_id": "70815c87-45e2-40ea-a2ad-2220272fc3e6",
+"index": 10,
+"name": "Spec Writer Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-specify",
+"seq": 43714,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:39:19.032098+00:00",
+"event_id": "5bdcaf3d-9e8c-4c5d-b97a-b272938b9e62"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-specify",
+"seq": 43716,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:41:04.448372+00:00",
+"event_id": "100456ba-4110-4f0d-b5bc-6718e8f0b25d"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-plan",
+"seq": 43717,
+"ts": "2026-09-01T18:41:04.487476+00:00",
+"event_id": "170e9678-8585-447f-938b-e4725ace4fe3",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "agent_complete",
+"duration": 225.66,
+"agent_id": "prototype-plan",
+"seq": 52448,
+"ts": "2026-09-01T18:44:50.136490+00:00",
+"event_id": "2835870b-2db3-4023-9662-3a56daa756fd",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-plan",
+"seq": 52449,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:44:50.152573+00:00",
+"event_id": "60d2f0e8-6a42-4bf1-a21a-b73cff0f192e"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-plan",
+"seq": 52451,
+"ts": "2026-09-01T18:46:05.388601+00:00",
+"event_id": "d4ad94d1-2a88-448f-b067-e22fce870af1",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "agent_complete",
+"duration": 10.67,
+"agent_id": "prototype-plan",
+"seq": 52715,
+"ts": "2026-09-01T18:46:16.057146+00:00",
+"event_id": "e76353b2-b32c-4552-b6eb-7ece9884b18b",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-plan",
+"seq": 52716,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:46:16.067535+00:00",
+"event_id": "5204ebad-fe7f-45cc-9622-1acd2e55b22f"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-plan",
+"seq": 52718,
+"ts": "2026-09-01T18:47:21.396662+00:00",
+"event_id": "8d06f387-77a0-4535-b0cc-58180be7e93c",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "agent_complete",
+"duration": 261.79,
+"agent_id": "prototype-plan",
+"seq": 61162,
+"ts": "2026-09-01T18:51:43.177802+00:00",
+"event_id": "e5e53e27-c7e1-4fc4-95be-9b46d430879d",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-plan",
+"seq": 61163,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:51:43.190620+00:00",
+"event_id": "9d5ebbac-5c85-46a4-9945-4f0b7e28c2ac"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-plan",
+"seq": 61165,
+"ts": "2026-09-01T18:52:57.067265+00:00",
+"event_id": "eea77114-c5b4-41ca-9333-a85fd8b178f6",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "agent_complete",
+"duration": 6.79,
+"agent_id": "prototype-plan",
+"seq": 61337,
+"ts": "2026-09-01T18:53:03.857376+00:00",
+"event_id": "fde382e7-8884-4924-a7b8-dfa63e7ff463",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-plan",
+"seq": 61338,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:53:03.867295+00:00",
+"event_id": "a5984a4a-eaa7-4992-b8e5-02a94a4cac40"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-plan",
+"seq": 61340,
+"ts": "2026-09-01T18:54:52.488946+00:00",
+"event_id": "fb4c151b-7369-40f7-a0cc-5a45d5d4100f",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "agent_complete",
+"duration": 143.45,
+"agent_id": "prototype-plan",
+"seq": 65694,
+"ts": "2026-09-01T18:57:15.932380+00:00",
+"event_id": "db327d7d-17cf-4e09-95ad-7f83aa062b22",
+"index": 11,
+"name": "Task Planner Agent"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-plan",
+"seq": 65695,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:57:15.944247+00:00",
+"event_id": "bc59ebc7-9522-4bf1-b4d5-600eb39defa6"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-plan",
+"seq": 65697,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:57:58.173411+00:00",
+"event_id": "ca32b776-c8ea-432c-8341-476b82b15cc7"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-analyze",
+"seq": 65698,
+"ts": "2026-09-01T18:57:58.191723+00:00",
+"event_id": "5cb029db-da77-4319-844e-7c4ec33a609c",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "agent_complete",
+"duration": 80.17,
+"agent_id": "prototype-analyze",
+"seq": 68633,
+"ts": "2026-09-01T18:59:18.356015+00:00",
+"event_id": "7e96a7da-1926-4509-a1e3-798fc661f1ce",
+"index": 12,
+"name": "Spec Kit Analyzer"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-analyze",
+"seq": 68634,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T18:59:18.364478+00:00",
+"event_id": "88a6dbc4-c9f4-4b38-9ad9-788169d56e24"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-analyze",
+"seq": 68636,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T19:09:12.458613+00:00",
+"event_id": "85dd8ff2-84c8-40bc-a34d-5351f1db5ece"
+},
+{
+"type": "review_gate_ready",
+"agent_id": "prototype-analyze",
+"seq": 68637,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T19:09:12.553488+00:00",
+"event_id": "f0a9ed35-2fac-4004-a095-05634bb39926"
+},
+{
+"type": "review_gate_approved",
+"agent_id": "prototype-analyze",
+"seq": 68639,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T19:09:16.872766+00:00",
+"event_id": "d372f5fd-28fa-400c-8e20-f2e0eb1a86b1"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-build",
+"seq": 68640,
+"ts": "2026-09-01T19:09:16.883308+00:00",
+"event_id": "2f14ee69-4d58-442b-870e-6e1b6a47b271",
+"index": 13,
+"name": "Build Agent"
+},
+{
+"type": "agent_complete",
+"duration": 115.51,
+"agent_id": "prototype-build",
+"seq": 69640,
+"ts": "2026-09-01T19:11:12.389462+00:00",
+"event_id": "99477030-2c34-4192-9212-8f4668bb1ce8",
+"index": 13,
+"name": "Build Agent"
+},
+{
+"type": "agent_start",
+"agent_id": "prototype-validate",
+"seq": 69641,
+"ts": "2026-09-01T19:11:12.395371+00:00",
+"event_id": "14ea1ed3-10ca-4bb2-85a1-22a62754bf97",
+"index": 14,
+"name": "Validation Agent"
+},
+{
+"type": "agent_complete",
+"duration": 305.25,
+"agent_id": "prototype-validate",
+"seq": 69768,
+"ts": "2026-09-01T19:16:17.642779+00:00",
+"event_id": "b05bba5b-d70f-4a8d-9f1f-91194a365631",
+"index": 14,
+"name": "Validation Agent"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-o7giy7",
+"seq": 69769,
+"ts": "2026-09-01T19:16:17.649484+00:00",
+"event_id": "5e705ce0-f7e6-4586-a44b-b0104c1dc29b",
+"index": 15,
+"name": "Fidelity Check"
+},
+{
+"type": "agent_complete",
+"duration": 42.94,
+"agent_id": "custom-agent:oa2v5f-o7giy7",
+"seq": 70895,
+"ts": "2026-09-01T19:17:00.587856+00:00",
+"event_id": "d1d4a1f2-2932-4e64-be63-c5c417a477de",
+"index": 15,
+"name": "Fidelity Check"
+},
+{
+"type": "agent_start",
+"agent_id": "custom-agent:oa2v5f-31tx21",
+"seq": 70896,
+"ts": "2026-09-01T19:17:00.600876+00:00",
+"event_id": "fac68b28-2031-455a-b51c-1cdcf21c9dcc",
+"index": 16,
+"name": "Prototype Presenter"
+},
+{
+"type": "agent_complete",
+"duration": 43.03,
+"agent_id": "custom-agent:oa2v5f-31tx21",
+"seq": 71901,
+"ts": "2026-09-01T19:17:43.633974+00:00",
+"event_id": "83a70e86-af4d-407b-813e-afdbda222dfd",
+"index": 16,
+"name": "Prototype Presenter"
+},
+{
+"type": "pipeline_complete",
+"pipeline_type": "custom",
+"seq": 71902,
+"total_duration": 5589.75,
+"pipeline_run_id": "faba87c9-6e90-47ae-9d8a-99c3663bccca",
+"ts": "2026-09-01T19:17:43.660820+00:00",
+"event_id": "fe3b06e3-a05e-40c4-a5bd-35addd7ad178"
+}
+]

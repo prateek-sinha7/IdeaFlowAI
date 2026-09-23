@@ -187,18 +187,33 @@ def _build_validation_target(
     name = getattr(deliverable, "name", None)
     if not name:
         return ctx
+    # On a revision run the ``revision_validation`` post-step stashes the parent
+    # artifact's PRE-EDIT static issues on the ctx. Thread them through so the
+    # validators judge the revision on what it CHANGED — the internal fix-loop
+    # already applies that rule, and a gate that does not would fail the run on
+    # defects the fix-loop deliberately left alone because they pre-existed.
+    baseline_static = getattr(ctx, "revision_baseline_static", None)
     try:
         return factory(
             name=name,
             step=step_id,
             task_meta={"attempt": 0},
             require_render=require_render,
+            revision_baseline_static=baseline_static,
         )
     except TypeError:
-        # An older factory without the require_render kwarg (offline fake) — retry
-        # without it so existing gate fakes still drive the gate (parity).
+        # An older factory without one of the newer kwargs (offline fake) — retry
+        # progressively narrower so existing gate fakes still drive the gate (parity).
         try:
-            return factory(name=name, step=step_id, task_meta={"attempt": 0})
+            return factory(
+                name=name, step=step_id, task_meta={"attempt": 0},
+                require_render=require_render,
+            )
+        except TypeError:
+            try:
+                return factory(name=name, step=step_id, task_meta={"attempt": 0})
+            except Exception:  # noqa: BLE001 — a factory failure degrades to the raw ctx
+                return ctx
         except Exception:  # noqa: BLE001 — a factory failure degrades to the raw ctx
             return ctx
     except Exception:  # noqa: BLE001 — a factory failure degrades to the raw ctx

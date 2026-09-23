@@ -20,7 +20,9 @@ real Claude-Code skill format. ``title``/``source``/``sourceLabel``/
 ``category``/``tags`` are UI-filter metadata the
 frontend catalog historically assigned; present when a skill has been fully
 migrated (see backend/skills/global/{accessibility,api-design,brainstorming,
-systematic-debugging} for the pattern), optional/blank otherwise.
+systematic-debugging} for the pattern), optional otherwise — an absent or
+blank ``category`` loads as ``uncategorized`` so the skill still has a pill
+of its own to be filtered by (ISS-329).
 
 ``display_name`` mirrors the workflow catalog's ``display_name`` field
 (app/api/workflows.py) — the UI label, distinct from ``name`` (the real
@@ -87,6 +89,17 @@ def _get_icon_for_category(category: str) -> str:
     return _CATEGORY_TO_ICON.get(category, "Award")
 
 
+def skill_source_dir(skill_id: str) -> Path:
+    """Absolute path of a catalog skill's own folder.
+
+    The folder holds ``SKILL.md`` plus whatever sibling reference files the body
+    points at ("see ``root-cause-tracing.md`` in this directory"). Staging needs
+    those siblings, and the folder layout is this module's knowledge, not the
+    stager's (ISS-185). Not guaranteed to exist — the caller checks.
+    """
+    return _GLOBAL_SKILL_DIR / skill_id
+
+
 def _load_one(skill_dir: Path) -> GlobalSkillEntry:
     skill_id = skill_dir.name
     skill_file = skill_dir / "SKILL.md"
@@ -109,7 +122,11 @@ def _load_one(skill_dir: Path) -> GlobalSkillEntry:
         display_name=metadata.get("display_name", metadata["name"]),
         description=metadata["description"],
         content=post.content,
-        category=metadata.get("category", ""),
+        # ISS-329: an absent (or blank) category used to become "", which
+        # app/api/skills.py drops out of the pill list it derives — the card
+        # then renders a blank badge and no category pill can ever select it.
+        # A real value keeps every skill reachable through a pill of its own.
+        category=metadata.get("category") or "uncategorized",
         isBeta=metadata.get("isBeta", False),
         tags=list(metadata.get("tags", [])),
         compatible_agents=list(metadata.get("compatible_agents", [])),

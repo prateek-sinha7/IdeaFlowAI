@@ -128,6 +128,39 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # reasons).
     "prototype_large_revision",
     "prototype_feature_revision",
+    # ── spec 014/015 conditional-gate example workflows ──────────────────────
+    # planner: skip — deliberately tiny deterministic fixtures for the loop /
+    # branch / divert / human-gate shapes. A deep-planner round-trip in front of
+    # one would cost more than the workflow itself and add variance to the exact
+    # branch sequence each fixture exists to pin. Same rationale as
+    # sample_subagents_parallel above. NOT run_revision-dispatched, so unioned in
+    # here rather than added to _RUN_REVISION_DISPATCHED.
+    "ex_A1_loop",
+    "ex_A2_branch",
+    "ex_A3_b_spanish",
+    "ex_A3_c_dutch",
+    "ex_A3_divert",
+    "ex_A4_human_divert",
+    "ex_A4_human_gate",
+    # ── spec 017/018 stabilization fixtures ─────────────────────────────────
+    # planner: skip — engine-dispatch fixtures for mechanical-publish,
+    # validation-retry, conditional-gate loop/skip detection. Same rationale
+    # as ex_A* above: minimizing depth and determinism over running the deep
+    # planner. Not run_revision-dispatched.
+    "ex_publish_step",
+    "ex_test_loop_reachable_skip",
+    "ex_test_transitive_skip",
+    "ex_validation_retry",
+    # ── planner: skip because the manifest plans for itself ─────────────────
+    # pdf_to_prototype is NOT a fixture and NOT temporary — it is a shipped,
+    # enterprise-entitled pipeline. It declares `planner: skip` deliberately:
+    # it carries its own Doc Splitter -> Synthesizer -> Planner steps, so the
+    # generic deep planner would duplicate work the manifest already does.
+    "pdf_to_prototype",
+    # spec 018: a genuinely temporary smoke-test pipeline for the playwright
+    # tool set — minimal by design, and expected to be deleted once that tool
+    # set is covered by real pipelines.
+    "playwright_smoke_test",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -212,6 +245,17 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     ],
     # clarify.mode: skip — a composed spec-012 shape test takes its topic
     # straight from the run input and asks nothing (ADR-0005 made it visible).
+    # spec 017 — ppt_v2 reuses ppt's clarify contract verbatim.
+    "ppt_v2": [
+        "target_audience",
+        "tone_and_style",
+        "key_objectives",
+        "slide_count",
+        "content_depth",
+        "data_availability",
+        "visual_style",
+        "key_sections",
+    ],
     "sample_subagents_parallel": [],
     # clarify.mode: skip for the same reason — the revision panel supplies the
     # instruction directly.
@@ -221,6 +265,31 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     # instruction directly, no clarify round-trip needed.
     "prototype_large_revision": [],
     "prototype_feature_revision": [],
+    # ── spec 014/015 conditional-gate example workflows ──────────────────────
+    # clarify.mode: skip — deterministic branch/loop/divert fixtures that take
+    # their topic straight from the run input and ask nothing. Swept in by
+    # ADR-0005 (SUPPORTED_PIPELINE_TYPES derived from disk), same as the
+    # sample_* workflows above. Kept in lockstep with the sibling file.
+    "ex_A1_loop": [],
+    "ex_A2_branch": [],
+    "ex_A3_b_spanish": [],
+    "ex_A3_c_dutch": [],
+    "ex_A3_divert": [],
+    "ex_A4_human_divert": [],
+    "ex_A4_human_gate": [],
+    # clarify.mode: skip — engine-dispatch fixtures for mechanical-publish,
+    # validation-retry, conditional-gate loop/skip detection (spec 017/018 STABILIZATION).
+    "ex_publish_step": [],
+    "ex_test_loop_reachable_skip": [],
+    "ex_test_transitive_skip": [],
+    "ex_validation_retry": [],
+    # clarify.mode: skip — pdf_to_prototype is a shipped pipeline, not a
+    # fixture: it gathers its requirements from the uploaded documents rather
+    # than from clarify questions, so it declares no clarify defaults.
+    "pdf_to_prototype": [],
+    # clarify.mode: skip — spec 018 temporary playwright smoke test.
+    "playwright_smoke_test": [],
+    # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
     # clarify.mode: disabled — the SC-001 proof fixture (d0562d97) declares no
     # clarify.defaults at all. Pinned EXPLICITLY rather than left to the
     # _CUSTOM_DEFAULTS fallback below: the fallback asserts the 4-item custom list,
@@ -261,7 +330,15 @@ def test_prototype_planner_runs() -> None:
 
 @pytest.mark.parametrize(
     "workflow_id",
-    sorted(set(_MANIFEST_BACKED_IDS) - set(_INTERNAL_PIPELINES)),
+    [
+        pytest.param(
+            wid,
+            marks=[pytest.mark.issue("ISS-635")],
+        )
+        if wid == "playwright_smoke_test"
+        else wid
+        for wid in sorted(set(_MANIFEST_BACKED_IDS) - set(_INTERNAL_PIPELINES))
+    ],
 )
 def test_planner_run_everywhere(workflow_id: str) -> None:
     plan = _compile(workflow_id)
@@ -335,7 +412,18 @@ def test_run_revision_revision_agents_declare_no_template_injects() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("workflow_id", _MANIFEST_BACKED_IDS)
+@pytest.mark.parametrize(
+    "workflow_id",
+    [
+        pytest.param(
+            wid,
+            marks=[pytest.mark.issue("ISS-635")],
+        )
+        if wid == "playwright_smoke_test"
+        else wid
+        for wid in _MANIFEST_BACKED_IDS
+    ],
+)
 def test_clarify_defaults_match_engine(workflow_id: str) -> None:
     plan = _compile(workflow_id)
     # od_prototype is an alias (no manifest); every real id resolves to itself.

@@ -14,15 +14,39 @@ clarify:
   - key_objectives
   - scope
   - priority
+# DELIVERABLE — mirrors ppt_v2, not ppt (ISS-727 / ISS-723). `strategy: ppt`
+# resolves to ctx.last_streamed, so a revision only ever existed as chat text:
+# the canonical deck at the sandbox ROOT — presentation.html, written once by
+# ppt-composer on v1 — was never rewritten, so every `ref=vN` git tag captured
+# v1's bytes forever while only the Postgres `output` column tracked the
+# revision. The agent now EDITS that root file in place, and `single_file` reads
+# the named file back off the sandbox, so the tag, the file and the DB agree.
+# `.chain/presentation.html` then becomes what it is meant to be — a copy of the
+# canonical deliverable, not the only place a revision ever landed.
+#
+# The name changes with the strategy: `presentation.pptx` was never a file at the
+# sandbox root (nothing in ppt or ppt_revision writes one), while
+# presentation.html is what ppt-composer writes and what the UI fetches. Base
+# `ppt` keeps its own declared name — it is pinned literally by
+# tests/unit/test_ppt_v2_manifest.py::test_ppt_is_byte_identical_to_its_own_manifest
+# and its v1 root file is already correct; that half of the naming split is
+# ISS-651's.
 deliverable:
-  strategy: ppt
-  name: presentation.pptx
+  strategy: single_file
+  name: presentation.html
 context_providers:
 - opendesign
 - previous_run
 seed_files: {}
 steps:
 - agent: ppt-revision-agent
+  # write_files is load-bearing, not documentation: a step with no `tools:` block
+  # compiles to the least-privilege default (`write_files: false`,
+  # workflows/plan.py:66) and `denied_tools` then excludes write_file/edit_file
+  # from the runner — so this agent could not have written the deck even once its
+  # prompt asked it to. Mirrors prototype_revision's step 1, the working
+  # precedent for an in-place revision.
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 name: Presentation Revision

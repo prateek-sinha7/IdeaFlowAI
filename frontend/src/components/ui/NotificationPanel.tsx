@@ -39,6 +39,10 @@ interface NotificationPanelProps {
   // mapped with live agent progress). This is the single source of truth for
   // in-flight runs; no parallel ephemeral tracking needed.
   liveRuns?: PipelineNotification[];
+  // ISS-757: true while the run list is still being fetched and nothing is known
+  // to be live. The panel must not claim "No notifications yet" in that window —
+  // a pipeline started before a reload IS running, we just cannot see it yet.
+  liveRunsPending?: boolean;
   // Keep recentRuns for the handleRunClick navigation (same as AppHeader).
   recentRuns?: WorkflowRun[];
 }
@@ -204,6 +208,7 @@ export function NotificationPanel({
   onViewResults,
   onDismissOne,
   liveRuns = [],
+  liveRunsPending = false,
   recentRuns = [],
 }: NotificationPanelProps) {
   const getWorkflowLabel = useWorkflowLabels();
@@ -298,7 +303,16 @@ export function NotificationPanel({
 
             {/* Notification list */}
             <div className="max-h-[420px] overflow-y-auto">
-              {isEmpty ? (
+              {isEmpty && liveRunsPending ? (
+                /* ISS-757: the run list has not come back yet — say so instead of
+                   asserting there is nothing running. */
+                <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+                  <div className="h-10 w-10 rounded-[var(--radius-menu)] bg-surface-warm flex items-center justify-center mb-3">
+                    <Loader2 className="h-5 w-5 text-ink-400 animate-spin" />
+                  </div>
+                  <p className="text-[12px] font-medium text-ink-500">Checking for active pipelines…</p>
+                </div>
+              ) : isEmpty ? (
                 <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
                   <div className="h-10 w-10 rounded-[var(--radius-menu)] bg-surface-warm flex items-center justify-center mb-3">
                     <Bell className="h-5 w-5 text-ink-400" />

@@ -3,11 +3,27 @@
 import json
 import logging
 import os
+import sys
+import time
 import uuid
 from contextlib import asynccontextmanager
 
+# ── Windows asyncio fix ────────────────────────────────────────────────────────
+# Playwright (used by the html_render validator) launches a subprocess via
+# asyncio. On Windows the default SelectorEventLoop does NOT support subprocess
+# creation — only the ProactorEventLoop does. Setting the policy here, before
+# uvicorn creates the loop, makes asyncio.create_subprocess_exec work correctly.
+# This is a no-op on Linux/macOS (the condition is never true there).
+if sys.platform == "win32":
+    import asyncio
+
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
 from app.api.auth import router as auth_router
@@ -34,6 +50,7 @@ from app.api.admin import router as admin_router
 from app.api.admin_capacity import router as admin_capacity_router
 from app.api.file_extract import router as file_extract_router
 from app.api.run_files import router as run_files_router
+from app.api.run_figma_export import router as run_figma_export_router
 from app.core.config import settings
 from app.models.database import engine
 
@@ -195,23 +212,99 @@ async def lifespan(app: FastAPI):
                 from app.models.workflow import WorkflowRun
                 from app.api.run_engine import _PIPELINE_QUEUES
                 from app.agents.sandbox import sweep_expired
+                from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
 
-                # Build the protected set: non-terminal DB run IDs ∪ live in-process IDs.
+                # Task 3.8 (sandbox-git-versioning-v2): build the protected set by
+                # walking parent_run_id via the canonical resolve_revision_root
+                # resolver (Requirement 2 AC 1, V2-Q1).
+                #
+                # The old code walked source_run_id via _find_chain_root, which is
+                # the workflow-chaining edge — not the revision-family edge.  A live
+                # revision therefore never protected its shared physical sandbox
+                # (keyed on parent_run_id root), producing the D1 defect.
+                #
+                # V2 rules:
+                #   • parent_run_id defines physical sandbox identity (V2-Q1).
+                #   • source_run_id is a workflow-chaining edge and NEVER changes the
+                #     physical sandbox (Requirement 2 AC 2–3).
+                #   • A gate-paused OR active descendant protects the family root
+                #     (Requirement 2 AC 14 — "waiting_for_user" is non-terminal).
+                #   • On resolver failure → protected, never deletable
+                #     (Requirement 2 AC 11, AC 15).
+                #   • The DB session MUST be open for the duration of root resolution
+                #     because resolve_revision_root makes per-hop DB queries.
+                from app.api.runs import (
+                    resolve_revision_root,
+                    RevisionRootResolved,
+                )
+
                 _db = SessionLocal()
                 try:
+                    # Fetch (id, user_id) for all non-terminal runs.
+                    # Non-terminal statuses include "waiting_for_user" which covers
+                    # gate-paused runs — they protect the family (Requirement 2 AC 14).
+                    # We use user_id (the authz key) rather than owner_id (the legacy
+                    # backfilled column) for ownership-scoped resolution.
                     _rows = (
-                        _db.query(WorkflowRun.id)
-                        .filter(
-                            WorkflowRun.status.notin_(
-                                ("completed", "failed", "cancelled", "degraded")
-                            )
-                        )
+                        _db.query(WorkflowRun.id, WorkflowRun.user_id)
+                        .filter(WorkflowRun.status.notin_(TERMINAL_RUN_STATUSES))
                         .all()
                     )
-                    protected = {r.id for r in _rows}
+                    # Also cover in-process live run ids that may not yet have a
+                    # non-terminal DB row (race window at launch / startup restore).
+                    _live_ids = set(_PIPELINE_QUEUES.keys())
+                    _db_ids = {r.id for r in _rows}
+                    _extra_ids = _live_ids - _db_ids
+                    _extra_rows: list = []
+                    if _extra_ids:
+                        _extra_rows = (
+                            _db.query(WorkflowRun.id, WorkflowRun.user_id)
+                            .filter(WorkflowRun.id.in_(_extra_ids))
+                            .all()
+                        )
+                    _all_pairs = list(_rows) + _extra_rows
+
+                    # Resolve each (run_id, user_id) pair to its revision-root
+                    # sandbox directory id via the canonical parent_run_id walk.
+                    # The DB session stays open here because resolve_revision_root
+                    # issues per-hop queries against it.
+                    #
+                    # On RevisionRootUnresolved (cycle, missing ancestor, cross-owner,
+                    # null principal, DB error) → fail CLOSED: add the run's own id to
+                    # the protected set so the directory is never deleted on a resolver
+                    # failure (Requirement 2 AC 11, AC 15).
+                    protected: set[str] = set()
+                    for _run_id, _user_id in _all_pairs:
+                        if not _user_id:
+                            # Null principal → fail closed: protect the run's own dir.
+                            logger.debug(
+                                "sandbox sweep: null user_id for run %s — protecting (fail closed)",
+                                _run_id,
+                            )
+                            protected.add(_run_id)
+                            continue
+                        _result = resolve_revision_root(_db, _run_id, _user_id)
+                        if isinstance(_result, RevisionRootResolved):
+                            protected.add(_result.root_id)
+                        else:
+                            # RevisionRootUnresolved — fail closed (Requirement 2 AC 11).
+                            logger.debug(
+                                "sandbox sweep: resolve_revision_root failed for run %s "
+                                "(reason=%s visited=%d repeated=%s) — protecting (fail closed)",
+                                _run_id,
+                                _result.reason,
+                                _result.visited_count,
+                                _result.repeated_node,
+                            )
+                            protected.add(_run_id)
+
                 finally:
                     _db.close()
-                protected.update(_PIPELINE_QUEUES.keys())
+
+                # Belt-and-suspenders: also protect the raw live ids directly —
+                # in case the DB row is absent (race at launch) the run's own dir
+                # would not be covered by the resolution above.
+                protected.update(_live_ids)
 
                 removed = await _asyncio.to_thread(
                     sweep_expired,
@@ -225,6 +318,14 @@ async def lifespan(app: FastAPI):
 
     _sweep_task = _asyncio.create_task(_sandbox_sweep_loop())
 
+    # Event-loop lag watchdog (STABILIZATION.md diagnosability): a 2026-09-02
+    # postmortem found the process pinned at ~39% CPU for 5h19m with zero log
+    # output after a run's SSE close — no traceback, nothing to diagnose from.
+    # This task makes the NEXT such stall a lag value + a task-stack dump
+    # instead of a guess. See app/core/watchdog.py for the detection logic.
+    from app.core.watchdog import watch_event_loop_lag
+
+    _watchdog_task = _asyncio.create_task(watch_event_loop_lag())
     # specs/014 (host capacity matrix + admission gate): periodic poller that
     # reads CPU/memory from CloudWatch (via app.services.host_metrics) and
     # publishes a decision into the process-local app.services.capacity_state
@@ -290,6 +391,11 @@ async def lifespan(app: FastAPI):
     except _asyncio.CancelledError:
         pass
 
+    _watchdog_task.cancel()
+    try:
+        await _watchdog_task
+    except _asyncio.CancelledError:
+        pass
     if _capacity_task is not None:
         _capacity_task.cancel()
         try:
@@ -401,6 +507,55 @@ async def _request_id_middleware(request: Request, call_next):
     return response
 
 
+# STABILIZATION.md diagnosability: any request whose handler takes longer than
+# this is logged (method/path/duration) so a slow/blocked endpoint shows up in
+# the log without needing the event-loop lag watchdog to catch it too.
+_SLOW_REQUEST_THRESHOLD_SECONDS = 5.0
+
+
+@app.middleware("http")
+async def _slow_request_middleware(request: Request, call_next):
+    """Log any request that takes longer than ``_SLOW_REQUEST_THRESHOLD_SECONDS``.
+
+    Logged on both success and failure (the ``finally``) — a slow request that
+    ultimately errors is exactly as diagnostically interesting as a slow one
+    that succeeds.
+    """
+    start = time.monotonic()
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        duration = time.monotonic() - start
+        if duration > _SLOW_REQUEST_THRESHOLD_SECONDS:
+            logger.warning(
+                "slow request: method=%s path=%s duration=%.2fs",
+                request.method,
+                request.url.path,
+                duration,
+            )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    """ISS-224/ISS-257: never echo a rejected value back to the client.
+
+    FastAPI's default 422 handler serialises Pydantic's error shape as-is, and
+    that shape carries ``input`` — the COMPLETE value that failed validation.
+    For a length-constrained credential (``GithubPATRequest.pat``,
+    ``RegisterRequest.password``) that means the submitted secret round-trips
+    back in the response body. Nothing in the error tells us which fields are
+    sensitive, so ``input`` is dropped for every field on every route; ``loc``,
+    ``msg``, ``type`` and ``ctx`` are untouched, so the body still says exactly
+    what was wrong and where.
+    """
+    errors = [
+        {key: value for key, value in error.items() if key != "input"}
+        for error in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content=jsonable_encoder({"detail": errors}))
+
+
 # Register routers
 app.include_router(auth_router)
 app.include_router(chats_router)
@@ -442,6 +597,9 @@ app.include_router(file_extract_router)
 # UPLD-01: owner-scoped, capped document upload → RunSandbox ``.uploads/`` prefix
 # (additive — shares the /api/runs prefix; no new table / migration).
 app.include_router(run_files_router)
+# Figma export — Playwright SCRAPE_FN + IRNode mapper in plugin.
+# Shares /api/runs prefix. Falls back to 503 when Playwright unavailable.
+app.include_router(run_figma_export_router)
 
 
 @app.get("/health")
@@ -453,3 +611,72 @@ async def health_check():
         "llm_provider": "bedrock" if llm_configured else "none",
         "langsmith": langsmith_enabled,
     }
+
+
+# ---------------------------------------------------------------------------
+# /s/{token} — unauthenticated public share route (Option B).
+#
+# Serves ONLY the deliverable (output bytes + Content-Type).  Never echoes
+# input, agent_outputs, token_usage, owner_id, or any PII.  Access is bounded
+# by the share_token uniqueness and its expiry (share_expires_at).
+# ---------------------------------------------------------------------------
+
+
+@app.get("/s/{token}")
+async def view_shared_run(token: str):
+    """Return the deliverable for a public share token — NO auth required.
+
+    SC-001: dispatches on ``deliverable_mimetype`` (generic), never on a
+    workflow-name literal.  Returns 404 for missing or expired tokens so the
+    caller cannot distinguish the two cases (no enumeration).
+    """
+    from fastapi.responses import HTMLResponse, PlainTextResponse, Response as _Resp
+    from app.models.database import get_db as _get_db
+    from app.api.runs import get_shared_run_by_token
+
+    db_gen = _get_db()
+    db = next(db_gen)
+    try:
+        run = get_shared_run_by_token(token, db)
+    finally:
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+    if run is None or not run.output:
+        raise HTTPException(status_code=404, detail="Share not found or expired.")
+
+    output = run.output
+    mimetype = run.deliverable_mimetype or "text/html"
+
+    # Strip JSON envelope if present (the output column stores a JSON string
+    # for prototype HTML when the serialized_sandbox strategy is used).
+    if mimetype == "text/html" and output.startswith('"') and output.endswith('"'):
+        import json as _json
+
+        try:
+            output = _json.loads(output)
+        except Exception:
+            pass
+
+    # Content-Security-Policy: sandbox so the shared prototype cannot run
+    # arbitrary JS in the viewer's main browsing context.
+    share_headers = {
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        # Cache for 5 minutes on CDN; revoked tokens return 404 immediately.
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+    }
+
+    if mimetype == "text/html":
+        return HTMLResponse(content=output, headers=share_headers)
+    if mimetype in ("text/markdown", "text/plain"):
+        return PlainTextResponse(content=output, headers=share_headers)
+    # Generic fallback — let the browser decide.
+    return _Resp(
+        content=output.encode() if isinstance(output, str) else output,
+        media_type=mimetype,
+        headers=share_headers,
+    )

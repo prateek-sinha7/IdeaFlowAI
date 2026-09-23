@@ -1,25 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
-  Save, Check, Image as ImageIcon, Sparkles, Plus,
+  Save, Check, Image as ImageIcon, Sparkles, Plus, Palette, AlertCircle,
 } from "lucide-react";
-import { AgentsPopup } from "./AgentsPopup";
+import { AgentsPopup, type SelectionsMap } from "./AgentsPopup";
+import { DesignPickerModal, type DesignSelection } from "./composer/DesignPickerModal";
 import { ReviewGatesSection } from "./ReviewGatesSection";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
-import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
-import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
-import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
+import { createUserWorkflow, getToken, getWorkflowDetail, isNotFoundError, setWorkflowOverrideEnabled, extractFileText, stageRunFile } from "@/lib/api";
+import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isImageUpload, isTextUpload } from "@/lib/uploadTypes";
+import { agentsFromManifest } from "@/lib/manifestAgents";
+import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { AnimatePresence } from "motion/react";
-import type { WorkflowType, AgentDef } from "@/types/index";
+import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook, DesignMode } from "@/types/index";
+import { useWorkflowCatalogEntry } from "@/hooks/useWorkflowMetadata";
 
 // Migration is a meta-pipeline: the home page sends `workflowType="migration"`
 // and this page lets the user pick the concrete sub-pipeline before running.
@@ -458,11 +462,40 @@ function resolveDispatchType(
       return { type: "custom", deliverableOverride: deliverable };
     }
   }
-  return { type: "custom", deliverableOverride: { strategy: "streamed_text", name: "output.md", mimetype: "text/markdown" } };
+  // ISS-777 (QA-SG-014): an agent combination the map does not recognize gets NO
+  // override — it used to be forced, silently and unconditionally, to
+  // streamed_text/output.md. Each launch surface supplies the user's own
+  // Output-format pick instead (this page's picker below; ComposerPage's
+  // runConfig.deliverable), so nothing hardcodes a format the user never chose.
+  return { type: "custom" };
+}
+
+/** FIX-111 / ISS-766 — a COMPOSED `prototype-build` needs the `task_loop`
+ *  strategy the native prototype manifest gives it: one worker per `## Task N:`
+ *  heading the planner emitted, every one of them appending to the same
+ *  deliverable file. Compiled `single_shot` (the composer default) it receives
+ *  no task context at all and answers "what would you like me to do?"
+ *  (QA-PS-025). This only fills a GAP — an explicit composer selection for that
+ *  step always wins — and only for the agent set that already resolves to the
+ *  prototype.html deliverable. Both launch paths call it (INV-12). */
+function withPrototypeTaskLoop(
+  selections: Record<string, unknown>,
+  agents: AgentDef[],
+  deliverableName?: string,
+): Record<string, unknown> {
+  const entry = selections["prototype-build"] as { strategy?: string } | undefined;
+  if (
+    deliverableName !== "prototype.html" ||
+    !agents.some((a) => a.id === "prototype-build") ||
+    entry?.strategy
+  ) {
+    return selections;
+  }
+  return { ...selections, "prototype-build": { ...entry, strategy: "task_loop" } };
 }
 
 /** Export for ComposerPage (INV-12 — single source, no duplication). */
-export { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType, AGENT_DELIVERABLE_MAP };
+export { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType, AGENT_DELIVERABLE_MAP, withPrototypeTaskLoop };
 
 /**
  * Shared attachment state for the Brief input box (KAN-91 / Image-input Wave 2).
@@ -480,12 +513,21 @@ export function useBriefAttachments() {
   // (D3) — NEVER inlined into the brief text (base64 would blow past
   // ATTACH_MAX_CHARS almost immediately).
   const [attachedImages, setAttachedImages] = useState<{ name: string; mime_type: string; data: string }[]>([]);
+  // UPLD-05: raw documents are ALSO staged server-side at attach time (name →
+  // stage_id), so launch can hand the backend the actual files — the inlined
+  // text above only ever carried a capped flat extraction.
+  // `attachIndex` is the attach-order position (see `attachIndexRef` below) —
+  // the ONLY place true attach order survives, since these entries are appended
+  // as their `stageRunFile` responses resolve (arrival order, not attach order).
+  const [stagedUploads, setStagedUploads] = useState<{ name: string; stageId: string; attachIndex: number }[]>([]);
+  // Monotonic attach-order counter. A `useRef` (not `stagedUploads.length`,
+  // which races against concurrent in-flight stages) so it keeps increasing
+  // correctly across SEPARATE attach actions (drop 2 files, then 3 more).
+  const attachIndexRef = useRef(0);
 
   const handleFiles = useCallback((files: FileList) => {
     Array.from(files).forEach((f) => {
-      const isImageFile =
-        ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(f.type) ||
-        /\.(png|jpe?g|webp|gif)$/i.test(f.name);
+      const isImageFile = isImageUpload(f.name, f.type);
       if (isImageFile) {
         // UPLD-04: downscale oversized images client-side BEFORE base64 —
         // aspect-preserving, no-upscale, degrade-not-block.
@@ -507,21 +549,33 @@ export function useBriefAttachments() {
               : `${(f.size / 1048576).toFixed(1)}MB`,
       };
       setAttachedFiles((p) => [...p, meta]);
-      const isTextFile = /\.(txt|md|json|csv)$/i.test(f.name);
-      const isBinaryFile = /\.(pdf|docx|pptx)$/i.test(f.name);
+      const isTextFile = isTextUpload(f.name);
+      const isBinaryFile = isBinaryUpload(f.name);
       if (isTextFile) {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const content = (ev.target?.result as string) ?? "";
           setAttachedFileContents((p) => [
             ...p,
-            { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) },
+            { name: f.name, content: truncateAttachmentText(content) },
           ]);
         };
         reader.readAsText(f);
       } else if (isBinaryFile) {
         const jwt = getToken();
         if (jwt) {
+          // UPLD-05: park the raw bytes server-side too (fire-and-forget — a
+          // staging failure degrades to the pre-existing text-only behavior).
+          // `attachIndex` captured HERE, synchronously, before the async stage
+          // call fires — the client is the only place true attach order is
+          // known (the stage responses below resolve in arrival order).
+          const attachIndex = attachIndexRef.current++;
+          const stagedPromise = stageRunFile(jwt, f)
+            .then((res) => {
+              setStagedUploads((p) => [...p, { name: f.name, stageId: res.stage_id, attachIndex }]);
+              return true;
+            })
+            .catch(() => false);
           extractFileText(jwt, f)
             .then((res) => {
               const truncNote = res.truncated
@@ -533,16 +587,31 @@ export function useBriefAttachments() {
               ]);
             })
             .catch(() => {
-              setAttachedFileContents((p) => [
-                ...p,
-                { name: f.name, content: "[could not extract text]" },
-              ]);
+              // The client-side preview extraction is best-effort only — the
+              // server-side stage (above) is what agents actually read via the
+              // extract_text tool. If staging succeeded, say nothing here: a
+              // "[could not extract text]" block would (and did) convince an
+              // agent the document is genuinely unreadable when it isn't. Only
+              // when staging ALSO failed do we owe the brief an honest note —
+              // and even then, never a phrase readable as "unreadable/empty".
+              stagedPromise.then((staged) => {
+                if (staged) return;
+                setAttachedFileContents((p) => [
+                  ...p,
+                  {
+                    name: f.name,
+                    content:
+                      "[This document is attached; its content must be read from .uploads/ using the extract_text tool.]",
+                  },
+                ]);
+              });
             });
         } else {
           setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
         }
       }
-      // For other file types: chip shows but no content is sent (no text to extract).
+      // Every ext the picker offers is handled above — the two branches together
+      // cover DOCUMENT_EXTS, so a chip can no longer appear for a file we drop.
     });
   }, []);
 
@@ -551,6 +620,7 @@ export function useBriefAttachments() {
       const removedName = p[idx]?.name;
       if (removedName) {
         setAttachedFileContents((c) => c.filter((f) => f.name !== removedName));
+        setStagedUploads((s) => s.filter((f) => f.name !== removedName));
       }
       return p.filter((_, i) => i !== idx);
     });
@@ -566,10 +636,26 @@ export function useBriefAttachments() {
     .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
     .join("");
 
-  return { attachedFiles, attachedFileContents, attachedImages, handleFiles, removeFile, removeImage, fileBlocks };
+  return { attachedFiles, attachedFileContents, attachedImages, stagedUploads, handleFiles, removeFile, removeImage, fileBlocks };
 }
 
 export type BriefAttachments = ReturnType<typeof useBriefAttachments>;
+
+/**
+ * Sort staged uploads by attach order and return their stage ids (UPLD-05).
+ * `stagedUploads` is appended in STAGE-RESPONSE-ARRIVAL order (concurrent
+ * `POST /uploads/stage` calls), not attach order — `attachIndex` (stamped
+ * synchronously in `handleFiles`, before the async stage call) is the only
+ * signal that survives. Extracted as a pure function so launch-body ordering
+ * is testable without mounting the component.
+ */
+export function orderedStagedUploadIds(
+  stagedUploads: { name: string; stageId: string; attachIndex: number }[],
+): string[] {
+  return [...stagedUploads]
+    .sort((a, b) => a.attachIndex - b.attachIndex)
+    .map((s) => s.stageId);
+}
 
 /**
  * Shared Brief textarea + file/image attach UI (KAN-91 / Image-input Wave 2).
@@ -591,6 +677,7 @@ export function BriefAttachBox({
   rows = 5,
   leftExtra,
   rightSlot,
+  belowExtra,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -602,6 +689,9 @@ export function BriefAttachBox({
   rows?: number;
   leftExtra?: React.ReactNode;
   rightSlot?: React.ReactNode;
+  /** Chips listed under the toolbar next to the attached files — the design
+   *  selection uses this so everything attached to a run reads as one list. */
+  belowExtra?: React.ReactNode;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { attachedFiles, attachedImages, handleFiles, removeFile, removeImage } = attachments;
@@ -622,45 +712,13 @@ export function BriefAttachBox({
         }}
       />
 
-      {attachedFiles.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-5 pb-2">
-          {attachedFiles.map((file, idx) => (
-            <span
-              key={`${file.name}-${idx}`}
-              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
-            >
-              <File className="h-2.5 w-2.5" /> {file.name}
-              <button onClick={() => removeFile(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {attachedImages.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-5 pb-2">
-          {attachedImages.map((img, idx) => (
-            <span
-              key={`${img.name}-${idx}`}
-              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
-            >
-              <ImageIcon className="h-2.5 w-2.5" /> {img.name}
-              <button onClick={() => removeImage(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
       <div className="flex items-center justify-between px-4 py-3 border-t border-line-divider">
         <div className="flex items-center gap-1">
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,image/png,image/jpeg,image/webp,image/gif"
+            accept={DOCUMENT_AND_IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
               if (e.target.files) handleFiles(e.target.files);
@@ -677,6 +735,39 @@ export function BriefAttachBox({
         </div>
         {rightSlot && <div className="flex items-center gap-2">{rightSlot}</div>}
       </div>
+
+      {/* Everything attached to this run, listed UNDER the buttons that add it —
+          each entry carrying the icon of what it is (file, image, or a design
+          contributed via `belowExtra`). Previously the file/image chips sat
+          ABOVE the toolbar, which read as part of the textarea rather than as
+          the result of the buttons below them. */}
+      {(attachedFiles.length > 0 || attachedImages.length > 0 || belowExtra) && (
+        <div className="flex flex-wrap gap-1.5 border-t border-line-divider px-4 py-2.5">
+          {attachedFiles.map((file, idx) => (
+            <span
+              key={`file-${file.name}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
+            >
+              <Paperclip className="h-2.5 w-2.5" /> {file.name}
+              <button onClick={() => removeFile(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+          {attachedImages.map((img, idx) => (
+            <span
+              key={`img-${img.name}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
+            >
+              <ImageIcon className="h-2.5 w-2.5" /> {img.name}
+              <button onClick={() => removeImage(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+          {belowExtra}
+        </div>
+      )}
     </>
   );
 }
@@ -708,6 +799,21 @@ interface IdeaInputPageProps {
   initialInput?: string;
   // SAVE-GATES — pre-fill the review gate selection when reopening a saved workflow
   initialGateIds?: string[];
+  /** Hand the composition the panel is CURRENTLY holding to the full-page Composer.
+   *  Surfaced as "Open in full canvas" in the Advanced modal, which already renders
+   *  composer/CanvasView — so this is the same canvas at full size. */
+  onOpenInCanvas?: (composition: {
+    agentIds: string[];
+    /** The workflow's own manifest steps. ComposerPage PREFERS this over agentIds —
+     *  a composed step is `custom-agent:<instance_id>` with no library entry, so
+     *  agentIds alone resolves to nothing and the canvas opens BLANK. This is also
+     *  the only channel carrying prompts, tools, gates and routes across. */
+    manifestSteps?: import("@/types/index").ManifestStep[];
+    modelOverrides: Record<string, string>;
+    selections: Record<string, Record<string, unknown>>;
+    brief?: string;
+    gateAgentIds?: string[];
+  }) => void;
   // SURF-03 — the known backend workflow id of the launchable/saved workflow being
   // opened in the composer (built-in: the workflow id == the resolved pipeline type;
   // saved: its `base_pipeline_type`). When present, the composer fetches the compiled
@@ -717,13 +823,22 @@ interface IdeaInputPageProps {
   workflowId?: string;
 }
 
-const TYPE_CONFIG: Record<WorkflowType, {
+type PageCopy = {
   tag: string;
   heading: string;
   subtitle: string;
   placeholder: string;
   icon: typeof FileText;
-}> = {
+};
+
+// Hand-written copy for the CURATED pipelines. Deliberately Partial and keyed by string,
+// not Record<WorkflowType, …>: the catalog is manifest-derived (any manifest with
+// user_launchable: true and is_beta: false gets a card), so the set of types reaching
+// this page is open-ended and always wider than a union maintained here. A total Record
+// made the lookup look statically safe, so `config.tag` was dereferenced unguarded and
+// every launchable type absent from the map crashed the page. Partial forces callers
+// through the catalog fallback below.
+const TYPE_CONFIG: Partial<Record<string, PageCopy>> = {
   user_stories: {
     tag: "Generate product requirements",
     heading: "Provide the brief",
@@ -824,7 +939,7 @@ const TYPE_CONFIG: Record<WorkflowType, {
   },
 };
 
-export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId }: IdeaInputPageProps) {
+export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId, onOpenInCanvas }: IdeaInputPageProps) {
   const { libraryAgents: LIBRARY_AGENTS, customAgents: CUSTOM_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
   const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
@@ -833,6 +948,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const briefAttachments = useBriefAttachments();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const preSpeechTextRef = useRef("");
+  // T29 / cold-mount fix: track if we've attempted to restore agents from
+  // initialAgentIds when ALL_LIBRARY_AGENTS loaded. The lazy initializer (line 846)
+  // may fail to map agent IDs if ALL_LIBRARY_AGENTS is empty at first mount, so
+  // the restoration effect must retry when agents become available.
+  const attemptedInitialRestoreRef = useRef(false);
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
 
   // Strip _wizard key from selections — it's FE-only metadata, not a capability selector
@@ -878,7 +998,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // and so `handleRun` always reads the latest value. Untouched ⇒ we omit
   // `gate_agent_ids` (backend uses its static default); touched ⇒ we send the
   // explicit array (even when empty = "no gates").
-  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
   const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
     gateSelectionRef.current = { ids, touched };
   }, []);
@@ -903,9 +1023,19 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // EXACT compact shape 22-04 persists in manifest_json; `onRun`/launch stay
   // pure data (SC-001).
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>(cleanSelections ?? {});
+  // ISS-247 — the LIVE map the Advanced modal renders from. AgentsPopup used to
+  // own this privately (a mount-once useState seed), so a gate checked in the
+  // Review-gates checklist beside it was invisible inside it. Seeded exactly
+  // where that seed came from (`mergedInitialSelections`) and written by the one
+  // handler below. `selectionsRef` stays the launch-payload source, so an
+  // untouched run still omits `selections` entirely (INV-3).
+  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(
+    (cleanSelections ?? {}) as SelectionsMap,
+  );
   const handleSelectionsChange = useCallback(
-    (selections: Record<string, Record<string, unknown>>) => {
+    (selections: SelectionsMap) => {
       selectionsRef.current = selections;
+      setLiveSelections(selections);
     },
     [],
   );
@@ -921,20 +1051,77 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const [declaredCapabilities, setDeclaredCapabilities] = useState<
     { step: string; capabilities: string[] }[] | undefined
   >(undefined);
+  // The workflow's steps as AgentDefs, built from the SAME manifest fetch below.
+  //
+  // LIBRARY_AGENTS is sourced from AGENT.md files, so it only knows agents that
+  // declare a `pipeline_type`. A COMPOSED workflow is N instances of the
+  // `custom-agent` template (`custom-agent:<instance_id>`) and has no AGENT.md per
+  // step, so the library filter returns [] for it and Advanced rendered empty — no
+  // agent rows, no canvas, nothing to configure. The compiled manifest is the only
+  // place those steps exist, and GET /api/workflows/{id} already projects them.
+  const [manifestAgents, setManifestAgents] = useState<AgentDef[] | undefined>(undefined);
+  // The manifest's raw steps, kept verbatim for the "Open in full canvas" hand-off —
+  // ComposerPage seeds from these, not from agentIds.
+  const [manifestRawSteps, setManifestRawSteps] = useState<
+    import("@/types/index").ManifestStep[] | undefined
+  >(undefined);
+  // The manifest's per-step `gates`, in the shape the canvas reads them from.
+  //
+  // A node renders as a conditional (diamond + branch edges) only when BOTH
+  // `agent.route` has outcomes AND `selections[agent.id].gates` includes
+  // "conditional" (CanvasView's own test). Gates live in `selections`, not on
+  // AgentDef, because in the composer they are a user-toggled lever. A workflow
+  // opened from its manifest has them DECLARED rather than toggled, so without
+  // seeding this the `check` step of ex_A1_loop drew as an ordinary node — its
+  // route was there, but the gate half of the test was never satisfied.
+  const [manifestSelections, setManifestSelections] = useState<
+    Record<string, Record<string, unknown>> | undefined
+  >(undefined);
+
+  // ── Spec 016 — this user's saved override of the built-in ──────────────────
+  // The LaunchWizard has carried this since T8, but only `ppt` and `prototype`
+  // ever reach that component (its MODE_CONFIG is typed `"prototype" | "ppt"`).
+  // Every other built-in — user_stories, app_builder, mulesoft_to_springboot,
+  // dotnet_to_azure — renders HERE, so until now those four had no way to author
+  // an override at all: the affordance simply did not exist on their screen.
+  const [overrideInfo, setOverrideInfo] = useState<{ id: string; enabled: boolean } | null>(null);
+  const [overrideAgents, setOverrideAgents] = useState<AgentDef[] | null>(null);
+  const [overrideSelections, setOverrideSelections] = useState<
+    Record<string, Record<string, unknown>> | undefined
+  >(undefined);
+  const [showOverride, setShowOverride] = useState(false);
+
+  // ISS-374/ISS-375 — why the manifest fetch below has nothing to show. The catch
+  // used to swallow every failure into "nothing declared", which is right for the
+  // capability strip but not for the roster: with no library agents for this type
+  // the roster stays [] and Save/Save-as/Run are disabled forever, with the 404
+  // visible only in the console. Carries WHICH failure it was, because a slug that
+  // does not exist and a workflow that could not be loaded want different copy.
+  const [loadError, setLoadError] = useState<"not-found" | "failed" | null>(null);
+
   useEffect(() => {
     if (!workflowId) {
       setDeclaredCapabilities(undefined);
+      setManifestAgents(undefined);
+      setManifestSelections(undefined);
+      setManifestRawSteps(undefined);
+      setLoadError(null);
       return;
     }
     let cancelled = false;
     const jwt = getToken();
     if (!jwt) {
       setDeclaredCapabilities(undefined);
+      setManifestAgents(undefined);
+      setManifestSelections(undefined);
+      setManifestRawSteps(undefined);
+      setLoadError(null);
       return;
     }
     getWorkflowDetail(jwt, workflowId)
       .then((detail) => {
         if (cancelled) return;
+        setLoadError(null);
         // Map each compiled step to its declared capabilities, sourced entirely
         // from the projection (strategy + gates + validators + compaction +
         // task_source kind) — no hardcoded names. Steps with zero declared caps
@@ -951,16 +1138,193 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           })
           .filter((d) => d.capabilities.length > 0);
         setDeclaredCapabilities(mapped.length > 0 ? mapped : undefined);
+        // The step list itself, built from the RAW manifest steps when the API
+        // supplies them. The compiled `detail.steps` projection is lossy — it has no
+        // prompt, tools, instance_id or `route` — so a step that hands off to another
+        // workflow rendered as an ordinary node with nothing indicating the handoff.
+        // `ManifestStep.route` and `AgentDef.route` are the same shape, so the
+        // conditional-gate branches the canvas already knows how to draw just need
+        // passing through. Falls back to the compiled projection for anything the
+        // manifest could not be read for.
+        // Same payload, no extra request. `has_override` is false for everyone
+        // without one, so this is inert for every other user.
+        if (detail.has_override && detail.override_id) {
+          setOverrideInfo({ id: detail.override_id, enabled: !!detail.is_overridden });
+          if (detail.is_overridden) {
+            const proj = agentsFromManifest(detail, workflowId);
+            setOverrideAgents(proj.agents);
+            setOverrideSelections(proj.selections);
+            setShowOverride(true);
+            if (proj.selections) selectionsRef.current = proj.selections;
+          }
+        } else {
+          setOverrideInfo(null);
+          setOverrideAgents(null);
+          setShowOverride(false);
+        }
+
+        const raw = detail.manifest_steps;
+        setManifestRawSteps(raw ?? undefined);
+
+        console.log("[wf] 1. fetched", workflowId, {
+          compiledSteps: detail.steps.length,
+          manifestSteps: raw?.length ?? 0,
+          stepsWithGates: (raw ?? []).filter((x) => (x.gates ?? []).length > 0)
+            .map((x) => `${x.instance_id}:${(x.gates ?? []).join("|")}`),
+          stepsWithRoute: (raw ?? []).filter((x) => x.route).map((x) => x.instance_id),
+        });
+        if (raw && raw.length > 0) {
+          // instance_id -> node id. Route targets in a hand-authored manifest are
+          // BARE instance ids ("done"), because the engine resolves them with a
+          // suffix fallback. The canvas has no such fallback — it compares targets
+          // against node ids ("custom-agent:done"), the same convention depends_on
+          // uses. Unnormalised, `done` was never seen as a route target, so it
+          // rendered as an orphan and every branch edge failed to resolve.
+          // trigger:"workflow" targets are workflow ids, NOT steps — left alone.
+          const nodeIdOf = new Map<string, string>();
+          for (const st of raw) {
+            const b = st.agent || "custom-agent";
+            if (st.instance_id) nodeIdOf.set(st.instance_id, `${b}:${st.instance_id}`);
+          }
+          const normaliseRoute = (r: AgentDef["route"]): AgentDef["route"] => {
+            if (!r?.outcomes) return r;
+            const outcomes = Object.fromEntries(
+              Object.entries(r.outcomes).map(([k, o]) => [
+                k,
+                o.trigger === "step"
+                  ? { ...o, target: nodeIdOf.get(o.target) ?? o.target }
+                  : o,
+              ]),
+            );
+            return {
+              ...r,
+              outcomes,
+              // Same for the decision source — a step reference authored bare
+              // ("ask", ADR-0017) that CanvasConfigRail's Prompt User toggle
+              // compares against a node id. Unnormalised it never matches, so
+              // the toggle reads OFF for a step declaring `before-human`.
+              // Duplicated from manifestAgents.ts's normaliseRoute, which this
+              // copy predates; both must carry it until this one retires.
+              condition_agent: r.condition_agent
+                ? (nodeIdOf.get(r.condition_agent) ?? r.condition_agent)
+                : r.condition_agent,
+              default_next: r.default_next
+                ? (nodeIdOf.get(r.default_next) ?? r.default_next)
+                : r.default_next,
+            };
+          };
+
+          const sel: Record<string, Record<string, unknown>> = {};
+          for (const st of raw) {
+            const base = st.agent || "custom-agent";
+            const sid = st.instance_id ? `${base}:${st.instance_id}` : base;
+            if (st.gates && st.gates.length > 0) sel[sid] = { gates: [...st.gates] };
+          }
+          console.log("[wf] 2. manifest selections (gates the canvas reads)", sel);
+          setManifestSelections(Object.keys(sel).length > 0 ? sel : undefined);
+          setManifestAgents(
+            raw.map((st, i) => {
+              const agentBase = st.agent || "custom-agent";
+              const id = st.instance_id ? `${agentBase}:${st.instance_id}` : agentBase;
+              const compiled = detail.steps.find((c) => c.agent_id === id);
+              return {
+                id,
+                name: st.name || compiled?.name || id,
+                role: compiled?.role || "Workflow step",
+                description: compiled?.role || "",
+                pipeline_type: workflowId,
+                order: compiled?.order ?? i + 1,
+                icon: "\u{1F9E9}",
+                estimated_duration: 0,
+                has_skill: (st.skills?.length ?? 0) > 0,
+                gate: compiled?.declared_gate ?? null,
+                // Authoring fields the canvas renders — route is what surfaces
+                // "this outcome triggers workflow X" / "jumps to step Y".
+                isCustom: agentBase === "custom-agent",
+                instance_id: st.instance_id,
+                prompt: st.prompt,
+                skills: st.skills,
+                tools: st.tools,
+                route: normaliseRoute(st.route as AgentDef["route"]),
+              };
+            }),
+          );
+          console.log("[wf] 3. manifest agents", raw.map((st) => {
+            const b = st.agent || "custom-agent";
+            const id = st.instance_id ? `${b}:${st.instance_id}` : b;
+            return {
+              id,
+              name: st.name,
+              route: st.route
+                ? Object.entries(st.route.outcomes ?? {}).map(
+                    ([k, o]) => `${k}->${o.trigger}:${o.target}`,
+                  )
+                : null,
+            };
+          }));
+          console.log("[wf] 3b. route targets normalised to node ids", raw
+            .filter((st) => st.route)
+            .map((st) => {
+              const r = normaliseRoute(st.route as AgentDef["route"]);
+              return Object.entries(r?.outcomes ?? {}).map(
+                ([k, o]) => `${st.instance_id}.${k} -> ${o.trigger}:${o.target}`,
+              );
+            })
+            .flat());
+        } else {
+          setManifestAgents(
+            detail.steps.map((st, i) => ({
+              id: st.agent_id,
+              name: st.name || st.agent_id,
+              role: st.role || "Workflow step",
+              description: st.role || "",
+              pipeline_type: workflowId,
+              order: st.order ?? i + 1,
+              icon: "\u{1F9E9}",
+              estimated_duration: 0,
+              has_skill: (st.skills?.length ?? 0) > 0,
+              gate: st.declared_gate ?? null,
+            })),
+          );
+        }
       })
-      .catch(() => {
+      .catch((e) => {
         // Unknown id (404) or transient error ⇒ treat as "nothing declared":
         // leave it undefined so the strip simply does not render (no noisy UI).
-        if (!cancelled) setDeclaredCapabilities(undefined);
+        if (!cancelled) {
+          setDeclaredCapabilities(undefined);
+          setManifestAgents(undefined);
+          setManifestSelections(undefined);
+          setManifestRawSteps(undefined);
+          // ISS-374/ISS-375 — still no strip, but the failure is no longer
+          // invisible: this same swallow is what leaves the roster empty.
+          setLoadError(isNotFoundError(e) ? "not-found" : "failed");
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [workflowId]);
+
+  // Declared gates first, so a saved or user-set lever for the SAME step still
+  // overrides them rather than being masked by the manifest. Memoized because the
+  // popup keys state off this object; rebuilding it every render would churn.
+  const mergedInitialSelections = useMemo(
+    () =>
+      manifestSelections
+        ? { ...manifestSelections, ...(cleanSelections ?? {}) }
+        : cleanSelections,
+    [manifestSelections, cleanSelections],
+  );
+
+  // ISS-247 — fold the manifest's declared gates into the live map when the
+  // fetch lands, under anything already there. Same precedence as
+  // `mergedInitialSelections`, which is what the modal seeded from before.
+  useEffect(() => {
+    if (!manifestSelections) return;
+    setLiveSelections((prev) => ({ ...(manifestSelections as SelectionsMap), ...prev }));
+  }, [manifestSelections]);
+
 
   useEffect(() => {
     // Phase 21 (gotcha #1) — GUARD: when launching a saved workflow the seed lives
@@ -969,21 +1333,172 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // However, when initialAgentIds is cleared (savedComposition set to null after
     // navigating to a different workflow type), we MUST reset to the correct defaults
     // for the new type — otherwise stale agents from a previous saved workflow bleed in.
-    if (initialAgentIds?.length) return;
+    //
+    // T29 / cold-mount fix: if initialAgentIds exist but haven't been successfully
+    // restored yet (pipelineAgents still empty after lazy init), attempt restoration
+    // now that ALL_LIBRARY_AGENTS has loaded. The lazy initializer (line 846) may
+    // have failed if ALL_LIBRARY_AGENTS was empty at first mount. Only attempt once
+    // via attemptedInitialRestoreRef to avoid repeated restoration attempts.
+    if (initialAgentIds?.length) {
+      if (!attemptedInitialRestoreRef.current && ALL_LIBRARY_AGENTS.length > 0) {
+        // Attempt to restore from initialAgentIds now that agents are loaded
+        const restored = initialAgentIds
+          .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+          .filter(Boolean) as AgentDef[];
+        if (restored.length > 0) {
+          setPipelineAgents(restored);
+        }
+        attemptedInitialRestoreRef.current = true;
+      }
+      return;
+    }
+    // Reset the restoration flag when initialAgentIds is cleared
+    attemptedInitialRestoreRef.current = false;
     // KAN-112: custom workflow starts blank — user picks agents themselves.
     if (effectiveType === "custom") {
       setPipelineAgents([]);
     } else {
-      setPipelineAgents(LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType)).sort((a, b) => a.order - b.order));
+      const fromLibrary = LIBRARY_AGENTS
+        .filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType))
+        .sort((a, b) => a.order - b.order);
+      // A composed workflow has no AGENT.md-backed library agents, so the filter
+      // above is empty for it and Advanced would render with nothing in it. Fall
+      // back to the compiled manifest's own steps (fetched above). Ordinary
+      // AGENT.md-backed pipelines keep the library rows untouched — the manifest
+      // list is only consulted when the library has nothing to offer.
+      console.log("[wf] 4. roster for", effectiveType, {
+        fromLibrary: fromLibrary.length,
+        fromManifest: manifestAgents?.length ?? 0,
+        using: fromLibrary.length >= (manifestAgents?.length ?? 0) && fromLibrary.length > 0 ? "library" : "manifest",
+      });
+      // The override wins when it is on. Decided HERE rather than by a later
+      // setPipelineAgents call: this effect re-runs whenever `manifestAgents`
+      // lands (same fetch that produced the override), so a separate apply would
+      // race it and the library roster would sometimes win.
+      // The library is a CONVENIENCE PROJECTION of the plan, not the plan. It is
+      // built by filtering LIBRARY_AGENTS on pipeline_type, which each AGENT.md
+      // declares exactly once — so a workflow that REUSES an agent from another
+      // pipeline gets a PARTIAL library roster, not an empty one. ppt_v2 reuses
+      // ppt's brief-analyst and composer, so `fromLibrary` was 2 of its 4 steps,
+      // won this comparison on "non-empty", and Advanced opened on "2 agents" for
+      // a four-step workflow — with the other two invisible and uneditable.
+      // Prefer the manifest whenever it knows about steps the library does not.
+      const libraryIsComplete =
+        fromLibrary.length > 0 &&
+        fromLibrary.length >= (manifestAgents?.length ?? 0);
+      const systemRoster = libraryIsComplete ? fromLibrary : (manifestAgents ?? fromLibrary);
+      setPipelineAgents(
+        showOverride && overrideAgents && overrideAgents.length > 0
+          ? overrideAgents
+          : systemRoster,
+      );
     }
-  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds]);
+  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS, manifestAgents, showOverride, overrideAgents]);
 
   // Reset the sub-choice when the parent switches us off the migration meta-type.
   useEffect(() => {
     if (!isMigrationMeta) setMigrationChoice(null);
   }, [isMigrationMeta]);
 
-  const config = TYPE_CONFIG[effectiveType];
+  // Dynamic catalog ids (e.g. a conditional-gate sample pipeline like
+  // "ex_A4_human_gate") aren't in this static, hand-authored map — fall back
+  // to the generic "custom" copy rather than crashing on `config.tag` below.
+  // Curated copy when it exists; otherwise derive it from the live catalog row, so a
+  // workflow nobody hand-wrote copy for still shows ITS OWN name and description rather
+  // than borrowing another pipeline's. Falling back to TYPE_CONFIG.custom stops the
+  // crash but labels every such page "custom", which is wrong for all seven ex_*
+  // fixtures. Last branch covers the render before the catalog has loaded.
+  const catalogEntry = useWorkflowCatalogEntry();
+  const config: PageCopy = useMemo(() => {
+    const curated = TYPE_CONFIG[effectiveType];
+    if (curated) return curated;
+    const row = catalogEntry(effectiveType);
+    return {
+      tag: row?.display_name || row?.name || "Run a workflow",
+      heading: "Provide the brief",
+      subtitle: row?.description || "Describe what you want and this workflow will run its steps.",
+      placeholder: "e.g. Describe what you'd like this workflow to do.",
+      icon: FileText,
+    };
+  }, [effectiveType, catalogEntry]);
+
+  // Design selection — mirrors ComposerPage's DesignPickerModal wiring exactly,
+  // but driven off the live catalog row's DECLARED `context_providers` /
+  // `design_mode` (rather than a composer-local runConfig) so ANY file-backed
+  // workflow that declares `opendesign` gets the same picker — not just
+  // prototype/ppt, which already have their own dedicated launch wizard and
+  // never reach this page (see selectWorkflowWizardPath). Today that's
+  // `pdf_to_prototype`; name-free by construction (SC-001).
+  const catalogRow = catalogEntry(effectiveType);
+  const designDeclared = !!catalogRow?.context_providers?.includes("opendesign");
+  const designMode: DesignMode = (catalogRow?.design_mode as DesignMode) ?? "web";
+  const [design, setDesign] = useState<DesignSelection>({ templateId: null, designSystemId: null });
+  const [designPickerOpen, setDesignPickerOpen] = useState(false);
+  // Same required/optional rule DesignPickerModal itself applies (web always
+  // needs a design system; deck needs a template) — see ComposerPage.tsx for
+  // the load_prototype_context / load_ppt_od_context rationale.
+  const designMissing =
+    designDeclared && (designMode === "web" ? !design.designSystemId : !design.templateId);
+  const designLaunchParams = useMemo<Record<string, unknown>>(() => {
+    if (!designDeclared) return {};
+    return {
+      ...(design.templateId ? { template_id: design.templateId } : {}),
+      ...(design.designSystemId ? { design_system_id: design.designSystemId } : {}),
+      ...(design.customTemplateBody ? { custom_template_body: design.customTemplateBody } : {}),
+      ...(design.customDsBody ? { custom_ds_body: design.customDsBody } : {}),
+    };
+  }, [designDeclared, design]);
+  const designAttachSlot = designDeclared ? (
+    <button
+      type="button"
+      onClick={() => setDesignPickerOpen(true)}
+      className="flex items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1.5 text-[11px] text-ink-400 transition-all hover:border-line-control hover:bg-surface-warm hover:text-ink-700"
+    >
+      <Palette className="h-3.5 w-3.5" /> + Attach design
+    </button>
+  ) : undefined;
+  const designChips = designDeclared ? (
+    <>
+      {(design.templateName ?? design.templateId) && (
+        <span className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
+          <Layout className="h-2.5 w-2.5" />
+          {design.templateName ?? design.templateId}
+          <button
+            type="button"
+            aria-label="Remove template"
+            onClick={() => setDesign((prev) => ({ ...prev, templateId: null, templateName: null, customTemplateBody: null }))}
+            className="ml-1 text-ink-400 hover:text-status-failed"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </span>
+      )}
+      {(design.designSystemName ?? design.designSystemId) && (
+        <span className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
+          <Palette className="h-2.5 w-2.5" />
+          {design.designSystemName ?? design.designSystemId}
+          <button
+            type="button"
+            aria-label="Remove design system"
+            onClick={() => setDesign((prev) => ({ ...prev, designSystemId: null, designSystemName: null, customDsBody: null }))}
+            className="ml-1 text-ink-400 hover:text-status-failed"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </span>
+      )}
+      {designMissing && (
+        <button
+          type="button"
+          onClick={() => setDesignPickerOpen(true)}
+          className="inline-flex items-center gap-1 rounded-lg border border-status-error/45 bg-status-error/10 px-2.5 py-1 text-[10px] font-semibold text-status-error transition-colors hover:bg-status-error/15"
+        >
+          <AlertCircle className="h-2.5 w-2.5" />
+          {designMode === "web" ? "Design system required" : "Template required"}
+        </button>
+      )}
+    </>
+  ) : undefined;
 
   useEffect(() => {
     if (isListening && transcript) setIdeaInput(preSpeechTextRef.current ? `${preSpeechTextRef.current} ${transcript}` : transcript);
@@ -991,10 +1506,42 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 200); }, []);
 
+  // ISS-729 (QA-SG-002) — `handleRun` had no in-flight guard, so a second click
+  // landing before the SPA route push to /runs/<id>/stream fired a second,
+  // independent POST /api/runs. Same split FIX-345 established on /login: the ref
+  // is the correctness gate (a ref flip is synchronous — `isSubmitting` only
+  // reaches the DOM one React commit later, which is exactly the window the
+  // double-click lands in), the state carries the visible disabled feedback the
+  // reporter found missing.
+  const submittingRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // ISS-777 (QA-SG-014) — the Output-format pick for a custom composition the
+  // AGENT_DELIVERABLE_MAP does not recognize. `.md` keeps the previous default;
+  // the control is only offered (and only consulted) when the map is silent,
+  // because a mapped group's deliverable shape is not the user's to change here.
+  const [outputFormat, setOutputFormat] = useState<".md" | ".html">(".md");
+  const mappedDeliverable = resolveDispatchType(pipelineAgents, effectiveType).deliverableOverride;
+
   const handleRun = () => {
     if (!ideaInput.trim() || pipelineAgents.length === 0) return;
     // For the migration meta-type, Run is gated on a sub-pipeline being chosen.
     if (isMigrationMeta && !migrationChoice) return;
+    // Mirrors ComposerPage.handleRunOnce: a workflow that declares opendesign
+    // but has nothing to inject opens the picker instead of running.
+    if (designMissing) {
+      setDesignPickerOpen(true);
+      return;
+    }
+    // ISS-729 — set AFTER the early returns above (FIX-345's placement rule): a
+    // ref latched at the top of the handler would never be released on a
+    // validation bail-out and would wedge the button permanently. Nothing clears
+    // it on the success path because there is no success path back to this
+    // screen — `onRun` reaches startPipeline, which sets isRunning=true
+    // synchronously and the surface switches to mainView="execution", unmounting
+    // this page whether or not the POST itself succeeds.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
     // KAN-91: compose file content blocks into the message at send time,
     // keeping the textarea clean. ATTACH_MAX_CHARS already applied at attach time.
     const finalMessage = `${ideaInput.trim()}${briefAttachments.fileBlocks}`;
@@ -1018,28 +1565,79 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // NEVER inlined into finalMessage). Include only when ≥1 image is attached
     // so an image-less run emits a byte-identical payload (INV-3).
     const hasImages = briefAttachments.attachedImages.length > 0;
+    // UPLD-05: hand the backend the staged raw documents so they land in the
+    // run's .uploads/ before the first agent runs.
+    const hasStaged = briefAttachments.stagedUploads.length > 0;
     // KAN-112 Option B: for custom pipelines, resolve the actual dispatch type and
     // optional deliverable override from the chosen agent set. Prototype agents inject
     // __deliverable__ into selections so engine._apply_selections swaps the compiled
     // plan's deliverable spec — no manifest copy needed (SC-001 / INV-12).
-    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, effectiveType);
+    const { type: dispatchType, deliverableOverride: mapped } = resolveDispatchType(pipelineAgents, effectiveType);
+    // ISS-777 (QA-SG-014): when the map is silent, the deliverable comes from the
+    // Output-format control this screen now shows — with a mimetype that matches
+    // the bytes the resolver produces for that extension.
+    const deliverableOverride =
+      mapped ??
+      (dispatchType === "custom"
+        ? {
+            strategy: "streamed_text",
+            name: `output${outputFormat}`,
+            mimetype: outputFormat === ".html" ? "text/html" : "text/markdown",
+          }
+        : undefined);
 
     // Merge deliverableOverride into selections under the reserved __deliverable__ key.
     const mergedSelections = deliverableOverride
       ? { ...selections, __deliverable__: deliverableOverride }
       : selections;
-    const hasMergedSelections = Object.keys(mergedSelections).length > 0;
+    // FIX-111 / ISS-766: give a composed `prototype-build` the `task_loop`
+    // strategy unless the composer already carries an explicit one for it.
+    const launchSelections = withPrototypeTaskLoop(
+      mergedSelections,
+      pipelineAgents,
+      deliverableOverride?.name,
+    );
+    const hasMergedSelections = Object.keys(launchSelections).length > 0;
+    // Design context — same launch fields (`template_id`/`design_system_id`)
+    // ComposerPage sends, only populated when this workflow declares opendesign.
+    const hasDesign = Object.keys(designLaunchParams).length > 0;
 
     const finalExtraParams =
-      touched || hasOverrides || hasMergedSelections || hasImages
+      touched || hasOverrides || hasMergedSelections || hasImages || hasStaged || hasDesign
         ? {
             ...(touched ? { gate_agent_ids: ids } : {}),
             ...(hasOverrides ? { model_overrides: overrides } : {}),
-            ...(hasMergedSelections ? { selections: mergedSelections } : {}),
+            ...(hasMergedSelections ? { selections: launchSelections } : {}),
             ...(hasImages ? { images: briefAttachments.attachedImages } : {}),
+            ...(hasStaged
+              ? { staged_upload_ids: orderedStagedUploadIds(briefAttachments.stagedUploads) }
+              : {}),
+            ...designLaunchParams,
           }
         : undefined;
-    onRun(finalMessage, pipelineAgents.map((a) => a.id), dispatchType, finalExtraParams);
+    // A COMPOSED workflow's steps are `custom-agent:<instance_id>` instances with no
+    // AGENT.md. The launch endpoint allow-lists supplied agent_ids against
+    // allowed_custom_agent_ids() — a registry lookup (PIPELINE_AGENTS[base] |
+    // PIPELINE_AGENTS["custom"]) that cannot know those synthetic ids — so sending
+    // them is rejected 400 invalid_agent_ids, which is why running a composed
+    // workflow from this panel failed. Sending NO agent_ids makes the backend source
+    // the roster from the compiled plan instead (run_commands.py's `else` branch
+    // falls back to compile_for_run + _specs_from_plan for exactly this case), which
+    // is the same roster we are displaying. So omit them when the roster is the
+    // manifest's own, unchanged — send them only when the user actually composed a
+    // different set, where the explicit list is the whole point.
+    const manifestRoster = manifestAgents?.map((a) => a.id) ?? null;
+    const currentRoster = pipelineAgents.map((a) => a.id);
+    const isUnmodifiedManifestRoster =
+      manifestRoster !== null &&
+      manifestRoster.length === currentRoster.length &&
+      manifestRoster.every((id, i) => id === currentRoster[i]);
+    onRun(
+      finalMessage,
+      isUnmodifiedManifestRoster ? [] : currentRoster,
+      dispatchType,
+      finalExtraParams,
+    );
   };
 
   // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
@@ -1088,6 +1686,90 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     }
   };
 
+  /** Flip between the override's steps and the system ones (spec 016). */
+  const handleToggleOverride = useCallback(
+    async (next: boolean) => {
+      if (!overrideInfo || !workflowId) return;
+      const token = getToken();
+      if (!token) return;
+      setShowOverride(next);
+      if (!next) {
+        selectionsRef.current = {};
+      } else if (overrideAgents) {
+        selectionsRef.current = overrideSelections ?? {};
+      } else {
+        // Saved-but-off at mount, so the rows were never fetched. Enable first,
+        // then read back what the server now serves as overridden.
+        try {
+          await setWorkflowOverrideEnabled(token, overrideInfo.id, true);
+          const detail = await getWorkflowDetail(token, workflowId);
+          const proj = agentsFromManifest(detail, workflowId);
+          setOverrideAgents(proj.agents);
+          setOverrideSelections(proj.selections);
+          selectionsRef.current = proj.selections ?? {};
+          setOverrideInfo({ ...overrideInfo, enabled: true });
+          return;
+        } catch {
+          setShowOverride(false);
+          return;
+        }
+      }
+      // Persist, so what the screen shows and what a run executes agree.
+      try {
+        await setWorkflowOverrideEnabled(token, overrideInfo.id, next);
+        setOverrideInfo({ ...overrideInfo, enabled: next });
+      } catch {
+        /* the roster already reflects the choice; retried on the next toggle */
+      }
+    },
+    [overrideInfo, overrideAgents, overrideSelections, workflowId],
+  );
+
+  /** Save the current lineup as THIS user's version of the built-in (spec 016). */
+  const handleSaveAsOverride = useCallback(async () => {
+    setSaveError(null);
+    const jwt = getToken();
+    if (!jwt || !workflowId) { setSaveError("Not authenticated."); return; }
+    // ISS-225/ISS-254 — `selectionsRef` is seeded only from `cleanSelections` and
+    // mutated only by an explicit user edit, so an UNTOUCHED manifest-opened step
+    // serialised with `gates: []` even though the manifest — and the canvas, which
+    // reads `mergedInitialSelections` — declares them. `buildWorkflowManifest` takes
+    // its gates from here, so a step declaring `route:` went out missing
+    // `gates: [conditional]` and the backend's R-03 cross-field check 422'd every
+    // route-declaring built-in. Same precedence as `mergedInitialSelections` above:
+    // manifest-declared gates first, the ref second, so a user edit still wins.
+    // Merged HERE rather than into the ref itself — `handleRun` relies on the ref
+    // being empty to omit `selections` from an untouched launch payload (INV-3).
+    const saveSelections = { ...(manifestSelections ?? {}), ...selectionsRef.current };
+    try {
+      const saved = await createUserWorkflow(jwt, {
+        name: `My ${workflowId}`,
+        // ISS-280 — was a hardcoded literal, so the saved row carried no trace
+        // of the brief, even though the sibling `handleSaveWorkflow` above
+        // already persists `ideaInput` for its own save.
+        description: overrideDescription({ brief: ideaInput }),
+        base_pipeline_type: workflowId,
+        agent_ids: pipelineAgents.map((a) => a.id),
+        // `manifest`, never `selections`: the override resolve reads
+        // manifest_json["steps"], and a selections map has no steps in it.
+        manifest: buildWorkflowManifest(
+          pipelineAgents,
+          undefined,
+          saveSelections,
+        ) as unknown as Record<string, unknown>,
+        overrides_pipeline_type: workflowId,
+      });
+      setOverrideInfo({ id: saved.id, enabled: true });
+      setOverrideAgents(pipelineAgents);
+      setOverrideSelections(saveSelections);
+      setShowOverride(true);
+      setSavedConfirm(true);
+      setTimeout(() => setSavedConfirm(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to save your version.");
+    }
+  }, [workflowId, pipelineAgents, ideaInput, manifestSelections]);
+
   // KAN-112: for custom, there are no "default" agents — every agent is optional.
   // The optional-agent count and add/remove limits are all relative to an empty baseline.
   const defaultAgentIds = new Set(
@@ -1099,7 +1781,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const maxOptional = effectiveType === "custom" ? 16 : 5; // generous cap for custom
   const canAddMore = optionalAgentCount < maxOptional;
 
-  const handleAddAgent = useCallback((agent: AgentDef) => {
+  const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {
     setPipelineAgents((prev) => {
       // Reusable blank template — mint a fresh instance id per add (R-03).
       const node = instantiateIfTemplate(agent, collectAgentIds(prev));
@@ -1113,10 +1795,24 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
       const limit = effectiveType === "custom" ? 16 : 5;
       if (currentOptional >= limit) return prev;
-      const insertIdx = effectiveType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
+      // An explicit slot wins. The canvas's "+" affordances each name the node the
+      // new step goes BEFORE (the head slot names step 1), and without honouring it
+      // every add landed on the heuristic below instead — clicking the leftmost slot
+      // on a 6-agent pipeline put the agent at position 6 of 7. Reproduced live on
+      // user_stories.
+      const explicitIdx = insertBeforeId
+        ? prev.findIndex((a) => a.id === insertBeforeId)
+        : -1;
+      // Fallback, unchanged: a composed `custom` workflow appends; a built-in keeps
+      // its final compiler/delivery step last, so an unpositioned add goes before it.
+      const insertIdx = explicitIdx >= 0
+        ? explicitIdx
+        : (effectiveType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0));
       const updated = [...prev];
       updated.splice(insertIdx, 0, { ...node, order: insertIdx + 1 });
-      return updated;
+      // Re-number every step: splicing into the middle otherwise leaves duplicate
+      // `order` values behind the insert point, which the manifest projection reads.
+      return updated.map((a, i) => ({ ...a, order: i + 1 }));
     });
   }, [LIBRARY_AGENTS, effectiveType]);
 
@@ -1157,22 +1853,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-surface-paper">
-      <div className="flex flex-col items-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
-
-        {/* Back */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="w-full mb-8"
-        >
+      <header className="sticky top-0 z-20 border-b border-line-border bg-surface-paper/95 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
           <button
+            type="button"
             onClick={onBack}
-            className="flex items-center gap-1.5 text-[12px] text-ink-500 hover:text-ink-900 transition-colors"
+            aria-label="Back to dashboard"
+            className="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
           >
-            <ArrowLeft className="h-3.5 w-3.5" /> Back
+            <ArrowLeft className="h-4 w-4" />
           </button>
-        </motion.div>
+        </div>
+      </header>
 
+      <div className="flex flex-col items-center px-4 sm:px-6 py-10 max-w-5xl mx-auto w-full">
         {/* Heading */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -1210,20 +1904,24 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
               textareaRef={inputRef}
               onSubmitShortcut={handleRun}
               leftExtra={
-                speechSupported && (
-                  <button
-                    onClick={() => { if (isListening) stopListening(); else { preSpeechTextRef.current = ideaInput; startListening(); } }}
-                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-all border border-transparent ${
-                      isListening
-                        ? "text-status-failed bg-status-failed-fill border-status-failed-border animate-pulse"
-                        : "text-ink-400 hover:text-ink-700 hover:bg-surface-warm hover:border-line-control"
-                    }`}
-                  >
-                    {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-                    {isListening ? "Stop" : "Voice"}
-                  </button>
-                )
+                <>
+                  {speechSupported && (
+                    <button
+                      onClick={() => { if (isListening) stopListening(); else { preSpeechTextRef.current = ideaInput; startListening(); } }}
+                      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-all border border-transparent ${
+                        isListening
+                          ? "text-status-failed bg-status-failed-fill border-status-failed-border animate-pulse"
+                          : "text-ink-400 hover:text-ink-700 hover:bg-surface-warm hover:border-line-control"
+                      }`}
+                    >
+                      {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                      {isListening ? "Stop" : "Voice"}
+                    </button>
+                  )}
+                  {designAttachSlot}
+                </>
               }
+              belowExtra={designChips}
               rightSlot={
                 <>
                   {/* Save workflow — SAVE-FROM-BOTH composer entry (Phase 21).
@@ -1243,10 +1941,25 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                     </button>
                   )}
 
+                  {/* Spec 016 — bind this lineup to the built-in so it is what THIS
+                      user gets whenever they open it. Distinct from "Save workflow",
+                      which forks an unrelated saved copy. Hidden for `custom`, which
+                      IS the fork surface and has no built-in to override. */}
+                  {effectiveType !== "custom" && workflowId && !savedConfirm && (
+                    <button
+                      onClick={handleSaveAsOverride}
+                      disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                      className="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Make this lineup your default for this workflow"
+                    >
+                      <Save className="h-3.5 w-3.5" /> Save as my version
+                    </button>
+                  )}
+
                   {/* Run button */}
                   <button
                     onClick={handleRun}
-                    disabled={!ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                    disabled={isSubmitting || !ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
                     className="flex items-center gap-2 rounded-xl bg-brand text-surface-white px-5 py-2.5 text-[13px] font-semibold hover:bg-brand-pressed transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     {pipelineAgents.length === 0
@@ -1259,6 +1972,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                 </>
               }
             />
+
+            {/* ISS-374/ISS-375 — the manifest fetch failed AND left nothing to
+                run, so "Add agents first" is the screen's only signal and it
+                points at the wrong thing. Shown here, beside the disabled
+                buttons it explains. `migration` is excluded: it is the one
+                WorkflowType with no workflow of its own (it 404s by design) and
+                its recovery is picking a sub-path, not reloading. */}
+            {loadError && pipelineAgents.length === 0 && !isMigrationMeta && (
+              <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">
+                {loadError === "not-found"
+                  ? `Workflow "${workflowId}" not found — go back and pick one from the dashboard.`
+                  : "Failed to load this workflow. Reload the page to retry."}
+              </div>
+            )}
 
             {saveError && (
               <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">{saveError}</div>
@@ -1423,6 +2150,26 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
               {attachedHooks.length > 0 && ` · ${attachedHooks.length} hook${attachedHooks.length !== 1 ? "s" : ""}`}
             </span>
           </button>
+          {/* ISS-777 (QA-SG-014) — this launch surface had no way to ask for an
+              output format, so every unrecognized agent combination shipped
+              markdown whatever the user wanted. Hidden for the agent groups
+              AGENT_DELIVERABLE_MAP already pins to a shape (a prototype build
+              is HTML; the picker would promise a choice that does not exist). */}
+          {effectiveType === "custom" && !mappedDeliverable && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-[12px] font-medium text-ink-600">Output format</span>
+              <select
+                aria-label="Output format"
+                name="output-format"
+                value={outputFormat}
+                onChange={(e) => setOutputFormat(e.target.value as ".md" | ".html")}
+                className="rounded-[8px] border border-line-control bg-surface-white px-2 py-1 text-[11.5px] text-ink-900 focus:border-brand focus:outline-none"
+              >
+                <option value=".md">Markdown (.md)</option>
+                <option value=".html">HTML (.html)</option>
+              </select>
+            </div>
+          )}
         </motion.div>
 
         {/* Review gates — inline expandable, sits beside the Skills/Hooks
@@ -1435,17 +2182,62 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             transition={{ delay: 0.24 }}
             className="w-full mt-3"
           >
-            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} initialGateIds={initialGateIds} />
+            <ReviewGatesSection
+              agents={pipelineAgents}
+              onChange={handleGatesChange}
+              initialGateIds={initialGateIds}
+              selections={liveSelections}
+              onSelectionsChange={handleSelectionsChange}
+            />
           </motion.div>
         )}
 
       </div>
 
       <AgentsPopup
+        // AgentsPopup seeds `liveSelections` from this prop with a useState
+        // INITIALIZER — read once, at ITS mount. The popup is rendered
+        // unconditionally (isOpen only toggles visibility), so it mounts with the
+        // page, BEFORE the manifest fetch resolves; the declared gates arriving a
+        // moment later would never enter that state, and the canvas would keep
+        // drawing a conditional step as an ordinary node. Keying on whether the
+        // manifest has landed remounts it exactly once, so the initializer sees the
+        // real seed. Stable for the rest of the session (the flag only flips
+        // undefined -> set), and the popup is still closed when it flips.
+        key={`${effectiveType}:${manifestSelections ? "seeded" : "pending"}`}
         isOpen={showAgents}
         onClose={() => setShowAgents(false)}
+        onOpenInCanvas={onOpenInCanvas ? () => {
+          // Snapshot the LIVE panel state — refs, not the initial* props, so edits
+          // made inside this modal travel to the full canvas instead of being lost.
+          setShowAgents(false);
+          console.log("[wf] 6. handing off to full canvas", {
+            workflowId,
+            agentIds: pipelineAgents.map((a) => a.id),
+            manifestSteps: manifestRawSteps?.length ?? 0,
+            manifestStepsIsUndefined: manifestRawSteps === undefined,
+            selections: Object.keys(selectionsRef.current),
+          });
+          onOpenInCanvas({
+            agentIds: pipelineAgents.map((a) => a.id),
+            manifestSteps: manifestRawSteps,
+            modelOverrides: modelOverridesRef.current,
+            selections: selectionsRef.current,
+            brief: ideaInput.trim() || undefined,
+            gateAgentIds: gateSelectionRef.current.touched
+              ? gateSelectionRef.current.ids
+              : initialGateIds,
+          });
+        } : undefined}
         agents={pipelineAgents}
+        // The canvas needs the manifest TREE; `pipelineAgents` is the flat
+        // roster that drives agent_ids and the gate toggles. Same prop the
+        // full canvas gets — see workflowCanvasModel.
+        manifestSteps={manifestRawSteps}
         pipelineType={effectiveType}
+        overrideAvailable={overrideInfo !== null}
+        overrideActive={showOverride}
+        onToggleOverride={overrideInfo ? handleToggleOverride : undefined}
         onAddAgent={handleAddAgent}
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}
@@ -1453,9 +2245,23 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onModelOverridesChange={handleModelOverridesChange}
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
-        initialSelections={cleanSelections}
+        initialSelections={mergedInitialSelections}
+        selections={liveSelections}
+        debugLabel={`${effectiveType}:${manifestSelections ? "seeded" : "pending"}`}
         declaredCapabilities={declaredCapabilities}
       />
+
+      {/* Design picker — same surface ComposerPage mounts, only shown when the
+          live catalog row declares `context_providers: [opendesign]`. */}
+      {designDeclared && (
+        <DesignPickerModal
+          open={designPickerOpen}
+          onClose={() => setDesignPickerOpen(false)}
+          designMode={designMode}
+          value={design}
+          onChange={setDesign}
+        />
+      )}
     </div>
   );
 }

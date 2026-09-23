@@ -116,7 +116,7 @@ async def _collect(gen):
 
 def test_locked_defaults_are_module_constants():
     assert DEFAULT_MAX_SUBAGENTS == 8
-    assert DEFAULT_MAX_CONCURRENCY == 4
+    assert DEFAULT_MAX_CONCURRENCY == 5
     assert DEFAULT_MAX_DEPTH == 2
     assert DEFAULT_WALL_CLOCK_SECONDS == 900
 
@@ -154,11 +154,11 @@ def test_reserve_raises_when_subagents_exceed_cap():
 
 
 def test_reserve_raises_when_concurrency_exceeds_cap():
-    mgr = BudgetManager.from_limits(None)  # max_concurrency=4
+    mgr = BudgetManager.from_limits(None)  # max_concurrency=DEFAULT_MAX_CONCURRENCY
     with pytest.raises(BudgetExceeded) as exc:
-        mgr.reserve(subagents=5, concurrency=5)
+        mgr.reserve(subagents=6, concurrency=DEFAULT_MAX_CONCURRENCY + 1)
     # concurrency is checked before subagents-total in the body; either dimension is a
-    # valid first breach, but with concurrency=5 it is the concurrency cap that trips.
+    # valid first breach, but over-cap concurrency is what trips first here.
     assert exc.value.dimension == "concurrency"
 
 

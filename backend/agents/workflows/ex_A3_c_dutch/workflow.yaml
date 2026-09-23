@@ -1,0 +1,63 @@
+# ex_A3_c_dutch — one of the two workflows ex_A3_divert diverts INTO (spec 014 A3).
+#
+# Plain, ordinary workflow: one step, no gates, no route, no conditional-gate machinery
+# of its own. It exists so `target: ex_A3_c_dutch` on ex_A3_divert's "dutch"
+# outcome resolves against a real, file-backed workflow id — resolution happens at
+# runtime in kernel_services.run_trigger_workflow against SUPPORTED_PIPELINE_TYPES
+# (a disk-DERIVED set), NOT at compile time, so this directory must exist for the
+# divert to fire at all.
+#
+# Steps (1 total):
+#
+#   1. greet — greets in Dutch in one sentence, no tools, terminal
+#
+# The prompt deliberately says NOTHING about a joke. ex_A3_divert's "dutch" outcome
+# carries the joke requirement in its R-28 `feedback`, which run_trigger_workflow hands
+# to this run as its user message. So a joke in this run's output can ONLY have come
+# from the parent — if the child's own prompt asked for one, the test would prove
+# nothing about whether the instruction travelled.
+#
+# Launched standalone (user_launchable: true) there is no parent and no instruction, so
+# the reply is a plain Dutch greeting with no joke. That is the control case.
+#
+# Reached normally via ex_A3_divert's "dutch" outcome, carrying
+# parent_run_id = the diverting run's id (R-15). user_launchable: true means it can
+# also be launched standalone to test it in isolation.
+
+id: ex_A3_c_dutch
+user_launchable: true
+is_beta: false
+display_name: Dutch Greeter
+short_name: Dutch Greeter
+icon: GitBranch
+description: The plain workflow ex_A3_divert diverts into for the "dutch" outcome.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  # greet writes nothing, so single_file falls through to ctx.last_streamed and its
+  # reply IS greeting.md — one named deliverable instead of the per-step
+  # artifact_fallback files serialized_sandbox would publish.
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: greet
+  name: Greet in Dutch
+  prompt: Greet the user in Dutch in one short sentence.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Dutch Greeter

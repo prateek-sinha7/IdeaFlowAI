@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useState, FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, FormEvent } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { Mail, Lock } from "lucide-react";
 import {
+  getToken,
   login,
   respondToLoginChallenge,
   isAuthChallenge,
@@ -13,16 +14,26 @@ import {
   type AuthChallengeResponse,
 } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { resolveRedirectTarget } from "@/lib/authRedirect";
 import { canonicalizeEmail } from "@/lib/emailIdentity";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isExpired = searchParams.get("expired") === "true";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // `disabled={isLoading}` only reaches the DOM once React commits, a tick
+  // later than a same-task repeat click, so rapid clicks would each start
+  // their own request. A ref mutates synchronously and closes that window.
+  const submittingRef = useRef(false);
+  // Nothing renders until the mount-time auth check below has run, so an
+  // already-signed-in user never sees a frame of the sign-in form (effects
+  // run after paint).
+  const [checked, setChecked] = useState(false);
 
   // Cognito migration (Phase 4): when login() returns a challenge instead of
   // a token, the form switches to the matching challenge step. `session` is
@@ -36,6 +47,19 @@ function LoginForm() {
   // still produce it, and a dead end at the login screen is the worst place for
   // one.
   const [selectedFactor, setSelectedFactor] = useState("");
+
+  // A user who already holds a token has no business on the sign-in screen —
+  // send them where a successful sign-in would have, mirroring app/page.tsx's
+  // token branch for "/". handleSessionExpiry() clears the token before it
+  // navigates to ?expired=true, so a genuinely expired session still lands on
+  // the form rather than bouncing back.
+  useEffect(() => {
+    if (getToken()) {
+      router.replace(resolveRedirectTarget(searchParams.get("redirect")));
+      return;
+    }
+    setChecked(true);
+  }, [router, searchParams]);
 
   function goToDestination() {
     // Every user — including admins — lands on the main application by
@@ -58,6 +82,8 @@ function LoginForm() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setError("");
     setIsLoading(true);
 
@@ -74,6 +100,7 @@ function LoginForm() {
     } catch (err) {
       setError(describeApiError(err));
     } finally {
+      submittingRef.current = false;
       setIsLoading(false);
     }
   }
@@ -106,6 +133,8 @@ function LoginForm() {
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     const canonicalEmail = canonicalizeEmail(email);
     setEmail(canonicalEmail);
     setIsLoading(true);
@@ -135,9 +164,12 @@ function LoginForm() {
     } catch (err) {
       setError(describeApiError(err));
     } finally {
+      submittingRef.current = false;
       setIsLoading(false);
     }
   }
+
+  if (!checked) return null;
 
   if (challenge) {
     return (
@@ -153,6 +185,7 @@ function LoginForm() {
         setMfaCode={setMfaCode}
         selectedFactor={selectedFactor}
         setSelectedFactor={setSelectedFactor}
+        onClearError={() => setError("")}
         onSubmit={handleChallengeSubmit}
         onCancel={() => {
           setChallenge(null);
@@ -237,8 +270,20 @@ function LoginForm() {
 
           {/* Card */}
           <div className="rounded-[var(--radius-card)] border border-line-control bg-surface-card p-7 shadow-[var(--elevation-raised)]">
+            {isExpired && (
+              <motion.div
+                role="alert"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed"
+              >
+                Your session expired. Please sign in again.
+              </motion.div>
+            )}
+
             {error && (
               <motion.div
+                role="alert"
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed"
@@ -266,6 +311,12 @@ function LoginForm() {
               </div>
 
               <div>
+                {/* ISS-602: was the one remaining hand-rolled type="password" input
+                    (no reveal toggle). The input-focus wrapper and leading Lock icon
+                    are kept; PasswordInput is used as the input itself so the
+                    reveal toggle is structural. The wrapper carries the border/focus
+                    ring; PasswordInput's own inner `relative` sits inside it with
+                    `overflow-visible` so the toggle button is not clipped. */}
                 <div className="mb-1.5 flex items-center justify-between">
                   <label htmlFor="password" className="block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">Password</label>
                   <button
@@ -277,15 +328,14 @@ function LoginForm() {
                   </button>
                 </div>
                 <div className="input-focus relative rounded-[var(--radius-button)] border border-line-control bg-surface-card transition-colors">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
-                  <input
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400 z-10 pointer-events-none" />
+                  <PasswordInput
                     id="password"
-                    type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
-                    className="w-full rounded-[var(--radius-button)] bg-transparent pl-10 pr-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
+                    className="w-full rounded-[var(--radius-button)] bg-transparent pl-10 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
                     placeholder="••••••••"
                   />
                 </div>
@@ -365,6 +415,7 @@ function ChallengeForm({
   setMfaCode,
   selectedFactor,
   setSelectedFactor,
+  onClearError,
   onSubmit,
   onCancel,
 }: {
@@ -379,6 +430,10 @@ function ChallengeForm({
   setMfaCode: (v: string) => void;
   selectedFactor: string;
   setSelectedFactor: (v: string) => void;
+  /** ISS-342: clears the stale validation error banner when the user edits
+   *  any field in the challenge form. Passed down from LoginForm so this
+   *  presentational component does not need to own the error setter. */
+  onClearError: () => void;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }) {
@@ -422,7 +477,7 @@ function ChallengeForm({
 
         <div className="rounded-[var(--radius-card)] border border-line-control bg-surface-card p-7 shadow-[var(--elevation-raised)]">
           {error && (
-            <div className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed">
+            <div role="alert" className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed">
               {error}
             </div>
           )}
@@ -434,11 +489,10 @@ function ChallengeForm({
                   <label htmlFor="new-password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
                     New password
                   </label>
-                  <input
+                  <PasswordInput
                     id="new-password"
-                    type="password"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
+                    onChange={(e) => { setNewPassword(e.target.value); onClearError(); }}
                     required
                     autoComplete="new-password"
                     minLength={12}
@@ -450,11 +504,15 @@ function ChallengeForm({
                   <label htmlFor="confirm-new-password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
                     Confirm password
                   </label>
-                  <input
+                  {/* ISS-342: each onChange clears the stale error banner so a
+                      "Passwords do not match" message does not linger after the
+                      user corrects the mismatch (same fix shape as ISS-244 in
+                      AccountSettings.tsx). All four field onChange handlers are
+                      patched — only `setError("")` is added, no other logic change. */}
+                  <PasswordInput
                     id="confirm-new-password"
-                    type="password"
                     value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    onChange={(e) => { setConfirmNewPassword(e.target.value); onClearError(); }}
                     required
                     autoComplete="new-password"
                     className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
@@ -480,7 +538,7 @@ function ChallengeForm({
                         name="mfa-factor"
                         value={choice.value}
                         checked={selectedFactor === choice.value}
-                        onChange={(e) => setSelectedFactor(e.target.value)}
+                        onChange={(e) => { setSelectedFactor(e.target.value); onClearError(); }}
                         className="h-4 w-4 accent-brand"
                       />
                       {choice.label}
@@ -499,7 +557,7 @@ function ChallengeForm({
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   value={mfaCode}
-                  onChange={(e) => setMfaCode(e.target.value)}
+                  onChange={(e) => { setMfaCode(e.target.value); onClearError(); }}
                   required
                   className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none tracking-widest"
                   placeholder="123456"

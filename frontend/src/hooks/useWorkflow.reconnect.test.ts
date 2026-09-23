@@ -134,7 +134,6 @@ describe("handlePipelineMessage — pipeline_reconnected (12-08 Gap 2 FE half)",
     );
 
     expect(handled).toBe(true);
-    expect(h.updaterCalled).toBe(false);
     expect(h.state.isRunning).toBe(true);
     expect(sessionStorage.getItem("active_pipeline_run_id")).toBe("run-1");
   });
@@ -148,7 +147,28 @@ describe("handlePipelineMessage — pipeline_reconnected (12-08 Gap 2 FE half)",
     );
 
     expect(handled).toBe(true);
-    expect(h.updaterCalled).toBe(false);
     expect(h.state.isRunning).toBe(true);
+  });
+
+  // Stale-status-chip fix: a run RESUMED from cancelled/failed attaches via
+  // this event (not pipeline_start, which a resume never re-emits), so the
+  // live branch must clear the terminal markers itself — otherwise the header
+  // chip keeps reading "Cancelled" while the resumed run is actively
+  // executing, until a full reload re-fetches the REST status.
+  it("live:true on a resumed run clears cancelled/failed/degraded and sets isRunning", () => {
+    const h = makeHarness();
+    h.setPipelineState((prev) => ({ ...prev, isRunning: false, cancelled: true }));
+
+    const handled = handlePipelineMessage(
+      { type: "pipeline_reconnected", live: true, pipeline_run_id: "run-1" },
+      h.setPipelineState,
+      h.agentStartTimesRef,
+    );
+
+    expect(handled).toBe(true);
+    expect(h.state.isRunning).toBe(true);
+    expect(h.state.cancelled).toBeUndefined();
+    expect(h.state.failed).toBeUndefined();
+    expect(h.state.degraded).toBeUndefined();
   });
 });

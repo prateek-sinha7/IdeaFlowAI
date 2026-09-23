@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import {
-  ChevronLeft, Activity,
+  ChevronLeft, ChevronDown, Activity,
   RefreshCw, CheckCircle2, XCircle, Clock3, Cpu,
 } from "lucide-react";
-import { getToken, getAnalyticsSummary, getPreferences } from "@/lib/api";
-import type { AnalyticsSummary } from "@/lib/api";
+import { getToken, getAnalyticsSummary, getPreferences, getCapabilities } from "@/lib/api";
+import type { AnalyticsSummary, CapabilityModelEntry } from "@/lib/api";
+import { routes } from "@/lib/routes";
 import { BarChart } from "./charts/BarChart";
 import { DonutChart } from "./charts/DonutChart";
 
@@ -20,15 +22,35 @@ interface AnalyticsPageProps {
 type DateFilter = "today" | "3d" | "7d" | "30d" | "90d" | "all";
 type PipelineFilter = "all" | "user_stories" | "ppt" | "prototype" | "app_builder" | "custom";
 
-// ─── Model metadata (DISPLAY-ONLY lookup — SC-001, no control flow) ───────────
-const MODEL_META: Record<string, { name: string; short: string; inputRate: string; outputRate: string; context: string }> = {
-  "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",  context: "200K" },
-  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M", context: "200K" },
-  "eu.anthropic.claude-sonnet-4-6":               { name: "Claude Sonnet 4.6", short: "Sonnet 4.6",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M", context: "1M"   },
-  "eu.anthropic.claude-opus-4-5-20251101-v1:0":   { name: "Claude Opus 4.5",   short: "Opus 4.5",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M", context: "200K" },
-  "eu.anthropic.claude-opus-4-6-v1":              { name: "Claude Opus 4.6",   short: "Opus 4.6",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M", context: "200K" },
-};
-const DEFAULT_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+// ─── Model metadata helpers (RFN-002b — dynamic, sourced from /api/capabilities) ─
+// The static MODEL_META map is replaced by a live fetch on mount so new models
+// added to the catalog appear automatically (SC-001 / INV-12 — no hardcoded
+// model-id list on the frontend). Rate formatters scale per-1M values from the
+// catalog's Pricing dataclass.
+
+function formatRate(ratePerMillion: number): string {
+  if (ratePerMillion === 0) return "—";
+  return `$${ratePerMillion.toFixed(2)} / 1M`;
+}
+
+function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(0)}M`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`;
+  return String(tokens);
+}
+
+/** Derive the short display label from a full catalog label.
+ *  E.g. "Claude Haiku 4.5" → "Haiku 4.5"
+ *       "Claude Sonnet 5 (EU)" → "Sonnet 5"
+ *       "Claude Sonnet 5 (US)" → "Sonnet 5"
+ *  Region/geo suffixes are stripped — the analytics page shows model families,
+ *  not deployment regions (the geo prefix on the raw id is an infra detail). */
+function shortLabel(label: string): string {
+  return label
+    .replace(/^Claude\s+/i, "")
+    .replace(/\s*\((EU|US|APAC|Global)\)\s*$/i, "")
+    .trim();
+}
 
 // DISPLAY-ONLY pipeline label map (SC-001/INV-1): the server rolls up on the
 // generic `type` column; this maps a type string → a friendly label, and normalises
@@ -112,18 +134,44 @@ function StatCard({ label, value, rawValue, sub, format }: {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("30d");
-  const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>(() => {
+    const param = searchParams.get("range");
+    if (param === "today" || param === "3d" || param === "7d" || param === "30d" || param === "90d" || param === "all") {
+      return param;
+    }
+    return "30d";
+  });
+  const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>(() => {
+    const param = searchParams.get("pipeline");
+    if (param === "all" || param === "user_stories" || param === "ppt" || param === "prototype" || param === "app_builder" || param === "custom") {
+      return param;
+    }
+    return "all";
+  });
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [preferredModelId, setPreferredModelId] = useState<string | null>(null);
+  // RFN-002b — live catalog keyed by model id; built from /api/capabilities once
+  // on mount.  Replaces the deleted static MODEL_META.  A null value means the
+  // fetch has not yet completed; we degrade gracefully (raw id shown as label).
+  const [catalogMap, setCatalogMap] = useState<Record<string, CapabilityModelEntry>>({});
+  // Model Details collapse state — tracks which model cards are expanded.
+  // Seeded with the first model's id once the summary loads so it opens by default.
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
 
-  // SC-1 server recompute: the summary is re-queried whenever `dateFilter`
-  // changes — the server re-aggregates the owner's rows for the new range
-  // (HomeLaunchGrid fetch-shell idiom: cancelled guard + getToken + loading/
-  // error/finally). No in-memory reduce of raw runs.
+  // SC-1 server recompute: the summary is re-queried whenever ANY filter
+  // changes — the server re-aggregates the owner's rows for the new
+  // range/pipeline/model (HomeLaunchGrid fetch-shell idiom: cancelled guard +
+  // getToken + loading/error/finally). No in-memory reduce of raw runs.
+  // ISS-229/288/289 — the pipeline and model filters have to come back through
+  // here too: the KPI tiles, the Daily Activity chart and the Success Rate donut
+  // read the payload's window-wide `kpis`/`daily`/`token_totals`, which no
+  // client-side narrowing of the two rollup arrays can reach.
   useEffect(() => {
     let cancelled = false;
     const token = getToken();
@@ -133,7 +181,12 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
       return;
     }
     setLoading(true);
-    getAnalyticsSummary(token, dateFilter)
+    getAnalyticsSummary(
+      token,
+      dateFilter,
+      pipelineFilter === "all" ? undefined : pipelineFilter,
+      modelFilter === "all" ? undefined : modelFilter,
+    )
       .then((data) => {
         if (cancelled) return;
         setSummary(data);
@@ -147,7 +200,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [dateFilter]);
+  }, [dateFilter, pipelineFilter, modelFilter]);
 
   // Preferred model (for the "new runs will use…" note) — fetched once.
   useEffect(() => {
@@ -160,9 +213,46 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     return () => { cancelled = true; };
   }, []);
 
+  // Seed the first catalog-matched model as expanded when the summary (re)loads,
+  // so the top model card opens by default without requiring a click.
+  // We reset expandedModels here rather than using an implicit idx===0 fallback,
+  // so that clicking to collapse actually works on the first item.
+  useEffect(() => {
+    if (!summary) return;
+    const firstId = (summary.models ?? [])
+      .filter(m => m.model_id !== "unknown")
+      .sort((a, b) => b.total_tokens - a.total_tokens)[0]?.model_id;
+    if (firstId) setExpandedModels(new Set([firstId]));
+    else setExpandedModels(new Set());
+  }, [summary]);
+
+  // RFN-002b — fetch the live capability catalog once on mount to build catalogMap.
+  // The map covers every model in model_catalog.py (all geo-prefix variants) so the
+  // Model Details panel and model-dropdown short labels are always correct for new
+  // models added to the catalog without any frontend-only change.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    getCapabilities(token)
+      .then((palette) => {
+        if (cancelled) return;
+        const map: Record<string, CapabilityModelEntry> = {};
+        for (const entry of palette.model_catalog) {
+          map[entry.id] = entry;
+        }
+        setCatalogMap(map);
+      })
+      .catch(() => {
+        // Non-fatal: model labels fall back to raw ids, rates show "—".
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   // ── Derived display data — bound to the endpoint payload (KPI math ported,
-  //    not re-derived). pipeline/model filters narrow the already-fetched
-  //    rollup arrays client-side (sanctioned — only the DATE filter refetches).
+  //    not re-derived). EVERY figure below describes the same population: the
+  //    payload is already scoped to the active date/pipeline/model filters
+  //    server-side (ISS-229/288/289), so nothing here re-filters in memory.
   const kpis = summary?.kpis;
   const tokenTotals = summary?.token_totals;
   const spend = summary?.spend ?? 0;
@@ -187,6 +277,12 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const totalTokens = tokenTotals?.total ?? 0;
   const inputTokens = tokenTotals?.input ?? 0;
   const outputTokens = tokenTotals?.output ?? 0;
+  const cacheReadTokens = tokenTotals?.cache_read ?? 0;
+  const cacheWriteTokens = tokenTotals?.cache_write ?? 0;
+  // Uncached input = gross input − cache_read − cache_write (Bedrock convention:
+  // input_tokens in usage_metadata is the gross total including all cache tiers).
+  const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+  const hasCacheData = cacheReadTokens > 0 || cacheWriteTokens > 0;
   const completedCount = kpis?.completed ?? 0;
   const failedCount = kpis?.failed ?? 0;
   const totalCount = kpis?.total ?? 0;
@@ -200,16 +296,22 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     .map((m) => m.model_id)
     .sort();
 
-  const dailyData = (summary?.daily ?? []).map((d) => ({
-    label: formatDate(d.date),
-    value: d.total_tokens,
-    runs: d.total,
-  }));
+  const dailyData = (summary?.daily ?? []).map((d) => {
+    const label = formatDate(d.date);
+    return {
+      label,
+      value: d.total_tokens,
+      runs: d.total,
+      // ISS-369: tokens in the per-bar tooltip get the same K/M treatment as
+      // every other number on this page. Zero-token days keep BarChart's own
+      // default so the runs-only fallback tooltip ("Aug 24: 3 runs") survives.
+      tip: d.total_tokens > 0 ? `${label}: ${formatTokens(d.total_tokens)}` : undefined,
+    };
+  });
   const dailyHasTokens = dailyData.some((d) => d.value > 0);
   const dailyEmpty = dailyData.every((d) => d.value === 0 && d.runs === 0);
 
   const pipelineRows = (summary?.pipelines ?? [])
-    .filter((p) => pipelineFilter === "all" || normalizeType(p.type) === pipelineFilter)
     .map((p) => ({
       label: PIPELINE_LABELS[normalizeType(p.type)] ?? normalizeType(p.type),
       runs: p.count,
@@ -223,10 +325,13 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     : Math.max(...pipelineRows.map((p) => p.runs), 1);
 
   const modelRows = (summary?.models ?? [])
-    .filter((m) => modelFilter === "all" || m.model_id === modelFilter)
+    .filter((m) => m.model_id !== "unknown")
     .map((m) => ({
       id: m.model_id,
-      name: MODEL_META[m.model_id]?.short ?? m.model_id,
+      // RFN-002b: use live catalog label; fall back to cleaned raw id for unrecognised entries.
+      name: catalogMap[m.model_id]?.label
+        ? shortLabel(catalogMap[m.model_id].label)
+        : m.model_id,
       runs: m.count,
       tokens: m.total_tokens,
       cost: m.cost,
@@ -234,12 +339,30 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     .sort((a, b) => b.tokens - a.tokens);
   const modelMax = Math.max(...modelRows.map((m) => m.tokens), 1);
 
+  // RFN-002 — per-agent breakdown derived from summary.agents (sorted desc by backend).
+  // ISS-643 — pipeline_types carried through so the By Agent section can render
+  // a workflow chip next to each agent name.
+  const agentRows = (summary?.agents ?? []).map((a) => ({
+    id: a.agent_id,
+    name: a.agent_name,
+    runs: a.count,
+    tokens: a.total_tokens,
+    cost: a.cost,
+    pipelineTypes: a.pipeline_types ?? [],
+  }));
+  const agentMax = Math.max(...agentRows.map((a) => a.tokens), 1);
+  const agentHasTokens = agentRows.some((a) => a.tokens > 0);
+
   const activeModelId = modelFilter !== "all"
     ? modelFilter
-    : (modelRows[0]?.id ?? DEFAULT_MODEL_ID);
-  const meta = MODEL_META[activeModelId] ?? MODEL_META[DEFAULT_MODEL_ID];
-  const preferenceLabel = preferredModelId ? (MODEL_META[preferredModelId]?.name ?? null) : null;
-  const showPreferenceNote = preferenceLabel && preferenceLabel !== meta.name && modelFilter === "all";
+    : (modelRows[0]?.id ?? "");
+  // RFN-002b — active catalog entry (null when catalog not yet loaded or model unknown).
+  const activeCatalogEntry = activeModelId ? (catalogMap[activeModelId] ?? null) : null;
+  const preferenceLabel = preferredModelId
+    ? (catalogMap[preferredModelId]?.label ?? null)
+    : null;
+  const showPreferenceNote = preferenceLabel && activeCatalogEntry &&
+    preferenceLabel !== activeCatalogEntry.label && modelFilter === "all";
 
   const DATE_LABELS: Record<DateFilter, string> = {
     today: "Today", "3d": "Last 3 days", "7d": "Last 7 days",
@@ -265,7 +388,10 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             {/* Date pills — each selection re-queries the server (SC-1). */}
             <div className="flex items-center gap-0.5 bg-surface-warm rounded-[9px] p-[3px]">
               {(["today", "3d", "7d", "30d", "90d", "all"] as DateFilter[]).map(f => (
-                <button key={f} onClick={() => setDateFilter(f)}
+                <button key={f} onClick={() => {
+                  setDateFilter(f);
+                  router.replace(routes.analytics({ range: f === "30d" ? undefined : f, pipeline: pipelineFilter === "all" ? undefined : pipelineFilter }));
+                }}
                   className={`px-3 py-1.5 rounded-[7px] text-[11px] font-semibold transition-all ${
                     dateFilter === f ? "bg-surface-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"
                   }`}>
@@ -273,8 +399,12 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                 </button>
               ))}
             </div>
-            {/* Pipeline select — narrows the fetched rollup arrays client-side. */}
-            <select value={pipelineFilter} onChange={e => setPipelineFilter(e.target.value as PipelineFilter)}
+            {/* Pipeline select — each selection re-queries the server (SC-1). */}
+            <select value={pipelineFilter} onChange={e => {
+              const newPipeline = e.target.value as PipelineFilter;
+              setPipelineFilter(newPipeline);
+              router.replace(routes.analytics({ range: dateFilter === "30d" ? undefined : dateFilter, pipeline: newPipeline === "all" ? undefined : newPipeline }));
+            }}
               aria-label="Filter by pipeline"
               name="pipeline-filter"
               className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
@@ -285,8 +415,11 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               <option value="app_builder">App Builder</option>
               <option value="custom">Custom</option>
             </select>
-            {/* Model select — only shown when multiple models appear in the range. */}
-            {availableModelIds.length > 1 && (
+            {/* Model select — each selection re-queries the server (SC-1). Shown
+                when the window holds more than one model, and kept on screen once
+                a model is picked: the filtered payload reports only that one model,
+                which would otherwise hide the control still applying the filter. */}
+            {(availableModelIds.length > 1 || modelFilter !== "all") && (
               <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
                 aria-label="Filter by model"
                 name="model-filter"
@@ -294,7 +427,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                 <option value="all">All models</option>
                 {availableModelIds.map(id => (
                   <option key={id} value={id}>
-                    {MODEL_META[id]?.short ?? id}
+                    {catalogMap[id] ? shortLabel(catalogMap[id].label) : id}
                   </option>
                 ))}
               </select>
@@ -480,6 +613,48 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               </div>
             </div>
 
+            {/* ── By Agent — RFN-002 ── */}
+            <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
+              <p className="text-[12px] font-semibold text-ink-800 mb-3.5">By Agent</p>
+              {agentRows.length === 0 ? (
+                <p className="text-[11px] text-ink-400 py-6 text-center">No agent data for this period</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {agentRows.map((a, i) => {
+                    const barVal = agentHasTokens ? a.tokens : a.runs;
+                    const pct = Math.max(Math.round((barVal / agentMax) * 100), barVal > 0 ? 3 : 0);
+                    return (
+                      <motion.div key={a.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          {/* ISS-643 — agent name + pipeline chip(s) */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-surface-warm text-ink-500 uppercase tracking-wide">{a.name}</span>
+                            {a.pipelineTypes.map((pt) => (
+                              <span key={pt} className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-brand/10 text-brand border border-brand/20 uppercase tracking-wide">
+                                {PIPELINE_LABELS[normalizeType(pt)] ?? pt}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10.5px] text-ink-300 tabular-nums">
+                            <span>{a.runs} run{a.runs !== 1 ? "s" : ""}</span>
+                            {a.tokens > 0 && <><span>·</span><span className="font-semibold text-ink-700">{formatTokens(a.tokens)}</span><span>{formatCost(a.cost)}</span></>}
+                          </div>
+                        </div>
+                        <div className="h-1.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden">
+                          <motion.div className="h-full rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.6, delay: i * 0.04, ease: "easeOut" }}
+                            style={{ background: "var(--brand)" }}
+                          />
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* ── Token ratio + Model info ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
@@ -494,58 +669,186 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                     </span>
                   )}
                 </div>
+
                 {totalTokens === 0 ? (
                   <p className="text-[11px] text-ink-400 py-3 text-center">No token data yet</p>
                 ) : (
                   <>
+                    {/* Segmented bar: uncached input / cache_read / cache_write / output */}
                     <div className="h-2.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden flex mb-3.5">
-                      <motion.div className="h-full bg-brand rounded-l-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(inputTokens / totalTokens) * 100}%` }}
-                        transition={{ duration: 0.8, ease: "easeOut" }}
-                      />
-                      <motion.div className="h-full rounded-r-full"
-                        style={{ background: "var(--brand-on-dark)" }}
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
-                        transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
-                      />
+                      {hasCacheData ? (
+                        <>
+                          <motion.div className="h-full bg-brand"
+                            style={{ borderRadius: "9999px 0 0 9999px" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(uncachedInputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                            title={`New input: ${formatTokens(uncachedInputTokens)}`}
+                          />
+                          <motion.div className="h-full"
+                            style={{ background: "var(--status-amber)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(cacheReadTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.05 }}
+                            title={`Cache read: ${formatTokens(cacheReadTokens)}`}
+                          />
+                          <motion.div className="h-full"
+                            style={{ background: "var(--status-amber-border)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(cacheWriteTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+                            title={`Cache write: ${formatTokens(cacheWriteTokens)}`}
+                          />
+                          <motion.div className="h-full rounded-r-full"
+                            style={{ background: "var(--brand-on-dark)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.15 }}
+                            title={`Output: ${formatTokens(outputTokens)}`}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <motion.div className="h-full bg-brand rounded-l-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(inputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                          />
+                          <motion.div className="h-full rounded-r-full"
+                            style={{ background: "var(--brand-on-dark)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+                          />
+                        </>
+                      )}
                     </div>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {[
-                        { label: "Input", value: inputTokens, color: "var(--brand)", accent: "text-ink-900" },
-                        { label: "Output", value: outputTokens, color: "var(--brand-on-dark)", accent: "text-ink-900" },
-                        { label: "Total", value: totalTokens, color: "var(--brand)", accent: "text-brand" },
-                      ].map(item => (
-                        <div key={item.label} className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px]">
-                          <p className={`text-[16px] font-bold tabular-nums ${item.accent}`}>{formatTokens(item.value)}</p>
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
-                            <span className="text-[10.5px] text-ink-300 font-medium">{item.label}</span>
+                    {/* Token stat grid — shows cache columns when data is available */}
+                    {hasCacheData ? (
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        {[
+                          { label: "New Input",    value: uncachedInputTokens, color: "var(--brand)",             accent: "text-ink-900", tip: "Uncached — billed at full input rate" },
+                          { label: "Output",       value: outputTokens,        color: "var(--brand-on-dark)",     accent: "text-ink-900", tip: "Model-generated tokens" },
+                          { label: "Cache Read",   value: cacheReadTokens,     color: "var(--status-amber)",      accent: "text-ink-900", tip: "Served from cache — ~10% of input rate" },
+                          { label: "Cache Write",  value: cacheWriteTokens,    color: "var(--status-amber-border)", accent: "text-ink-900", tip: "Written to cache — ~125% of input rate (5 min TTL)" },
+                        ].map(item => (
+                          <div key={item.label} className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px]" title={item.tip}>
+                            <p className={`text-[16px] font-bold tabular-nums ${item.accent}`}>{formatTokens(item.value)}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+                              <span className="text-[10.5px] text-ink-300 font-medium">{item.label}</span>
+                            </div>
                           </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2.5">
+                        {[
+                          { label: "Input", value: inputTokens, color: "var(--brand)", accent: "text-ink-900" },
+                          { label: "Output", value: outputTokens, color: "var(--brand-on-dark)", accent: "text-ink-900" },
+                          { label: "Total", value: totalTokens, color: "var(--brand)", accent: "text-brand" },
+                        ].map(item => (
+                          <div key={item.label} className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px]">
+                            <p className={`text-[16px] font-bold tabular-nums ${item.accent}`}>{formatTokens(item.value)}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+                              <span className="text-[10.5px] text-ink-300 font-medium">{item.label}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Total row always shown at bottom when cache data is present */}
+                    {hasCacheData && (
+                      <div className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px] flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+                          <span className="text-[10.5px] text-ink-300 font-medium">Total</span>
                         </div>
-                      ))}
-                    </div>
+                        <p className="text-[16px] font-bold tabular-nums text-brand">{formatTokens(totalTokens)}</p>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
-
-              {/* Model info — display-only meta for the active model */}
+              {/* Model info — display-only meta for all models in use (RFN-002b: fully dynamic) */}
               <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
-                <p className="text-[12px] font-semibold text-ink-800 mb-2">Model Details</p>
-                <div>
-                  {[
-                    { label: "Model",          value: meta.name },
-                    { label: "Input rate",     value: `${meta.inputRate} tokens` },
-                    { label: "Output rate",    value: `${meta.outputRate} tokens` },
-                    { label: "Context window", value: `${meta.context} tokens` },
-                  ].map(item => (
-                    <div key={item.label} className="flex items-center gap-3 py-2 border-t border-line-faint-row">
-                      <span className="w-[130px] flex-none text-[11.5px] font-medium text-ink-300">{item.label}</span>
-                      <span className="flex-1 text-[12px] text-ink-700 tabular-nums">{item.value}</span>
-                    </div>
-                  ))}
-                </div>
+                <p className="text-[12px] font-semibold text-ink-800 mb-3">Model Details</p>
+                {modelRows.filter(m => catalogMap[m.id]).length === 0 ? (
+                  <p className="text-[11px] text-ink-400 py-4 text-center">No model data for this period</p>
+                ) : (
+                  <div className="divide-y divide-line-faint-row">
+                    {modelRows
+                      .filter(m => catalogMap[m.id])
+                      .filter(m => modelFilter === "all" || modelFilter === m.id)
+                      .map((m) => {
+                        const entry = catalogMap[m.id]!;
+                        // isExpanded is now driven purely by the set — seeded by the useEffect above.
+                        const isExpanded = expandedModels.has(m.id);
+                        const toggle = () => setExpandedModels(prev => {
+                          const next = new Set(prev);
+                          if (next.has(m.id)) next.delete(m.id);
+                          else next.add(m.id);
+                          return next;
+                        });
+                        return (
+                          <div key={m.id} className="border-t border-line-faint-row first:border-t-0">
+                            {/* Clickable header row */}
+                            <button
+                              onClick={toggle}
+                              className="w-full flex items-center gap-2 py-1.5 group focus:outline-none"
+                              aria-expanded={isExpanded}
+                              aria-controls={`model-detail-${m.id}`}
+                            >
+                              <Cpu className="h-3 w-3 text-brand flex-none" />
+                              <span className="text-[11px] font-semibold text-ink-800 group-hover:text-brand transition-colors">{shortLabel(entry.label)}</span>
+                              <span className="text-[10px] text-ink-400 tabular-nums">{formatTokens(m.tokens)} · {formatCost(m.cost)}</span>
+                              <ChevronDown
+                                className={`h-3 w-3 text-ink-300 ml-auto flex-none transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                              />
+                            </button>
+                            {/* Collapsible detail rows */}
+                            {isExpanded && (
+                              <div id={`model-detail-${m.id}`} className="pb-2">
+                                {[
+                                  { label: "Tier",             value: entry.tier.charAt(0).toUpperCase() + entry.tier.slice(1) },
+                                  { label: "Input rate",       value: `${formatRate(entry.input_rate_per_1m ?? 0)} tokens` },
+                                  { label: "Output rate",      value: `${formatRate(entry.output_rate_per_1m ?? 0)} tokens` },
+                                  { label: "Cache read rate",  value: `${formatRate(entry.cache_read_rate_per_1m ?? 0)} tokens` },
+                                  { label: "Cache write rate", value: `${formatRate(entry.cache_write_5m_rate_per_1m ?? 0)} tokens (5m)` },
+                                  { label: "Context window",   value: `${formatContextWindow(entry.context_window)} tokens` },
+                                ].map(item => (
+                                  <div key={item.label} className="flex items-center gap-3 py-1.5 border-t border-line-faint-row">
+                                    <span className="w-[120px] flex-none text-[11px] font-medium text-ink-300">{item.label}</span>
+                                    <span className="flex-1 text-[11.5px] text-ink-700 tabular-nums">{item.value}</span>
+                                  </div>
+                                ))}
+                                {/* spec 020 — the model's REAL reasoning mode, from
+                                    the catalog. This row used to read a hardcoded
+                                    "Adaptive" whenever a `_THINKING_FRAGMENTS`
+                                    substring matched, and that tuple carried an
+                                    extra "opus-4" its runtime counterpart did not —
+                                    so it claimed Opus 4.5/4.6 used adaptive thinking
+                                    while the runtime sent them budget_tokens. */}
+                                {entry.reasoning_mode && entry.reasoning_mode !== "none" && (
+                                  <div className="flex items-center gap-3 py-1.5 border-t border-line-faint-row">
+                                    <span className="w-[120px] flex-none text-[11px] font-medium text-ink-300">Reasoning</span>
+                                    <span className="text-[11.5px] text-brand font-medium">
+                                      {entry.reasoning_mode === "effort"
+                                        ? "Effort (none–max)"
+                                        : entry.reasoning_mode === "adaptive"
+                                          ? "Adaptive"
+                                          : "Budget"}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
                 {showPreferenceNote && (
                   <div className="mt-3 rounded-lg bg-[var(--status-amber-fill)] border border-[var(--status-amber-border)] px-3 py-2">
                     <p className="text-[10px] text-[var(--status-amber)]">

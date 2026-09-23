@@ -19,6 +19,8 @@ import pytest
 import agents.capabilities.registry as registry_mod
 from agents.capabilities.gates.base import GATE_BLOCK, GATE_PASS, GATE_WAIT_HUMAN
 from agents.capabilities.registry import CapabilityRegistry, register
+import json
+from types import SimpleNamespace
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -818,7 +820,21 @@ async def test_fail_closed_gate_exception_maps_to_block_not_pass():
 
 @pytest.mark.asyncio
 async def test_raising_hitl_gate_blocks_and_stops_gate_evaluation():
-    """A raised HUMAN gate fails closed too — and short-circuits what follows."""
+    """A raised HUMAN gate fails closed too — and short-circuits what follows.
+
+    Both gates must sit in the SAME phase or this proves nothing. ADR-0013 moved
+    ``human`` into ``_POST_STEP_GATES``, so the original pairing
+    (``["human", "security"]`` collected at ``phase="pre"``) no longer exercised
+    the short-circuit at all: ``human`` was filtered out by phase, ``security``
+    ran alone, and its ``gate_blocked`` event plus the WR-04 terminal sentinel
+    yielded ``["block", "block"]`` — two outcomes from ONE gate, which read like
+    a double evaluation but was just the trailing gate answering by itself.
+
+    Paired with ``validation`` instead: both are post-step, and the validator is
+    registered to BLOCK, so a broken short-circuit shows up as a second outcome
+    rather than as silence.
+    """
+    _register_fake_validator("v_short_circuit", [_Issue("P0")])
     engine = _engine()
 
     class _BoomHuman:
@@ -829,14 +845,18 @@ async def test_raising_hitl_gate_blocks_and_stops_gate_evaluation():
             yield  # pragma: no cover — makes this an async generator
 
     registry_mod._IMPLS[("gate", "human")] = _BoomHuman()
-    step = _GatedStep(gates=["human", "security"], tools=_ToolGrant(exec=True))
+    step = _GatedStep(
+        gates=["human", "validation"], validators=["v_short_circuit"]
+    )
 
     events, outcomes = await _collect_gates(
-        engine, step, _Ctx(_RecordingRunner()), phase="pre"
+        engine, step, _Ctx(_RecordingRunner()), phase="post"
     )
     # block (not pass, not cancel — an exception is not a user rejection), and
-    # the trailing security gate never evaluated (single sentinel).
+    # the trailing validation gate never evaluated (single sentinel, no event:
+    # a raised gate emits nothing, so the sentinel alone carries the halt).
     assert outcomes == [GATE_BLOCK]
+    assert events == []
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -899,14 +919,23 @@ async def test_approval_gate_explicitly_ignores_edited_content():
 @pytest.mark.asyncio
 async def test_engine_sentinel_carries_human_gate_edit_detail():
     """_evaluate_gates' terminal sentinel forwards the gate's detail so the
-    dispatch loop can apply the edit (the WR-04 3-tuple protocol)."""
+    dispatch loop can apply the edit (the WR-04 3-tuple protocol).
+
+    Collected in the POST phase: ADR-0013 moved ``human`` into
+    ``_POST_STEP_GATES`` (post-step reviews the output the step just produced;
+    the pre-step variant is spelled ``before-human`` now). The phase filter
+    therefore drops ``human`` entirely at ``phase="pre"``, which left this
+    asserting against an empty outcome list. What it pins — that the terminal
+    sentinel carries the gate's detail — is phase-agnostic; only the label was
+    stale.
+    """
     engine = _engine()
     runner = _RecordingRunner(review_events=list(_EDIT_REVIEW_SCRIPT))
     step = _GatedStep(gates=["human"])
 
     details: list = []
     events, outcomes = await _collect_gates(
-        engine, step, _Ctx(runner), phase="pre", details=details
+        engine, step, _Ctx(runner), phase="post", details=details
     )
     assert GATE_PASS in outcomes
     assert {"edited_content": "EDITED SPEC"} in details
@@ -1166,3 +1195,81 @@ def test_host_seam_resolves_local_runtime_and_binds_exec_workspace(
     # — the exact shape the security gate's profile check reads.
     assert ws.policy.exec is True
     assert list(ws.policy.exec_allow)  # non-empty allow-list (DEFAULT_EXEC_PROFILE)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Routed human gate — the declared outcomes are published as CHOICES
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class _CapturingReviewEngine:
+    """Captures every kwarg run_human_gate forwards to _run_review_gate."""
+
+    def __init__(self) -> None:
+        self.seen: dict = {}
+
+    async def _run_review_gate(self, **kwargs):
+        self.seen = kwargs
+        yield {"type": "review_gate_ready", "data": {}}
+
+
+async def _drive_human_gate(step, *, payload=None, output="(awaiting choice)"):
+    eng = _CapturingReviewEngine()
+    ks, _ = _kernel_services(eng)
+    ks._spec_for = lambda _s: _SpecStub("custom-agent:pick-language")  # type: ignore[assignment]
+    async for _ in ks.run_human_gate(step, output=output, payload=payload):
+        pass
+    return eng.seen
+
+
+def _routed_step(outcomes):
+    step = _GatedStep(gates=["before-human", "conditional"])
+    step.route = SimpleNamespace(outcomes=outcomes)
+    return step
+
+
+@pytest.mark.asyncio
+async def test_routed_human_gate_publishes_declared_outcomes_as_choices():
+    """A human-family gate on a step that ALSO declares a route is the one case
+    where the human is the router. The valid answers are already compiled; publish
+    them so the UI can offer them instead of a free-text box (the answer must equal
+    an outcome key exactly, and nothing told the user what those keys were)."""
+    seen = await _drive_human_gate(
+        _routed_step({"english": 1, "spanish": 2, "dutch": 3})
+    )
+    assert seen["artifact_kind"] == "conditional_gate"
+    envelope = json.loads(seen["output"])
+    assert envelope["choices"] == ["english", "spanish", "dutch"]
+    assert envelope["prompt"] == "(awaiting choice)"
+
+
+@pytest.mark.asyncio
+async def test_human_gate_without_a_route_is_byte_identical():
+    """DORMANCY — the invariant that keeps every production workflow unchanged.
+    prototype / prototype_feature_revision / sc001-test-fixture all declare human
+    gates on steps with NO route; they must keep the plain string output and an
+    empty artifact_kind."""
+    step = _GatedStep(gates=["human"])          # no .route attribute at all
+    seen = await _drive_human_gate(step)
+    assert seen["output"] == "(awaiting choice)"
+    assert seen["artifact_kind"] == ""
+
+
+@pytest.mark.asyncio
+async def test_route_with_no_outcomes_does_not_publish_choices():
+    seen = await _drive_human_gate(_routed_step({}))
+    assert seen["output"] == "(awaiting choice)"
+    assert seen["artifact_kind"] == ""
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_payload_path_is_untouched():
+    """The approval gate's D-04 snapshot rides the SAME output field. A non-None
+    payload must skip the choice branch entirely, even on a routed step."""
+    snapshot = {"exec_policy": "deny"}
+    seen = await _drive_human_gate(
+        _routed_step({"english": 1}), payload=snapshot
+    )
+    assert seen["output"] == snapshot
+    assert seen["artifact_kind"] == ""
+

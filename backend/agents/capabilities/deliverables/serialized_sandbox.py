@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from agents.capabilities.deliverables._mimetype import default_mimetype
+from agents.capabilities.deliverables._placeholder import placeholder_narration_reason
 from agents.capabilities.registry import register
 
 
@@ -46,6 +47,15 @@ class SerializedSandboxResolver:
         runner = ctx.runner
         root = runner.sandbox.root
         if runner.count_sandbox_deliverables(root) > 0:
-            return runner.serialize_sandbox_deliverable(root)
+            _bundle = runner.serialize_sandbox_deliverable(root)
+            # QA-PS-027 / ISS-763: ``count > 0`` is satisfied by the ONE file the
+            # engine's artifact guarantee plants when an agent never wrote
+            # anything (``_check_artifact_fallback`` writes the raw streamed text
+            # under the declared name). Do not claim a bundle that is only that
+            # agent's narration — fall through to ``streamed_text`` exactly as an
+            # empty sandbox does, and let the engine's completion gate degrade
+            # the run. DORMANT on every real bundle.
+            if placeholder_narration_reason(_bundle) is None:
+                return _bundle
         # 0 deliverable files → do not claim it (count > 0 guard, engine parity).
         return None

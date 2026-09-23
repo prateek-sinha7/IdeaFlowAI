@@ -1,0 +1,13 @@
+# Integration suite only. Separate from backend/pyproject.toml on purpose: the
+# backend does not need a browser driver, and this suite does not need the
+# backend's dependency tree.
+#
+#   uv venv tests/integration/e2e/.venv
+#   uv pip install -p tests/integration/e2e/.venv -r tests/integration/e2e/requirements.txt
+#
+# No `playwright install` step: channel="chrome" drives the Google Chrome
+# already on the machine rather than a downloaded Chromium.
+pytest>=8.0
+pytest-playwright>=0.5
+pytest-timeout>=2.3
+pytest-json-report>=1.5

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  AlertCircle, MoreVertical, Pencil, Copy, Trash2,
+  AlertCircle, MoreVertical, Pencil, Copy, Trash2, Edit,
   Play, Workflow, Clock, Cpu,
   Search, Plus,
 } from "lucide-react";
@@ -12,14 +13,11 @@ import {
   deleteUserWorkflow, getToken, type UserWorkflowSummary,
 } from "@/lib/api";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
+import { routes } from "@/lib/routes";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const PIPELINE_LABEL: Record<string, string> = {
-  user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
-  app_builder: "App Builder", custom: "Custom",
-  mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
-};
+import { pipelineLabelFor } from "./pipelineLabel";
 
 // Neutral avatar tints — Phase-32 @theme tokens only (no raw hex / stock palette).
 const ICON_STYLES = [
@@ -88,12 +86,13 @@ interface SavedWorkflowsPageProps {
 // ref stable. a11y: trigger exposes aria-haspopup/expanded; the panel is
 // role=menu with role=menuitem rows; Escape closes + refocuses the trigger.
 function KebabMenu({
-  row, isOpen, onToggle, onClose, onRename, onDuplicate, onDelete,
+  row, isOpen, onToggle, onClose, onEdit, onRename, onDuplicate, onDelete,
 }: {
   row: UserWorkflowSummary;
   isOpen: boolean;
   onToggle: () => void;
   onClose: () => void;
+  onEdit: () => void;
   onRename: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -129,6 +128,10 @@ function KebabMenu({
             className="absolute right-0 top-8 z-20 bg-surface-white border border-line-border rounded-[var(--radius-menu)] shadow-[var(--elevation-menu)] py-1 min-w-[130px]"
             onClick={(e) => e.stopPropagation()}
           >
+            <button role="menuitem" onClick={onEdit}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
+              <Edit className="h-3.5 w-3.5" /> Edit
+            </button>
             <button role="menuitem" onClick={onRename}
               className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
               <Pencil className="h-3.5 w-3.5" /> Rename
@@ -150,13 +153,22 @@ function KebabMenu({
 }
 
 export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflowsPageProps) {
+  const router = useRouter();
   const [userWorkflows, setUserWorkflows] = useState<UserWorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [savedError, setSavedError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteRow, setDeleteRow] = useState<UserWorkflowSummary | null>(null);
   const [renameRow, setRenameRow] = useState<UserWorkflowSummary | null>(null);
+  // ISS-815 (QA-PS-041) — rows whose Duplicate POST is still in flight. Unlike
+  // Rename/Delete, which close their modal synchronously before the await and
+  // so unmount their own button, Duplicate only closes the dropdown PANEL: the
+  // kebab TRIGGER stays mounted and enabled, so the menu can be reopened and
+  // Duplicate clicked again mid-request, creating two rows for one intent. A
+  // ref, not state, because this gates the handler rather than the render; a
+  // Set, so duplicating a DIFFERENT row meanwhile is unaffected.
+  const duplicatingRef = useRef(new Set<string>());
 
   useEffect(() => {
     let cancelled = false;
@@ -175,7 +187,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
     const q = search.toLowerCase();
     return w.name.toLowerCase().includes(q)
       || (w.description ?? "").toLowerCase().includes(q)
-      || (PIPELINE_LABEL[w.base_pipeline_type] ?? w.base_pipeline_type).toLowerCase().includes(q);
+      || pipelineLabelFor(w.base_pipeline_type).toLowerCase().includes(q);
   });
 
   const handleRenameSave = async (name: string, description: string) => {
@@ -191,6 +203,8 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
   const handleDuplicate = async (row: UserWorkflowSummary) => {
     setOpenMenuId(null);
     const jwt = getToken(); if (!jwt) return;
+    if (duplicatingRef.current.has(row.id)) return;
+    duplicatingRef.current.add(row.id);
     try {
       const created = await createUserWorkflow(jwt, {
         name: `${row.name} (copy)`, description: row.description ?? undefined,
@@ -199,10 +213,16 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
       });
       setUserWorkflows((prev) => [created, ...prev]);
     } catch (e) { setSavedError((e as Error)?.message ?? "Duplicate failed."); }
+    finally { duplicatingRef.current.delete(row.id); }
+  };
+
+  const handleEdit = (row: UserWorkflowSummary) => {
+    setOpenMenuId(null);
+    router.push(routes.workflowEdit(row.id));
   };
 
   const handleDeleteConfirm = async () => {
-    const id = deleteConfirmId; if (!id) return; setDeleteConfirmId(null);
+    const id = deleteRow?.id; if (!id) return; setDeleteRow(null);
     const jwt = getToken(); if (!jwt) return;
     try {
       await deleteUserWorkflow(jwt, id);
@@ -312,7 +332,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {filtered.map((row, idx) => {
               const iconStyle = ICON_STYLES[idx % ICON_STYLES.length];
-              const pipelineLabel = PIPELINE_LABEL[row.base_pipeline_type] ?? row.base_pipeline_type;
+              const pipelineLabel = pipelineLabelFor(row.base_pipeline_type);
               const agentCount = row.agent_ids?.length ?? 0;
               return (
                 <motion.div key={row.id}
@@ -329,9 +349,10 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
                       isOpen={openMenuId === row.id}
                       onToggle={() => setOpenMenuId(openMenuId === row.id ? null : row.id)}
                       onClose={() => setOpenMenuId(null)}
+                      onEdit={() => handleEdit(row)}
                       onRename={() => { setOpenMenuId(null); setRenameRow(row); }}
                       onDuplicate={() => handleDuplicate(row)}
-                      onDelete={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}
+                      onDelete={() => { setOpenMenuId(null); setDeleteRow(row); }}
                     />
                   </div>
                   {/* Type badge */}
@@ -393,11 +414,11 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
 
       {/* ── Delete confirm ── */}
       <AnimatePresence>
-        {deleteConfirmId && (
+        {deleteRow && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[80] flex items-center justify-center bg-[var(--scrim)] backdrop-blur-sm"
-            onClick={() => setDeleteConfirmId(null)}
-            onKeyDown={(e) => { if (e.key === "Escape") setDeleteConfirmId(null); }}>
+            onClick={() => setDeleteRow(null)}
+            onKeyDown={(e) => { if (e.key === "Escape") setDeleteRow(null); }}>
             <motion.div initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 8 }} transition={{ duration: 0.15 }}
               role="dialog" aria-modal="true" aria-labelledby="delete-workflow-title"
@@ -413,15 +434,15 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
                 </div>
               </div>
               <p className="text-[12px] text-ink-500 leading-relaxed mb-5">
-                The saved workflow will be permanently removed from your saved workflows.
+                &quot;{deleteRow.name}&quot; will be permanently removed from your saved workflows.
               </p>
               <div className="flex gap-2">
-                <button onClick={() => setDeleteConfirmId(null)}
+                <button onClick={() => setDeleteRow(null)}
                   className="flex-1 rounded-xl border border-line-border px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
                   Cancel
                 </button>
                 <button onClick={handleDeleteConfirm}
-                  className="flex-1 rounded-xl bg-ink-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-ink-800 transition-colors">
+                  className="flex-1 rounded-xl bg-ink-900 px-4 py-2.5 text-[12px] font-medium text-surface-white hover:bg-ink-800 transition-colors">
                   Delete
                 </button>
               </div>

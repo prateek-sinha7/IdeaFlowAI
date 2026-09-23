@@ -200,6 +200,16 @@ bindings interpolated by `{{apiRoot}}`/`{{jwt}}` elsewhere in the file).
 | `run.dotnet_to_azure.http` | `dotnet_to_azure` | 13-agent modernization pipeline |
 | `run.custom.http` | `custom` | Open-agent run: explicit `agent_ids` from the 8-agent custom-utility pool, plus a second example overriding `agent_ids` on a *base* pipeline with a cross-pipeline agent |
 
+**Conditional Gates (spec 014)** — unattended workflows (`planner: skip`, `clarify: {mode: skip}`) exercising spec-014's conditional-gate engine. All use synthetic `custom-agent` instance IDs (`greet`, `pick`, `check`, etc.), no real registry agents, so `agent_ids` are deliberately omitted (see each file's explanation comment):
+
+| File | pipeline_type | What it shows |
+|---|---|---|
+| `run.sample_conditional_branch_new.http` | `sample_conditional_branch_new` | Forward branch (R-09/R-10): conditional gate picks one of two forward targets (`say-hello` vs `say-hola`). Verify exactly one branch ran via event history. |
+| `run.sample_conditional_previous_step.http` | `sample_conditional_previous_step` | Loop to previous step (R-06/R-07/R-08): conditional gate with `loop_max_iterations: 3` looping back to `greet`. Log loop count via event history. |
+| `run.sample_conditional_human_input.http` | `sample_conditional_human_input` | Condition sourced from human gate (R-27): `revise-check` step's conditional gate reads an earlier `review` step's HUMAN-gate response. Auto-resolves the gate so test runs unattended. |
+| `run.sample_conditional_launch_new.http` | `sample_conditional_launch_new` | Cross-workflow trigger (R-13/R-20): conditional gate triggers `workflow` outcome, launching `sample_conditional_target` as a child run. Verifies `pipeline_diverted` event, parent/child link (`parent_run_id`), and `diverted_at_step_id`. |
+| `run.sample_conditional_target.http` | `sample_conditional_target` | Divert target, launchable standalone: simple single-step workflow (`welcome` writes `output.txt`). Used both as the child of `launch_new` and as a standalone fixture for independent validation. |
+
 **Not included:** `spec_kit` has agent prompts but no
 `agents/workflows/spec_kit/workflow.yaml` manifest — `compile_for_run()`
 raises `FileNotFoundError` before a run can start (confirmed by reading

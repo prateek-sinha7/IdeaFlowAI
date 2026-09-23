@@ -20,14 +20,27 @@ Security carried over VERBATIM from the original handlers:
 """
 
 import json
+import logging
 import re
-from datetime import datetime, timezone
-from typing import Optional
+import secrets
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_serializer
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.agents.sandbox import (
+    FamilyLockTimeout,
+    GIT_METADATA_PATHS,
+    RESERVED_PATHS,
+    RunSandbox,
+    family_lock,
+)
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.artifact_ref import ArtifactRef
 from app.models.database import get_db
@@ -36,6 +49,11 @@ from app.models.gate_events import GateEvent
 from app.models.hook_runs import HookRun
 from app.models.run_capabilities import RunCapabilities
 from app.models.run_event import RunEvent
+from app.models.run_provenance_audit import (
+    RunProvenanceAudit,
+    lookup_idempotent_restore,
+)
+from app.models.run_finalization import RunFinalization
 from app.models.subagent_run import SubagentRun
 from app.models.user import User
 from app.models.validation_results import ValidationResult
@@ -44,6 +62,7 @@ from app.models.workflow import WorkflowRun
 from app.models.workflow_clarification import WorkflowClarification
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
+logger = logging.getLogger("app.api.runs")
 
 
 # --- Request/Response Schemas ---
@@ -123,8 +142,35 @@ class WorkflowRunResponse(BaseModel):
     # by chaining from a prior run's output. The column already exists (migration
     # 0014 forward field) — no migration needed; from_attributes resolves it.
     source_run_id: Optional[str] = None
+    # R-20 (spec 014 / T41): the instance_id of the conditional-gate step that
+    # diverted this run to another workflow, if any. None for a non-diverted run.
+    diverted_at_step_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
+    # ── Task 9.3: chain-source + finalization projection (sandbox-git-versioning-v2) ──
+    #
+    # All fields are Optional with default None so existing clients see no change.
+    #
+    # chain_source — present only when the caller owns the source run.  A
+    #   cross-owner source (or no source) → None.  Never partially disclosed.
+    #   Shape: {id, short_id, workflow_id, published_status, visible_tag | None}
+    chain_source: Optional[dict] = None
+    # chain_context_installed — from run_finalizations.chain_context_installed
+    #   directly, NOT through FinalizationRecord, so a run that never reaches the
+    #   finalizer still reports whether it received a chain payload (written at
+    #   install time by mark_chain_context_installed before agent 1).
+    chain_context_installed: Optional[bool] = None
+    # payload_chainable / non_chainable_reason — mirrored from WorkflowRun columns
+    #   (migration 0044, written in the same transaction as published_status).
+    payload_chainable: Optional[bool] = None
+    non_chainable_reason: Optional[str] = None
+    # chain_unavailable_reason — the bounded reason code from run_provenance_audits
+    #   for a chain_context_unavailable event.  None when chain context was
+    #   successfully installed or not applicable.
+    chain_unavailable_reason: Optional[str] = None
+    # finalization_reason — the degraded_reason from run_finalizations when the
+    #   run finished degraded; None for completed/cancelled/failed/running.
+    finalization_reason: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -140,6 +186,20 @@ class WorkflowRunResponse(BaseModel):
         if v.tzinfo is None:
             v = v.replace(tzinfo=timezone.utc)
         return v.isoformat()
+
+
+def _iso_utc(v: Optional[datetime]) -> Optional[str]:
+    """UTC-promote then ISO-format a stored datetime (KAN-113).
+
+    The free-function twin of the response models' ``_serialize_dt`` field
+    serializer, for plain-dict projections that have no Pydantic model to hang one
+    on. Same rule: a naive stamp is ``Date.parse``'d as LOCAL time in the browser.
+    """
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
+    return v.isoformat()
 
 
 class WorkflowRunListResponse(BaseModel):
@@ -163,6 +223,8 @@ class WorkflowRunListResponse(BaseModel):
     deliverable_filename: Optional[str] = None
     parent_run_id: Optional[str] = None
     root_run_id: str
+    # R-20 (spec 014 / T41): see WorkflowRunResponse — same field, same meaning.
+    diverted_at_step_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
 
@@ -181,10 +243,166 @@ class WorkflowRunListResponse(BaseModel):
 # Workstream A — revision-family read helpers (POR §4.2 + §4.3, app-layer only).
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# V2 — canonical revision-root resolver (Requirement 2, V2-Q1).
+#
+# resolve_revision_root is the SINGLE app-side function that resolves which
+# physical sandbox directory a run belongs to.  Every consumer (engine launch,
+# resume, factory, RunTrace, file routes, upload, sweeper, restore, previous-run
+# reads, family locking, and the chain-source reader) MUST route through this
+# function once task 3.3 is complete.
+#
+# Design contracts (Requirement 2 AC 1–12):
+#   • Walks parent_run_id ONLY — source_run_id is NEVER followed (V2-Q1).
+#   • Owner-scoped by non-null WorkflowRun.user_id; the filter is stated
+#     explicitly so a future nullable-column change cannot silently weaken it.
+#   • Visited-set cycle guard — a cycle is a hard failure, not a "use the last
+#     unique node" fallback (supersedes v1 Requirement 1 AC 4).
+#   • One typed failure outcome for every error class: cycle, missing ancestor,
+#     cross-owner ancestry, null principal, and DB error all produce
+#     RevisionRootUnresolved with a bounded reason string.
+#   • NEVER selects the last unique node on a cycle.
+#   • NEVER falls back to the requested run id on any failure.
+#   • NEVER returns a partial root.
+#
+# Offline characterization harnesses may construct RunSandbox with an explicitly
+# absent sandbox_root_id (defaulting current_run_id to the logical run id) — that
+# is a valid offline path, not a resolution failure, and it never calls this
+# function (Requirement 2 AC 6).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RevisionRootResolved:
+    """Successful resolution: ``root_id`` is the revision-root run id."""
+
+    root_id: str
+
+
+@dataclass(frozen=True)
+class RevisionRootUnresolved:
+    """Typed failure.  Every error class produces this result so callers have
+    exactly one handling branch (Requirement 2 AC 10–11).
+
+    ``reason`` is one of:
+      ``"null_principal"``     — ``user_id`` was empty/None; refused before any query.
+      ``"cycle"``              — ``parent_run_id`` chain forms a cycle.
+      ``"missing_or_cross_owner"`` — an ancestor row was not found or belongs to
+                                     another user.
+      ``"db_error"``           — SQLAlchemy raised during the walk.
+
+    ``run_id`` is the run that was being resolved when the failure occurred.
+    ``visited_count`` is the number of nodes visited before the failure (useful
+    for support diagnostics without leaking ancestry shape to the client).
+    ``repeated_node`` is the node that closed the cycle, or ``None`` for non-cycle
+    failures (Requirement 2 AC 12 — "record the visited-set size, the repeated
+    node, and the failure class for support").
+    """
+
+    reason: str
+    run_id: str
+    visited_count: int
+    repeated_node: str | None
+
+
+#: The result type returned by :func:`resolve_revision_root`.
+ResolveRevisionRootResult = Union[RevisionRootResolved, RevisionRootUnresolved]
+
+
+def resolve_revision_root(
+    db: Session,
+    run_id: str,
+    user_id: str,
+) -> ResolveRevisionRootResult:
+    """Walk ``parent_run_id`` links to find the revision root for ``run_id``.
+
+    Returns a :class:`RevisionRootResolved` on success or a
+    :class:`RevisionRootUnresolved` on any failure.  Never raises — callers
+    branch on the result type.
+
+    ``user_id`` MUST be non-null (the non-null condition is stated explicitly
+    in the ORM filter so a future nullable-column migration cannot silently
+    weaken the ownership predicate — Requirement 2 AC 4).
+
+    The walk is bounded by the visited set: every node is visited at most once,
+    so the total number of DB round trips is at most the chain depth.
+
+    Callers that receive ``RevisionRootUnresolved`` MUST:
+      • Return a generic non-enumerating error to the client (never expose
+        another owner's run id, ancestry shape, or path).
+      • Log ``visited_count``, ``repeated_node``, and ``reason`` server-side for
+        support (Requirement 2 AC 12).
+      • For the TTL sweeper: treat the failure as **protected** (never deletable).
+    """
+    if not user_id:
+        return RevisionRootUnresolved(
+            reason="null_principal",
+            run_id=run_id,
+            visited_count=0,
+            repeated_node=None,
+        )
+
+    visited: set[str] = set()
+    current = run_id
+
+    while True:
+        if current in visited:
+            # A cycle was detected: current is the node that closes the loop.
+            # NEVER select the last unique node — fail closed (Requirement 2 AC 10).
+            return RevisionRootUnresolved(
+                reason="cycle",
+                run_id=run_id,
+                visited_count=len(visited),
+                repeated_node=current,
+            )
+        visited.add(current)
+
+        try:
+            row = (
+                db.query(WorkflowRun.id, WorkflowRun.parent_run_id)
+                .filter(
+                    WorkflowRun.id == current,
+                    # Ownership predicate — stated explicitly so it cannot be
+                    # weakened by a future schema change (Requirement 2 AC 4).
+                    WorkflowRun.user_id == user_id,
+                    WorkflowRun.user_id.isnot(None),
+                )
+                .first()
+            )
+        except SQLAlchemyError:
+            return RevisionRootUnresolved(
+                reason="db_error",
+                run_id=run_id,
+                visited_count=len(visited),
+                repeated_node=None,
+            )
+
+        if row is None:
+            # Missing row OR owned by another user — fail closed without
+            # distinguishing which, so the client cannot enumerate ownership
+            # (Requirement 2 AC 5, AC 11–12).
+            return RevisionRootUnresolved(
+                reason="missing_or_cross_owner",
+                run_id=run_id,
+                visited_count=len(visited),
+                repeated_node=None,
+            )
+
+        _id, parent_run_id = row
+        if parent_run_id is None:
+            # No parent: ``current`` is the revision root.
+            return RevisionRootResolved(root_id=current)
+
+        # Advance one step up the parent chain.
+        current = parent_run_id
+
+
+# ---------------------------------------------------------------------------
 # Sentinel for an ancestor id that is missing OR owned by another user — the
 # owned walk terminates here (root = the last OWNED ancestor, POR §3.2). Kept
 # distinct from None (which means "no parent") so the family walk never leaks a
 # foreign run into a root/family response (threat T-A-03).
+# ---------------------------------------------------------------------------
 _FOREIGN_ANCESTOR = object()
 
 
@@ -269,7 +487,180 @@ def _compute_root_ids(db: Session, user_id: str, runs: list) -> dict[str, str]:
     return {r.id: _root_of(r.id) for r in runs}
 
 
-def _run_response(run, root_id: str) -> WorkflowRunResponse:
+def _build_chain_projection(
+    db: Session,
+    run: WorkflowRun,
+    user_id: str,
+) -> dict:
+    """Build the chain-source + finalization projection for a single run.
+
+    Returns a dict of the new Optional fields (all default None on any error).
+    Ownership-scoped: a cross-owner source projects as chain_source=None.
+
+    Called only from _run_response (detail endpoint) — not from the list or
+    family endpoints, which use a slimmer projection.
+    """
+    result: dict = {
+        # source_run_id is gated — only disclosed when the caller owns the source.
+        # Set to None here; overwritten to src.id below when ownership is confirmed.
+        "source_run_id": None,
+        "chain_source": None,
+        "chain_context_installed": None,
+        "payload_chainable": None,
+        "non_chainable_reason": None,
+        "chain_unavailable_reason": None,
+        "finalization_reason": None,
+    }
+
+    # ── payload_chainable / non_chainable_reason — mirrored on WorkflowRun ────
+    # Read directly from the ORM column (already loaded on the run object).
+    result["payload_chainable"] = getattr(run, "payload_chainable", None)
+    result["non_chainable_reason"] = getattr(run, "non_chainable_reason", None)
+
+    # ── chain_context_installed — from run_finalizations (NOT FinalizationRecord)
+    # so a run that never fully finalizes still reports the install state written
+    # by mark_chain_context_installed before agent 1 (Requirement 21 AC 8).
+    try:
+        fin_row = (
+            db.query(
+                RunFinalization.chain_context_installed,
+                RunFinalization.non_chainable_reason,
+                RunFinalization.payload_chainable,
+            )
+            .filter(
+                RunFinalization.run_id == run.id,
+                RunFinalization.owner_id == user_id,
+            )
+            .first()
+        )
+        if fin_row is not None:
+            result["chain_context_installed"] = fin_row.chain_context_installed
+            # Prefer the finalization row's payload columns when present —
+            # they are the canonical durable record; WorkflowRun columns are
+            # the mirrored convenience copy.
+            if fin_row.payload_chainable is not None:
+                result["payload_chainable"] = fin_row.payload_chainable
+            if fin_row.non_chainable_reason is not None:
+                result["non_chainable_reason"] = fin_row.non_chainable_reason
+    except Exception:  # noqa: BLE001 — projection failure must never 500 the endpoint
+        pass
+
+    # ── finalization_reason — degraded_reason from run_finalizations ─────────
+    try:
+        deg_row = (
+            db.query(RunFinalization.non_chainable_reason)
+            .filter(
+                RunFinalization.run_id == run.id,
+                RunFinalization.owner_id == user_id,
+            )
+            .first()
+        )
+        # The finalization_reason field reports why a run degraded.  The
+        # non_chainable_reason is the closest column in the current schema.
+        # When a dedicated degraded_reason column is added it should be read
+        # here instead; for now surface non_chainable_reason for degraded runs.
+        if deg_row is not None and getattr(run, "status", None) == "degraded":
+            result["finalization_reason"] = deg_row.non_chainable_reason
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── chain_unavailable_reason — from run_provenance_audits ─────────────────
+    try:
+        unavail_row = (
+            db.query(RunProvenanceAudit.outcome)
+            .filter(
+                RunProvenanceAudit.run_id == run.id,
+                RunProvenanceAudit.owner_id == user_id,
+                RunProvenanceAudit.operation == "chain_context_unavailable",
+            )
+            .order_by(RunProvenanceAudit.created_at.desc())
+            .first()
+        )
+        if unavail_row is not None:
+            result["chain_unavailable_reason"] = unavail_row.outcome
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── chain_source — owner-scoped source run projection ────────────────────
+    # Only present when source_run_id is set AND the caller owns that source run.
+    # A cross-owner source → absent (never partially disclosed).
+    source_run_id = getattr(run, "source_run_id", None)
+    if source_run_id:
+        try:
+            src = (
+                db.query(
+                    WorkflowRun.id,
+                    WorkflowRun.type,
+                    WorkflowRun.status,
+                    WorkflowRun.git_tag,
+                )
+                .filter(
+                    WorkflowRun.id == source_run_id,
+                    # Ownership predicate — cross-owner source returns None (IDOR
+                    # protection; Requirement 21 AC 4).
+                    WorkflowRun.user_id == user_id,
+                    WorkflowRun.user_id.isnot(None),
+                )
+                .first()
+            )
+            if src is not None:
+                # short_id is the first 8 chars, matching the frontend convention.
+                result["chain_source"] = {
+                    "id": src.id,
+                    "short_id": src.id[:8],
+                    "workflow_id": src.type,
+                    "published_status": src.status,
+                    "visible_tag": src.git_tag,  # None for untagged runs
+                }
+                # source_run_id is safe to disclose — caller owns both runs.
+                result["source_run_id"] = src.id
+        except Exception:  # noqa: BLE001
+            pass
+
+    return result
+
+
+def _build_finalization_projection(
+    db: Session,
+    run_id: str,
+    user_id: str,
+) -> dict:
+    """Slim projection used by family members — chain_context_installed only.
+
+    Cheaper than _build_chain_projection (single query, no source lookup).
+    Returns a dict with chain_context_installed, payload_chainable,
+    non_chainable_reason.
+    """
+    result: dict = {
+        "chain_context_installed": None,
+        "payload_chainable": None,
+        "non_chainable_reason": None,
+    }
+    try:
+        row = (
+            db.query(
+                RunFinalization.chain_context_installed,
+                RunFinalization.payload_chainable,
+                RunFinalization.non_chainable_reason,
+            )
+            .filter(
+                RunFinalization.run_id == run_id,
+                RunFinalization.owner_id == user_id,
+            )
+            .first()
+        )
+        if row is not None:
+            result["chain_context_installed"] = row.chain_context_installed
+            result["payload_chainable"] = row.payload_chainable
+            result["non_chainable_reason"] = row.non_chainable_reason
+    except Exception:  # noqa: BLE001
+        pass
+    return result
+
+
+def _run_response(
+    run, root_id: str, *, db: Session | None = None, user_id: str | None = None
+) -> "WorkflowRunResponse":
     """Build a ``WorkflowRunResponse`` injecting the server-computed root_run_id.
 
     ``from_attributes`` cannot supply ``root_run_id`` (it is not an ORM column),
@@ -277,13 +668,52 @@ def _run_response(run, root_id: str) -> WorkflowRunResponse:
     ``model_fields`` — which auto-tracks future field additions with no
     hand-maintained list — and ``root_run_id`` is injected explicitly, keeping it
     a required ``str`` (contract-strong).
+
+    When ``db`` and ``user_id`` are supplied the chain-source + finalization
+    projection is populated (task 9.3).  The detail endpoint (get_run) always
+    supplies both; other callers may omit them and get None for the new fields.
     """
+    # The model_fields loop covers all scalar ORM-backed fields.  The new
+    # Optional fields (chain_source, chain_context_installed, …) are NOT ORM
+    # columns so getattr(run, name) would return AttributeError / None — they
+    # are excluded from the loop and injected explicitly below.
+    _COMPUTED_FIELDS = {
+        "root_run_id",
+        # source_run_id is the raw ORM column but must be gated: a cross-owner
+        # source run id must never leak to the caller (IDOR protection,
+        # Requirement 21 AC 4).  It is therefore derived from the chain_source
+        # projection rather than copied verbatim from the ORM row.
+        "source_run_id",
+        "chain_source",
+        "chain_context_installed",
+        "payload_chainable",
+        "non_chainable_reason",
+        "chain_unavailable_reason",
+        "finalization_reason",
+    }
     kwargs = {
-        name: getattr(run, name)
+        name: getattr(run, name, None)
         for name in WorkflowRunResponse.model_fields
-        if name != "root_run_id"
+        if name not in _COMPUTED_FIELDS
     }
     kwargs["root_run_id"] = root_id
+
+    # Populate chain/finalization fields when db is available.
+    if db is not None and user_id is not None:
+        chain_proj = _build_chain_projection(db, run, user_id)
+        kwargs.update(chain_proj)
+        # IDOR guard (Requirement 21 AC 4): if the ownership-scoped projection
+        # did not populate chain_source (cross-owner or missing source), also
+        # null out source_run_id so the raw ORM column value is never disclosed.
+        # _build_chain_projection already returns source_run_id=None in this
+        # case, but this explicit post-step makes the invariant impossible to
+        # violate by a future change to the projection function.
+        if not kwargs.get("chain_source"):
+            kwargs["source_run_id"] = None
+    else:
+        for f in _COMPUTED_FIELDS - {"root_run_id"}:
+            kwargs[f] = None
+
     return WorkflowRunResponse(**kwargs)
 
 
@@ -338,6 +768,7 @@ def list_runs(
         WorkflowRun.deliverable_mimetype,
         WorkflowRun.deliverable_filename,
         WorkflowRun.parent_run_id,
+        WorkflowRun.diverted_at_step_id,
         WorkflowRun.user_id,
         WorkflowRun.created_at,
         WorkflowRun.completed_at,
@@ -513,7 +944,9 @@ def get_run(
         )
 
     roots = _compute_root_ids(db, current_user.id, [workflow_run])
-    return _run_response(workflow_run, roots[workflow_run.id])
+    return _run_response(
+        workflow_run, roots[workflow_run.id], db=db, user_id=current_user.id
+    )
 
 
 @router.delete(
@@ -1133,6 +1566,16 @@ async def get_run_events(
                 "event_id": r.event_id,
                 "type": r.type,
                 "payload_json": r.payload_json,
+                # ISS-358: surface the row's own write time. The app-layer chat
+                # types (chat_message/chat_reply, run_commands.py) persist no
+                # timestamp in their payload, so this column is the ONLY send time
+                # a replayed turn has — without it the transcript re-dates every
+                # historical message to page-load time. Projected here, at the
+                # shared durable reader, so EVERY event type gets it at once
+                # rather than per-consumer. UTC-promoted for the same KAN-113
+                # reason _serialize_dt is: a naive stamp is Date.parse'd as LOCAL
+                # time in the browser, which is the very defect being fixed.
+                "created_at": _iso_utc(r.created_at),
             }
             for r in rows
         ],
@@ -1152,6 +1595,14 @@ class FamilyMemberResponse(BaseModel):
     parent_run_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
+    git_tag: Optional[str] = (
+        None  # task 6.4 — the git tag created on completed runs (e.g. "v1"); None = not tagged
+    )
+    # ── Task 9.3: finalization projection for family members ─────────────────
+    # All Optional/None so existing clients see no change.
+    payload_chainable: Optional[bool] = None
+    non_chainable_reason: Optional[str] = None
+    chain_context_installed: Optional[bool] = None
 
     # KAN-113: same UTC-promotion serialiser as WorkflowRunResponse (SQLite naive
     # datetime → JavaScript Date.parse local-time misread → wrong "Nh ago" label).
@@ -1186,16 +1637,36 @@ def _owned_family_members(
     in-family by BFS construction, so the ``in members`` nulling never leaks a
     foreign id.
 
-    BUG-FIX (FIX-173): the BFS now only admits children whose normalized base type
-    matches the root's — stripping the generic ``_revision`` suffix
-    (SC-001: no literal pipeline-type name check). A prototype revision
-    accidentally parented to a PPT root (or vice-versa) is excluded, so concurrent
-    PPT + prototype revision sessions no longer cross-contaminate each other's version
-    dropdown.
+    FIX-173 added a cross-family guard here that dropped any child whose canonical
+    base type differed from the root's, to stop concurrent PPT + prototype revision
+    sessions contaminating each other's version dropdown. **That guard is removed.**
+
+    It could not do the job it was written for. FIX-173's contamination came from a
+    race in which ``contentSourceRunId`` transiently pointed at the wrong run when
+    ``postRevision`` fired — so the child's ``parent_run_id`` AND its
+    ``source_run_id`` were both written from the same wrong value. A read-path check
+    cannot tell that row apart from a deliberate one; the type comparison was a
+    proxy that happened to catch the reported case, not a detector.
+
+    Meanwhile it rejected legitimate rows. Two kinds, both shipped features:
+
+      * A deliberate cross-type revision. A ``custom`` run whose deliverable is
+        ``prototype.html`` routes through ``handleRevisePrototype``
+        (DashboardLayout's ``|| !!prototypeContent`` clause), producing a
+        ``prototype_revision`` child of a ``custom`` root. The user asked for it;
+        the guard disowned it, and ``/versions/N`` then resolved by index into a
+        family that was missing a member.
+      * A divert. ``ex_A3_divert`` → ``ex_A3_b_spanish`` is a different pipeline BY
+        DESIGN, so a base-type comparison can never admit a diverted child.
+
+    Contamination must be prevented where it is created — by not writing a parent
+    link from a transient id — not by filtering reads. Until that write-path
+    hardening exists, a cross-type child is admitted and logged (below) so the
+    condition is observable instead of silently dropping a member.
 
     (FIX-179 also stripped an ``od_`` variant prefix here, so an ``od_prototype``
     root would admit its ``prototype_revision`` children. That label is collapsed
-    and its rows migrated, so the prefix strip is gone.)
+    and its rows migrated, so the prefix strip went with it.)
     """
     members: dict[str, WorkflowRun] = {}
     root_row = (
@@ -1206,33 +1677,14 @@ def _owned_family_members(
     if root_row is not None:
         members[root_row.id] = root_row
 
-    # Derive the root's base pipeline-type ONCE for the cross-family guard below.
-    # SC-001 / INV-1: keyed ONLY on the generic ``_revision`` suffix — no literal
-    # pipeline-name branch. ``prototype_revision`` normalises to ``"prototype"``,
-    # ``ppt_revision`` to ``"ppt"``, preventing cross-type contamination without
-    # naming any workflow.
-    #
-    # FIX-179 additionally stripped an ``od_`` prefix here, because an
-    # ``od_prototype`` root's children (type ``prototype_revision``) were excluded
-    # by this guard — the two halves of one family had different labels. The labels
-    # are collapsed now and persisted rows are migrated, so there is no ``od_``
-    # prefix left to strip and the special case goes with it.
+    # Kept ONLY to describe an admitted cross-type child in the log line below —
+    # nothing branches on it. ``prototype_revision`` → ``"prototype"``.
     def _canonical_base(t: str) -> str:
-        """Strip tiered or generic ``_revision`` suffix.
-
-        Handles the new tiered revision pipeline types introduced with the
-        multi-manifest prototype revision feature:
-          prototype_large_revision   → prototype
-          prototype_feature_revision → prototype
-          prototype_revision         → prototype  (unchanged)
-          prototype                  → prototype  (unchanged)
-        """
-        base = t
+        """Strip a tiered or generic ``_revision`` suffix."""
         for suffix in ("_large_revision", "_feature_revision", "_revision"):
-            if base.endswith(suffix):
-                base = base[: -len(suffix)]
-                break
-        return base
+            if t.endswith(suffix):
+                return t[: -len(suffix)]
+        return t
 
     root_base_type: str | None = (
         _canonical_base(root_row.type) if root_row is not None else None
@@ -1253,20 +1705,54 @@ def _owned_family_members(
         for child in children:
             if child.id in visited:
                 continue  # cycle guard — never re-enqueue an already-seen run
-            # FIX-173/FIX-179: cross-family isolation — skip a child whose
-            # canonical base type differs from the root's. Uses _canonical_base
-            # (strip the ``_revision`` suffix) so prototype roots
-            # correctly admit ``prototype_revision`` children (both → ``prototype``).
+            # A cross-type child is ADMITTED (see the docstring: deliberate
+            # cross-type revisions and diverts are both legitimate). Logged, not
+            # dropped, so a genuine FIX-173-style contamination is still visible
+            # — previously it and every legitimate cross-type child were silently
+            # discarded alike, which made a missing version indistinguishable from
+            # a version that never existed.
             if (
                 root_base_type is not None
                 and _canonical_base(child.type) != root_base_type
             ):
-                continue
+                logger.info(
+                    "run_family: admitting cross-type child %s (%s) under root %s (%s)",
+                    child.id,
+                    child.type,
+                    root_id,
+                    root_base_type,
+                )
             visited.add(child.id)
             members[child.id] = child
             frontier.add(child.id)
 
     ordered = sorted(members.values(), key=lambda r: (r.created_at, r.id))
+
+    # ── Task 9.3: batch-load finalization state for all family members ─────────
+    # One query for the whole page rather than N per-member round trips.
+    # Ownership-scoped (owner_id == user_id) — default-deny.
+    member_ids = [r.id for r in ordered]
+    fin_by_run: dict[str, object] = {}
+    if member_ids:
+        try:
+            fin_rows = (
+                db.query(
+                    RunFinalization.run_id,
+                    RunFinalization.chain_context_installed,
+                    RunFinalization.payload_chainable,
+                    RunFinalization.non_chainable_reason,
+                )
+                .filter(
+                    RunFinalization.run_id.in_(member_ids),
+                    RunFinalization.owner_id == user_id,
+                )
+                .all()
+            )
+            for fr in fin_rows:
+                fin_by_run[fr.run_id] = fr
+        except Exception:  # noqa: BLE001 — projection failure must not break the family endpoint
+            pass
+
     return [
         FamilyMemberResponse(
             id=r.id,
@@ -1277,6 +1763,23 @@ def _owned_family_members(
             parent_run_id=(r.parent_run_id if r.parent_run_id in members else None),
             created_at=r.created_at,
             completed_at=r.completed_at,
+            git_tag=getattr(
+                r, "git_tag", None
+            ),  # task 6.4 — nullable; None when run pre-dates git versioning
+            # Task 9.3: finalization projection
+            chain_context_installed=(
+                fin_by_run[r.id].chain_context_installed if r.id in fin_by_run else None
+            ),
+            payload_chainable=(
+                fin_by_run[r.id].payload_chainable
+                if r.id in fin_by_run
+                else getattr(r, "payload_chainable", None)
+            ),
+            non_chainable_reason=(
+                fin_by_run[r.id].non_chainable_reason
+                if r.id in fin_by_run
+                else getattr(r, "non_chainable_reason", None)
+            ),
         )
         for idx, r in enumerate(ordered, start=1)
     ]
@@ -1640,3 +2143,646 @@ async def get_exec_runs(
             for r in rows
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Share endpoints (Option B — public deliverable sharing).
+#
+# POST /api/runs/{id}/share  — owner mints a share token (or refreshes it).
+# DELETE /api/runs/{id}/share — owner revokes the share.
+# GET /s/{token}             — unauthenticated route registered in app/main.py;
+#                              returns ONLY the deliverable (output +
+#                              deliverable_mimetype). Never echoes input,
+#                              agent_outputs, token_usage, or any PII.
+# ---------------------------------------------------------------------------
+
+# Default share link lifetime: 30 days (owner-revocable at any time).
+_SHARE_TTL_DAYS = 30
+
+# Regex that matches every ``filename:``-block path in the deliverable string
+# (WorkflowRun.output). Used by the share guard below to assert that no
+# reserved-path content was serialised into the output column before a share
+# token is minted or served.  The pattern is anchored to the opening fence so
+# it never false-positives on path-like strings *inside* file content.
+_SHARE_FILENAME_BLOCK_RE = re.compile(
+    r"^```filename:\s*(?P<path>[^\n]+)",
+    re.MULTILINE,
+)
+
+# Combined exclusion set for the share boundary: every registry-reserved
+# prefix plus the two git-metadata paths.  Derived once at module load so
+# every call shares the same frozen object (no per-request allocation).
+_SHARE_EXCLUDED: frozenset[str] = RESERVED_PATHS | GIT_METADATA_PATHS
+
+
+def _assert_share_output_clean(output: str, run_id: str) -> None:
+    """Assert that no reserved path appears in the deliverable output string.
+
+    Parses every ``filename:``-block header in *output* and checks it against
+    ``RESERVED_PATHS | GIT_METADATA_PATHS`` (V2-Q7 / Requirement 18 AC 7).
+    Raises ``RuntimeError`` if a violation is found so the caller can log and
+    refuse the request before any reserved content is served.
+
+    The serialiser (``serialize_sandbox_deliverable``) already filters these
+    paths at write time — this is an additional defence-in-depth assertion at
+    the share boundary, matching the security checklist for task 2.6.
+
+    ``run_id`` is included in the error message for operator diagnostics only;
+    it is never forwarded to clients.
+    """
+    for m in _SHARE_FILENAME_BLOCK_RE.finditer(output):
+        relpath: str = m.group("path").strip()
+        # Check the full relative path against every reserved entry.
+        # A reserved entry ending in "/" matches any path that starts with it
+        # (subtree); a bare name (e.g. ".gitignore") matches exactly.
+        for entry in _SHARE_EXCLUDED:
+            if entry.endswith("/"):
+                if relpath.startswith(entry) or relpath == entry.rstrip("/"):
+                    raise RuntimeError(
+                        f"share guard: reserved path {relpath!r} found in "
+                        f"deliverable output for run {run_id!r} "
+                        f"(matched registry entry {entry!r})"
+                    )
+            else:
+                # Bare name: match the full relpath or its basename component.
+                basename = relpath.rsplit("/", 1)[-1]
+                if relpath == entry or basename == entry:
+                    raise RuntimeError(
+                        f"share guard: reserved path {relpath!r} found in "
+                        f"deliverable output for run {run_id!r} "
+                        f"(matched registry entry {entry!r})"
+                    )
+
+
+class ShareRunResponse(BaseModel):
+    """Response for POST /api/runs/{id}/share."""
+
+    share_token: str
+    share_url: str
+    expires_at: Optional[str] = None
+
+
+@router.post("/{workflow_id}/share", response_model=ShareRunResponse)
+def create_or_refresh_share(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mint (or refresh) a public share token for the run's deliverable.
+
+    IDOR: owner gate via user_id — cross-owner / missing → 404, never 403.
+    Only the output + deliverable_mimetype are served at /s/{token}; no
+    input, agent_outputs, token_usage, or PII is ever exposed.
+
+    Re-calling this endpoint replaces any existing token (refresh semantics),
+    which is the same pattern as rotating an API key — the old link stops
+    working and the caller gets a fresh one.
+    """
+    run = _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    # A run must be completed and have a deliverable to share.
+    if run.status not in ("completed", "degraded"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "run_not_shareable",
+                "message": "Only completed runs with a deliverable can be shared.",
+            },
+        )
+    if not run.output:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "no_deliverable",
+                "message": "This run has no deliverable output to share.",
+            },
+        )
+
+    # Registry-derived share guard (Requirement 18 AC 7, task 2.6):
+    # Refuse to mint a token if the serialised deliverable contains any path
+    # from RESERVED_PATHS or GIT_METADATA_PATHS.  The serialiser already
+    # excludes these at write time; this is defence-in-depth at the share
+    # boundary so a historical or hand-written output column can never
+    # inadvertently expose .chain/, .logs/, .git/, or any other reserved path
+    # to an unauthenticated caller.
+    try:
+        _assert_share_output_clean(run.output, run.id)
+    except RuntimeError:
+        logger.exception(
+            "share guard: reserved path in deliverable output, refusing share "
+            "token mint for run_id=%s",
+            workflow_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "share_guard_violation",
+                "message": "Unable to create share link for this run.",
+            },
+        )
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=_SHARE_TTL_DAYS)
+
+    run.share_token = token
+    run.share_expires_at = expires_at
+    db.commit()
+
+    # The /s/ route lives at the app root (unauthenticated).
+    # We avoid importing settings here (circular risk) and build the path only.
+    share_path = f"/s/{token}"
+    return ShareRunResponse(
+        share_token=token,
+        share_url=share_path,
+        expires_at=expires_at.isoformat(),
+    )
+
+
+@router.delete(
+    "/{workflow_id}/share",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def revoke_share(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke the public share for a run (clear share_token).
+
+    Idempotent: revoking a run that has no share is a no-op (204).
+    """
+    run = _owner_gate_or_404(db, workflow_id, current_user.id)
+    run.share_token = None
+    run.share_expires_at = None
+    db.commit()
+    return None
+
+
+def get_shared_run_by_token(token: str, db: Session):
+    """Look up a run by share token; return None for missing/expired tokens.
+
+    Used by the /s/{token} unauthenticated route in app/main.py.
+    NEVER raises — the caller decides the HTTP response.
+    """
+    run = db.query(WorkflowRun).filter(WorkflowRun.share_token == token).first()
+    if run is None:
+        return None
+    # Check expiry (allow a 60-second grace window for clock skew).
+    if run.share_expires_at is not None:
+        exp = run.share_expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc) - timedelta(seconds=60):
+            return None
+    # Registry-derived share guard (Requirement 18 AC 7, task 2.6):
+    # Verify the deliverable output contains no reserved paths before serving
+    # it to an unauthenticated caller. This is the serve-time check that
+    # complements the mint-time check in create_or_refresh_share.  If the
+    # assertion fails the share is treated as unavailable (returns None) so
+    # the caller sees 404 — identical to a missing or expired token.
+    # NEVER raises per the function contract; logs the violation instead.
+    if run.output:
+        try:
+            _assert_share_output_clean(run.output, run.id)
+        except RuntimeError:
+            logger.exception(
+                "share guard: reserved path in deliverable output, "
+                "refusing share serve for run_id=%s",
+                run.id,
+            )
+            return None
+    return run
+
+
+# ── Restore (Requirement 9, task 8.1 / 8.2) ──────────────────────────────────
+
+
+class RestoreRequest(BaseModel):
+    """Request body for ``POST /api/runs/{run_id}/restore``.
+
+    ``tag`` must be an exact match against the owned sandbox's visible tag
+    list (Requirement 9 AC 2) — it is never accepted as a raw revspec.
+
+    ``idempotency_key`` deduplicates retries: the same key returns the result
+    of the first successful commit without creating a second one (Requirement
+    9 AC 10).  Blocked restores deliberately do NOT record the key so that the
+    block can clear and a re-attempt will proceed normally.
+    """
+
+    tag: str = Field(
+        max_length=128,
+        description="Exact visible tag name to restore (e.g. 'v1').",
+    )
+    idempotency_key: str = Field(
+        max_length=256,
+        description="Caller-supplied deduplication key.  Same key returns the first result.",
+    )
+
+
+class RestoreResponse(BaseModel):
+    """Response from ``POST /api/runs/{run_id}/restore``."""
+
+    run_id: str
+    tag: str
+    commit_id: str | None
+    outcome: str  # "committed" | "no_change" | "blocked"
+
+
+def _validate_tag_for_restore(tag: str, sandbox: RunSandbox) -> str:
+    """Exact-match ``tag`` against the sandbox's visible tag list.
+
+    Replicates the same gate as ``run_files._validate_ref``:  a free-form
+    ref from user input is NEVER passed to a git subprocess (Requirement 9
+    AC 2).  Returns ``tag`` unchanged on success.
+
+    Raises:
+        HTTPException(400): when ``tag`` is not an exact match in the list.
+    """
+    list_tags_fn = getattr(sandbox, "list_tags", lambda: [])
+    try:
+        valid_tags: list[str] = list_tags_fn()
+    except Exception:  # noqa: BLE001 — fail-closed: unknown error → empty list
+        valid_tags = []
+    if tag not in valid_tags:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_ref", "message": "Requested tag not found."},
+        )
+    return tag
+
+
+def _has_active_family_member(db: Session, revision_root_id: str, user_id: str) -> bool:
+    """Return True when any member of the revision family is non-terminal.
+
+    "Active" means status is not one of the five terminal states.  This check
+    runs under the family lock so the window between the check and the restore
+    commit is serialized (Requirement 9 AC 5).
+
+    Delegates to the family-scoped BFS in run_commands to avoid the overly
+    conservative user-wide check (FR-057).
+    """
+    from app.api.run_commands import _has_active_chain_revision
+
+    return _has_active_chain_revision(db, revision_root_id, user_id)
+
+
+@router.post("/{run_id}/restore", response_model=RestoreResponse)
+async def restore_version(
+    run_id: str,
+    body: RestoreRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Restore the run's sandbox to a previous version tag.
+
+    Creates a **forward commit** materializing the tracked tree at ``tag`` —
+    never ``reset --hard``, never a tag rewrite, never ``checkout``.  Every
+    existing commit and tag survives (Requirement 9 AC 7–8).
+
+    Sequence (Requirement 9 AC 1–12):
+      1. ORM owner gate → 404 on cross-owner / missing (IDOR by design).
+      2. Idempotency check — BEFORE the active-family guard (AC 10).
+      3. Revision-root resolution → 404 on failure.
+      4. Sandbox construction + sandbox-dir existence check.
+      5. Tag validation — exact match against ``list_tags()`` (AC 2).
+      6. Acquire family lock.
+      7. Active-family guard under the lock (AC 5).
+      8. Detect + reconcile any persistent git state (``restore-precondition``).
+      9. Materialize the tracked tree at the tag without moving HEAD.
+     10. Commit through the ONE security-gated primitive (``commit_in_sandbox``
+         with ``audit_operation="restore"``).  A blocked commit is a refusal —
+         the idempotency key is NOT written (AC 11).
+     11. Persist the ``run_provenance_audits`` row with the idempotency key.
+     12. Return ``RestoreResponse``.
+
+    **Blocked restores deliberately omit the idempotency key** (task 8.2).
+    A blocked restore did not restore anything; the block may clear once the
+    offending content is removed; burning the key now would make a legitimate
+    retry return a stale "blocked" answer forever.
+
+    **``commit_in_sandbox`` is the ONLY path to a sandbox commit** (task 4.1,
+    Requirement 11 AC 9).  It owns mandatory secret scanning, declared
+    pre_commit hooks, and the post_commit observer dispatch.  restore_version
+    passes a minimal ``SimpleNamespace`` ectx and step so the primitive can
+    run without a full ``ExecutionContext``.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from agents.execution_engine.engine import (  # noqa: PLC0415
+        CommitInSandboxResult,
+        commit_in_sandbox,
+    )
+    from app.agents.runtime.local import GitCommandError  # noqa: PLC0415
+
+    # ── Layer 1 — ORM owner gate (IDOR → 404, never 403) ────────────────────
+    run = _owner_gate_or_404(db, run_id, current_user.id)
+
+    # ── Idempotency check — BEFORE the active-family guard ───────────────────
+    # A successful prior restore with this key returns its cached result even
+    # when a new run has since started (Requirement 9 AC 10, task 8.2).
+    prior = lookup_idempotent_restore(db, current_user.id, body.idempotency_key)
+    if prior is not None:
+        return RestoreResponse(
+            run_id=run_id,
+            tag=prior["tag_name"] or body.tag,
+            commit_id=prior["commit_id"],
+            outcome=prior["outcome"] or "committed",
+        )
+
+    # ── Resolve revision root → 404 on failure ───────────────────────────────
+    root_result = resolve_revision_root(db, run_id, current_user.id)
+    if isinstance(root_result, RevisionRootUnresolved):
+        logger.warning(
+            "restore: revision root unresolved run=%s reason=%s visited=%d repeated=%s",
+            run_id,
+            root_result.reason,
+            root_result.visited_count,
+            root_result.repeated_node,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+    assert isinstance(root_result, RevisionRootResolved)
+    revision_root_id = root_result.root_id
+
+    # ── Build sandbox handle (uses revision root for the directory) ──────────
+    sandbox = RunSandbox(
+        current_user.id,
+        revision_root_id,
+        current_run_id=run_id,
+        runs_root=settings.RUNS_ROOT,
+    )
+
+    if not sandbox.root.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sandbox not found",
+        )
+
+    # ── Validate the tag — exact match in the visible tag list ───────────────
+    # Never pass a raw user-supplied string to a git subprocess (Requirement 9
+    # AC 2).  _validate_tag_for_restore raises 400 on a miss.
+    safe_tag = _validate_tag_for_restore(body.tag, sandbox)
+
+    # ── Minimal ectx and step for commit_in_sandbox ──────────────────────────
+    # commit_in_sandbox requires an ectx-shaped object and a step-shaped object.
+    # For restore there is no ExecutionContext; we construct minimal
+    # SimpleNamespace stubs with the fields the primitive reads.
+    # ``last_commit_blocked`` is a write target — it must be mutable.
+    workspace_id: str = run.workspace_id or ""
+    _ectx = SimpleNamespace(
+        run_id=run_id,
+        owner_id=current_user.id,
+        user_id=current_user.id,
+        workspace_id=workspace_id,
+        runner=None,
+        final_status=None,
+        deliverable=None,
+        last_commit_blocked=False,
+    )
+    _step = SimpleNamespace(
+        agent_id="restore",
+        hooks=[],
+        tools=None,
+    )
+
+    # ── Active-family guard under the family lock ────────────────────────────
+    # Requirement 9 AC 5: acquire the family lock, check for non-terminal
+    # family members under that same lock, fail closed on lock timeout.
+    try:
+        with family_lock(current_user.id, revision_root_id):
+            if _has_active_family_member(db, revision_root_id, current_user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "family_run_active",
+                        "message": (
+                            "Cannot restore while a run in this family is active. "
+                            "Try again once all runs have completed."
+                        ),
+                    },
+                )
+
+            # ── Detect + reconcile persistent git state ───────────────────────
+            # Requirement 10 AC 14 (task 7.3): detect MERGE_HEAD, stale index.lock,
+            # orphan worktrees, etc. left by a prior crash and reconcile with the
+            # ``restore-precondition`` message class before touching the working tree.
+            # ``detect_persistent_git_state`` returns {"state": "clean", ...} when
+            # task 7.3 is not yet landed — that is safe: the reconcile call is a
+            # no-op and we proceed normally.
+            _git_state = sandbox.detect_persistent_git_state()
+            if _git_state.get("state", "clean") != "clean":
+                logger.info(
+                    "restore: reconciling persistent git state run=%s state=%s",
+                    run_id,
+                    _git_state.get("state"),
+                )
+                _reconcile_outcome = sandbox.reconcile_persistent_git_state(_git_state)
+                logger.info(
+                    "restore: git state reconciled run=%s outcome=%s",
+                    run_id,
+                    _reconcile_outcome,
+                )
+                if _reconcile_outcome == "reconcile_failed":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "code": "git_state_reconcile_failed",
+                            "message": (
+                                "The sandbox has unrecoverable git state from a prior "
+                                "crash. Operator intervention required."
+                            ),
+                        },
+                    )
+
+            # ── Materialize the tracked tree at the requested tag ─────────────
+            # ``materialize_tree_at_ref`` writes the working tree to match ``ref``
+            # without moving HEAD, without changing the index, and without committing.
+            # A ``no_change`` result means HEAD already equals the tag; no commit
+            # is needed.  A git failure propagates as ``GitCommandError`` — the
+            # restore is refused, not silently treated as a no-op (Requirement 9
+            # AC 7 / Requirement 10 AC 7).
+            try:
+                materialize_result = sandbox.materialize_tree_at_ref(safe_tag)
+            except AttributeError as _attr_exc:
+                # task 8.3 not yet landed — surface a clear 501
+                raise HTTPException(
+                    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                    detail={
+                        "code": "not_implemented",
+                        "message": "materialize_tree_at_ref is not available (task 8.3).",
+                    },
+                ) from _attr_exc
+            except GitCommandError as _git_exc:
+                logger.error(
+                    "restore: materialize_tree_at_ref failed run=%s tag=%s (%s)",
+                    run_id,
+                    safe_tag,
+                    _git_exc,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={
+                        "code": "restore_materialize_failed",
+                        "message": "Failed to materialize the requested version.",
+                    },
+                ) from _git_exc
+
+            mat_status: str = getattr(materialize_result, "status", "error")
+
+            if mat_status == "no_change":
+                # HEAD already equals the tag — nothing to commit.  A no-op
+                # restore is honest: report it as such and record the key so
+                # retries get the same answer (Requirement 9 AC 12).
+                commit_sha: str | None = None
+                outcome_str = "no_change"
+
+            elif mat_status == "materialized":
+                # The working tree was rewritten to match the tag; HEAD is
+                # unchanged; the index is back at HEAD.  Commit this through the
+                # ONE security-gated primitive (task 4.1, Requirement 11 AC 9).
+                # Message is engine-rendered: run id + tag only, NO user content.
+                _msg = f"restore: {run_id[:8]} to {safe_tag}"
+                commit_result: CommitInSandboxResult = await commit_in_sandbox(
+                    sandbox,
+                    _msg,
+                    _ectx,
+                    _step,
+                    audit_operation="restore",
+                    audit_detail={
+                        "tag_name": safe_tag,
+                        "idempotency_key": body.idempotency_key,
+                    },
+                    registry=None,  # no declared hooks on the restore path
+                )
+
+                if commit_result.blocked:
+                    # Blocked restores deliberately do NOT write the idempotency
+                    # key (task 8.2) so a legitimate retry can attempt again once
+                    # the blocking content is removed.
+                    logger.warning(
+                        "restore: commit BLOCKED by scan run=%s tag=%s reason=%s",
+                        run_id,
+                        safe_tag,
+                        commit_result.block_reason,
+                    )
+                    return RestoreResponse(
+                        run_id=run_id,
+                        tag=safe_tag,
+                        commit_id=None,
+                        outcome="blocked",
+                    )
+
+                if commit_result.no_change:
+                    # Nothing was staged even though materialize reported changes —
+                    # treat as a no-op (tree already at this state).
+                    commit_sha = None
+                    outcome_str = "no_change"
+                else:
+                    commit_sha = commit_result.sha or None
+                    outcome_str = "committed"
+
+            else:
+                # Defensive: status="error" or unknown value.  The git command
+                # should have raised GitCommandError; if we reach here it means
+                # MaterializeResult.status carried an unexpected sentinel.
+                logger.error(
+                    "restore: materialize_tree_at_ref returned unexpected status=%r "
+                    "run=%s tag=%s — refusing to commit",
+                    mat_status,
+                    run_id,
+                    safe_tag,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={
+                        "code": "restore_materialize_failed",
+                        "message": "Failed to materialize the requested version.",
+                    },
+                )
+
+            # ── Persist the audit row with the idempotency key ────────────────
+            # Both the committed and no-change paths write the key here so that
+            # retries return the same answer.  The blocked path returned early
+            # above without writing the key (task 8.2).
+            audit_row = RunProvenanceAudit(
+                id=str(uuid.uuid4()),
+                owner_id=current_user.id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                operation="restore",
+                source_ref=safe_tag,
+                idempotency_key=body.idempotency_key,
+                commit_sha=commit_sha,
+                tag_name=safe_tag,
+                outcome=outcome_str,
+            )
+            try:
+                db.add(audit_row)
+                db.commit()
+            except IntegrityError:
+                # A concurrent request with the same idempotency key already
+                # committed the partial unique index entry — treat it as an
+                # idempotent hit and return the stored result.
+                db.rollback()
+                logger.info(
+                    "restore: idempotency collision on key=%s run=%s — fetching stored result",
+                    body.idempotency_key,
+                    run_id,
+                )
+                stored = lookup_idempotent_restore(
+                    db, current_user.id, body.idempotency_key
+                )
+                if stored is not None:
+                    return RestoreResponse(
+                        run_id=run_id,
+                        tag=stored["tag_name"] or safe_tag,
+                        commit_id=stored["commit_id"],
+                        outcome=stored["outcome"] or outcome_str,
+                    )
+                # Extremely unlikely race: the concurrent write succeeded but the
+                # follow-up read found nothing.  Surface the in-memory result so
+                # the caller is not left without an answer.
+                return RestoreResponse(
+                    run_id=run_id,
+                    tag=safe_tag,
+                    commit_id=commit_sha,
+                    outcome=outcome_str,
+                )
+
+            return RestoreResponse(
+                run_id=run_id,
+                tag=safe_tag,
+                commit_id=commit_sha,
+                outcome=outcome_str,
+            )
+
+    except HTTPException:
+        raise
+    except FamilyLockTimeout:
+        logger.warning(
+            "restore: family lock timeout run=%s revision_root=%s",
+            run_id,
+            revision_root_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "family_lock_timeout",
+                "message": (
+                    "Could not acquire the family lock. "
+                    "Another operation is in progress — try again shortly."
+                ),
+            },
+        )
+    except Exception:
+        logger.exception("restore: unexpected error run=%s", run_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "restore_failed",
+                "message": "Restore failed unexpectedly.",
+            },
+        )

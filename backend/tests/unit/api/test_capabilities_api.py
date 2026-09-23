@@ -154,13 +154,26 @@ class TestPaletteShape:
             assert required in kinds, f"missing kind '{required}' in palette {kinds}"
 
     def test_model_catalog_present(self, authed_client):
+        """The palette surfaces the SELECTABLE projection, sourced from the catalog.
+
+        Spec 020: the endpoint serves ``selectable_models()``, which collapses the
+        us./eu. duplicate rows — GEO-01 rewrites the prefix to the deployment
+        region before the request anyway, so offering both is offering nothing.
+        Still a projection: every id served must exist in the catalog.
+        """
+        from agents.model_policy import selectable_models
+
         body = authed_client.get("/api/capabilities").json()
-        # The model catalog is surfaced expanded (per-model entries), sourced
-        # from ModelCatalog — not a hardcoded list.
         models = body["model_catalog"]
         catalog_ids = {m.id for m in ModelCatalog().list()}
         api_ids = {m["id"] for m in models}
-        assert api_ids == catalog_ids, catalog_ids ^ api_ids
+
+        assert api_ids == {m.id for m in selectable_models()}, api_ids
+        assert api_ids <= catalog_ids, api_ids - catalog_ids
+        # No two rows may describe the same model — the whole point of the change.
+        assert len({m["label"] for m in models}) == len(
+            models
+        ), "duplicate label in palette"
         for m in models:
             assert set(("id", "label", "user_allowed")).issubset(m), m
 
@@ -214,6 +227,27 @@ class TestTrustFlags:
         for e in runtimes:
             # Privileged kinds default off the user palette (08-01 / D-02).
             assert e["user_allowed"] is False, e
+
+    def test_mechanical_capabilities_user_allowed(self, authed_client):
+        # Mechanical capabilities are user-allowed (A10).
+        body = authed_client.get("/api/capabilities").json()
+        mechanical = [e for e in body["capabilities"] if e["kind"] == "mechanical"]
+        assert mechanical, "no mechanical kind in palette"
+        for e in mechanical:
+            assert e["user_allowed"] is True, e
+            assert e[
+                "description"
+            ], f"mechanical capability {e['name']} missing description"
+
+    def test_task_parsers_present_with_descriptions(self, authed_client):
+        # Task parsers including screen_plan surface with user_allowed and descriptions.
+        body = authed_client.get("/api/capabilities").json()
+        task_parsers = [e for e in body["capabilities"] if e["kind"] == "task_parser"]
+        assert task_parsers, "no task_parser kind in palette"
+        screen_plan = [e for e in task_parsers if e["name"] == "screen_plan"]
+        assert screen_plan, "screen_plan task_parser not in palette"
+        assert screen_plan[0]["user_allowed"] is True
+        assert screen_plan[0]["description"]
 
 
 # ---------------------------------------------------------------------------

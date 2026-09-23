@@ -416,3 +416,190 @@ def test_property_byte_identical_to_workspace(
     case_dir = tmp_path / f"case_{abs(hash(frozenset(pairs.items()))) & 0xFFFFFFF}"
     case_dir.mkdir(parents=True, exist_ok=True)
     _assert_byte_identical(case_dir, pairs)
+
+
+# ---------------------------------------------------------------------------
+# Streamed agent outputs — the listed-but-not-delivered tier
+# ---------------------------------------------------------------------------
+#
+# `.agents/` is the only sandbox prefix the Workspace listing shows and the
+# deliverable walk skips. Get that asymmetry backwards in either direction and
+# the failure is silent but total: skip it in BOTH and the Workspace tab loses
+# the streamed outputs it exists to show; skip it in NEITHER and every agent
+# transcript is glued into `WorkflowRun.output`, so a deck comes back with its
+# own build log inside it.
+
+
+def _mk_sandbox(tmp_path):
+    from app.agents.sandbox import RunSandbox
+
+    sb = RunSandbox("user-1", "run-1", runs_root=str(tmp_path))
+    sb.ensure()
+    return sb
+
+
+def test_agent_outputs_are_listed_but_never_delivered(tmp_path):
+    from app.agents.sandbox import (
+        count_sandbox_deliverables,
+        serialize_sandbox_deliverable,
+        write_agent_output,
+    )
+
+    sb = _mk_sandbox(tmp_path)
+    sb.write("presentation.html", "<h1>deck</h1>")
+    written = write_agent_output(
+        sb, index=2, agent_id="ppt-composer", name="PPT Composer", output="I composed a deck."
+    )
+    # 1-based: the engine's step 2 is the third step, and these names are read
+    # by a person — a run whose first file is "00-" reads as a numbering bug.
+    assert written == ".agents/03-ppt-composer.md"
+
+    # Workspace sees it.
+    paths = [f["path"] for f in sb.list_files()[0]]
+    assert ".agents/03-ppt-composer.md" in paths
+    assert "presentation.html" in paths
+
+    # The deliverable does not — byte-identical to the sandbox without it.
+    assert count_sandbox_deliverables(sb.root) == 1
+    out = serialize_sandbox_deliverable(sb.root)
+    assert "ppt-composer" not in out
+    assert "I composed a deck." not in out
+    assert out == "```filename: presentation.html\n<h1>deck</h1>\n```"
+
+
+def test_repeated_invocations_do_not_overwrite_each_other(tmp_path):
+    from app.agents.sandbox import write_agent_output
+
+    sb = _mk_sandbox(tmp_path)
+    first = write_agent_output(
+        sb, index=1, agent_id="builder", name="Builder", output="pass one", visit_count=0
+    )
+    second = write_agent_output(
+        sb, index=1, agent_id="builder", name="Builder", output="pass two",
+        task_number="2", visit_count=2,
+    )
+    assert first != second
+    assert sb.read(first).endswith("pass one")
+    assert sb.read(second).endswith("pass two")
+
+
+def test_write_agent_output_is_best_effort(tmp_path):
+    """Never raises and never writes an empty file — it runs on a step that
+    already SUCCEEDED, so a disk failure must not turn it into a failed run."""
+    from app.agents.sandbox import write_agent_output
+
+    sb = _mk_sandbox(tmp_path)
+    assert write_agent_output(sb, index=0, agent_id="a", name="A", output="") is None
+    assert write_agent_output(sb, index=0, agent_id="a", name="A", output="   ") is None
+    # No sandbox at all (harness paths pass None) and a writer that explodes.
+    assert write_agent_output(None, index=0, agent_id="a", name="A", output="x") is None
+
+    class Boom:
+        def write(self, *_a, **_k):
+            raise OSError("no space left on device")
+
+    assert write_agent_output(Boom(), index=0, agent_id="a", name="A", output="x") is None
+
+
+# ---------------------------------------------------------------------------
+# Requirement 9 — .git/, .gitignore, and skills/ excluded from both the
+# deliverable walk AND list_files (two separate lists; each exclusion is
+# asserted independently as Requirement 9 AC 4 requires).
+# ---------------------------------------------------------------------------
+
+
+def test_git_dir_excluded_from_deliverable(tmp_path: Path) -> None:
+    """Files under .git/ must not appear in the deliverable serialisation
+    or the deliverable count (Requirement 9 AC 1)."""
+    pairs = {
+        "prototype.html": "<html></html>\n",
+        ".git/config": "[core]\n",
+        ".git/objects/abc123": "blob-content\n",
+        ".gitignore": ".logs/\n",
+    }
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    # Only prototype.html is a deliverable — .git/ tree and .gitignore excluded.
+    assert out == "```filename: prototype.html\n<html></html>\n\n```"
+    assert count_sandbox_deliverables(tmp_path) == 1
+
+
+def test_gitignore_excluded_from_deliverable(tmp_path: Path) -> None:
+    """.gitignore at the sandbox root must be excluded from the deliverable
+    (Requirement 9 AC 2)."""
+    pairs = {
+        "app.py": "x = 1\n",
+        ".gitignore": ".logs/\n.uploads/\n",
+    }
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    assert ".gitignore" not in out
+    assert "app.py" in out
+    assert count_sandbox_deliverables(tmp_path) == 1
+
+
+def test_skills_dir_excluded_from_deliverable(tmp_path: Path) -> None:
+    """Files under skills/ must not appear in the deliverable — staged skill
+    bodies must not ship inside user deliverables (Requirement 9 AC 3)."""
+    pairs = {
+        "prototype.html": "<h1>deck</h1>\n",
+        "skills/writing/SKILL.md": "# Writing skill\n",
+        "skills/data/SKILL.md": "# Data skill\n",
+    }
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    assert "skills" not in out
+    assert "prototype.html" in out
+    assert count_sandbox_deliverables(tmp_path) == 1
+
+
+def test_git_artifacts_excluded_from_list_files(tmp_path: Path) -> None:
+    """.git/, .gitignore, and skills/ must NOT appear in list_files — the
+    deliverable walk exclusion and the list_files exclusion are tested
+    separately (Requirement 9 AC 4)."""
+    sb = _mk_sandbox(tmp_path)
+    sb.write("prototype.html", "<h1>x</h1>")
+    sb.write(".gitignore", ".logs/\n")
+    # Create .git/config and skills/SKILL.md directly on disk (not via sandbox.write)
+    # to simulate the git init and skill staging side-effects.
+    (sb.root / ".git").mkdir(exist_ok=True)
+    (sb.root / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+    (sb.root / "skills").mkdir(exist_ok=True)
+    (sb.root / "skills" / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+
+    files, truncated = sb.list_files()
+    paths = {f["path"] for f in files}
+
+    assert "prototype.html" in paths, "deliverable file must appear in list_files"
+    assert not any(p.startswith(".git") for p in paths), ".git tree must be absent"
+    assert ".gitignore" not in paths, ".gitignore must be absent"
+    assert not any(p.startswith("skills") for p in paths), "skills/ tree must be absent"
+    assert not truncated
+
+
+def test_gitignore_nested_under_git_is_also_excluded(tmp_path: Path) -> None:
+    """A .gitignore appearing INSIDE the .git/ tree is excluded by the .git/
+    prefix guard — ensuring no edge-case path bypasses both guards."""
+    pairs = {
+        "real.py": "x = 1\n",
+        ".git/info/exclude": "*.pyc\n",
+    }
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    assert ".git" not in out
+    assert "real.py" in out
+
+
+def test_skills_nested_file_excluded_from_deliverable(tmp_path: Path) -> None:
+    """Deeply nested files under skills/ are fully excluded (prefix check,
+    not just top-level file check)."""
+    pairs = {
+        "output.html": "<html/>\n",
+        "skills/writing/v2/SKILL.md": "# Writing v2\n",
+        "skills/writing/v2/example.html": "<p>example</p>\n",
+    }
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    assert "skills" not in out
+    assert "output.html" in out
+    assert count_sandbox_deliverables(tmp_path) == 1

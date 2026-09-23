@@ -1,0 +1,11 @@
+{
+  "url": "http://localhost:3000/dashboard",
+  "heading": [
+    "PPT v2"
+  ],
+  "buttons": [
+    "@Close"
+  ],
+  "tabs": [],
+  "text": "PPT v2\n4-step workflow: Presentation Strategist Agent -> Deck Engineer Agent -> Deck QA Agent -> PPTX Code Generator\nCONTEXT PROVIDERS\nopendesign\nCAPABILITIES\nNo capabilities declared.\nCOMPACTION\nNo compaction declared."
+}

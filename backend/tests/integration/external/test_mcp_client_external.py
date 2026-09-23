@@ -18,6 +18,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
+from langchain_core.language_models import BaseChatModel
+from langchain_core.outputs import ChatResult
 
 _STUB = str(
     Path(__file__).resolve().parents[2] / "fixtures" / "agents" / "stub_mcp_server.py"
@@ -32,6 +34,26 @@ def _stub_config() -> dict:
             "transport": "stdio",
         }
     }
+
+
+class _NeverInvokedChatModel(BaseChatModel):
+    """A scripted ``BaseChatModel`` for ``create_deep_agent`` (ISS-118).
+
+    ``create_deep_agent`` accepts a model INSTANCE as well as a provider string; the
+    string form (``"anthropic:..."``) makes langchain's ``init_chat_model`` construct a
+    real ``ChatAnthropic`` inside the library, which is a live client built offline.
+    This test only inspects the constructed graph, so it hands over an instance that
+    fails loudly rather than bills if anything ever invokes it.
+    """
+
+    @property
+    def _llm_type(self) -> str:
+        return "never-invoked-chat-model"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        raise AssertionError(
+            "the graph is inspected, never run — this model must not be invoked"
+        )
 
 
 def _text_of(result) -> str:

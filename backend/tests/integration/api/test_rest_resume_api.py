@@ -265,6 +265,24 @@ def test_resume_completed_409(env):
     assert run_id not in env["ws"]._PIPELINE_QUEUES
 
 
+def test_resume_diverted_409(env):
+    """014-conditional-gates RISK-03: "diverted" joined TERMINAL_RUN_STATUSES, but
+    it is excluded from ``_RESUMABLE_STATUSES`` like "completed" — a diverted run
+    stopped by design (handed off to a second, independent WorkflowRun; R-13's v1
+    has no wait/resume), so it must 409 exactly like a completed run, not silently
+    become resumable by inheriting the new terminal-set member."""
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id, status="diverted")
+    env["state"]["user"] = owner
+
+    resp = _post_resume(env, run_id)
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "run_not_resumable"
+    assert resp.json()["detail"]["recoverable"] is False
+    assert env["engine"].resume_calls == []
+    assert run_id not in env["ws"]._PIPELINE_QUEUES
+
+
 def test_resume_cancelled_200(env):
     """Phase 50 RESUME-18: cancelled runs ARE resumable (eligible), not a 409.
 
@@ -287,11 +305,12 @@ def test_resume_cancelled_200(env):
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def test_resume_already_running_409(env):
+def test_resume_already_running_409(env, caplog):
     """A run that is registry-live (a driver task present) is rejected with the
     CR-01 ``pipeline_already_running`` code — even though its DB status is still
     ``failed`` (the overlap guard's authoritative signal is the in-process registry,
-    not the DB status)."""
+    not the DB status). A20 (STABILIZATION.md): the refusal is logged at WARNING
+    with the run_id, so a duplicate-dispatch attempt leaves a forensic trail."""
     owner = _seed_user(env, "owner")
     run_id = _seed_run(env, owner.id, status="failed")
     env["state"]["user"] = owner
@@ -300,11 +319,17 @@ def test_resume_already_running_409(env):
     # tests registry MEMBERSHIP only (not task state), so a sentinel object suffices.
     env["ws"]._PIPELINE_TASKS[run_id] = object()
 
-    resp = _post_resume(env, run_id)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="app.api.run_commands"):
+        resp = _post_resume(env, run_id)
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "pipeline_already_running"
     # The guard rejected BEFORE any second drive was spawned.
     assert env["engine"].resume_calls == []
+    assert any(
+        "duplicate dispatch REFUSED" in r.message and run_id in r.message
+        for r in caplog.records
+    ), [r.message for r in caplog.records]
 
 
 @pytest.mark.asyncio

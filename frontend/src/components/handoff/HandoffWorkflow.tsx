@@ -52,7 +52,13 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [session, setSession] = useState<HandoffSessionView | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // ISS-301 — a load failure has to remember whether an HTTP response was
+  // ever received: "offline" and "this token does not exist" are different
+  // answers and must not render the same way.
+  const [loadError, setLoadError] = useState<{
+    message: string;
+    offline: boolean;
+  } | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
@@ -141,7 +147,16 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
         setPipelineStatus(sess.status);
       }
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load handoff");
+      // ISS-301 — no HTTP response behind the failure means it says nothing
+      // about whether this token exists: api-handoff's authedJson labels that
+      // ApiError(status 0), and a raw fetch rejection is a bare TypeError.
+      const offline =
+        err instanceof TypeError ||
+        (err as { status?: number } | null)?.status === 0;
+      setLoadError({
+        message: err instanceof Error ? err.message : "Failed to load handoff",
+        offline,
+      });
     } finally {
       setLoading(false);
     }
@@ -213,20 +228,38 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
       </div>
     );
   }
-  if (loadError || !session) {
+  // ISS-411 — key the full-page state off `!session` alone. A failed REFRESH of
+  // an already-loaded session left `loadError` set while `session` was still
+  // valid, and the OR discarded the whole running/completed view.
+  if (!session) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="max-w-md text-center">
           <h1 className="text-[15px] font-semibold text-gray-900 mb-1">
-            Handoff not found
+            {loadError?.offline
+              ? "Couldn't reach VelocityAI"
+              : "Handoff not found"}
           </h1>
           <p className="text-[12px] text-gray-500 mb-4">
-            {loadError ??
-              "This handoff token doesn't exist, has expired, or belongs to a different account."}
+            {loadError?.offline
+              ? "The request never reached the server, so this handoff may still be fine. Check your connection and try again."
+              : loadError?.message ??
+                "This handoff token doesn't exist, has expired, or belongs to a different account."}
           </p>
-          <Link href="/dashboard" className="text-[12px] text-blue-700 hover:underline">
-            Back to dashboard
-          </Link>
+          <div className="flex items-center justify-center gap-3">
+            {loadError?.offline && (
+              <button
+                onClick={() => void fetchSession()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 text-white px-3 py-1.5 text-[11px] font-medium hover:bg-blue-700"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            )}
+            <Link href="/dashboard" className="text-[12px] text-blue-700 hover:underline">
+              Back to dashboard
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -355,6 +388,16 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
           </>
         )}
       </main>
+
+      {/* ISS-411 — refresh failure over an already-loaded session: a notice,
+          not a replacement for the view it failed to refresh. */}
+      {loadError && (
+        <div className="absolute bottom-16 right-4 max-w-md rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 shadow">
+          {loadError.offline
+            ? "Couldn't reach VelocityAI to refresh this handoff — what's shown may be out of date."
+            : loadError.message}
+        </div>
+      )}
 
       {/* Start error toast */}
       {startError && (

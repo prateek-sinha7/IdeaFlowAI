@@ -1,0 +1,628 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e5]:
+    - banner [ref=f2e6]:
+      - generic [ref=f2e7]:
+        - img "Hexaware" [ref=f2e8]
+        - generic [ref=f2e9]: VelocityAI
+      - navigation [ref=f2e10]:
+        - button "Home" [ref=f2e11]
+        - button "Library" [ref=f2e16]
+        - button "My Workflows" [ref=f2e20]
+      - generic [ref=f2e27]:
+        - button "Pitch an idea 0/3" [ref=f2e153]:
+          - generic [ref=f2e155]: Pitch an idea
+          - generic [ref=f2e156]: 0/3
+        - button "Notifications" [ref=f2e29]
+        - button "Account menu" [ref=f2e34]
+    - generic [ref=f2e43]:
+      - generic [ref=f2e44]:
+        - generic [ref=f2e45]:
+          - button [ref=f2e46]
+          - generic [ref=f2e49]:
+            - heading "Run History" [level=1] [ref=f2e50]
+            - paragraph [ref=f2e51]: 221 runs
+          - button "Refresh run history" [ref=f2e52]: Refresh
+          - combobox "Auto-refresh interval" [ref=f2e58]:
+            - 'option "Auto-refresh: Off" [selected]'
+            - option "Every 10s"
+            - option "Every 15s"
+            - option "Every 30s"
+            - option "Every 1m"
+        - textbox "Search workflows" [ref=f2e63]:
+          - /placeholder: Search workflows...
+        - paragraph [ref=f2e157]: Showing 50 of 221 runs — scroll down to load more
+        - generic [ref=f2e64]:
+          - generic [ref=f2e65]:
+            - button "All 221" [ref=f2e158]:
+              - text: All
+              - generic [ref=f2e67]: "221"
+            - button "User Stories 13" [ref=f2e159]:
+              - text: User Stories
+              - generic [ref=f2e160]: "13"
+            - button "Presentation 1" [ref=f2e161]:
+              - text: Presentation
+              - generic [ref=f2e162]: "1"
+            - button "Prototype 7" [ref=f2e163]:
+              - text: Prototype
+              - generic [ref=f2e164]: "7"
+            - button "Custom 29" [ref=f2e165]:
+              - text: Custom
+              - generic [ref=f2e166]: "29"
+          - group "Sort runs" [ref=f2e68]:
+            - generic [ref=f2e69]: Sort
+            - generic [ref=f2e70]:
+              - button "Sort by recent" [pressed] [ref=f2e71]: Newest
+              - button "Sort by duration" [ref=f2e72]: Longest
+              - button "Sort by tokens" [ref=f2e73]: Tokens
+      - generic [ref=f2e75]:
+        - region "Today" [ref=f2e167]:
+          - generic [ref=f2e168]:
+            - generic [ref=f2e169]: Today
+            - generic [ref=f2e170]: "1"
+          - button "Open Arctic Seed Vault Logistics Briefing ., waiting_for_user" [ref=f2e173] [cursor=pointer]:
+            - generic [ref=f2e178]:
+              - paragraph [ref=f2e179]: Arctic Seed Vault Logistics Briefing .
+              - generic [ref=f2e180]: Presentation · 3 agents
+            - generic [ref=f2e182]:
+              - paragraph [ref=f2e184]: 1m ago
+              - generic [ref=f2e185]: Running
+              - generic [ref=f2e187]:
+                - button "Run actions" [expanded] [active] [ref=f2e188]
+                - menu [ref=f2e1281]:
+                  - menuitem "Delete" [ref=f2e1282]
+        - region "Earlier" [ref=f2e193]:
+          - generic [ref=f2e194]:
+            - generic [ref=f2e195]: Earlier this week
+            - generic [ref=f2e196]: "49"
+          - generic [ref=f2e198]:
+            - 'button "Open Revision: Make the heading text dark blue., completed" [ref=f2e199] [cursor=pointer]':
+              - generic [ref=f2e204]:
+                - paragraph [ref=f2e205]: "Revision: Make the heading text dark blue."
+                - generic [ref=f2e206]:
+                  - generic [ref=f2e207]: Composed Workflow Revision · 2 agents
+                  - generic [ref=f2e208]: ·
+                  - generic [ref=f2e209]: 2m 43s
+              - generic [ref=f2e210]:
+                - generic [ref=f2e211]:
+                  - paragraph [ref=f2e212]: 228.7K
+                  - paragraph [ref=f2e213]: 19h ago
+                - generic [ref=f2e214]: Done
+                - button "Run actions" [ref=f2e217]
+            - button "Open Tu saludo también debe incluir un chiste de \"¿por qué cruzó, completed" [ref=f2e222] [cursor=pointer]:
+              - generic [ref=f2e227]:
+                - paragraph [ref=f2e228]: Tu saludo también debe incluir un chiste de "¿por qué cruzó
+                - generic [ref=f2e229]:
+                  - generic [ref=f2e230]: Spanish Greeter · 1 agent
+                  - generic [ref=f2e231]: ·
+                  - generic [ref=f2e232]: 3s
+                - button "Continued from Workflow Handoff, open originating run" [ref=f2e233]:
+                  - generic [ref=f2e237]: ← Continued from Workflow Handoff, step language
+              - generic [ref=f2e238]:
+                - generic [ref=f2e239]:
+                  - paragraph [ref=f2e240]: 3.8K
+                  - paragraph [ref=f2e241]: 19h ago
+                - generic [ref=f2e242]: Done
+                - button "Run actions" [ref=f2e245]
+            - button "Open Greet me in Spanish please, diverted" [ref=f2e250] [cursor=pointer]:
+              - generic [ref=f2e255]:
+                - paragraph [ref=f2e256]: Greet me in Spanish please
+                - generic [ref=f2e257]:
+                  - generic [ref=f2e258]: Workflow Handoff · 3 agents
+                  - generic [ref=f2e259]: ·
+                  - generic [ref=f2e260]: 23s
+                - button "Diverted to Spanish Greeter, open triggered run" [ref=f2e261]:
+                  - generic [ref=f2e266]: Diverted to Spanish Greeter →
+              - generic [ref=f2e267]:
+                - generic [ref=f2e268]:
+                  - paragraph [ref=f2e269]: 44.5K
+                  - paragraph [ref=f2e270]: 19h ago
+                - generic [ref=f2e271]: Diverted
+                - button "Run actions" [ref=f2e274]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, completed" [ref=f2e279] [cursor=pointer]:
+              - generic [ref=f2e284]:
+                - paragraph [ref=f2e285]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e286]:
+                  - generic [ref=f2e287]: Prototype v2 · 11 agents
+                  - generic [ref=f2e288]: ·
+                  - generic [ref=f2e289]: 43m 29s
+              - generic [ref=f2e290]:
+                - generic [ref=f2e291]:
+                  - paragraph [ref=f2e292]: 19.7M
+                  - paragraph [ref=f2e293]: 4d ago
+                - generic [ref=f2e294]: Done
+                - button "Run actions" [ref=f2e297]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, failed" [ref=f2e302] [cursor=pointer]:
+              - generic [ref=f2e307]:
+                - paragraph [ref=f2e308]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e309]: Prototype v2 · 11 agents
+              - generic [ref=f2e311]:
+                - paragraph [ref=f2e313]: 4d ago
+                - generic [ref=f2e314]: Failed
+                - button "Run actions" [ref=f2e317]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, degraded" [ref=f2e322] [cursor=pointer]:
+              - generic [ref=f2e327]:
+                - paragraph [ref=f2e328]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e329]:
+                  - generic [ref=f2e330]: Prototype v2 · 11 agents
+                  - generic [ref=f2e331]: ·
+                  - generic [ref=f2e332]: 93m 34s
+              - generic [ref=f2e333]:
+                - generic [ref=f2e334]:
+                  - paragraph [ref=f2e335]: 14.2M
+                  - paragraph [ref=f2e336]: 4d ago
+                - generic [ref=f2e337]: Failed
+                - button "Run actions" [ref=f2e340]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, failed" [ref=f2e345] [cursor=pointer]:
+              - generic [ref=f2e350]:
+                - paragraph [ref=f2e351]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e352]: Prototype v2 · 11 agents
+              - generic [ref=f2e354]:
+                - paragraph [ref=f2e356]: 4d ago
+                - generic [ref=f2e357]: Failed
+                - button "Run actions" [ref=f2e360]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, failed" [ref=f2e365] [cursor=pointer]:
+              - generic [ref=f2e370]:
+                - paragraph [ref=f2e371]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e372]: Prototype v2 · 11 agents
+              - generic [ref=f2e374]:
+                - paragraph [ref=f2e376]: 4d ago
+                - generic [ref=f2e377]: Failed
+                - button "Run actions" [ref=f2e380]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, failed" [ref=f2e385] [cursor=pointer]:
+              - generic [ref=f2e390]:
+                - paragraph [ref=f2e391]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e392]: Prototype v2 · 11 agents
+              - generic [ref=f2e394]:
+                - paragraph [ref=f2e396]: 4d ago
+                - generic [ref=f2e397]: Failed
+                - button "Run actions" [ref=f2e400]
+            - button "Open A simple habit tracker with daily check-ins and a streak cou, failed" [ref=f2e405] [cursor=pointer]:
+              - generic [ref=f2e409]:
+                - paragraph [ref=f2e410]: A simple habit tracker with daily check-ins and a streak cou
+                - generic [ref=f2e411]:
+                  - generic [ref=f2e412]: Prototype · 5 agents
+                  - generic [ref=f2e413]: ·
+                  - generic [ref=f2e414]: 9s
+              - generic [ref=f2e415]:
+                - paragraph [ref=f2e417]: 4d ago
+                - generic [ref=f2e418]: Failed
+                - button "Run actions" [ref=f2e421]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, failed" [ref=f2e426] [cursor=pointer]:
+              - generic [ref=f2e431]:
+                - paragraph [ref=f2e432]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e433]: Prototype v2 · 11 agents
+              - generic [ref=f2e435]:
+                - paragraph [ref=f2e437]: 4d ago
+                - generic [ref=f2e438]: Failed
+                - button "Run actions" [ref=f2e441]
+            - button "Open Generate epics and stories for an inventory tracking system, failed" [ref=f2e446] [cursor=pointer]:
+              - generic [ref=f2e451]:
+                - paragraph [ref=f2e452]: Generate epics and stories for an inventory tracking system
+                - generic [ref=f2e453]:
+                  - generic [ref=f2e454]: User Stories · 6 agents
+                  - generic [ref=f2e455]: ·
+                  - generic [ref=f2e456]: 9s
+              - generic [ref=f2e457]:
+                - paragraph [ref=f2e459]: 4d ago
+                - generic [ref=f2e460]: Failed
+                - button "Run actions" [ref=f2e463]
+            - button "Open Generate epics and stories for a subscription billing system, failed" [ref=f2e468] [cursor=pointer]:
+              - generic [ref=f2e473]:
+                - paragraph [ref=f2e474]: Generate epics and stories for a subscription billing system
+                - generic [ref=f2e475]:
+                  - generic [ref=f2e476]: User Stories · 6 agents
+                  - generic [ref=f2e477]: ·
+                  - generic [ref=f2e478]: 39s
+              - generic [ref=f2e479]:
+                - paragraph [ref=f2e481]: 4d ago
+                - generic [ref=f2e482]: Failed
+                - button "Run actions" [ref=f2e485]
+            - button "Open A simple to-do list app with columns for backlog, in progres, failed" [ref=f2e490] [cursor=pointer]:
+              - generic [ref=f2e494]:
+                - paragraph [ref=f2e495]: A simple to-do list app with columns for backlog, in progres
+                - generic [ref=f2e496]:
+                  - generic [ref=f2e497]: Prototype · 5 agents
+                  - generic [ref=f2e498]: ·
+                  - generic [ref=f2e499]: 37s
+              - generic [ref=f2e500]:
+                - paragraph [ref=f2e502]: 4d ago
+                - generic [ref=f2e503]: Failed
+                - button "Run actions" [ref=f2e506]
+            - button "Open Generate epics and stories for a refunds workflow with multi, failed" [ref=f2e511] [cursor=pointer]:
+              - generic [ref=f2e516]:
+                - paragraph [ref=f2e517]: Generate epics and stories for a refunds workflow with multi
+                - generic [ref=f2e518]:
+                  - generic [ref=f2e519]: User Stories · 6 agents
+                  - generic [ref=f2e520]: ·
+                  - generic [ref=f2e521]: 39s
+              - generic [ref=f2e522]:
+                - paragraph [ref=f2e524]: 4d ago
+                - generic [ref=f2e525]: Failed
+                - button "Run actions" [ref=f2e528]
+            - button "Open Generate epics and stories for a customer loyalty rewards pr, failed" [ref=f2e533] [cursor=pointer]:
+              - generic [ref=f2e538]:
+                - paragraph [ref=f2e539]: Generate epics and stories for a customer loyalty rewards pr
+                - generic [ref=f2e540]:
+                  - generic [ref=f2e541]: User Stories · 6 agents
+                  - generic [ref=f2e542]: ·
+                  - generic [ref=f2e543]: 43s
+              - generic [ref=f2e544]:
+                - paragraph [ref=f2e546]: 4d ago
+                - generic [ref=f2e547]: Failed
+                - button "Run actions" [ref=f2e550]
+            - button "Open Generate epics and stories for a QA-PS-002 verification run, failed" [ref=f2e555] [cursor=pointer]:
+              - generic [ref=f2e560]:
+                - paragraph [ref=f2e561]: Generate epics and stories for a QA-PS-002 verification run
+                - generic [ref=f2e562]:
+                  - generic [ref=f2e563]: User Stories · 6 agents
+                  - generic [ref=f2e564]: ·
+                  - generic [ref=f2e565]: 2m 2s
+              - generic [ref=f2e566]:
+                - paragraph [ref=f2e568]: 4d ago
+                - generic [ref=f2e569]: Failed
+                - button "Run actions" [ref=f2e572]
+            - button "Open smoke test retry 2, failed" [ref=f2e577] [cursor=pointer]:
+              - generic [ref=f2e582]:
+                - paragraph [ref=f2e583]: smoke test retry 2
+                - generic [ref=f2e584]:
+                  - generic [ref=f2e585]: PW Smoke Test · 1 agent
+                  - generic [ref=f2e586]: ·
+                  - generic [ref=f2e587]: 2s
+              - generic [ref=f2e588]:
+                - paragraph [ref=f2e590]: 4d ago
+                - generic [ref=f2e591]: Failed
+                - button "Run actions" [ref=f2e594]
+            - button "Open smoke test check, failed" [ref=f2e599] [cursor=pointer]:
+              - generic [ref=f2e604]:
+                - paragraph [ref=f2e605]: smoke test check
+                - generic [ref=f2e606]:
+                  - generic [ref=f2e607]: PW Smoke Test · 1 agent
+                  - generic [ref=f2e608]: ·
+                  - generic [ref=f2e609]: 2s
+              - generic [ref=f2e610]:
+                - paragraph [ref=f2e612]: 4d ago
+                - generic [ref=f2e613]: Failed
+                - button "Run actions" [ref=f2e616]
+            - button "Open QA-PS-002 verification try 2, gate window check, failed" [ref=f2e621] [cursor=pointer]:
+              - generic [ref=f2e626]:
+                - paragraph [ref=f2e627]: QA-PS-002 verification try 2, gate window check
+                - generic [ref=f2e628]:
+                  - generic [ref=f2e629]: Human Gate · 5 agents
+                  - generic [ref=f2e630]: ·
+                  - generic [ref=f2e631]: 1m 12s
+              - generic [ref=f2e632]:
+                - paragraph [ref=f2e634]: 4d ago
+                - generic [ref=f2e635]: Failed
+                - button "Run actions" [ref=f2e638]
+            - button "Open QA-PS-002 verification try 2, background progress check, failed" [ref=f2e643] [cursor=pointer]:
+              - generic [ref=f2e648]:
+                - paragraph [ref=f2e649]: QA-PS-002 verification try 2, background progress check
+                - generic [ref=f2e650]:
+                  - generic [ref=f2e651]: Retry Loop · 4 agents
+                  - generic [ref=f2e652]: ·
+                  - generic [ref=f2e653]: 3s
+              - generic [ref=f2e654]:
+                - paragraph [ref=f2e656]: 4d ago
+                - generic [ref=f2e657]: Failed
+                - button "Run actions" [ref=f2e660]
+            - button "Open QA-PS-002 verification run for notification progress bar, failed" [ref=f2e665] [cursor=pointer]:
+              - generic [ref=f2e670]:
+                - paragraph [ref=f2e671]: QA-PS-002 verification run for notification progress bar
+                - generic [ref=f2e672]:
+                  - generic [ref=f2e673]: Human Gate · 5 agents
+                  - generic [ref=f2e674]: ·
+                  - generic [ref=f2e675]: 26s
+              - generic [ref=f2e676]:
+                - paragraph [ref=f2e678]: 4d ago
+                - generic [ref=f2e679]: Failed
+                - button "Run actions" [ref=f2e682]
+            - button "Open QA-PS-002 verification run for notification progress, failed" [ref=f2e687] [cursor=pointer]:
+              - generic [ref=f2e692]:
+                - paragraph [ref=f2e693]: QA-PS-002 verification run for notification progress
+                - generic [ref=f2e694]:
+                  - generic [ref=f2e695]: Language Branch · 5 agents
+                  - generic [ref=f2e696]: ·
+                  - generic [ref=f2e697]: 3s
+              - generic [ref=f2e698]:
+                - paragraph [ref=f2e700]: 4d ago
+                - generic [ref=f2e701]: Failed
+                - button "Run actions" [ref=f2e704]
+            - button "Open Generate epics and stories for a QA-PS-002 verification refu, failed" [ref=f2e709] [cursor=pointer]:
+              - generic [ref=f2e714]:
+                - paragraph [ref=f2e715]: Generate epics and stories for a QA-PS-002 verification refu
+                - generic [ref=f2e716]:
+                  - generic [ref=f2e717]: User Stories · 6 agents
+                  - generic [ref=f2e718]: ·
+                  - generic [ref=f2e719]: 1m 1s
+              - generic [ref=f2e720]:
+                - paragraph [ref=f2e722]: 4d ago
+                - generic [ref=f2e723]: Failed
+                - button "Run actions" [ref=f2e726]
+            - 'button "Open QA-PS-002 verification: notification panel progress check, failed" [ref=f2e731] [cursor=pointer]':
+              - generic [ref=f2e736]:
+                - paragraph [ref=f2e737]: "QA-PS-002 verification: notification panel progress check"
+                - generic [ref=f2e738]:
+                  - generic [ref=f2e739]: Retry Loop · 4 agents
+                  - generic [ref=f2e740]: ·
+                  - generic [ref=f2e741]: 4s
+              - generic [ref=f2e742]:
+                - paragraph [ref=f2e744]: 4d ago
+                - generic [ref=f2e745]: Failed
+                - button "Run actions" [ref=f2e748]
+            - 'button "Open QA-PS-002 verification run: generate epics and stories for a, completed" [ref=f2e753] [cursor=pointer]':
+              - generic [ref=f2e758]:
+                - paragraph [ref=f2e759]: "QA-PS-002 verification run: generate epics and stories for a"
+                - generic [ref=f2e760]:
+                  - generic [ref=f2e761]: User Stories · 6 agents
+                  - generic [ref=f2e762]: ·
+                  - generic [ref=f2e763]: 5m 10s
+              - generic [ref=f2e764]:
+                - generic [ref=f2e765]:
+                  - paragraph [ref=f2e766]: 384.6K
+                  - paragraph [ref=f2e767]: 4d ago
+                - generic [ref=f2e768]: Done
+                - button "Run actions" [ref=f2e771]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, completed" [ref=f2e776] [cursor=pointer]:
+              - generic [ref=f2e781]:
+                - paragraph [ref=f2e782]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e783]:
+                  - generic [ref=f2e784]: Prototype v2 · 11 agents
+                  - generic [ref=f2e785]: ·
+                  - generic [ref=f2e786]: 38m 28s
+              - generic [ref=f2e787]:
+                - generic [ref=f2e788]:
+                  - paragraph [ref=f2e789]: 20.4M
+                  - paragraph [ref=f2e790]: 4d ago
+                - generic [ref=f2e791]: Done
+                - button "Run actions" [ref=f2e794]
+            - button "Open PROBE ONLY - verifying pipelineType propagation. Will be can, cancelled" [ref=f2e799] [cursor=pointer]:
+              - generic [ref=f2e804]:
+                - paragraph [ref=f2e805]: PROBE ONLY - verifying pipelineType propagation. Will be can
+                - generic [ref=f2e806]: Prototype v2 · 11 agents
+              - generic [ref=f2e808]:
+                - paragraph [ref=f2e810]: 4d ago
+                - generic [ref=f2e811]: Cancelled
+                - button "Run actions" [ref=f2e814]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, failed" [ref=f2e819] [cursor=pointer]:
+              - generic [ref=f2e824]:
+                - paragraph [ref=f2e825]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e826]: Prototype v2 · 11 agents
+              - generic [ref=f2e828]:
+                - paragraph [ref=f2e830]: 4d ago
+                - generic [ref=f2e831]: Failed
+                - button "Run actions" [ref=f2e834]
+            - 'button "Open PROBE: seeded draft to test pipelineType propagation. Do not, cancelled" [ref=f2e839] [cursor=pointer]':
+              - generic [ref=f2e843]:
+                - paragraph [ref=f2e844]: "PROBE: seeded draft to test pipelineType propagation. Do not"
+                - generic [ref=f2e845]:
+                  - generic [ref=f2e846]: Prototype · 5 agents
+                  - generic [ref=f2e847]: ·
+                  - generic [ref=f2e848]: 121m 57s
+              - generic [ref=f2e849]:
+                - paragraph [ref=f2e851]: 4d ago
+                - generic [ref=f2e852]: Cancelled
+                - button "Run actions" [ref=f2e855]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, cancelled" [ref=f2e860] [cursor=pointer]:
+              - generic [ref=f2e864]:
+                - paragraph [ref=f2e865]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e866]:
+                  - generic [ref=f2e867]: Prototype · 5 agents
+                  - generic [ref=f2e868]: ·
+                  - generic [ref=f2e869]: 124m 24s
+              - generic [ref=f2e870]:
+                - paragraph [ref=f2e872]: 4d ago
+                - generic [ref=f2e873]: Cancelled
+                - button "Run actions" [ref=f2e876]
+            - button "Open Build a clickable HTML prototype of Fieldwise, Northgate Wat, cancelled" [ref=f2e881] [cursor=pointer]:
+              - generic [ref=f2e885]:
+                - paragraph [ref=f2e886]: Build a clickable HTML prototype of Fieldwise, Northgate Wat
+                - generic [ref=f2e887]:
+                  - generic [ref=f2e888]: Prototype · 5 agents
+                  - generic [ref=f2e889]: ·
+                  - generic [ref=f2e890]: 127m 28s
+              - generic [ref=f2e891]:
+                - paragraph [ref=f2e893]: 4d ago
+                - generic [ref=f2e894]: Cancelled
+                - button "Run actions" [ref=f2e897]
+            - button "Open probe, failed" [ref=f2e902] [cursor=pointer]:
+              - generic [ref=f2e907]:
+                - paragraph [ref=f2e908]: probe
+                - generic [ref=f2e909]: Prototype v2 · 11 agents
+              - generic [ref=f2e911]:
+                - paragraph [ref=f2e913]: 4d ago
+                - generic [ref=f2e914]: Failed
+                - button "Run actions" [ref=f2e917]
+            - button "Open probe, failed" [ref=f2e922] [cursor=pointer]:
+              - generic [ref=f2e927]:
+                - paragraph [ref=f2e928]: probe
+                - generic [ref=f2e929]: Prototype v2 · 11 agents
+              - generic [ref=f2e931]:
+                - paragraph [ref=f2e933]: 4d ago
+                - generic [ref=f2e934]: Failed
+                - button "Run actions" [ref=f2e937]
+            - button "Open probe only, cancelled" [ref=f2e942] [cursor=pointer]:
+              - generic [ref=f2e946]:
+                - paragraph [ref=f2e947]: probe only
+                - generic [ref=f2e948]:
+                  - generic [ref=f2e949]: Prototype · 5 agents
+                  - generic [ref=f2e950]: ·
+                  - generic [ref=f2e951]: 135m 47s
+              - generic [ref=f2e952]:
+                - paragraph [ref=f2e954]: 4d ago
+                - generic [ref=f2e955]: Cancelled
+                - button "Run actions" [ref=f2e958]
+            - button "Open Build a clickable prototype of Fieldwise from the attached d, cancelled" [ref=f2e963] [cursor=pointer]:
+              - generic [ref=f2e968]:
+                - paragraph [ref=f2e969]: Build a clickable prototype of Fieldwise from the attached d
+                - generic [ref=f2e970]: Prototype v2 · 11 agents
+              - generic [ref=f2e972]:
+                - paragraph [ref=f2e974]: 4d ago
+                - generic [ref=f2e975]: Cancelled
+                - button "Run actions" [ref=f2e978]
+            - button "Open github dashboard user story, cancelled" [ref=f2e983] [cursor=pointer]:
+              - generic [ref=f2e988]:
+                - paragraph [ref=f2e989]: github dashboard user story
+                - generic [ref=f2e990]:
+                  - generic [ref=f2e991]: User Stories · 6 agents
+                  - generic [ref=f2e992]: ·
+                  - generic [ref=f2e993]: 3m 31s
+              - generic [ref=f2e994]:
+                - generic [ref=f2e995]:
+                  - paragraph [ref=f2e996]: 7.0K
+                  - paragraph [ref=f2e997]: 4d ago
+                - generic [ref=f2e998]: Cancelled
+                - button "Run actions" [ref=f2e1001]
+            - button "Open github dashboard user story, completed" [ref=f2e1006] [cursor=pointer]:
+              - generic [ref=f2e1011]:
+                - paragraph [ref=f2e1012]: github dashboard user story
+                - generic [ref=f2e1013]:
+                  - generic [ref=f2e1014]: User Stories · 6 agents
+                  - generic [ref=f2e1015]: ·
+                  - generic [ref=f2e1016]: 5m 35s
+              - generic [ref=f2e1017]:
+                - generic [ref=f2e1018]:
+                  - paragraph [ref=f2e1019]: 412.0K
+                  - paragraph [ref=f2e1020]: 4d ago
+                - generic [ref=f2e1021]: Done
+                - button "Run actions" [ref=f2e1024]
+            - button "Open github dashboard user story, cancelled" [ref=f2e1029] [cursor=pointer]:
+              - generic [ref=f2e1034]:
+                - paragraph [ref=f2e1035]: github dashboard user story
+                - generic [ref=f2e1036]:
+                  - generic [ref=f2e1037]: User Stories · 6 agents
+                  - generic [ref=f2e1038]: ·
+                  - generic [ref=f2e1039]: 33m 8s
+              - generic [ref=f2e1040]:
+                - generic [ref=f2e1041]:
+                  - paragraph [ref=f2e1042]: 108.8K
+                  - paragraph [ref=f2e1043]: 4d ago
+                - generic [ref=f2e1044]: Cancelled
+                - button "Run actions" [ref=f2e1047]
+            - button "Open github dashboard user story, cancelled" [ref=f2e1052] [cursor=pointer]:
+              - generic [ref=f2e1057]:
+                - paragraph [ref=f2e1058]: github dashboard user story
+                - generic [ref=f2e1059]:
+                  - generic [ref=f2e1060]: User Stories · 6 agents
+                  - generic [ref=f2e1061]: ·
+                  - generic [ref=f2e1062]: 53m 2s
+              - generic [ref=f2e1063]:
+                - paragraph [ref=f2e1065]: 4d ago
+                - generic [ref=f2e1066]: Cancelled
+                - button "Run actions" [ref=f2e1069]
+            - button "Open Race condition repro for QA-PS-005., completed" [ref=f2e1074] [cursor=pointer]:
+              - generic [ref=f2e1079]:
+                - paragraph [ref=f2e1080]: Race condition repro for QA-PS-005.
+                - generic [ref=f2e1081]:
+                  - generic [ref=f2e1082]: PW Smoke Test · 1 agent
+                  - generic [ref=f2e1083]: ·
+                  - generic [ref=f2e1084]: 15s
+              - generic [ref=f2e1085]:
+                - generic [ref=f2e1086]:
+                  - paragraph [ref=f2e1087]: 58.8K
+                  - paragraph [ref=f2e1088]: 4d ago
+                - generic [ref=f2e1089]: Done
+                - button "Run actions" [ref=f2e1092]
+            - button "Open Greet me once more, cancelled" [ref=f2e1097] [cursor=pointer]:
+              - generic [ref=f2e1102]:
+                - paragraph [ref=f2e1103]: Greet me once more
+                - generic [ref=f2e1104]:
+                  - generic [ref=f2e1105]: Human Gate · 5 agents
+                  - generic [ref=f2e1106]: ·
+                  - generic [ref=f2e1107]: 22s
+              - generic [ref=f2e1108]:
+                - generic [ref=f2e1109]:
+                  - paragraph [ref=f2e1110]: 3.8K
+                  - paragraph [ref=f2e1111]: 4d ago
+                - generic [ref=f2e1112]: Cancelled
+                - button "Run actions" [ref=f2e1115]
+            - button "Open github dashboard user story, completed" [ref=f2e1120] [cursor=pointer]:
+              - generic [ref=f2e1125]:
+                - paragraph [ref=f2e1126]: github dashboard user story
+                - generic [ref=f2e1127]:
+                  - generic [ref=f2e1128]: User Stories · 6 agents
+                  - generic [ref=f2e1129]: ·
+                  - generic [ref=f2e1130]: 6m 23s
+              - generic [ref=f2e1131]:
+                - generic [ref=f2e1132]:
+                  - paragraph [ref=f2e1133]: 482.5K
+                  - paragraph [ref=f2e1134]: 4d ago
+                - generic [ref=f2e1135]: Done
+                - button "Run actions" [ref=f2e1138]
+            - button "Open Greet me again, cancelled" [ref=f2e1143] [cursor=pointer]:
+              - generic [ref=f2e1148]:
+                - paragraph [ref=f2e1149]: Greet me again
+                - generic [ref=f2e1150]:
+                  - generic [ref=f2e1151]: Human Gate · 5 agents
+                  - generic [ref=f2e1152]: ·
+                  - generic [ref=f2e1153]: 12s
+              - generic [ref=f2e1154]:
+                - generic [ref=f2e1155]:
+                  - paragraph [ref=f2e1156]: 3.8K
+                  - paragraph [ref=f2e1157]: 4d ago
+                - generic [ref=f2e1158]: Cancelled
+                - button "Run actions" [ref=f2e1161]
+            - button "Open Generate epics and stories for a bug-validation test run, a, cancelled" [ref=f2e1166] [cursor=pointer]:
+              - generic [ref=f2e1171]:
+                - paragraph [ref=f2e1172]: Generate epics and stories for a bug-validation test run, a
+                - generic [ref=f2e1173]:
+                  - generic [ref=f2e1174]: User Stories · 6 agents
+                  - generic [ref=f2e1175]: ·
+                  - generic [ref=f2e1176]: 95m 42s
+              - generic [ref=f2e1177]:
+                - paragraph [ref=f2e1179]: 4d ago
+                - generic [ref=f2e1180]: Cancelled
+                - button "Run actions" [ref=f2e1183]
+            - button "Open Greet me, cancelled" [ref=f2e1188] [cursor=pointer]:
+              - generic [ref=f2e1193]:
+                - paragraph [ref=f2e1194]: Greet me
+                - generic [ref=f2e1195]:
+                  - generic [ref=f2e1196]: Human Gate · 5 agents
+                  - generic [ref=f2e1197]: ·
+                  - generic [ref=f2e1198]: 36s
+              - generic [ref=f2e1199]:
+                - generic [ref=f2e1200]:
+                  - paragraph [ref=f2e1201]: 3.8K
+                  - paragraph [ref=f2e1202]: 4d ago
+                - generic [ref=f2e1203]: Cancelled
+                - button "Run actions" [ref=f2e1206]
+            - button "Open Greet in Dutch for a bug validation test - attempt 1., completed" [ref=f2e1211] [cursor=pointer]:
+              - generic [ref=f2e1216]:
+                - paragraph [ref=f2e1217]: Greet in Dutch for a bug validation test - attempt 1.
+                - generic [ref=f2e1218]:
+                  - generic [ref=f2e1219]: Dutch Greeter · 1 agent
+                  - generic [ref=f2e1220]: ·
+                  - generic [ref=f2e1221]: 14s
+              - generic [ref=f2e1222]:
+                - generic [ref=f2e1223]:
+                  - paragraph [ref=f2e1224]: 3.9K
+                  - paragraph [ref=f2e1225]: 4d ago
+                - generic [ref=f2e1226]: Done
+                - button "Run actions" [ref=f2e1229]
+            - button "Open Greet in Spanish for a bug validation test., completed" [ref=f2e1234] [cursor=pointer]:
+              - generic [ref=f2e1239]:
+                - paragraph [ref=f2e1240]: Greet in Spanish for a bug validation test.
+                - generic [ref=f2e1241]:
+                  - generic [ref=f2e1242]: Spanish Greeter · 1 agent
+                  - generic [ref=f2e1243]: ·
+                  - generic [ref=f2e1244]: 19s
+              - generic [ref=f2e1245]:
+                - generic [ref=f2e1246]:
+                  - paragraph [ref=f2e1247]: 3.9K
+                  - paragraph [ref=f2e1248]: 4d ago
+                - generic [ref=f2e1249]: Done
+                - button "Run actions" [ref=f2e1252]
+            - button "Open A one-page prototype for a minimal notes app with a note lis, completed" [ref=f2e1257] [cursor=pointer]:
+              - generic [ref=f2e1261]:
+                - paragraph [ref=f2e1262]: A one-page prototype for a minimal notes app with a note lis
+                - generic [ref=f2e1263]:
+                  - generic [ref=f2e1264]: Prototype · 5 agents
+                  - generic [ref=f2e1265]: ·
+                  - generic [ref=f2e1266]: 5m 38s
+              - generic [ref=f2e1267]:
+                - generic [ref=f2e1268]:
+                  - paragraph [ref=f2e1269]: 18.1M
+                  - paragraph [ref=f2e1270]: 4d ago
+                - generic [ref=f2e1271]: Done
+                - button "Run actions" [ref=f2e1274]
+        - generic [ref=f2e1279]: Load more
+  - alert [ref=f2e152]

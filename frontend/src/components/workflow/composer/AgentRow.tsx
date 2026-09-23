@@ -8,18 +8,28 @@ import {
   AgentPromptSection,
   getRole,
   getAgentInitials,
+  hasToolOverride,
+  useAgentCapabilities,
   type SelectionsMap,
   type StepSelection,
 } from "../AgentsPopup";
 import { AgentSkillsPicker } from "./AgentSkillsPicker";
 import type { AgentDef, WorkflowType } from "@/types/index";
+import type { CapabilityModelEntry } from "@/lib/api";
 
-/** Compact a model id/label for the inline pill (mock: "Opus 4.5"). The full
- *  lever + catalog live in the reused AdvancedExpander below the row. */
-function shortModel(model: string | undefined): string {
+/** Compact a model id for the inline pill (mock: "Opus 4.5"), resolving the
+ *  label from the catalog exactly as CanvasNode does.
+ *
+ *  This used to keep the last `[.:/]`-delimited segment of the raw id, which is
+ *  wrong for every id in the catalog: `…claude-haiku-4-5-20251001-v1:0` rendered
+ *  as "0" and `global.openai.gpt-5.6-luna` as "6-luna". Falling back to the raw
+ *  id is ugly but honest — it never invents a name. */
+function shortModel(
+  model: string | undefined,
+  modelOptions: CapabilityModelEntry[],
+): string {
   if (!model) return "Default";
-  const tail = model.split(/[.:/]/).filter(Boolean).pop() ?? model;
-  return tail.length > 18 ? `${tail.slice(0, 18)}…` : tail;
+  return modelOptions.find((m) => m.id === model)?.label ?? model;
 }
 
 /**
@@ -68,6 +78,9 @@ export function AgentRow({
   onDragEnd?: () => void;
 }) {
   const [configOpen, setConfigOpen] = useState(false);
+  // Same catalog the expander below this row reads, so the pill and the lever
+  // can never name the model differently.
+  const { modelOptions } = useAgentCapabilities();
   const role = getRole(agent.id, pipelineType);
   const locked = role === "locked";
   const removable = role === "optional";
@@ -79,6 +92,9 @@ export function AgentRow({
   const gateOn = (selection?.gates ?? []).some((g) => g !== "validation");
   const retryOn = (selection?.retry ?? 0) > 0;
   const skillsOn = (agent.skills?.length ?? 0) > 0;
+  // ISS-274 — a tool grant switched off (here or in Canvas view) is an
+  // override like any other, so the row flags it instead of hiding it.
+  const toolsOn = hasToolOverride(selection);
 
   const chip = (label: string, on: boolean) => (
     <button
@@ -171,7 +187,7 @@ export function AgentRow({
           className="inline-flex flex-none items-center gap-1.5 rounded-[8px] border border-line-control bg-surface-white px-2.5 py-2 font-sans text-[11.5px] font-semibold text-ink-700 transition-colors hover:border-line-faint"
         >
           <span className="h-1.5 w-1.5 rounded-full bg-brand" />
-          {shortModel(selection?.model)}
+          {shortModel(selection?.model, modelOptions)}
           <ChevronDown className="h-3 w-3 text-ink-200" />
         </button>
 
@@ -197,6 +213,7 @@ export function AgentRow({
         {chip("Gate", gateOn)}
         {chip("Retry", retryOn)}
         {chip("Skills", skillsOn)}
+        {chip("Tools", toolsOn)}
         <span className="flex-1" />
         <button
           type="button"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { AgentRunState, PipelineRunState, AttachedHook, ClarifyRound } from "@/types/index";
+import type { AgentRunState, PipelineRunState, AttachedHook, ClarifyRound, WaveWorkerEntry } from "@/types/index";
 // Commands are sent up-channel over REST through the RunConnectionProvider (the
 // SSE transport). SSE + REST is the sole transport (44-06 hard cutoff). The
 // shared handlePipelineMessage reducer is transport-agnostic and untouched.
@@ -33,7 +33,9 @@ export interface UseWorkflowReturn {
   // ISS-126 — reconcile this state against a run's PERSISTED terminal status after
   // a durable replay that contained no terminal event. One-way (see
   // applyTerminalStatus): a non-terminal status is a no-op.
-  reconcileTerminalStatus: (status: string) => void;
+  // A14 — optional second arg: the run's persisted `warnings`, forwarded
+  // verbatim to applyTerminalStatus (see its own doc for the undefined rule).
+  reconcileTerminalStatus: (status: string, warnings?: string[], usage?: Parameters<typeof applyTerminalStatus>[3]) => void;
 }
 
 const INITIAL_STATE: PipelineRunState = {
@@ -187,9 +189,12 @@ export function useWorkflow(): UseWorkflowReturn {
   // that carried no terminal event. Routed through the SAME applyTerminalStatus
   // the store path uses, so the two containers can never disagree about what
   // terminal means (INV-12).
-  const reconcileTerminalStatus = useCallback((status: string) => {
-    setPipelineState((prev) => applyTerminalStatus(prev, status));
-  }, []);
+  const reconcileTerminalStatus = useCallback(
+    (status: string, warnings?: string[], usage?: Parameters<typeof applyTerminalStatus>[3]) => {
+      setPipelineState((prev) => applyTerminalStatus(prev, status, warnings, usage));
+    },
+    [],
+  );
 
   const isRunning = pipelineState.isRunning;
 
@@ -268,6 +273,7 @@ const ACCUMULATING_FRAME_TYPES: ReadonlySet<string> = new Set([
   "tool_call",        // agents[].toolCalls
   "hook_run",         // hookRuns
   "validator_result", // agents[].validationIssues
+  "agent_complete",   // agents[].cumulativeDuration
 ]);
 
 /** Has this accumulating frame already been folded into `prev`? */
@@ -293,6 +299,54 @@ function markApplied(
   const eventId = typeof msg.event_id === "string" ? msg.event_id : "";
   if (!eventId) return {};
   return { appliedUnsequencedIds: [...(prev.appliedUnsequencedIds ?? []), eventId] };
+}
+
+/**
+ * The frame types that can change whether the run is BUSY or WAITING. Everything else
+ * (chunks, thinking, tool calls) happens strictly inside an interval one of these opens.
+ */
+const TIMELINE_FRAME_TYPES: ReadonlySet<string> = new Set([
+  "pipeline_start", "agent_start", "agent_complete", "agent_error", "agent_skipped",
+  "review_gate_ready", "review_gate_approved",
+  "pipeline_complete", "pipeline_failed", "pipeline_cancelled",
+]);
+
+/**
+ * Fold the interval [last timeline event, `ts`) into the busy/waiting split.
+ *
+ * Called BEFORE the case that handles the frame, because that interval was spent under
+ * the condition the state is in NOW — the gate that is about to close was open for it,
+ * the agent that is about to start was not yet running.
+ *
+ * Busy is derived from "is any agent non-terminal", which makes it an interval UNION for
+ * free: five readers running concurrently keep it true exactly once, so the 199s they
+ * overlap in run faba87c9 is counted once rather than five times. A naive sum of the
+ * per-step numbers cannot reconcile against the header for precisely that reason.
+ *
+ * Driven by the event's own `ts` (stamped by the engine, forwarded verbatim by
+ * run_stream.py's replay) and never `Date.now()`, so a reopened run accounts identically
+ * to a live one. That also makes it self-gating against re-delivery — a replayed frame
+ * carries a `ts` at or behind the cursor, so `dt <= 0` folds nothing in — which is why it
+ * runs on the RAW setter: routing it through the ISS-082 identity gate would advance
+ * `lastAppliedSeq` and make the real handler for the same frame look like a re-delivery.
+ */
+export function advanceTimeline(prev: PipelineRunState, ts: string): PipelineRunState {
+  const now = Date.parse(ts);
+  if (Number.isNaN(now)) return prev;
+  if (!prev.timelineTs) return { ...prev, timelineTs: ts };
+  const dt = (now - Date.parse(prev.timelineTs)) / 1000;
+  // Re-delivered, out of order, or same-instant (step_end and agent_complete share a ts):
+  // fold nothing, and do NOT rewind the cursor either.
+  if (!(dt > 0)) return prev;
+  const busy = prev.agents.some((a) => a.status === "running" || a.status === "thinking");
+  return {
+    ...prev,
+    timelineTs: ts,
+    busySeconds: (prev.busySeconds ?? 0) + (busy ? dt : 0),
+    // Time with nothing running is only WAITING if it is waiting on a person. Anything
+    // else is engine overhead and stays unattributed rather than being quietly absorbed.
+    waitingSeconds: (prev.waitingSeconds ?? 0) + (!busy && prev.gateOpen ? dt : 0),
+  };
 }
 
 /**
@@ -326,6 +380,7 @@ const TERMINAL_MARKER_BY_STATUS: Record<string, "cancelled" | "failed" | "degrad
   cancelled: "cancelled",
   failed: "failed",
   degraded: "degraded",
+  diverted: null,
 };
 
 /** The terminal marker patch for a terminal status. Callers pass a known member. */
@@ -345,6 +400,36 @@ export function terminalMarkers(status: string): Partial<PipelineRunState> {
 export function applyTerminalStatus(
   prev: PipelineRunState,
   status: string,
+  // A14 — the run's persisted `warnings` (e.g. from a reopened `WorkflowRun`),
+  // additive/optional so every existing 2-arg call site keeps compiling.
+  // Undefined (whether omitted or explicit) leaves `prev.warnings` untouched,
+  // so a caller that hasn't been taught about warnings yet (page.tsx's two
+  // call sites, pending A24) cannot accidentally wipe a value the live
+  // `pipeline_complete` reducer case already set on `prev`.
+  warnings?: string[],
+  // ISS-304 — the run's PERSISTED `token_usage`, same additive/optional
+  // contract as `warnings` above.
+  //
+  // A reopened run's totals are rebuilt by replaying its durable events, and
+  // the `agent_complete` case sums the per-agent figures. That sum is the best
+  // available reading WHILE a run streams, but it is not the run's total: work
+  // not attributed to a top-level agent row (wave workers, sub-agents) never
+  // lands in it. Measured on run 26a7e162 — the header read 13.6M where the
+  // run's own `token_usage.total_tokens` was 19.7M, a 6.1M shortfall on the
+  // one number a user would check a bill against.
+  //
+  // The server's persisted usage is authoritative for a settled run, so it
+  // wins here, in the same after-the-replay reconciliation that already
+  // restores the persisted STATUS (ISS-126). Undefined leaves the replayed
+  // values untouched, so every existing call site keeps its behaviour.
+  usage?: {
+    total_tokens?: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_cache_read_tokens?: number;
+    total_cache_write_tokens?: number;
+    estimated_cost_usd?: number;
+  },
 ): PipelineRunState {
   if (!Object.prototype.hasOwnProperty.call(TERMINAL_MARKER_BY_STATUS, status)) {
     return prev;
@@ -368,6 +453,197 @@ export function applyTerminalStatus(
     ...terminalMarkers(status),
     agents: updated,
     completedCount: updated.filter((a) => a.status === "done").length,
+    ...(warnings !== undefined ? { warnings } : {}),
+    ...(usage
+      ? {
+          ...(usage.total_tokens !== undefined ? { totalTokens: usage.total_tokens } : {}),
+          ...(usage.total_input_tokens !== undefined ? { totalInputTokens: usage.total_input_tokens } : {}),
+          ...(usage.total_output_tokens !== undefined ? { totalOutputTokens: usage.total_output_tokens } : {}),
+          ...(usage.total_cache_read_tokens !== undefined ? { cacheReadTokens: usage.total_cache_read_tokens } : {}),
+          ...(usage.total_cache_write_tokens !== undefined ? { cacheWriteTokens: usage.total_cache_write_tokens } : {}),
+          ...(usage.estimated_cost_usd !== undefined ? { estimatedCostUsd: usage.estimated_cost_usd } : {}),
+        }
+      : {}),
+  };
+}
+
+/** Upsert one wave worker's child row onto its parent agent, keyed by
+ *  `task_id` (a worker's agent_start THEN agent_complete both carry the same
+ *  task_id, so the second call updates the first's entry rather than adding
+ *  a duplicate). wave_index/worker_index/wave_total are re-stamped from the
+ *  incoming event when present, else carried over from the existing entry. */
+function upsertWaveWorker(
+  agent: AgentRunState,
+  msg: { [key: string]: unknown },
+  status: WaveWorkerEntry["status"],
+): AgentRunState {
+  const taskId = msg.task_id as string;
+  const workers = agent.waveWorkers ? [...agent.waveWorkers] : [];
+  const idx = workers.findIndex((w) => w.taskId === taskId);
+  const prior = idx !== -1 ? workers[idx] : undefined;
+  const entry: WaveWorkerEntry = {
+    taskId,
+    status,
+    workerIndex: typeof msg.worker_index === "number" ? (msg.worker_index as number) : prior?.workerIndex,
+    waveIndex: typeof msg.wave_index === "number" ? (msg.wave_index as number) : prior?.waveIndex,
+    waveTotal: typeof msg.wave_total === "number" ? (msg.wave_total as number) : prior?.waveTotal,
+    taskAuthorId: typeof msg.task_author_id === "string"
+      ? (msg.task_author_id as string) : prior?.taskAuthorId,
+    error: typeof msg.error === "string" ? (msg.error as string) : prior?.error,
+    // Carried forward, never cleared — a member's tool calls and reasoning
+    // accumulate across its events, and its output arrives on agent_complete.
+    toolCalls: prior?.toolCalls,
+    thinking: prior?.thinking,
+    contextSources: prior?.contextSources,
+    // Output is accumulated from this member's chunks; agent_complete carries no
+    // output text, so it must never overwrite what the chunks built.
+    output: prior?.output,
+    inputPrompt: typeof msg.input_prompt === "string" && msg.input_prompt
+      ? (msg.input_prompt as string)
+      : typeof msg.task_block === "string" && msg.task_block
+      ? (msg.task_block as string)
+      : prior?.inputPrompt,
+    estimatedCostUsd: typeof msg.estimated_cost_usd === "number"
+      ? (msg.estimated_cost_usd as number) : prior?.estimatedCostUsd,
+    attachedSkills: prior?.attachedSkills,
+    attachedHooks: prior?.attachedHooks,
+    validationIssues: prior?.validationIssues,
+    validationPassed: prior?.validationPassed,
+    inputTokens: typeof msg.input_tokens === "number" ? (msg.input_tokens as number) : prior?.inputTokens,
+    outputTokens: typeof msg.output_tokens === "number" ? (msg.output_tokens as number) : prior?.outputTokens,
+    totalTokens: typeof msg.total_tokens === "number" ? (msg.total_tokens as number) : prior?.totalTokens,
+    // Start the clock on the FIRST event for this member, whatever it is — its
+    // agent_start is not guaranteed to be the first thing we see.
+    startedAt: prior?.startedAt ?? Date.now(),
+    // Prefer the server's own duration (seconds), same as the parent step does
+    // at :1018. The measured wall time is only a fallback, and a WEAK one for a
+    // wave member: its events ride a queue (fanout.py's side channel) and can
+    // drain together, so start and complete land milliseconds apart. A model
+    // call cannot finish in under a second, so a sub-second measurement is a
+    // queue artefact — report nothing rather than a confident "0s".
+    durationMs: typeof msg.duration === "number"
+      ? (msg.duration as number) * 1000
+      : status === "done" || status === "failed"
+      ? (prior?.startedAt && Date.now() - prior.startedAt >= 1000
+          ? Date.now() - prior.startedAt
+          : prior?.durationMs)
+      : prior?.durationMs,
+  };
+  if (idx === -1) workers.push(entry);
+  else workers[idx] = entry;
+  return { ...agent, waveWorkers: workers };
+}
+
+/** Append reasoning text to the wave member that produced it, keyed by task_id.
+ *  Every clone in a wave reports the parent's agent_id, so without this split the
+ *  five readers' reasoning interleaves into one unreadable stream on the step. */
+function appendWorkerThinking(
+  agent: AgentRunState,
+  taskId: string,
+  text: string,
+): AgentRunState {
+  const workers = agent.waveWorkers ? [...agent.waveWorkers] : [];
+  const idx = workers.findIndex((w) => w.taskId === taskId);
+  const prior = idx === -1 ? { taskId, status: "running" as const } : workers[idx];
+  const next = { ...prior, thinking: (prior.thinking ?? "") + text };
+  if (idx === -1) workers.push(next);
+  else workers[idx] = next;
+  return { ...agent, waveWorkers: workers };
+}
+
+/** Generic upsert of one field-set onto the wave member named by task_id. A call
+ *  can arrive before that member's agent_start, so the row is seeded rather than
+ *  the event dropped. */
+function patchWorker(
+  agent: AgentRunState,
+  taskId: string,
+  patch: (prior: WaveWorkerEntry) => WaveWorkerEntry,
+): AgentRunState {
+  const workers = agent.waveWorkers ? [...agent.waveWorkers] : [];
+  const idx = workers.findIndex((w) => w.taskId === taskId);
+  const prior = idx === -1
+    ? ({ taskId, status: "running", startedAt: Date.now() } as WaveWorkerEntry)
+    : workers[idx];
+  const next = patch(prior);
+  if (idx === -1) workers.push(next);
+  else workers[idx] = next;
+  return { ...agent, waveWorkers: workers };
+}
+
+/** Accumulate a member's own output text from its own chunks. */
+function appendWorkerOutput(agent: AgentRunState, taskId: string, chunk: string): AgentRunState {
+  return patchWorker(agent, taskId, (p) => ({ ...p, output: (p.output ?? "") + chunk }));
+}
+
+/** Record a member's own input prompt and context sources. */
+function setWorkerInput(
+  agent: AgentRunState,
+  taskId: string,
+  inputPrompt: string | undefined,
+  contextSources: import("@/types/index").ContextSource[],
+): AgentRunState {
+  return patchWorker(agent, taskId, (p) => ({
+    ...p,
+    inputPrompt: inputPrompt ?? p.inputPrompt,
+    contextSources: contextSources.length ? contextSources : p.contextSources,
+  }));
+}
+
+/** Append a tool call to the wave member that made it, keyed by task_id. */
+function appendWorkerToolCall(
+  agent: AgentRunState,
+  taskId: string,
+  entry: import("@/types/index").ToolCallEntry,
+): AgentRunState {
+  const workers = agent.waveWorkers ? [...agent.waveWorkers] : [];
+  const idx = workers.findIndex((w) => w.taskId === taskId);
+  // A tool call can arrive before the worker's agent_start; seed a row rather
+  // than dropping the call.
+  const prior = idx === -1 ? { taskId, status: "running" as const } : workers[idx];
+  const next = { ...prior, toolCalls: [...(prior.toolCalls ?? []), entry] };
+  if (idx === -1) workers.push(next);
+  else workers[idx] = next;
+  return { ...agent, waveWorkers: workers };
+}
+
+/** Attach a result to that member's last unresolved call of the same tool. */
+function resolveWorkerToolCall(
+  agent: AgentRunState,
+  taskId: string,
+  toolName: string,
+  result: string,
+): AgentRunState {
+  const workers = agent.waveWorkers ? [...agent.waveWorkers] : [];
+  const idx = workers.findIndex((w) => w.taskId === taskId);
+  if (idx === -1) return agent;
+  const calls = [...(workers[idx].toolCalls ?? [])];
+  for (let i = calls.length - 1; i >= 0; i--) {
+    if (calls[i].tool === toolName && calls[i].result === null) {
+      calls[i] = { ...calls[i], result };
+      break;
+    }
+  }
+  workers[idx] = { ...workers[idx], toolCalls: calls };
+  return { ...agent, waveWorkers: workers };
+}
+
+/** Settle a wave step's child rows when the step itself reaches a terminal
+ *  state. A worker still "running" at that point will never report again — its
+ *  outcome was lost (a failed dispatch, a budget refusal, a repair pass that
+ *  never completed). Leaving it spinning claims work is still in flight when
+ *  the run is over, which is the opposite of the truth; marking it done would
+ *  be worse. It becomes "stranded" — visibly ended, explicitly not successful. */
+function settleWaveWorkers(agent: AgentRunState): AgentRunState {
+  const workers = agent.waveWorkers;
+  if (!workers || !workers.some((w) => w.status === "running")) return agent;
+  return {
+    ...agent,
+    waveWorkers: workers.map((w) =>
+      w.status === "running"
+        ? { ...w, status: "stranded" as const,
+            error: w.error ?? "the step ended before this worker reported a result" }
+        : w,
+    ),
   };
 }
 
@@ -397,6 +673,12 @@ export function handlePipelineMessage(
             return next === prev ? prev : { ...next, ...markApplied(prev, msg) };
           })
       : setPipelineStateRaw;
+
+  // Wall-clock accounting, folded in before the handler changes the state that defines
+  // it. RAW setter on purpose — see `advanceTimeline`.
+  if (TIMELINE_FRAME_TYPES.has(msg.type) && typeof msg.ts === "string") {
+    setPipelineStateRaw((prev) => advanceTimeline(prev, msg.ts as string));
+  }
 
   switch (msg.type) {
     case "pipeline_start": {
@@ -454,7 +736,23 @@ export function handlePipelineMessage(
             index: idx,
           };
           const existing = carried?.get(a.id);
-          if (existing) return { ...existing, ...identity };
+          // ISS-317: an `error` carried from the PRE-resume attempt is stale
+          // evidence the resume itself supersedes — the same treatment the
+          // terminal cancelled/failed/degraded markers already get below. Spread
+          // verbatim it kept every reader of this array (the Steps summary label,
+          // its progress-bar segment and per-row style, RunChatLane's PipelineMini
+          // pip, AgentDetailPanel's isError) showing a re-running agent as failed
+          // until that agent's own agent_start finally fired. Reset it to the
+          // fresh-roster rule instead.
+          if (existing) {
+            if (existing.status !== "error") return { ...existing, ...identity };
+            return {
+              ...existing,
+              ...identity,
+              status: idx < resumeOffset ? "done" : "idle",
+              error: null,
+            };
+          }
           return {
             ...identity,
             // KAN-120 BUG-2: agents before the resume offset are already done.
@@ -496,6 +794,15 @@ export function handlePipelineMessage(
           // the ConstructionBlock keeps showing the full task list while catching up.
           protoTotalTasks: isContinuation ? (prev.protoTotalTasks ?? 0) : 0,
           protoPlannedTasks: isContinuation ? prev.protoPlannedTasks : undefined,
+          // ISS-108: preserve answered clarify rounds on a continuation; reset on a
+          // genuinely fresh run so the prior Q&A never leaks into the new run.
+          // Mirrors the protoCompletedTasks pattern on the same predicate.
+          clarifications: isContinuation ? (prev.clarifications ?? []) : [],
+          // ISS-110: preserve hookRuns on a continuation; reset on a fresh run so
+          // the prior run's audit log never leaks. hookRuns is in
+          // ACCUMULATING_FRAME_TYPES, so the dedup gate already covers it — only
+          // the per-run boundary was missing.
+          hookRuns: isContinuation ? (prev.hookRuns ?? []) : [],
           // KAN-120: clear terminal markers so a resumed run does not stay in
           // the "terminal" state (cancelled/failed) after pipeline_start fires.
           // Without this, pipeline_complete resolves isRunning→false but
@@ -504,10 +811,22 @@ export function handlePipelineMessage(
           cancelled: undefined,
           failed: undefined,
           degraded: undefined,
+          // Gap fix: clear a stale `error` frame's message so a resumed/re-announced
+          // run does not keep showing the previous attempt's failure reason.
+          pipelineError: undefined,
           // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
-          // render a relative age ("23h ago"). ADDITIVE optional — falls back to
-          // the receipt time when the event omits it.
-          createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString(),
+          // render a relative age ("23h ago"). ADDITIVE optional.
+          //
+          // ISS-276: NO "now" fallback. This reducer is fed by BOTH the live SSE
+          // stream and the durable REST replay (getRunEvents → handleWebSocketMessage),
+          // and the two frames are identical on the wire — so stamping the receipt time
+          // dated a day-old run to page-load time and froze the lane header on "just
+          // now". A frame that carries no created_at now leaves the field unset, and
+          // formatRelativeAge(undefined) renders "" (dropped by the header's
+          // filter(Boolean)) — a blank instead of a wrong age. The engine stamps the
+          // run's real created_at on pipeline_start (engine.py, same fix), so live runs
+          // and every run recorded after it still render the real age.
+          createdAt: (msg.created_at as string) || prev.createdAt,
           // ISS-063: the restart history a re-announcement re-announces has already
           // happened, so carry it. Only a genuinely different run clears it. Without
           // this the trailing resume frame lands last on every replay and zeroes the
@@ -545,6 +864,25 @@ export function handlePipelineMessage(
 
     case "agent_start": {
       const agentId = msg.agent_id as string;
+      const taskId = msg.task_id as string | undefined;
+
+      // A wave worker clone (per-task stamp) — every worker in a wave shares
+      // the PARENT's agent_id, so this is a CHILD row nested under it, never
+      // a re-render of the parent. Only the parent's own agent_start (no
+      // task_id) runs the full reset/accumulator logic below. Guarded so a
+      // backend that hasn't stamped `task_id` yet (today's events) falls
+      // straight through to the existing parent-only path.
+      if (taskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = upsertWaveWorker(updated[agentIdx], msg, "running");
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
+
       agentStartTimesRef.current[agentId] = Date.now();
 
       setPipelineState((prev) => {
@@ -579,9 +917,71 @@ export function handlePipelineMessage(
           outputTokens: undefined,
           totalTokens: undefined,
           estimatedCostUsd: undefined,
+          // RFN-001 — write the resolved model id from agent_start immediately so
+          // the chip shows while the agent is running (the backend now emits model_id
+          // on agent_start as well as agent_complete). If the event predates the
+          // engine change and carries no model_id, the chip simply stays hidden until
+          // agent_complete fires (graceful degrade, no chip flip).
+          modelId: (msg.model_id as string) || undefined,
           inputPrompt: undefined,
           contextSources: undefined,
+          // Which PASS this is. The engine omits the field on a first dispatch, so
+          // `?? 0` keeps a normal run byte-identical to before (INV-3).
+          visitCount: (msg.visit_count as number | undefined) ?? 0,
+          // Which DISPATCH this is. Counts the spec-revision restarts `visitCount`
+          // cannot see, and is what the "pass N" badge reads. `cumulativeDuration` is
+          // deliberately NOT in this reset block: it survives the pass that is starting.
+          passCount: (updated[agentIdx].passCount ?? 0) + 1,
         };
+
+        // ── a CONDITIONAL ROUTE sent the pipeline backwards ─────────────────
+        // Everything after a re-entered step belongs to the previous pass and is
+        // about to run again, so its "done"/"skipped" badge is a lie until it does.
+        // Observed in run fafea1bc: Coverage Check (index 8) routed back to the
+        // Synthesizer (7), the Synthesizer went "running", and Coverage Check kept
+        // the ✓ it earned on pass 1 — an earlier step in flight underneath a later
+        // step marked done, which a sequential pipeline can never be. The progress
+        // counter never came down either.
+        //
+        // Gated on visit_count, NOT on "the pointer moved backwards", and the
+        // difference is load-bearing in two directions:
+        //  - fan-out: the five readers all emit agent_start before any completes,
+        //    so a bare index test would have each one reset its running siblings;
+        //  - spec revisions: `prototype-specify` restarts at index 0 on every
+        //    revision cycle, and ISS-075 deliberately pins plan/analyze as staying
+        //    "done" across it (revisions count in `revision_attempt`, never in
+        //    visit_count, so that path stays byte-identical here).
+        //
+        // NOT covered: an engine RESUME re-dispatches from step 0 with no
+        // visit_count, and its `pipeline_start` is indistinguishable from a plain
+        // re-announcement (same run id, resume_offset 0), so the ISS-075
+        // carry-forward at :446 keeps the pre-restart rows. Fixing that needs the
+        // engine to mark the frame as a resume; see the note in the run report.
+        // BOTH conditions, and the second is not redundant. Gating on visit_count
+        // alone protects fan-out only on pass 1: on any later pass every
+        // concurrently dispatched sibling also carries visit_count > 0, so
+        // whichever of them emits `agent_start` last would reset all
+        // higher-indexed siblings — including ones already running or done in
+        // that same pass. Requiring the pointer to have actually moved BACKWARDS
+        // excludes them, because siblings dispatch in ascending index order and
+        // each is therefore a forward move.
+        const movedBackwards = agentIdx <= prev.currentAgentIndex;
+        if ((msg.visit_count as number | undefined) && movedBackwards) {
+          for (let i = agentIdx + 1; i < updated.length; i++) {
+            // Every non-idle status, not just "done" — a step killed mid-write keeps
+            // "running" forever otherwise, which is how the fafea1bc screenshot ended
+            // up with Document Ingest AND the Synthesizer both showing "Writing…".
+            if (updated[i].status !== "idle") {
+              updated[i] = {
+                ...updated[i],
+                status: "idle",
+                // Leave `output`/tokens in place: the Steps panel still lets you open
+                // a step and read what the previous pass produced, and the next
+                // `agent_start` for that step clears them itself (above).
+              };
+            }
+          }
+        }
 
         // ISS-063/ISS-080: the only writer of the restart history. Lives here, inside
         // the updater, so it reads `prev` rather than a post-commit ref — that is what
@@ -599,6 +999,10 @@ export function handlePipelineMessage(
           ...prev,
           agents: updated,
           currentAgentIndex: agentIdx,
+          // A gate is over once work resumes. Needed as well as `review_gate_approved`
+          // because a "request changes" re-dispatches the step with no approval event
+          // (run faba87c9: gate_ready 18:31:04 -> agent_start 18:34:17, no approval).
+          gateOpen: false,
           agentStartEventIds: { ...(prev.agentStartEventIds ?? {}), [agentId]: [...priorStarts, startIdentity] },
         };
       });
@@ -608,6 +1012,20 @@ export function handlePipelineMessage(
     case "agent_thinking": {
       const agentId = msg.agent_id as string;
       const thinking = (msg.thinking as string) || "";
+
+      // A wave member's reasoning carries its task_id. Route it to that member,
+      // or five readers' reasoning interleaves into one stream on the step.
+      const thTaskId = msg.task_id as string | undefined;
+      if (thTaskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = appendWorkerThinking(updated[agentIdx], thTaskId, thinking);
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
 
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
@@ -634,6 +1052,21 @@ export function handlePipelineMessage(
       const agentId = msg.agent_id as string;
       const chunk = (msg.chunk as string) || "";
 
+      // A step's output is ACCUMULATED from its chunks — agent_complete carries
+      // no output text. A wave member is no different, and its chunks arrive on
+      // the side channel stamped with its task_id.
+      const chTaskId = msg.task_id as string | undefined;
+      if (chTaskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = appendWorkerOutput(updated[agentIdx], chTaskId, chunk);
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
+
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
         if (agentIdx === -1) return prev;
@@ -652,6 +1085,21 @@ export function handlePipelineMessage(
 
     case "agent_complete": {
       const agentId = msg.agent_id as string;
+      const taskId = msg.task_id as string | undefined;
+
+      // Same wave-worker branch as agent_start above — mark this worker's
+      // child row done, never the parent's own accumulators/status.
+      if (taskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = upsertWaveWorker(updated[agentIdx], msg, "done");
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
+
       const startTime = agentStartTimesRef.current[agentId];
       // Prefer an explicit server-provided duration; fall back to the measured
       // start→complete wall time. ADDITIVE — existing events (no `duration`)
@@ -666,7 +1114,7 @@ export function handlePipelineMessage(
 
         const updated = [...prev.agents];
         updated[agentIdx] = {
-          ...updated[agentIdx],
+          ...settleWaveWorkers(updated[agentIdx]),
           status: "done",
           duration,
           thinking: "",
@@ -674,6 +1122,16 @@ export function handlePipelineMessage(
           outputTokens: (msg.output_tokens as number) || 0,
           totalTokens: (msg.total_tokens as number) || 0,
           estimatedCostUsd: (msg.estimated_cost_usd as number) || 0,
+          // The engine mirrors visit_count on BOTH ends (engine.py :5754) so a client
+          // can pair start/complete per pass; keep the pass the finished numbers
+          // belong to rather than letting a stale value from the previous pass stand.
+          visitCount: (msg.visit_count as number | undefined) ?? updated[agentIdx].visitCount ?? 0,
+          // What every pass of this step has cost. `duration` above stays last-pass-only.
+          cumulativeDuration: (updated[agentIdx].cumulativeDuration ?? 0) + (duration ?? 0),
+          // RFN-001 — the engine already emits the resolved per-agent model id on
+          // agent_complete (engine.py). Surface it here so the chip can render
+          // immediately when the agent finishes, and persist through pipeline end.
+          modelId: (msg.model_id as string) || undefined,
         };
 
         const completedCount = updated.filter((a) => a.status === "done").length;
@@ -696,9 +1154,37 @@ export function handlePipelineMessage(
       return true;
     }
 
+    // The two gate frames are handled for their TIMING only — the gate UI itself lives in
+    // app/[...view]/page.tsx and is untouched. Both are plain overwrites of a boolean, so
+    // they are idempotent and stay out of ACCUMULATING_FRAME_TYPES.
+    case "review_gate_ready": {
+      setPipelineState((prev) => (prev.gateOpen ? prev : { ...prev, gateOpen: true }));
+      return false;
+    }
+
+    case "review_gate_approved": {
+      setPipelineState((prev) => (prev.gateOpen ? { ...prev, gateOpen: false } : prev));
+      return false;
+    }
+
     case "agent_error": {
       const agentId = msg.agent_id as string;
       const error = (msg.error as string) || "Unknown error";
+
+      // A wave worker shares the PARENT's agent_id, so an unguarded error here
+      // would fail the whole step. A task_id means this is a child: fail that
+      // row only. Mirrors the agent_start/agent_complete worker branches.
+      const errTaskId = msg.task_id as string | undefined;
+      if (errTaskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = upsertWaveWorker(updated[agentIdx], msg, "failed");
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
 
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
@@ -706,11 +1192,30 @@ export function handlePipelineMessage(
 
         const updated = [...prev.agents];
         updated[agentIdx] = {
-          ...updated[agentIdx],
+          ...settleWaveWorkers(updated[agentIdx]),
           status: "error",
           error,
           thinking: "",
         };
+
+        return { ...prev, agents: updated };
+      });
+      return true;
+    }
+
+    // Explicit skip signal (spec 014 follow-up): the engine emits this for
+    // every conditional-gate route outcome NOT chosen, right when it resolves
+    // the route — a definite "this step will never run, and here's why", not
+    // an inference from the step never receiving agent_start.
+    case "agent_skipped": {
+      const agentId = msg.agent_id as string;
+
+      setPipelineState((prev) => {
+        const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+        if (agentIdx === -1) return prev;
+
+        const updated = [...prev.agents];
+        updated[agentIdx] = { ...updated[agentIdx], status: "skipped", thinking: "" };
 
         return { ...prev, agents: updated };
       });
@@ -727,6 +1232,14 @@ export function handlePipelineMessage(
       // and expose the degraded flag on the pipeline state.
       const isDegraded = (msg.status as string) === "degraded";
       const degradedFailedIds = isDegraded ? ((msg.agents_failed as string[]) || []) : [];
+
+      // A14 — a loop-cap message that did NOT flip the run to degraded (a
+      // resolved deliverable stayed "completed" server-side). Presence-gated
+      // per the backend's own convention: absent/empty → no warnings fired.
+      const rawWarnings = msg.warnings;
+      const warnings = Array.isArray(rawWarnings) && rawWarnings.length > 0
+        ? (rawWarnings as string[])
+        : undefined;
 
       // Clear the persisted run ID — pipeline is done
       try {
@@ -758,13 +1271,22 @@ export function handlePipelineMessage(
           agents: updated,
           degraded: isDegraded || undefined,
           degradedFailedAgents: isDegraded ? degradedFailedIds : undefined,
+          warnings,
           completedCount: updated.filter((a) => a.status === "done").length,
-          // Prefer the backend's authoritative totals, but fall back to the
-          // values accumulated from agent_complete so a missing field never
-          // wipes the token card to zero.
-          totalInputTokens: (msg.total_input_tokens as number) || prev.totalInputTokens || 0,
-          totalOutputTokens: (msg.total_output_tokens as number) || prev.totalOutputTokens || 0,
-          totalTokens: (msg.total_tokens as number) || prev.totalTokens || 0,
+          // ISS-304: prefer the totals accumulated from agent_complete, and fall
+          // back to the event's own fields only when nothing accumulated (so a
+          // run with no per-agent events never wipes the token card to zero).
+          // The event's totals are NOT the same authority as the rest of the app:
+          // `pipeline_complete.total_*` additionally folds in aux_token_usage
+          // (planner/clarify/fix-loop, engine.py ISS-033), while the persisted
+          // `workflow_runs.token_usage` every OTHER reader shows — the Run History
+          // card, GET /api/runs/{id}, Analytics — is re-derived from agent_complete
+          // alone. Taking the event field made this one header disagree with the
+          // same run's own API (17.9K vs 10.4K). Accumulating from agent_complete
+          // is the SAME set token_usage is built from, so the two now agree.
+          totalInputTokens: prev.totalInputTokens || (msg.total_input_tokens as number) || 0,
+          totalOutputTokens: prev.totalOutputTokens || (msg.total_output_tokens as number) || 0,
+          totalTokens: prev.totalTokens || (msg.total_tokens as number) || 0,
           estimatedCostUsd: (msg.estimated_cost_usd as number) || prev.estimatedCostUsd || 0,
           cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
           cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,
@@ -776,6 +1298,21 @@ export function handlePipelineMessage(
           deliverableVersion: (msg.deliverable_version as number) ?? prev.deliverableVersion,
         };
       });
+      return true;
+    }
+
+    // Gap fix: the REST driver's generic run-failure frame (run_commands.py ~3420),
+    // e.g. {type:"error", data:{error, code:"pipeline_error", recoverable}}. Distinct
+    // from `pipeline_failed` (that one is the terminal per-run sweep with an
+    // agents_failed list); this is the live, plain-text reason a user watching the
+    // run SHOULD see immediately instead of only after history re-fetches it from
+    // the DB on reopen. Stored on its own field — never overwrites a more specific
+    // per-agent `error` already set by `agent_error`; a consumer picks whichever is
+    // more specific.
+    case "error": {
+      const error = msg.error as string | undefined;
+      if (!error) return false;
+      setPipelineState((prev) => ({ ...prev, pipelineError: error }));
       return true;
     }
 
@@ -865,6 +1402,36 @@ export function handlePipelineMessage(
       return true;
     }
 
+    case "pipeline_diverted": {
+      // R-28/R-20 (014-conditional-gates, T38 live case): a `trigger: workflow`
+      // route outcome fired — this run's dispatch loop ended (R-13) and a new,
+      // separate WorkflowRun took over. Additive terminal event (contract
+      // guarantee #1): mirrors pipeline_cancelled's teardown but does NOT set
+      // the `cancelled` marker — a diverted run is not a cancellation, and the
+      // run-view must render "Diverted to X" rather than "Cancelled"/"Completed".
+      try {
+        sessionStorage.removeItem("active_pipeline_run_id");
+        sessionStorage.removeItem("active_pipeline_type");
+      } catch { /* non-fatal */ }
+      const divertedToRunId = msg.diverted_to_run_id as string;
+      const divertedToWorkflow = msg.diverted_to_workflow as string;
+      setPipelineState((prev) => {
+        const updated: AgentRunState[] = prev.agents.map((a) =>
+          a.status === "thinking" || a.status === "running"
+            ? { ...a, status: "idle", thinking: "" }
+            : a
+        );
+        return {
+          ...prev,
+          agents: updated,
+          isRunning: false,
+          divertedTo: { runId: divertedToRunId, workflowId: divertedToWorkflow },
+          completedCount: updated.filter((a) => a.status === "done").length,
+        };
+      });
+      return true;
+    }
+
     case "pipeline_reconnected": {
       // Phase 12 / 12-08 (RESUME-04 FE half, UAT Gap 2b) — previously this
       // event was silently dropped, so after a backend restart mid-run the
@@ -882,9 +1449,26 @@ export function handlePipelineMessage(
       // live:true (12-09 engine→WS attach) or absent (legacy live reconnect):
       // a live task will stream the tail through the queue — keep running and
       // let the subsequent agent_*/wave_*/pipeline_complete events drive state.
-      if (live !== false) return true;
+      //
+      // Stale-status-chip fix: a RESUMED run (Resume/Reopen on a cancelled or
+      // failed run) attaches via this event, not `pipeline_start` — a resume
+      // does not re-announce the pipeline, so `pipeline_start`'s own
+      // cancelled/failed/degraded clear (KAN-120, above) never runs. Without
+      // clearing them here too, `pipelineState.cancelled` stood from the
+      // earlier `pipeline_cancelled` frame while the run was actively
+      // executing again, and the header chip read "Cancelled" until a full
+      // reload re-fetched the run's REST status. Idempotent no-op on an
+      // ordinary live reconnect (those fields are already unset).
+      if (live !== false) {
+        setPipelineState((prev) =>
+          (prev.isRunning && !prev.cancelled && !prev.failed && !prev.degraded && !prev.pipelineError)
+            ? prev
+            : { ...prev, isRunning: true, cancelled: undefined, failed: undefined, degraded: undefined, pipelineError: undefined }
+        );
+        return true;
+      }
 
-      const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "error"];
+      const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "error", "diverted"];
       if (status && TERMINAL_STATUSES.includes(status)) {
         // No live task and the run already finished — the durable tail was
         // replayed by the WS layer before this event, so resolve the run out
@@ -931,14 +1515,37 @@ export function handlePipelineMessage(
     case "agent_input": {
       // Phase 3 (T043) — capture full input prompt and context sources for Thinking tab
       const agentId = msg.agent_id as string;
-      const inputPrompt = (msg.context_message as string) || undefined;
+      // Requirement 36: store system_prompt and context_message separately so
+      // AgentDetailPanel can render them as distinct labelled sections.
+      // inputPrompt keeps the targeted retry payload / step task (context_message)
+      // for backward-compatible rendering on old SSE streams.
+      const systemPrompt = (msg.system_prompt as string) || undefined;
+      const contextMessage = (msg.context_message as string) || undefined;
+      // inputPrompt = context_message when system_prompt is present (new streams),
+      // or context_message alone when system_prompt is absent (old streams).
+      // This keeps the RevisionInstructionCard logic working on inputPrompt.
+      const inputPrompt = contextMessage;
       const contextSources = (msg.context_sources as import("@/types/index").ContextSource[]) || [];
+
+      // A wave member's own input and context — otherwise its page shows the
+      // step's, which is the same for all N members and says nothing about this one.
+      const aiTaskId = msg.task_id as string | undefined;
+      if (aiTaskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = setWorkerInput(updated[agentIdx], aiTaskId, inputPrompt, contextSources);
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
 
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
         if (agentIdx === -1) return prev;
         const updated = [...prev.agents];
-        updated[agentIdx] = { ...updated[agentIdx], inputPrompt, contextSources };
+        updated[agentIdx] = { ...updated[agentIdx], inputPrompt, systemPrompt, contextSources };
         return { ...prev, agents: updated };
       });
       return true;
@@ -955,6 +1562,24 @@ export function handlePipelineMessage(
         (msg.attached_hooks as import("@/types/index").AttachedHookEntry[]) || [];
       const skillsLoadErrors = (msg.skills_load_errors as string[]) || [];
       const estimatedTokens = msg.estimated_tokens as number | undefined;
+
+      // A wave member's own skills/hooks — the member page is the SAME page a
+      // step gets, so every section it has must be filled from that member's
+      // own events rather than the step's.
+      const asTaskId = msg.task_id as string | undefined;
+      if (asTaskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = patchWorker(updated[agentIdx], asTaskId, (p) => ({
+            ...p, attachedSkills, attachedHooks,
+          }));
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
+
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
         if (agentIdx === -1) return prev;
@@ -979,6 +1604,20 @@ export function handlePipelineMessage(
         result: null,
         timestamp: new Date().toISOString(),
       };
+      // A wave member's events carry task_id (stamped in fanout.py at push time).
+      // Without this branch all N members' calls land on the parent step and the
+      // wave becomes uninvestigable — "all is combined here".
+      const tcTaskId = msg.task_id as string | undefined;
+      if (tcTaskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = appendWorkerToolCall(updated[agentIdx], tcTaskId, entry);
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
         if (agentIdx === -1) return prev;
@@ -996,6 +1635,17 @@ export function handlePipelineMessage(
       const agentId = msg.agent_id as string;
       const toolName = msg.tool as string;
       const result = (msg.result as string) || "";
+      const trTaskId = msg.task_id as string | undefined;
+      if (trTaskId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = resolveWorkerToolCall(updated[agentIdx], trTaskId, toolName, result);
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
         if (agentIdx === -1) return prev;
@@ -1188,6 +1838,22 @@ export function handlePipelineMessage(
       const data = (msg.data as Record<string, unknown>) || msg;
       const agentId = (data.agent_id as string) || "";
       const issues = (data.issues as import("@/types/index").ValidationIssue[]) || [];
+      // A wave member's own validation result, same reasoning as skills above.
+      const vrTaskId = data.task_id as string | undefined;
+      if (agentId && vrTaskId && issues.length > 0) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = patchWorker(updated[agentIdx], vrTaskId, (p) => ({
+            ...p,
+            validationIssues: [...(p.validationIssues || []), ...issues],
+            validationPassed: false,
+          }));
+          return { ...prev, agents: updated };
+        });
+        return true;
+      }
       if (agentId && issues.length > 0) {
         setPipelineState((prev) => {
           const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
@@ -1230,6 +1896,78 @@ export function handlePipelineMessage(
           return { ...prev, agents: updated };
         });
       }
+      return true;
+    }
+
+    // A wave ran but dispatched ZERO tasks, so it did nothing — the agent's own
+    // agent_complete still fires normally, so without this flag a no-op wave is
+    // indistinguishable from one that did the work. Flag-only; never overrides
+    // the status transitions agent_start/agent_complete already own.
+    case "wave_skipped": {
+      const agentId = msg.agent_id as string;
+      setPipelineState((prev) => {
+        const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+        if (agentIdx === -1) return prev;
+        const updated = [...prev.agents];
+        updated[agentIdx] = {
+          ...updated[agentIdx],
+          waveSkipped: {
+            reason: (msg.reason as string) || "",
+            sourceStep: msg.source_step as string | undefined,
+          },
+        };
+        return { ...prev, agents: updated };
+      });
+      return true;
+    }
+
+    // The engine detected and re-dispatched tasks a prior wave pass dropped —
+    // rendered as a warning row, not a failure.
+    case "wave_repair": {
+      const agentId = msg.agent_id as string;
+      setPipelineState((prev) => {
+        const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+        if (agentIdx === -1) return prev;
+        const updated = [...prev.agents];
+        updated[agentIdx] = {
+          ...updated[agentIdx],
+          waveRepair: {
+            waveIndex: (msg.wave_index as number) ?? 0,
+            missingTaskIds: Array.isArray(msg.missing_task_ids) ? (msg.missing_task_ids as string[]) : [],
+            count: (msg.count as number) ?? 0,
+          },
+        };
+        return { ...prev, agents: updated };
+      });
+      return true;
+    }
+
+    // Task 9.2 (sandbox-git-versioning-v2, Req 20/19): chain_context_unavailable
+    // Emitted when the chain payload is unavailable at install time (departure N3
+    // / Requirement 6 AC 16). Payload carries one of five bounded reason codes —
+    // no PII, secrets, file contents, internal paths, or another owner's run id.
+    //
+    // Task 11.8 (Req 21 AC 9): also fired synthetically by RunConnectionProvider
+    // when a new frontend detects an older backend that does not support v2
+    // chaining (reason: "incompatible_backend"), or for any other unrecognised
+    // version combination (reason: "unsupported_version_combination").  Both
+    // fall through to the existing generic-fallback path in RunEngineNotice, so
+    // no structural change is needed here.
+    case "chain_context_unavailable": {
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const reason = (data.reason as string) || "unknown";
+      setPipelineState((prev) => ({ ...prev, chainContextUnavailableReason: reason }));
+      return true;
+    }
+
+    // Task 9.2 (sandbox-git-versioning-v2, Req 20/19): run_finalization_failed
+    // Emitted when finalize_terminal_run completes in a degraded state. Payload
+    // carries a bounded degraded_reason from the finalization record — no PII,
+    // secrets, file contents, internal paths, or another owner's run id.
+    case "run_finalization_failed": {
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const reason = (data.reason as string) || "unknown";
+      setPipelineState((prev) => ({ ...prev, finalizationFailedReason: reason }));
       return true;
     }
 

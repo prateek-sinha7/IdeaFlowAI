@@ -67,10 +67,6 @@ def _read_cost_site(path: Path) -> str:
             Pricing(1e-6, 5e-6, 0.1e-6, 1.25e-6, 2e-6),
         ),
         (
-            "us.anthropic.claude-3-5-haiku-20241022-v1:0",
-            Pricing(0.8e-6, 4e-6, 0.08e-6, 1e-6, 1.6e-6),
-        ),
-        (
             "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
             Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         ),
@@ -102,22 +98,24 @@ def test_pricing_covers_every_catalog_model() -> None:
     """Every catalog entry carries a frozen ``Pricing`` — no model can be added
     without a rate (which would silently price a run at zero).
 
-    The exact count is pinned deliberately so adding or removing a model fails
-    loudly here and forces a rate review. It is 7 since ``23766691`` removed the
-    two ``*.anthropic.claude-sonnet-5`` pins ("fall through to Haiku default");
-    the surviving ``sonnet-5`` mentions in ``model_policy``/``model_factory`` are
-    prose and defensive fragment-matching, not catalog entries.
+    The count is pinned so a model arriving or leaving is a deliberate edit here,
+    not a silent one — a run billing at zero is the failure it guards. Geo twins
+    (us./eu. of the same model) need no extra rate row: ``_PREFIXES`` strips the
+    prefix, so both resolve to one entry. Cross-provider entries DO need their
+    own row — GPT-5.6 is a different rate card, not a geo variant.
     """
     entries = ModelCatalog().list()
-    assert len(entries) == 7, (
+    # 11 = 9 Claude (2 of them geo twins) + GPT-5.6 Luna and Sol.
+    # Was 12 until Haiku 3.5 was removed on 2026-09-22 (unavailable in eu-north-1).
+    assert len(entries) == 11, (
         f"catalog size changed ({len(entries)}) — a model was added or removed. "
         f"Review its per-token rates, then update this pin: "
         f"{[e.id for e in entries]}"
     )
     for entry in entries:
-        assert isinstance(entry.pricing, Pricing), (
-            f"{entry.id} has no frozen Pricing — its runs would cost $0"
-        )
+        assert isinstance(
+            entry.pricing, Pricing
+        ), f"{entry.id} has no frozen Pricing — its runs would cost $0"
 
 
 # ---------------------------------------------------------------------------

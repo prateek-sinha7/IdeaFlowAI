@@ -27,6 +27,7 @@ from typing import Any, AsyncGenerator
 from agents.capabilities.gates.base import (
     GATE_BLOCK,
     GATE_PASS,
+    GATE_REDO,
     GATE_WAIT_HUMAN,
     GateOutcome,
 )
@@ -37,12 +38,16 @@ from agents.capabilities.registry import register
 # the outcome only). Kept in sync with engine._run_review_gate.
 _REJECTED = "_gate_rejected"
 _EDITED = "_gate_edited"
-# REDO-GATE F1a: the shared _run_review_gate may now emit _gate_redo. The DECLARED
-# human-gate path is NOT wired for redo in v1 (it is a PRE-step gate over the
-# PREVIOUS step's output — a different mechanism, the documented follow-up), so a
-# stray _gate_redo here (e.g. a scripted client sending action:"redo") MUST be
-# CONSUMED — never re-surfaced to the wire, never mapped to GATE_PASS. The FE never
-# offers Redo on a declared gate (review_gate_ready.redoable is False off this path).
+# REDO-GATE F1a / declared-gate follow-up: the shared _run_review_gate may emit
+# _gate_redo. A step declaring ``redoable: true`` (Step.redoable, the manifest
+# opt-in) turns this into the additive GATE_REDO outcome below so the ENGINE
+# dispatch loop re-runs the step in place (mirrors the always-on inline
+# ``_should_gate`` path). A step that does NOT opt in (the v1 default — most
+# declared gates are PRE-step over the PREVIOUS step's output, a different
+# mechanism) keeps the original behaviour: a stray _gate_redo (e.g. a scripted
+# client sending action:"redo") is CONSUMED — never re-surfaced to the wire,
+# never mapped to GATE_PASS. The FE only offers Redo when
+# ``review_gate_ready.redoable`` is True, which now mirrors ``step.redoable``.
 _REDO = "_gate_redo"
 # ISS-053: the same is true of ``_gate_update_specs``. A declared gate passes
 # ``update_specs_eligible=False``, so the shared primitive now refuses that action and
@@ -58,10 +63,36 @@ _UPDATE_SPECS = "_gate_update_specs"
     "gate",
     "human",
     user_allowed=True,
-    description="Pause the run for a human review gate (HITL) and resume on approval.",
+    description="Pause AFTER this step and review its own output (HITL); supports redo.",
+)
+@register(
+    "gate",
+    "before-human",
+    user_allowed=True,
+    description="Pause BEFORE this step runs and review the previous step's output (HITL).",
 )
 class HumanGate:
-    """HITL review gate (``name='human'``) delegating to the unchanged review gate.
+    """HITL review gate delegating to the unchanged review gate.
+
+    Registered under TWO names that differ only in WHEN the engine evaluates them
+    (``_POST_STEP_GATES`` decides that, not this class):
+
+      * ``human``        — POST-step. Reviews this step's OWN output; the edit
+        rewrites this step's artifact, and redo re-runs the step. This is what
+        every shipping pipeline means by a human gate, and what the inline
+        ``_should_gate``/``AGENT.md gate: Human_Gate`` path has always done.
+      * ``before-human`` — PRE-step. Reviews the PREVIOUS step's output; the edit
+        rewrites THAT step's artifact and so becomes this step's input. The rarer
+        case, previously reachable only by declaring ``gates: [human]`` on a step
+        whose agent had no ``AGENT.md`` — identical spelling, opposite behaviour,
+        with nothing in the manifest to tell them apart. Naming the phase is the
+        whole point of the split.
+
+    ONE human-family gate per step. ``gate_key`` is
+    ``f"{run_id}:{agent_id}:{visit_count}"`` — the gate NAME is not part of it — so
+    two HITL pauses on the same step in the same visit would collide on durable
+    gate state. The compiler rejects that combination rather than letting it fail
+    at runtime.
 
     Satisfies the ``GateHandler`` port structurally (``name`` + ``async evaluate``).
     """
@@ -96,14 +127,29 @@ class HumanGate:
         # inline path, which passes the agent's output). Sourced from ctx when set.
         output = getattr(ctx, "last_streamed", "") or ""
 
+        # Declared-gate redo opt-in (Step.redoable — manifest field, REDO-GATE
+        # follow-up). Read structurally off the step, never an agent/workflow id
+        # (SC-001). Default False ⇒ every existing manifest keeps the original
+        # "redo is unwired" behaviour below.
+        redo_enabled = bool(getattr(step, "redoable", False))
+
         rejected = False
         unwired_action_seen = False
+        redo_instructions: str | None = None
         edited_content: str | None = None
         async for event in delegate(step, output=output):
             etype = event.get("type")
             if etype == _REJECTED:
                 rejected = True
                 # internal signal — not re-surfaced as a gate event
+                continue
+            if etype == _REDO and redo_enabled:
+                # REDO-GATE follow-up: the step opted in — capture the (optional)
+                # free-text instructions and let the kernel re-run the step. The
+                # instructions are NOT re-surfaced as a gate event (parity with
+                # the inline path's redo handling); the kernel delivers them to
+                # the re-run through the existing generic steering-note seam.
+                redo_instructions = event.get("instructions") or ""
                 continue
             if etype in (_REDO, _UPDATE_SPECS):
                 # REDO-GATE F1a / ISS-053: consume the signal — never yield it (no wire
@@ -126,15 +172,19 @@ class HumanGate:
 
         # REDO-GATE F1a: a stray redo on the (un-wired) declared path maps to a
         # NON-PASS outcome — GATE_WAIT_HUMAN ("still needs a human"), so the step does
-        # NOT silently advance. Reject still wins (GATE_BLOCK). This also writes an
-        # HONEST audit row (F9) instead of a misleading GATE_PASS.
+        # NOT silently advance. Reject still wins (GATE_BLOCK). A redo on an OPTED-IN
+        # step (redo_instructions is not None — set even on a blank redo) maps to the
+        # additive GATE_REDO outcome so the kernel re-runs the step. This also writes
+        # an HONEST audit row (F9) instead of a misleading GATE_PASS.
         outcome = (
             GATE_BLOCK
             if rejected
+            else GATE_REDO
+            if redo_instructions is not None
             else (GATE_WAIT_HUMAN if unwired_action_seen else GATE_PASS)
         )
         # The audit row keeps a CONTENT-FREE detail (no user payload persisted in
-        # gate_events); the edited content itself rides the GateOutcome only.
+        # gate_events); the edited content / redo instructions ride the GateOutcome only.
         await write_gate_event(
             ctx,
             step_id,
@@ -142,11 +192,12 @@ class HumanGate:
             outcome,
             {"edited": True} if (edited_content and not rejected) else None,
         )
-        detail = (
-            {"edited_content": edited_content}
-            if (edited_content and not rejected)
-            else None
-        )
+        if outcome == GATE_REDO:
+            detail = {"instructions": redo_instructions}
+        elif edited_content and not rejected:
+            detail = {"edited_content": edited_content}
+        else:
+            detail = None
         yield GateOutcome(outcome=outcome, events=[], detail=detail)
 
     async def evaluate(self, step: Any, ctx: Any) -> GateOutcome:

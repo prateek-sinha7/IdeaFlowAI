@@ -40,6 +40,89 @@ def unwrap_artifact(text: str) -> str:
     return text
 
 
+_DOCUMENT_START_RE = re.compile(r"<!doctype\s+html\b|<html[\s>]", re.IGNORECASE)
+
+
+def strip_pre_document_prose(text: str) -> str:
+    """Drop the narrative prose a model streamed BEFORE its HTML document.
+
+    ``unwrap_artifact`` only strips a literal ``<artifact>`` wrapper, so an agent
+    that reasons out loud and then emits a BARE ``<!DOCTYPE html>`` deck leaves
+    that reasoning glued to the front of the deliverable; the preview iframe
+    renders it as text nodes above slide 1 (QA-PS-023 / ISS-700, and the same
+    gap in the ``ppt`` and ``single_file`` chains — ISS-736 / ISS-737).
+
+    Deliberately narrow, because a markdown/text deliverable may legitimately
+    QUOTE an ``<html>`` example inside its body — the hazard ``unwrap_artifact``
+    documents for ``<artifact>``. BOTH conditions must hold before anything is
+    dropped:
+
+      * there is non-whitespace content before the first ``<!DOCTYPE html`` /
+        ``<html`` occurrence, and
+      * the stream ENDS at that document's ``</html>`` close — i.e. the tail IS
+        the whole deliverable, not an example embedded mid-body.
+
+    No-op on empty / non-HTML input and on a stream that already starts at the
+    document.
+    """
+    if not text:
+        return text
+    match = _DOCUMENT_START_RE.search(text)
+    if not match:
+        return text
+    preamble = text[: match.start()]
+    if not preamble.strip():
+        return text  # already starts at the document — nothing to strip
+    # Tail window is generous enough for trailing whitespace or a closing fence.
+    if "</html>" not in text[-40:].lower():
+        return text  # the document is not the tail — leave the deliverable alone
+
+    logger.info(
+        "Stripped pre-document prose from deliverable (%d chars removed, content=%r\u2026)",
+        len(preamble),
+        preamble.strip()[:80],
+    )
+    return text[match.start():].strip()
+
+
+def strip_code_fence(text: str) -> str:
+    """Strip a markdown code fence wrapping the WHOLE deliverable.
+
+    A deck agent that answers with ```html\n<!DOCTYPE html>…\n``` produces a
+    deliverable whose first bytes are a fence, so every downstream HTML check
+    fails: no ``<!DOCTYPE``, no ``<html``, and the preview renders "Invalid
+    presentation output". Observed on a baseline ppt run where ppt-validator's
+    5286-char output opened with ``\u0060\u0060\u0060html``.
+
+    Deliberately narrow, because a deck can legitimately CONTAIN a fence inside a
+    slide's body text:
+
+      * only a fence at position 0 (after leading whitespace) is removed, and
+      * only its closing partner at the very end, when one is present.
+
+    The unterminated case is handled on purpose — a truncated generation loses its
+    closing fence but still carries the opening one, and that output is worth
+    salvaging.
+
+    No-op when the text does not begin with a fence.
+    """
+    if not text:
+        return text
+    stripped = text.lstrip()
+    if not stripped.startswith("```"):
+        return text
+    # Drop the opening fence line (``` plus an optional language tag).
+    newline = stripped.find("\n")
+    if newline == -1:
+        return text  # a lone fence with no body — nothing to salvage
+    body = stripped[newline + 1:]
+    # Drop the closing fence when the model actually emitted one.
+    trailing = body.rstrip()
+    if trailing.endswith("```"):
+        body = trailing[: -len("```")]
+    return body.strip()
+
+
 def strip_pre_slide_body_text(html: str) -> str:
     """Strip any text or inline elements injected into ``<body>`` before the first slide.
 

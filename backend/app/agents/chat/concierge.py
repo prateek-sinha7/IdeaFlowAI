@@ -452,7 +452,9 @@ def propose_gate_action(action: str, rationale: str = "") -> ProposalIntent:
     return _gate_intent(action, rationale)
 
 
-def _collecting_proposal_tools(collector: list) -> list:
+def _collecting_proposal_tools(
+    collector: list, allowed_chain_ids: frozenset[str] = frozenset()
+) -> list:
     """Build PER-INVOCATION proposal tools that RECORD each surfaced intent (drain).
 
     CONCURRENCY MANDATE (BINDING): the ``collector`` is a per-request list OWNED by
@@ -462,6 +464,18 @@ def _collecting_proposal_tools(collector: list) -> list:
     module-level ``propose_*`` tool returns (identical channel/param contract via the
     shared builders) AND appends it to the collector so ``converse`` can surface the
     proposals for app-layer disposal (33-03) — still HELD behind a confirm chip.
+
+    ``allowed_chain_ids`` (L3-fix1): the exact set of ``chain_hints`` ids offered to
+    the model THIS turn (empty when no hints were supplied). The prompt already tells
+    the model ``target_id`` "MUST be one of the ids from chain_hints — never invent
+    one", but nothing previously enforced that server-side: a small/local model asked
+    to chain with zero (or the wrong) hints on offer has invented an id (observed:
+    literal ``"chain_1"``), which reached ``POST /api/runs`` as an invalid
+    ``pipeline_type`` (400) after the FE had already rendered a confirm chip / optimistic
+    "Done" state. ``propose_chain`` below is the ONE site every live chain proposal
+    passes through, so the id is validated here rather than trusted through to the
+    app-layer launch (``run_commands.py``'s disposal comment already assumed FE-side
+    validation only — this closes the server-side gap).
     """
 
     @tool
@@ -500,8 +514,16 @@ def _collecting_proposal_tools(collector: list) -> list:
             target_id: The id of the follow-up workflow from the chain_hints list.
             rationale: Optional brief explanation.
         """
-        intent = _chain_intent(target_id, rationale)
-        collector.append(intent)
+        normalized_id = (target_id or "").strip()
+        if normalized_id not in allowed_chain_ids:
+            # The model invented an id (or no hints were on offer at all) — degrade
+            # to a dropped proposal, same "safe, inert" pattern as _gate_intent's
+            # out-of-range degrade, rather than let an unvalidated id ever reach the
+            # launch endpoint as pipeline_type.
+            normalized_id = ""
+        intent = _chain_intent(normalized_id, rationale)
+        if normalized_id:
+            collector.append(intent)
         return intent
 
     @tool
@@ -565,7 +587,17 @@ class ConciergeCapability:
         # (NEVER instance state) fed by per-invocation proposal tools. Two overlapping
         # converse calls keep distinct collectors, so neither sees the other's intents.
         collected: list[ProposalIntent] = []
-        proposal_tools = _collecting_proposal_tools(collected)
+        # L3-fix1: the same id-extraction the chain_hints prompt block uses (cap 8,
+        # dict + non-empty id), so propose_chain can only surface an id the model was
+        # actually shown this turn — never one it invented.
+        raw_chain_hints = getattr(ctx, "chain_hints", None)
+        chain_hints = raw_chain_hints if isinstance(raw_chain_hints, list) else []
+        allowed_chain_ids = frozenset(
+            str(hint.get("id") or "").strip()[:60]
+            for hint in chain_hints[:8]
+            if isinstance(hint, dict) and str(hint.get("id") or "").strip()
+        )
+        proposal_tools = _collecting_proposal_tools(collected, allowed_chain_ids)
         tools = (
             self._read_tools(
                 scoped_store,
@@ -619,8 +651,17 @@ class ConciergeCapability:
             "cache_read_tokens": 0,
             "cache_write_tokens": 0,
         }
+        # The runner SWALLOWS a non-throttle failure into ``{"type":"error"}``
+        # (deep_agent_runner.astream_events) rather than raising. Ignoring that event
+        # here — as this loop used to — left ``full_output`` empty, so an auth /
+        # validation failure reached the user as a BLANK assistant reply with the
+        # cause visible only in the server log. Capture it and answer honestly below.
+        stream_error = ""
         async for event in runner.astream_events(user_message):
             etype = event["type"]
+            if etype == "error":
+                stream_error = str(event.get("error") or "").strip()
+                continue
             if etype == "usage":
                 for key in (
                     "input_tokens",
@@ -639,6 +680,13 @@ class ConciergeCapability:
                 if inspect.isawaitable(res):
                     await res
         answer = full_output
+        if not answer and stream_error:
+            # No text AND a captured failure: say what went wrong instead of
+            # returning "" (which renders as an empty message / apparent crash).
+            answer = (
+                "I could not answer that — the model call failed:\n\n"
+                f"{stream_error[:500]}"
+            )
         # The effective model rides with the counters so the cost site prices the turn
         # against the model that actually ran, not a default inference profile.
         usage_total["model_id"] = getattr(runner, "model_id", "") or ""

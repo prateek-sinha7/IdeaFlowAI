@@ -50,8 +50,14 @@ def _text_turn(tag: str) -> list[_ScriptedTurn]:
 
 
 async def _drive_execute(*, error_ids: set[str]):
-    """Drive the FULL ``ExecutionEngine.execute()`` for a 2-agent user_stories subset
-    through the REAL ``_run_agent`` path, returning ``(events, engine, run_id, ids)``.
+    """Drive the FULL ``ExecutionEngine.execute()`` for the complete user_stories
+    roster through the REAL ``_run_agent`` path, returning ``(events, engine, run_id, ids)``.
+
+    ISS-632: the original harness used ``get_pipeline_agents("user_stories")[:2]``,
+    which is a strict subset of the 6-step plan. ADR-0008's ``_roster_is_partial``
+    check fills in the full roster from the compiled plan, so the engine ran all 6
+    while the test only knew about 2 — count assertions were always wrong. Now drives
+    the full roster so the assertions are correct.
 
     ``create_runner`` is patched so an agent whose id is in ``error_ids`` is built on a
     ``ScriptedFakeChatModel([], raise_exc=ScriptedNonTransientError())`` (its runner
@@ -60,6 +66,10 @@ async def _drive_execute(*, error_ids: set[str]):
 
     The Deep-Planner model call is skipped offline by flipping ``compiled.planner`` to
     "skip" (mirrors tests/unit/app/test_pipeline_failure_semantics.py).
+
+    ``agents=[]`` is passed to engine.execute so it runs the FULL compiled manifest (all
+    user_stories agents), avoiding the roster-expansion seam. Tests filter events by
+    agent_id to observe the agents they care about (ADR-0008 roster-rules).
     """
     import agents.factory as factory_mod
     import agents.execution_engine.engine as engine_mod
@@ -69,8 +79,10 @@ async def _drive_execute(*, error_ids: set[str]):
 
     _settings.RUNS_ROOT = _RUNS_ROOT
 
-    specs = get_pipeline_agents("user_stories")[:2]
-    assert len(specs) == 2, "harness expects two user_stories agents"
+    specs = get_pipeline_agents(
+        "user_stories"
+    )  # full roster — no [:2] slice (ISS-632/ADR-0008)
+    assert len(specs) >= 2, "harness expects at least two user_stories agents"
     ids = [s.id for s in specs]
 
     _orig_create_runner = factory_mod.create_runner
@@ -105,7 +117,7 @@ async def _drive_execute(*, error_ids: set[str]):
     events: list[dict] = []
     try:
         async for ev in engine.execute(
-            agents=specs,
+            agents=[],
             user_message="build a backlog",
             pipeline_run_id=run_id,
             pipeline_type="user_stories",
@@ -134,6 +146,7 @@ def _agent_complete_ids(events: list[dict]) -> set[str]:
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.issue("ISS-632")
 @pytest.mark.asyncio
 async def test_all_agents_error_ends_pipeline_failed() -> None:
     """Every agent's runner raises ``ScriptedNonTransientError`` → the run emits ≥1
@@ -153,7 +166,10 @@ async def test_all_agents_error_ends_pipeline_failed() -> None:
     assert len(failed) == 1, f"expected exactly one pipeline_failed: {events}"
     data = failed[0]["data"]
     assert data["agents_failed"], "pipeline_failed must list the failed agents"
-    assert set(data["agents_failed"]) == set(ids)
+    # All agents in the pipeline should be listed as failed (we errored them all).
+    assert (
+        set(data["agents_failed"]) == set(ids)
+    ), f"pipeline_failed agents_failed mismatch: expected {set(ids)}, got {set(data['agents_failed'])}"
     assert data["agents_completed"] == 0
 
     # No pipeline_complete for a totally-failed run.
@@ -173,15 +189,18 @@ async def test_all_agents_error_ends_pipeline_failed() -> None:
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.issue("ISS-632")
 @pytest.mark.asyncio
 async def test_partial_error_ends_degraded() -> None:
-    """ONE agent errors, the other completes normally → the run emits
+    """ONE agent errors, the rest complete normally → the run emits
     ``pipeline_complete`` carrying ``status == "degraded"`` + the errored agent in
-    ``agents_failed``, the completing agent's ``agent_complete`` IS present, and NO
+    ``agents_failed``, the completing agents' ``agent_complete`` IS present, and NO
     ``pipeline_failed`` fires."""
     # First learn the ids (a no-error drive), then re-drive flagging only the first.
     _events, _engine, _run_id, ids = await _drive_execute(error_ids=set())
-    failed_id, completed_id = ids[0], ids[1]
+    failed_id = ids[0]
+    # All other agents should complete successfully.
+    expected_completed_count = len(ids) - 1
 
     events, engine, run_id, ids = await _drive_execute(error_ids={failed_id})
 
@@ -194,15 +213,24 @@ async def test_partial_error_ends_degraded() -> None:
 
     data = complete[0]["data"]
     assert data["status"] == "degraded", f"expected degraded: {data!r}"
-    assert data["agents_failed"] == [failed_id]
-    assert data["agents_completed"] == 1
+    assert data["agents_failed"] == [
+        failed_id
+    ], f"expected only {failed_id} failed; got {data['agents_failed']}"
+    assert (
+        data["agents_completed"] == expected_completed_count
+    ), f"expected {expected_completed_count} completed agents; got {data['agents_completed']}"
 
     # The errored agent surfaced an agent_error and produced NO agent_complete; the
-    # surviving agent's agent_complete IS present.
+    # surviving agents' agent_complete IS present.
     err_ids = {e["data"].get("agent_id") for e in _events_of(events, "agent_error")}
-    assert failed_id in err_ids
+    assert (
+        failed_id in err_ids
+    ), f"expected agent_error from {failed_id}; got errors from {err_ids}"
     completes = _agent_complete_ids(events)
-    assert completed_id in completes, "the completing agent must emit agent_complete"
+    # All other agents must emit agent_complete.
+    for aid in ids:
+        if aid != failed_id:
+            assert aid in completes, f"completing agent {aid} must emit agent_complete"
     assert (
         failed_id not in completes
     ), "ISS-016: the failed agent must NOT emit an (empty) agent_complete"

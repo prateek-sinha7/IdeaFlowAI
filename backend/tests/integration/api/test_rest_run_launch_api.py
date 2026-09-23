@@ -270,6 +270,43 @@ def test_nonempty_brief_still_launches(env):
     assert _run_count(env) == 1
 
 
+def _expired_bedrock_bearer_token() -> str:
+    """A syntactically-real ``bedrock-api-key-`` token, expired 2h ago — a
+    KNOWN, fabricated date, never a real credential (A4, STABILIZATION.md)."""
+    import base64
+    from datetime import datetime, timedelta, timezone
+
+    issued = datetime.now(timezone.utc) - timedelta(hours=2)
+    payload = (
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256"
+        f"&X-Amz-Date={issued.strftime('%Y%m%dT%H%M%SZ')}"
+        "&X-Amz-Expires=60"
+        "&X-Amz-SignedHeaders=host"
+    )
+    return "bedrock-api-key-" + base64.b64encode(payload.encode()).decode()
+
+
+def test_expired_bedrock_token_rejected_pre_mint(env, monkeypatch):
+    """A4 (STABILIZATION.md): a launch whose configured provider is Bedrock via
+    an already-expired bearer token is rejected BEFORE any WorkflowRun is
+    minted — no agent ever independently discovers the same dead credential."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", _expired_bedrock_bearer_token())
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="build a stationery ordering flow",
+                        pipeline_type="user_stories")
+    assert resp.status_code == 503
+    detail = resp.json()["detail"]
+    assert detail["code"] == "model_provider_unavailable"
+    assert "AWS_BEARER_TOKEN_BEDROCK" in detail["error"]
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
 def test_bare_prototype_without_a_template_is_still_rejected_pre_mint(env):
     """DEF-44-08-1 / F3 (13-06): a ``prototype`` launch whose agents declare
     ``template`` injection but which supplies NO ``template_id`` is rejected PRE-MINT
@@ -369,6 +406,28 @@ def test_basic_tier_allowed_for_basic_pipeline(env):
     resp = _post_launch(env, message="build a backlog", pipeline_type="user_stories")
     assert resp.status_code == 200, resp.text
     assert _run_count(env) == 1
+
+
+@pytest.mark.issue("ISS-234")
+def test_empty_custom_agent_ids_not_silently_widened_to_full_pool(env):
+    """ISS-234: ``pipeline_type: "custom"`` with an explicitly empty
+    ``agent_ids: []`` (the composer's genuine "nothing selected" state — e.g.
+    the dead-link ``/workflows/<bad-id>/canvas`` composer, which renders 0
+    agents) must NOT be silently substituted with the full custom-pool default
+    roster.
+
+    Today ``if agent_ids:`` at ``run_commands.py:2695`` is False for ``[]`` the
+    same as for ``None``, so it falls to ``get_pipeline_agents("custom")`` — the
+    full 9-agent custom-utility pool — and mints + drives a real run the caller
+    never asked for. Expected: an empty custom roster is rejected PRE-MINT (no
+    WorkflowRun row, no engine execute), the same shape as every other ingress
+    denial in this file."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="x", pipeline_type="custom", agent_ids=[])
+    assert resp.status_code in (400, 422), resp.text
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -963,3 +1022,211 @@ async def test_driver_persists_model_id_and_prices_non_circular(env, monkeypatch
     usage = json.loads(row.token_usage)
     assert usage["estimated_cost_usd"] == expected_cost
     assert usage["estimated_cost_usd"] != _default_price
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 6. T27 — launch_run core extraction (plan.md UNKNOWN-1 / RISK-04).
+#
+# `launch_run` is now a thin wrapper: everything above the JOIN POINT
+# (launch-shape detection, entitlement/agent/template/model-override/image
+# ingress validation) stays inline; the mint-and-spawn logic below the JOIN
+# POINT was pulled into `_launch_run_core` — a plain async function with no
+# FastAPI coupling, callable both by this HTTP handler and (T28) by a future
+# kernel delegate that has already resolved its own agents/compiled plan.
+#
+# These two tests pin the extraction boundary: (a) the core stays decoupled
+# from FastAPI/Depends/LaunchCommand, and (b) calling it directly produces the
+# SAME response shape and WorkflowRun columns as driving it via the real HTTP
+# endpoint — i.e. the extraction changed nothing observable on the HTTP path.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_launch_run_core_is_plain_async_function_decoupled_from_fastapi():
+    """T27: `_launch_run_core` must be a plain async function — no `Depends`,
+    no `Request`, no `LaunchCommand` body param, every argument keyword-only —
+    the exact property that lets a future kernel delegate (T28) call it after
+    resolving its own agents/compiled plan, with no inbound HTTP request."""
+    import inspect
+
+    from app.api.run_commands import _launch_run_core
+
+    assert inspect.iscoroutinefunction(_launch_run_core)
+    sig = inspect.signature(_launch_run_core)
+    assert all(
+        p.kind == inspect.Parameter.KEYWORD_ONLY for p in sig.parameters.values()
+    )
+    expected = {
+        "content", "pipeline_type", "agents", "compiled", "od_context",
+        "validated_images", "model_overrides", "user", "source_workflow_run_id",
+        "selections", "gate_agent_ids", "attached_skills", "attached_hooks",
+        # T28's R-15/R-18 threading: defaulted keyword-only additions the HTTP
+        # wrapper never passes (so the HTTP path is unchanged) and
+        # ``run_trigger_workflow`` passes unconditionally.
+        "parent_run_id_override", "owner_id_override", "workspace_id_override",
+        "trigger_depth",
+        # UPLD-05 / migration 0040: defaulted keyword-only additions for staged
+        # document ingest and composed-workflow manifest persistence.
+        "staged_upload_ids", "manifest_json",
+        # Task 9.3 / Requirement 21 AC 10: the ORIGINAL request-body source run
+        # id for the duplicate-context strip guard.  Defaults to None so all
+        # existing non-HTTP callers are unaffected.
+        "request_source_workflow_run_id",
+        # Task 6.5: pre-validated chain selection threaded from admit_chain_launch.
+        "chain_selection",
+    }
+    assert set(sig.parameters) == expected
+
+
+@pytest.mark.asyncio
+async def test_launch_run_core_called_directly_matches_http_endpoint_shape(env):
+    """T27 regression: `launch_run` (HTTP) and a direct call to the extracted
+    `_launch_run_core` (the shape T28's kernel delegate will use) must produce
+    byte-identical response shape and mint byte-identical WorkflowRun columns
+    for equivalent input — proof the extraction left the HTTP path unaffected.
+    """
+    from agents.registry import get_pipeline_agents
+    from app.api.run_commands import _launch_run_core
+
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    # Path A — the real HTTP endpoint.
+    http_resp = _post_launch(env, message="build a backlog", pipeline_type="user_stories")
+    assert http_resp.status_code == 200, http_resp.text
+    http_body = http_resp.json()
+    assert set(http_body.keys()) == {"run_id"}
+    assert isinstance(http_body["run_id"], str) and http_body["run_id"]
+    http_run = _latest_run(env)
+
+    # Path B — the extracted core, called directly with no HTTP request in the
+    # loop at all (mirrors both what launch_run itself now passes it, and the
+    # call shape a kernel delegate will use).
+    # ``get_pipeline_agents`` already returns list[AgentSpec] (registry.py:157) —
+    # the same value ``launch_run``'s Case 1 passes straight through as ``agents=``.
+    agents = get_pipeline_agents("user_stories")
+    core_result = await _launch_run_core(
+        content="build a backlog",
+        pipeline_type="user_stories",
+        agents=agents,
+        compiled=None,
+        od_context=None,
+        validated_images=[],
+        model_overrides={},
+        user=user,
+        source_workflow_run_id=None,
+        selections=None,
+        gate_agent_ids=None,
+        attached_skills=None,
+        attached_hooks=None,
+    )
+
+    # Byte-identical response SHAPE: exactly one key, `run_id`, a non-empty str.
+    assert set(core_result.keys()) == {"run_id"}
+    assert isinstance(core_result["run_id"], str) and core_result["run_id"]
+
+    # Let the core's fire-and-forget driver settle. Path A's driver already ran to
+    # completion inside the TestClient call, so without this the two rows are
+    # compared at DIFFERENT lifecycle points ("completed" vs. a still-"running"
+    # freshly-minted row) and `status` diverges on timing, not on behaviour.
+    core_task = env["ws"]._PIPELINE_TASKS.get(core_result["run_id"])
+    if core_task is not None:
+        await core_task
+
+    core_run = _latest_run(env)
+    assert core_run.id == core_result["run_id"]
+
+    # Byte-identical BEHAVIOR: both paths minted a WorkflowRun with the same
+    # column values for equivalent input (id/created_at necessarily differ).
+    for field in ("user_id", "type", "status", "input", "agent_count", "session_id"):
+        assert getattr(http_run, field) == getattr(core_run, field), field
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 5. UPLD-09: workspace minting BEFORE ingest_staged_uploads (DEFECT B test)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_launch_run_mints_workspace_before_ingest_staged_uploads(
+    env, monkeypatch,
+):
+    """UPLD-09 / DEFECT B: _launch_run_core must mint the workspace BEFORE
+    calling ingest_staged_uploads, so _persist_documents receives a non-None
+    workspace_id and can write the durable mirror (RESUME-12 fallback).
+
+    This test proves the ordering is correct: _persist_documents is called
+    with workspace_id != None when staged uploads are present.
+    """
+    from app.api.run_commands import _launch_run_core
+
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    # Capture workspace_id passed to _persist_documents.
+    captured_workspace_ids: list[str | None] = []
+
+    async def mock_persist_documents(
+        store, *, user_id, workspace_id, run_id, validated,
+    ):
+        """Mock _persist_documents to capture workspace_id."""
+        captured_workspace_ids.append(workspace_id)
+
+    monkeypatch.setattr(
+        "app.api.run_files._persist_documents", mock_persist_documents
+    )
+
+    # Mock ingest_staged_uploads to trigger the _persist_documents call
+    # without needing actual staged files on disk. When staged_upload_ids
+    # is non-empty, ingest_staged_uploads calls _persist_documents.
+    async def mock_ingest_staged_uploads(*, user_id, workspace_id, run_id, stage_ids):
+        """Mock ingest to call _persist_documents with a fake validated list."""
+        if stage_ids:
+            from agents.authz import ScopedStore
+
+            store = ScopedStore(owner_id=user_id, workspace_id=workspace_id)
+            await mock_persist_documents(
+                store,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                validated=[("test.txt", b"test content", "txt", "text/plain")],
+            )
+
+    monkeypatch.setattr(
+        "app.api.run_files.ingest_staged_uploads", mock_ingest_staged_uploads
+    )
+
+    # Launch a run with a fake staged_upload_id.
+    result = await _launch_run_core(
+        content="build a test",
+        pipeline_type="user_stories",
+        agents=[object()],
+        compiled=None,
+        od_context=None,
+        validated_images=[],
+        model_overrides={},
+        user=user,
+        source_workflow_run_id=None,
+        selections=None,
+        gate_agent_ids=None,
+        attached_skills=[],
+        attached_hooks=[],
+        staged_upload_ids=["fake-stage-id-xyz"],  # ← trigger ingest path
+        manifest_json=None,
+    )
+
+    # Verify the launch succeeded.
+    assert "run_id" in result
+    assert result["run_id"]
+
+    # Verify _persist_documents was called with non-None workspace_id.
+    # The workspace is minted early (UPLD-09), BEFORE ingest_staged_uploads.
+    assert len(captured_workspace_ids) > 0, (
+        "Expected _persist_documents to be called with workspace_id"
+    )
+    assert all(
+        ws_id is not None for ws_id in captured_workspace_ids
+    ), (
+        f"Expected all workspace_ids to be non-None for durable mirror, "
+        f"but got: {captured_workspace_ids}"
+    )

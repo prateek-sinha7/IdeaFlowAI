@@ -11,6 +11,14 @@ A merge conflict is parsed into ``MergeResult.conflicts`` (the conflicting paths
 Pure stdlib — no kernel import, no ``app.*`` import, and NO process spawning of the
 version-control toolchain here. The strategy reaches the merge dynamically off the
 runner handle the engine threads onto each fragment (``fragment.runner`` + branch).
+
+Task 4.3 (sandbox-git-versioning-v2, Req 11 AC 9-10): ``merge()`` is now
+``async`` so that the inter-fragment commit between sequential ``git merge`` calls
+is routed through the ONE security-gated ``commit_in_sandbox`` primitive.  The
+commit callable is pre-built in ``fanout.py`` (which CAN import ``engine.py``) and
+threaded onto each ``_WorktreeFragmentView`` as ``fragment.commit_fn``.  When no
+``commit_fn`` is present (offline harness / tests), the strategy falls back to a
+plain ``commit_all`` call — preserving existing behavior for all non-git tests.
 """
 
 from __future__ import annotations
@@ -38,11 +46,18 @@ class Git3WayMerge:
     strategy calls ``runner.git_3way_merge(branch, base_commit)`` — it shells NOTHING
     itself. A clean merge appends the branch to ``applied``; a conflicting merge appends
     the parsed conflict paths to ``conflicts`` (never overwriting the base, T-11-03-01).
+
+    The strategy additionally performs a commit between each successfully merged fragment
+    so that ``MERGE_HEAD`` is cleared before the next ``git merge`` is attempted
+    (FR-034).  This commit is routed through the ``fragment.commit_fn`` async callable
+    when available (task 4.3), otherwise through a plain ``commit_all`` fallback (offline
+    harness / tests that do not supply a security-gated callable).
     """
 
     name = "git_3way"
 
-    def merge(self, base: Any, fragments: Any) -> MergeResult:
+    async def merge(self, base: Any, fragments: Any) -> MergeResult:  # type: ignore[override]
+        """Merge fragments; async to allow awaiting the inter-fragment commit_fn."""
         result = MergeResult()
         # Iterate in declared (worker-index) order so the merge sequence is stable.
         for fi, frag in enumerate(list(fragments or [])):
@@ -73,4 +88,31 @@ class Git3WayMerge:
                     )
             else:
                 result.applied.append(str(branch))
+                # Commit between fragments so MERGE_HEAD is cleared before the next
+                # fragment's ``git merge`` runs.  Without this commit the second merge
+                # is refused (MERGE_HEAD still set), the conflict probe finds nothing,
+                # and ``git merge --abort`` silently destroys the first fragment's work
+                # (FR-034 / Requirements 7, 25).
+                #
+                # Task 4.3 (sandbox-git-versioning-v2, Req 11 AC 9-10): route through
+                # the security-gated ``commit_fn`` when available; fall back to a plain
+                # ``commit_all`` for offline harness / tests without a callable.
+                # A failure in either path is tolerated — the calling layer surfaces the
+                # inconsistency when the next merge is refused.
+                commit_fn = getattr(frag, "commit_fn", None)
+                commit_msg = f"merge: {branch}"
+                if commit_fn is not None:
+                    try:
+                        await commit_fn(commit_msg)
+                    except Exception:  # noqa: BLE001 — best-effort; never abort the loop
+                        pass
+                else:
+                    # Fallback: plain commit_all via the base workspace duck-type
+                    # (offline / test paths that supply no commit_fn).
+                    plain_commit_fn = getattr(base, "commit_all", None)
+                    if callable(plain_commit_fn):
+                        try:
+                            plain_commit_fn(commit_msg)
+                        except Exception:  # noqa: BLE001 — best-effort; never abort the loop
+                            pass
         return result

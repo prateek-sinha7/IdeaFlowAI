@@ -74,7 +74,15 @@ class _RecordingChatModel(BaseChatModel):
 
 def _make_recording_bedrock(usage_metadata: dict | None = None, text: str = "ok"):
     """A REAL ``ChatBedrockConverse`` subclass (so ``isinstance`` gates fire) whose
-    generate is stubbed to record kwargs + return a canned response — no network."""
+    generate is stubbed to record kwargs + return a canned response — no network.
+
+    Built with ``model_construct`` (ISS-118): that is pydantic's own no-validation
+    constructor, so ``ChatBedrockConverse.__init__`` — the seam that resolves
+    credentials and builds the boto3 ``bedrock-runtime`` client — never runs, while the
+    instance stays a genuine subclass for the ``isinstance`` gate in
+    ``cached_invoke._bedrock_cache_control``. Nothing here reads the boto client
+    (``_agenerate`` is overridden), so it is left unset rather than exempting these
+    tests from the ISS-102 live-model guard."""
     from langchain_aws import ChatBedrockConverse
 
     class _RecordingBedrock(ChatBedrockConverse):
@@ -105,8 +113,8 @@ def _make_recording_bedrock(usage_metadata: dict | None = None, text: str = "ok"
                 messages, stop=stop, run_manager=run_manager, **kwargs
             )
 
-    return _RecordingBedrock(
-        model="anthropic.claude-3-haiku-20240307-v1:0",
+    return _RecordingBedrock.model_construct(
+        model_id="anthropic.claude-3-haiku-20240307-v1:0",  # ``model`` is the field alias
         region_name="us-east-1",
         max_tokens=8,
     )
@@ -364,3 +372,101 @@ async def test_compliance_agent_delegates(monkeypatch):
     assert captured["system"] == agent.system_prompt
     assert captured["model"] is sentinel_model
     assert len(sunk) == 1
+
+
+# ---------------------------------------------------------------------------
+# ISS-120 — per-call override (caching is currently ONE process-wide switch)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.issue("ISS-120")
+@pytest.mark.asyncio
+async def test_cached_invoke_supports_per_call_cache_override(monkeypatch):
+    """ISS-120 — a short, single-turn call must be able to opt OUT of prompt
+    caching without flipping the process-wide ``BEDROCK_PROMPT_CACHE_ENABLED``
+    flag (which would affect every other concurrent call too). Today the ONLY
+    gate is that global setting, read at call time in both
+    ``_bedrock_cache_control`` and ``_BedrockCachePointsMiddleware`` — there is
+    no per-call / per-step override anywhere (card ISS-120)."""
+    monkeypatch.setattr(ci_mod.settings, "BEDROCK_PROMPT_CACHE_ENABLED", True)
+    model = _make_recording_bedrock()
+
+    # A caller declaring this turn single-turn/short should be able to suppress
+    # the cache point on just THIS call, leaving the global flag (and every
+    # other concurrent call) untouched.
+    await cached_invoke("brief", system="SYS", model=model, enable_cache=False)
+
+    assert "cache_control" not in (model.recorded_kwargs or {})
+
+
+# ---------------------------------------------------------------------------
+# Spec 020 / FR-21 — the capability gate, on the SECOND cache-point path.
+#
+# Found by a real run, not by a unit test: with the default flipped to
+# global.openai.gpt-5.6-luna the log showed
+#   "SmartPlanner failed: AccessDeniedException ... did not allow prompt caching"
+# and planning was silently skipped. The T1 gate covered only
+# _BedrockCachePointsMiddleware; SmartPlanner, ClarifyEngine and both handoff
+# agents reach Bedrock through _bedrock_cache_control instead.
+# ---------------------------------------------------------------------------
+
+
+def _fake_bedrock(model_id: str):
+    """A stand-in that passes the helper's isinstance(ChatBedrockConverse) check."""
+    from unittest.mock import MagicMock
+
+    from langchain_aws import ChatBedrockConverse
+
+    m = MagicMock(spec=ChatBedrockConverse)
+    m.model_id = model_id
+    return m
+
+
+@pytest.mark.parametrize(
+    "gpt_id", ["global.openai.gpt-5.6-luna", "global.openai.gpt-5.6-sol"]
+)
+def test_gpt_gets_no_cache_control_even_with_caching_enabled(monkeypatch, gpt_id):
+    from app.core.config import settings as _s
+
+    monkeypatch.setattr(_s, "BEDROCK_PROMPT_CACHE_ENABLED", True)
+    assert ci_mod._bedrock_cache_control(_fake_bedrock(gpt_id)) is None
+
+
+def test_claude_still_cached_in_the_same_configuration(monkeypatch):
+    """The control: the gate keys off the model's capability, not off caching
+    having been switched off wholesale."""
+    from app.core.config import settings as _s
+
+    monkeypatch.setattr(_s, "BEDROCK_PROMPT_CACHE_ENABLED", True)
+    cc = ci_mod._bedrock_cache_control(
+        _fake_bedrock("eu.anthropic.claude-haiku-4-5-20251001-v1:0")
+    )
+    assert cc == {"type": "ephemeral", "ttl": _s.BEDROCK_PROMPT_CACHE_TTL}
+
+
+def test_uncatalogued_model_fails_open(monkeypatch):
+    """Same fail-open rule as the middleware — an unknown id keeps caching ON,
+    so nothing uncatalogued silently loses caching it relied on."""
+    from app.core.config import settings as _s
+
+    monkeypatch.setattr(_s, "BEDROCK_PROMPT_CACHE_ENABLED", True)
+    assert ci_mod._bedrock_cache_control(_fake_bedrock("some.model.nobody.registered")) is not None
+
+
+def test_both_cache_paths_agree_for_every_catalog_model(monkeypatch):
+    """The two cache-point paths must reach the SAME verdict per model.
+
+    They are separate implementations by design (middleware vs direct ainvoke),
+    and this spec already found them disagreeing once. Pin the agreement rather
+    than trusting a comment that says they match.
+    """
+    from agents.capabilities.model_catalog import ModelCatalog
+    from app.core.config import settings as _s
+
+    monkeypatch.setattr(_s, "BEDROCK_PROMPT_CACHE_ENABLED", True)
+    for entry in ModelCatalog().list():
+        helper_caches = ci_mod._bedrock_cache_control(_fake_bedrock(entry.id)) is not None
+        assert helper_caches is entry.supports_prompt_caching, (
+            f"{entry.id}: cached_invoke says caching={helper_caches}, catalog says "
+            f"{entry.supports_prompt_caching}"
+        )

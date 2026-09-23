@@ -1,0 +1,127 @@
+# ex_A3_divert — hello-world for spec 014's CROSS-WORKFLOW TRIGGER case (A3).
+#
+# The point of this fixture is that ONE conditional gate carries BOTH trigger types,
+# so the engine has to dispatch per-OUTCOME, not per-gate:
+#
+#   1. emoji (picks an emoji, no tools)
+#        |
+#   2. language (gates:[conditional], produces:[route_decision])
+#        |
+#        |__ english (trigger: step) ____> 3. a-english  "Hello, world!"
+#        |                                    stays in THIS run — the run continues and
+#        |                                    ends normally: pipeline_complete, completed
+#        |
+#        |__ spanish (trigger: workflow) _> NEW run: ex_A3_b_spanish
+#        |__ dutch   (trigger: workflow) _> NEW run: ex_A3_c_dutch
+#                                             this run STOPS at the gate: pipeline_diverted,
+#                                             status=diverted, diverted_at_step_id=language,
+#                                             child carries parent_run_id = this run's id
+#
+# So the terminal state DIFFERS by outcome — that is the whole test. A divert arm that
+# leaked into the step arm (or the reverse) shows up as the wrong terminal event.
+#
+# Per R-13 (Option 2, the ONLY mode v1 supports) a workflow trigger does NOT wait for
+# its child and this run never resumes: no default_next, no cursor advance, no
+# pipeline_complete. The two runs are two linked cards in run history (R-20), not a
+# merged timeline. Note the child is minted with content="" (kernel_services
+# run_trigger_workflow) — it does NOT inherit this run's user message, which is why
+# each child's prompt is fully self-contained.
+#
+# NOTE the asymmetry in agent_skipped: the engine emits it inside the `trigger: step`
+# arm only (engine.py, the `elif _route_trigger == "workflow"` branch that follows it).
+# On a divert, a-english therefore gets NEITHER agent_start NOR agent_skipped — correct,
+# because the run stopped at the gate rather than routing past a sibling.
+
+id: ex_A3_divert
+user_launchable: true
+is_beta: false
+display_name: Hand Off to Another Workflow
+short_name: Workflow Handoff
+icon: GitBranch
+description: Smallest possible example of a conditional gate that stays in-run for one outcome and diverts to a separate workflow for the others.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  # Only ever resolved on the ENGLISH path — the two divert paths return out of the
+  # dispatch loop before deliverable read-back. a-english writes nothing, so single_file
+  # falls through to ctx.last_streamed and its reply IS greeting.md.
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: emoji
+  name: Emoji Picker
+  prompt: Pick a random emoji.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: language
+  name: Pick Language
+  produces: ["route_decision"]
+  prompt: |
+    Detect the user's message language. Reply with the JSON as your text answer — this must be your reply, not a file. Respond with exactly one line, no markdown, no code fences, no explanation. Use exactly one of:
+    {"decision": "english"}
+    {"decision": "spanish"}
+    {"decision": "dutch"}
+  gates:
+  - conditional
+  route:
+    outcomes:
+      english: {trigger: step, target: a-english}
+      # R-28 `feedback` on a WORKFLOW-trigger outcome is handed to the child run as its
+      # user message. A triggered run is minted with content="" and inherits none of
+      # this run's message, so this is the only channel from parent to child. The joke
+      # requirement lives HERE, in the parent, and deliberately NOT in the child's own
+      # prompt — a child that already knew to tell a joke would prove nothing about
+      # whether the instruction travelled.
+      #
+      # Each outcome's feedback is written IN ITS OWN LANGUAGE, and the two strings share
+      # no distinctive substring. That is deliberate: identical feedback on both outcomes
+      # would let a cross-wired divert hand the wrong outcome's instruction to the wrong
+      # child and still pass. The runners assert on a phrase unique to one language, so
+      # the right instruction has to reach the right child.
+      spanish:
+        trigger: workflow
+        target: ex_A3_b_spanish
+        feedback: >-
+          Tu saludo también debe incluir un chiste de "¿por qué cruzó la gallina la
+          carretera?". Responde en español.
+      dutch:
+        trigger: workflow
+        target: ex_A3_c_dutch
+        feedback: >-
+          Je begroeting moet ook een mop bevatten over "waarom stak de kip de weg
+          over?". Antwoord in het Nederlands.
+    # No default_next — an unrecognised decision terminates the run here. R-13: a
+    # workflow-trigger outcome always stops this run; there is no "continue" fallback.
+    trigger_max_depth: 5
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: a-english
+  name: Greet in English
+  prompt: 'Respond with exactly: "Hello, world!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Workflow Handoff

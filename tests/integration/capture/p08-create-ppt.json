@@ -1,0 +1,20 @@
+{
+  "url": "http://localhost:3000/create/ppt",
+  "h": [
+    "H1:Configure your presentation",
+    "H2:Describe your presentation",
+    "H2:Review gates"
+  ],
+  "tabs": [
+    "Template"
+  ],
+  "inp": [
+    "textarea[brief]",
+    "input[file]",
+    "input[ppt-template-search]"
+  ],
+  "tid": [
+    "tab-template"
+  ],
+  "text": "NEW PRESENTATION\nConfigure your presentation\nDescribe your presentation\n+ Attach file\nVoice\nAdvanced\n3 agents\nTemplate\nAll\nPitch Deck\nBusiness\nTech\nEditorial\nCreative\nMinimal\nCustom\nUpload custom\nCourse Module Deck\nDECK\nMinimal Keynote\nDECK\nDark Graph Deck\nDECK\nCyber Terminal Deck\nDECK\nArchitecture Blueprint\nDECK\nDark Gradient Deck\nDECK\nInvestor Pitch Deck\nDECK\nPresenter Mode Deck\nDECK\nProduct Launch Keynote\nDECK\nTech Talk Deck\nDECK\nSafety & Risk Review\nDECK\nWeekly Status Report\nDECK\nPastel Lifestyle Deck\nDECK\nSocial Media Carousel\nDECK\nWhite Editorial Deck\nDECK\n8-Bit Orbit\nDECK\nBiennale Yellow\nDECK\nBlock Frame\nDECK\nBlue Professional\nDECK\nBold Poster\nDECK\nBroadside\nDECK\nCapsule\nDECK\nCartesian Grid\nDECK\nCobalt Grid\nDECK\nCoral\nDECK\nCreative Mode\nDECK\nDaisy Days\nDECK\nEditorial Tri-Tone\nDECK\nGrove\nDECK\nLong Table\nDECK\nMat\nDECK\nMonochrome\nDECK\nNeo Grid Bold\nDECK\nPeople's Platform\nDECK\nPin & Paper\nDECK\nPink Script\nDECK\nPlayful\nDECK\nRaw Grid\nDECK\nRetro Windows\nDECK\nRetro Zine\nDECK\nSakura Chroma\nDECK\nScatterbrain\nDECK\nSignal\nDECK\nSoft Editorial\nDECK\nStencil Tablet\nDECK\nStudio\nDECK\nVellum\nDECK\nInvestment Banking Pitch Book\nDECK\nKami Editorial Deck\nDECK\nAtelier Brand Deck\nDECK\nClean Slide Deck\nDECK\nWeekly Team Update\nDECK\n52 templates\nReview gates\nOptionally pause the pipeline for your review after specific agents.\nReview gates\nno gates\nAdd a brief\nPick a template\nSave workflow\nSave as my version\nContinue"
+}

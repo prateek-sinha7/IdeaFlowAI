@@ -1,0 +1,26 @@
+{
+  "url": "http://localhost:3000/library/hooks/post-design-quality",
+  "h": [
+    "H1:Library",
+    "H2:Design Quality Check X"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "@Notifications",
+    "@Account menu",
+    "Agents 93",
+    "Skills 186",
+    "Hooks 8",
+    "All",
+    "PostToolUse",
+    "PreToolUse",
+    "SessionStart",
+    "Stop",
+    "Copy",
+    "@"
+  ],
+  "dialogs": 0,
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nLibrary\n93 agents · 186 skills · 8 hooks · tap any item to see its capabilities\nAgents 93\nSkills 186\nHooks 8\nAll\nPostToolUse\nPreToolUse\nSessionStart\nStop\nDesign Quality Check X\nPostToolUse\nAfter Edit / Write on frontend files\nWarns when frontend edits drift toward generic template-looking UI. Keeps visual output distinctive and intentional.\ndesign\nui\nquality\nView →\nQuality Gate\nPostToolUse\nAfter Edit / Write / MultiEdit\nRuns lint, typecheck, and test suite after every file edit. Blocks progression if quality checks fail.\nlint\ntypecheck\nquality\nView →\nConfig Protection\nPreToolUse\nBefore Write / Edit / MultiEdit on config files\nBlocks modifications to linter and formatter config files. Steers the agent to fix code instead of weakening quality gates.\nconfig\nprotection\nquality\nView →\nGateGuard: Fact Force\nPreToolUse\nBefore first Edit / Write / MultiEdit on each file\nBlocks the first Edit/Write per file and demands investigation (importers, data schemas, user instructions) before allowing changes.\nsafety\ninvestigation\ngateguard\nView →\nSession Context Loader\nSessionStart\nEvery new agent session\nLoads previous session state and detects package manager on new session start. Ensures continuity across sessions.\nsession\ncontext\nmemory\nView →\nConsole.log Check\nStop\nEnd of each agent response — all edited JS/TS files\nWarns about console.log statements left in modified files after each response. Keeps production code clean.\nconsole\ncleanup\ncode-quality\nView →\nFormat + Typecheck on Stop\nStop\nEnd of each agent response — all edited JS/TS files\nBatch formats (Biome/Prettier) and typechecks all JS/TS files edited in the response. Runs once at Stop instead of after every edit.\nformat\ntypecheck\ntypescript\nView →\nSession State Persistence\nStop\nEnd of each agent response\nPersists session state after each response so context survives across sessions. Enables long-running multi-session workflows.\nsession\npersistence\nmemory\nView →\nDesign Quality Check X\nPostToolUse\nCopy\nWarns when frontend edits drift toward generic template-looking UI. Keeps visual output distinctive and intentional.\nEVENT: POSTTOOLUSE\nRuns after a tool completes. Can validate output or trigger follow-up actions.\nWHEN IT FIRES\nAfter Edit / Write on frontend files\nHOW TO USE\n1\nAttach this hook to agents in the Advanced → Skills & Hooks panel before running a pipeline.\n2\nThe hook's behaviour will be injected as a guideline into the agent's execution context.\n3\nBest suited for: a"
+}

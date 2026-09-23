@@ -1,0 +1,33 @@
+{
+  "url": "http://localhost:3000/admin",
+  "h": [
+    "H1:Admin Dashboard"
+  ],
+  "btn": [
+    "← Back to app",
+    "Logout",
+    "@",
+    "Add user",
+    "ENTERPRISE",
+    "ADMIN",
+    "User",
+    "@Delete qa-enterprise@flowinqa.com",
+    "PRO",
+    "@Delete qa-pro@flowinqa.com",
+    "BASIC",
+    "@Delete qa-basic@flowinqa.com"
+  ],
+  "tab": [],
+  "th": [
+    "USER",
+    "PLAN",
+    "RUNS",
+    "ROLE",
+    "JOINED",
+    "ACTIONS"
+  ],
+  "inp": [
+    "input[admin-user-search]"
+  ],
+  "text": "Admin Dashboard\nADMIN\nVelocityAI · User Management\n← Back to app\nLogout\nTOTAL USERS\n4\nBASIC\n1\nPRO\n1\nENTERPRISE\n2\nADMINS\n1\nUsers\n4\nAdd user\nUSER\tPLAN\tRUNS\tROLE\tJOINED\tACTIONS\nQ\nqa-admin@flowinqa.com\n6b5d63ea…\n\t\nENTERPRISE\n\t241\t\nADMIN\n\tAug 14, 2026\t\nQ\nqa-enterprise@flowinqa.com\n3f8dd292…\n\t\nENTERPRISE\n\t0\t\nUser\n\tAug 14, 2026\t\nQ\nqa-pro@flowinqa.com\n8928b1a0…\n\t\nPRO\n\t0\t\nUser\n\tAug 14, 2026\t\nQ\nqa-basic@flowinqa.com\n009633ea…\n\t\nBASIC\n\t0\t\nUser\n\tAug 14, 2026\t"
+}

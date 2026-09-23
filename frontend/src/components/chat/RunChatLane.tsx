@@ -40,6 +40,7 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
+  Copy,
   FileText,
   HelpCircle,
   ImageIcon,
@@ -78,6 +79,8 @@ import { formatDuration } from "@/lib/runStats";
 import { baseWorkflowType } from "@/lib/workflowChaining";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+// Task 11.5 (sandbox-git-versioning-v2, Req 20): engine-fact notice banner.
+import { RunEngineNotice } from "@/components/RunEngineNotice";
 import { Badge } from "../ui/Badge";
 import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
@@ -220,7 +223,7 @@ export interface RunChatLaneProps {
   /** Agent event stream per assistant turn id (plan 01/02 block rendering). */
   eventsByMessageId?: Record<string, AgentEvent[]>;
   /** The nonce'd deep-link seam a narrator card fires (plan 03, borrow #6). */
-  onRequestOpenTab?: (tab: string) => void;
+  onRequestOpenTab?: (tab: string, agentId?: string, runId?: string) => void;
 
   // ── Lane run header (Phase 39, RUNUI-06 — wired live by 39-05) ─────────────
   /** Back-to-history link in the run header — rendered only when supplied. */
@@ -311,6 +314,16 @@ export interface RunChatLaneProps {
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline clarify (Phase 42-02 §A2 re-home). */
   onCancelWorkflow?: () => void;
+
+  /**
+   * The persisted `WorkflowRun.error` for the viewed run (already exposed by
+   * `GET /api/runs/{id}` / `WorkflowRunResponse.error`). Shown verbatim in the
+   * terminal-failed panel when no live per-agent error is available, so a run
+   * that failed before any agent-level error was recorded (e.g. a driver-level
+   * exception) still shows the real reason instead of the generic fallback
+   * sentence. Absent/undefined → unchanged behaviour (generic fallback).
+   */
+  runError?: string | null;
 }
 
 // Safety-net window for the settled-run Concierge "reply pending" indicator.
@@ -555,13 +568,23 @@ function PipelineMini({
   // FIX-182: same constructionComplete guard as AgentThinkingTab/StepsOverviewSpine —
   // prevents premature DONE checkmark on the build agent during task-loop iterations.
   const isRunning = pipelineState?.isRunning ?? building ?? false;
-  const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
-  const laterAgentStarted = constructionIdx >= 0 &&
-    agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
   const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
   const protoTotalTasks = pipelineState?.protoTotalTasks ?? 0;
   const totalTasks = protoTotalTasks > 0 ? protoTotalTasks : completedTaskCount;
   const allTasksDone = totalTasks > 0 && completedTaskCount >= totalTasks;
+  // The guard exists for a TASK LOOP, whose agent_complete fires once per
+  // iteration. It waits on `allTasksDone`, which is derived from task_progress
+  // counts — so it must only apply where a task loop is actually reporting.
+  // A wave-scheduled step reports waves and subagents instead, leaving those
+  // counts at 0 and the condition permanently false, which withheld DONE from a
+  // step that had genuinely finished. Matching on the agent id alone caught any
+  // step whose id happened to contain "build".
+  const hasTaskLoopProgress = totalTasks > 0;
+  const constructionIdx = hasTaskLoopProgress
+    ? agents.findIndex(a => /build|construct/i.test(a.id))
+    : -1;
+  const laterAgentStarted = constructionIdx >= 0 &&
+    agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
   const agentIsReallyDone = (idx: number): boolean => {
     const a = agents[idx];
     if (!a || a.status !== "done") return false;
@@ -1109,6 +1132,7 @@ export function RunChatLane({
   onSubmitAnswers,
   onSkipClarify,
   onCancelWorkflow,
+  runError,
 }: RunChatLaneProps) {
   // Hooks at top level (required by React)
   const chainInto = useWorkflowChaining();
@@ -1172,6 +1196,18 @@ export function RunChatLane({
   // arrives) is covered by the safety-net timeout further below — so the spinner
   // can never stick on ANY path.
   const [replyPending, setReplyPending] = useState(false);
+  // Copy affordance for the terminal-failed panel's verbatim run error (mirrors
+  // MessageBubble's handleCopy pattern — writeText + a 2s "copied" flip).
+  const [runErrorCopied, setRunErrorCopied] = useState(false);
+  const handleCopyRunError = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setRunErrorCopied(true);
+      setTimeout(() => setRunErrorCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy run error:", err);
+    }
+  }, []);
   // Collapse the Pipeline mini when the user is chatting with the Concierge
   // (replyPending=true) — auto-collapses on send, user must click to re-expand.
   const [pipelineMiniCollapsed, setPipelineMiniCollapsed] = useState(false);
@@ -1691,16 +1727,30 @@ export function RunChatLane({
         const degradedIds = pipelineState?.degradedFailedAgents ?? [];
         const nameById = buildAgentNameById(pipelineState?.agents);
 
+        // KAN-120 BUG-4 / ISS-221 / ISS-233: the inline resume error rides
+        // WITH the relaunch button, so every branch that renders one
+        // (cancelled / degraded / plain terminal, e.g. a diverted run) surfaces
+        // it — not only the branches that hand-copied the block.
         const relaunch = (label: string) => (
-          <Button
-            type="button"
-            variant="secondary"
-            data-testid="chat-relaunch"
-            onClick={() => onRelaunch?.()}
-            className="w-full justify-center"
-          >
-            {label}
-          </Button>
+          <>
+            {relaunchError && (
+              <div className="flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
+                <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
+                <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
+                  {relaunchError}
+                </span>
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              data-testid="chat-relaunch"
+              onClick={() => onRelaunch?.()}
+              className="w-full justify-center"
+            >
+              {label}
+            </Button>
+          </>
         );
 
         // Cancelled by you ack + Run again (LIVE-STATE-CONTRACT §1).
@@ -1718,15 +1768,6 @@ export function RunChatLane({
                   The run was stopped. Click Run Again to resume from where it left off.
                 </p>
               </Card>
-              {/* KAN-120 BUG-4: inline error if the resume attempt failed. */}
-              {relaunchError && (
-                <div className="flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
-                  <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
-                  <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
-                    {relaunchError}
-                  </span>
-                </div>
-              )}
               {relaunch("Run Again")}
             </div>
           );
@@ -1740,6 +1781,30 @@ export function RunChatLane({
           const sanitized = sanitizeError(
             firstAgentError(pipelineState?.agents, failedIds),
           );
+          // Falls back, in order, to (1) the LIVE `pipelineState.pipelineError` —
+          // the verbatim backend `{"type":"error"}` message for the run currently
+          // on screen (pipelineState is already scoped to the viewed run upstream
+          // via runStore.viewed.pipelineState — same trust level as `.failed`/
+          // `.agents` above), then (2) the run's own PERSISTED `error`
+          // (WorkflowRunResponse.error, already exposed by GET /api/runs/{id}) —
+          // used once the DB has the value (e.g. reopened from history, or the
+          // live stream closed before this render). Covers a driver-level
+          // exception (e.g. a task-list parse failure) that never attaches to a
+          // specific agent. Shown VERBATIM per the user's "so they can report
+          // what happened" ask — never re-sanitized/truncated like the per-agent
+          // `sanitized` line above.
+          const liveRunError =
+            typeof pipelineState?.pipelineError === "string" &&
+            pipelineState.pipelineError.trim().length > 0
+              ? pipelineState.pipelineError.trim()
+              : undefined;
+          const persistedRunError =
+            typeof runError === "string" && runError.trim().length > 0
+              ? runError.trim()
+              : undefined;
+          const verbatimRunError = sanitized
+            ? undefined
+            : liveRunError ?? persistedRunError;
 
           // KAN-123: derive structured security failure bullets from live state.
           // Checks pipelineState.hookRuns (blocked secret scans), failed agent
@@ -1783,7 +1848,31 @@ export function RunChatLane({
                       {sanitized && (
                         <p data-testid="chat-terminal-error">• {sanitized}</p>
                       )}
-                      {names.length === 0 && !sanitized && (
+                      {names.length === 0 && !sanitized && verbatimRunError && (
+                        <>
+                          <p className="mb-[7px]">• The run stopped before completing.</p>
+                          <div className="flex items-start gap-1.5 rounded-[8px] border border-status-failed-border bg-white/60 px-[10px] py-[8px]">
+                            <code
+                              data-testid="chat-terminal-run-error"
+                              className="flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-ink-900"
+                            >
+                              {verbatimRunError}
+                            </code>
+                            <button
+                              type="button"
+                              data-testid="chat-terminal-copy-error"
+                              onClick={() => handleCopyRunError(verbatimRunError)}
+                              aria-label="Copy error"
+                              className="flex-none text-ink-400 transition-colors hover:text-ink-700"
+                            >
+                              {runErrorCopied
+                                ? <Check className="h-3 w-3" />
+                                : <Copy className="h-3 w-3" />}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {names.length === 0 && !sanitized && !verbatimRunError && (
                         <p>• The run stopped before completing. Reopen to resume.</p>
                       )}
                     </>
@@ -1841,16 +1930,18 @@ export function RunChatLane({
           );
         }
 
-        // Degraded — "completed with issues" naming the failed agents (D-12).
+        // Degraded — a FAILED run, naming the agents that failed (D-12). The status
+        // stays `degraded` in the DB (it carries the failed-agent list and the run's
+        // deliverable is still there); the word shown is "failed", like everywhere else.
         if (pipelineState?.degraded) {
           const names = resolveAgentNames(degradedIds, nameById);
           return (
             <div data-testid="chat-terminal-degraded" className="space-y-2.5">
               <Card className="px-3.5 py-3">
                 <div className="flex items-center gap-2">
-                  <Badge status="cancelled" label="Issues" />
+                  <Badge status="failed" label="Failed" />
                   <p className="text-[12px] font-semibold text-ink-900">
-                    Completed with issues
+                    Run failed
                   </p>
                 </div>
                 {names.length > 0 && (
@@ -2169,6 +2260,23 @@ export function RunChatLane({
                   from ChatPanel's pre-reply TypingIndicator (which only fires when
                   the tail is NOT an assistant turn) — so the two never double up. */}
               {isReading && <ReadingIndicator />}
+              {/* Task 11.5 (Req 20): engine-fact notices — chain context unavailable
+                  and run finalization failed. These live INSIDE the role="log"
+                  aria-live="polite" transcript region so AT announces them when
+                  they first appear, in document order relative to other events.
+                  Each notice carries its own role="status" aria-live="polite". */}
+              {pipelineState?.chainContextUnavailableReason && (
+                <RunEngineNotice
+                  type="chain_unavailable"
+                  reasonCode={pipelineState.chainContextUnavailableReason}
+                />
+              )}
+              {pipelineState?.finalizationFailedReason && (
+                <RunEngineNotice
+                  type="finalization_failed"
+                  reasonCode={pipelineState.finalizationFailedReason}
+                />
+              )}
               {renderTranscriptFooter()}
             </>
           }

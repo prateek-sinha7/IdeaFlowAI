@@ -26,6 +26,7 @@ import { useTheme } from "@/hooks/useTheme";
 import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
 import type { SettingsSection } from "@/components/settings/AccountSettings";
+import { UpgradePlanModal } from "@/components/settings/UpgradePlanModal";
 import type { WorkflowRun } from "@/types/index";
 
 // Status label + dot colour map for live runs — mirrors HomeLaunchGrid's
@@ -48,7 +49,7 @@ const LIVE_STATUSES = new Set([
 ]);
 
 interface AppHeaderProps {
-  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics" | "catalog" | "saved-workflows";
+  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows";
   /**
    * Navigate to an in-app dashboard panel. `options.settingsSection` deep-links
    * into a single Account Settings tab and is ignored for every other page.
@@ -72,13 +73,25 @@ interface AppHeaderProps {
   // it allows the running dropdown to show live agent progress (from the scalar
   // pipelineAgentsCompleted/Total) for the matching run entry.
   activePipelineRunId?: string | null;
-  onGoToPipeline?: () => void;
+  // ISS-647: pass the run the user clicked; a bare call means the currently tracked run.
+  onGoToPipeline?: (runId?: string) => void;
   // Live runs from the server (recentRuns from page.tsx via DashboardLayout).
   // When provided, these are used to drive the "N Running" badge and dropdown
   // instead of the ephemeral notification state — giving the same ground-truth
   // data that powers the "Jump Back In" section on the home page.
   recentRuns?: WorkflowRun[];
-  onSwitchToLiveRun?: (runId: string) => void;
+  /**
+   * ISS-757: false while page.tsx's initial run-list fetch is still in flight.
+   * `recentRuns=[]` means both "not fetched yet" and "confirmed zero runs"; only
+   * this flag tells them apart, so the bell can say "checking" instead of
+   * claiming nothing is running while a reload-backgrounded pipeline is live.
+   * Defaults to true — a caller that does not fetch has nothing to wait for.
+   */
+  recentRunsLoaded?: boolean;
+  // ISS-778 (QA-SG-004): the implementation is async (it replays the run's
+  // durable log); handleRunClick awaits it before navigating, so the promise
+  // has to survive this type rather than be flattened to void.
+  onSwitchToLiveRun?: (runId: string) => void | Promise<void>;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   /**
    * Per-run agents-completed count from the run store (page.tsx → DashboardLayout).
@@ -111,6 +124,7 @@ export function AppHeader({
   activePipelineRunId,
   onGoToPipeline,
   recentRuns = [],
+  recentRunsLoaded = true,
   onSwitchToLiveRun,
   onSelectWorkflowRun,
   runAgentsCompletedMap,
@@ -124,9 +138,13 @@ export function AppHeader({
   const router = useRouter();
   const getWorkflowLabel = useWorkflowLabels();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   // KAN-132: dropdown state for the multi-pipeline running badge
   const [runningDropdownOpen, setRunningDropdownOpen] = useState(false);
+  // ISS-647: the list as it was when the dropdown opened — a run finishing
+  // mid-click must not reflow the menu under the cursor.
+  const [runningDropdownSnapshot, setRunningDropdownSnapshot] = useState<PipelineNotification[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const runningDropdownRef = useRef<HTMLDivElement>(null);
   // a11y: Escape closes the profile menu and returns focus here (D-15 a11y).
@@ -178,7 +196,9 @@ export function AppHeader({
   );
 
   // Use server runs when available; fall back to notification list.
-  const hasServerData = recentRuns.length > 0;
+  // ISS-757: "available" means the fetch has actually come back with rows — a
+  // still-in-flight fetch looks identical to an empty one from recentRuns alone.
+  const hasServerData = recentRunsLoaded && recentRuns.length > 0;
   const liveRuns = hasServerData ? liveRunsFromServer : null;
 
   // runningPipelines: the unified list driving the header badge and dropdown.
@@ -186,7 +206,7 @@ export function AppHeader({
   // so the JSX can use a single concrete type. Falls back to the ephemeral
   // notification list on the very first render before recentRuns resolves.
   // SC-001: all fields are generic (status, type, id) — no workflow-name branch.
-  const runningPipelines: PipelineNotification[] = liveRuns !== null
+  const liveRunningPipelines: PipelineNotification[] = liveRuns !== null
     ? liveRuns.map((r): PipelineNotification => {
         // For the currently-tracked/building run, use the live agent progress
         // from pipelineAgentsCompleted/Total so the dropdown shows real progress
@@ -214,6 +234,12 @@ export function AppHeader({
         };
       })
     : runningFromNotifs;
+  const runningPipelines = runningDropdownOpen ? runningDropdownSnapshot : liveRunningPipelines;
+  // ISS-757/ISS-771: we know of no live run AND the server has not answered yet.
+  // Every surface fed by runningPipelines (badge :304, dropdown :349, bell :482)
+  // is blank in this window; the bell is the one that states it as fact, so it
+  // gets the signal to render "checking" rather than "No notifications yet".
+  const liveRunsPending = !recentRunsLoaded && runningPipelines.length === 0;
 
   // Handle clicking a live run in the dropdown — same logic as "Jump Back In":
   // live/building runs → onSwitchToLiveRun (no reset); terminal → onSelectWorkflowRun.
@@ -224,11 +250,21 @@ export function AppHeader({
     setRunningDropdownOpen(false);
     if (LIVE_STATUSES.has(run.status)) {
       if (onSwitchToLiveRun) {
-        onSwitchToLiveRun(run.id);
+        // ISS-778 (QA-SG-004): navigate only once the switch has settled.
+        // onGoToPipeline's implementation pushes the run's stream URL, which
+        // remounts page.tsx — and that remount flips useRunStateStore's
+        // mountedRef to false, so a switch still in flight when it happens
+        // writes its durable replay into a throwaway entry and is lost.
+        void (async () => {
+          await onSwitchToLiveRun(run.id);
+          // Always navigate to execution view — onSwitchToLiveRun only attaches
+          // the SSE stream; it cannot call setMainView (that lives in
+          // DashboardLayout).
+          onGoToPipeline?.(run.id);
+        })();
+        return;
       }
-      // Always navigate to execution view — onSwitchToLiveRun only attaches the
-      // SSE stream; it cannot call setMainView (that lives in DashboardLayout).
-      onGoToPipeline?.();
+      onGoToPipeline?.(run.id);
     } else {
       if (onSelectWorkflowRun) {
         onSelectWorkflowRun(run);
@@ -316,9 +352,15 @@ export function AppHeader({
                   // attempt to switch by run id directly so viewport still updates.
                   const runId = runningPipelines[0].workflowRunId;
                   if (runId && onSwitchToLiveRun) {
-                    onSwitchToLiveRun(runId);
+                    // ISS-778 (QA-SG-004): same await-then-navigate as
+                    // handleRunClick — see its comment.
+                    void (async () => {
+                      await onSwitchToLiveRun(runId);
+                      onGoToPipeline?.(runId);
+                    })();
+                  } else {
+                    onGoToPipeline?.(runId);
                   }
-                  onGoToPipeline?.();
                 }
               }}
               className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-button)] bg-brand/80 border border-brand text-[11px] font-medium text-white hover:bg-brand transition-colors"
@@ -355,7 +397,10 @@ export function AppHeader({
               transition={{ duration: 0.2 }}
             >
               <button
-                onClick={() => setRunningDropdownOpen((v) => !v)}
+                onClick={() => {
+                  setRunningDropdownSnapshot(liveRunningPipelines);
+                  setRunningDropdownOpen((v) => !v);
+                }}
                 aria-haspopup="menu"
                 aria-expanded={runningDropdownOpen}
                 aria-label={`${runningPipelines.length} pipelines running — click to view`}
@@ -450,7 +495,7 @@ export function AppHeader({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ duration: 0.2 }}
-              onClick={onGoToPipeline}
+              onClick={() => onGoToPipeline?.()}
               className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-button)] bg-brand/80 border border-brand text-[11px] font-medium text-white hover:bg-brand transition-colors"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse flex-shrink-0" />
@@ -474,6 +519,7 @@ export function AppHeader({
           onGoToPipeline={onGoToPipeline ?? (() => {})}
           onViewResults={onViewResults ?? (() => {})}
           liveRuns={runningPipelines}
+          liveRunsPending={liveRunsPending}
           recentRuns={recentRuns}
         />
 
@@ -522,7 +568,7 @@ export function AppHeader({
                     </div>
                     {userTier === "basic" && (
                       <button
-                        onClick={() => { setProfileOpen(false); onNavigate("settings"); }}
+                        onClick={() => { setProfileOpen(false); setUpgradeOpen(true); }}
                         className="text-[11px] font-semibold text-brand hover:underline leading-none"
                       >
                         Upgrade
@@ -612,6 +658,8 @@ export function AppHeader({
           </AnimatePresence>
         </div>
       </div>
+
+      {upgradeOpen && <UpgradePlanModal tier={userTier} onClose={() => setUpgradeOpen(false)} />}
     </header>
   );
 }

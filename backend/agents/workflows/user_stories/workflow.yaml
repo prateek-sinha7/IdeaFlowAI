@@ -29,7 +29,12 @@ clarify:
 deliverable:
   strategy: streamed_text
   name: user_stories.md
-context_providers: []
+  # T3-chaining-reachable: streamed_text is materialized from ctx.last_streamed
+  # (engine.py build_flat_payload's S8 fix names user_stories.md explicitly),
+  # so this always produces a genuine chainable payload (Req 4 AC 4 / Req 6).
+  chains_from: true
+context_providers:
+- chain_context
 seed_files: {}
 # ─────────────────────────────────────────────────────────────────────────────
 # A/B EXPERIMENT — reproducing the R-22 filesystem-grant defect.

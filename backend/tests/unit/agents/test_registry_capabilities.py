@@ -57,6 +57,13 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("validator", "code_compile"),  # 10-04 / EXEC-02 — py_compile via the exec handle
     ("validator", "code_test"),  # 10-04 / EXEC-02 — pytest via the exec handle
     ("validator", "code_lint"),  # 10-04 / EXEC-02 — ruff check via the exec handle
+    ("validator", "journeys_coverage"),  # pdf_to_prototype A1
+    ("validator", "html_element_floor"),  # pdf_to_prototype A1
+    ("validator", "fragment_field_coverage"),  # pdf_to_prototype A1
+    (
+        "validator",
+        "screens_plan_coverage",
+    ),  # pdf_to_prototype — Architect screen-plan coverage
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -67,9 +74,16 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
         "input_provider",
         "run_images",
     ),  # 260707-edw — image-input Wave 1 (user_allowed=True)
+    ("input_provider", "pdf_pages"),  # spec 019 — materialised document page images
     ("task_parser", "heading_tasks"),
     ("task_parser", "json_tasks"),  # 12-01 / WAVE-02 (structured task list)
+    ("task_parser", "screen_plan"),  # prototype v3 — screens.json expanded by code
+    ("mechanical", "publish"),  # A10 — no-model step kinds, palette-visible
+    ("mechanical", "assemble_prototype"),  # prototype v3
+    ("tool", "ask_user"),  # mid-run clarification tool (HITL)
     ("gate", "human"),
+    ("gate", "before-human"),  # spec 014 — PRE-step HITL half of the human-gate split
+    ("gate", "conditional"),  # spec 014 — route/divert on a step's own decision
     ("gate", "validation"),
     ("gate", "approval"),  # 08-02
     ("gate", "security"),  # 08-02
@@ -84,6 +98,11 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("model_catalog", "default"),
     ("runtime", "langchain_deepagents"),  # 08-05 / F5
     ("prompt", "default"),  # 08-05 / F1
+    ("prompt", "body_only"),  # sandbox-git-versioning Req 29 AC1 — body-only policy
+    (
+        "prompt",
+        "governance",
+    ),  # sandbox-git-versioning Req 29 AC2 — governed-agent policy
     ("skill", "ui"),  # 08-05 / F3 / SKILL-01
     ("skill", "disk"),  # 08-05 / F3 / SKILL-01
     ("skill", "template"),  # 08-05 / F3 / SKILL-01
@@ -95,6 +114,10 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
         "hook",
         "audit_logger",
     ),  # KAN-73 (executable, non-blocking, default lifecycle audit)
+    (
+        "hook",
+        "provenance_audit",
+    ),  # task 9.1 / Req 19 (post_commit observer, non-blocking)
     (
         "runtime_env",
         "local",
@@ -144,8 +167,15 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
         "context_provider",
         "conversation",
     ),  # 33 / D-08 — compacted chat run_events as context
+    (
+        "context_provider",
+        "chain_context",
+    ),  # sandbox-git-versioning / task 7.3 — file-based chain payload
     ("chat", "concierge"),  # 33 / D-05 — app-side per-run proposal-only Concierge
     ("tool", "internet"),  # spec 012 — internet-access tool
+    ("tool", "pptx"),  # spec 017 — pptx tool set (missing from this list)
+    ("tool", "playwright"),  # spec 018 — headless-browser tool set
+    ("tool", "file_extract"),  # spec 019 — pdf/docx/xlsx/pptx extraction
 ]
 
 

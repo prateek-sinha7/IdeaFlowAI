@@ -77,9 +77,14 @@ const DOC_MIMES = [
   "text/csv",
   "application/json",
 ];
-const DOC_EXT = /\.(pdf|docx?|pptx|txt|md|json|csv)$/i;
+// `xlsx` belongs here with the other Office formats: the agent-side extractor
+// (`file_extract_tools._CONVERTED_FORMATS`) has always handled it, so omitting
+// it here silently dropped every spreadsheet before upload — the file never
+// reached `.uploads/` and the run read four documents where the user attached
+// five, with no error anywhere the user could see.
+const DOC_EXT = /\.(pdf|docx?|pptx|xlsx|txt|md|json|csv)$/i;
 // FIX-218: binary formats that need server-side extraction via /api/files/extract-text
-const BINARY_EXT = /\.(pdf|docx?|pptx)$/i;
+const BINARY_EXT = /\.(pdf|docx?|pptx|xlsx)$/i;
 // FIX-218: text-readable formats that can be decoded client-side
 const TEXT_EXT = /\.(txt|md|json|csv)$/i;
 // FIX-218: client-side cap for text files (~6 000 chars mirrors backend _ATTACHED_FILE_TEXT_CAP)

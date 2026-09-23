@@ -58,6 +58,8 @@ _VALID_PARSER = "heading_tasks"
 _DISPOSITIONS: dict[str, tuple[object, object]] = {
     "agent": ("step-x", lambda s, c: s.agent_id == "step-x"),
     "strategy": (_VALID_STRATEGY, lambda s, c: s.strategy == _VALID_STRATEGY),
+    # A10 — the no-model mechanical step kind (plan.py:Step.mechanical).
+    "mechanical": ("publish", lambda s, c: s.mechanical == "publish"),
     "gates": ([_VALID_GATE], lambda s, c: s.gates == [_VALID_GATE]),
     "hooks": ([_VALID_HOOK], lambda s, c: s.hooks == [_VALID_HOOK]),
     "validators": ([_VALID_VALIDATOR], lambda s, c: s.validators == [_VALID_VALIDATOR]),
@@ -115,6 +117,21 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     ),
     # WIRE-03: per-step injects: → Step.injects (list[str])
     "injects": (["template"], lambda s, c: s.injects == ["template"]),
+    # ── spec 014 / R-05b + R-29: the conditional-routing contract ────────────
+    # `route` is REJECT-ONLY as declared here: R-03 is a cross-field check, so a
+    # step carrying route: without gates: [conditional] raises CompilerError. The
+    # harness declares exactly one key at a time, so this lands on the raises
+    # branch — which consumed-OR-raises accepts. The predicate documents what
+    # consumption looks like on a step that declares both halves.
+    "route": (
+        {"outcomes": {"approve": {"trigger": "step", "target": "step-x"}}},
+        lambda s, c: s.route is not None and "approve" in s.route.outcomes,
+    ),
+    # Pure data pass-through onto the compiled Step (compiler.py:949/953) — the
+    # match is a plain set intersection of arbitrary strings, so the value need
+    # not be a registered artifact kind.
+    "produces": (["route_decision"], lambda s, c: s.produces == ["route_decision"]),
+    "consumes": (["route_decision"], lambda s, c: s.consumes == ["route_decision"]),
     # depends_on edges materialized onto the compiled Step (DAG-consumed). A dep on
     # a step absent from this one-step manifest is ignored by the DAG (no edge added)
     # but MUST still be reflected on Step.depends_on (else it is accepted-but-dropped).
@@ -125,6 +142,9 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     # ── revision-pipeline-refactor: declaration-driven post-step hook flag ───
     # Consumed directly onto Step.produces_solution_plan (bool coercion in _compile_step).
     "produces_solution_plan": (True, lambda s, c: s.produces_solution_plan is True),
+    # ── REDO-GATE follow-up: declared-gate redo opt-in ─────────────────────────
+    # Consumed directly onto Step.redoable (bool coercion in _compile_step).
+    "redoable": (True, lambda s, c: s.redoable is True),
 }
 
 

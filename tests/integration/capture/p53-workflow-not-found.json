@@ -1,0 +1,14 @@
+{
+  "url": "/workflows/00000000-0000-0000-0000-000000000000",
+  "headings": ["Page not found.", "Not found"],
+  "sameAs": "p51 — byte-identical to the generic unknown-route 404",
+  "actions": ["Back to dashboard", "Create a workflow", "Sign in"],
+  "hasAppNav": false,
+  "is404": true,
+  "console": ["2 errors — saved-workflow fetch 404"],
+  "notes": [
+    "three different failures (bad URL, missing run, missing workflow) all render one indistinguishable screen",
+    "a test cannot tell them apart from the DOM; assert on the URL it was reached from, not the page"
+  ],
+  "screenshot": "screenshots/11-errors/p53-workflow-not-found.png"
+}

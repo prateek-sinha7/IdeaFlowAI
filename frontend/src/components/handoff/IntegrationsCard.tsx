@@ -14,6 +14,7 @@ import {
   Eye,
 } from "lucide-react";
 
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import {
@@ -65,17 +66,30 @@ export function IntegrationsCard({
     { type: "success" | "error"; text: string } | null
   >(null);
 
+  // ISS-622: in-app confirmation dialogs replacing window.confirm
+  const [confirmingDeletePat, setConfirmingDeletePat] = useState(false);
+  const [confirmingRevokeKey, setConfirmingRevokeKey] = useState(false);
+  const [keyToRevoke, setKeyToRevoke] = useState<string | null>(null);
+
   const installCommand = useMemo(() => {
     const base = ENV.API_URL.replace(/\/$/, "");
     return `curl -fsSL ${base}/install/flowin-handoff | bash`;
   }, []);
-  const [installCopied, setInstallCopied] = useState(false);
+  const {
+    copied: installCopied,
+    failed: installFailed,
+    copy: copyInstall,
+  } = useClipboardCopy();
   const handleCopyInstall = useCallback(() => {
-    navigator.clipboard.writeText(installCommand).then(() => {
-      setInstallCopied(true);
-      setTimeout(() => setInstallCopied(false), 2000);
-    });
-  }, [installCommand]);
+    void copyInstall(installCommand);
+  }, [copyInstall, installCommand]);
+  const {
+    copied: keyCopied,
+    failed: keyFailed,
+    copy: copyKey,
+  } = useClipboardCopy();
+
+  const [fetchError, setFetchError] = useState<{ message: string; offline: boolean } | null>(null);
 
   const refresh = useCallback(async () => {
     const token = getToken();
@@ -87,8 +101,20 @@ export function IntegrationsCard({
       ]);
       setPatStatus(p);
       setKeys(ks);
-    } catch {
-      /* dashboard auth already gated this surface */
+      setFetchError(null);
+    } catch (err) {
+      // ISS-409: a network/5xx failure must not silently default to the
+      // empty-state copy ("No GitHub token saved yet."). Surface a distinct
+      // retry notice so a user with real credentials isn't misled.
+      const offline =
+        err instanceof TypeError ||
+        (typeof err === "object" && err !== null && "status" in err && (err as { status: number }).status === 0);
+      setFetchError({
+        message: offline
+          ? "Couldn't reach the server — check your connection."
+          : "Couldn't load your saved credentials. Try again.",
+        offline,
+      });
     }
   }, []);
   useEffect(() => void refresh(), [refresh]);
@@ -120,7 +146,14 @@ export function IntegrationsCard({
     }
   }, [pat]);
 
-  const handleDeletePat = useCallback(async () => {
+  const handleDeletePat = useCallback(() => {
+    // ISS-481: the "Remove" button must ask before it fires DELETE — same
+    // unguarded-destroy pattern as ISS-320 / FIX-385 (Constitution Clear).
+    setConfirmingDeletePat(true);
+  }, []);
+
+  const commitDeletePat = useCallback(async () => {
+    setConfirmingDeletePat(false);
     const token = getToken();
     if (!token) return;
     setPatBusy(true);
@@ -138,13 +171,17 @@ export function IntegrationsCard({
     }
   }, []);
 
+  const cancelDeletePat = useCallback(() => {
+    setConfirmingDeletePat(false);
+  }, []);
+
   const handleCreateKey = useCallback(async () => {
     const token = getToken();
     if (!token) return;
     setKeyBusy(true);
     setKeyMessage(null);
     try {
-      const created = await createApiKey(token, keyName || "Default");
+      const created = await createApiKey(token, keyName.trim() || "Default");
       setNewlyMinted(created);
       setKeyName("Default");
       await refresh();
@@ -158,28 +195,56 @@ export function IntegrationsCard({
     }
   }, [keyName, refresh]);
 
-  const handleRevoke = useCallback(
-    async (id: string) => {
-      const token = getToken();
-      if (!token) return;
-      setKeyBusy(true);
-      try {
-        await revokeApiKey(token, id);
-        await refresh();
-      } catch (err) {
-        setKeyMessage({
-          type: "error",
-          text: err instanceof Error ? err.message : "Failed to revoke key",
-        });
-      } finally {
-        setKeyBusy(false);
-      }
-    },
-    [refresh]
-  );
+  const handleRevoke = useCallback((id: string) => {
+    // ISS-481: revoke is permanent — ask before firing DELETE.
+    setKeyToRevoke(id);
+    setConfirmingRevokeKey(true);
+  }, []);
+
+  const commitRevokeKey = useCallback(async () => {
+    setConfirmingRevokeKey(false);
+    if (!keyToRevoke) return;
+    const token = getToken();
+    if (!token) return;
+    setKeyBusy(true);
+    try {
+      await revokeApiKey(token, keyToRevoke);
+      await refresh();
+    } catch (err) {
+      setKeyMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Failed to revoke key",
+      });
+    } finally {
+      setKeyBusy(false);
+      setKeyToRevoke(null);
+    }
+  }, [keyToRevoke, refresh]);
+
+  const cancelRevokeKey = useCallback(() => {
+    setConfirmingRevokeKey(false);
+    setKeyToRevoke(null);
+  }, []);
 
   return (
     <div className={compact ? "space-y-3" : "space-y-4"}>
+      {/* ISS-409: surface a fetch-error notice when refresh() caught a network/5xx failure.
+          Distinct from the "No GitHub token saved yet." copy so a real credential
+          bearer isn't misled into thinking their config is gone. */}
+      {fetchError && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[12px] text-amber-800">
+            <AlertCircle className="h-4 w-4 flex-none" />
+            {fetchError.message}
+          </div>
+          <button
+            onClick={() => void refresh()}
+            className="text-[11px] font-medium text-amber-800 hover:underline flex-none"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {/* Install */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2 mb-2">
@@ -204,6 +269,11 @@ export function IntegrationsCard({
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
                 Copied
+              </>
+            ) : installFailed ? (
+              <>
+                <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                Copy failed
               </>
             ) : (
               <>
@@ -314,12 +384,22 @@ export function IntegrationsCard({
             <div className="flex items-center gap-2 font-mono break-all text-[11px]">
               <span className="flex-1">{newlyMinted.token}</span>
               <button
-                onClick={() =>
-                  navigator.clipboard.writeText(newlyMinted.token).then(() => {})
-                }
+                onClick={() => void copyKey(newlyMinted.token)}
                 className="flex items-center gap-1 rounded-md px-2 py-1 text-blue-700 hover:bg-blue-100"
               >
-                <Copy className="h-3 w-3" />
+                {keyCopied ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                    Copied
+                  </>
+                ) : keyFailed ? (
+                  <>
+                    <AlertCircle className="h-3 w-3 text-red-600" />
+                    Copy failed
+                  </>
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
               </button>
             </div>
             <button
@@ -394,6 +474,90 @@ export function IntegrationsCard({
           </div>
         )}
       </div>
+
+      {/* ISS-622: in-app "delete PAT" confirmation dialog */}
+      {confirmingDeletePat && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-pat-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={cancelDeletePat}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-[var(--radius-card)] bg-surface-card border border-line-border shadow-[var(--elevation-modal)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="delete-pat-title"
+              className="mb-2 font-semibold text-ink-900 text-[15px]"
+            >
+              Remove GitHub token?
+            </h2>
+            <p className="mb-5 text-sm text-ink-500">
+              This will disconnect Flowin from GitHub until you save a new token.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDeletePat}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-ink-700 border border-line-border bg-surface-warm hover:bg-surface-paper transition-colors"
+              >
+                Keep token
+              </button>
+              <button
+                type="button"
+                onClick={commitDeletePat}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ISS-622: in-app "revoke API key" confirmation dialog */}
+      {confirmingRevokeKey && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="revoke-key-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={cancelRevokeKey}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-[var(--radius-card)] bg-surface-card border border-line-border shadow-[var(--elevation-modal)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="revoke-key-title"
+              className="mb-2 font-semibold text-ink-900 text-[15px]"
+            >
+              Revoke this API key?
+            </h2>
+            <p className="mb-5 text-sm text-ink-500">
+              Any client using it will immediately lose access.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelRevokeKey}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-ink-700 border border-line-border bg-surface-warm hover:bg-surface-paper transition-colors"
+              >
+                Keep key
+              </button>
+              <button
+                type="button"
+                onClick={commitRevokeKey}
+                className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Revoke
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

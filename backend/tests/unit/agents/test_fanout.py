@@ -9,7 +9,7 @@ Drives ``agents.execution_engine.fanout.run_fanout`` fully OFFLINE against a fak
   * FANOUT-03 (worker select): ``self``×N spawns N workers reusing the step agent; a
     NAMED worker in ``allowed_workers`` + the registry resolves; a disallowed/unknown
     worker raises BEFORE any spawn, leaving ZERO subagent_runs rows;
-  * FANOUT-04 (modes): parallel mode observes max concurrent workers ≤ the cap (4);
+  * FANOUT-04 (modes): parallel mode observes max concurrent workers ≤ the cap;
     sequential mode runs workers in strict order.
 
 The structured summary carries per-worker STATUS only (no typed artifact refs — those
@@ -47,6 +47,7 @@ class _FakeRunner:
         known_agents=None,
         worker_delay=0.0,
         fail_on_index=(),
+        yield_events=None,
     ):
         self.run_id = "run-x"
         self.allowed_workers = list(allowed_workers or [])
@@ -55,6 +56,9 @@ class _FakeRunner:
         self._worker_delay = worker_delay
         # Worker indices that raise inside run_worker (KRN-004 failure tests).
         self._fail_on_index = set(fail_on_index)
+        # Per-worker customizable events: dict mapping worker_index to list of events to yield.
+        # If None, defaults to the standard behavior (single agent_chunk, then optional raise).
+        self._yield_events = yield_events or {}
         # Instrumentation.
         self.spawned: list[dict] = []
         self.recorded_rows: list[dict] = []
@@ -125,8 +129,13 @@ class _FakeRunner:
                 await asyncio.sleep(self._worker_delay)
             if worker_index in getattr(self, "_fail_on_index", ()):
                 raise RuntimeError(f"worker {worker_index} exploded")
-            # Re-yield one lifecycle-ish event (workers carry no gates — D-01).
-            yield {"type": "agent_chunk", "data": {"worker": worker_index}}
+            # Use custom events if provided for this worker; otherwise default behavior.
+            if worker_index in self._yield_events:
+                for event in self._yield_events[worker_index]:
+                    yield event
+            else:
+                # Re-yield one lifecycle-ish event (workers carry no gates — D-01).
+                yield {"type": "agent_chunk", "data": {"worker": worker_index}}
         finally:
             self._live -= 1
 
@@ -339,11 +348,11 @@ async def test_fanout_batch_synthesizes_self_count_when_no_tasks():
 
 @pytest.mark.asyncio
 async def test_parallel_mode_observes_concurrency_cap():
-    # 10 workers, manifest asks for max_parallel=10, but the engine caps at 4.
+    # 10 workers, manifest asks for max_parallel=10, but the engine caps at DEFAULT_MAX_CONCURRENCY.
     # NOTE: with 11-04 the budget reserve ENFORCES the subagent cap; this test exercises
-    # the CONCURRENCY cap (≤4 live), so it raises the subagent budget to 10 so the
+    # the CONCURRENCY cap (≤ the constant, live), so it raises the subagent budget to 10 so the
     # total-count cap does not pre-empt the concurrency assertion.
-    from agents.execution_engine.budget import BudgetManager
+    from agents.execution_engine.budget import DEFAULT_MAX_CONCURRENCY, BudgetManager
     from agents.workflows.plan import Limits
 
     runner = _FakeRunner(known_agents={"worker-a"}, worker_delay=0.02)
@@ -354,7 +363,9 @@ async def test_parallel_mode_observes_concurrency_cap():
     await _collect(run_fanout(requests, ctx, step=step))
 
     assert len(runner.spawned) == 10
-    assert runner._max_live <= 4, f"concurrency exceeded the cap: {runner._max_live}"
+    assert (
+        runner._max_live <= DEFAULT_MAX_CONCURRENCY
+    ), f"concurrency exceeded the cap: {runner._max_live}"
 
 
 @pytest.mark.asyncio
@@ -498,6 +509,7 @@ async def test_run_worker_passes_wave_width_and_single_shot_view():
         task_block=None,
         skeleton=None,
         invocation_gated=True,
+        ectx_override=None,
     ):
         captured.update(
             task_number=task_number,
@@ -836,3 +848,110 @@ async def test_named_worker_not_allow_listed_rejected_through_real_kernel_servic
             [{"agent": "worker-b", "input": "x"}], ctx, step=step
         ):
             pass
+
+
+@pytest.mark.asyncio
+async def test_event_queue_events_carry_worker_index_and_task_id():
+    """A caller-supplied event_queue gets each worker's raw event stamped with the
+    identity fanout.py already knows at push time (worker_index / task_id) — the
+    correlation the FIFO heuristic in _fanout_wave_stream.py used to have to infer."""
+    runner = _FakeRunner(known_agents={"worker-a"})
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a")
+    requests = [
+        {"agent": "self", "input": "task-0", "task_id": "t-0"},
+        {"agent": "self", "input": "task-1", "task_id": "t-1"},
+        {"agent": "self", "input": "task-2", "task_id": "t-2"},
+    ]
+    queue: asyncio.Queue = asyncio.Queue()
+
+    await _collect(run_fanout(requests, ctx, step=step, event_queue=queue))
+
+    queued = []
+    while not queue.empty():
+        queued.append(queue.get_nowait())
+
+    assert len(queued) == 3
+    seen = {(ev["data"]["worker_index"], ev["data"]["task_id"]) for ev in queued}
+    assert seen == {(0, "t-0"), (1, "t-1"), (2, "t-2")}
+    # Every worker's own {"worker": idx} payload key must survive the stamp untouched.
+    for ev in queued:
+        assert ev["data"]["worker"] == ev["data"]["worker_index"]
+
+
+# ---------------------------------------------------------------------------
+# Provider failures: agent_error without agent_complete → failed status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_agent_error_without_agent_complete_recorded_failed():
+    """Provider failure (expired credentials, rate limits) yields agent_error with no
+    agent_complete → the worker is recorded failed with the error message."""
+    from agents.execution_engine.fanout import FanoutWorkerFailed
+
+    runner = _FakeRunner(
+        known_agents={"worker-a"},
+        yield_events={
+            0: [{"type": "agent_error", "data": {"error": "Credentials expired"}}],
+            1: [{"type": "agent_chunk", "data": {"worker": 1}}],  # Normal completion
+        },
+    )
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a")
+    requests = [
+        {"agent": "self", "input": "task-0"},
+        {"agent": "self", "input": "task-1"},
+    ]
+
+    events: list[dict] = []
+    with pytest.raises(FanoutWorkerFailed):
+        async for ev in run_fanout(requests, ctx, step=step):
+            events.append(ev)
+
+    # Worker 0 failed (agent_error without agent_complete).
+    assert len(runner.updated_rows) == 2
+    statuses = {row["id"]: row["status"] for row in runner.updated_rows}
+    assert statuses["row-1"] == "failed"  # Worker 0
+    assert statuses["row-2"] == "complete"  # Worker 1
+
+    # The subagent_result event for worker 0 carries the error message.
+    results = [e for e in events if e["type"] == "subagent_result"]
+    assert len(results) == 2
+    worker_0_result = [r for r in results if r["data"]["worker"] == 0][0]
+    assert worker_0_result["data"]["status"] == "failed"
+    assert "Credentials expired" in worker_0_result["data"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_agent_error_with_agent_complete_recorded_complete():
+    """Timeout case: agent_error with agent_complete → the worker is recorded complete
+    (best-available output was delivered alongside the recoverable error)."""
+    runner = _FakeRunner(
+        known_agents={"worker-a"},
+        yield_events={
+            0: [
+                {
+                    "type": "agent_error",
+                    "data": {"error": "Timeout: partial output", "recoverable": True},
+                },
+                {"type": "agent_complete", "data": {"total_tokens": 100}},
+            ],
+        },
+    )
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a")
+    requests = [{"agent": "self", "input": "task-0"}]
+
+    events = await _collect(run_fanout(requests, ctx, step=step))
+
+    # Worker completed despite the error (best-available output delivered).
+    assert len(runner.updated_rows) == 1
+    assert runner.updated_rows[0]["status"] == "complete"
+    assert runner.updated_rows[0]["tokens"] == 100
+
+    # The result event carries complete status, no error.
+    results = [e for e in events if e["type"] == "subagent_result"]
+    assert len(results) == 1
+    assert results[0]["data"]["status"] == "complete"
+    assert "error" not in results[0]["data"]

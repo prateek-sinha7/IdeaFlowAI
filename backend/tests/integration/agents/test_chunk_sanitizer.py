@@ -60,13 +60,17 @@ async def _drive_single_agent(
     pipeline_type: str,
     chunk_texts: list[str],
 ) -> list[str]:
-    """Run ONE agent through ``ExecutionEngine.execute()`` offline and return the
-    ordered list of emitted ``agent_chunk.chunk`` strings.
+    """Run the pipeline offline and return the ordered list of emitted
+    ``agent_chunk.chunk`` strings ONLY from the specified agent_id.
 
-    Mirrors ``tests/agents/_scripted_model._drive`` but (a) drives a single-agent
-    pipeline and (b) injects a custom ``ScriptedFakeChatModel`` whose ``_stream``
-    yields ``chunk_texts`` as separate deltas — letting a test split a
-    ``<function_calls>`` span across two chunks. No network / no Bedrock.
+    Mirrors ``tests/agents/_scripted_model._drive`` but injects a custom
+    ``ScriptedFakeChatModel`` whose ``_stream`` yields ``chunk_texts`` as separate
+    deltas — letting a test split a ``<function_calls>`` span across two chunks.
+    No network / no Bedrock.
+
+    Note: The engine will run the FULL compiled pipeline (per ADR-0008 roster
+    rules) to satisfy DAG dependencies. This function filters the emitted chunks
+    to only return those from the target agent.
     """
     import agents.execution_engine.engine as engine_mod
     import agents.factory as factory_mod
@@ -90,7 +94,7 @@ async def _drive_single_agent(
 
     engine_mod.compile_for_run = _patched_compile_for_run
 
-    # Inject our split-XML scripted model for THIS agent (one turn, usage so the
+    # Inject our split-XML scripted model for all agents (one turn, usage so the
     # done/usage events fire as normal).
     _orig_create_runner = factory_mod.create_runner
     _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
@@ -125,20 +129,39 @@ async def _drive_single_agent(
     engine._run_review_gate = _noop_gate  # type: ignore[assignment]
 
     run_id = f"chunk-sanitizer-{agent_id}-{uuid.uuid4().hex[:8]}"
+    # ISS-634: pass compiled_override with a single-step plan matching `spec` so
+    # ADR-0008's _roster_is_partial fill-in doesn't expand agents=[spec] to the
+    # full N-step plan. compile_for_run is @lru_cache'd; dataclasses.replace
+    # makes a shallow copy so we never mutate the shared cached instance.
+    import dataclasses
+    from agents.execution_engine.engine import compile_for_run as _compile
+
+    base_compiled = _compile(pipeline_type)
+    single_step = next((s for s in base_compiled.steps if s.agent_id == agent_id), None)
+    if single_step is None:
+        # Fallback: build a minimal step from the spec so the test still runs.
+        single_step = base_compiled.steps[0]
+    single_compiled = dataclasses.replace(
+        base_compiled,
+        steps=[single_step],
+        planner="skip",
+        clarify=dataclasses.replace(base_compiled.clarify, mode="off"),
+    )
     kwargs: dict[str, Any] = dict(
-        agents=[spec],
+        agents=[],  # Let engine build from compiled manifest steps (ADR-0008)
         user_message="Build me a thing for managing tasks.",
         pipeline_run_id=run_id,
         pipeline_type=pipeline_type,
         user_id="chunk-sanitizer-user",
         od_context=None,
         gate_agent_ids=[],
+        compiled_override=single_compiled,
     )
 
     emitted: list[str] = []
     try:
         async for ev in engine.execute(**kwargs):
-            if ev.get("type") == "agent_chunk":
+            if ev.get("type") == "agent_chunk" and ev["data"]["agent_id"] == agent_id:
                 emitted.append(ev["data"]["chunk"])
     finally:
         factory_mod.create_runner = _orig_create_runner
@@ -182,6 +205,7 @@ async def test_split_tool_xml_stripped_for_toolless_agent() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
 async def test_split_tool_xml_untouched_for_tooluse_agent() -> None:
     """Identical SPLIT stream for a tool-USING agent → emitted chunks byte-identical."""
     emitted = await _drive_single_agent(
@@ -217,6 +241,7 @@ async def test_single_chunk_tool_xml_stripped_for_toolless_agent() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
 async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> None:
     """Clean stream (no tool-XML) for a tool-less agent → emitted chunks == input."""
     deltas = ["Domain analysis: ", "the system manages tasks ", "for a single user."]
@@ -231,6 +256,7 @@ async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
 async def test_lone_lt_and_html_at_boundaries_chunk_identical_for_toolless_agent() -> (
     None
 ):
@@ -288,6 +314,7 @@ async def test_never_closed_opener_flushed_and_stripped_at_stream_end() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
 async def test_benign_held_tail_survives_flush_no_content_loss() -> None:
     """WR-04: a benign trailing tail held at EOF is flushed VERBATIM (no content loss).
 

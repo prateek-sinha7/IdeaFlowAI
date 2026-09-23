@@ -1,0 +1,12 @@
+{
+  "url": "http://localhost:3000/workflows/da92b4a4-7eff-41b5-9b9a-205cfa1616d9",
+  "h": [
+    "H1:My presentation"
+  ],
+  "btn": [],
+  "tab": [],
+  "sw": [],
+  "inp": [],
+  "tid": [],
+  "text": "PRESENTATION\nMy presentation\nYour saved version of this workflow.\n4 AGENTS\nreport-generator\nppt-brief-analyst\nppt-composer\nppt-validator\nEdit\nRun"
+}

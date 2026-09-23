@@ -306,7 +306,7 @@ def test_answers_unknown_run_is_denied(env):
 
 
 @pytest.mark.parametrize(
-    "terminal_status", ["cancelled", "failed", "degraded", "completed"]
+    "terminal_status", ["cancelled", "failed", "degraded", "completed", "diverted"]
 )
 def test_answers_on_a_terminal_run_is_rejected(env, terminal_status):
     """API-001 (task.md R-05): before this fence, ``/answers`` had ZERO terminal
@@ -662,6 +662,7 @@ async def test_a_cancelled_run_creates_no_driver_task_on_the_next_boot(env):
         f"this is the token-burn hole ISS-089 exists to close"
     )
     assert _run_status(env, run_id)[0] == "cancelled"
+
 
 def test_cancel_cross_owner_is_denied_and_does_not_fire_event(env):
     """T-29-03-3: a cross-owner Stop denies with 404 and must NOT set the

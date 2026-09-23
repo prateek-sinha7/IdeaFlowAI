@@ -36,6 +36,10 @@ class TestBedrockMapping:
             ("ModelTimeoutException", "timeout", True),
             ("AccessDeniedException", "auth_error", False),
             ("UnauthorizedException", "auth_error", False),
+            # A4 (STABILIZATION.md): the two codes an expired/invalid Bedrock
+            # bearer token actually raises — previously unmapped.
+            ("UnrecognizedClientException", "auth_error", False),
+            ("ExpiredTokenException", "auth_error", False),
             ("ResourceNotFoundException", "api_key_missing", False),
             ("ValidationException", "internal_error", False),
         ],
@@ -48,6 +52,15 @@ class TestBedrockMapping:
         assert result.code == expected_code
         assert result.recoverable == expected_recoverable
         assert result.message  # non-empty
+
+    def test_access_denied_returns_the_auth_specific_message_not_generic(self):
+        """A4: the exact regression this task targets — an AccessDeniedException
+        (an expired Bedrock bearer token, in practice) must return a distinct,
+        actionable message, not the generic internal_error fallback text."""
+        result = map_exception(_client_error("AccessDeniedException"))
+        assert result.code == "auth_error"
+        assert "rejected its credentials" in result.message
+        assert "expired or invalid" in result.message
 
     def test_bedrock_unknown_code_falls_back_to_internal_error_recoverable(self):
         result = map_exception(_client_error("SomeFutureCodeAWSAddedYesterday"))
@@ -69,6 +82,46 @@ class TestBedrockMapping:
         result = map_exception(EndpointConnectionError(endpoint_url="https://example"))
         assert result.code == "connection_error"
         assert result.recoverable is True
+
+
+# ---------------------------------------------------------------------------
+# Anthropic (direct API, local dev) — A4 (STABILIZATION.md)
+# ---------------------------------------------------------------------------
+
+
+def _anthropic_status_error(cls, status_code: int):
+    """Build a real anthropic SDK exception with a given HTTP status code."""
+    import anthropic
+    import httpx
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(status_code, request=request)
+    return cls(f"status {status_code}", response=response, body=None)
+
+
+class TestAnthropicMapping:
+    def test_401_authentication_error_maps_to_auth_error(self):
+        import anthropic
+
+        result = map_exception(_anthropic_status_error(anthropic.AuthenticationError, 401))
+        assert result.code == "auth_error"
+        assert result.recoverable is False
+        assert result.message
+
+    def test_403_permission_denied_error_maps_to_auth_error(self):
+        import anthropic
+
+        result = map_exception(_anthropic_status_error(anthropic.PermissionDeniedError, 403))
+        assert result.code == "auth_error"
+        assert result.recoverable is False
+
+    def test_other_status_codes_are_not_caught_by_the_auth_branch(self):
+        """RateLimitError is an APIStatusError too (429) — must not be
+        misclassified as an auth failure."""
+        import anthropic
+
+        result = map_exception(_anthropic_status_error(anthropic.RateLimitError, 429))
+        assert result.code != "auth_error"
 
 
 # ---------------------------------------------------------------------------

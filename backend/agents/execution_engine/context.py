@@ -126,6 +126,55 @@ class ExecutionContext:
     # parent_run_id: revision workflows only — the original run whose spec/design/tasks
     # are seeded into this run's sandbox.
     parent_run_id: str | None = None
+
+    # ── Sandbox-git-versioning lineage fields (task 5.10 / Requirements 14, 22) ─────
+    #
+    # TWO DISTINCT lineage axes — do NOT conflate them:
+    #
+    # revision_ordinal: the 1-based ordinal this run occupies in its revision family
+    # (the same counter the UI shows as ``v1``, ``v2``, …). Set APP-SIDE at launch by
+    # ``_mint_revision_row`` / ``create_revision`` — the engine reads it on ``post_run``
+    # to name the git tag ``v{revision_ordinal}`` (Requirement 14 AC 5). Decouples the
+    # tag name from any DB family-walk inside the engine so the tag and the UI counter
+    # can never disagree. Default 1 ⇒ every stand-alone (non-revision) run tags as
+    # ``v1`` ⇒ DORMANT contribution until tag creation lands in task 6.3 ⇒ INV-3
+    # byte-parity holds (no output-path change). Transient per-run scratch (INV-2 —
+    # never on the engine singleton). NOT the same as ``revision_attempt`` (the
+    # sub-pipeline re-entry index used for checkpoint thread naming, a different field).
+    revision_ordinal: int = 1
+    # chain_source_run_id: chaining lineage — the run whose ``.chain/{id}/`` payload
+    # this run consumes via the ``chain_context`` provider (Requirement 22). This is
+    # ENTIRELY DISTINCT from ``parent_run_id`` (revision lineage):
+    #   - ``parent_run_id``: run B REVISES run A — same shared sandbox directory, same
+    #     deliverable file overwritten in-place. A revision relationship.
+    #   - ``chain_source_run_id``: run B CHAINS FROM run A — B reads A's output files
+    #     from ``.chain/{A.run_id}/`` into its own ``.context/`` directory before step 1.
+    #     B has its OWN root sandbox keyed on B's own run id, NOT A's.
+    # Set app-side at launch from the ``source_run_id`` column (written for the first
+    # time by task 7.2). Default None ⇒ no chain payload copied ⇒ DORMANT on every
+    # non-chained run ⇒ INV-3 byte-parity holds. Transient per-run scratch (INV-2).
+    chain_source_run_id: str | None = None
+    # chain_selection: the pre-validated payload selection produced by
+    # ``select_source_payload`` and persisted into the audit row by task 6.5.
+    # Consumed by ``install_chain_context`` (task 6.6) to byte-copy the admitted
+    # payload into ``.context/`` before agent 1.  Deliberately NOT authoritative —
+    # ignored unless the compiled plan declares chaining, and every read it drives
+    # still goes through an owner-scoped ``ReadOnlySandbox`` (Requirement 6 AC 19).
+    # ``V2Selection`` or ``LegacySelection`` when a payload was validated; ``None``
+    # when no chain payload is admitted (non-chained run or degrade-with-no-payload).
+    # Default None ⇒ DORMANT on every non-chained run ⇒ INV-3 byte-parity holds.
+    # Transient per-run scratch (INV-2).
+    chain_selection: object | None = None
+    # chain_depth: GAPS P0 #5 / FR-041 — the length of the ``source_run_id`` chain
+    # from THIS run to a run with no source (a real hop count, not merely "is this
+    # run chained"). Set APP-SIDE at launch by a DB walk starting at
+    # ``chain_source_run_id`` (same architecture as ``revision_ordinal`` above: a
+    # DB read at launch, never inside the finalizer) so ``finalize_terminal_run``'s
+    # ``disk_metrics`` log line can read this field with NO DB access of its own.
+    # Default 0 ⇒ every non-chained run reports depth 0 ⇒ DORMANT / INV-3 parity.
+    # Transient per-run scratch (INV-2).
+    chain_depth: int = 0
+
     # checkpointer: the process-wide cached LangGraph checkpointer (get_checkpointer()).
     # Acquired once per run and threaded into every create_runner; never closed per-run
     # (app-shutdown concern). Only its STORAGE location moves onto the context.
@@ -153,6 +202,16 @@ class ExecutionContext:
     # (the scripted model never errors mid-loop), so INV-3 byte-parity holds. Per-run
     # (CTX-02 — never on the engine singleton).
     failed_invocations: set = field(default_factory=set)
+
+    # budget_degraded_reasons: R-07 convergence-limit messages (loop_iterations
+    # exhausted on a BACKWARD/SELF conditional route). Unlike a fatal BudgetExceeded,
+    # this is NOT an abort — the dispatch loop suppresses the jump and advances
+    # forward as if the gate had returned "done" (see engine.py's loop-cap
+    # enforcement site). Collected here so the terminal ``pipeline_complete`` can
+    # still report ``status="degraded"`` with an honest, specific reason instead of
+    # silently completing clean. Empty for every run that never hits the cap →
+    # DORMANT on the characterization goldens (INV-3).
+    budget_degraded_reasons: list = field(default_factory=list)
 
     # ── Prototype-revision group (set defaults; conditionally populated in execute()) ─
     # revision_original_html: the seeded ORIGINAL prototype.html (pre-edit); read back
@@ -352,6 +411,24 @@ class ExecutionContext:
     # non-revision run ⇒ INV-3 byte-parity holds. Transient per-run scratch (INV-2), no
     # storage: no migration, no table, no column.
     revision_high_water: int = 0
+    # suppress_review_gate: the generic "this dispatch does not pause for the inter-agent
+    # human review gate" marker, honoured by ``_should_gate`` (ISS-072). The fourth member
+    # of the publish-around-one-dispatch scratch family beside ``spec_revision_context`` /
+    # ``spec_revision_prior_artifact``, set and RESTORED by the same
+    # ``_run_spec_revision_sub_pipeline`` try/finally and by object identity against the
+    # spec being re-dispatched — never an agent id or workflow name (INV-1 / SC-001).
+    #
+    # Its one publisher suppresses the ANALYZE re-run's own gate inside a revision pass:
+    # that firing shows the user the content they are about to be shown again at the gate
+    # re-opened once the pass returns (same producer, same bytes), offers a strictly
+    # smaller action set, and approving it has no externally visible effect — so one
+    # "Update the Specs" click cost two approvals for one review. The specify/plan
+    # in-pass gates are WANTED and keep firing, which is why this is a per-dispatch marker
+    # and not a read of ``revision_attempt`` (that would suppress all three).
+    #
+    # Default False ⇒ DORMANT on every dispatch outside a revision pass ⇒ INV-3 byte-parity
+    # holds. Transient per-run scratch (INV-2 — never on the engine singleton).
+    suppress_review_gate: bool = False
     # steering_notes: the consume-once MID-RUN steering queue (D-06 / CHAT-03 /
     # ND-11 — the THIRD member of the consume-once injection-seam family beside
     # ``redo_directive`` and KAN-101's ``spec_revision_context``; COEXIST, not
@@ -403,6 +480,70 @@ class ExecutionContext:
     # instead was the pre-fix bug: every subsequent dispatch re-attached the stale image.)
     # Default-empty ⇒ DORMANT on every golden run (nothing to render) ⇒ INV-3 byte-parity.
     turn_images_once: list = field(default_factory=list)
+    # step_visit_counts: per-run tracking of how many times each step has been
+    # visited. Used for conditional gates with looping (the feature tracks re-entry
+    # for loop-back termination, branch deduplication, and iteration caps).
+    # Keyed on step id (agent_id), values are visit counts. Starts empty,
+    # incremented at step entry via pattern: ``step_visit_counts[step_id] += 1``.
+    # Transient per-run scratch (INV-2 — never on the singleton). Default-empty
+    # ⇒ DORMANT on non-looping runs ⇒ INV-3 byte-parity holds.
+    step_visit_counts: dict[str, int] = field(default_factory=dict)
+    # trigger_depth: cross-workflow trigger-chain depth (R-18). A plain CONSTRUCTOR-TIME
+    # value, not internally computed — the SAME idiom as every other per-run field this
+    # engine stamps at ``ExecutionContext(...)`` call time (``workspace_id``,
+    # ``disk_principal``, …): ``0`` for a normal (non-triggered) run (the dataclass
+    # default — every call site today constructs with the implicit default, confirmed
+    # by inspection of all ``ExecutionContext(...)`` call sites), or explicitly
+    # ``parent_ectx.trigger_depth + 1`` passed in by the FUTURE minting call site for a
+    # run started by a ``trigger: "workflow"`` route outcome. That call site
+    # (``run_trigger_workflow``, Phase 4 / plan.md §7 task 2) does not exist yet — this
+    # field only carries the value once minted; the "+1" propagation logic itself lives
+    # at the caller, not here (mirrors how ``owner_id``/``disk_principal`` are computed
+    # by ``execute()`` before construction, never inside this dataclass).
+    # Compared against the FIXED ceiling of ``5`` (R-19 — the compiler rejects any other
+    # declared ``RouteSpec.trigger_max_depth``) before a further trigger proceeds; breach
+    # raises ``BudgetExceeded`` (the same fail-closed pattern R-07 uses for
+    # ``step_visit_counts``). Phase 4 may read ``ectx.trigger_depth`` directly (an
+    # in-memory counter) INSTEAD OF walking the ``parent_run_id`` DB chain, provided this
+    # field's propagation is confirmed correct (plan.md §7 task 2) — T10's unit test
+    # covers that propagation across a mocked multi-level chain.
+    # DISTINCT from ``depth`` above (sub-run FAN-OUT nesting depth, a different cap for a
+    # different mechanism, Phase 11) — the two must never be conflated.
+    # Default ``0`` ⇒ DORMANT on every run that never triggers another workflow ⇒ INV-3
+    # byte-parity holds. Transient per-run scratch (INV-2 — never on the singleton).
+    trigger_depth: int = 0
+
+    # ── Task 4.4 (sandbox-git-versioning, Req 12): pre_commit block tracking ─────
+    # last_commit_blocked: set to True when a ``pre_commit`` hook returns ``block``
+    # at the step-boundary commit site in engine._execute_impl.  The terminal-path
+    # tagging logic reads this: a run whose last commit was blocked MUST end
+    # ``degraded`` and MUST NOT be tagged (Requirement 12 AC 4-5).
+    #
+    # Semantics: the flag is STICKY — once any step's pre_commit hook blocks the
+    # commit the flag stays True for the rest of the run.  The terminal path never
+    # resets it.  Default False ⇒ DORMANT on every run where no pre_commit hook
+    # fires or all fire without blocking ⇒ INV-3 byte-parity holds.
+    last_commit_blocked: bool = False
+
+    # ── Task 5.7 (sandbox-git-versioning-v2, Req 3/4): per-run trace handle ─────
+    # run_trace: the per-run ``RunTrace`` instance that records every engine event
+    # into ``.logs/{run_id}.jsonl``.  Bound at ``execute()`` entry (via the
+    # ``_run_trace`` parameter of ``_execute_impl``) so ``_fire_post_run`` can call
+    # ``run_trace.flush_terminal(...)`` at finalizer step 3 — ensuring the JSONL log
+    # is fully flushed *before* step 4 copies it into ``.chain/logs.jsonl``
+    # (Requirement 3 AC 6, Requirement 4 AC 6).
+    #
+    # Typed ``object | None`` (NOT the concrete ``RunTrace`` type) — IDENTICAL to
+    # ``scoped_store`` / ``model_resolver`` above — so this pure-data module stays
+    # import-free of ``agents.execution_engine.run_log``.  The caller uses
+    # ``getattr`` duck-typing (the existing engine pattern) so an absent or None
+    # value degrades gracefully to a no-op flush.
+    #
+    # Default None ⇒ DORMANT on every run constructed without the tracer (offline
+    # harnesses, the resume path, unit tests that call ``_execute_impl`` directly)
+    # ⇒ INV-3 byte-parity holds.  Transient per-run scratch (INV-2 — never on the
+    # engine singleton).
+    run_trace: object | None = None
 
     # ── KRN-005 (task.md R-03): scratch-mutation serialization for concurrent
     # fan-out children ────────────────────────────────────────────────────────
@@ -437,3 +578,47 @@ class ExecutionContext:
     # to avoid importing asyncio's lock type into type-checking call sites that
     # don't need it; the runtime value is always a real ``asyncio.Lock``.
     scratch_lock: object = field(default_factory=asyncio.Lock)
+
+    # ── Task 10.4 (sandbox-git-versioning-v2, Req 14): retry-class consume-once
+    # scratch fields ────────────────────────────────────────────────────────────
+    #
+    # TWO consume-once dicts joining the existing scratch family (redo_directive,
+    # spec_revision_context, steering_notes, pending_turn_images …).  Both follow
+    # the F3 discipline: set by the producer just before the relevant dispatch,
+    # drained unconditionally in the dispatch loop's ``finally`` block so a
+    # compose-time error, an early exit, or a resume path can never replay a
+    # stale payload on the NEXT agent.
+
+    # pending_route_feedback: {agent_id → feedback_dict} stash for a
+    # conditional-gate backward retry (Req 14 AC 2).  Keyed by the target
+    # agent's ``spec.id`` so the block is delivered EXACTLY ONCE to the
+    # specific retried agent and no other.  Written by the dispatch loop's
+    # route-outcome handler (R-28); consumed and cleared by
+    # ``_compose_context_message`` (pop) and then drained unconditionally by
+    # the surrounding ``finally``.  Previously declared as a dynamic attribute
+    # via ``setattr``; explicit declaration here closes the AC 7 gap (a dynamic
+    # attr survives the ``finally`` drain because ``getattr(ectx, field, None)``
+    # returns the stale value on a fresh context that never set it).
+    #
+    # Default ``{}`` ⇒ DORMANT on every run that never follows a backward
+    # conditional gate ⇒ INV-3 byte-parity holds.  Transient per-run scratch
+    # (INV-2 — never on the engine singleton).
+    pending_route_feedback: dict = field(default_factory=dict)
+
+    # pending_validation_fix: ``{agent_id → {errors: list[str], filename: str}}``
+    # one-shot control payload for the internal validation-fix loop (Req 14 AC 4).
+    # Carries ONLY validation errors and the exact deliverable path — no original
+    # user brief, no upstream outputs, no unrelated context.  Set by
+    # ``KernelServices.run_validation_fix_loop`` just before each internal fix
+    # sub-agent dispatch; consumed and cleared by ``_compose_context_message``
+    # (pop) and then drained unconditionally by the surrounding ``finally``.
+    #
+    # The fix sub-agent is dispatched on a fresh ``…:fix{n}`` checkpoint thread
+    # (AC 6 drains it via the same gate_events mechanism as conditional-gate
+    # retries).  The isolation ensures the fix sub-agent NEVER receives the
+    # original user brief, planning context, consumed upstream outputs, or any
+    # other cross-agent context — only the error list and the filename.
+    #
+    # Default ``{}`` ⇒ DORMANT on every run with no failing validation step ⇒
+    # INV-3 byte-parity holds.  Transient per-run scratch (INV-2).
+    pending_validation_fix: dict = field(default_factory=dict)

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__TITLE__</title>
+<style>
+:root{--color-primary:#003f7f;--color-primary-dark:#002a55;--color-secondary:#f39200;--color-background:#ffffff;--color-surface:#f5f5f5;--color-surface-2:#eaeef3;--color-border:#d0d0d0;--color-text:#333333;--color-text-muted:#666666;--color-success:#2e7d32;--color-error:#c62828;--color-warning:#ef6c00;--color-info:#1565c0;--color-required:#fff3b0;--font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;--font-size-xs:12px;--font-size-sm:14px;--font-size-base:15px;--font-size-lg:18px;--font-size-xl:20px;--font-size-2xl:24px;--spacing-xs:4px;--spacing-sm:8px;--spacing-md:16px;--spacing-lg:24px;--spacing-xl:32px;--shell-header-height:56px;--shell-nav-width:260px;--shell-status-height:32px;--border-radius:4px;--shadow-sm:0 1px 3px rgba(0,0,0,.12);--shadow-md:0 2px 8px rgba(0,0,0,.15);--shadow-lg:0 8px 32px rgba(0,0,0,.25);--z-chrome:20;--z-dialog:30}
+__THEME__
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--color-surface);color:var(--color-text);font-family:var(--font-family);font-size:var(--font-size-base);line-height:1.5}
+body{display:flex;flex-direction:column;min-height:100vh}
+a{color:var(--color-primary)}
+h1,h2,h3,h4{margin:0 0 var(--spacing-sm);line-height:1.25;color:var(--color-primary-dark)}
+h1{font-size:var(--font-size-2xl)}h2{font-size:var(--font-size-xl)}h3{font-size:var(--font-size-lg)}h4{font-size:var(--font-size-base)}
+p{margin:0 0 var(--spacing-sm)}
+/* shell chrome */
+.shell-header{height:var(--shell-header-height);flex:0 0 auto;background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 var(--spacing-lg);box-shadow:var(--shadow-md);z-index:var(--z-chrome)}
+.shell-header .brand{font-size:var(--font-size-lg);font-weight:700;letter-spacing:.2px}
+.shell-header .brand small{font-weight:400;opacity:.8;margin-left:var(--spacing-md);font-size:var(--font-size-sm)}
+.shell-header .user{font-size:var(--font-size-sm);opacity:.9}
+.shell-body{display:flex;flex:1 1 auto;min-height:0}
+#slot-nav{flex:0 0 var(--shell-nav-width);background:#fff;border-right:1px solid var(--color-border);overflow-y:auto;padding:var(--spacing-sm) 0}
+.nav-group{padding:var(--spacing-sm) 0}
+.nav-group-title{font-size:var(--font-size-xs);text-transform:uppercase;letter-spacing:.6px;color:var(--color-text-muted);padding:var(--spacing-xs) var(--spacing-lg)}
+.nav-link{display:block;padding:6px var(--spacing-lg);color:var(--color-text);text-decoration:none;font-size:var(--font-size-sm);border-left:4px solid transparent;cursor:pointer}
+.nav-link:hover{background:var(--color-surface)}
+.nav-link.active{background:var(--color-surface-2);border-left-color:var(--color-secondary);color:var(--color-primary);font-weight:600}
+.nav-link.stub-link{color:var(--color-text-muted);font-style:italic}
+#slot-content{flex:1 1 auto;min-width:0;overflow:auto;padding:var(--spacing-lg)}
+#slot-content>.screen{display:none;background:#fff;border:1px solid var(--color-border);border-radius:var(--border-radius);box-shadow:var(--shadow-sm);padding:var(--spacing-lg);max-width:1200px;margin:0 auto}
+#slot-content>.screen.active{display:block}
+.shell-status{height:var(--shell-status-height);flex:0 0 auto;display:flex;align-items:center;gap:var(--spacing-md);padding:0 var(--spacing-lg);font-size:var(--font-size-xs);color:var(--color-text-muted);background:#fff;border-top:1px solid var(--color-border)}
+.shell-status .dot{width:8px;height:8px;border-radius:50%;background:var(--color-success);display:inline-block}
+.shell-status .dot.warn{background:var(--color-warning)}
+/* stubs */
+.screen.stub .empty-state{border-style:dashed;background:var(--color-required)}
+.stub-note{color:var(--color-text-muted)}
+/* page */
+.page-header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:var(--spacing-sm);border-bottom:2px solid var(--color-surface-2);padding-bottom:var(--spacing-sm);margin-bottom:var(--spacing-md)}
+.page-title{font-size:var(--font-size-2xl);margin:0}
+.page-description{color:var(--color-text-muted);margin:0;flex-basis:100%}
+.section-title{font-size:var(--font-size-lg);margin:var(--spacing-md) 0 var(--spacing-sm);color:var(--color-primary)}
+.section-content{margin-bottom:var(--spacing-md)}
+.toolbar{display:flex;gap:var(--spacing-sm);flex-wrap:wrap;align-items:center;margin:var(--spacing-sm) 0 var(--spacing-md)}
+.card{border:1px solid var(--color-border);border-radius:var(--border-radius);padding:var(--spacing-md);background:#fff;margin-bottom:var(--spacing-md)}
+/* forms */
+.form{margin:0}
+.form-fieldset{border:1px solid var(--color-border);border-radius:var(--border-radius);padding:var(--spacing-md);margin:0 0 var(--spacing-md);min-width:0}
+.form-legend{font-weight:600;color:var(--color-primary);padding:0 var(--spacing-xs)}
+.form-row{display:grid;grid-template-columns:minmax(140px,220px) 1fr;gap:var(--spacing-sm) var(--spacing-md);align-items:center;margin-bottom:var(--spacing-sm)}
+.form-row-group{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--spacing-sm) var(--spacing-md)}
+.form-row-group .form-row{grid-template-columns:1fr;align-items:start}
+.form-label{font-size:var(--font-size-sm);font-weight:600;color:var(--color-text)}
+.form-control{font:inherit;font-size:var(--font-size-sm);padding:6px 8px;border:1px solid var(--color-border);border-radius:var(--border-radius);background:#fff;color:var(--color-text);width:100%;max-width:520px;min-height:32px}
+.form-control:focus{outline:2px solid var(--color-info);outline-offset:1px}
+.form-control[disabled],.btn[disabled],[disabled]{opacity:.55;cursor:not-allowed}
+textarea.form-control{min-height:72px;resize:vertical}
+.form-control-group{display:flex;gap:var(--spacing-sm);flex-wrap:wrap;align-items:center}
+.form-hint{font-size:var(--font-size-xs);color:var(--color-text-muted);grid-column:2}
+.form-actions{display:flex;gap:var(--spacing-sm);flex-wrap:wrap;justify-content:flex-start;margin-top:var(--spacing-md);padding-top:var(--spacing-md);border-top:1px solid var(--color-surface-2)}
+.required-indicator{color:var(--color-error);margin-left:2px}
+.radio-group,.checkbox-group{display:flex;gap:var(--spacing-md);flex-wrap:wrap}
+.radio-label,.checkbox-label{display:inline-flex;align-items:center;gap:var(--spacing-xs);font-size:var(--font-size-sm)}
+/* buttons */
+.btn{font:inherit;font-size:var(--font-size-sm);padding:6px 14px;border-radius:var(--border-radius);border:1px solid var(--color-border);background:#fff;color:var(--color-text);cursor:pointer;min-height:32px;text-decoration:none;display:inline-flex;align-items:center;gap:var(--spacing-xs)}
+.btn:hover{background:var(--color-surface)}
+.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:#fff}
+.btn-primary:hover{background:var(--color-primary-dark)}
+.btn-secondary{background:var(--color-surface);border-color:var(--color-border)}
+.btn-link{border-color:transparent;background:transparent;color:var(--color-primary);text-decoration:underline;padding:2px 4px}
+.btn-icon{padding:4px 8px;min-width:32px;justify-content:center}
+.btn-close{font:inherit;font-size:var(--font-size-xl);line-height:1;border:0;background:transparent;color:#fff;cursor:pointer;padding:0 var(--spacing-xs)}
+/* tables */
+.table{width:100%;border-collapse:collapse;font-size:var(--font-size-sm);margin:var(--spacing-sm) 0 var(--spacing-md);background:#fff}
+.table-header,.table th{text-align:left;background:var(--color-surface-2);color:var(--color-text);font-weight:600;padding:8px 10px;border:1px solid var(--color-border)}
+.table-cell,.table td{padding:6px 10px;border:1px solid var(--color-border);vertical-align:top}
+.table-row:nth-child(even) td{background:var(--color-surface)}
+.table-row.selected td{background:var(--color-required)}
+.table-wrap{overflow-x:auto}
+/* tabs */
+.tabs{margin:var(--spacing-md) 0}
+.tabs-nav{display:flex;gap:2px;border-bottom:2px solid var(--color-border);flex-wrap:wrap}
+.tab-link{padding:8px 16px;font-size:var(--font-size-sm);color:var(--color-text);text-decoration:none;border:1px solid transparent;border-bottom:0;border-radius:var(--border-radius) var(--border-radius) 0 0;cursor:pointer;background:var(--color-surface)}
+.tab-link:hover{background:var(--color-surface-2)}
+.tab-link.active{background:#fff;border-color:var(--color-border);color:var(--color-primary);font-weight:600;margin-bottom:-2px;border-bottom:2px solid #fff}
+.tab-link[disabled],.tab-link.disabled{opacity:.5;cursor:not-allowed}
+.tabs-content{border:1px solid var(--color-border);border-top:0;padding:var(--spacing-md);background:#fff}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+/* in-screen states (a confirmation, an error, an expanded row): hidden at rest, shown by .open via data-show / data-hide */
+.state{display:none}
+.state.open{display:revert}
+.form-control.required{background:var(--color-required)}
+/* misc */
+.badge{display:inline-block;font-size:var(--font-size-xs);padding:2px 8px;border-radius:10px;background:var(--color-surface-2);color:var(--color-text)}
+.badge.status-ok{background:#e6f4ea;color:var(--color-success)}
+.badge.status-error{background:#fdecea;color:var(--color-error)}
+.badge.status-warning{background:#fff4e5;color:var(--color-warning)}
+.empty-state{border:1px solid var(--color-border);border-radius:var(--border-radius);padding:var(--spacing-lg);text-align:center;color:var(--color-text-muted);background:var(--color-surface)}
+.menu{display:flex;gap:var(--spacing-xs);flex-wrap:wrap;padding:var(--spacing-xs);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--border-radius)}
+.menu-item{padding:4px 10px;font-size:var(--font-size-sm);border-radius:var(--border-radius);cursor:pointer;background:transparent;border:0;font:inherit}
+.menu-item:hover{background:var(--color-surface-2)}
+.status-ok{color:var(--color-success)}.status-error{color:var(--color-error)}.status-warning{color:var(--color-warning)}
+/* dialogs — the ONE hide/show mechanism: hidden at rest, shown by .open */
+#slot-overlays .dialog{display:none;position:fixed;inset:0;z-index:var(--z-dialog);align-items:center;justify-content:center}
+#slot-overlays .dialog.open{display:flex}
+#slot-overlays .scrim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+#slot-overlays .dialog-panel{position:relative;background:#fff;border-radius:var(--border-radius);box-shadow:var(--shadow-lg);width:min(820px,92vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+#slot-overlays .dialog-header{display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-md);background:var(--color-primary);color:#fff;padding:var(--spacing-sm) var(--spacing-md)}
+#slot-overlays .dialog-title{margin:0;font-size:var(--font-size-lg);color:#fff}
+#slot-overlays .dialog-content{padding:var(--spacing-md) var(--spacing-lg);overflow:auto}
+#slot-overlays .dialog-content>.screen{display:block}
+#slot-overlays .dialog-content .page-header{border-bottom:0;margin-bottom:var(--spacing-sm)}
+#slot-overlays .dialog-content .page-title{font-size:var(--font-size-lg)}
+@media (max-width:900px){#slot-nav{flex-basis:200px}.form-row{grid-template-columns:1fr}.form-hint{grid-column:1}}
+</style>
+</head>
+<body>
+<header class="shell-header"><div class="brand">__TITLE__<small>prototype</small></div><div class="user">Welcome, Reviewer</div></header>
+<div class="shell-body">
+<nav id="slot-nav" aria-label="Screens">
+__NAV__
+</nav>
+<main id="slot-content">
+__CONTENT__
+</main>
+</div>
+<div id="slot-overlays">
+__OVERLAYS__
+</div>
+<footer class="shell-status"><span class="dot __STATUS_CLASS__"></span><span>__STATUS__</span></footer>
+<noscript><p style="padding:16px">This prototype needs JavaScript to switch screens.</p></noscript>
+<script>
+(function () {
+  var ENTRY = "__ENTRY__";
+  function contentScreens() { return document.querySelectorAll('#slot-content > .screen'); }
+  function ensureTabs(root) {
+    var groups = root.querySelectorAll('.tabs');
+    for (var i = 0; i < groups.length; i++) {
+      var panels = groups[i].querySelectorAll('.tab-panel');
+      if (!panels.length) continue;
+      var anyActive = false;
+      for (var j = 0; j < panels.length; j++) if (panels[j].classList.contains('active')) anyActive = true;
+      if (!anyActive) {
+        panels[0].classList.add('active');
+        var link = groups[i].querySelector('[data-tab="' + panels[0].id + '"]');
+        if (link) link.classList.add('active');
+      }
+    }
+  }
+  function show(id, updateHash) {
+    var target = document.getElementById(id);
+    if (!target || !target.classList.contains('screen') || target.closest('#slot-overlays')) return false;
+    var all = contentScreens();
+    for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i] === target);
+    var links = document.querySelectorAll('#slot-nav [data-goto]');
+    for (var k = 0; k < links.length; k++) links[k].classList.toggle('active', links[k].getAttribute('data-goto') === id);
+    ensureTabs(target);
+    if (updateHash !== false && location.hash !== '#' + id) { try { history.replaceState(null, '', '#' + id); } catch (e) {} }
+    var main = document.getElementById('slot-content'); if (main) main.scrollTop = 0;
+    return true;
+  }
+  function openDialog(id) {
+    var d = document.getElementById(id);
+    if (!d || !d.classList.contains('dialog')) return false;
+    d.classList.add('open');
+    ensureTabs(d);
+    var f = d.querySelector('input:not([type=hidden]):not([disabled]),select:not([disabled]),textarea:not([disabled])');
+    if (f) { try { f.focus(); } catch (e) {} }
+    return true;
+  }
+  function closeDialog(id) {
+    if (id) { var d = document.getElementById(id); if (d) { d.classList.remove('open'); return; } }
+    var open = document.querySelectorAll('#slot-overlays .dialog.open');
+    for (var i = 0; i < open.length; i++) open[i].classList.remove('open');
+  }
+  function switchTab(link, panelId) {
+    var panel = document.getElementById(panelId);
+    if (!panel) return false;
+    var scope = link.closest('.tabs') || panel.closest('.tabs') || link.closest('.screen') || document;
+    var panels = scope.querySelectorAll('.tab-panel');
+    for (var i = 0; i < panels.length; i++) panels[i].classList.toggle('active', panels[i] === panel);
+    var links = scope.querySelectorAll('[data-tab]');
+    for (var j = 0; j < links.length; j++) links[j].classList.toggle('active', links[j] === link);
+    return true;
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.classList && e.target.classList.contains('scrim')) {
+      var dlg = e.target.closest('.dialog'); if (dlg) dlg.classList.remove('open'); return;
+    }
+    var el = e.target.closest('[data-goto],[data-submit],[data-opens],[data-closes],[data-tab],[data-show],[data-hide]');
+    if (!el) return;
+    if (el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true') { e.preventDefault(); return; }
+    var v;
+    if ((v = el.getAttribute('data-tab')) !== null) { e.preventDefault(); switchTab(el, v); return; }
+    if ((v = el.getAttribute('data-show')) !== null) { e.preventDefault(); var st = document.getElementById(v); if (st) st.classList.add('open'); return; }
+    if ((v = el.getAttribute('data-hide')) !== null) { e.preventDefault(); var hd = document.getElementById(v); if (hd) hd.classList.remove('open'); return; }
+    // A dialog opened from inside a dialog REPLACES it (Print -> PDF Creator -> Save must never stack three modals; QA run 11).
+    if ((v = el.getAttribute('data-opens')) !== null) { e.preventDefault(); closeDialog(); openDialog(v); return; }
+    if ((v = el.getAttribute('data-closes')) !== null) { e.preventDefault(); closeDialog(v); return; }
+    v = el.getAttribute('data-goto'); if (v === null) v = el.getAttribute('data-submit');
+    e.preventDefault(); closeDialog(); show(v);
+  });
+  document.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var b = e.target.querySelector('[data-submit],[data-goto]');
+    if (b) { var v = b.getAttribute('data-submit') || b.getAttribute('data-goto'); closeDialog(); show(v); }
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDialog(); });
+  window.addEventListener('hashchange', function () { var id = location.hash.slice(1); if (id) show(id, false); });
+  var start = location.hash.slice(1);
+  if (!start || !show(start, false)) show(ENTRY);
+  window.__prototype = { show: show, openDialog: openDialog, closeDialog: closeDialog };
+})();
+</script>
+</body>
+</html>

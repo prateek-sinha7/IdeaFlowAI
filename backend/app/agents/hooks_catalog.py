@@ -21,6 +21,8 @@ from pathlib import Path
 
 import frontmatter  # python-frontmatter
 
+from agents.registry import get_all_agents_flat
+
 logger = logging.getLogger(__name__)
 
 # backend/ root (this file lives in backend/app/agents/)
@@ -69,7 +71,7 @@ def _get_icon_for_event(event: str) -> str:
     return _EVENT_TO_ICON.get(event, "Webhook")
 
 
-def _load_one(hook_dir: Path) -> GlobalHookEntry:
+def _load_one(hook_dir: Path, real_agent_ids: set[str]) -> GlobalHookEntry:
     hook_id = hook_dir.name
     hook_file = hook_dir / "HOOK.md"
     if not hook_file.exists():
@@ -78,11 +80,16 @@ def _load_one(hook_dir: Path) -> GlobalHookEntry:
     post = frontmatter.loads(hook_file.read_text(encoding="utf-8"))
     metadata = post.metadata
 
+    # ISS-571: presence alone is not enough. A field declared as `event: ""`
+    # (or `event:` with no value, which YAML parses as None) passes an
+    # `f not in metadata` check, survives into the catalog, and is then dropped
+    # from the event pill list app/api/hooks.py derives — leaving a hook that
+    # renders under "All" and that no specific event pill can ever reach.
     required = ("id", "name", "description", "event", "trigger")
-    missing = [f for f in required if f not in metadata]
+    missing = [f for f in required if not str(metadata.get(f) or "").strip()]
     if missing:
         raise GlobalHookError(
-            f"{hook_id}: HOOK.md missing required field(s): {missing}"
+            f"{hook_id}: HOOK.md missing or blank required field(s): {missing}"
         )
 
     # Validate that the id field matches the folder name (like agents/loader.py)
@@ -90,6 +97,19 @@ def _load_one(hook_dir: Path) -> GlobalHookEntry:
     if metadata_id != hook_id:
         raise GlobalHookError(
             f"{hook_id}: id field in HOOK.md ({metadata_id}) does not match folder name"
+        )
+
+    # ISS-290: compatible_agents is authored by hand in HOOK.md and goes stale
+    # when an agent is renamed or retired. Resolve it against the live roster
+    # here — the single point every consumer routes through — so no renderer
+    # (Library chips) or suggestion filter (composer) ever sees a fictional id.
+    declared_agents = list(metadata.get("compatible_agents", []))
+    compatible_agents = [a for a in declared_agents if a in real_agent_ids]
+    if len(compatible_agents) != len(declared_agents):
+        logger.warning(
+            "%s: HOOK.md compatible_agents references unknown agent id(s): %s",
+            hook_id,
+            sorted(set(declared_agents) - real_agent_ids),
         )
 
     return GlobalHookEntry(
@@ -100,7 +120,7 @@ def _load_one(hook_dir: Path) -> GlobalHookEntry:
         content=post.content,
         event=metadata["event"],
         trigger=metadata["trigger"],
-        compatible_agents=list(metadata.get("compatible_agents", [])),
+        compatible_agents=compatible_agents,
         isBeta=metadata.get("isBeta", False),
         tags=list(metadata.get("tags", [])),
     )
@@ -122,12 +142,14 @@ def list_global_hooks() -> list[GlobalHookEntry]:
         _GLOBAL_HOOKS_CACHE = []
         return _GLOBAL_HOOKS_CACHE
 
+    real_agent_ids = {spec.id for spec in get_all_agents_flat()}
+
     entries = []
     for hook_dir in sorted(_GLOBAL_HOOKS_DIR.iterdir()):
         if not hook_dir.is_dir():
             continue
         try:
-            entries.append(_load_one(hook_dir))
+            entries.append(_load_one(hook_dir, real_agent_ids))
         except GlobalHookError:
             logger.exception("Skipping invalid hook catalog entry: %s", hook_dir.name)
 

@@ -18,6 +18,8 @@ LOCK-B: no kernel import; import-linter stays 4 kept / 0 broken.
 
 from __future__ import annotations
 
+import pytest
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Task 1 — the pure projection (no model call, no persistence)
@@ -48,6 +50,26 @@ class TestProjection:
             self._event("questionnaire_complete", question_count=2)
         )
         assert card["card_kind"] == CARD_CLARIFY
+
+    @pytest.mark.issue("ISS-645")
+    def test_questionnaire_complete_text_distinguishes_round_number(self):
+        # QA-PS-003 / ISS-645: round 1's and round 2's "answered" confirmation card
+        # must read differently, so the chat transcript can tell the rounds apart.
+        from app.agents.chat_narrator import project_milestone_card
+
+        card_r1 = project_milestone_card(self._event("questionnaire_complete", round=1))
+        card_r2 = project_milestone_card(self._event("questionnaire_complete", round=2))
+        assert card_r1["text"] != card_r2["text"]
+
+    @pytest.mark.issue("ISS-646")
+    def test_questionnaire_ready_text_distinguishes_round_number(self):
+        # QA-PS-003 sibling / ISS-646: round 1's and round 2's "lock things down"
+        # prompt card must read differently — the event already carries `round`.
+        from app.agents.chat_narrator import project_milestone_card
+
+        card_r1 = project_milestone_card(self._event("questionnaire_ready", round=1))
+        card_r2 = project_milestone_card(self._event("questionnaire_ready", round=2))
+        assert card_r1["text"] != card_r2["text"]
 
     def test_gate_card_from_review_gate_ready(self):
         from app.agents.chat_narrator import CARD_GATE, project_milestone_card

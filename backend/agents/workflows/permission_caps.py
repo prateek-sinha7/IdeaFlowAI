@@ -50,9 +50,11 @@ a JSON string; the ENGINE reads that tool-result event and performs the fan-out
 through the single kernel spawn path. It is trust-gated because a user manifest
 emitting fan-out requests multiplies run cost, not because the model can spawn.
 
-``network`` and ``git`` are OFF under both caps — not because they are more
-dangerous than ``exec``, but because nothing binds them yet. Turn them on here
-when the tools they gate exist.
+``network`` is OFF under both caps — nothing binds it yet. ``git`` is OFF for
+the untrusted cap and ON for the trusted cap (Task 4.1 / Requirement 42): the
+engine's step-boundary commit fires through ``commit_all()`` directly — there is
+no agent-callable git tool in the capability registry. The cap flag accurately
+reflects the engine's git-enabled sandbox posture (``has_git=True`` default).
 """
 
 from __future__ import annotations
@@ -67,10 +69,10 @@ logger = logging.getLogger(__name__)
 # 1. The caps
 # ---------------------------------------------------------------------------
 
-#: Trust levels that count as engineer-authored. Anything else — ``user``,
-#: ``db``, or an unrecognised value — is untrusted: an unknown trust level must
+#: Trust levels that count as engineer-authored. Anything else — ``user``
+#: or an unrecognised value — is untrusted: an unknown trust level must
 #: never resolve to the more permissive cap.
-TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin"})
+TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin", "db"})
 
 #: THE CAP INDEX. Every ceiling in the system is one of these two rows.
 PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
@@ -81,9 +83,31 @@ PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
         exec=True,
         spawn_subagents=True,
         network=False,
-        git=False,
+        git=True,   # Task 4.1 (Requirement 42): engine's own commit bypasses this cap
+                    # via commit_all() directly — no agent-callable git tool exists in
+                    # the capability registry. Flipped here in the same change as the
+                    # first declared git hook so the cap accurately reflects the engine's
+                    # new git-enabled sandbox posture (has_git=True global default).
+        tool_sets=[
+            "workspace",
+            "prototype",
+            "prototype_emit_only",
+            "planning",
+            "internet",
+            "pptx",
+            "playwright",
+            "file_extract",
+            "spawn_subagents",
+            "ask_user",
+        ],
     ),
     # User-authored (Composer) manifests: sandbox-confined work only.
+    # ``tool_sets`` is the allow-list for the Composer's per-step tool-pack
+    # toggles: only sets that write inside the run sandbox belong here. This
+    # list — not the registry's ``user_allowed`` flag — is what binds for a
+    # grant-declared set (``playwright`` is user_allowed=False on the palette
+    # but deliberately grantable per-step here: it drives a browser against
+    # the run's own artifacts).
     "untrusted": ToolPermissions(
         read_files=True,
         write_files=True,
@@ -91,6 +115,7 @@ PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
         spawn_subagents=False,
         network=False,
         git=False,
+        tool_sets=["file_extract", "playwright"],
     ),
 }
 

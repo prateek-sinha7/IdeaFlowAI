@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 from agents.execution_engine.engine import ExecutionEngine
 from agents.workflows.artifacts import artifact_name, topic_slug
-from agents.workflows.plan import Step
+from agents.workflows.plan import Step, ToolPermissions
 from app.agents.sandbox import RunSandbox
 
 
@@ -110,6 +110,96 @@ def test_artifact_fallback_computes_topic_when_ectx_carries_none(tmp_path):
     )
 
     assert result == artifact_name("research-a", topic_slug("Build a CRM!"))
+
+
+def test_artifact_fallback_skips_write_when_publish_from_glob_declared(tmp_path):
+    """A workflow that declares deliverable.publish_from_glob (e.g.
+    pdf_to_prototype) publishes its named deliverable mechanically at end of
+    run — the fallback must not clobber that exact filename with agent
+    narration. It still reports the filename (diagnosable via
+    artifact_fallback) but leaves the sandbox untouched."""
+    engine = ExecutionEngine()
+    sandbox = _sandbox(tmp_path, "run-5")
+    deliverable = SimpleNamespace(
+        name="prototype.html", publish_from_glob="draft.v*.html",
+    )
+    ectx = SimpleNamespace(topic="crm-rollout", deliverable=deliverable)
+
+    result = engine._check_artifact_fallback(
+        ectx, "custom-agent:story-layer", "narration text", sandbox, "Build a CRM",
+        deliverable_filename="prototype.html",
+    )
+
+    assert result == "prototype.html"
+    assert sandbox.read("prototype.html") is None
+
+
+def test_artifact_fallback_writes_when_no_publish_from_glob_declared(tmp_path):
+    """Unchanged behaviour: a deliverable with no publish_from_glob (or no
+    deliverable at all) still gets the fallback write."""
+    engine = ExecutionEngine()
+    sandbox = _sandbox(tmp_path, "run-6")
+    deliverable = SimpleNamespace(name="prototype.html", publish_from_glob=None)
+    ectx = SimpleNamespace(topic="crm-rollout", deliverable=deliverable)
+
+    result = engine._check_artifact_fallback(
+        ectx, "custom-agent:story-layer", "narration text", sandbox, "Build a CRM",
+        deliverable_filename="prototype.html",
+    )
+
+    assert result == "prototype.html"
+    assert sandbox.read("prototype.html") == "narration text"
+
+
+def test_artifact_fallback_overwrites_on_retry_when_step_cannot_write(tmp_path):
+    """L4 gap: a looped/retried step (R-06/R-07, e.g. ex_A1_loop's `greet`) has
+    ``tools: {write_files: false}`` and re-dispatches with the SAME filename every
+    pass. Pass 1's fallback write must not make passes 2+ silently no-op — the
+    model has no write tool, so it can never be the one who "already wrote" the
+    file; the existing content is always stale fallback residue from an earlier
+    pass and must be replaced with this pass's output."""
+    engine = ExecutionEngine()
+    sandbox = _sandbox(tmp_path, "run-retry")
+    step = Step(
+        agent_id="custom-agent:greet",
+        instance_id="greet",
+        tools=ToolPermissions(write_files=False),
+    )
+    ectx = SimpleNamespace(topic="loop", current_step=step)
+    filename = artifact_name("greet", "loop")
+    sandbox.write(filename, "pass 1: plain greeting, no joke")
+
+    result = engine._check_artifact_fallback(
+        ectx, "custom-agent:greet", "pass 2: greeting with a joke this time", sandbox,
+        "loop",
+    )
+
+    assert result == filename
+    assert sandbox.read(filename) == "pass 2: greeting with a joke this time"
+
+
+def test_artifact_fallback_noop_when_file_exists_and_step_can_write(tmp_path):
+    """Control for the retry fix above: a step whose effective tools DO grant
+    ``write_files`` keeps the original guarantee — an existing file is trusted as
+    the model's own deliverable and is never stomped on."""
+    engine = ExecutionEngine()
+    sandbox = _sandbox(tmp_path, "run-canwrite")
+    step = Step(
+        agent_id="custom-agent:research-a",
+        instance_id="research-a",
+        tools=ToolPermissions(write_files=True),
+    )
+    ectx = SimpleNamespace(topic="crm-rollout", current_step=step)
+    filename = artifact_name("research-a", "crm-rollout")
+    sandbox.write(filename, "the agent's real deliverable")
+
+    result = engine._check_artifact_fallback(
+        ectx, "custom-agent:research-a", "streamed text (should be ignored)", sandbox,
+        "Build a CRM",
+    )
+
+    assert result is None
+    assert sandbox.read(filename) == "the agent's real deliverable"
 
 
 # ---------------------------------------------------------------------------

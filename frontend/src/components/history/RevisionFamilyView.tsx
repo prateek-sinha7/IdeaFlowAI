@@ -16,10 +16,11 @@ import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
-  ChevronRight, MoreHorizontal, Trash2,
+  ChevronRight, MoreHorizontal, Trash2, GitBranch, CornerUpLeft, AlertTriangle,
 } from "lucide-react";
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 import { parseRunInput } from "@/lib/runInput";
+import { useWorkflowShortNames } from "@/hooks/useWorkflowMetadata";
 // INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
@@ -85,6 +86,51 @@ export function baseWorkflowType(type: string): string {
   return type.replace("_revision", "");
 }
 
+const KNOWN_FRAMEWORK_BASE_TYPES = new Set(["user_stories", "ppt", "prototype", "app_builder"]);
+
+// Which type-filter-tab bucket a run belongs to: one of the 4 fixed framework
+// keys, or "custom" for everything else — including literal type "custom" AND
+// any other non-framework pipeline id (a conditional-gate sample pipeline, a
+// saved Composer workflow's own type, a retired/renamed sample_conditional_*
+// id, ...). Every pipeline that isn't one of the 4 frameworks IS a custom
+// pipeline by definition, whether or not FamilyGroupCard can also resolve it
+// a specific catalog name to display. Without this, each distinct non-framework
+// type string was bucketing (and counting) itself instead of folding into the
+// "Custom" tab, so the tab underrepresented how many runs were actually custom.
+export function filterBucketFor(type: string): string {
+  const base = baseWorkflowType(type);
+  return KNOWN_FRAMEWORK_BASE_TYPES.has(base) ? base : "custom";
+}
+
+// Last-resort label for a type that resolves to neither a known framework nor
+// a live catalog entry — a retired/renamed pipeline id (e.g. a pre-rename
+// sample_conditional_branch_new row still in the DB after the live workflow
+// catalog moved on to ex_A2_branch). Slug -> Title Case is honest about being
+// a raw identifier without collapsing all the way to uninformative "Custom".
+function humanizeType(type: string): string {
+  return type
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Single source of truth for "what do we call this pipeline type" — used both
+// for a card's own type badge and for the DivertBadge breadcrumb, so a
+// diverted-to run is identified by its WORKFLOW (e.g. "Spanish Greeter"), not
+// by the message it was launched with or the raw gate/step id that triggered
+// it. `shortNameFor` is the caller's own `useWorkflowShortNames()` resolver —
+// passed in rather than called here since this isn't itself a hook.
+function resolveWorkflowTypeLabel(
+  type: string,
+  shortNameFor: (type: string) => string | undefined,
+): string {
+  const meta = TYPE_META[type] || TYPE_META.custom;
+  const needsCatalogLookup = type !== "custom" && !TYPE_META[type];
+  if (!needsCatalogLookup) return meta.label;
+  return shortNameFor(type) ?? humanizeType(type);
+}
+
 // ─── statusDotClass — semantic status → dot color. INHERITED map (UI-SPEC §0
 // "Semantic status colors" + Sidebar.tsx:66-73 + dot shape PrototypePreview.tsx:509,538).
 // These are inherited semantic dots, NOT new literals.
@@ -94,10 +140,18 @@ export function statusDotClass(status: WorkflowStatus): string {
     case "completed":
       return base + "bg-status-done";
     case "cancelled":
-    case "degraded":
       return base + "bg-status-amber";
+    // A run that lost an agent IS a failed run — the product rule, not a shade of
+    // completion. `degraded` used to sit with `cancelled` in amber, which is how one
+    // row could show an amber dot beside a pill that said something else entirely.
     case "failed":
-      return base + "bg-status-queued";
+    case "degraded":
+      return base + "bg-status-failed";
+    // R-14 (014-conditional-gates): "diverted" is a distinct terminal status,
+    // never a failure/cancellation — reuses the existing brand token (the same
+    // one the "vN" version pill already uses) rather than a new color.
+    case "diverted":
+      return base + "bg-brand";
     case "running":
     case "revising":
     default:
@@ -115,10 +169,32 @@ export interface FamilyGroup {
   latest: WorkflowRun;
 }
 
+// ─── familyRootFor — R-20 (014-conditional-gates): `parent_run_id` is the SAME
+// structural FK for both a revision (child revises parent) AND a cross-workflow
+// divert (child is the newly-minted run a `trigger: workflow` outcome spawned,
+// R-15). The two must never share a family/version-list — R-20 is explicit:
+// "two linked run-history cards, not a stitched timeline". The disambiguator is
+// R-14: a run only ever reaches `status === "diverted"` via a divert, never a
+// revision — so walking up from `run`, a parent found with that status marks
+// the DIVERT boundary, and `run` becomes its own family root from there down.
+// Falls back to the backend-computed `rootRunId` the moment an ancestor isn't
+// in the loaded page (same windowed-caveat degradation as before this change).
+function familyRootFor(run: WorkflowRun, byId: Map<string, WorkflowRun>): string {
+  let cur = run;
+  while (cur.id !== cur.rootRunId) {
+    const parent = cur.parentRunId ? byId.get(cur.parentRunId) : undefined;
+    if (!parent) return cur.rootRunId;
+    if (parent.status === "diverted") return cur.id;
+    cur = parent;
+  }
+  return cur.id;
+}
+
 export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
+  const byId = new Map(runs.map((r) => [r.id, r]));
   const buckets = new Map<string, WorkflowRun[]>();
   for (const run of runs) {
-    const key = run.rootRunId;
+    const key = familyRootFor(run, byId);
     const bucket = buckets.get(key);
     if (bucket) bucket.push(run);
     else buckets.set(key, [run]);
@@ -149,6 +225,39 @@ export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
   return groups.sort(
     (a, b) => new Date(b.latest.createdAt).getTime() - new Date(a.latest.createdAt).getTime(),
   );
+}
+
+// ─── DivertLink / buildDivertLinks — R-20 (014-conditional-gates, T38 HISTORICAL
+// case). Reconstructed purely from persisted fields already on every fetched
+// `WorkflowRun` row (`status`, `parentRunId`) — no fetch, no live event needed
+// (contracts/sse-pipeline-diverted.md: "the event is a LIVE-only convenience,
+// not the sole source of truth"). `status === "diverted"` is the sole,
+// unambiguous signal (R-14: only a divert ever sets it), so it doubles as both
+// directions of the link: the run WITH that status is the source; the run
+// whose `parentRunId` points at it is the target.
+//
+// `stepId` (the manifest step the divert fired from) is sourced from the
+// diverting run's persisted `diverted_at_step_id` column (T41 migration 0033 +
+// engine write; T42 threads it through normalizeWorkflowRun as
+// `WorkflowRun.divertedAtStepId`). Absent/null on legacy pre-migration rows —
+// the card omits the ", step {step_id}" clause in that case rather than
+// fabricating a value.
+export interface DivertLink {
+  direction: "source" | "target";
+  other: WorkflowRun;
+  stepId?: string;
+}
+
+export function buildDivertLinks(runs: WorkflowRun[]): Map<string, DivertLink> {
+  const links = new Map<string, DivertLink>();
+  for (const run of runs) {
+    if (run.status !== "diverted") continue;
+    const target = runs.find((r) => r.parentRunId === run.id);
+    if (!target) continue; // target run outside the loaded page — degrade gracefully (no link)
+    links.set(run.id, { direction: "source", other: target });
+    links.set(target.id, { direction: "target", other: run, stepId: run.divertedAtStepId ?? undefined });
+  }
+  return links;
 }
 
 // ─── Today / Earlier / Older date buckets + tokens/duration sort (SHELL-02).
@@ -225,31 +334,95 @@ export function bucketAndSortFamilies(
 // ─── StatusBadge — the pill from WorkflowHistory.tsx:902-918, extracted so both
 // the single-member row and the multi-member root row render the SAME badge for
 // their target member (the family's latest for a multi-member card).
-function StatusBadge({ status }: { status: WorkflowStatus }) {
-  if (status === "completed") {
-    return (
-      <span className="text-[9px] font-semibold text-status-done bg-[var(--status-done-fill)] border border-[var(--status-done-border)] px-2 py-0.5 rounded-full">
-        Done
-      </span>
-    );
-  }
-  if (status === "cancelled") {
-    return (
-      <span className="text-[9px] font-semibold text-status-amber bg-[var(--status-amber-fill)] border border-[var(--status-amber-border)] px-2 py-0.5 rounded-full">
-        Cancelled
-      </span>
-    );
-  }
-  if (status === "failed") {
-    return (
-      <span className="text-[9px] font-semibold text-ink-500 bg-surface-warm border border-line-border px-2 py-0.5 rounded-full">
-        Failed
-      </span>
-    );
-  }
+//
+// THE RULE: if an agent failed, the run failed. There is no partial credit and no
+// softer word for it — a run that lost its Validation Agent reads "Failed", in red,
+// exactly like one that never produced anything. `degraded` stays a distinct PERSISTED
+// status (the engine still records which agents failed, and the deliverable is still
+// there to open) but it is not a distinct thing to SAY to someone scanning history.
+//
+// This badge used to be a chain of `if`s over four statuses with an else-fallthrough to
+// "Running", and `degraded` fell into it: run b0642e0f finished with its Validation
+// Agent failed, was persisted `degraded` with a completed_at, and read "Running" in
+// history eighteen hours after it ended.
+//
+// The shape was the real defect — nothing made the fallthrough declare which statuses it
+// was catching, so a new terminal status is silently mislabelled with no type error. The
+// map below is keyed on `TerminalStatus`, defined by SUBTRACTING the in-flight list from
+// `WorkflowStatus`, so a status added to that union lands in this Record and fails to
+// compile until it is either given a pill or explicitly declared in-flight.
+
+/** Statuses that mean the run is still going. Everything else in `WorkflowStatus` is
+ *  terminal by construction and must carry a pill. */
+type InFlightStatus =
+  | "running" | "revising" | "planning" | "generating"
+  | "waiting_for_user" | "clarifying" | "analyzing";
+
+type TerminalStatus = Exclude<WorkflowStatus, InFlightStatus>;
+
+const PILL_BASE = "text-[9px] font-semibold border px-2 py-0.5 rounded-full";
+
+const FAILED_PILL = {
+  label: "Failed",
+  cls: "text-status-failed bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]",
+};
+
+const TERMINAL_PILL: Record<TerminalStatus, { label: string; cls: string }> = {
+  completed: {
+    label: "Done",
+    cls: "text-status-done bg-[var(--status-done-fill)] border-[var(--status-done-border)]",
+  },
+  cancelled: {
+    label: "Cancelled",
+    cls: "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
+  },
+  // Same pill object, not a copy: the two are one outcome to a reader, and sharing the
+  // reference is what stops them drifting apart the next time either is restyled.
+  failed: FAILED_PILL,
+  degraded: FAILED_PILL,
+  // R-14/R-20 (014-conditional-gates): a diverted run completed its own steps
+  // successfully and handed off to a new run — reads as a distinct, non-failure
+  // terminal state. The "Diverted to X →" link itself renders separately (see
+  // DivertBadge below); this pill is just the row's compact status token.
+  diverted: {
+    label: "Diverted",
+    cls: "text-brand bg-brand-fill border-line-border",
+  },
+};
+
+// A14 — a review-loop cap absorbed with a resolved deliverable stays a clean
+// "completed" run server-side (never degraded), but the cap message must
+// still surface. Never on `failed`/`degraded` (those already read "Failed",
+// exactly as before) — only a completed run can carry a warning here.
+function StatusBadge({ status, warnings }: { status: WorkflowStatus; warnings?: string[] }) {
+  const pill = TERMINAL_PILL[status as TerminalStatus];
+  const warningCount = status === "completed" ? (warnings?.length ?? 0) : 0;
   return (
-    <span className="text-[9px] font-semibold text-ink-500 bg-surface-warm border border-line-border px-2 py-0.5 rounded-full">
-      Running
+    <span className="inline-flex items-center gap-1">
+      <span
+        className={`${PILL_BASE} ${pill ? pill.cls : "text-ink-500 bg-surface-warm border-line-border"}`}
+        data-testid="status-pill"
+      >
+        {pill ? pill.label : "Running"}
+      </span>
+      {warningCount > 0 && (
+        // Both the accessible name and the hover tooltip live on the wrapping
+        // span, and the icon is decorative. lucide-react's LucideProps omits
+        // `title`, so passing it to the icon is a type error — and splitting
+        // them (aria-label on the icon, title on the span) would leave the
+        // labelled element with no tooltip. One element carries both.
+        <span
+          className="inline-flex"
+          aria-label={`${warningCount} warning${warningCount === 1 ? "" : "s"}`}
+          title={`${warningCount} warning${warningCount === 1 ? "" : "s"}`}
+        >
+          <AlertTriangle
+            aria-hidden="true"
+            className="h-2.5 w-2.5 flex-shrink-0 text-status-amber"
+            strokeWidth={2.5}
+          />
+        </span>
+      )}
     </span>
   );
 }
@@ -337,12 +510,48 @@ function RowStats({ run }: { run: WorkflowRun }) {
   );
 }
 
+// ─── DivertBadge — the "Diverted to X →" / "← Continued from X[, step S]"
+// breadcrumb line (R-20, both the live and historical case render through this
+// same presentational component — only the DivertLink's source differs). A
+// nested, stopPropagation'd button so clicking it navigates to the OTHER run
+// without also firing the row's own onClick (which opens THIS run). Reuses the
+// row's existing secondary-text sizing + the brand accent already used by
+// StatusBadge/statusDotClass above (no new color introduced).
+function DivertBadge({ link, onSelectRun }: { link: DivertLink; onSelectRun: (run: WorkflowRun) => void }) {
+  // The OTHER run's WORKFLOW, not its brief/message or the raw step id it
+  // diverted at — "Spanish Greeter", not "Tu saludo también debe incluir..." /
+  // "step language". The run's own title still identifies IT on its own row;
+  // this breadcrumb's job is to say what the link goes TO.
+  const shortNameFor = useWorkflowShortNames();
+  const otherLabel = resolveWorkflowTypeLabel(link.other.type, shortNameFor);
+  const Icon = link.direction === "source" ? GitBranch : CornerUpLeft;
+  // The step clause (T41/T42) is threaded all the way here — `buildDivertLinks`
+  // sets `stepId` from the source run's persisted `divertedAtStepId` — but the
+  // render dropped it, so a target card could not say WHERE the parent branched.
+  // Omitted when genuinely absent (a pre-migration historical row).
+  const stepClause = link.stepId ? `, step ${link.stepId}` : "";
+  const text = link.direction === "source"
+    ? `Diverted to ${otherLabel} →`
+    : `← Continued from ${otherLabel}${stepClause}`;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onSelectRun(link.other); }}
+      aria-label={link.direction === "source" ? `Diverted to ${otherLabel}, open triggered run` : `Continued from ${otherLabel}, open originating run`}
+      className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-brand hover:underline"
+    >
+      <Icon className="h-2.5 w-2.5 flex-shrink-0" />
+      <span className="truncate">{text}</span>
+    </button>
+  );
+}
+
 // ─── FamilyGroupCard — one row per family root. Single-member families render the
 // EXACT existing flat row (WorkflowHistory.tsx:871-951, zero regression);
 // multi-member families add a "v{N}" pill + a chevron toggle that expands into
 // chronological version rows.
 export function FamilyGroupCard({
-  group, index, expanded, onToggle, onSelectRun, openMenuId, onToggleMenu, onDeleteClick,
+  group, index, expanded, onToggle, onSelectRun, openMenuId, onToggleMenu, onDeleteClick, divertLinks,
 }: {
   group: FamilyGroup;
   index: number;
@@ -352,15 +561,29 @@ export function FamilyGroupCard({
   openMenuId: string | null;
   onToggleMenu: (runId: string, e?: React.MouseEvent) => void;
   onDeleteClick: (runId: string, e?: React.MouseEvent) => void;
+  // R-20 (014-conditional-gates, T38): id → DivertLink, built once per fetch by
+  // buildDivertLinks. Optional so every OTHER call site (none exist today, but
+  // future ones might) keeps compiling without threading it through.
+  divertLinks?: Map<string, DivertLink>;
 }) {
   const rootMeta = TYPE_META[group.root.type] || TYPE_META.custom;
   const RootIcon = rootMeta.icon;
   const isMulti = group.members.length >= 2;
+  // Only genuinely ad-hoc composer runs (type === "custom" exactly) have no
+  // specific catalog identity to show — every such run shares the same
+  // generic catalog entry regardless of which agents were actually picked, so
+  // agent count remains their best available disambiguator. Everything else
+  // (a conditional-gate sample pipeline, a retired/renamed id, ...) resolves
+  // to its real workflow name via the shared resolver — see resolveWorkflowTypeLabel.
+  const shortNameFor = useWorkflowShortNames();
+  const baseLabel = resolveWorkflowTypeLabel(group.root.type, shortNameFor);
+  const rootLabel = `${baseLabel} · ${group.root.agentCount} agent${group.root.agentCount === 1 ? "" : "s"}`;
 
   // ─── Single-member family: byte-identical to today's flat row (no pill, no
   // expander) — visually indistinguishable from today, delete included.
   if (!isMulti) {
     const run = group.root;
+    const divertLink = divertLinks?.get(run.id);
     return (
       <motion.div
         initial={{ opacity: 0 }}
@@ -379,7 +602,7 @@ export function FamilyGroupCard({
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(run.title, rootMeta.label, run.input)}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
+            <span className="text-[10px] text-ink-400">{rootLabel}</span>
             {run.duration ? (
               <>
                 <span className="text-ink-200">·</span>
@@ -387,10 +610,13 @@ export function FamilyGroupCard({
               </>
             ) : null}
           </div>
+          {/* R-20: the diverted-run/triggered-run breadcrumb — two linked
+              cards, not a merged timeline (spec.md §4.4). */}
+          {divertLink && <DivertBadge link={divertLink} onSelectRun={onSelectRun} />}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           <RowStats run={run} />
-          <StatusBadge status={run.status} />
+          <StatusBadge status={run.status} warnings={run.warnings} />
           <RowMenu runId={run.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
         </div>
       </motion.div>
@@ -405,6 +631,11 @@ export function FamilyGroupCard({
   // getWorkflows fetch window shows fewer here by design (POR §11 large-family
   // edge case).
   const versionCount = group.members.length;
+  // R-20: defensive — a family's LATEST member could itself be a divert source
+  // (e.g. v3 of a revised prototype fires a `route:`); familyRootFor already
+  // keeps a divert TARGET out of this family entirely, so only the source
+  // direction is reachable here.
+  const divertLink = divertLinks?.get(latest.id);
 
   return (
     <div>
@@ -425,7 +656,7 @@ export function FamilyGroupCard({
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(group.root.title, rootMeta.label, group.root.input)}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
+            <span className="text-[10px] text-ink-400">{rootLabel}</span>
             {latest.duration ? (
               <>
                 <span className="text-ink-200">·</span>
@@ -433,6 +664,7 @@ export function FamilyGroupCard({
               </>
             ) : null}
           </div>
+          {divertLink && <DivertBadge link={divertLink} onSelectRun={onSelectRun} />}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           {/* Purple "v{N}" version pill = the expand toggle (mock History row :397:
@@ -451,7 +683,7 @@ export function FamilyGroupCard({
             <ChevronRight className={`h-2.5 w-2.5 text-brand transition-transform ${expanded ? "rotate-90" : ""}`} />
           </button>
           <RowStats run={latest} />
-          <StatusBadge status={latest.status} />
+          <StatusBadge status={latest.status} warnings={latest.warnings} />
           <RowMenu runId={group.root.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
         </div>
       </motion.div>
@@ -514,7 +746,85 @@ export function FamilyGroupCard({
   );
 }
 
-// ─── extractRevisionInstructionPreview — a PREVIEW-ONLY inline shim.
+// ─── ChainLineageBadge — SGV2 task 11.4. Renders "Chained from [Workflow] [v1]"
+// for a run whose chain payload was actually installed (`chainContextInstalled`).
+// Presentation rules per spec:
+//   • Gate: iff chain_context_installed === true (not source_run_id != null — that
+//     field predates v2 and would mis-label legacy marker runs and degrade runs)
+//   • Version label: visibleTag when present ("v1"), otherwise shortId + status
+//   • Terminal-untagged: "no version tag" (never an internal ref name)
+//   • SC-001: generic, no workflow-name branches — label resolved from catalog
+// Props deliberately use the raw FamilyMember snake_case names so the component
+// composes directly from either a FamilyMember or a RunSummary without an
+// intermediate mapping step.
+export function ChainLineageBadge({
+  chain_context_installed,
+  chain_source_workflow_id,
+  chain_source_short_id,
+  chain_source_published_status,
+  chain_source_visible_tag,
+}: {
+  chain_context_installed?: boolean | null;
+  chain_source_workflow_id?: string | null;
+  chain_source_short_id?: string | null;
+  chain_source_published_status?: string | null;
+  chain_source_visible_tag?: string | null;
+}) {
+  const shortNameFor = useWorkflowShortNames();
+
+  // Gate: only render when the payload was actually installed (Req 21 AC 7-8).
+  if (!chain_context_installed) return null;
+  // Without a source id there is nothing to label (defensive — installed=true
+  // should always carry the source fields, but guard for partial legacy rows).
+  if (!chain_source_workflow_id && !chain_source_short_id) return null;
+
+  // Resolve the workflow's human name from the catalog; fall back to humanizeType.
+  const workflowLabel = chain_source_workflow_id
+    ? (shortNameFor(chain_source_workflow_id) ?? humanizeType(chain_source_workflow_id))
+    : "Unknown Workflow";
+
+  // Version token: prefer the visible tag; for an untagged terminal run say
+  // "no version tag"; for a non-terminal source show shortId + status.
+  let versionLabel: string;
+  if (chain_source_visible_tag) {
+    versionLabel = chain_source_visible_tag;
+  } else if (chain_source_short_id) {
+    const status = chain_source_published_status ?? "";
+    versionLabel = status
+      ? `${chain_source_short_id} (${status})`
+      : chain_source_short_id;
+  } else {
+    // No tag, no shortId — render the "no version tag" sentinel.
+    versionLabel = "no version tag";
+  }
+
+  const label = `Chained from ${workflowLabel} ${versionLabel}`;
+
+  return (
+    <p
+      aria-label={label}
+      className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-brand"
+    >
+      {/* Chain-link icon — purely decorative aria-hidden */}
+      <svg
+        aria-hidden
+        className="h-2.5 w-2.5 flex-shrink-0"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M6 10l4-4" />
+        <path d="M4 12l-1 1a2.83 2.83 0 01-4-4l3-3a2.83 2.83 0 014 0" />
+        <path d="M10 4l1-1a2.83 2.83 0 014 4l-3 3a2.83 2.83 0 01-4 0" />
+      </svg>
+      <span className="truncate">{label}</span>
+    </p>
+  );
+}
+
 // Workstream C1 (INV-12): the marker extraction now DELEGATES to the single
 // project-wide parser (lib/runInput). This shim keeps ONLY the preview
 // formatting (first meaningful line, clamped to 60 chars) — no second parser.
@@ -617,6 +927,14 @@ export function VersionTimeline({
             >
               <span aria-hidden className={statusDotClass(member.status as WorkflowStatus)} />
               v{i + 1}
+              {member.git_tag && (
+                <span
+                  aria-label={`Tagged ${member.git_tag}`}
+                  className="ml-0.5 rounded bg-brand-fill px-1 py-0 text-[9px] font-semibold text-brand"
+                >
+                  🏷 {member.git_tag}
+                </span>
+              )}
             </button>
           );
         })}
@@ -629,6 +947,22 @@ export function VersionTimeline({
           ↳ revises v{currentIdx}
           {instructionPreview ? <> — &lsquo;{instructionPreview}&rsquo;</> : null}
         </p>
+      )}
+      {/* SGV2 task 11.4: chain lineage line — only for a chained run whose
+          payload was actually installed. Presentation gated on chain_context_installed
+          (not chain_source_run_id) per spec Req 21 AC 7-8. A revision member
+          never has chain_context_installed set, so the two context lines cannot
+          coexist. ChainLineageBadge is exported and reused by RunDetailPage. */}
+      {activeMember && activeMember.chain_context_installed && (
+        <div className="px-5 pb-2">
+          <ChainLineageBadge
+            chain_context_installed={activeMember.chain_context_installed}
+            chain_source_workflow_id={activeMember.chain_source_workflow_id}
+            chain_source_short_id={activeMember.chain_source_short_id}
+            chain_source_published_status={activeMember.chain_source_published_status}
+            chain_source_visible_tag={activeMember.chain_source_visible_tag}
+          />
+        </div>
       )}
     </div>
   );

@@ -87,6 +87,24 @@ class ArtifactStore:
             skip_clarification,
         )
 
+    async def clear_questionnaire_responses(self, pipeline_run_id: str) -> None:
+        """Drop the run's submitted answers so the NEXT round waits for its own.
+
+        ``ClarifyEngine.run`` guards against a lost wakeup by falling through
+        when a submission is already stored. That marker is a local of ONE
+        ``run()`` call, so a second round — a second ``ask_user`` call, which is
+        its own ``run()`` — sees the FIRST round's answers still sitting in the
+        store, decides they are its own, and returns without ever waiting. On
+        screen the questions appear and vanish within a second, and the answers
+        recorded for round 2 are round 1's, against the wrong questions.
+
+        The caller clears the slot before each round so "already stored" means
+        what the guard assumes: a submission for THIS round.
+        """
+        self._questionnaire_responses.pop(pipeline_run_id, None)
+        self._questionnaire_force_proceed.pop(pipeline_run_id, None)
+        logger.debug("ArtifactStore: questionnaire slot cleared for run=%s", pipeline_run_id)
+
     async def get_questionnaire_responses(
         self,
         pipeline_run_id: str,

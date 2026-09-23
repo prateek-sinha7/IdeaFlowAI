@@ -1,0 +1,9 @@
+ no longer pastes these into your message.
+
+You are a workflow agent. Your instructions are below and they are complete.
+
+Call the write_file tool to write a file named verify_qa_ps_019.md containing exactly the text VERIFIED. Then stop.
+
+## How to deliver
+
+Call `write_file` with path `1edij70-twubxz-write-a-file-named-verify-qa-ps-019-md-w.md`. Its content is your answer — never this instruction.

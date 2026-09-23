@@ -5,6 +5,8 @@ import {
   Layout, ExternalLink, RefreshCw,
   ZoomIn, ZoomOut, Code2, Copy, Check, X, Sliders,
 } from "lucide-react";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
+import { utf8Bytes } from "@/lib/byteSize";
 import { TweaksPanel, DEFAULT_TOKENS, FONT_OPTIONS, type TokenMap } from "./TweaksPanel";
 
 interface PrototypePreviewProps {
@@ -323,12 +325,11 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
   const [showSource, setShowSource] = useState(false);
   const [showTweaks, setShowTweaks] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useClipboardCopy();
   const [tokens, setTokens] = useState<TokenMap>({ ...DEFAULT_TOKENS });
   const [tweaksActive, setTweaksActive] = useState(false);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokensRef = useRef<TokenMap>({ ...DEFAULT_TOKENS });
   const baseHtmlRef = useRef<string>("");
@@ -366,7 +367,6 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
   // Cleanup
   useEffect(() => {
     return () => {
-      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
       if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
     };
   }, []);
@@ -390,12 +390,8 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
 
   const handleCopySource = useCallback(() => {
     if (!renderedHtml) return;
-    navigator.clipboard.writeText(renderedHtml).then(() => {
-      setCopied(true);
-      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
-      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
-    });
-  }, [renderedHtml]);
+    void copy(renderedHtml);
+  }, [renderedHtml, copy]);
 
   const handleTokenChange = useCallback((key: keyof TokenMap, value: string) => {
     setTokens((prev) => {
@@ -499,7 +495,10 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
     <div className="h-full flex flex-col" style={{ background: "#f5f5f0" }}>
 
       {/* Browser chrome */}
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-3 py-2 flex items-center gap-2">
+      {/* ISS-433: flex-wrap mirrors FIX-378's fix on PreviewPanel.tsx's tab-bar
+          row — without it the dots + URL pill + zoom trio + divider + Tweaks +
+          Source + Open controls overflow the viewport at narrow widths. */}
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-3 py-2 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <div className="w-2.5 h-2.5 rounded-full bg-gray-200" />
           <div className="w-2.5 h-2.5 rounded-full bg-gray-200" />
@@ -567,7 +566,7 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
                   <Code2 className="h-3.5 w-3.5 text-gray-400" />
                   <span className="text-[11px] font-medium text-gray-300">index.html</span>
                   <span className="text-[10px] text-gray-500">
-                    {(renderedHtml.length / 1024).toFixed(1)} KB · {renderedHtml.split("\n").length} lines
+                    {(utf8Bytes(renderedHtml) / 1024).toFixed(1)} KB · {renderedHtml.split("\n").length} lines
                   </span>
                   {tweaksActive && (
                     <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-400">tweaks applied</span>
@@ -578,7 +577,7 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
                     className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-medium transition-all ${
                       copied ? "bg-emerald-500/20 text-emerald-400" : "bg-white/[0.06] text-gray-300 hover:bg-white/[0.1]"
                     }`}>
-                    {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy all</>}
+                    {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> {failed ? "Copy failed" : "Copy all"}</>}
                   </button>
                   <button onClick={() => setShowSource(false)}
                     className="flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-white/[0.06] hover:text-gray-300 transition-colors">

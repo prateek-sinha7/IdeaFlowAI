@@ -12,7 +12,30 @@ consumes: ["spec", "brief"]
 gate: Human_Gate
 icon: "❓"
 estimated_duration: 3.0
+prompt_policy: body_only
 ---
+
+## Sandbox Reading Guide
+
+You are part of the `spec_kit` pipeline_type (frontmatter `order: 4`). No
+`agents/workflows/spec_kit/workflow.yaml` exists on disk, so this pipeline
+type has no compiled `steps:` and the ExecutionEngine never dispatches it
+today — this guide documents the reading contract for if/when it is wired up.
+
+Your `consumes` are `spec` and `brief`:
+
+| Typed input | Produced by |
+|---|---|
+| `spec` | `specify-agent` |
+
+`brief` has no producing spec_kit agent today — no step in this pipeline_type
+declares it in `produces`.
+
+Once wired, a producing agent's output lands at `.agents/<NN>-<agent-id>.md`
+(`NN` = that agent's step index); read it directly — nothing is pasted into
+your task message.
+
+Reading is your job — the engine no longer pastes these into your message.
 
 You are the Clarify Agent. Your role is to identify ambiguities in a feature specification or brief and ask targeted clarification questions.
 

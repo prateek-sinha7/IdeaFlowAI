@@ -56,9 +56,10 @@ class _FakeRunner:
 
 
 class _Deliverable:
-    def __init__(self, name=None, strategy=None) -> None:
+    def __init__(self, name=None, strategy=None, publish_from_glob=None) -> None:
         self.name = name
         self.strategy = strategy
+        self.publish_from_glob = publish_from_glob
 
 
 class _Ctx:
@@ -123,6 +124,60 @@ def test_single_file_falls_back_to_seeded_original_when_no_stream(sandbox):
         revision_original_html="<html>ORIGINAL</html>",
     )
     assert SingleFileResolver().resolve(ctx) == "<html>ORIGINAL</html>"
+
+
+def test_single_file_publishes_highest_versioned_draft_byte_for_byte(sandbox):
+    """publish_from_glob picks vN NUMERICALLY (v10 > v9 > v2), never lexically,
+    and copies it to the deliverable name byte-for-byte — the engine, not a model,
+    performs the publish."""
+    sandbox.write("draft.v1.html", "<html>v1 — oldest</html>")
+    sandbox.write("draft.v2.html", "<html>v2</html>")
+    sandbox.write("draft.v10.html", "<html>v10 — the real highest, lexically 'draft.v2' > 'draft.v10'</html>")
+    # A stray/corrupt prototype.html (e.g. a model's chat narration) must be
+    # overwritten by the mechanical publish, never trusted.
+    sandbox.write("prototype.html", "Finding the highest draft version: Highest is v2...")
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        deliverable=_Deliverable(
+            name="prototype.html", strategy="single_file", publish_from_glob="draft.v*.html"
+        ),
+    )
+    out = SingleFileResolver().resolve(ctx)
+    expected = sandbox.read("draft.v10.html")
+    assert out == expected
+    assert sandbox.read("prototype.html") == expected
+
+
+def test_single_file_no_drafts_leaves_existing_behavior_unaffected(sandbox):
+    """A run declaring publish_from_glob but with NO draft.vN.html present must
+    not invent one and must not fail — it falls through to the normal resolution
+    (the named file as written by the last agent), completely unaffected."""
+    sandbox.write("prototype.html", "<html>built by the agent, no drafts exist</html>")
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        deliverable=_Deliverable(
+            name="prototype.html", strategy="single_file", publish_from_glob="draft.v*.html"
+        ),
+    )
+    assert (
+        SingleFileResolver().resolve(ctx)
+        == "<html>built by the agent, no drafts exist</html>"
+    )
+
+
+def test_single_file_undeclared_publish_from_glob_is_a_no_op(sandbox):
+    """Every OTHER single_file workflow (publish_from_glob unset/None) must see
+    zero behavior change even if a draft.vN.html happens to sit in its sandbox."""
+    sandbox.write("draft.v1.html", "<html>irrelevant to this workflow</html>")
+    sandbox.write("prototype.html", "<html>the agent-written deliverable</html>")
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        deliverable=_Deliverable(name="prototype.html", strategy="single_file"),
+    )
+    assert (
+        SingleFileResolver().resolve(ctx)
+        == "<html>the agent-written deliverable</html>"
+    )
 
 
 def test_single_file_never_reads_pipeline_type(sandbox):
@@ -289,3 +344,52 @@ def test_ppt_sanitize_unwrap_order_is_equivalent_on_wrapped_carousel(sandbox):
     assert ".slide:not(.active)" not in out
     assert not out.startswith("Validation passed")  # the wrapper + narration is gone
     assert out == new_order
+
+
+# ── Markdown code fence (the "Invalid presentation output" repro) ─────────────
+# A deck agent that answers with ```html … ``` produces a deliverable whose first
+# bytes are a fence, so no <!DOCTYPE / <html survives and the preview rejects it.
+# Reproduced live on a baseline ppt run: ppt-validator's 5286-char output opened
+# with ```html and the run page rendered "Invalid presentation output".
+
+_FENCED_DECK = "```html\n" + _CAROUSEL_DECK + "\n```"
+
+
+def test_ppt_strips_a_whole_deliverable_markdown_fence(sandbox):
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_FENCED_DECK)
+    out = PptResolver().resolve(ctx)
+    assert not out.lstrip().startswith("```")
+    assert out.lstrip().startswith("<!doctype html")
+    # The fence strip must not cost the sanitize that runs after it.
+    assert ".slide:not(.active)" not in out
+
+
+def test_ppt_salvages_a_fence_the_model_never_closed(sandbox):
+    """A truncated generation loses its closing fence but keeps the opening one.
+
+    This is the shape the live failure actually had — the model was cut off
+    mid-attribute, so there was no trailing ``` to pair with.
+    """
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed="```html\n<!doctype html><p>cut off")
+    out = PptResolver().resolve(ctx)
+    assert out == "<!doctype html><p>cut off"
+
+
+def test_ppt_leaves_a_fence_inside_the_deck_alone(sandbox):
+    """Only a fence at position 0 is a wrapper; one inside a slide is content."""
+    deck = '<!doctype html><body><section class="slide"><pre>```html\nsample\n```</pre></section></body>'
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed=deck)
+    assert "```html" in PptResolver().resolve(ctx)
+
+
+def test_ppt_unfenced_deck_is_untouched_by_the_fence_strip(sandbox):
+    """The no-fence path stays byte-identical to before the fence strip existed."""
+    from agents.capabilities.deliverables._artifact import (
+        sanitize_carousel_deck_html,
+        strip_pre_slide_body_text,
+        unwrap_artifact,
+    )
+
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_CAROUSEL_DECK)
+    expected = unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(_CAROUSEL_DECK)))
+    assert PptResolver().resolve(ctx) == expected

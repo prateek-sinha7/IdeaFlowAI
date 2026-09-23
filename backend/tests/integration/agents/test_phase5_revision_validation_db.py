@@ -234,6 +234,16 @@ def _clean_revision_turns() -> list[_ScriptedTurn]:
     ]
 
 
+# The analyzer agent's turn — includes the required "## Solution Plan" section.
+def _analyzer_turns() -> list[_ScriptedTurn]:
+    return [
+        _ScriptedTurn(
+            texts=["## Solution Plan\n\nAnalyzing the revision request. Done. "],
+            usage=(5, 3),
+        )
+    ]
+
+
 _OD_CONTEXT = {
     "template_body": "## Workflow\nUse .card / .grid. Build into <section data-page>.",
     "template_id": "web-prototype",
@@ -466,7 +476,7 @@ async def _execute_revision(
     )
     events: list[dict] = []
     async for ev in engine.execute(
-        agents=_revision_specs(),
+        agents=[],  # Let engine build from compiled manifest steps (ADR-0008)
         user_message=user_message,
         pipeline_run_id=run_id,
         pipeline_type="prototype_revision",
@@ -520,6 +530,8 @@ class TestParentSeeding:
         def turns_for(agent_id, thread_id, is_fix):
             # A clean revision (no regression) so the fix-loop is a no-op here —
             # this scenario isolates the seeding behavior.
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
             return _clean_revision_turns()
 
         transcripts: list = []
@@ -564,6 +576,8 @@ class TestParentSeeding:
         # No design.md / tasks.md written.
 
         def turns_for(agent_id, thread_id, is_fix):
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
             return _clean_revision_turns()
 
         transcripts: list = []
@@ -600,6 +614,7 @@ class TestFixPolicyEndToEnd:
     (baseline exclusion), and the final deliverable is the clean HTML."""
 
     @pytest.mark.asyncio
+    @pytest.mark.issue("ISS-638")
     async def test_fix_message_targets_regression_not_baseline_and_reinjects_instruction(
         self, tmp_path, monkeypatch
     ) -> None:
@@ -619,8 +634,18 @@ class TestFixPolicyEndToEnd:
         ), f"fixture drift: revised HTML must carry nits + regression; got {revised_issues}"
 
         def turns_for(agent_id, thread_id, is_fix):
-            # KAN-108: prototype-validate is the new second declared step —
+            # prototype-revision-analyzer is step 0 (FIX-433) — text-only analysis,
+            # no edit_file calls (it reads/analyzes, not writes).
+            if agent_id == "prototype-revision-analyzer":
+                return [_final_text_turn()]
+            # KAN-108: prototype-validate is the second declared step. It was
+            # `prototype-revision-validate` until the revision-pipeline-agent-reuse
+            # spec replaced the duplicated revision agent dirs with the MAIN
+            # pipeline's shared agents; only the main-pipeline id exists on disk now
+            # (prototype_revision/workflow.yaml:43) —
             # it is NOT a fix invocation, just a clean validation pass (text-only).
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
             if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             # Visible revision: introduce the regression. Internal fix: remove it.
@@ -630,12 +655,19 @@ class TestFixPolicyEndToEnd:
                 else _revision_introduce_regression_turns()
             )
 
+        # Provision parent run so the baseline can be computed on the seeded ORIGINAL.
+        parent_run_id = "parent-fix-core"
+        _provision_parent_run_db(monkeypatch, parent_run_id=parent_run_id)
+        parent_sb = RunSandbox("anon", parent_run_id)
+        parent_sb.ensure()
+        parent_sb.write("prototype.html", _ORIGINAL_HTML)
+
         transcripts: list = []
         run_id = "revision-fix-core"
         events, calls = await _execute_revision(
             engine,
             run_id,
-            parent_run_id=None,
+            parent_run_id=parent_run_id,
             turns_for=turns_for,
             transcripts=transcripts,
             monkeypatch=monkeypatch,
@@ -727,6 +759,8 @@ class TestFixPolicyEndToEnd:
 
         def turns_for(agent_id, thread_id, is_fix):
             # KAN-108: prototype-validate returns a clean text-only turn.
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
             if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             return (
@@ -735,12 +769,19 @@ class TestFixPolicyEndToEnd:
                 else _revision_introduce_regression_turns()
             )
 
+        # Provision parent run so the baseline can be computed on the seeded ORIGINAL.
+        parent_run_id = "parent-baseline"
+        _provision_parent_run_db(monkeypatch, parent_run_id=parent_run_id)
+        parent_sb = RunSandbox("anon", parent_run_id)
+        parent_sb.ensure()
+        parent_sb.write("prototype.html", _ORIGINAL_HTML)
+
         transcripts: list = []
         run_id = "revision-baseline"
         await _execute_revision(
             engine,
             run_id,
-            parent_run_id=None,
+            parent_run_id=parent_run_id,
             turns_for=turns_for,
             transcripts=transcripts,
             monkeypatch=monkeypatch,
@@ -778,6 +819,11 @@ class TestGracefulDegradeNoParent:
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
 
         def turns_for(agent_id, thread_id, is_fix):
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
+            if agent_id == "prototype-validate":
+                return _clean_revision_turns()
+            # prototype-revision-agent (clean edit, no fix needed)
             return _clean_revision_turns()
 
         transcripts: list = []
@@ -813,6 +859,11 @@ class TestGracefulDegradeNoParent:
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
 
         def turns_for(agent_id, thread_id, is_fix):
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
+            if agent_id == "prototype-validate":
+                return _clean_revision_turns()
+            # prototype-revision-agent (clean edit, no fix needed)
             return _clean_revision_turns()
 
         transcripts: list = []
@@ -861,6 +912,8 @@ class TestEventVocabularyUnchanged:
         # of "the fix-loop introduced no new event types").
         def turns_for(agent_id, thread_id, is_fix):
             # KAN-108: prototype-validate returns a clean text-only turn.
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
             if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             return (
@@ -869,12 +922,19 @@ class TestEventVocabularyUnchanged:
                 else _revision_introduce_regression_turns()
             )
 
+        # Provision parent run so the baseline can be computed on the seeded ORIGINAL.
+        parent_run_id = "parent-vocab"
+        _provision_parent_run_db(monkeypatch, parent_run_id=parent_run_id)
+        parent_sb = RunSandbox("anon", parent_run_id)
+        parent_sb.ensure()
+        parent_sb.write("prototype.html", _ORIGINAL_HTML)
+
         transcripts: list = []
         run_id = "revision-vocab"
         events, calls = await _execute_revision(
             engine,
             run_id,
-            parent_run_id=None,
+            parent_run_id=parent_run_id,
             turns_for=turns_for,
             transcripts=transcripts,
             monkeypatch=monkeypatch,
@@ -901,14 +961,21 @@ class TestEventVocabularyUnchanged:
             ), f"event '{ev['type']}' dropped required keys {sorted(missing)}"
 
     @pytest.mark.asyncio
+    @pytest.mark.issue("ISS-638")
     async def test_internal_fix_loop_leaks_no_phantom_second_agent(
         self, tmp_path, monkeypatch
     ) -> None:
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
 
         def turns_for(agent_id, thread_id, is_fix):
-            # KAN-108: prototype-validate is the new second declared step —
+            # prototype-revision-analyzer is step 0 (added by FIX-433) —
+            # it analyzes without editing, so return a TEXT-ONLY turn (no edit_file).
+            if agent_id == "prototype-revision-analyzer":
+                return [_final_text_turn()]
+            # KAN-108: prototype-validate is a declared step —
             # it is NOT a fix invocation, returns a clean text-only turn.
+            if agent_id == "prototype-revision-analyzer":
+                return _analyzer_turns()
             if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             return (
@@ -917,12 +984,19 @@ class TestEventVocabularyUnchanged:
                 else _revision_introduce_regression_turns()
             )
 
+        # Provision parent run so the baseline can be computed on the seeded ORIGINAL.
+        parent_run_id = "parent-no-leak"
+        _provision_parent_run_db(monkeypatch, parent_run_id=parent_run_id)
+        parent_sb = RunSandbox("anon", parent_run_id)
+        parent_sb.ensure()
+        parent_sb.write("prototype.html", _ORIGINAL_HTML)
+
         transcripts: list = []
         run_id = "revision-no-leak"
         events, calls = await _execute_revision(
             engine,
             run_id,
-            parent_run_id=None,
+            parent_run_id=parent_run_id,
             turns_for=turns_for,
             transcripts=transcripts,
             monkeypatch=monkeypatch,
@@ -935,33 +1009,46 @@ class TestEventVocabularyUnchanged:
             fix_threads
         ), f"the regression must trigger an internal fix; calls={calls}"
 
-        # ── …the UI now sees TWO declared agents: the revision agent (index 0)
-        #    and the new validation agent (index 1, KAN-108). The INTERNAL fix
-        #    sub-agent (":fix" thread) must still NOT emit a third agent_start. ──
+        # ── …the UI sees exactly the DECLARED steps, and the INTERNAL fix sub-agent
+        #    (":fix" thread) must NOT emit an extra agent_start. The expected count
+        #    is DERIVED from the compiled plan rather than hardcoded: this assertion
+        #    used to say 2 (revision + validate) and went stale the moment commit
+        #    e0f6beeed promoted prototype-revision-analyzer to step 0. Deriving it
+        #    keeps the real invariant — declared steps only, no phantom — without
+        #    re-breaking every time the pipeline legitimately gains a step. ──
+        _declared = [
+            s.agent_id for s in engine_mod.compile_for_run("prototype_revision").steps
+        ]
         counts = Counter(e["type"] for e in events)
-        assert (
-            counts["agent_start"] == 2
-        ), f"must see exactly 2 agent_starts (revision + validation); counts={dict(counts)}"
-        assert (
-            counts["agent_complete"] == 2
-        ), f"must see exactly 2 agent_completes (revision + validation); counts={dict(counts)}"
+        assert counts["agent_start"] == len(_declared), (
+            f"must see exactly one agent_start per DECLARED step {_declared} and no "
+            f"phantom from the internal :fix thread; counts={dict(counts)}"
+        )
+        assert counts["agent_complete"] == len(_declared), (
+            f"must see exactly one agent_complete per DECLARED step {_declared}; "
+            f"counts={dict(counts)}"
+        )
 
         # ── The fix's edit_file tool call is INTERNAL — not in the visible stream. ──
         # The visible revision made ONE edit_file (introduce the ghost route); the
         # fix's edit_file (remove it) must NOT reach the caller. The validation agent
         # (prototype-validate, KAN-108) is a DECLARED step and its tool_call
-        # events ARE in the visible stream — so we now expect 2 visible edit_file calls
-        # (one per declared agent), NOT the fix's third internal edit_file.
+        # events ARE in the visible stream — so we expect 2 visible edit_file calls
+        # (revision-agent + validate), NOT the fix's third internal edit_file.
+        # The analyzer step (prototype-revision-analyzer) produces no edit_file,
+        # so the count is still 2 even with the 3-step roster.
         visible_tool_calls = [
             e["data"]["tool"] for e in events if e["type"] == "tool_call"
         ]
         assert visible_tool_calls.count("edit_file") == 2, (
-            f"the two declared agents' edits appear in the stream; the fix's edit must "
+            f"the two writing declared agents' edits appear in the stream; the fix's edit must "
             f"be internal; got tool_calls={visible_tool_calls}"
         )
-        # The declared agent_starts are the two pipeline steps (revision + validate).
+        # The visible agent_starts are EXACTLY the declared steps, in plan order —
+        # derived, not hardcoded, for the same reason as the counts above. The fix
+        # sub-agent runs on a ":fix" thread and must never appear in this list.
         starts = [e["data"]["agent_id"] for e in events if e["type"] == "agent_start"]
-        assert starts == ["prototype-revision-agent", "prototype-validate"], (
-            f"the UI must see the revision agent then the validation agent (KAN-108); "
-            f"got {starts}"
+        assert starts == _declared, (
+            f"the UI must see exactly the declared steps in plan order and nothing "
+            f"from the internal :fix thread; expected {_declared}, got {starts}"
         )

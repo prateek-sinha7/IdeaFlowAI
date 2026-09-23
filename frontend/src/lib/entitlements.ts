@@ -20,24 +20,45 @@ export type WorkflowType = string;
 export const TIER_PIPELINES: Record<Tier, Set<string>> = {
   basic: new Set([
     "user_stories", "user_stories_revision",
-    "ppt", "ppt_revision",
+    // spec 017 — same deck as ppt, plus a real .pptx. Entitled wherever ppt is.
+    "ppt", "ppt_v2", "ppt_revision",
   ]),
   hexaware: new Set([
     "user_stories", "user_stories_revision",
     "prototype", "prototype_revision",
+    // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
+    // wherever `prototype` is (backend/app/core/entitlements.py).
+    "prototype_v2",
+    // revision-pipeline-agent-reuse spec: these share the main prototype
+    // pipeline's agents. Entitled on the backend wherever `prototype` is —
+    // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
   ]),
   pro: new Set([
     "user_stories", "user_stories_revision",
-    "ppt", "ppt_revision",
+    // spec 017 — same deck as ppt, plus a real .pptx. Entitled wherever ppt is.
+    "ppt", "ppt_v2", "ppt_revision",
     "prototype", "prototype_revision",
+    // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
+    // wherever `prototype` is (backend/app/core/entitlements.py).
+    "prototype_v2",
+    // revision-pipeline-agent-reuse spec: these share the main prototype
+    // pipeline's agents. Entitled on the backend wherever `prototype` is —
+    // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
     "app_builder", "app_builder_revision",
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
-    "ppt", "ppt_revision",
+    // spec 017 — same deck as ppt, plus a real .pptx. Entitled wherever ppt is.
+    "ppt", "ppt_v2", "ppt_revision",
     "prototype", "prototype_revision",
+    // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
+    // wherever `prototype` is (backend/app/core/entitlements.py).
+    "prototype_v2",
+    // revision-pipeline-agent-reuse spec: these share the main prototype
+    // pipeline's agents. Entitled on the backend wherever `prototype` is —
+    // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
     "app_builder", "app_builder_revision",
     "custom", "custom_revision",
@@ -48,6 +69,25 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // and therefore on the backend too, or the parity test fails.
     "migration",
     "mulesoft_to_springboot", "dotnet_to_azure",
+    // spec-014 conditional-gates fixtures. Launchable, non-beta and entitled on
+    // the backend, but absent here — so the catalog rendered the cards locked
+    // behind an upgrade prompt that no tier could satisfy.
+    "ex_A2_branch",
+    "ex_A1_loop",
+    "ex_A4_human_gate",
+    "ex_A4_human_divert",
+    "ex_A3_divert",
+    "ex_A3_b_spanish",
+    "ex_A3_c_dutch",
+    // spec 018: temporary smoke-test pipeline for the playwright tool set.
+    // Entitled on the backend but missed here on first pass — same drift class
+    // as the ex_A* fixtures above.
+    "playwright_smoke_test",
+    // document-driven prototype build (wave fan-out). Kept in parity with
+    // backend/app/core/entitlements.py — a manifest that is user_launchable
+    // and non-beta still renders LOCKED until it appears in both maps.
+    "pdf_to_prototype",
+    // reference fan-out fixture — kept in parity with the backend map.
   ]),
 };
 

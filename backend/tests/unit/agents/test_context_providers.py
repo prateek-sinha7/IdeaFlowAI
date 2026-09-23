@@ -77,6 +77,10 @@ class _FakeSandbox:
     def __init__(self) -> None:
         self.written: dict[str, str] = {}
 
+    def read(self, name: str) -> str | None:
+        """Return the content of name if present, None otherwise."""
+        return self.written.get(name)
+
     def write(self, name, text):
         self.written[name] = text
 
@@ -698,3 +702,214 @@ def test_od_ppt_agents_template_example_inject_wiring():
     analyst = load_agent_spec("ppt-brief-analyst")
     assert "template_example" in composer.injects and "template" in composer.injects
     assert "template_example" not in analyst.injects and "template" in analyst.injects
+
+
+# ===========================================================================
+# PreviousRunProvider — reserved-prefix guard on seed_files.from_run (Req 21)
+# ===========================================================================
+
+
+from agents.capabilities.context_providers.previous_run import (
+    _RESERVED_PREFIXES,
+    _is_reserved,
+    _declared_seed_files,
+)
+
+
+class _SeedCtx:
+    """Minimal ctx stub for _declared_seed_files tests."""
+
+    def __init__(self, seed_files=None) -> None:
+        self.seed_files = seed_files
+
+
+def test_is_reserved_blocks_all_eight_prefixes():
+    """Every reserved prefix is detected by _is_reserved."""
+    for prefix in _RESERVED_PREFIXES:
+        assert _is_reserved(prefix), f"{prefix!r} not blocked by _is_reserved"
+
+
+def test_is_reserved_blocks_nested_paths_under_reserved_prefix():
+    """Paths nested under a reserved prefix are also blocked."""
+    assert _is_reserved(".chain/some-run-id/summary.md")
+    assert _is_reserved(".uploads/manifest.json")
+    assert _is_reserved(".agents/step-1.txt")
+    assert _is_reserved("skills/my-skill.md")
+    assert _is_reserved(".context/design/craft.md")
+    assert _is_reserved(".logs/run.jsonl")
+    assert _is_reserved(".verify/evidence.json")
+    assert _is_reserved(".browser/screenshot.png")
+
+
+def test_is_reserved_passes_normal_paths():
+    """Ordinary seed files (spec.md, design.md, tasks.md) are NOT reserved."""
+    assert not _is_reserved("spec.md")
+    assert not _is_reserved("design.md")
+    assert not _is_reserved("tasks.md")
+    assert not _is_reserved("README.md")
+    assert not _is_reserved("output/prototype.html")
+
+
+def test_is_reserved_skills_bare_name_blocked():
+    """``skills`` without trailing slash is also blocked (task description note)."""
+    assert _is_reserved("skills")
+    assert _is_reserved("skills/anything")
+
+
+def test_declared_seed_files_filters_reserved_entries(caplog):
+    """_declared_seed_files drops reserved entries and emits a warning per skip."""
+    import logging
+
+    ctx = _SeedCtx(seed_files={"from_run": [
+        "spec.md",
+        ".chain/",                      # reserved — blocked
+        "design.md",
+        ".uploads/manifest.json",       # reserved — blocked
+        "tasks.md",
+        "skills/my-skill.md",           # reserved — blocked
+        ".agents/trace.txt",            # reserved — blocked
+    ]})
+
+    with caplog.at_level(logging.WARNING):
+        result = _declared_seed_files(ctx)
+
+    assert result == ("spec.md", "design.md", "tasks.md")
+    # One warning per blocked entry.
+    blocked = [r for r in caplog.records if "reserved" in r.message]
+    assert len(blocked) == 4
+
+
+def test_declared_seed_files_all_reserved_returns_empty_tuple():
+    """When every entry is reserved the result is an empty tuple (never the fallback)."""
+    ctx = _SeedCtx(seed_files={"from_run": [
+        ".chain/",
+        ".context/",
+        ".uploads/",
+        ".logs/",
+        ".verify/",
+        ".browser/",
+        ".agents/",
+        "skills/",
+    ]})
+    result = _declared_seed_files(ctx)
+    # Empty tuple, not the legacy _SEED_FILES fallback.
+    assert result == ()
+
+
+def test_declared_seed_files_fallback_when_no_from_run():
+    """When seed_files has no from_run key the legacy tuple fires (no reserved check needed)."""
+    from agents.capabilities.context_providers.previous_run import _SEED_FILES
+
+    ctx_empty = _SeedCtx(seed_files={})
+    assert _declared_seed_files(ctx_empty) == _SEED_FILES
+
+    ctx_no_sf = _SeedCtx(seed_files=None)
+    assert _declared_seed_files(ctx_no_sf) == _SEED_FILES
+
+
+@pytest.mark.asyncio
+async def test_previous_run_reserved_seed_file_is_not_written():
+    """End-to-end: a from_run entry that names a reserved prefix is never written to the sandbox.
+
+    The guard removes it from the iterable passed to the seed loop so
+    runner.read_parent_file is never called for it and sandbox.write is never called
+    for it either. Requirement 21 AC 1.
+    """
+    sandbox = _FakeSandbox()
+    runner = _FakeRunner(
+        sandbox=sandbox,
+        parent_files={
+            "spec.md": "SPEC",
+            ".chain/payload.md": "CHAIN CONTENT",   # reserved — should be silently skipped
+            "design.md": "DESIGN",
+        },
+    )
+    store = _FakeScopedStore(cross_owner=False)
+    ctx = _Ctx(
+        runner,
+        scoped_store=store,
+        parent_run_id="parent-1",
+        is_revision_workflow=True,
+    )
+    # Override seed_files so the manifest declares a reserved entry.
+    ctx.seed_files = {"from_run": ["spec.md", ".chain/payload.md", "design.md"]}
+
+    await PreviousRunProvider().load(ctx)
+
+    # spec.md and design.md are written; the .chain/ entry is silently dropped.
+    assert "spec.md" in sandbox.written
+    assert "design.md" in sandbox.written
+    assert ".chain/payload.md" not in sandbox.written
+
+
+@pytest.mark.asyncio
+async def test_previous_run_already_present_file_not_recopied():
+    """FR-005 already-present branch: a file that exists in the sandbox is not re-copied.
+
+    When the sandbox is the shared chain-root directory (a revision run), the parent
+    run already wrote this file in place. Re-copying would overwrite in-progress edits
+    from the current run. The provider checks ``sandbox.read(name) is not None`` and
+    skips the file if present (Requirement 4 AC 1).
+    """
+    sandbox = _FakeSandbox()
+    # Pre-populate the sandbox with a file (simulating it being written by an earlier step).
+    sandbox.write("spec.md", "CURRENT SPEC CONTENT")
+    sandbox.write("tasks.md", "CURRENT TASKS")
+
+    runner = _FakeRunner(
+        sandbox=sandbox,
+        parent_files={
+            # Parent has different content for both files
+            "spec.md": "PARENT SPEC",
+            "design.md": "PARENT DESIGN",
+            "tasks.md": "PARENT TASKS",
+        },
+    )
+    store = _FakeScopedStore(cross_owner=False)
+    ctx = _Ctx(
+        runner,
+        scoped_store=store,
+        parent_run_id="parent-1",
+        is_revision_workflow=True,
+    )
+
+    await PreviousRunProvider().load(ctx)
+
+    # spec.md and tasks.md were already present, so they are NOT overwritten
+    # by the parent content — they keep their current values.
+    assert sandbox.written["spec.md"] == "CURRENT SPEC CONTENT"
+    assert sandbox.written["tasks.md"] == "CURRENT TASKS"
+    # design.md was not present, so it is copied from the parent.
+    assert sandbox.written["design.md"] == "PARENT DESIGN"
+
+
+@pytest.mark.asyncio
+async def test_previous_run_seed_default_fallback_with_from_run():
+    """Row 25 previous_run seed: the default _SEED_FILES fallback when from_run not declared.
+
+    When seed_files lacks a from_run key (typical case — manifests are {}), the default
+    triple (spec.md, design.md, tasks.md) is seeded from the parent run.
+    """
+    sandbox = _FakeSandbox()
+    runner = _FakeRunner(
+        sandbox=sandbox,
+        parent_files={
+            "spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS",
+        },
+    )
+    store = _FakeScopedStore(cross_owner=False)
+    ctx = _Ctx(
+        runner,
+        scoped_store=store,
+        parent_run_id="parent-1",
+        is_revision_workflow=True,
+    )
+    # Explicitly leave seed_files unset (default None) — the fallback should apply.
+    ctx.seed_files = None
+
+    await PreviousRunProvider().load(ctx)
+
+    # All three default files are seeded.
+    assert sandbox.written == {
+        "spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS",
+    }

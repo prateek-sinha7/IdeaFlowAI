@@ -31,9 +31,15 @@ Proceed-path tests (REAL dispatch — scripted wiring via ``_dispatch_wiring``):
   - the three-section context contract ("three separate structured inputs,
     NOT concatenated") is the agents' INPUT, observable on the forwarded
     ``agent_input`` event's ``context_message``
-  - the "=== PLANNING CONTEXT" prefix is absent/present in the dispatched
-    context_message (the stub-only terminal payload key is GONE — see the
-    proceed-path tests for the rationale comments)
+  - the "=== PLANNING CONTEXT" prefix is UNCONDITIONALLY absent from the
+    dispatched context_message, whether or not a planning_context artifact
+    exists on the parent (GAPS T6: retired world-block paste — the parent's
+    planning analysis is already durable as PLANNER.md in the shared family
+    sandbox every revision writes into, so pasting it again was a stray,
+    ungated world block AND corrupted the revision's own regenerated
+    PLANNER.md, since revision_context becomes user_message and every
+    revision pipeline is planner: skip, so _default_planning_context derives
+    inferred_intent as user_message[:200])
   - run_events persistence comes from execute()'s chokepoint: ledger rows
     exist with contiguous, non-duplicated seq (single stamping source)
   - the FR-014 chain (deliverable link / summary fallback / placeholder
@@ -93,19 +99,20 @@ OWNER = "owner-x"
 OTHER_OWNER = "owner-y"
 WS = "ws-x"
 
-# The deterministic REVISED decks the 14-01 harness scripts. The last agent of
-# each revision pipeline streams "<narration>\n<artifact>{deck}</artifact>";
-# the declared ``ppt`` deliverable strategy unwraps it, so ``final_output``
-# must be EXACTLY the raw deck HTML between the artifact tags. Expected bytes
-# are DERIVED from the harness (single source — never duplicated as literals).
+# The deterministic REVISED deck the 14-01 harness scripts. ISS-727/ISS-723: the
+# agent used to STREAM the deck inside an <artifact> tag and ppt_revision's
+# declared ``ppt`` strategy unwrapped it — which is why the sandbox-root
+# presentation.html behind every ``ref=vN`` git tag was never rewritten after v1.
+# The manifest now declares ``single_file`` / ``presentation.html`` and the agent
+# WRITES that file, so ``final_output`` is the file the harness wrote. Expected
+# bytes are still DERIVED from the harness (single source — never duplicated as
+# literals), now from the scripted write_file args instead of the streamed text.
 #
 # ppt_revision is a 1-step pipeline (ppt-revision-agent IS the deliverable
 # producer — formerly od_ppt_revision; the legacy 2-agent revise+reassemble
 # ppt_revision is archived, see agents/registry.py).
-_OD_REV_TURN_TEXT = _scripts_for("ppt-revision-agent")[0].texts[0]
-EXPECTED_OD_REVISED_DECK = _OD_REV_TURN_TEXT.split("<artifact>", 1)[1].split(
-    "</artifact>", 1
-)[0]
+_OD_REV_WRITE_ARGS = _scripts_for("ppt-revision-agent")[0].tool_calls[0][1]
+EXPECTED_OD_REVISED_DECK = json.loads(_OD_REV_WRITE_ARGS)["content"]
 
 
 @pytest.fixture
@@ -394,6 +401,7 @@ async def test_nonexistent_artifact_raises(engine: ExecutionEngine, db_factory) 
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_revision_stores_new_version_with_lineage(
     engine: ExecutionEngine, db_factory
 ) -> None:
@@ -530,12 +538,18 @@ async def test_planning_context_prefix_absent_when_no_planning_artifact(
 
 
 @pytest.mark.asyncio
-async def test_planning_context_available_when_present(
+async def test_planning_context_never_pasted_even_when_artifact_present(
     engine: ExecutionEngine, db_factory
 ) -> None:
-    """A planning_context artifact on the parent → the "=== PLANNING CONTEXT"
-    guardrail block is PREPENDED to the dispatched context_message, verbatim
-    content included."""
+    """GAPS T6: a planning_context artifact on the parent does NOT put the
+    "=== PLANNING CONTEXT" guardrail block into the dispatched
+    context_message — that paste is a retired world block (GAPS §0.2/§0.3
+    step 0, FR-030 row 10), even though it was missed by the seam-2 deletion
+    (this code path is _handle_revision, never _compose_context_message).
+    The parent's planning analysis reaches the revision's agents as PLANNER.md
+    in the shared family sandbox instead — this test only observes the
+    dispatched message, not the sandbox file (that is exercised live; see the
+    T6 journal)."""
     parent = "run-parent-with-planning"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
     _seed_ref(
@@ -563,12 +577,8 @@ async def test_planning_context_available_when_present(
     )
 
     context_message = _context_message(sent)
-    assert "=== PLANNING CONTEXT" in context_message
-    assert "Build a login feature" in context_message
-    # The planning guardrail is a PREFIX — it precedes the original artifact.
-    assert context_message.index("=== PLANNING CONTEXT") < context_message.index(
-        "=== ORIGINAL ARTIFACT"
-    )
+    assert "=== PLANNING CONTEXT" not in context_message
+    assert "Build a login feature" not in context_message
 
 
 # ---------------------------------------------------------------------------
@@ -873,8 +883,10 @@ async def test_fe_target_resolves_deliverable_ref_on_realistic_parent(
     original_section = _original_section(context_message, "ppt_output")
     assert contents["deliverable"] in original_section
     assert contents["summary_v2"] not in original_section
-    # planning_context still resolves alongside the chain — prefix PRESENT.
-    assert "=== PLANNING CONTEXT" in context_message
+    # GAPS T6: planning_context still resolves alongside the chain (feeds the
+    # diagnostic-only planning_context_unavailable log field), but the paste
+    # itself is a retired world block — prefix ABSENT.
+    assert "=== PLANNING CONTEXT" not in context_message
 
     # The single-step ppt_revision pipeline completed for real: final_output
     # is ppt-revision-agent's scripted deck, unwrapped.
@@ -1137,6 +1149,7 @@ async def test_planner_run_target_rejected_before_dispatch(
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_prototype_revision_now_dispatches_successfully(
     engine: ExecutionEngine, db_factory
 ) -> None:

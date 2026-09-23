@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subsea Fibre Splice Operations</title>
+    <style>
+        /* ========== Base Reset & Typography ========== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f0f0f;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+
+        /* ========== Deck Container & Carousel ========== */
+        .deck {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .stage {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
+        }
+
+        .slide {
+            min-width: 100%;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 4rem 5rem;
+            background: #ffffff;
+            position: relative;
+            overflow-y: auto;
+        }
+
+        /* ========== Slide Type Specific ========== */
+
+        /* Title Slide */
+        .slide.slide-title {
+            background: linear-gradient(135deg, #003d5c 0%, #0d5a7f 100%);
+            color: #ffffff;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 4rem;
+        }
+
+        .slide.slide-title h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            letter-spacing: -1px;
+            color: #00aa00;
+        }
+
+        .slide.slide-title .subtitle {
+            font-size: 1.5rem;
+            font-weight: 300;
+            opacity: 0.95;
+            max-width: 800px;
+        }
+
+        /* Agenda Slide */
+        .slide.slide-agenda {
+            background: #f5f7fa;
+            justify-content: flex-start;
+            padding-top: 5rem;
+        }
+
+        .slide.slide-agenda h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+        }
+
+        .slide.slide-agenda ul {
+            list-style: none;
+            font-size: 1.1rem;
+            line-height: 2;
+        }
+
+        .slide.slide-agenda li {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 0.8rem;
+        }
+
+        .slide.slide-agenda li:before {
+            content: "•";
+            color: #0d5a7f;
+            font-weight: bold;
+            font-size: 1.5rem;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+
+        /* Content Slide */
+        .slide.slide-content {
+            background: #ffffff;
+            justify-content: flex-start;
+            padding-top: 3rem;
+            text-align: left;
+        }
+
+        .slide.slide-content h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+        }
+
+        .slide.slide-content .content-body {
+            max-width: 900px;
+            font-size: 1rem;
+            line-height: 1.8;
+            color: #2a2a2a;
+        }
+
+        .slide.slide-content ul,
+        .slide.slide-content ol {
+            margin-left: 2rem;
+            margin-top: 1rem;
+            font-size: 1rem;
+        }
+
+        .slide.slide-content li {
+            margin-bottom: 1rem;
+        }
+
+        /* Data Slide */
+        .slide.slide-data {
+            background: #f5f7fa;
+            justify-content: flex-start;
+            padding-top: 3rem;
+        }
+
+        .slide.slide-data h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+        }
+
+        .metric-card {
+            background: white;
+            border-left: 5px solid #0d5a7f;
+            padding: 1.5rem;
+            margin-bottom: 1.2rem;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #0d5a7f;
+        }
+
+        .data-body {
+            max-width: 900px;
+            font-size: 0.95rem;
+            line-height: 1.7;
+            color: #2a2a2a;
+        }
+
+        /* Split Slide */
+        .slide.slide-split {
+            background: #ffffff;
+            justify-content: flex-start;
+            padding-top: 3rem;
+            align-items: flex-start;
+        }
+
+        .slide.slide-split h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #003d5c;
+            width: 100%;
+        }
+
+        .split-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        .split-column {
+            font-size: 0.95rem;
+            line-height: 1.8;
+            color: #2a2a2a;
+        }
+
+        .split-column h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #0d5a7f;
+            margin-bottom: 1.2rem;
+        }
+
+        .split-column ul {
+            list-style: none;
+            margin-left: 0;
+        }
+
+        .split-column li {
+            margin-bottom: 0.8rem;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .split-column li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #0d5a7f;
+            font-weight: bold;
+        }
+
+        /* Closing Slide */
+        .slide.slide-closing {
+            background: linear-gradient(135deg, #003d5c 0%, #0d5a7f 100%);
+            color: #ffffff;
+            justify-content: flex-start;
+            padding-top: 3rem;
+            text-align: left;
+        }
+
+        .slide.slide-closing h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #ffffff;
+        }
+
+        .slide.slide-closing .takeaways {
+            margin-bottom: 2rem;
+        }
+
+        .slide.slide-closing .takeaway-item {
+            margin-bottom: 1rem;
+            font-size: 1rem;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .slide.slide-closing .takeaway-item:before {
+            content: "✓";
+            color: #4db8ff;
+            font-weight: bold;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+
+        .slide.slide-closing .next-steps {
+            background: rgba(255,255,255,0.1);
+            padding: 1.5rem;
+            border-radius: 4px;
+            margin-top: 2rem;
+        }
+
+        .slide.slide-closing .next-steps h3 {
+            color: #4db8ff;
+            margin-bottom: 1rem;
+        }
+
+        .slide.slide-closing .next-step-item {
+            margin-bottom: 0.8rem;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .slide.slide-closing .next-step-item:before {
+            content: "→";
+            color: #4db8ff;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+
+        .slide.slide-closing .footer {
+            margin-top: 3rem;
+            font-size: 0.9rem;
+            opacity: 0.8;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            padding-top: 1.5rem;
+        }
+
+        /* ========== Navigation Chrome ========== */
+        .nav-bar {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            z-index: 1000;
+        }
+
+        .nav-button {
+            width: 2.8rem;
+            height: 2.8rem;
+            border: none;
+            border-radius: 50%;
+            background: #0d5a7f;
+            color: #ffffff;
+            font-size: 1.2rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(13, 90, 127, 0.3);
+        }
+
+        .nav-button:hover {
+            background: #003d5c;
+            transform: scale(1.05);
+        }
+
+        .nav-button:active {
+            transform: scale(0.95);
+        }
+
+        .slide-counter {
+            color: #666;
+            font-size: 0.9rem;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        /* ========== Accessibility & Print ========== */
+        @media print {
+            .nav-bar {
+                display: none;
+            }
+            .slide {
+                page-break-after: always;
+                height: auto;
+                min-height: 100vh;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .slide {
+                padding: 2rem 3rem;
+            }
+            .slide.slide-title h1 {
+                font-size: 2.5rem;
+            }
+            .split-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ========== Utility Classes ========== */
+        .text-accent {
+            color: #0d5a7f;
+            font-weight: 600;
+        }
+
+        .bg-light {
+            background: #f5f7fa;
+        }
+
+        .success-check:before {
+            content: "✓";
+            color: #0d5a7f;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+
+        .warning-icon:before {
+            content: "⚠";
+            color: #c44536;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="deck">
+        <div class="stage">
+            <!-- Slide 1: Title -->
+            <section class="slide slide-title active">
+                <h1>SPLICE REVISION THREE</h1>
+                <p class="subtitle">Technical Guide to Offshore Cable Installation and Splicing Procedures</p>
+            </section>
+
+            <!-- Slide 2: Agenda -->
+            <section class="slide slide-agenda">
+                <h2>Agenda</h2>
+                <ul>
+                    <li>Overview of subsea fibre splicing</li>
+                    <li>Pre-splice inspection and preparation</li>
+                    <li>Core splicing techniques and equipment</li>
+                    <li>Quality assurance and testing</li>
+                    <li>Post-splice operations and recovery</li>
+                    <li>Safety protocols and risk mitigation</li>
+                    <li>Case study: successful deep-water deployment</li>
+                </ul>
+            </section>
+
+            <!-- Slide 3: Overview -->
+            <section class="slide slide-content">
+                <h2>Overview of Subsea Fibre Splicing</h2>
+                <div class="content-body">
+                    <p><strong>Subsea fibre splicing is the critical process of permanently joining optical cable segments on the seafloor or during installation operations.</strong></p>
+                    <p style="margin-top: 1.5rem;"><strong>Key objectives:</strong></p>
+                    <ul>
+                        <li>Maintain optical signal integrity across junction points</li>
+                        <li>Achieve low splice loss (typically &lt;0.1 dB)</li>
+                        <li>Ensure mechanical strength matching parent cable</li>
+                        <li>Provide environmental protection and pressure resistance</li>
+                        <li>Enable efficient cable deployment and repair workflows</li>
+                    </ul>
+                </div>
+            </section>
+
+
+        </div>
+
+        <!-- Navigation -->
+        <nav class="nav-bar">
+            <button class="nav-button" data-prev title="Previous slide">&#8592;</button>
+            <span class="slide-counter"><span id="slide-num">1</span> / 3</span>
+            <button class="nav-button" data-next title="Next slide">&#8594;</button>
+        </nav>
+    </div>
+
+    <script>
+        (function() {
+            const slides = document.querySelectorAll('.slide');
+            const stage = document.querySelector('.stage');
+            let current = 0;
+
+            function go(n) {
+                current = Math.max(0, Math.min(n, slides.length - 1));
+                slides.forEach((s, i) => s.classList.toggle('active', i === current));
+                if (stage) {
+                    stage.style.transform = 'translateX(-' + (current * 100) + 'vw)';
+                }
+                document.getElementById('slide-num').textContent = (current + 1);
+            }
+
+            // Keyboard navigation
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    go(current + 1);
+                }
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    go(current - 1);
+                }
+            });
+
+            // Button click navigation
+            document.querySelectorAll('[data-next]').forEach(btn => {
+                btn.addEventListener('click', () => go(current + 1));
+            });
+
+            document.querySelectorAll('[data-prev]').forEach(btn => {
+                btn.addEventListener('click', () => go(current - 1));
+            });
+
+            // Initialize
+            go(0);
+        })();
+    </script>
+</body>
+</html>

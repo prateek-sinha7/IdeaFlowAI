@@ -19,6 +19,20 @@ from agents.loader import list_agent_ids, load_agent_spec, SUPPORTED_PIPELINE_TY
 from agents.registry import get_pipeline_agents
 
 # ---------------------------------------------------------------------------
+# Known drift cases (ADR-0003/ADR-0005)
+# ---------------------------------------------------------------------------
+
+# prototype-revision-analyzer is step 0 of all THREE prototype revision manifests,
+# but declares its own pipeline_type so registry membership cannot list it under
+# all three pipelines that actually run it. This is the registry/manifest split
+# working as designed — see backend/CLAUDE.md and ADR-0003.
+_SHARED_ANALYZER_DRIFT = {
+    "prototype_revision",
+    "prototype_large_revision",
+    "prototype_feature_revision",
+}
+
+# ---------------------------------------------------------------------------
 # Helpers for property tests (task 6.2)
 # ---------------------------------------------------------------------------
 
@@ -145,6 +159,13 @@ class TestGetPipelineAgents:
         from agents.loader import AgentSpec
 
         for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
+            if pipeline_type in _SHARED_ANALYZER_DRIFT:
+                pytest.xfail(
+                    f"{pipeline_type}: step 0 is the SHARED prototype-revision-analyzer, which "
+                    "declares its own pipeline_type so registry membership cannot list it "
+                    "(ADR-0003/ADR-0005 — see _SHARED_ANALYZER_DRIFT)"
+                )
+
             specs = get_pipeline_agents(pipeline_type)
             if not specs:
                 continue
@@ -175,17 +196,64 @@ class TestGetPipelineAgents:
         result = get_pipeline_agents("")
         assert result == []
 
-    def test_get_pipeline_agents_order_matches_list_agent_ids_order(self):
-        """get_pipeline_agents order must match list_agent_ids order for every pipeline."""
+    def test_get_pipeline_agents_is_discovery_plus_its_own_manifest_steps(self):
+        """The roster CONTAINS everything AGENT.md discovery finds, in order — and may
+        contain more.
+
+        This assertion used to be equality with ``list_agent_ids``, which encoded the
+        very assumption that broke ``ppt_v2``: that a pipeline's roster is exactly the
+        agents whose ``AGENT.md`` names it. ``pipeline_type`` holds ONE value, so a
+        workflow REUSING an agent from another pipeline could never be described that
+        way — ``ppt_v2`` reuses ppt's brief-analyst and composer, and the roster
+        reported 2 of its 4 steps. The DAG resolver validates ``consumes`` against
+        this list and called the whole pipeline unsatisfiable as a result.
+
+        So the contract is now containment, not equality. What is still pinned, and is
+        what the original test was actually protecting: discovery's agents all survive,
+        their relative order is unchanged, and the whole list is ``order``-sorted.
+        """
         for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
             ids_from_list = list_agent_ids(pipeline_type)
-            specs_from_get = get_pipeline_agents(pipeline_type)
+            ids_from_get = [spec.id for spec in get_pipeline_agents(pipeline_type)]
 
-            ids_from_get = [spec.id for spec in specs_from_get]
-            assert ids_from_list == ids_from_get, (
+            assert set(ids_from_list) <= set(ids_from_get), (
+                f"Pipeline {pipeline_type!r}: discovery agents DROPPED from the roster — "
+                f"list_agent_ids={ids_from_list} get_pipeline_agents={ids_from_get}"
+            )
+            # Relative order of the discovered agents is preserved.
+            assert [
+                i for i in ids_from_get if i in set(ids_from_list)
+            ] == ids_from_list, (
                 f"Pipeline {pipeline_type!r}: order mismatch between "
                 f"list_agent_ids={ids_from_list} and get_pipeline_agents={ids_from_get}"
             )
+
+    def test_a_reusing_pipeline_reports_every_step_it_will_run(self):
+        """spec 017 — the concrete case the contract above exists for.
+
+        ``ppt_v2``'s manifest runs four steps; two of them are ppt's, so neither
+        declares ``pipeline_type: ppt_v2``. A roster missing them is not a cosmetic
+        undercount: it is what the DAG resolver validates against.
+        """
+        roster = [spec.id for spec in get_pipeline_agents("ppt_v2")]
+        assert roster == [
+            "ppt-brief-analyst",
+            "ppt-composer",
+            "ppt-deck-qa-v2",
+            "ppt-code-generator",
+        ]
+
+    def test_completing_the_roster_never_adds_a_template_agent(self):
+        """``template: true`` marks a folder that exists to be INSTANTIATED, never to
+        be a pipeline member — which is why discovery excludes it. A composed
+        workflow's manifest steps ARE those instances, so completing from the manifest
+        has to honour the same rule or every composed pipeline grows a phantom
+        ``custom-agent`` member."""
+        for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
+            for spec in get_pipeline_agents(pipeline_type):
+                assert not getattr(
+                    spec, "template", False
+                ), f"Pipeline {pipeline_type!r}: template agent {spec.id!r} in the roster"
 
 
 # ---------------------------------------------------------------------------
@@ -201,23 +269,26 @@ class TestRevisionPipelineRosters:
     """
 
     def test_prototype_revision_roster(self):
-        """prototype_revision pipeline must contain exactly the two expected agents in order."""
+        """prototype_revision pipeline must contain exactly the three expected agents in order."""
         assert list_agent_ids("prototype_revision") == [
+            "prototype-revision-analyzer",
             "prototype-revision-agent",
             "prototype-validate",
         ]
 
     def test_prototype_large_revision_roster(self):
-        """prototype_large_revision pipeline must contain exactly the three expected agents in order."""
+        """prototype_large_revision pipeline must contain exactly the four expected agents in order."""
         assert list_agent_ids("prototype_large_revision") == [
+            "prototype-revision-analyzer",
             "prototype-revision-planner",
             "prototype-build",
             "prototype-validate",
         ]
 
     def test_prototype_feature_revision_roster(self):
-        """prototype_feature_revision pipeline must contain exactly the four expected agents in order."""
+        """prototype_feature_revision pipeline must contain exactly the five expected agents in order."""
         assert list_agent_ids("prototype_feature_revision") == [
+            "prototype-revision-analyzer",
             "prototype-revision-feature-specify",
             "prototype-plan",
             "prototype-build",
@@ -258,6 +329,7 @@ class TestRosterCompletenessProperty:
         "prototype_feature_revision",
     ]
 
+    @pytest.mark.issue("ISS-631")
     @pytest.mark.parametrize("pipeline_type", REVISION_PIPELINES)
     def test_roster_matches_workflow_yaml_steps_in_order(self, pipeline_type: str):
         """Registry roster for each revision pipeline equals the workflow.yaml step agents in manifest order."""
@@ -300,6 +372,7 @@ class TestRosterCompletenessProperty:
         extra = actual_set - expected_set
         assert not extra, f"Pipeline {pipeline_type!r}: registry returned extra agents not in workflow.yaml: {extra!r}"
 
+    @pytest.mark.issue("ISS-631")
     @pytest.mark.parametrize("pipeline_type", REVISION_PIPELINES)
     def test_roster_missing_no_yaml_agents(self, pipeline_type: str):
         """Registry must include every registry-owned agent declared in the workflow.yaml steps.

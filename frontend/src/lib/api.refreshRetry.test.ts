@@ -45,6 +45,13 @@ function urlOf(callIndex: number): string {
 
 const ME = { id: "u1", email: "u@example.com", tier: "pro", is_admin: false };
 
+// ISS-801: `getMe` now reads through lib/api's shared GET cache (keyed by
+// URL + token), so a bearer reused across `it` blocks would serve the FIRST
+// test's resolved user to every later one and never reach the ladder under
+// test. One stale bearer per test, the same isolation api.sharedGetCache.test.ts
+// uses ("caps-a"/"caps-b") — each test is its own expired session anyway.
+const STALE = (n: number) => `stale.access.token.${n}`;
+
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -64,7 +71,7 @@ describe("request() 401 → refresh → retry (Cognito Phase 4)", () => {
       .mockResolvedValueOnce(okJson({ token: "fresh.access.token" })) // POST /refresh
       .mockResolvedValueOnce(okJson(ME)); // replayed GET /api/auth/me
 
-    const user = await getMe("stale.access.token");
+    const user = await getMe(STALE(1));
 
     expect(user).toEqual(ME);
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -84,7 +91,7 @@ describe("request() 401 → refresh → retry (Cognito Phase 4)", () => {
       .mockResolvedValueOnce(okJson({ token: "fresh.access.token" }))
       .mockResolvedValueOnce(unauthorized()); // the replay fails too
 
-    await expect(getMe("stale.access.token")).rejects.toMatchObject({
+    await expect(getMe(STALE(2))).rejects.toMatchObject({
       name: "ApiError",
       status: 401,
     });
@@ -106,7 +113,7 @@ describe("request() 401 → refresh → retry (Cognito Phase 4)", () => {
 
     // A break-glass/local user gets a 501 from /refresh. The caller must see the
     // real 401 rather than a confusing 501 from an endpoint it never called.
-    await expect(getMe("stale.access.token")).rejects.toMatchObject({
+    await expect(getMe(STALE(3))).rejects.toMatchObject({
       name: "ApiError",
       status: 401,
     });
@@ -140,9 +147,9 @@ describe("request() 401 → refresh → retry (Cognito Phase 4)", () => {
     });
 
     const [a, b, c] = await Promise.all([
-      getMe("stale.access.token"),
-      getMe("stale.access.token"),
-      getMe("stale.access.token"),
+      getMe(STALE(5)),
+      getMe(STALE(5)),
+      getMe(STALE(5)),
     ]);
 
     expect([a, b, c]).toEqual([ME, ME, ME]);
@@ -163,7 +170,7 @@ describe("request() 401 → refresh → retry (Cognito Phase 4)", () => {
       json: async () => ({ detail: "Not permitted" }),
     });
 
-    await expect(getMe("stale.access.token")).rejects.toMatchObject({
+    await expect(getMe(STALE(6))).rejects.toMatchObject({
       name: "ApiError",
       status: 403,
     });

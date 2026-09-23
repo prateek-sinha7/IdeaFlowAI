@@ -486,3 +486,66 @@ describe("HomeLaunchGrid — 40-02 'Jump back in' recents (live GET /api/runs)",
     expect(screen.queryByText("Jump back in")).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// QA-PS-035/036/038/041/046: the signedIn preload used to fetch the
+// `runs?limit=6` seed on EVERY route; this component is its only reader, so
+// it now fetches it on its own mount — once, and only while the slice has not
+// already loaded it this session.
+// ─────────────────────────────────────────────────────────────────
+
+describe("HomeLaunchGrid — fetches its own recent-runs seed (QA-PS-035/036/038/041/046)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+    mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
+    mockGetUserWorkflows.mockResolvedValue([]);
+  });
+
+  it("fetches the 6-row seed exactly once on mount when the slice is idle (under StrictMode, as `next dev` renders it)", async () => {
+    const runs = [makeRun({ id: "r1", title: "Seeded on mount" })];
+    // getWorkflows' real `{ runs, total }` shape — the thunk destructures it.
+    mockGetWorkflows.mockResolvedValue({ runs, total: runs.length } as never);
+    renderWithProviders(
+      <React.StrictMode>
+        <HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />
+      </React.StrictMode>,
+      {
+        preloadedState: {
+          global: {
+            workflows: MIXED,
+            workflowsStatus: "succeeded",
+            workflowsError: null,
+            recentRuns: [],
+            recentRunsStatus: "idle",
+            recentRunsError: null,
+          },
+        },
+      },
+    );
+
+    await waitFor(() => expect(screen.getByText("Seeded on mount")).toBeInTheDocument());
+    expect(mockGetWorkflows).toHaveBeenCalledTimes(1);
+    expect(mockGetWorkflows).toHaveBeenCalledWith("test-token", { limit: 6 });
+  });
+
+  it("does not refetch a seed this session already loaded", async () => {
+    renderWithProviders(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />, {
+      preloadedState: {
+        global: {
+          workflows: MIXED,
+          workflowsStatus: "succeeded",
+          workflowsError: null,
+          recentRuns: [],
+          recentRunsStatus: "succeeded",
+          recentRunsError: null,
+        },
+      },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
+    );
+    expect(mockGetWorkflows).not.toHaveBeenCalled();
+  });
+});

@@ -342,7 +342,7 @@ def test_commit_all_with_no_changes_is_tolerated(runs_root):
     base = _base_workspace(runs_root, has_git=True)
     _init_repo(base)
     wt = base.allocate_worktree(step="build", worker_index=0)
-    assert wt.commit_all("empty") == ""  # nothing to commit — clean degrade
+    assert wt.commit_all("empty").no_change is True  # nothing to commit — clean degrade
     base.remove_worktree(wt)
 
 

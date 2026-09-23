@@ -1,0 +1,25 @@
+Attempt 2 (cold: about:blank -> goto /library) — identical pattern to attempt 1.
+Confirmed via response-headers x-request-id that request #66 and #68 (both /api/runs?limit=50)
+are genuinely TWO separate backend calls, not a display artifact:
+  #66 x-request-id: b7368dd8f8d34476bbfbf118028a6984
+  #68 x-request-id: eccc411eec984c56bb7bd25f5720c827
+
+Attempt 3 (cold: about:blank -> goto /library) — same pattern again:
+64. GET /api/runs?limit=6         => 200  (unused on /library)
+65. GET /api/auth/me              => 200
+66. GET /api/runs?limit=50        => 200  (DUPLICATE #1, unused on /library)
+68. GET /api/runs?limit=50        => 200  (DUPLICATE #2, unused on /library)
+69. GET /api/workflows            => 200  (DUPLICATE #1)
+70. GET /api/workflows                    (DUPLICATE #2)
+71. GET /api/agents/library       => 200
+72. GET /api/skills/library       => 200
+73. GET /api/hooks/library        => 200
+
+RESULT: 3/3 cold-start reproductions. Every /library load fires /api/runs?limit=50 TWICE and
+/api/workflows TWICE, plus an additional /api/runs?limit=6 call — none of which the Library
+page displays (no run history/recents on this page). The app has since added /api/agents/library,
+/api/skills/library, /api/hooks/library (split from the single /api/workflows catalog call the
+original report described) and renamed /api/me to /api/auth/me, but the core defect the report
+names — duplicate/unnecessary XHRs firing on Library page load — reproduces exactly as described,
+just with /api/workflows duplicated (not /api/me) and /api/runs called 3x total (limit=50 x2 +
+limit=6 x1) instead of the reporter's single /api/runs?limit=50 call.

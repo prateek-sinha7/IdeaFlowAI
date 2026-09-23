@@ -96,16 +96,16 @@ const AFFORDANCE_COPY = /this run did not complete successfully/i;
 const NEUTRAL_COPY = /output will appear here/i;
 // Phase 42-03 (§D / Group D): the amber DegradedRunAffordance is RETIRED on the
 // run screen for a terminal-FAILED / DEGRADED run — those runs now drop the
-// Preview tab entirely (tabs become [Steps, Files, Audit]) and default to Audit
+// Preview tab entirely (tabs become [Steps, Audit]) and default to Audit
 // (Hexaware Run - Failed tab:'audit'). The affordance component stays exported for
 // RunDetailPage.tsx (history reopen, §8 decision 4 OUT OF SCOPE), and a CANCELLED
 // reopen still keeps its Preview affordance (below). The red failed treatment now
 // lives in the lane / Steps / header (§4 KEEP), not this amber card.
 function expectFailedTabSet() {
-  // No Preview surface; the tab set is [Steps, Files, Audit].
+  // No Preview surface; the tab set is [Steps, Audit].
   expect(screen.queryByTestId("tab-preview")).toBeNull();
   const tabs = screen.getAllByRole("tab");
-  expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Steps", "Files", "Audit"]);
+  expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Steps", "Audit"]);
   // Defaults to Audit.
   expect(screen.getByTestId("tab-audit")).toHaveAttribute("aria-selected", "true");
   // The amber affordance is gone; the neutral empty-state never shows (no Preview).

@@ -1,0 +1,10 @@
+{
+  "url": "http://localhost:3000/settings/constitution",
+  "selected": [
+    "Constitution"
+  ],
+  "inp": [
+    "textarea[constitution]"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nAccount Settings\nProfile, model preference, usage limits, your agent constitution and sign-in security.\nProfile\nAI Model\nUsage & Limits\nConstitution\nSecurity\nYour constitution is prepended to every agent on every run. Use it for standing instructions — tone, house rules, tech constraints, things you never want to repeat.\nGlobal instructions\n0 / 4000 chars\nSave constitution"
+}

@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 
 // One declared capability reference resolved against the registry. `entry` is
 // the registry metadata when the declared name is a registered capability;
@@ -59,6 +60,11 @@ export function WorkflowDialog({
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ISS-326: the dialog declares `role="dialog" aria-modal="true"` below, so
+  // Escape has to dismiss it — the backdrop click and the Close button were the
+  // only ways out.
+  useEscapeToClose(onClose, open);
 
   useEffect(() => {
     if (!open) return;

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import type { AgentDef } from "@/types/index";
 
 export interface AgentLibraryResult {
@@ -26,11 +27,11 @@ export function useAgentLibrary(): AgentLibraryResult {
   // .filter() arrays, and a consumer effect keyed on libraryAgents would loop
   // forever (setState -> re-render -> new array -> effect fires -> setState...).
   const customAgents = useMemo(
-    () => reduxAgents.filter((a) => a.pipeline_type === "custom"),
+    () => reduxAgents.filter((a) => agentMatchesPipelineType(a.pipeline_type, "custom")),
     [reduxAgents],
   );
   const libraryAgents = useMemo(
-    () => reduxAgents.filter((a) => a.pipeline_type !== "custom"),
+    () => reduxAgents.filter((a) => !agentMatchesPipelineType(a.pipeline_type, "custom")),
     [reduxAgents],
   );
 

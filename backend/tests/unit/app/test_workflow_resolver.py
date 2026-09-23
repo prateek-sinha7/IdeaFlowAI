@@ -110,10 +110,15 @@ def test_multiple_unmatched_types_all_reported(resolver: WorkflowResolver) -> No
     ]
     result = resolver.validate(agents)
     assert not result.satisfiable
-    # Every unresolved entry is enumerated on unresolved_edges; the human-facing
-    # errors list stays concise and names only the FIRST one (resolver.py:176).
     unresolved_types = {e.artifact_type for e in result.unresolved_edges}
     assert unresolved_types == {"spec", "research", "plan"}
+    # EVERY unmatched type is still reported — on `unresolved_edges`, which is
+    # what a caller inspects. `errors` deliberately carries ONE line per agent
+    # (resolver.py:171): a shared agent legitimately declares several producers
+    # (`prototype-plan` consumes both `prototype-specify` AND
+    # `prototype-revision-feature-specify`), so in any single pipeline the other
+    # entries are cross-pipeline declarations, not real faults, and one line per
+    # agent is the honest summary.
     assert len(result.errors) == 1
     assert "spec" in result.errors[0]
 
@@ -264,7 +269,13 @@ def test_all_unmatched_types_reported(resolver: WorkflowResolver) -> None:
     assert not result.satisfiable
     unresolved_types = {e.artifact_type for e in result.unresolved_edges}
     assert unresolved_types == {"type-a", "type-b", "type-c"}
-    # errors names the first unresolved entry only (see resolver.py:176).
+    # EVERY unmatched type is still reported — on `unresolved_edges`, which is
+    # what a caller inspects. `errors` deliberately carries ONE line per agent
+    # (resolver.py:171): a shared agent legitimately declares several producers
+    # (`prototype-plan` consumes both `prototype-specify` AND
+    # `prototype-revision-feature-specify`), so in any single pipeline the other
+    # entries are cross-pipeline declarations, not real faults, and one line per
+    # agent is the honest summary.
     assert len(result.errors) == 1
     assert "type-a" in result.errors[0]
 

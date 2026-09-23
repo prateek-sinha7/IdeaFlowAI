@@ -24,27 +24,35 @@ steps:
   strategy: single_shot
   gates: []
 - agent: swot-analyst
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: roadmap-planner
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: security-auditor
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: test-case-generator
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: performance-optimizer
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: documentation-agent
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: report-generator
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: task-list-planner
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 name: Custom Workflow

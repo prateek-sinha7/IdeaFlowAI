@@ -1,0 +1,113 @@
+# ex_A2_branch — hello-world for spec 014's FORWARD BRANCH case (A2).
+#
+# Steps (5 total, only 3 ever run in a given pass — see below):
+#
+#   1. emoji (picks an emoji, no tools)
+#        |
+#   2. language (gates:[conditional], produces:[route_decision])
+#        |___ outcome: english ___> 3a. say-hello  "Hello, world!"   terminal
+#        |___ outcome: spanish ___> 3b. say-hola   "Hola, mundo!"   terminal
+#        |___ outcome: dutch   ___> 3c. say-hallo  "Hallo, wereld!"  terminal
+#
+# No default_next — an unrecognised decision value terminates the run at step 2.
+#
+# Exactly ONE of the three branch targets runs per run — never two, never none
+# (R-09/R-10 — every branch target is compile-time validated to exist, but only one
+# is ever walked by the cursor at runtime; matches spec.md example A2). The other two
+# are reported `agent_skipped`, which is correct: they genuinely never ran. That is
+# the negative case for the A1 loop fixture's skip guard, which suppresses the event
+# only for a target that ALREADY ran.
+
+id: ex_A2_branch
+user_launchable: true
+is_beta: false
+display_name: Branch by Language
+short_name: Language Branch
+icon: GitBranch
+description: Smallest possible example of a conditional gate picking one of three forward branches.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  # ONE named deliverable, not the whole sandbox. serialized_sandbox published every
+  # per-step `<step>-<brief-slug>.md` the engine's artifact_fallback writes, so the
+  # Files tab showed several candidates with nothing marking the answer. single_file
+  # resolves (1) sandbox.read(name), else (3) ctx.last_streamed — the branch target
+  # writes nothing, so its output IS greeting.md. GAP-01 does not apply: it only bites
+  # when the deliverable-producing step is not the last DISPATCHED step, and exactly
+  # one branch target runs and is always last here.
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: emoji
+  name: Emoji Picker
+  prompt: Pick a random emoji.
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: language
+  name: Pick Language
+  produces: ["route_decision"]
+  prompt: |
+    Detect the user's message language. Reply with the JSON as your text answer — this must be your reply, not a file. Respond with exactly one line, no markdown, no code fences, no explanation. Use exactly one of:
+    {"decision": "english"}
+    {"decision": "spanish"}
+    {"decision": "dutch"}
+  gates:
+  - conditional
+  route:
+    outcomes:
+      english: {trigger: step, target: say-hello}
+      spanish: {trigger: step, target: say-hola}
+      dutch:   {trigger: step, target: say-hallo}
+    # No default_next — an unrecognised decision terminates the run here.
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: say-hello
+  name: Say Hello
+  prompt: 'Respond with exactly: "Hello, world!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false      # nothing here writes; a live grant makes factory.py append
+    exec: false             # the "How to deliver" block, which is the §6 drift class
+
+- agent: custom-agent
+  instance_id: say-hola
+  name: Say Hola
+  prompt: 'Respond with exactly: "Hola, mundo!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false      # see say-hello
+    exec: false
+
+- agent: custom-agent
+  instance_id: say-hallo
+  name: Say Hallo
+  prompt: 'Respond with exactly: "Hallo, wereld!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false      # see say-hello
+    exec: false
+
+name: Language Branch

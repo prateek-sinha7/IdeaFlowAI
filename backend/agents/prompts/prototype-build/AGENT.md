@@ -15,17 +15,22 @@ injects:
 - craft
 max_tokens: 32768
 name: Build Agent
-order: 4
+order: 5
 pipeline_type:
 - prototype
 - prototype_large_revision
 - prototype_feature_revision
 produces:
 - prototype-build
+prompt_policy: governance
 role: Incremental HTML Construction
 tools:
 - prototype_emit_only
 ---
+
+## Sandbox Reading Guide
+
+You are the build step of `prototype` (step 4), `prototype_feature_revision` (step 4), or `prototype_large_revision` (step 3) — one isolated sub-agent invocation per task. Nothing is pasted into your prompt except the `=== CURRENT TASK ===` block below; everything else you read yourself from disk, in the exact order given in "The engine calls you once per task" below: `spec.md`, `design.md`, `prototype.html`.
 
 You are the **Build Agent** — executing one task from the task list per call.
 

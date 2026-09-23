@@ -39,10 +39,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.api.run_stream as run_stream
 from agents.authz import ScopedStore
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.run_stream import _STREAM_TERMINAL_TYPES, _iter_sse_frames, router
+from app.core.config import settings
 from app.core.dependencies import bearer_scheme, get_current_user_with_payload
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
@@ -184,9 +186,18 @@ class TestReplay:
         # The replayed body now also carries the row's authoritative event_id COLUMN
         # (see TestReplayIdentityProjection); _seed_events mints a fresh uuid4 per row,
         # so the expected value is read back rather than hardcoded.
-        row_event_id = (
-            db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
-        )
+        row = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one()
+        row_event_id = row.event_id
+        # ISS-358: the body ALSO carries the row's `created_at` COLUMN — the only send
+        # time a replayed app-layer chat row has. UTC-promoted (KAN-113) because a naive
+        # stamp is Date.parse'd as LOCAL time in the browser; asserted as an explicit
+        # promotion here rather than through the endpoint's own helper, so the tz half
+        # is pinned independently. Per-row wall clock, so read back like `event_id`.
+        row_created_at = (
+            row.created_at.replace(tzinfo=timezone.utc)
+            if row.created_at.tzinfo is None
+            else row.created_at
+        ).isoformat()
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
@@ -202,7 +213,12 @@ class TestReplay:
         replay = [p for p in parsed if p["type"] != "stream_attached"]
         assert [p["id"] for p in replay] == ["2", "3"]
         assert [p["type"] for p in replay] == ["agent_chunk", "agent_complete"]
-        assert replay[0]["data"] == {"seq": 2, "text": "hi", "event_id": row_event_id}
+        assert replay[0]["data"] == {
+            "seq": 2,
+            "text": "hi",
+            "event_id": row_event_id,
+            "created_at": row_created_at,
+        }
 
     def test_replay_full_when_cursor_zero(self, db_session):
         _seed_run(db_session)
@@ -663,6 +679,59 @@ class TestGateRearm:
         # The single frame carries the gate's own durable seq (id:) so a resume from it
         # re-reads nothing new (no phantom cursor advance).
         assert rearmed[0]["id"] == "3"
+
+    def test_rearmed_gate_carries_event_id_and_seq_from_persisted_row(self, db_session):
+        """A11: the D-14g gate re-arm path must emit a frame with `event_id` and `seq`
+        from the persisted durable row, mirroring the step-1 replay path.
+
+        Without these fields, the frontend's dedup contract (`shouldApplyEvent` keyed on
+        `event_id`) cannot recognise the re-armed frame as idempotent on reconnect,
+        breaking the documented idempotency invariant. This test binds the re-armed
+        frame's `data` to the row's durable identity columns.
+        """
+        _seed_run(db_session, status="waiting_for_user")
+        _seed_events(
+            db_session,
+            [
+                (1, "agent_start", {"seq": 1}),
+                (2, "agent_complete", {"seq": 2}),
+                (3, "review_gate_ready", {"seq": 3, "gate_key": "gk"}),
+            ],
+        )
+        # Read the persisted event_id and seq from the durable row (the authoritative
+        # identity the re-arm must carry).
+        row = db_session.query(RunEvent).filter_by(run_id="run-1", seq=3).one()
+        row_event_id = row.event_id
+        row_seq = row.seq
+
+        # Reconnect with cursor past the gate (after_seq=3) — the re-arm fires exactly
+        # in this case (CR-01: after_seq > 0 and dangling.seq <= after_seq).
+        frames = asyncio.run(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=3,
+                    live_queue=None,
+                )
+            )
+        )
+        parsed = [_parse(f) for f in frames]
+        rearmed = [p for p in parsed if p["type"] == "review_gate_ready"]
+        assert len(rearmed) == 1, "re-arm must emit exactly one review_gate_ready frame"
+
+        # The re-armed frame's data must carry the row's authoritative identity columns.
+        data = rearmed[0]["data"]
+        assert data.get("event_id") == row_event_id, (
+            "re-armed frame must carry the persisted event_id so the frontend dedup "
+            "contract (shouldApplyEvent keyed on event_id) recognises it as idempotent"
+        )
+        assert data.get("seq") == row_seq, (
+            "re-armed frame must carry the persisted seq for consistency with the "
+            "step-1 replay path"
+        )
+        # Verify the payload's own keys survive the merge.
+        assert data["gate_key"] == "gk"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1441,8 +1510,10 @@ class TestSSETerminalTypesSyncWithFrontend:
             "pipeline_complete",
             "pipeline_cancelled",
             "pipeline_failed",
-            "budget_aborted",
             "error",
+            # 014-conditional-gates R-13: a `trigger: workflow` outcome ends the run
+            # with this frame and no pipeline_complete, so it closes the stream too.
+            "pipeline_diverted",
         }
 
         assert backend_terminals == frozenset(expected), (
@@ -1452,6 +1523,68 @@ class TestSSETerminalTypesSyncWithFrontend:
             f"frontend/src/types/index.ts::STREAM_TERMINAL_TYPES to match "
             f"(SSE-002, ISS-147, R-07)."
         )
+
+    @pytest.mark.asyncio
+    async def test_budget_aborted_does_not_close_stream(self, db_session):
+        """A loop-budget exhaustion suppresses the abort and keeps the run going
+        (engine.py's convergence-limit fix): ``budget_aborted`` must stay
+        INFORMATIONAL so the stream stays open and every later live event —
+        including the run's actual ``pipeline_complete`` — still reaches the
+        client without a manual refresh (the bug this guards against: the SSE
+        stream used to close on ``budget_aborted`` while the run kept executing
+        server-side)."""
+        run_id = f"budget-aborted-live-{uuid.uuid4().hex[:8]}"
+        owner_id = "owner"
+        ws_id = "ws-1"
+
+        wr = WorkflowRun(
+            id=run_id,
+            user_id=owner_id,
+            title="Budget Aborted Keeps Streaming",
+            type="sample",
+            status="running",
+            input="test",
+            owner_id=owner_id,
+            workspace_id=ws_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(wr)
+        db_session.flush()
+        db_session.commit()
+
+        live_queue = asyncio.Queue()
+        await live_queue.put(
+            {"type": "budget_aborted", "event_id": "e-budget", "data": {"seq": 1}}
+        )
+        await live_queue.put(
+            {"type": "agent_start", "event_id": "e-assembler", "data": {"seq": 2}}
+        )
+        await live_queue.put(
+            {"type": "pipeline_complete", "event_id": "e-complete", "data": {"seq": 3}}
+        )
+        await live_queue.put(None)  # sentinel: pipeline finished
+
+        frames = await _collect(
+            _iter_sse_frames(
+                run_id=run_id,
+                store=_store(db_session),
+                after_seq=0,
+                live_queue=live_queue,
+                run_is_terminal=False,
+            )
+        )
+
+        parsed = [_parse(f) for f in frames]
+        types = [p["type"] for p in parsed]
+
+        assert "budget_aborted" in types, f"budget_aborted missing from stream: {types}"
+        assert "agent_start" in types, (
+            f"agent_start after budget_aborted was never delivered — stream closed "
+            f"early: {types}"
+        )
+        assert (
+            types[-1] == "pipeline_complete"
+        ), f"expected pipeline_complete as the actual terminal, got: {types}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1772,3 +1905,255 @@ class TestStreamAttachedHandshakeConvergence:
     # replay window, and a real two-subscriber fan-out-bus variant asserting both
     # subscribers observe the same de-duplicated order. Adding a fourth, weaker
     # version here would be maintenance cost with no new signal.
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A12 — the revocation check must not block the event loop, and must fail
+# CLOSED (never "keep streaming because we couldn't check").
+#
+# `_revocation_check`'s DB body used to run a plain synchronous SQLAlchemy session
+# directly inside the async SSE generator, recurring on an unbounded timer (every
+# `SSE_REVOCATION_CHECK_INTERVAL_SECONDS` idle or every `SSE_REVOCATION_CHECK_EVERY_N_EVENTS`
+# events) for the lifetime of every live SSE connection. A single slow/stuck query froze
+# the WHOLE single-threaded event loop -- every endpoint, not just the one connection --
+# with no log line before or after. The fix moves the sync body
+# (`_check_revocation_sync`) into `asyncio.to_thread`, bounds it with
+# `asyncio.wait_for(timeout=_REVOCATION_CHECK_TIMEOUT_SECONDS)` (`_run_revocation_check`),
+# and treats a timeout/exception as an UNVERIFIABLE session -- fails CLOSED via the same
+# `session_revoked` frame a genuine revocation uses, rather than silently continuing.
+# ════════════════════════════════════════════════════════════════════════════
+class TestRevocationCheckOffLoop:
+    """Unit-level: ``_run_revocation_check`` / ``_check_revocation_sync`` directly."""
+
+    @pytest.mark.asyncio
+    async def test_blocking_check_does_not_stall_a_concurrent_coroutine(
+        self, monkeypatch
+    ):
+        """(a) A check that WOULD block for up to 10s (simulating a stuck DB call)
+        must not stall a concurrent coroutine -- it keeps making progress within
+        ~1s while the check is still in flight in its own worker thread."""
+        import threading
+
+        release = threading.Event()
+
+        def _blocking_sync(*, token):
+            release.wait(timeout=10)  # would block up to 10s if never released
+            return None
+
+        monkeypatch.setattr(run_stream, "_check_revocation_sync", _blocking_sync)
+
+        progress = {"ticks": 0}
+
+        async def _heartbeat():
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                progress["ticks"] += 1
+
+        check_task = asyncio.create_task(
+            run_stream._run_revocation_check(token="tok", user_id="u1", run_id="run-1")
+        )
+        heartbeat_task = asyncio.create_task(_heartbeat())
+
+        await asyncio.sleep(1.0)
+        assert (
+            progress["ticks"] >= 15
+        ), "the event loop stalled while the revocation check was blocked in its own thread"
+        assert (
+            not check_task.done()
+        ), "the check should still be in flight (blocked, not yet timed out)"
+
+        release.set()  # let the background thread return so it doesn't linger past the test
+        result = await asyncio.wait_for(check_task, timeout=2)
+        assert result is None
+        await heartbeat_task
+
+    @pytest.mark.asyncio
+    async def test_timeout_fails_closed(self, monkeypatch):
+        """(b) A check that exceeds the bound times out and fails CLOSED -- a
+        machine-readable reason, never a silent None / raised exception."""
+        import threading
+
+        monkeypatch.setattr(run_stream, "_REVOCATION_CHECK_TIMEOUT_SECONDS", 0.05)
+        never = threading.Event()
+        monkeypatch.setattr(
+            run_stream,
+            "_check_revocation_sync",
+            lambda *, token: never.wait(timeout=5),
+        )
+
+        reason = await run_stream._run_revocation_check(
+            token="tok", user_id="u1", run_id="run-1"
+        )
+        assert reason == "revocation_check_failed"
+        never.set()  # release the background thread so it doesn't linger past the test
+
+    @pytest.mark.asyncio
+    async def test_exception_in_check_fails_closed(self, monkeypatch):
+        """(b, variant) Any exception from the check (e.g. a DB error) also fails
+        CLOSED -- never propagates uncontrolled and never reads as "healthy"."""
+
+        def _boom(*, token):
+            raise RuntimeError("simulated DB error")
+
+        monkeypatch.setattr(run_stream, "_check_revocation_sync", _boom)
+
+        reason = await run_stream._run_revocation_check(
+            token="tok", user_id="u1", run_id="run-1"
+        )
+        assert reason == "revocation_check_failed"
+
+    @pytest.mark.asyncio
+    async def test_revoked_still_closes_as_before(self, monkeypatch):
+        """(c) A genuinely revoked session still reports the ORIGINAL reason,
+        unaffected by the off-loop wrapping."""
+        monkeypatch.setattr(
+            run_stream,
+            "_check_revocation_sync",
+            lambda *, token: "logged_out",
+        )
+        reason = await run_stream._run_revocation_check(
+            token="tok", user_id="u1", run_id="run-1"
+        )
+        assert reason == "logged_out"
+
+    @pytest.mark.asyncio
+    async def test_healthy_check_returns_none(self, monkeypatch):
+        """(d) A healthy session returns ``None`` -- nothing to close on."""
+        monkeypatch.setattr(run_stream, "_check_revocation_sync", lambda *, token: None)
+        reason = await run_stream._run_revocation_check(
+            token="tok", user_id="u1", run_id="run-1"
+        )
+        assert reason is None
+
+    @pytest.mark.asyncio
+    async def test_timeout_logs_once_at_warning_with_no_secrets(
+        self, monkeypatch, caplog
+    ):
+        """A failed/slow check logs exactly once at WARNING with run_id/user_id/
+        duration -- never a token or session value."""
+        import threading
+
+        caplog.set_level("WARNING", logger="app.api.run_stream")
+        monkeypatch.setattr(run_stream, "_REVOCATION_CHECK_TIMEOUT_SECONDS", 0.05)
+        never = threading.Event()
+        monkeypatch.setattr(
+            run_stream,
+            "_check_revocation_sync",
+            lambda *, token: never.wait(timeout=5),
+        )
+
+        await run_stream._run_revocation_check(
+            token="super-secret-jti-value", user_id="u1", run_id="run-1"
+        )
+        never.set()
+
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1, f"expected exactly one WARNING, got {warnings}"
+        msg = warnings[0].getMessage()
+        assert "run_id=run-1" in msg
+        assert "user_id=u1" in msg
+        assert "super-secret-jti-value" not in msg
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A12 (stream-level wiring) — the SAME session_revoked close path a genuine
+# revocation uses is reached by a fail-closed reason, and a healthy check never
+# closes the stream early.
+# ════════════════════════════════════════════════════════════════════════════
+class TestRevocationCheckClosesStream:
+    @pytest.mark.asyncio
+    async def test_fail_closed_reason_closes_the_stream(self, db_session, monkeypatch):
+        """(b) A fail-closed reason (what a timeout/exception now returns) closes
+        the stream via ``session_revoked``, exactly like a genuine revocation."""
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        monkeypatch.setattr(settings, "SSE_REVOCATION_CHECK_INTERVAL_SECONDS", 0.01)
+
+        q: asyncio.Queue = (
+            asyncio.Queue()
+        )  # never fed — the idle timeout fires the check
+
+        async def _revocation_check():
+            return "revocation_check_failed"
+
+        frames = await _collect(
+            _iter_sse_frames(
+                run_id="run-1",
+                store=_store(db_session),
+                after_seq=0,
+                live_queue=q,
+                revocation_check=_revocation_check,
+            )
+        )
+        parsed = [_parse(f) for f in frames]
+        last = parsed[-1]
+        assert last["type"] == "session_revoked"
+        assert last["data"]["reason"] == "revocation_check_failed"
+
+    @pytest.mark.asyncio
+    async def test_revoked_reason_closes_the_stream(self, db_session, monkeypatch):
+        """(c) A genuine revocation still closes the stream exactly as before."""
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        monkeypatch.setattr(settings, "SSE_REVOCATION_CHECK_INTERVAL_SECONDS", 0.01)
+
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def _revocation_check():
+            return "logged_out"
+
+        frames = await _collect(
+            _iter_sse_frames(
+                run_id="run-1",
+                store=_store(db_session),
+                after_seq=0,
+                live_queue=q,
+                revocation_check=_revocation_check,
+            )
+        )
+        parsed = [_parse(f) for f in frames]
+        last = parsed[-1]
+        assert last["type"] == "session_revoked"
+        assert last["data"]["reason"] == "logged_out"
+
+    @pytest.mark.asyncio
+    async def test_healthy_reason_keeps_the_stream_open(self, db_session, monkeypatch):
+        """(d) A healthy check (returns None) on the idle-timeout branch does NOT
+        close the stream -- live events after it still reach the client."""
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        monkeypatch.setattr(settings, "SSE_REVOCATION_CHECK_INTERVAL_SECONDS", 0.01)
+
+        q: asyncio.Queue = asyncio.Queue()
+        calls = {"n": 0}
+
+        async def _revocation_check():
+            calls["n"] += 1
+            return None
+
+        async def _drive():
+            collect_task = asyncio.create_task(
+                _collect(
+                    _iter_sse_frames(
+                        run_id="run-1",
+                        store=_store(db_session),
+                        after_seq=0,
+                        live_queue=q,
+                        revocation_check=_revocation_check,
+                    )
+                )
+            )
+            # Let the idle-timeout branch fire at least once before a live event lands.
+            await asyncio.sleep(0.05)
+            await q.put(
+                {"type": "pipeline_complete", "event_id": "e-2", "data": {"seq": 2}}
+            )
+            await q.put(None)
+            return await collect_task
+
+        frames = await _drive()
+        parsed = [_parse(f) for f in frames]
+        assert calls["n"] >= 1, "the idle-timeout revocation check never fired"
+        assert any(
+            p["type"] == "pipeline_complete" for p in parsed
+        ), "a healthy revocation check must not close the stream before the live event"

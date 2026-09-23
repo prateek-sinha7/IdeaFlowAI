@@ -56,10 +56,19 @@ def default_mimetype(strategy: str | None, name: str | None) -> str:
                                   ``.md`` → ``text/markdown``,
                                   unknown/none → ``application/octet-stream``)
       * ``serialized_sandbox`` → ``application/zip``
-      * ``streamed_text``      → ``text/markdown``
+      * ``streamed_text``      → ``text/html`` for an ``.html``/``.htm`` name
+                                 (the resolver renders the declared format),
+                                 else ``text/markdown``
       * ``ppt``                → ``text/html``
       * anything else / None   → ``application/octet-stream``
     """
     if strategy == "single_file":
         return _infer_from_name(name)
+    if strategy == "streamed_text" and _infer_from_name(name) == "text/html":
+        # QA-SG-014 / ISS-770: an HTML deliverable NAME is now honoured by the
+        # streamed_text resolver itself (``_format.coerce_to_declared_format``
+        # renders the agent's markdown AS a document), so the declared shape
+        # really is text/html. Still a pure function of the DECLARED
+        # strategy/name — the bytes are never sniffed.
+        return "text/html"
     return _STRATEGY_MIMETYPES.get(strategy or "", _FALLBACK)

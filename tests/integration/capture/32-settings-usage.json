@@ -1,0 +1,28 @@
+{
+  "url": "http://localhost:3000/settings/usage",
+  "h": [
+    "H1:Account Settings"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "@Notifications",
+    "@Account menu",
+    "@",
+    "Profile",
+    "AI Model",
+    "Usage & Limits",
+    "Constitution",
+    "Security",
+    "Manage plan"
+  ],
+  "tab": [
+    "Profile",
+    "AI Model",
+    "Usage & Limits",
+    "Constitution",
+    "Security"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nAccount Settings\nProfile, model preference, usage limits, your agent constitution and sign-in security.\nProfile\nAI Model\nUsage & Limits\nConstitution\nSecurity\nEnterprise plan\nYour plan determines which deliverables you can run and the features available to you.\nManage plan\nDELIVERABLE ACCESS\nProduct Requirements\nPresentation\nInteractive Prototype\nApp Builder\nCustom Workflow\nPlatform Workflows\nMulesoft Migration\n.NET Migration"
+}

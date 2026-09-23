@@ -14,9 +14,20 @@ order: 2
 pipeline_type: sc001-test-fixture
 produces:
 - sc001-fixture-output
+prompt_policy: body_only
 role: SC-001 Fixture Builder Step
 tools: []
 ---
+
+## Sandbox Reading Guide
+
+You are step 2 of this workflow. **Use `read_file` to load the prior agent's
+output before writing your builder output.** Nothing is pasted into your
+prompt — reading is your job.
+
+| File | Contents |
+|---|---|
+| `.agents/01-sc001-fixture-analyze.md` | Fixture Analyzer's analysis output |
 
 ## Role
 

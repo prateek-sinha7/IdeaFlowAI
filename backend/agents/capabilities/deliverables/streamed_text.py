@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.capabilities.deliverables._artifact import unwrap_artifact
+from agents.capabilities.deliverables._artifact import (
+    strip_pre_document_prose,
+    unwrap_artifact,
+)
+from agents.capabilities.deliverables._format import coerce_to_declared_format
 from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
@@ -45,4 +49,13 @@ class StreamedTextResolver:
 
     def resolve(self, ctx: Any) -> Any:
         last_streamed = getattr(ctx, "last_streamed", "") or ""
-        return unwrap_artifact(last_streamed)
+        # unwrap FIRST: slicing to <!DOCTYPE inside an <artifact> wrapper would
+        # drop the opening tag and strand its </artifact> close (ISS-700).
+        resolved = strip_pre_document_prose(unwrap_artifact(last_streamed))
+        # QA-SG-014 / ISS-770: the composer's "Output format" pick reaches this
+        # resolver ONLY as the DECLARED deliverable name, so an .html pick used to
+        # rename the file and ship the agent's raw markdown inside it. Render the
+        # declared format instead — a no-op for every .md/unnamed deliverable.
+        return coerce_to_declared_format(
+            resolved, getattr(getattr(ctx, "deliverable", None), "name", None)
+        )

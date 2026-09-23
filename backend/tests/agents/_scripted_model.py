@@ -255,6 +255,10 @@ def worker_model(
 # ===========================================================================
 
 
+PART_ONE = '<section class="screen" id="screen-one"><h1>Screen One</h1></section>\n'
+PART_TWO = '<section class="screen" id="screen-two"><h1>Screen Two</h1></section>\n'
+
+
 def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
     import json as _j
 
@@ -361,17 +365,21 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             )
         ]
 
-    # ── Phase-14 revision agent (tools=[], text-only): deterministic turns ──
-    # for the run_revision dispatch tests (ppt_revision is the manifest the FE
-    # run_revision frame dispatches through execute()).
-    # Same discipline as the ppt block above: the agent emits the deliverable
-    # wrapped in a single <artifact> tag, plain markup the carousel sanitizer
-    # passes through (no translateX/vw, no .stage/.slide), FIXED text + usage
-    # per turn. The REVISED deck is byte-distinct from the ppt-validator
-    # parent deck so unwrap + lineage assertions can tell them apart.
+    # ── Phase-14 revision agent: deterministic turns for the run_revision
+    # dispatch tests (ppt_revision is the manifest the FE run_revision frame
+    # dispatches through execute()).
+    # ISS-727/ISS-723: this agent used to stream the deck wrapped in a single
+    # <artifact> tag, which is why the sandbox-root presentation.html every
+    # `ref=vN` git tag captures was never rewritten after v1. Its manifest now
+    # declares `strategy: single_file, name: presentation.html` plus a step-level
+    # `tools: {read_files: true, write_files: true}` grant, and its prompt tells
+    # it to edit that file in place — so the script writes the file, the same
+    # shape as prototype-build below. `write_file` (not `edit_file`): this
+    # harness runs on a FRESH sandbox with no deck on disk, whereas a real
+    # revision edits the family sandbox's existing presentation.html.
+    # The REVISED deck stays byte-distinct from the ppt-validator parent deck so
+    # readback + lineage assertions can tell them apart.
     if agent_id == "ppt-revision-agent":
-        # The ONLY step of ppt_revision → its streamed output IS the
-        # deliverable (strategy: ppt takes the last agent's streamed text).
         revised = (
             "<!doctype html><html><head><title>Revised Deck</title></head>"
             "<body>"
@@ -383,9 +391,19 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
         )
         return [
             _ScriptedTurn(
-                texts=[f"Revised per instruction.\n<artifact>{revised}</artifact>"],
+                texts=["Revised per instruction."],
+                tool_calls=[
+                    (
+                        "write_file",
+                        _j.dumps(
+                            {"file_path": "presentation.html", "content": revised}
+                        ),
+                        "c_rev_wf",
+                    ),
+                ],
                 usage=(24, 16),
-            )
+            ),
+            _ScriptedTurn(texts=["Revised per instruction."], usage=(10, 5)),
         ]
     # (The legacy 2-agent ppt_revision pipeline — ppt-revision-agent +
     # ppt-revision-assembler, pre-collapse — is archived; agents/prompts/
@@ -590,6 +608,162 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             _ScriptedTurn(texts=["All files written."], usage=(10, 5)),
         ]
 
+    # ── plan-lead (pdf_to_prototype Planner: tools=workspace): writes build/tasks.json
+    # and returns the same JSON in a fenced block. The wave_scheduler's
+    # parse_preferring_target needs both the file (for normal flow) and the fence
+    # (for resume replays). Fixed usage keeps token normalization deterministic.
+    if agent_id == "custom-agent:plan-lead":
+        tasks_obj = {
+            "tasks": [
+                {
+                    "id": "1",
+                    "title": "Screen 1: Dashboard",
+                    "targets": ["screens/1.html"],
+                    "depends_on": [],
+                    "body": 'Build the screen "Screen 1: Dashboard" (page id 1).',
+                },
+                {
+                    "id": "2",
+                    "title": "Screen 2: Details",
+                    "targets": ["screens/2.html"],
+                    "depends_on": [],
+                    "body": 'Build the screen "Screen 2: Details" (page id 2).',
+                },
+            ]
+        }
+        tasks_json = _j.dumps(tasks_obj, indent=2)
+        return [
+            _ScriptedTurn(
+                texts=["Task list created.\n\n```json\n" + tasks_json + "\n```"],
+                tool_calls=[
+                    (
+                        "write_file",
+                        _j.dumps(
+                            {"file_path": "build/tasks.json", "content": tasks_json}
+                        ),
+                        "c_tasks",
+                    ),
+                ],
+                usage=(80, 50),
+            ),
+            _ScriptedTurn(texts=["Tasks written."], usage=(10, 5)),
+        ]
+
+    # ── fi-planner (prototype_v2 Reading Planner): writes build/tasks.json, one
+    # reader task per attached document plus the rollup. Same dual output as
+    # plan-lead above — the file for normal flow, the fence for resume replays.
+    if agent_id == "custom-agent:fi-planner":
+        tasks_obj = {
+            "tasks": [
+                {
+                    "id": "doc-a-s01",
+                    "title": "Read doc-a pages 1-2",
+                    "targets": ["file-synthesis/doc-a/shards/doc-a-s01/notes.md"],
+                    "depends_on": [],
+                    "body": "Read .uploads/doc-a.pdf pages 1-2 and write the shard.",
+                },
+                {
+                    "id": "doc-a-rollup",
+                    "title": "Roll up doc-a",
+                    "targets": ["file-synthesis/doc-a/synthesis.md"],
+                    "depends_on": ["doc-a-s01"],
+                    "body": "Combine the doc-a shards into one document synthesis.",
+                },
+            ]
+        }
+        tasks_json = _j.dumps(tasks_obj, indent=2)
+        return [
+            _ScriptedTurn(
+                texts=["Reading plan created.\n\n```json\n" + tasks_json + "\n```"],
+                tool_calls=[
+                    (
+                        "write_file",
+                        _j.dumps(
+                            {"file_path": "build/tasks.json", "content": tasks_json}
+                        ),
+                        "c_fi_tasks",
+                    ),
+                ],
+                usage=(80, 50),
+            ),
+            _ScriptedTurn(texts=["Reading plan written."], usage=(10, 5)),
+        ]
+
+    # ── pb-design (prototype_v2 Architect): writes build/screens.json, the
+    # inventory the `screen_plan` parser expands into one builder task per screen.
+    # `spec.md` is an enrichment the parser tolerates missing, so it is not faked.
+    if agent_id == "custom-agent:pb-design":
+        screens_obj = {
+            "title": "Scripted Prototype",
+            "entry": "screen-one",
+            "screens": [
+                {
+                    "id": "screen-one",
+                    "title": "Screen One",
+                    "kind": "page",
+                    "nav": "Flow A",
+                    "reqs": ["REQ-001"],
+                    "summary": "The first screen.",
+                    "transitions": [{"label": "Go to two", "to": "screen-two"}],
+                },
+                {
+                    "id": "screen-two",
+                    "title": "Screen Two",
+                    "kind": "page",
+                    "nav": "Flow A",
+                    "reqs": ["REQ-002"],
+                    "summary": "The second screen.",
+                    "transitions": [],
+                },
+            ],
+            "unresolved": [],
+        }
+        screens_json = _j.dumps(screens_obj, indent=2)
+        return [
+            _ScriptedTurn(
+                texts=[
+                    "Screen inventory created.\n\n```json\n" + screens_json + "\n```"
+                ],
+                tool_calls=[
+                    (
+                        "write_file",
+                        _j.dumps(
+                            {"file_path": "build/screens.json", "content": screens_json}
+                        ),
+                        "c_screens",
+                    ),
+                ],
+                usage=(80, 50),
+            ),
+            _ScriptedTurn(texts=["Inventory written."], usage=(10, 5)),
+        ]
+
+    # ── pb-build (prototype_v2 Builders): the wave runs one worker per screen,
+    # but `_scripts_for` is keyed on agent_id ALONE and never sees the task body,
+    # so a worker cannot know which screen it owns. Each writes BOTH parts with
+    # identical bytes — enough for `pb-assemble` to have real parts to assemble,
+    # which is what lets pb-validate and pb-present run at all.
+    if agent_id == "custom-agent:pb-build":
+        parts = {
+            "parts/screen-one.html": PART_ONE,
+            "parts/screen-two.html": PART_TWO,
+        }
+        return [
+            _ScriptedTurn(
+                texts=["Parts written."],
+                tool_calls=[
+                    (
+                        "write_file",
+                        _j.dumps({"file_path": path, "content": body}),
+                        f"c_part_{i}",
+                    )
+                    for i, (path, body) in enumerate(parts.items())
+                ],
+                usage=(60, 30),
+            ),
+            _ScriptedTurn(texts=["Done."], usage=(10, 5)),
+        ]
+
     # Fallback — a generic text turn (unknown agent).
     return [_ScriptedTurn(texts=[f"{agent_id} default output."], usage=(5, 3))]
 
@@ -628,7 +802,7 @@ def offline_db_seam() -> Iterator[None]:
     """Scope :func:`offline_session_local` over a block, restoring on exit.
 
     For harnesses that drive ``ExecutionEngine.execute()`` WITHOUT going through
-    :func:`_drive` (which installs the same seam itself) — notably unit tests that
+    :func:`_prepare_engine_run` (which installs the same seam itself) — notably unit tests that
     hand-roll the engine wiring to capture one seam. Without this, the engine's
     best-effort persistence reaches the ``tests/unit`` DB guard and the run aborts
     instead of degrading.
@@ -643,19 +817,26 @@ def offline_db_seam() -> Iterator[None]:
         _db_mod.SessionLocal = _orig_session_local
 
 
-async def _drive(
+def _prepare_engine_run(
     pipeline_type: str,
     world: str = "new",
     *,
     offline_db: bool = True,
     **execute_kwargs,
-) -> list[dict]:
-    """Run ``ExecutionEngine.execute()`` end-to-end offline and return the
-    ordered list of yielded engine event dicts.
+):
+    """Build a scripted, offline ``ExecutionEngine`` run and return the RAW
+    (unconsumed) ``execute()`` async generator plus a ``restore`` callback.
 
-    Only the LIVE (``create_runner``) world is supported — the pre-cutover
-    ``create_agent`` path was deleted in Phase 7a. ``world`` is retained for
-    call-site compatibility; any value other than ``"new"`` is rejected.
+    Extracted out of ``_drive`` (below) — ``_drive`` is now a thin wrapper
+    that drains this generator to completion. A caller that needs to
+    suspend a run mid-flight (break out of one ``async for`` pull on this
+    generator, do other work, then resume pulling from the SAME generator)
+    gets a genuine coroutine suspension at ``execute()``'s internal ``yield``
+    — no thread/event trickery needed. The caller owns calling ``restore()``
+    exactly once, after the generator is fully drained or abandoned; it
+    undoes the module-level monkeypatches (``factory_mod.create_runner`` /
+    ``engine_mod.create_runner`` / ``engine_mod.compile_for_run``) installed
+    below.
 
     ``offline_db`` (default ``True``) forces the typed-substrate DB seam to the
     deterministic "no database" failure described at its patch site below, which is
@@ -805,12 +986,11 @@ async def _drive(
 
     engine._run_review_gate = _noop_gate  # type: ignore[assignment]
 
-    # ── Run execute() and capture every yielded event dict. ───────────────────
+    # ── Build the run kwargs. ──────────────────────────────────────────────────
     # The state machine is a process-wide singleton keyed on run_id, so each call
     # needs a UNIQUE run_id (a reused id is "already completed" → StateMachineError).
     import uuid as _uuid
 
-    events: list[dict] = []
     run_id = f"harness-{pipeline_type}-{_uuid.uuid4().hex[:8]}"
 
     # Prototype agents declare injects=['template', 'design_system', ...]; the
@@ -841,12 +1021,9 @@ async def _drive(
     # live-ectx register/unregister callback pair — to exercise engine seams end-to-end.
     kwargs.update(execute_kwargs)
 
-    try:
-        async for ev in engine.execute(**kwargs):
-            events.append(ev)
-    finally:
-        # Restore the factory/engine globals so repeated _drive() calls in one
-        # process (parametrized pytest) never accumulate patches.
+    def _restore() -> None:
+        # Restore the factory/engine globals so repeated runs in one process
+        # (parametrized pytest) never accumulate patches.
         factory_mod.create_runner = _orig_create_runner
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
@@ -855,4 +1032,31 @@ async def _drive(
         # SessionLocal, so writing to it here could clobber their fixture.
         if offline_db:
             _db_mod.SessionLocal = _orig_session_local
+
+    return engine.execute(**kwargs), _restore
+
+
+async def _drive(
+    pipeline_type: str,
+    world: str = "new",
+    *,
+    offline_db: bool = True,
+    **execute_kwargs,
+) -> list[dict]:
+    """Run ``ExecutionEngine.execute()`` end-to-end offline and return the
+    ordered list of yielded engine event dicts.
+
+    Only the LIVE (``create_runner``) world is supported — the pre-cutover
+    ``create_agent`` path was deleted in Phase 7a. ``world`` is retained for
+    call-site compatibility; any value other than ``"new"`` is rejected.
+    """
+    agen, restore = _prepare_engine_run(
+        pipeline_type, world=world, offline_db=offline_db, **execute_kwargs
+    )
+    events: list[dict] = []
+    try:
+        async for ev in agen:
+            events.append(ev)
+    finally:
+        restore()
     return events

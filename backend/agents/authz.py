@@ -29,13 +29,23 @@ Import-direction constraint (T-5-WEBIMPORT / RESEARCH #1): this module imports
 layer out of the import graph prevents the ``engine → authz → app.api`` chain
 from forming (enforced by ``lint-imports``).
 
-DB premise (D-08, RESEARCH #2 corrected CONTEXT): the DB is FULLY SYNC — there is
-NO ``AsyncSession``. Methods reuse the existing sync-``SessionLocal()``-inside-
-``async def`` idiom from the thin store (``agents/artifact_store/store.py``):
-when no ``Session`` is injected the method opens ``SessionLocal()`` in a
-try/``db.close()`` finally (the engine path); when a ``Session`` is injected the
-method uses it (the endpoint path via ``Depends(get_db)``). This gives ONE
-acquisition path callers opt into.
+DB premise (D-08, RESEARCH #2 corrected CONTEXT; A16 fix): the DB is FULLY SYNC —
+there is NO ``AsyncSession``. When a ``Session`` IS injected (the endpoint path
+via ``Depends(get_db)``), a method still runs its sync SQLAlchemy body IN-LINE on
+the event loop, exactly as before — an injected session is request-scoped and NOT
+thread-safe, so it can never be handed to a worker thread. When NO session is
+injected (the engine path, and the session-less SSE-stream store, BUG-004), the
+method now runs its body in a worker thread via ``asyncio.to_thread`` against a
+freshly opened-and-closed ``SessionLocal()``, bounded by
+``asyncio.wait_for(timeout=10s)`` — see ``ScopedStore._run_bounded``. Before this
+fix EVERY method ran synchronously ON the single-threaded event loop regardless of
+acquisition mode; a stuck/slow query on the session-less path (reached once per
+SSE attach, and recurring for a run's whole lifetime on the engine's persistence
+path) froze the ENTIRE process, not just the caller (the 2026-09-04 5h19m silent
+hang). A timeout raises ``StoreTimeout`` rather than degrading to empty/``None``
+data — this is an authorization surface, so an unverifiable answer must never
+read as "not found"/"not revoked" (that would fail OPEN). Which rows are visible
+and who is denied is UNCHANGED by this fix — only WHERE the query executes did.
 
 Anonymous-principal rule (D-09 / AUTHZ-03): ``owner_id`` is always a REAL
 principal string (``user_id`` or ``anon:<session_id>``, never ``None``). An anon
@@ -45,7 +55,9 @@ anon session cannot read the first's rows.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -55,6 +67,25 @@ logger = logging.getLogger(__name__)
 # Models that widen the default-deny filter with public/workspace visibility.
 _VISIBLE_TO_WORKSPACE = ("workspace", "public")
 
+# A16 fix: bounded off-loop DB calls (see ``ScopedStore._run_bounded``). The
+# dispatch spec fixes T=10s for READS; it does not name a separate write bound —
+# rather than invent an unrequested second knob, the same constant is applied to
+# writes too (10s is already generous for a single-row insert/update).
+_STORE_CALL_TIMEOUT_SECONDS = 10.0
+_STORE_CALL_SLOW_LOG_THRESHOLD_SECONDS = 1.0
+
+
+class StoreTimeout(RuntimeError):
+    """A bounded ``ScopedStore`` DB call did not complete within its timeout (A16).
+
+    Raised — never swallowed into an empty/``None`` result. ``ScopedStore`` is an
+    AUTHORIZATION surface: a caller that read "no rows" from a timeout would
+    silently treat an unknown/unverifiable answer as "not found" or "not
+    revoked", which fails OPEN. A caller that wants a soft degrade must catch
+    this explicitly and choose the fail-open/fail-closed policy itself —
+    ``ScopedStore`` does not choose it on the caller's behalf.
+    """
+
 
 class ScopedStore:
     """The single default-deny scoped store helper (§19, D-06/D-07).
@@ -63,9 +94,11 @@ class ScopedStore:
     optional injected SQLAlchemy ``Session``. Every read is owner+visibility
     scoped; ``assert_owns`` looks up the parent run's true owner from the store.
 
-    Acquisition (D-08): pass ``session=Depends(get_db)`` from an endpoint to
-    reuse the request session, or leave ``session=None`` (the engine path) and
-    each method opens/closes its own ``SessionLocal()``.
+    Acquisition (D-08 / A16): pass ``session=Depends(get_db)`` from an endpoint to
+    reuse the request session IN-LINE (unchanged, since a request-scoped session
+    is not thread-safe), or leave ``session=None`` (the engine path) and each
+    method opens+closes its own ``SessionLocal()`` in a worker thread, bounded by
+    a 10s timeout (``StoreTimeout`` on expiry) — see :meth:`_run_bounded`.
     """
 
     def __init__(
@@ -81,22 +114,88 @@ class ScopedStore:
         self._session = session
 
     # ------------------------------------------------------------------
-    # Session acquisition (sync ORM inside async def — D-08 / RESEARCH #2)
+    # Bounded off-loop execution (D-08 / A16)
     # ------------------------------------------------------------------
 
-    def _acquire(self) -> tuple[Any, bool]:
-        """Return ``(session, owned)``.
+    async def _run_bounded(
+        self,
+        method_name: str,
+        body: Any,
+        *,
+        run_id: str | None = None,
+    ) -> Any:
+        """Run ``body(session)`` — a plain, fully synchronous callable — and
+        return its result (A16 fix).
 
-        When a ``Session`` was injected, reuse it and report ``owned=False`` so
-        the caller does NOT close it (the endpoint owns its request session).
-        Otherwise open a fresh ``SessionLocal()`` and report ``owned=True`` so
-        the caller closes it in a finally.
+        Two acquisition modes, matching the constructor contract:
+
+        * An INJECTED session (``session=Depends(get_db)`` at construction, the
+          endpoint path) is reused IN-LINE, unchanged from the pre-fix behavior.
+          Sessions are not thread-safe and this session is owned by the caller's
+          request scope — it must never be handed to a worker thread.
+        * No injected session (``session=None`` — the engine path AND the
+          session-less SSE-stream store, BUG-004): ``body`` runs in a worker
+          thread via ``asyncio.to_thread`` against a FRESH ``SessionLocal()``
+          opened and closed entirely within that thread, bounded by
+          ``asyncio.wait_for(timeout=_STORE_CALL_TIMEOUT_SECONDS)``. This is the
+          path a stuck/slow query used to freeze the whole event loop on: every
+          other DB call in this codebase is a one-shot bounded by its own
+          request's lifecycle (mirrors ``run_stream.py``'s A12 fix), but a
+          session-less ``ScopedStore`` is reached once per SSE attach AND
+          recurs for a run's whole lifetime on the engine's persistence path —
+          the same unbounded-recurrence shape A12 fixed for its own call site.
+
+        A timeout RAISES :class:`StoreTimeout` — it never degrades to an empty /
+        ``None`` result (this is an authorization surface; silently reading a
+        timeout as "no data" would fail OPEN). Any other exception ``body``
+        raises (``PermissionError``, ``IntegrityError``, ``ValueError``, ...)
+        propagates unchanged — ``asyncio.to_thread``/``asyncio.wait_for``
+        re-raise transparently, so exception identity/message/type stay
+        byte-identical to the pre-fix inline call.
+
+        Logs ONCE at WARNING for a timeout, or for any call that completes but
+        took longer than ``_STORE_CALL_SLOW_LOG_THRESHOLD_SECONDS`` — method
+        name, run_id, and duration only, NEVER row contents (bound query params
+        can carry user content, e.g. uploaded document text).
         """
         if self._session is not None:
-            return self._session, False
-        from app.models.database import SessionLocal
+            return body(self._session)
 
-        return SessionLocal(), True
+        def _sync() -> Any:
+            from app.models.database import SessionLocal
+
+            session = SessionLocal()
+            try:
+                return body(session)
+            finally:
+                session.close()
+
+        started = time.monotonic()
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_sync), timeout=_STORE_CALL_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            duration = time.monotonic() - started
+            logger.warning(
+                "evt=authz.store_call_timeout method=%s run_id=%s duration_s=%.2f",
+                method_name,
+                run_id,
+                duration,
+            )
+            raise StoreTimeout(
+                f"ScopedStore.{method_name} timed out after {duration:.2f}s"
+            ) from None
+
+        duration = time.monotonic() - started
+        if duration > _STORE_CALL_SLOW_LOG_THRESHOLD_SECONDS:
+            logger.warning(
+                "evt=authz.store_call_slow method=%s run_id=%s duration_s=%.2f",
+                method_name,
+                run_id,
+                duration,
+            )
+        return result
 
     # ------------------------------------------------------------------
     # Default-deny scope filters
@@ -167,8 +266,7 @@ class ScopedStore:
                 "got a falsy owner from both the ref and the ScopedStore"
             )
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             existing_count = (
                 session.query(func.count(ArtifactRefRow.id))
                 .filter(
@@ -204,9 +302,10 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded(
+            "write_ref", _body, run_id=getattr(ref, "run_id", None)
+        )
 
     async def get_ref(self, ref_id: str) -> Any | None:
         """Return the owner+visibility-scoped ``ArtifactRef`` row, or ``None``.
@@ -215,13 +314,11 @@ class ScopedStore:
         """
         from app.models.artifact_ref import ArtifactRef as ArtifactRefRow
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> Any | None:
             query = session.query(ArtifactRefRow).filter(ArtifactRefRow.id == ref_id)
             return self._scope_with_visibility(query, ArtifactRefRow).first()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("get_ref", _body)
 
     async def list_refs(self, run_id: str, kind: str | None = None) -> list[Any]:
         """Return the run's owner+visibility-scoped ``ArtifactRef`` rows.
@@ -231,8 +328,7 @@ class ScopedStore:
         """
         from app.models.artifact_ref import ArtifactRef as ArtifactRefRow
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> list[Any]:
             query = session.query(ArtifactRefRow).filter(
                 ArtifactRefRow.run_id == run_id
             )
@@ -240,17 +336,15 @@ class ScopedStore:
                 query = query.filter(ArtifactRefRow.kind == kind)
             query = self._scope_with_visibility(query, ArtifactRefRow)
             return query.order_by(ArtifactRefRow.version.asc()).all()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("list_refs", _body, run_id=run_id)
 
     async def lineage(self, run_id: str) -> list[Any]:
         """Return the run's owner+visibility-scoped refs for an in-memory tree
         walk (ART-01 — no DB recursive CTE; the per-run set is small)."""
         from app.models.artifact_ref import ArtifactRef as ArtifactRefRow
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> list[Any]:
             query = session.query(ArtifactRefRow).filter(
                 ArtifactRefRow.run_id == run_id
             )
@@ -265,9 +359,8 @@ class ScopedStore:
                 ArtifactRefRow.version.asc(),
                 ArtifactRefRow.id.asc(),
             ).all()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("lineage", _body, run_id=run_id)
 
     async def tree(self, run_id: str) -> list[Any]:
         """Alias of :meth:`lineage` — the run's scoped refs for tree shaping."""
@@ -288,8 +381,7 @@ class ScopedStore:
         """Insert a ``run_events`` row stamped with the helper principal."""
         from app.models.run_event import RunEvent
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = RunEvent(
                 id=str(uuid.uuid4()),
                 run_id=run_id,
@@ -303,26 +395,23 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("append_event", _body, run_id=run_id)
 
     async def read_events(self, run_id: str, after_seq: int) -> list[Any]:
         """Return owner+workspace-scoped ``run_events`` rows with ``seq >
         after_seq`` ordered by ``seq`` ascending (idempotent replay, API-05)."""
         from app.models.run_event import RunEvent
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> list[Any]:
             query = session.query(RunEvent).filter(
                 RunEvent.run_id == run_id,
                 RunEvent.seq > after_seq,
             )
             query = self._scope_owner_ws(query, RunEvent)
             return query.order_by(RunEvent.seq.asc()).all()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("read_events", _body, run_id=run_id)
 
     async def last_event_of_types(
         self, run_id: str, types: Any, after_seq: int = 0
@@ -351,16 +440,14 @@ class ScopedStore:
         ``PYTHONHASHSEED`` across processes, and a stable IN-list keeps the emitted SQL
         deterministic (Postgres plan reuse, reproducible ``EXPLAIN``).
 
-        Uses the same ``_acquire`` / ``finally: if owned: session.close()`` idiom as every
-        other read here -- MANDATORY, because the SSE streaming generator is deliberately
-        fed a SESSION-LESS ``ScopedStore`` (``run_stream.py:251-265``, BUG-004) so each read
-        must open AND close its own ``SessionLocal``; a method that skipped the ``finally``
-        would leak one pooled connection per live stream.
+        Bounded off-loop via ``_run_bounded`` (A16) when this store owns its session
+        -- MANDATORY, because the SSE streaming generator is deliberately fed a
+        SESSION-LESS ``ScopedStore`` (``run_stream.py:251-265``, BUG-004), so each
+        read must open AND close its own ``SessionLocal``.
         """
         from app.models.run_event import RunEvent
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> Any | None:
             query = session.query(RunEvent).filter(
                 RunEvent.run_id == run_id,
                 RunEvent.seq > after_seq,
@@ -368,9 +455,8 @@ class ScopedStore:
             )
             query = self._scope_owner_ws(query, RunEvent)
             return query.order_by(RunEvent.seq.desc()).limit(1).first()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("last_event_of_types", _body, run_id=run_id)
 
     async def read_events_of_types(
         self, run_id: str, types: Any, *, limit: int, after_seq: int = 0
@@ -401,18 +487,17 @@ class ScopedStore:
         An empty ``types`` returns ``[]`` rather than degrading to "everything" -- an
         empty allow-list must never widen into an unbounded read.
 
-        Uses the same ``_acquire`` / ``finally: if owned: session.close()`` idiom as
-        every other read here -- MANDATORY, because the SSE streaming generator is fed a
-        SESSION-LESS ``ScopedStore`` (``run_stream.py``, BUG-004), so a method that
-        skipped the ``finally`` would leak one pooled connection per live stream.
+        Bounded off-loop via ``_run_bounded`` (A16) when this store owns its session
+        -- MANDATORY, because the SSE streaming generator is fed a SESSION-LESS
+        ``ScopedStore`` (``run_stream.py``, BUG-004).
         """
         from app.models.run_event import RunEvent
 
         wanted = tuple(sorted(types or ()))
         if not wanted:
             return []
-        session, owned = self._acquire()
-        try:
+
+        def _body(session: Any) -> list[Any]:
             query = session.query(RunEvent).filter(
                 RunEvent.run_id == run_id,
                 RunEvent.seq > after_seq,
@@ -421,9 +506,8 @@ class ScopedStore:
             query = self._scope_owner_ws(query, RunEvent)
             rows = query.order_by(RunEvent.seq.desc()).limit(max(0, int(limit))).all()
             return list(reversed(rows))
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("read_events_of_types", _body, run_id=run_id)
 
     async def append_event_next_seq(
         self,
@@ -505,16 +589,14 @@ class ScopedStore:
 
         from app.models.run_event import RunEvent
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> int:
             query = session.query(func.max(RunEvent.seq)).filter(
                 RunEvent.run_id == run_id
             )
             query = self._scope_owner_ws(query, RunEvent)
             return int(query.scalar() or 0)
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("_max_event_seq", _body, run_id=run_id)
 
     async def append_event_at_or_after(
         self,
@@ -596,8 +678,7 @@ class ScopedStore:
         """
         from app.models.run_event import DeepLinkNonce
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             session.add(
                 DeepLinkNonce(
                     nonce=nonce,
@@ -609,9 +690,8 @@ class ScopedStore:
             )
             session.commit()
             return nonce
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("mint_deep_link_nonce", _body, run_id=run_id)
 
     async def consume_deep_link_nonce(self, nonce: str) -> bool:
         """Consume a deep-link nonce ONCE, owner+workspace-scoped (WR-02).
@@ -625,8 +705,7 @@ class ScopedStore:
         """
         from app.models.run_event import DeepLinkNonce
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> bool:
             updated = (
                 session.query(DeepLinkNonce)
                 .filter(
@@ -642,9 +721,8 @@ class ScopedStore:
             )
             session.commit()
             return updated == 1
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("consume_deep_link_nonce", _body)
 
     # ------------------------------------------------------------------
     # WorkflowRun — scoped lookup
@@ -657,14 +735,12 @@ class ScopedStore:
         at the API (``app/api/runs.py`` IDOR→404 precedent)."""
         from app.models.workflow import WorkflowRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> Any | None:
             query = session.query(WorkflowRun).filter(WorkflowRun.id == run_id)
             query = self._scope_owner_ws(query, WorkflowRun)
             return query.first()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("get_run", _body, run_id=run_id)
 
     async def persist_budget_snapshot(self, run_id: str, snapshot: dict) -> None:
         """Write the fan-out ``BudgetSnapshot`` to ``workflow_runs.budget_snapshot_json``.
@@ -678,18 +754,17 @@ class ScopedStore:
         """
         from app.models.workflow import WorkflowRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> None:
             query = session.query(WorkflowRun).filter(WorkflowRun.id == run_id)
             query = self._scope_owner_ws(query, WorkflowRun)
             row = query.first()
             if row is None:
-                return
+                return None
             row.budget_snapshot_json = snapshot
             session.commit()
-        finally:
-            if owned:
-                session.close()
+            return None
+
+        return await self._run_bounded("persist_budget_snapshot", _body, run_id=run_id)
 
     async def set_run_scope(
         self, run_id: str, owner_id: str, workspace_id: str
@@ -724,8 +799,7 @@ class ScopedStore:
             )
         from app.models.workflow import WorkflowRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> None:
             row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
             if row is None:
                 # Offline harness / no FK row — nothing to stamp. The caller's
@@ -745,9 +819,8 @@ class ScopedStore:
             row.workspace_id = workspace_id
             session.commit()
             return None
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("set_run_scope", _body, run_id=run_id)
 
     # ------------------------------------------------------------------
     # Workspace — create + (the scoped read rides _scope_owner_ws)
@@ -767,8 +840,7 @@ class ScopedStore:
         """
         from app.models.workspace import Workspace
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             ws_id = str(uuid.uuid4())
             row = Workspace(
                 id=ws_id,
@@ -780,9 +852,8 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("create_workspace", _body, run_id=run_id)
 
     # ------------------------------------------------------------------
     # Repository — create the repo row + link the kind=repo workspace (RUNTIME-03)
@@ -815,8 +886,7 @@ class ScopedStore:
 
         ws_id = workspace_id or self._workspace_id
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             repo_id = str(uuid.uuid4())
             session.add(
                 Repository(
@@ -846,9 +916,8 @@ class ScopedStore:
                     ws_row.repo_id = repo_id
             session.commit()
             return repo_id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("create_repository", _body)
 
     async def get_repository(self, repo_id: str) -> Any | None:
         """Return the owner+workspace-scoped ``repositories`` row, or ``None``.
@@ -859,14 +928,12 @@ class ScopedStore:
         """
         from app.models.repository import Repository
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> Any | None:
             query = session.query(Repository).filter(Repository.id == repo_id)
             query = self._scope_owner_ws(query, Repository)
             return query.first()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("get_repository", _body)
 
     async def assert_repo_owned(self, repo_id: str) -> None:
         """Raise ``PermissionError`` iff this caller does not own ``repo_id`` (T-09-02-ID).
@@ -879,12 +946,10 @@ class ScopedStore:
         """
         from app.models.repository import Repository
 
-        session, owned = self._acquire()
-        try:
-            repo = session.query(Repository).filter(Repository.id == repo_id).first()
-        finally:
-            if owned:
-                session.close()
+        def _body(session: Any) -> Any | None:
+            return session.query(Repository).filter(Repository.id == repo_id).first()
+
+        repo = await self._run_bounded("assert_repo_owned", _body)
 
         if repo is None:
             return None
@@ -920,8 +985,8 @@ class ScopedStore:
         from app.models.mcp_credential import McpCredential
 
         ws_id = workspace_id or self._workspace_id
-        session, owned = self._acquire()
-        try:
+
+        def _body(session: Any) -> str:
             cred_id = str(uuid.uuid4())
             session.add(
                 McpCredential(
@@ -935,9 +1000,8 @@ class ScopedStore:
             )
             session.commit()
             return cred_id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("write_mcp_credential", _body)
 
     async def read_mcp_credential(self, cred_id: str) -> str | None:
         """Return the DECRYPTED secret for an OWNED MCP credential, or ``None``.
@@ -950,14 +1014,12 @@ class ScopedStore:
         from app.core.crypto import decrypt_pat
         from app.models.mcp_credential import McpCredential
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> Any | None:
             query = session.query(McpCredential).filter(McpCredential.id == cred_id)
             query = self._scope_owner_ws(query, McpCredential)
-            row = query.first()
-        finally:
-            if owned:
-                session.close()
+            return query.first()
+
+        row = await self._run_bounded("read_mcp_credential", _body)
         if row is None:
             return None
         return decrypt_pat(row.encrypted_secret)
@@ -973,14 +1035,12 @@ class ScopedStore:
         """
         from app.models.mcp_credential import McpCredential
 
-        session, owned = self._acquire()
-        try:
-            row = (
+        def _body(session: Any) -> Any | None:
+            return (
                 session.query(McpCredential).filter(McpCredential.id == cred_id).first()
             )
-        finally:
-            if owned:
-                session.close()
+
+        row = await self._run_bounded("assert_mcp_cred_owned", _body)
         if row is None:
             return None
         if row.owner_id != self._owner_id:
@@ -1009,8 +1069,7 @@ class ScopedStore:
         """
         from app.models.run_capabilities import RunCapabilities
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = RunCapabilities(
                 id=str(uuid.uuid4()),
                 run_id=run_id,
@@ -1027,9 +1086,8 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("record_capabilities", _body, run_id=run_id)
 
     # ------------------------------------------------------------------
     # Phase-8 capability-hardening tables — owner/workspace-scoped writes (D-10)
@@ -1057,8 +1115,7 @@ class ScopedStore:
         """
         from app.models.gate_events import GateEvent
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = GateEvent(
                 id=str(uuid.uuid4()),
                 run_id=run_id,
@@ -1072,9 +1129,8 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("record_gate_event", _body, run_id=run_id)
 
     async def read_gate_events(self, run_id: str) -> list[Any]:
         """Return the run's owner+workspace-scoped ``gate_events`` rows (default-deny).
@@ -1083,14 +1139,12 @@ class ScopedStore:
         """
         from app.models.gate_events import GateEvent
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> list[Any]:
             query = session.query(GateEvent).filter(GateEvent.run_id == run_id)
             query = self._scope_owner_ws(query, GateEvent)
             return query.order_by(GateEvent.created_at.asc()).all()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("read_gate_events", _body, run_id=run_id)
 
     async def record_validation_result(
         self,
@@ -1109,8 +1163,7 @@ class ScopedStore:
         """
         from app.models.validation_results import ValidationResult
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = ValidationResult(
                 id=str(uuid.uuid4()),
                 run_id=run_id,
@@ -1125,9 +1178,8 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("record_validation_result", _body, run_id=run_id)
 
     async def record_hook_run(
         self,
@@ -1144,8 +1196,7 @@ class ScopedStore:
         """
         from app.models.hook_runs import HookRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = HookRun(
                 id=str(uuid.uuid4()),
                 run_id=run_id,
@@ -1155,6 +1206,59 @@ class ScopedStore:
                 event=event,
                 outcome=outcome,
                 detail=detail,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+
+        return await self._run_bounded("record_hook_run", _body, run_id=run_id)
+
+    # ------------------------------------------------------------------
+    # Git provenance audit table — owner/workspace-scoped writes (task 9.1)
+    #
+    # run_provenance_audits carries owner_id + workspace_id (AUTHZ-01); every
+    # write stamps the helper principal so the default-deny read filter
+    # (_scope_owner_ws) scopes them.  The writer is reached via
+    # KernelServices.record_provenance_audit, which delegates here so the hook
+    # impl never imports the kernel or app.* (same idiom as record_hook_run).
+    #
+    # Retention policy: 13-month rolling window; deletion is operator-run.
+    # Automation is out of scope — the policy is documented here so a future
+    # operator can implement deletion without re-reading the requirements.
+    # ------------------------------------------------------------------
+
+    async def write_provenance_audit(
+        self,
+        run_id: str,
+        operation: str,
+        *,
+        commit_sha: str | None = None,
+        tag_name: str | None = None,
+        source_ref: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> str:
+        """Insert one ``run_provenance_audits`` row stamped with the helper principal.
+
+        ``operation`` identifies the commit class:
+          ``snapshot_commit``, ``recovery_commit``, ``fragment_merge``,
+          ``merge_agent_commit``, ``restore``.
+
+        Returns the new row id.  Best-effort — a persist failure (offline
+        harness / no FK row) should be handled by the caller (BLE001 pattern).
+        """
+        from app.models.run_provenance_audit import RunProvenanceAudit
+
+        session, owned = self._acquire()
+        try:
+            row = RunProvenanceAudit(
+                run_id=run_id,
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id,
+                operation=operation,
+                commit_sha=commit_sha,
+                tag_name=tag_name,
+                source_ref=source_ref,
+                idempotency_key=idempotency_key,
             )
             session.add(row)
             session.commit()
@@ -1195,8 +1299,7 @@ class ScopedStore:
         """
         from app.models.exec_runs import ExecRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = ExecRun(
                 id=str(uuid.uuid4()),
                 run_id=run_id,
@@ -1213,9 +1316,8 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("record_exec_run", _body, run_id=run_id)
 
     async def read_exec_runs(self, run_id: str) -> list[Any]:
         """Return the run's owner+workspace-scoped ``exec_runs`` rows (default-deny).
@@ -1224,14 +1326,12 @@ class ScopedStore:
         """
         from app.models.exec_runs import ExecRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> list[Any]:
             query = session.query(ExecRun).filter(ExecRun.run_id == run_id)
             query = self._scope_owner_ws(query, ExecRun)
             return query.order_by(ExecRun.created_at.asc()).all()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("read_exec_runs", _body, run_id=run_id)
 
     # ------------------------------------------------------------------
     # subagent_runs — fan-out child audit writer/updater/reader (Phase 11)
@@ -1267,8 +1367,7 @@ class ScopedStore:
         """
         from app.models.subagent_run import SubagentRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = SubagentRun(
                 id=str(uuid.uuid4()),
                 parent_run_id=parent_run_id,
@@ -1287,9 +1386,10 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded(
+            "record_subagent_run", _body, run_id=parent_run_id
+        )
 
     async def update_subagent_run(
         self,
@@ -1307,22 +1407,21 @@ class ScopedStore:
         """
         from app.models.subagent_run import SubagentRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> None:
             query = session.query(SubagentRun).filter(SubagentRun.id == row_id)
             query = self._scope_owner_ws(query, SubagentRun)
             row = query.first()
             if row is None:
-                return
+                return None
             row.status = status
             if tokens is not None:
                 row.tokens = tokens
             if cost is not None:
                 row.cost = cost
             session.commit()
-        finally:
-            if owned:
-                session.close()
+            return None
+
+        return await self._run_bounded("update_subagent_run", _body)
 
     async def read_subagent_runs(self, parent_run_id: str) -> list[Any]:
         """Return the parent run's owner+workspace-scoped ``subagent_runs`` rows.
@@ -1332,16 +1431,16 @@ class ScopedStore:
         """
         from app.models.subagent_run import SubagentRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> list[Any]:
             query = session.query(SubagentRun).filter(
                 SubagentRun.parent_run_id == parent_run_id
             )
             query = self._scope_owner_ws(query, SubagentRun)
             return query.order_by(SubagentRun.created_at.asc()).all()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded(
+            "read_subagent_runs", _body, run_id=parent_run_id
+        )
 
     # ------------------------------------------------------------------
     # wave_runs — per-executed-wave audit (Phase 12 / WAVE-02)
@@ -1373,8 +1472,7 @@ class ScopedStore:
         """
         from app.models.wave_run import WaveRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> str:
             row = WaveRun(
                 id=str(uuid.uuid4()),
                 run_id=run_id,
@@ -1388,9 +1486,8 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("record_wave_run", _body, run_id=run_id)
 
     async def update_wave_run(self, row_id: str, *, status: str) -> None:
         """Flip a ``wave_runs`` row terminal (default-deny scoped lookup).
@@ -1401,14 +1498,51 @@ class ScopedStore:
         """
         from app.models.wave_run import WaveRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> None:
             query = session.query(WaveRun).filter(WaveRun.id == row_id)
             query = self._scope_owner_ws(query, WaveRun)
             row = query.first()
             if row is None:
-                return
+                return None
             row.status = status
+            session.commit()
+            return None
+
+        return await self._run_bounded("update_wave_run", _body)
+
+    async def update_wave_run_merge_state(
+        self,
+        run_id: str,
+        *,
+        step_id: str,
+        merge_state: str,
+        merge_applied: str,
+        merge_conflicts: str,
+        merge_strategy: str,
+    ) -> None:
+        """Write merge outcome columns to the most-recent ``wave_runs`` row for the step.
+
+        Locates the latest row matching ``run_id`` + ``step`` under the owner/workspace
+        scope (default-deny: a cross-owner caller can never mutate another owner's row).
+        A missing or cross-owner row is a no-op — best-effort, audit never aborts the
+        run.  ``merge_applied`` and ``merge_conflicts`` are pre-serialised JSON strings
+        (the columns are ``String`` in the schema, not ``JSON``).
+        """
+        from app.models.wave_run import WaveRun
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(WaveRun).filter(
+                WaveRun.run_id == run_id, WaveRun.step == step_id
+            )
+            query = self._scope_owner_ws(query, WaveRun)
+            row = query.order_by(WaveRun.created_at.desc()).first()
+            if row is None:
+                return
+            row.merge_state = merge_state
+            row.merge_applied = merge_applied
+            row.merge_conflicts = merge_conflicts
+            row.merge_strategy = merge_strategy
             session.commit()
         finally:
             if owned:
@@ -1423,16 +1557,14 @@ class ScopedStore:
         """
         from app.models.wave_run import WaveRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> list[Any]:
             query = session.query(WaveRun).filter(WaveRun.run_id == run_id)
             query = self._scope_owner_ws(query, WaveRun)
             return query.order_by(
                 WaveRun.wave_index.asc(), WaveRun.created_at.asc()
             ).all()
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("read_wave_runs", _body, run_id=run_id)
 
     async def workspace_budget_spent(self, workspace_id: str | None = None) -> dict:
         """Aggregate the workspace's ALREADY-spent fan-out budget (OBS-01 / default-deny).
@@ -1452,8 +1584,8 @@ class ScopedStore:
         from app.models.subagent_run import SubagentRun
 
         ws_id = workspace_id or self._workspace_id
-        session, owned = self._acquire()
-        try:
+
+        def _body(session: Any) -> dict:
             query = session.query(SubagentRun)
             # Scope to THIS owner; constrain to the target workspace (default-deny).
             query = query.filter(
@@ -1464,9 +1596,8 @@ class ScopedStore:
             subagents = len(rows)
             tokens = sum(int(getattr(r, "tokens", 0) or 0) for r in rows)
             return {"subagents": subagents, "tokens": tokens}
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("workspace_budget_spent", _body)
 
     # ------------------------------------------------------------------
     # assert_owns — the relocated L16 seam, now a real store lookup (D-07)
@@ -1488,17 +1619,15 @@ class ScopedStore:
         """
         from app.models.workflow import WorkflowRun
 
-        session, owned = self._acquire()
-        try:
+        def _body(session: Any) -> Any | None:
             # UNSCOPED-by-owner: read the parent's true owner regardless of caller.
-            parent = (
+            return (
                 session.query(WorkflowRun)
                 .filter(WorkflowRun.id == parent_run_id)
                 .first()
             )
-        finally:
-            if owned:
-                session.close()
+
+        parent = await self._run_bounded("assert_owns", _body, run_id=parent_run_id)
 
         if parent is None:
             # Absent / TTL-swept parent → no cross-owner leak possible; defer to
@@ -1515,4 +1644,4 @@ class ScopedStore:
         return None
 
 
-__all__ = ["ScopedStore"]
+__all__ = ["ScopedStore", "StoreTimeout"]

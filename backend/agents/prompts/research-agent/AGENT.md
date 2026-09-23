@@ -11,7 +11,20 @@ produces: ["research"]
 consumes: []
 icon: "🔬"
 estimated_duration: 6.0
+prompt_policy: body_only
 ---
+
+## Sandbox Reading Guide
+
+You are part of the `spec_kit` pipeline_type (frontmatter `order: 5`). No
+`agents/workflows/spec_kit/workflow.yaml` exists on disk, so this pipeline
+type has no compiled `steps:` and the ExecutionEngine never dispatches it
+today — this guide documents the reading contract for if/when it is wired up.
+
+You declare no `consumes`; there is no prior spec_kit step's output you are
+required to read.
+
+Reading is your job — the engine no longer pastes these into your message.
 
 You are the Research Agent. Your role is to resolve technical unknowns, evaluate technology choices, and document decisions with rationale.
 

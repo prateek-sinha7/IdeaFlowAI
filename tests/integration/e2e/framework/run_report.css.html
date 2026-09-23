@@ -1,0 +1,66 @@
+<title>Integration run</title>
+<style>
+:root {
+  --bg:#faf9f7; --panel:#fff; --ink:#16150f; --dim:#6b6862; --line:#e6e2da;
+  --ok:#1f7a4d; --sk:#9a7b12; --skbg:#f6ecc9; --fl:#b3261e; --flbg:#f8dcd9;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#0e0e0d; --panel:#181816; --ink:#eeece6; --dim:#9a968d; --line:#2c2b28;
+  --ok:#5fd39b; --sk:#e0bd52; --skbg:#3a2f0d; --fl:#f2867d; --flbg:#3d1714;
+} }
+:root[data-theme="dark"] {
+  --bg:#0e0e0d; --panel:#181816; --ink:#eeece6; --dim:#9a968d; --line:#2c2b28;
+  --ok:#5fd39b; --sk:#e0bd52; --skbg:#3a2f0d; --fl:#f2867d; --flbg:#3d1714;
+}
+* { box-sizing:border-box }
+body { background:var(--bg); color:var(--ink); margin:0;
+  font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif }
+.wrap { max-width:1000px; margin:0 auto; padding:48px 24px 80px }
+h1 { font-size:30px; letter-spacing:-.02em; margin:0 0 4px; font-weight:650 }
+.sub { color:var(--dim); font-size:13.5px; margin:0 0 34px }
+h2 { font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--dim);
+  margin:44px 0 14px; font-weight:650 }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px }
+.kpi { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px }
+.kpi .v { font-size:30px; font-weight:660; letter-spacing:-.02em; line-height:1.1;
+  font-variant-numeric:tabular-nums }
+.kpi .l { font-size:11.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em;
+  margin-top:5px }
+.kpi.good .v { color:var(--ok) } .kpi.warn .v { color:var(--sk) } .kpi.bad .v { color:var(--fl) }
+.tablewrap { overflow-x:auto; background:var(--panel); border:1px solid var(--line);
+  border-radius:12px }
+table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:600px }
+th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em;
+  color:var(--dim); font-weight:650; padding:11px 12px; border-bottom:1px solid var(--line) }
+td { padding:9px 12px; border-bottom:1px solid var(--line) }
+tbody tr:last-child td { border-bottom:0 }
+.nm { font-variant-numeric:tabular-nums; white-space:nowrap }
+.num { text-align:right; font-variant-numeric:tabular-nums; width:1%; white-space:nowrap }
+.ok { color:var(--ok); font-weight:600 } .sk { color:var(--sk) } .fl { color:var(--fl) }
+.dim { color:var(--dim) }
+.barcell { width:180px }
+.bar { display:flex; height:7px; border-radius:4px; overflow:hidden; background:var(--line) }
+.bar .p { background:var(--ok) } .bar .s { background:var(--sk) } .bar .f { background:var(--fl) }
+tfoot td { font-weight:660; border-top:2px solid var(--line) }
+details { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+  padding:12px 15px; margin-bottom:9px }
+summary { cursor:pointer; font-weight:560; font-size:14px }
+.cnt { display:inline-block; min-width:26px; padding:1px 7px; margin-right:9px; border-radius:20px;
+  background:var(--skbg); color:var(--sk); font-size:12px; font-weight:660; text-align:center }
+details ul { margin:11px 0 2px; padding-left:20px; color:var(--dim); font-size:13px }
+details li { margin:5px 0 } details li b { color:var(--ink) }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  padding:16px 18px; margin-bottom:11px; border-left:3px solid var(--fl) }
+.cid { font-size:11px; font-weight:660; letter-spacing:.05em; color:var(--fl) }
+.ct { font-weight:600; margin:2px 0 9px }
+.card pre { margin:0; overflow-x:auto; background:var(--flbg); border-radius:8px; padding:11px 13px;
+  font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap;
+  word-break:break-word }
+code { font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--panel);
+  border:1px solid var(--line); border-radius:4px; padding:1px 5px }
+.note { border-left:3px solid var(--sk); background:var(--panel); border-radius:0 10px 10px 0;
+  padding:13px 17px; font-size:13.5px; color:var(--dim) }
+.note.pass { border-left-color:var(--ok) }
+.note b { color:var(--ink) }
+</style>
+<div class="wrap">{{BODY}}</div>

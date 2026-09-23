@@ -6,6 +6,7 @@ import { ArrowRight, Lock } from "lucide-react";
 import type { WorkflowType } from "@/types/index";
 import type { Tier } from "@/lib/entitlements";
 import { canRunPipeline, TIER_LABELS, getUpgradeTier } from "@/lib/entitlements";
+import { routes } from "@/lib/routes";
 
 interface CreationHubProps {
   onSelectFeature: (type: WorkflowType) => void;
@@ -27,11 +28,11 @@ export function CreationHub({ onSelectFeature, userTier = "basic" }: CreationHub
   const handleClick = (type: WorkflowType) => {
     if (!canRunPipeline(userTier, type)) return;
     if (type === "prototype") {
-      router.push("/workflow/create?mode=prototype");
+      router.push(routes.workflowCreateLegacy("prototype"));
       return;
     }
     if (type === "ppt") {
-      router.push("/workflow/create?mode=ppt");
+      router.push(routes.workflowCreateLegacy("ppt"));
       return;
     }
     onSelectFeature(type);

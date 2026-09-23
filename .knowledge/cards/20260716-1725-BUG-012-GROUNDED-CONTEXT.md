@@ -3,7 +3,7 @@ id: BUG-012-GROUNDED-CONTEXT
 type: bug
 kind: event
 title: BUG-012 — grounded fix spec
-status: open
+status: resolved
 applies_to:
   phases: []
   modules:

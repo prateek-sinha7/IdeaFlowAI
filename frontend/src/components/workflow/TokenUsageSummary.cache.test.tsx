@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import React from "react";
 import { TokenUsageSummary } from "./TokenUsageSummary";
 import type { PipelineRunState } from "@/types/index";
 
@@ -29,8 +30,6 @@ vi.mock("motion/react", () => ({
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
-import React from "react";
-
 const base = {
   isRunning: false,
   pipeline_type: "prototype",
@@ -40,8 +39,13 @@ const base = {
   completedCount: 0,
 } as PipelineRunState;
 
-describe("TokenUsageSummary — prompt-cache breakdown", () => {
-  it("Spec A: renders the cached segment when cacheReadTokens > 0", () => {
+describe("TokenUsageSummary — Steps bar (cache detail removed, shown on Analytics page)", () => {
+  // Cache tokens are NO LONGER shown inline in the Steps bar — they live on the
+  // Analytics page. The Steps bar shows total · uncached-input · output.
+  // When caching is active, "input" = uncached portion; the tooltip carries the gross.
+
+  it("Spec A: with cacheReadTokens > 0 shows uncached input (gross - cache_read)", () => {
+    // input=70K, cacheRead=60K → uncached = 70K - 60K = 10K = "10.0K input"
     render(
       <TokenUsageSummary
         pipelineState={{
@@ -53,14 +57,14 @@ describe("TokenUsageSummary — prompt-cache breakdown", () => {
         } as PipelineRunState}
       />,
     );
-    // pct = Math.round(60000 / 70000 * 100) = 86; formatTokens(60000) = "60.0K"
-    expect(screen.getByText(/cached/i)).toBeTruthy();
-    const cached = screen.getByText(/cached/i).textContent ?? "";
-    expect(cached).toContain("86%");
-    expect(cached).toContain("60.0K");
+    // No "cached" label in Steps bar — that lives on Analytics
+    expect(screen.queryByText(/cached/i)).toBeNull();
+    expect(screen.getByText(/input/i)).toBeTruthy();
+    // output still shown
+    expect(screen.getByText(/30\.0K output/)).toBeTruthy();
   });
 
-  it("Spec B: renders no cached segment (zero regression) when cacheReadTokens undefined", () => {
+  it("Spec B: no caching — shows gross input unchanged", () => {
     render(
       <TokenUsageSummary
         pipelineState={{
@@ -72,12 +76,11 @@ describe("TokenUsageSummary — prompt-cache breakdown", () => {
       />,
     );
     expect(screen.queryByText(/cached/i)).toBeNull();
-    // input/output still present
     expect(screen.getByText(/70\.0K input/)).toBeTruthy();
     expect(screen.getByText(/30\.0K output/)).toBeTruthy();
   });
 
-  it("Spec B2: renders no cached segment when cacheReadTokens is 0", () => {
+  it("Spec B2: cacheReadTokens=0 shows gross input (no caching active)", () => {
     render(
       <TokenUsageSummary
         pipelineState={{
@@ -90,9 +93,10 @@ describe("TokenUsageSummary — prompt-cache breakdown", () => {
       />,
     );
     expect(screen.queryByText(/cached/i)).toBeNull();
+    expect(screen.getByText(/70\.0K input/)).toBeTruthy();
   });
 
-  it("Spec C: renders a 'written' fragment when cacheWriteTokens > 0", () => {
+  it("Spec C: with cacheWriteTokens > 0 no 'written' label in Steps bar", () => {
     render(
       <TokenUsageSummary
         pipelineState={{
@@ -105,10 +109,12 @@ describe("TokenUsageSummary — prompt-cache breakdown", () => {
         } as PipelineRunState}
       />,
     );
-    expect(screen.getByText(/written/i)).toBeTruthy();
+    // "written" is only on the Analytics page, never in the Steps bar
+    expect(screen.queryByText(/written/i)).toBeNull();
+    expect(screen.queryByText(/cached/i)).toBeNull();
   });
 
-  it("Spec C2: renders no 'written' fragment when cacheWriteTokens is 0", () => {
+  it("Spec D: total is always rendered", () => {
     render(
       <TokenUsageSummary
         pipelineState={{
@@ -116,11 +122,9 @@ describe("TokenUsageSummary — prompt-cache breakdown", () => {
           totalTokens: 100000,
           totalInputTokens: 70000,
           totalOutputTokens: 30000,
-          cacheReadTokens: 60000,
-          cacheWriteTokens: 0,
         } as PipelineRunState}
       />,
     );
-    expect(screen.queryByText(/written/i)).toBeNull();
+    expect(screen.getByText(/100\.0K total/)).toBeTruthy();
   });
 });

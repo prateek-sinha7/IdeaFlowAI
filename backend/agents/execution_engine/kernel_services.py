@@ -38,6 +38,8 @@ from typing import Any, AsyncIterator
 from uuid import uuid4 as _uuid4
 
 from app.agents.sandbox import (
+    RESERVED_PATHS,
+    ReadOnlySandbox,
     RunSandbox,
     _DELIVERABLE_EXCLUDE,
     _collect_deliverable_relpaths,
@@ -47,6 +49,48 @@ from app.agents.sandbox import (
 from app.agents.static_check import static_check as _static_check
 
 logger = logging.getLogger("agents.execution_engine.kernel_services")
+
+
+class RefNotResolvable(Exception):
+    """Raised by ``KernelServices.resolved_or_refuse`` when a git ref cannot
+    be resolved to a commit SHA in the source sandbox.
+
+    ``ref`` is the unresolvable ref string; ``sandbox_root_id`` is the
+    revision-root sandbox the ref was probed against.  These are logged
+    server-side; the client receives a generic non-enumerating refusal
+    (Requirement 6 AC 3).
+    """
+
+    def __init__(self, ref: str, sandbox_root_id: str) -> None:
+        self.ref = ref
+        self.sandbox_root_id = sandbox_root_id
+        super().__init__(f"ref {ref!r} cannot be resolved in sandbox {sandbox_root_id!r}")
+
+
+def _is_file_backed_workflow(workflow_ref: str) -> bool:
+    """Does ``workflow_ref`` name a FILE-BACKED workflow (spec 014 R-12)?
+
+    True iff the ref is a member of the disk-DERIVED closed set
+    ``SUPPORTED_PIPELINE_TYPES`` (``agents/loader.py`` — the names of real
+    directories, computed once at import) AND that directory actually authors a
+    ``workflow.yaml``. The membership test comes FIRST and is the path-traversal
+    guard (T-04-09): a ``route.outcomes[...].target`` on a ``trust="db"`` manifest
+    is user-authored, so an arbitrary string must never reach a filesystem read —
+    a non-member short-circuits before the ``exists()`` probe. The second half
+    excludes a supported type that has agents but no manifest yet (e.g.
+    ``spec_kit``), which ``compile_for_run`` could not route anyway.
+
+    Used by ``run_trigger_workflow`` to pick between file-backed resolution and
+    the DB ``user_workflow_id`` (``_owned``) lookup — the two are disjoint (a DB
+    id is a UUID, never a directory name).
+    """
+    from agents.execution_engine.engine import _WORKFLOWS_DIR
+    from agents.loader import SUPPORTED_PIPELINE_TYPES
+
+    return (
+        workflow_ref in SUPPORTED_PIPELINE_TYPES
+        and (_WORKFLOWS_DIR / workflow_ref / "workflow.yaml").exists()
+    )
 
 
 class _NullAsyncLock:
@@ -131,6 +175,15 @@ class DeliverableContext:
     # threaded from the compiled ``Step.require_render`` so html_render sees the
     # per-step policy. None → the validator falls back to the Settings default.
     require_render: bool | None = None
+    # Pre-edit static issues of the PARENT artifact, for a revision run. Set by the
+    # ``revision_validation`` post-step onto the ctx and threaded here so a validator
+    # can tell a defect the revision INTRODUCED from one it merely inherited. A
+    # revision must never be failed for a defect that already existed in the parent
+    # — the internal fix-loop applies exactly the same rule (``_select_issues_to_fix``
+    # only selects NEW issues once a baseline is populated), so without this the gate
+    # and the fix-loop disagree and the loop's own residual becomes a hard failure.
+    # None/empty → every issue is judged on its own merits (the BUILD default).
+    revision_baseline_static: frozenset[str] | None = None
 
     @property
     def content(self) -> str:
@@ -261,6 +314,7 @@ class KernelServices:
         return self._engine._state_machine.get_state(self.run_id) in (
             "cancelled",
             "failed",
+            "diverted",
         )
 
     # ── The run's user message (read/write) ────────────────────────────────────
@@ -428,6 +482,54 @@ class KernelServices:
                 hook,
                 event,
                 outcome,
+                exc,
+            )
+            return None
+
+    # ── Git provenance audit write (task 9.1 / Requirement 19) ────────────────
+    async def record_provenance_audit(
+        self,
+        run_id: str,
+        operation: str,
+        *,
+        commit_sha: str | None = None,
+        tag_name: str | None = None,
+        source_ref: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> str | None:
+        """Write one owner/workspace-scoped ``run_provenance_audits`` row.
+
+        Reached by ``ProvenanceAuditObserver`` via ``ctx.runner.record_provenance_audit``
+        (NO kernel→app import on their side — the observer imports only the
+        registry decorator and stdlib).  Delegates to the per-run ``ScopedStore``
+        on the ExecutionContext so the row carries the run's
+        ``(owner_id, workspace_id)`` (AUTHZ-01).
+
+        ``operation`` ∈ ``snapshot_commit | recovery_commit | fragment_merge |
+        merge_agent_commit | restore``.
+
+        Best-effort — a persist failure (offline harness / no FK row) degrades to
+        ``None`` rather than aborting the observer or the commit path (INV-3 parity:
+        audit must never break the live stream).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            return await store.write_provenance_audit(
+                run_id,
+                operation,
+                commit_sha=commit_sha,
+                tag_name=tag_name,
+                source_ref=source_ref,
+                idempotency_key=idempotency_key,
+            )
+        except Exception as exc:  # noqa: BLE001 — audit write must never abort the commit
+            logger.warning(
+                "record_provenance_audit(run=%s op=%s sha=%s) failed: %s",
+                run_id,
+                operation,
+                commit_sha,
                 exc,
             )
             return None
@@ -622,6 +724,39 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning("update_wave_run(row=%s) failed: %s", row_id, exc)
 
+    async def update_wave_run_merge_state(self, state: Any) -> None:
+        """Persist a ``FanoutMergeState`` to the matching ``wave_runs`` row.
+
+        Locates the row by matching ``run_id`` + ``step`` (``state.step_id``) and
+        writes the four merge columns added in migration 0045.  Best-effort — a store
+        miss, a missing row, or any DB error is logged and swallowed; audit must NEVER
+        abort the run (same BLE001 pattern as ``update_wave_run``).
+
+        ``merge_applied`` and ``merge_conflicts`` are stored as JSON strings because
+        the ``wave_runs`` schema uses ``String`` columns for those fields (migration
+        0045 mirrors the column types declared in ``WaveRun``).
+        """
+        import json as _json  # noqa: PLC0415 — stdlib, local import avoids top-level overhead
+
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return
+        try:
+            await store.update_wave_run_merge_state(
+                self.run_id,
+                step_id=state.step_id,
+                merge_state=state.merge_state,
+                merge_applied=_json.dumps(list(state.merge_applied or [])),
+                merge_conflicts=_json.dumps(list(state.merge_conflicts or [])),
+                merge_strategy=state.merge_strategy or "",
+            )
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
+            logger.warning(
+                "update_wave_run_merge_state(step=%s) failed: %s",
+                getattr(state, "step_id", "?"),
+                exc,
+            )
+
     async def read_wave_runs(self) -> list[Any]:
         """Return the run's owner/workspace-scoped ``wave_runs`` rows (wave_index asc).
 
@@ -762,6 +897,10 @@ class KernelServices:
         ``_worktree_branch`` stamp the Task-1 ``allocate_worktree`` sets. Best-effort —
         a teardown failure must never abort the run (the kernel ``run_fanout`` already
         wraps this, but the discrimination lives here next to the alloc).
+
+        ``delete_branch`` is forwarded to ``remove_worktree`` (Requirement 28):
+        ``True`` on the happy path (default), ``False`` on the cancel path so
+        ``fanout/{step}/{i}`` branches are retained in git history.
         """
         if worker_ws is None:
             return
@@ -771,14 +910,14 @@ class KernelServices:
                 getattr(base, "remove_worktree", None) if base is not None else None
             )
             if remove is not None:
-                remove(worker_ws)
+                remove(worker_ws, delete_branch=True)
         else:
             teardown = getattr(worker_ws, "teardown", None)
             if teardown is not None:
                 teardown()
 
     async def teardown_isolated_workspace(
-        self, base_workspace: Any, worker_ws: Any
+        self, base_workspace: Any, worker_ws: Any, *, delete_branch: bool = True
     ) -> None:
         """Tear down ONE allocated isolated workspace on the cancel/finally path (11-05).
 
@@ -787,11 +926,27 @@ class KernelServices:
         mid-flight cancel, OR a BudgetExceeded abort (Pitfall 5 / RESUME-01: no leaked
         worktrees/branches/sub_sandbox dirs after cancel). Delegates to the SINGLE
         reclaim discriminator (``reclaim_isolated_workspace``): a ``worktree`` ->
-        ``LocalWorkspace.remove_worktree`` (git worktree remove + branch delete), a
-        ``sub_sandbox`` -> the child's ``teardown`` (rmtree). Best-effort — a teardown
-        failure is logged, never aborts the run (the caller also wraps it).
+        ``LocalWorkspace.remove_worktree`` (git worktree remove + branch delete or
+        retain per ``delete_branch``, Requirement 28), a ``sub_sandbox`` -> the child's
+        ``teardown`` (rmtree). Best-effort — a teardown failure is logged, never aborts
+        the run (the caller also wraps it).
+
+        ``delete_branch=False`` on the cancel path so worker branches survive
+        cancellation (Requirement 28 AC2).
         """
-        await self.reclaim_isolated_workspace(base_workspace, worker_ws)
+        if worker_ws is None:
+            return
+        if getattr(worker_ws, "_worktree_branch", None) is not None:
+            base = base_workspace if base_workspace is not None else self.workspace
+            remove = (
+                getattr(base, "remove_worktree", None) if base is not None else None
+            )
+            if remove is not None:
+                remove(worker_ws, delete_branch=delete_branch)
+        else:
+            teardown = getattr(worker_ws, "teardown", None)
+            if teardown is not None:
+                teardown()
 
     # ── Typed fragment-artifact persistence (Phase 11 / FANOUT-06) ─────────────
     async def write_fragment_artifact(
@@ -1043,6 +1198,8 @@ class KernelServices:
         input: str,
         workspace: Any = None,
         total_workers: int | None = None,
+        task_id: str | None = None,
+        task_author_id: str | None = None,
     ) -> AsyncIterator[dict]:
         """Run ONE fan-out worker against its allocated isolated workspace (FANOUT-04/05).
 
@@ -1089,11 +1246,16 @@ class KernelServices:
                 hooks=[],
                 task_source=None,
                 post_step=None,
-                # The parent's tool grant, not the child's: the fan-out decides what a
-                # worker may touch. Preserved from the pre-fix behavior deliberately —
-                # widening a worker's tools from its own declaration would be a
-                # privilege change, and this fix is about restoring its INSTRUCTIONS.
-                tools=getattr(step, "tools", None),
+                # A heterogeneous worker (``_declared`` found) keeps its OWN
+                # compiled ``tools`` grant — already in ``_base`` from
+                # ``vars(_declared)`` above. Overwriting it with the parent's grant
+                # here silently dropped every ``tool_sets`` a declared child step
+                # asked for (e.g. a reader's ``file_extract``): the parent
+                # dispatcher (`custom-agent:synthesizer`, tool_sets=[]) has no
+                # reason to carry its children's tool needs. A self×N worker has no
+                # declared step of its own, so it falls back to the parent's grant
+                # (the pre-fix behavior, byte-identical for that path).
+                **({} if _declared is not None else {"tools": getattr(step, "tools", None)}),
                 # Never inherit a fan-out spec: a worker that re-fans is a spawn loop.
                 fanout=None,
                 dispatched_by="",
@@ -1120,6 +1282,22 @@ class KernelServices:
         # run parks at ``waiting_for_user`` on a gate nobody can see or resolve. This
         # is the ONLY site that suppresses it for a worker; the step's own gate
         # (declared ``gates:``, evaluated at the step boundary) is untouched.
+        # KRN-005 per-child isolation: each worker invocation gets a SHALLOW copy
+        # of the run ectx — private scratch (current_step / task counters / block),
+        # shared substrate by reference (artifact graph, budget, sandbox, queues,
+        # completed_tasks). This is what lets run_agent skip the run-wide
+        # scratch_lock for workers, so parallel fan-out children actually overlap
+        # instead of queueing on one lock for their entire invocations.
+        import copy as _copy
+
+        # The worker's own task id rides its PRIVATE ectx copy (never the shared
+        # compiled step, which run_worker reuses verbatim for self×N). A nested
+        # fan-out this worker performs reads it back off ``ectx.task_id`` to name
+        # its parent. ``None`` outside a wave → nothing is stamped downstream.
+        _worker_ectx = _copy.copy(self._ectx)
+        _worker_ectx.task_id = task_id
+        _worker_ectx.task_author_id = task_author_id
+
         async for event in self.run_agent(
             worker_step,
             ctx,
@@ -1130,6 +1308,7 @@ class KernelServices:
             total_tasks=total_workers or (worker_index + 1),
             task_block=input,
             invocation_gated=False,
+            ectx_override=_worker_ectx,
         ):
             yield event
 
@@ -1184,6 +1363,7 @@ class KernelServices:
         content: str | None = None,
         task_meta: dict | None = None,
         require_render: bool | None = None,
+        revision_baseline_static: "frozenset[str] | set[str] | None" = None,
     ) -> DeliverableContext:
         """Return a ``DeliverableContext`` target keyed on the sandbox deliverable.
 
@@ -1195,6 +1375,10 @@ class KernelServices:
         ``require_render`` (quick-260701-bob / REQUIRE-RENDER-KNOB) is threaded from
         the compiled ``Step.require_render`` so html_render sees the per-step render
         fail-closed policy; None keeps the Settings-default (skip-is-a-pass) behavior.
+
+        ``revision_baseline_static`` carries the parent artifact's PRE-EDIT static
+        issues on a revision run, so a validator can distinguish a defect the
+        revision introduced from one it inherited. None keeps BUILD behavior.
         """
         try:
             path = self.sandbox.path_for(name)
@@ -1208,6 +1392,11 @@ class KernelServices:
             step=step,
             task_meta=dict(task_meta or {}),
             require_render=require_render,
+            revision_baseline_static=(
+                frozenset(revision_baseline_static)
+                if revision_baseline_static
+                else None
+            ),
         )
 
     # ── Human gate delegate (08-02 / GATE-03 parity; 10-03 approval payload) ────
@@ -1240,12 +1429,49 @@ class KernelServices:
         # The structured approval payload (D-04) rides the generic output field; a
         # None payload preserves the byte-identical human-gate string path (parity).
         review_payload: Any = payload if payload is not None else output
+
+        # ── Routed human gate → publish the declared outcomes as CHOICES ────────
+        # A human-family gate on a step that also declares a ``route`` is the one
+        # case where the human IS the router (ex_A4_*). The valid answers are
+        # already compiled — ``route.outcomes`` keys — but nothing published them,
+        # so the UI could only offer a free-text box and the human had to guess the
+        # exact token. Observed live: 5 of 13 answered runs still failed to route.
+        #
+        # Rides the EXISTING generic carriers rather than adding an event field:
+        #   * ``artifact_kind`` — already a ``_run_review_gate`` param and already
+        #     the FE's renderer discriminator (``discriminateArtifact``);
+        #   * ``output`` — already carries a structured payload for the ``approval``
+        #     gate's D-04 snapshot ("rides the SAME generic output field, no
+        #     frontend rebuild"). JSON-encoded, because the published field is
+        #     declared ``string`` on the wire and on the FE type.
+        #
+        # DORMANT everywhere else — a gate on a step with no ``route`` keeps
+        # ``artifact_kind=""`` and the plain string ``output``, so its event is
+        # byte-identical (INV-3). ``payload is not None`` (the approval gate) skips
+        # this entirely; that path is untouched.
+        import json as _json
+
+        _route = getattr(step, "route", None)
+        _choices = list(getattr(_route, "outcomes", None) or {}) if _route else []
+        _artifact_kind = ""
+        if _choices and payload is None:
+            _artifact_kind = "conditional_gate"
+            review_payload = _json.dumps(
+                {"prompt": output, "choices": _choices}, ensure_ascii=False
+            )
+
         spec = self._spec_for(step)
         async for event in self._engine._run_review_gate(
             pipeline_run_id=self.run_id,
             agent_id=spec.id,
             agent_name=spec.name,
             output=review_payload,
+            artifact_kind=_artifact_kind,
+            # REDO-GATE follow-up: mirrors the inline path's structural
+            # ``redoable=True`` — here it is the step's OWN manifest opt-in
+            # (Step.redoable) rather than always-True, since most declared human
+            # gates are pre-step (a different mechanism) and stay non-redoable.
+            redoable=bool(getattr(step, "redoable", False)),
             # BUG-2 Cond B (quick-260720-ec4): thread the SAME cooperative
             # cancel_event execute() holds into the delegate so a run parked at a
             # DECLARED human/approval gate honors Stop via the EXISTING cancel-aware
@@ -1255,6 +1481,219 @@ class KernelServices:
             cancel_event=self.cancel_event,
         ):
             yield event
+
+    # ── Cross-workflow trigger delegate (spec 014 / R-17, NEW) ──────────────────
+    async def run_trigger_workflow(
+        self, step: Any, ectx: Any, *, workflow_ref: str, content: str = ""
+    ) -> tuple[str, str]:
+        """Mint + spawn a NEW, independent ``WorkflowRun`` for a ``trigger: workflow``
+        conditional-gate outcome (spec 014 R-12) and return ``(run_id,
+        resolved_workflow_id)`` — the second element is the SAME ``target_pipeline_type``
+        this method already resolves below to mint the new run (R-28: never the manifest's
+        literal ``"self"`` sentinel, since the ``"self"`` branch resolves it to THIS run's
+        own ``self._pipeline_type`` before minting).
+
+        Parallel to ``run_human_gate`` / ``run_fanout`` — NOT folded into either: a
+        workflow trigger is neither a HITL pause nor a same-run fan-out. It stops
+        THIS run and hands off to an entirely separate ``WorkflowRun`` (R-13, Option
+        2 — stop-and-hand-off; no wait on the new run's completion).
+
+        ``workflow_ref`` resolution (R-12):
+          * ``"self"`` — a fresh, independent run of THIS SAME workflow definition.
+            No DB lookup: reuses this run's own already-resolved ``pipeline_type`` +
+            ordered agent roster.
+          * a FILE-BACKED workflow id (``agents/workflows/<id>/workflow.yaml``) —
+            resolved the SAME way ``launch_run``'s Case 1 (``LaunchSource.
+            FILE_PIPELINE``) resolves one: the id IS the ``pipeline_type``, the
+            roster comes from ``get_pipeline_agents`` with ``launch_run``'s own
+            ``compile_for_run(...).steps`` fallback for a composed
+            (``custom-agent:<instance_id>``) manifest whose steps have no
+            ``AGENT.md`` on disk, and ``compiled`` stays ``None`` so the engine
+            file-compiles it itself. R-10's compile-time target check accepts any
+            non-``"self"`` target as a SYNTACTIC reference (see
+            ``compiler._validate_route_targets``) precisely because resolution
+            happens HERE — and the checked-in A3 reference fixture
+            (``ex_A3_divert`` → ``target:
+            ex_A3_target``) names a file-backed workflow, not a DB
+            row, so this branch is what makes that fixture divert at all.
+            Membership in ``SUPPORTED_PIPELINE_TYPES`` (a disk-DERIVED closed set,
+            ``agents/loader.py``) is the path-traversal guard: a target string
+            that is not literally the name of a real workflow directory can never
+            reach the filesystem read (T-04-09), which matters because a
+            ``trust="db"`` manifest's ``target`` is user-authored.
+          * anything else — a saved ``user_workflow_id``, resolved via ``_owned``
+            (``app/api/user_workflows.py:413``) — the SAME (and only) existing
+            ``user_workflow_id`` lookup T5 identified in the codebase, reused
+            verbatim (not a second helper). A cross-owner / unknown id raises the
+            SAME ``HTTPException`` (404, IDOR→404) it always has. The resolved
+            row's ``manifest_json`` then branches exactly like ``launch_run``'s
+            Case 2 (flat ``agent_ids``) / Case 3 (composed ``{"steps": [...]}``
+            manifest) detection. A DB ``user_workflow_id`` is a UUID, so it can
+            never collide with a disk-derived pipeline-type name — the two
+            branches are disjoint by construction.
+
+        R-18/R-19 depth guard: ``ectx.trigger_depth`` (Phase 2 T7/T9 — the
+        in-memory counter, preferred over walking the ``parent_run_id`` DB chain
+        now that T9 has confirmed its propagation) is checked for EXACT equality
+        to the fixed ceiling ``5`` — not a variable/``>=`` check, since the
+        compiler (T5/R-19) already rejects any manifest-declared
+        ``trigger_max_depth`` other than ``5``, so a depth already AT 5 is the
+        only way this can be breached. Raises ``BudgetExceeded`` (the same
+        fail-closed pattern R-07's loop cap uses) BEFORE any mint, so a refused
+        trigger leaves zero side effects. The counter that guard reads is
+        INCREMENTED here, at the mint: ``trigger_depth=ectx.trigger_depth + 1`` is
+        passed to ``_launch_run_core`` and threaded down to the new run's
+        ``ExecutionContext`` — a real chain therefore reaches 5 and fails closed
+        on the 6th hop.
+
+        ``content`` (R-28) is the matched outcome's ``feedback`` string, forwarded as
+        the new run's user message. A triggered run is otherwise minted with ``""`` —
+        it inherits ``parent_run_id`` / owner / workspace / budget but NOT the parent's
+        message — so this is the ONLY channel by which a diverting parent hands its
+        child an instruction. Defaults to ``""``, which is byte-identical to the
+        previous unconditional ``content=""``.
+
+        Mint (R-15/R-16): delegates to T27's extracted ``_launch_run_core`` — the
+        SAME mint-and-spawn core the HTTP launch handler uses — with
+        ``parent_run_id_override=ectx.run_id`` and ``owner_id_override`` /
+        ``workspace_id_override`` set UNCONDITIONALLY to ``ectx``'s own values
+        (R-15 — never independently specified, never left null; this is also what
+        puts the new run's spend in the SAME ``BudgetManager.workspace_ceiling``
+        aggregate as this run). A lightweight ``SimpleNamespace(id=ectx.owner_id)``
+        stands in for the ``User`` object ``_launch_run_core`` needs — it (and the
+        driver it spawns) reads only ``.id`` off that object, and that id IS this
+        run's own owner principal.
+        """
+        from agents.execution_engine.budget import BudgetExceeded
+
+        # ── R-18/R-19: FIXED ceiling of 5, exact-equality (not a >= check) ──────
+        if getattr(ectx, "trigger_depth", 0) == 5:
+            raise BudgetExceeded(
+                "trigger_depth",
+                f"trigger_depth is already at the fixed ceiling (5) for run "
+                f"{ectx.run_id!r} — refusing to mint another triggered workflow "
+                f"(R-18/R-19)",
+            )
+
+        # ── (1) Resolve workflow_ref (R-12) ──────────────────────────────────────
+        if workflow_ref == "self":
+            target_pipeline_type = self._pipeline_type
+            target_agents: list | None = self._ordered_agents
+            target_compiled = None
+        elif _is_file_backed_workflow(workflow_ref):
+            # ── Case 1 parity — a FILE-BACKED workflow id (the A3 fixture's shape) ──
+            # Mirrors launch_run's LaunchSource.FILE_PIPELINE resolution: the id is
+            # the pipeline_type, the roster is get_pipeline_agents(...) with the
+            # compiled-plan fallback launch_run already uses for a composed manifest
+            # whose custom-agent steps have no AGENT.md, and `compiled` stays None so
+            # the engine's own compile_for_run(pipeline_type) is what routes the run.
+            from agents.execution_engine.engine import compile_for_run
+            from agents.loader import load_agent_spec
+            from agents.registry import get_pipeline_agents
+
+            target_pipeline_type = workflow_ref
+            target_compiled = None
+            target_agents = get_pipeline_agents(workflow_ref)
+            if not target_agents:
+                target_agents = [
+                    load_agent_spec(s.agent_id)
+                    for s in compile_for_run(workflow_ref).steps
+                ]
+        else:
+            from app.api.run_engine import _get_db
+            from app.api.user_workflows import _owned
+
+            db = _get_db()
+            try:
+                row = _owned(db, workflow_ref, SimpleNamespace(id=ectx.owner_id))
+                manifest_json = row.manifest_json
+                base_pipeline_type = row.base_pipeline_type
+                row_agents_json = row.agents
+                row_id = row.id
+            finally:
+                db.close()
+
+            if isinstance(manifest_json, dict) and "steps" in manifest_json:
+                # Case 3 — composed manifest (mirrors launch_run's
+                # USER_WORKFLOW_MANIFEST branch, minus the request-body override
+                # chain: a trigger carries no request body, so the row's own
+                # saved values are authoritative, with the SAME hardcoded
+                # fallbacks launch_run uses when a value is absent).
+                from agents.execution_engine.engine import (
+                    _CAPABILITY_REGISTRY,
+                    _WORKFLOW_COMPILER,
+                )
+                from agents.workflows.manifest import build_manifest_from_dict
+
+                raw_manifest = dict(manifest_json)
+                raw_manifest.setdefault("id", f"user-workflow-{row_id}")
+                raw_manifest.setdefault(
+                    "deliverable", {"strategy": "streamed_text", "name": "output.md"}
+                )
+                raw_manifest.setdefault("planner", "skip")
+                raw_manifest.setdefault("clarify", {"mode": "skip", "defaults": []})
+                raw_manifest.setdefault("capabilities", {})
+                parsed_manifest = build_manifest_from_dict(
+                    raw_manifest, f"workflow:{row_id}"
+                )
+                target_compiled = _WORKFLOW_COMPILER.compile(
+                    parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+                )
+                target_pipeline_type = base_pipeline_type
+                target_agents = None
+            else:
+                # Case 2 — flat agent_ids (mirrors launch_run's
+                # USER_WORKFLOW_FLAT branch).
+                import json as _json
+
+                from agents.loader import load_agent_spec
+
+                agent_ids = _json.loads(row_agents_json) if row_agents_json else []
+                target_agents = [load_agent_spec(aid) for aid in agent_ids]
+                if target_agents:
+                    from app.api.composition_order import presort_specs
+
+                    target_agents = presort_specs(target_agents)
+                target_pipeline_type = base_pipeline_type
+                target_compiled = None
+
+        # ── (3)/(4) Mint via T27's core — parent_run_id + owner_id/workspace_id
+        # unconditionally inherited from ectx (R-15) ─────────────────────────────
+        from app.api.run_commands import _launch_run_core
+
+        result = await _launch_run_core(
+            # R-28: the diverting outcome's ``feedback`` string, threaded down as the
+            # child's user message. A triggered run is otherwise minted with content=""
+            # — it inherits parent_run_id/owner/workspace/budget but NOT the parent's
+            # message, so this is the only channel by which a parent hands the child an
+            # instruction. Empty string when the outcome declares no feedback, which is
+            # byte-identical to the previous unconditional content="".
+            content=content,
+            pipeline_type=target_pipeline_type,
+            agents=target_agents,
+            compiled=target_compiled,
+            od_context=None,
+            validated_images=[],
+            model_overrides={},
+            user=SimpleNamespace(id=ectx.owner_id),
+            source_workflow_run_id=None,
+            selections=None,
+            gate_agent_ids=None,
+            attached_skills=None,
+            attached_hooks=None,
+            parent_run_id_override=ectx.run_id,
+            owner_id_override=ectx.owner_id,
+            workspace_id_override=ectx.workspace_id,
+            # R-18/R-19: the "+1" propagation itself (context.py's own docstring
+            # names THIS call site as its owner — "the FUTURE minting call site").
+            # Without it every triggered run would start back at 0 and the
+            # exact-equality-to-5 guard above could never fire for a real chain,
+            # i.e. an unbounded mint (AC-06). Threaded through _launch_run_core →
+            # _drive_launch_to_queue → engine.execute() → ExecutionContext.
+            trigger_depth=getattr(ectx, "trigger_depth", 0) + 1,
+        )
+        # (5) Return the new run's id + the resolved workflow id (R-28).
+        return result["run_id"], target_pipeline_type
 
     # ── Gate-event read handle (10-03 / D-03 first-exec memory) ─────────────────
     async def read_gate_events(self, run_id: str) -> list:
@@ -1313,8 +1752,196 @@ class KernelServices:
 
     # ── Parent-run seed read (previous_run provider) ───────────────────────────
     def read_parent_file(self, parent_run_id: str, name: str) -> str:
-        parent_sb = RunSandbox(self._ectx.disk_principal, parent_run_id)
+        """Read a file from another run's sandbox, transparently root-resolving the
+        target run id before constructing the ``RunSandbox``.
+
+        A raw ``parent_run_id`` is only correct at chain depth 1.  At depth 2+
+        (run C revises run B which revised run A), the shared sandbox directory is
+        keyed on the chain ROOT (run A) — not on run B.  Passing run B's id would
+        resolve to a directory that nothing writes to, producing a silent empty read
+        (Requirement 5 AC3).
+
+        ``_find_chain_root`` is owner-scoped (T-A-04): a source_run_id belonging to
+        a different owner stops the walk, treating the current node as the root.
+        Any DB error also degrades to treating ``parent_run_id`` as its own root —
+        so the behaviour is identical to the pre-task-5.6 path in the depth-1 case
+        (INV-3 parity for first runs and non-chained runs).
+
+        This module is the kernel (not a capability) so it MAY import from
+        ``agents.execution_engine.engine`` — the import-linter gate only blocks
+        ``capabilities → execution_engine``, not intra-engine imports.
+        """
+        from agents.execution_engine.engine import _resolve_root_id
+
+        # Root-resolve the target so that depth-2+ chains read from the correct
+        # shared sandbox directory (Requirement 5 AC3).
+        resolved_id = _resolve_root_id(parent_run_id, self._ectx.disk_principal)
+        parent_sb = RunSandbox(self._ectx.disk_principal, resolved_id)
         return parent_sb.read(name)
+
+    # ── Chain-payload helpers (used by chain_context provider) ────────────────
+    def list_chain_source_files(self, source_run_id: str, prefix: str) -> list[str]:
+        """List files under ``prefix`` in the source run's chain payload sandbox.
+
+        Root-resolves ``source_run_id`` via the canonical
+        ``resolve_revision_root`` resolver (task 3.1, Requirement 2 AC 1,
+        V2-Q1) and opens a ``ReadOnlySandbox`` on that root.  Returns
+        relative paths (relative to ``prefix/``), e.g.
+        ``["summary.md", "logs.jsonl"]``.  Returns ``[]`` on any error so
+        the caller can degrade gracefully — never raises.
+
+        Uses ``open_source_sandbox`` rather than calling ``_resolve_root_id``
+        on ``source_run_id`` directly: the old implementation walked
+        ``source_run_id`` (the chain edge), not ``parent_run_id`` (the
+        revision edge), producing the wrong root at depth 2+ (D1).
+
+        This method lives in the kernel (not a capability) so it MAY import from
+        ``app.*`` — the import-linter gate only blocks
+        ``capabilities → execution_engine``.
+        """
+        try:
+            source_sb = self.open_source_sandbox(source_run_id)
+            return source_sb.list_prefix(prefix)
+        except Exception:  # noqa: BLE001
+            return []
+
+    def read_chain_source_file(self, source_run_id: str, rel_path: str) -> str | None:
+        """Read a file from the source run's chain payload sandbox.
+
+        Root-resolves ``source_run_id`` via the canonical
+        ``resolve_revision_root`` resolver (task 3.1, Requirement 2 AC 1,
+        V2-Q1) and opens a ``ReadOnlySandbox`` on that root.  Returns
+        ``None`` when the file is absent or any read/IO error occurs —
+        never raises.
+
+        Uses ``open_source_sandbox`` rather than calling ``_resolve_root_id``
+        on ``source_run_id`` directly: the old implementation walked
+        ``source_run_id`` (the chain edge), not ``parent_run_id`` (the
+        revision edge), producing the wrong root at depth 2+ (D1).
+        """
+        try:
+            source_sb = self.open_source_sandbox(source_run_id)
+            return source_sb.read(rel_path)
+        except Exception:  # noqa: BLE001
+            return None
+
+    # ── Chain-source sandbox access (task 6.2 / Requirement 6) ─
+    def open_source_sandbox(self, source_run_id: str) -> ReadOnlySandbox:
+        """Return a ``ReadOnlySandbox`` on the source's revision-root sandbox.
+
+        Root-resolves ``source_run_id`` via the canonical
+        ``resolve_revision_root`` resolver (task 3.1, Requirement 2 AC 1,
+        V2-Q1), which walks ``parent_run_id`` ONLY (never ``source_run_id``).
+        Returns a read-only handle on the resolved root sandbox — a
+        *different* physical directory from ``ctx.sandbox`` (which belongs to
+        the currently-executing run), carrying none of the source run's Git
+        objects, refs, or tags.
+
+        Lives on ``KernelServices`` (which may import ``app.*``) rather than on
+        a capability, because it requires a DB session to call
+        ``resolve_revision_root``.
+
+        Raises:
+            ``RevisionRootUnresolved`` (imported from ``app.api.runs``) if
+            resolution fails for any reason: cycle, missing ancestor,
+            cross-owner ancestry, null principal, or a DB error.  A
+            cross-owner source resolves to ``RevisionRootUnresolved``
+            (fail-closed, Requirement 2 AC 4/5).
+
+        Requirement 6 AC 3: the returned sandbox is the source for the
+        tag-versus-ref check; callers pass the sandbox and each ref to
+        ``resolved_or_refuse`` so a ``None`` result is never compared
+        silently to another ``None``.
+        """
+        from app.api.run_engine import _get_db
+        from app.api.runs import (
+            RevisionRootResolved,
+            RevisionRootUnresolved,
+            resolve_revision_root,
+        )
+
+        db = _get_db()
+        try:
+            result = resolve_revision_root(db, source_run_id, self._ectx.disk_principal)
+        finally:
+            db.close()
+
+        if not isinstance(result, RevisionRootResolved):
+            assert isinstance(result, RevisionRootUnresolved)
+            logger.warning(
+                "open_source_sandbox: revision root unresolved for %r "
+                "(principal=%r, reason=%r, visited=%d, repeated=%r)",
+                source_run_id,
+                self._ectx.disk_principal,
+                result.reason,
+                result.visited_count,
+                result.repeated_node,
+            )
+            raise RevisionRootUnresolved(
+                reason=result.reason,
+                run_id=result.run_id,
+                visited_count=result.visited_count,
+                repeated_node=result.repeated_node,
+            )
+
+        return ReadOnlySandbox(
+            self._ectx.disk_principal,
+            result.root_id,
+        )
+
+    def resolved_or_refuse(self, sandbox: ReadOnlySandbox, ref: str) -> str:
+        """Resolve ``ref`` to a commit SHA in ``sandbox``, or raise.
+
+        A ref that cannot be resolved is a **refusal**, not a pass.  Without
+        this guard the Requirement 6 AC 3 tag-versus-ref check would compare
+        ``None`` to ``None``, find them equal, and pass having verified
+        nothing.
+
+        Args:
+            sandbox: the ``ReadOnlySandbox`` to resolve the ref within.
+            ref: the git ref to resolve (tag name or full refname).
+
+        Returns:
+            The commit SHA string (non-empty) on success.
+
+        Raises:
+            ``RefNotResolvable`` if the ref resolves to ``None`` or an
+            empty string in the given sandbox.
+        """
+        sha = sandbox.resolve_ref_commit(ref)
+        if not sha:
+            raise RefNotResolvable(ref, str(sandbox.root))
+        return sha
+
+    def write_to_sandbox(self, rel_path: str, content: str) -> None:
+        """Write ``content`` to ``rel_path`` inside the current run's sandbox.
+
+        Thin convenience wrapper so capabilities that need to seed the receiving
+        sandbox do not have to reach into ``ctx.runner.sandbox`` directly.
+
+        Requirement 18: refuses any path that targets a reserved sandbox subtree.
+        The engine-only payload force-stage exception (``payload_allowlist``) does
+        NOT apply here — this is an agent-reachable write path and the three
+        ``.chain/`` allowlist paths are engine-internal, never written by a
+        capability.  Any attempt to write a reserved path is a programming error
+        and raises ``ValueError`` immediately, before touching the disk.
+        """
+        # Normalise to a forward-slash relative path (strip any leading slash so
+        # the prefix comparisons are stable regardless of how the caller formed
+        # the path).
+        normalised = rel_path.lstrip("/").replace("\\", "/")
+        for reserved in RESERVED_PATHS:
+            # Match both the exact bare name (e.g. "skills") and any path that
+            # starts with the trailing-slash prefix (e.g. "skills/foo/bar").
+            prefix = reserved if reserved.endswith("/") else reserved + "/"
+            if normalised == reserved.rstrip("/") or normalised.startswith(prefix):
+                raise ValueError(
+                    f"write_to_sandbox: '{rel_path}' targets the reserved sandbox "
+                    f"path '{reserved}' and cannot be written through this interface. "
+                    "Reserved paths are engine-owned; use the appropriate engine "
+                    "primitive (e.g. build_flat_payload) for engine-internal writes."
+                )
+        self.sandbox.write(rel_path, content)
 
     # ── Sandbox-deliverable helpers (serialized_sandbox resolver) ──────────────
     def count_sandbox_deliverables(self, root) -> int:
@@ -1334,6 +1961,7 @@ class KernelServices:
         task_block: str | None = None,
         skeleton: str | None = None,
         invocation_gated: bool = True,
+        ectx_override: Any = None,
     ) -> AsyncIterator[dict]:
         """Run ONE agent and re-yield its events (delegates to engine._run_agent).
 
@@ -1383,28 +2011,40 @@ class KernelServices:
         # this change; this closes the DATA-RACE half of R-03 without that
         # rewrite. A non-fan-out single_shot call acquires an uncontended lock —
         # no observable behavior change (INV-3 byte-parity holds).
-        lock = getattr(self._ectx, "scratch_lock", None)
-        if lock is None:  # pragma: no cover - defensive; every real ectx has one
+        # KRN-005 follow-up: ``ectx_override`` IS the per-child context isolation
+        # the paragraph above gestures at. A fan-out worker (run_worker) passes a
+        # SHALLOW copy of the run ectx — scratch fields private to the worker,
+        # every substrate object (artifact graph, budget, queues, sandbox,
+        # completed_tasks list) still shared by reference — so its whole
+        # invocation needs no turn at the shared scratch and the lock is skipped:
+        # workers actually run concurrently. The serial dispatch loop (no
+        # override) keeps the original shared-ectx + lock path byte-identical.
+        _ectx = ectx_override if ectx_override is not None else self._ectx
+        if ectx_override is not None:
             lock = _NULL_LOCK
+        else:
+            lock = getattr(self._ectx, "scratch_lock", None)
+            if lock is None:  # pragma: no cover - defensive; every real ectx has one
+                lock = _NULL_LOCK
 
         async with lock:
             # Build-loop scratch (task_loop path): set the per-task counters + block so
             # the engine's generic context injector emits the CURRENT TASK marker exactly
             # as the legacy per-task build loop did. For single_shot (no task_number)
             # these stay "" — byte-identical to a non-build agent.
-            prev_num = self._ectx.build_task_number
-            prev_total = self._ectx.build_task_total
-            prev_block = self._ectx.current_task_block
-            prev_skeleton = getattr(self._ectx, "current_prototype_skeleton", "")
+            prev_num = _ectx.build_task_number
+            prev_total = _ectx.build_task_total
+            prev_block = _ectx.current_task_block
+            prev_skeleton = getattr(_ectx, "current_prototype_skeleton", "")
             # Bind the current step (08-08 / CR-01) so the engine's before_write hook
             # firing reads ``step.hooks`` — declaration-driven (only DECLARED hooks fire).
-            prev_step = getattr(self._ectx, "current_step", None)
-            self._ectx.current_step = step
+            prev_step = getattr(_ectx, "current_step", None)
+            _ectx.current_step = step
             if task_number is not None:
-                self._ectx.build_task_number = str(task_number)
-                self._ectx.build_task_total = str(total_tasks or task_number)
-                self._ectx.current_task_block = task_block or ""
-                self._ectx.current_prototype_skeleton = skeleton or ""
+                _ectx.build_task_number = str(task_number)
+                _ectx.build_task_total = str(total_tasks or task_number)
+                _ectx.current_task_block = task_block or ""
+                _ectx.current_prototype_skeleton = skeleton or ""
             try:
                 async for event in self._engine._run_agent(
                     spec,
@@ -1420,17 +2060,17 @@ class KernelServices:
                     self._model_id,
                     self._results,
                     self.cancel_event,
-                    self._ectx,
+                    _ectx,
                     invocation_gated=invocation_gated,
                 ):
                     yield event
             finally:
                 # Reset the build scratch (only meaningful for the task_loop path).
-                self._ectx.build_task_number = prev_num
-                self._ectx.build_task_total = prev_total
-                self._ectx.current_task_block = prev_block
-                self._ectx.current_prototype_skeleton = prev_skeleton
-                self._ectx.current_step = prev_step
+                _ectx.build_task_number = prev_num
+                _ectx.build_task_total = prev_total
+                _ectx.current_task_block = prev_block
+                _ectx.current_prototype_skeleton = prev_skeleton
+                _ectx.current_step = prev_step
 
     # ── The Both-validation + bounded internal fix-loop (L-build region C) ─────
     async def run_validation_fix_loop(
@@ -1480,6 +2120,7 @@ class KernelServices:
         ectx = self._ectx
         ctx = AgentContext(
             user_request=self._user_message,
+            display_name=getattr(spec, "name", "") or "",
             attached_skills=list(self._attached_skills or []),
             attached_hooks=list(self._attached_hooks or []),
             model=self._engine._resolve_model(ectx, spec, self._model_id),
@@ -1488,30 +2129,44 @@ class KernelServices:
             user_id=ectx.disk_principal,
             run_id=self.run_id,
         )
-        await self._engine._run_validation_fix_loop(
-            ctx=ctx,
-            sandbox=self.sandbox,
-            pipeline_run_id=self.run_id,
-            task_num=task_num,
-            total_tasks=total_tasks,
-            cancel_event=self.cancel_event,
-            agent_id=agent_id,
-            filename=deliverable_name,
-            max_attempts=max_attempts,
-            baseline_static=baseline_static,
-            baseline_console=baseline_console,
-            user_instruction=user_instruction,
-            label=label,
-            checkpointer=ectx.checkpointer,
-            # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB):
-            # None → the loop falls back to settings.PROTOTYPE_REQUIRE_RENDER (parity).
-            require_render=getattr(step, "require_render", None),
-            # ISS-033-A: the run's aux usage sink, so the fix sub-agent's tokens are
-            # COUNTED in the run totals instead of discarded by the internal drain.
-            aux_usage_sink=self._aux_usage_sink,
-        )
+        # [Req 14 AC 4 / AC 7] Set the canonical pending_validation_fix entry on ectx
+        # before delegating — this is the single-source declaration of what the fix
+        # sub-agent is allowed to receive: ONLY validation errors and the deliverable
+        # path, nothing else.  The unconditional drain in the finally block clears it
+        # even if the loop raises (AC 7).  INV-3: the field defaults to {} so this is
+        # DORMANT on any run where validation never fails — byte-identical to pre-10.4.
+        ectx.pending_validation_fix[agent_id] = {
+            "filename": deliverable_name,
+            "errors": [],  # populated per-attempt by the loop; this is the seed entry
+        }
+        try:
+            await self._engine._run_validation_fix_loop(
+                ctx=ctx,
+                sandbox=self.sandbox,
+                pipeline_run_id=self.run_id,
+                task_num=task_num,
+                total_tasks=total_tasks,
+                cancel_event=self.cancel_event,
+                agent_id=agent_id,
+                filename=deliverable_name,
+                max_attempts=max_attempts,
+                baseline_static=baseline_static,
+                baseline_console=baseline_console,
+                user_instruction=user_instruction,
+                label=label,
+                checkpointer=ectx.checkpointer,
+                # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB):
+                # None → the loop falls back to settings.PROTOTYPE_REQUIRE_RENDER (parity).
+                require_render=getattr(step, "require_render", None),
+                # ISS-033-A: the run's aux usage sink, so the fix sub-agent's tokens are
+                # COUNTED in the run totals instead of discarded by the internal drain.
+                aux_usage_sink=self._aux_usage_sink,
+            )
+        finally:
+            # Unconditional drain (AC 7): clear the entry so a later dispatch never
+            # replays a stale fix payload for a different agent on the same ectx.
+            ectx.pending_validation_fix.pop(agent_id, None)
 
-    # ── Post-task typed dual-write (keeps _latest_typed_content current) ───────
     async def persist_task_html(
         self,
         task_num: int,

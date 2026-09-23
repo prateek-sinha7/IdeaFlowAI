@@ -1,0 +1,16 @@
+{
+  "url": "http://localhost:3000/library",
+  "tabs": [
+    "Agents 93",
+    "Skills 186",
+    "Hooks 8"
+  ],
+  "selected": [
+    "Agents 93"
+  ],
+  "cards": 0,
+  "inp": [
+    "input[library-search]"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nLibrary\n93 agents · 186 skills · 8 hooks · tap any item to see its capabilities\nAgents 93\nSkills 186\nHooks 8\nAll\n93\nApp Builder\n15\nRetry Loop\n0\nLanguage Branch\n0\nSpanish Greeter\n0\nDutch Greeter\n0\nWorkflow Handoff\n0\nHuman Handoff\n0\nHuman Gate\n0\nPPT\n3\nPPT v2\n2\nPrototype\n5\nUser Stories\n6\nCustom\n10\nArchitecture Agent\nAPP BUILDER\nSolution & System Design\nAnalyzes your requirements and designs the complete application architecture.\n~6s\nConfigure →\nUser Stories Agent\nAPP BUILDER\nRequirements & Acceptance Criteria\nTranslates the architecture into epics, user stories, and Gherkin acceptance criteria the team can pick up as deliverable work.\n~9s\nConfigure →\nSystem Design Agent\nAPP BUILDER\nDetailed Architecture & Decomposition\nDetailed component decomposition, sync/async boundaries, state ownership, deployment topology, and ADRs.\n~10s\nConfigure →\nSecurity Architecture Agent\nAPP BUILDER\nThreat Modelling & Security Controls\nSTRIDE threat model, identity/IAM design, encryption, secrets, WAF, and security gates for the application.\n~9s\nCon"
+}

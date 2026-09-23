@@ -39,6 +39,8 @@ dependencies = [
     "python-docx==1.1.2",
     "python-pptx==1.0.2",
     "pypdf==6.16.1",
+    # Layout-aware PDF text + image boxes for app/agents/tools/file_extract_tools.py (spec 019).
+    "pdfplumber==0.11.10",
     # Browser automation for headless render validation. PRODUCTION, not test:
     # app/agents/render_check.py imports playwright.async_api at runtime and
     # app/agents/validators/html_render.py registers it as a Validator
@@ -134,6 +136,7 @@ dev = [
     "pytest-timeout==2.4.0",
     # Postgres container for the integration suite — test-only, never shipped.
     "testcontainers==4.9.0",
+    "langchain-ollama==1.1.0",
 ]
 
 [tool.uv]
@@ -166,6 +169,7 @@ markers = [
     "requires_postgres_populated_migration: test requires a live PostgreSQL service with migration chain from 0014 to head",
     "allow_io: unit test deliberately performs I/O — must state why (audit these regularly)",
     "live: test makes a live network/provider call — excluded from default offline runs",
+    "issue: the ISS card this test proves; paired with xfail until the fix lands",
     "slow: test takes more than 10 seconds (integration categorization)",
 ]
 

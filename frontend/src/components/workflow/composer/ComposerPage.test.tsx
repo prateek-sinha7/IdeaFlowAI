@@ -155,6 +155,13 @@ function renderComposer(props: Record<string, unknown> = {}) {
       <ComposerPage
         workflowType={"user_stories" as WorkflowType}
         onBack={() => {}}
+        // ComposerPage seeds `pipelineAgents` ONLY from initialManifestSteps /
+        // initialAgentIds — it stopped deriving them from `workflowType` in
+        // 9cf42ca8e. DashboardLayout hands them in from `savedComposition`, so a
+        // bare mount really does render an empty composer. Tests that assert on
+        // rows hand the lineup in the same way; a case that overrides this prop
+        // still wins, since props spread last.
+        initialAgentIds={TEST_AGENTS.map((a) => a.id)}
         {...props}
       />
     </SkillsHooksProvider>,
@@ -180,7 +187,7 @@ beforeEach(() => {
 describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
   it("renders as a full-page surface with the Composer eyebrow + Save affordances", () => {
     renderComposer();
-    expect(screen.getByText(/User Stories · Composer/i)).toBeInTheDocument();
+    expect(screen.getByText(/Custom · Composer/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Save workflow/i })).toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: /Save workflow/i }).length,
@@ -223,8 +230,12 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
 
     // Deliverable-type is read-only text (ND-AH) — the resolved label shows and
     // there is NO editable deliverable control (no combobox / select for it).
+    // ISS-340: that label is DERIVED from `runConfig.deliverable.strategy`
+    // through the same lookup Canvas's combobox uses (a from-scratch mount is
+    // the `streamed_text` default) — it was a hardcoded "Custom" before, which
+    // is what made every built-in's Simple tab contradict its Canvas tab.
     const deliverable = screen.getByTestId("composer-deliverable-type");
-    expect(deliverable).toHaveTextContent("User Stories");
+    expect(deliverable).toHaveTextContent("Streamed text — agent's raw output");
     expect(deliverable.querySelector("select")).toBeNull();
     expect(deliverable.querySelector("input")).toBeNull();
   });
@@ -310,7 +321,7 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
       string, string | undefined, { base_pipeline_type: string; agent_ids: string[] },
     ];
     expect(calledWorkflowId).toBeUndefined();
-    expect(payload.base_pipeline_type).toBe("user_stories");
+    expect(payload.base_pipeline_type).toBe("custom");
     expect(payload.agent_ids.length).toBe(6);
   });
 
@@ -355,6 +366,45 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
     expect(await screen.findByText(msg)).toBeInTheDocument();
   });
+
+  // These two seed agents EXPLICITLY via `initialAgentIds`. The composer no
+  // longer seeds a per-workflowType template — a mount with neither
+  // initialManifestSteps nor initialAgentIds is a genuinely empty canvas now
+  // — so `renderComposer()` bare renders zero agent rows and there would be no
+  // badge to assert on. (That change is also why the seven older tests in this
+  // file fail: they still expect the removed template seeding.)
+  it("header badge counts only review gates (human/before-human), not conditional gates (DEFECT E / ADR-0013)", async () => {
+    // Conditional gates route execution; review gates pause for a human. Only
+    // `human` and `before-human` count toward the badge.
+    renderComposer({
+      initialAgentIds: ["domain-analyst", "epic-architect"],
+      initialSelections: {
+        "domain-analyst": { gates: ["conditional"] },
+        "epic-architect": { gates: ["before-human", "conditional"] },
+      },
+    });
+    const summary = await screen.findByTestId("composer-header-summary");
+    // domain-analyst is conditional-only and must NOT count; epic-architect
+    // carries before-human and must.
+    expect(within(summary).getByText(/review gate/).parentElement).toHaveTextContent(
+      "1 review gate",
+    );
+  });
+
+  it("header badge pluralizes the gate label correctly", async () => {
+    renderComposer({
+      initialAgentIds: ["domain-analyst", "epic-architect"],
+      initialSelections: {
+        "domain-analyst": { gates: ["human"] },
+        "epic-architect": { gates: ["before-human"] },
+      },
+    });
+    const summary = await screen.findByTestId("composer-header-summary");
+    expect(within(summary).getByText(/review gate/).parentElement).toHaveTextContent(
+      "2 review gates",
+    );
+  });
+
 });
 
 // ── Additive / INV-3 source-level guards ────────────────────────────────────────
@@ -376,5 +426,26 @@ describe("ComposerPage — additive, reuses the modal sub-components (INV-3)", (
     // ADR-0010: SkillsHooksTab became HooksTab (skills half retired).
     expect(src).toMatch(/HooksTab/);
     expect(src).toMatch(/AgentPromptSection/);
+  });
+});
+
+// ── Save preserves the saved row's top-level manifest keys (limits, ...) ───────
+describe("ComposerPage — save keeps top-level manifest keys it does not model", () => {
+  it("a re-saved workflow keeps its limits block", async () => {
+    mockSaveUserWorkflow.mockResolvedValue({ id: "wf-1" });
+    const steps = [
+      { agent: "custom-agent", instance_id: "one", name: "One", prompt: "do one thing", gates: [], depends_on: [] },
+      { agent: "custom-agent", instance_id: "two", name: "Two", prompt: "do two", gates: [], depends_on: ["custom-agent:one"] },
+    ];
+    renderComposer({
+      initialName: "Limited flow",
+      initialManifestSteps: steps,
+      initialManifest: { steps, limits: { max_subagents: 200, max_depth: 2 }, seed_files: null },
+    });
+    await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalled());
+    const [, , payload] = mockSaveUserWorkflow.mock.calls[0] as [string, string | undefined, { manifest?: Record<string, unknown> }];
+    expect(payload.manifest).toBeDefined();
+    expect((payload.manifest as { limits?: unknown }).limits).toEqual({ max_subagents: 200, max_depth: 2 });
   });
 });

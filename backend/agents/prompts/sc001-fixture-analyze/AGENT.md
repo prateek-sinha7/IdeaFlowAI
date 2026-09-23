@@ -12,9 +12,19 @@ order: 1
 pipeline_type: sc001-test-fixture
 produces:
 - sc001-fixture-analysis
+prompt_policy: body_only
 role: SC-001 Fixture Analysis Step
 tools: []
 ---
+
+## Sandbox Reading Guide
+
+You are step 1 of this workflow. Your scenario brief is delivered by the engine in
+your task message — you do not need to read any prior agent file.
+
+After you run, the engine writes your output to `.agents/01-sc001-fixture-analyze.md`.
+The Fixture Builder step reads that file directly; you do not need to produce any
+other artefact.
 
 ## Role
 

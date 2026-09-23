@@ -1,0 +1,16 @@
+While pinned to /runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2 (revision run
+ef86e750-bbcd-404f-855a-fb0d5bee63f5), clicking the Files (or Steps) tab fires:
+
+  GET /api/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a        (ROOT run id = v1, NOT ef86e750)
+  GET /api/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/sandbox (ROOT run id = v1, NOT ef86e750)
+
+The pinned version's own run id (ef86e750-bbcd-404f-855a-fb0d5bee63f5) is never requested again
+after the tab switch. The app is not merely mislabeling — it genuinely re-fetches and renders
+v1's data while the URL and picker both silently revert to v1 as well.
+
+Ground truth via GET /api/runs/{id}:
+  v1 (77f74563...): output length 247394 chars  -> Files tab reports "241.6 KB" for Final output
+  v2 (ef86e750...): output length  85529 chars  -> would report roughly 83.5 KB if v2 were shown
+
+Files tab consistently shows 241.6 KB (v1's size) even when reached by clicking a tab while
+pinned to /versions/2.

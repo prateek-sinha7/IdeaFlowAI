@@ -90,7 +90,7 @@ def _extract_task_title(block: str, task_num: int) -> str:
     "task_parser",
     "heading_tasks",
     user_allowed=True,
-    description="Parse a tasks document into tasks by markdown headings (flat task list).",
+    description="Splits the plan into tasks by its headings: one '## Task' heading is one task. Tasks run one after another, in the order written.",
 )
 class HeadingTasksParser:
     """``## Task N:`` (with ``<tasks>`` fallback) plan-text → ``list[Task]`` parser.

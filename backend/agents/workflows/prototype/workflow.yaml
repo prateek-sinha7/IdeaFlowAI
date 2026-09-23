@@ -12,6 +12,9 @@ chained_from:
 - id: ppt
   beta: false
   text: Build the interactive demo
+- id: ppt_v2
+  beta: false
+  text: Build the interactive demo
 description: Navigable, high-fidelity HTML prototype from a brief or story set.
 launch_surface: wizard
 planner: run
@@ -37,24 +40,31 @@ clarify:
 deliverable:
   strategy: single_file
   name: prototype.html
+  # T3-chaining-reachable: prototype.html is written to sandbox disk by the
+  # build loop (native write_file/edit_file), so build_flat_payload always
+  # materializes it — a genuine chainable source (Req 4 AC 4 / Req 6).
+  chains_from: true
 context_providers:
 - opendesign
+- chain_context
 input_providers:
 - run_images
 seed_files: {}
 steps:
 - agent: prototype-specify
   strategy: single_shot
-  gates:
-  - human
+  tools:
+    read_files: true
+    write_files: false
+    exec: false
+  skills: [velocity-design]
+  gates: []
 - agent: prototype-plan
   strategy: single_shot
-  gates:
-  - human
+  gates: []
 - agent: prototype-analyze
   strategy: single_shot
-  gates:
-  - human
+  gates: []
 - agent: prototype-build
   tools: {read_files: true, write_files: true}
   strategy: task_loop

@@ -1,0 +1,24 @@
+Request: PUT http://localhost:8000/api/settings/github-pat
+Trigger: Save clicked with a >512-char value in the GitHub PAT field
+(synthetic test values only, e.g. "ghp_" + "A"*5000 and "github_pat_" + "Z"*600
+ — never a real credential).
+
+Response: 422 Unprocessable Entity
+Body shape (value truncated here to first 60 / last 20 chars — the LIVE
+response from the server contains the FULL submitted string, not truncated):
+
+{"detail":[{"type":"string_too_long","loc":["body","pat"],
+ "msg":"String should have at most 512 characters",
+ "input":"github_pat_ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ...[551 more chars]...ZZZZZZZZZZZZZZZZZZZZ",
+ "ctx":{"max_length":512}}]}
+
+Confirmed via direct read of response-body (browser_network_request) that the
+"input" field is NOT truncated by the server — it is the complete, exact
+string the client submitted, byte for byte. Reproduced twice with two
+different synthetic payloads (5004 chars and 611 chars), same shape both
+times.
+
+Frontend also fails to parse this error shape: instead of a friendly message
+(as it correctly does for the 400 "GitHub rejected the PAT" case), it renders
+the ENTIRE raw JSON string — including the embedded "input" field carrying
+the submitted value — directly as visible page text under the PAT input.

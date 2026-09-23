@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -8,14 +8,15 @@ import {
   RefreshCw, CheckCircle2, AlertCircle, X, LogOut, Ban, PlayCircle, Key,
 } from "lucide-react";
 import {
-  getToken, getMe, logout,
+  ApiError, getToken, getMe, logout,
   adminListUsers, adminUpdateTier, adminCreateUser, adminDeleteUser,
-  adminUpdateRole, adminDisableUser, adminEnableUser, adminResetUserPassword, ApiError,
+  adminUpdateRole, adminDisableUser, adminEnableUser, adminResetUserPassword,
   onAdminMfaRequired,
 } from "@/lib/api";
 import type { AdminUser } from "@/lib/api";
 import { buildLoginRedirect } from "@/lib/authRedirect";
 import { TIER_LABELS } from "@/lib/entitlements";
+import { routes } from "@/lib/routes";
 import type { Tier } from "@/lib/entitlements";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -26,6 +27,12 @@ import { CapacityMatrix } from "@/components/admin/CapacityMatrix";
 import { useCapacityMatrix } from "@/hooks/useCapacityMatrix";
 
 const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise", "hexaware"];
+
+// The Create-User modal is a plain <div>, not a <form>, so the Email input's
+// type="email" never fires a native constraint check (ISS-295). Gate on shape
+// explicitly instead; the backend's EmailStr on CreateUserRequest is the real
+// authority — this only stops the submit before it leaves the page.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Tier -> Badge status key (token-backed chip): basic=neutral grey, pro=brand
 // violet, enterprise=green. The tier LABEL is passed explicitly so the chip
@@ -125,7 +132,7 @@ export default function AdminPage() {
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; email: string } | null>(null);
   // specs/014 §3.7 — Users | Machines tabs. Users stays the default so the
   // existing landing behavior (and every render test that awaits
   // "alice@example.com" without first switching tabs) is unaffected.
@@ -140,9 +147,25 @@ export default function AdminPage() {
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  // ISS-818: Delete and the admin-role toggle had no in-flight guard, so a
+  // fast double-click fired two concurrent mutations (the second DELETE 404s
+  // once the first lands, flashing a "Failed to delete user" toast on a
+  // deletion that actually succeeded). Same shape as `creating` above and
+  // TierDropdown's own `loading`. Role is keyed by user id — separate rows
+  // are genuinely independent actions and must not block each other.
+  const [deleting, setDeleting] = useState(false);
+  const [rolePending, setRolePending] = useState<string[]>([]);
+
+  // Every toast on this page shares one dismiss timer. Without cancelling the
+  // pending one, an earlier call's 3.5s timeout nulls a NEWER toast that
+  // replaced it — e.g. the create-success toast erasing the duplicate-email
+  // 409 error toast that follows it within 3.5s (ISS-324/ISS-487).
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showToast = useCallback((type: "success" | "error", text: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ type, text });
-    setTimeout(() => setToast(null), 3500);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
   // An admin who holds no second factor is refused by `require_admin` on every
@@ -179,7 +202,7 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const data = await adminListUsers(t);
-      setUsers(data);
+      setUsers(Array.isArray(data) ? data : []);
     } catch {
       showToast("error", "Failed to load users");
     } finally {
@@ -194,9 +217,19 @@ export default function AdminPage() {
     // Verify admin access — a non-admin is sent to the main application, not
     // back through login (they ARE authenticated, just not authorized here).
     getMe(token).then(user => {
-      if (!user.is_admin) { router.replace("/dashboard"); return; }
+      if (!user.is_admin) { router.replace(routes.dashboard()); return; }
       loadUsers(token);
-    }).catch(() => router.replace(buildLoginRedirect()));
+    }).catch((err: unknown) => {
+      // FR-015: on a 401 getMe() has ALREADY gone through lib/api.ts's shared
+      // handleSessionExpiry() — token cleared, full-page nav to
+      // /login?expired=true queued. Racing that with a client-side
+      // router.replace() can land the user on a bare /login with no expiry
+      // message, so 401 returns here and lets the shared redirect win.
+      // Any other failure keeps the plain login bounce — via
+      // buildLoginRedirect() so they return to /admin after signing back in.
+      if (err instanceof ApiError && err.status === 401) return;
+      router.replace(buildLoginRedirect());
+    });
   }, [router, loadUsers]);
 
   const handleUpdateTier = async (userId: string, tier: string) => {
@@ -214,7 +247,8 @@ export default function AdminPage() {
 
   const handleUpdateRole = async (userId: string, isAdmin: boolean) => {
     const token = getToken();
-    if (!token) return;
+    if (!token || rolePending.includes(userId)) return;
+    setRolePending(prev => [...prev, userId]);
     try {
       const updated = await adminUpdateRole(token, userId, isAdmin);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_admin: updated.is_admin } : u));
@@ -229,11 +263,13 @@ export default function AdminPage() {
       }
       const msg = err instanceof Error ? err.message : "Failed to update role";
       showToast("error", msg);
+    } finally {
+      setRolePending(prev => prev.filter(id => id !== userId));
     }
   };
 
   const handleCreateUser = async () => {
-    if (!newEmail) return;
+    if (!EMAIL_PATTERN.test(newEmail)) return;
     const token = getToken();
     if (!token) return;
     setCreating(true);
@@ -290,7 +326,8 @@ export default function AdminPage() {
 
   const handleDeleteUser = async (userId: string) => {
     const token = getToken();
-    if (!token) return;
+    if (!token || deleting) return;
+    setDeleting(true);
     try {
       await adminDeleteUser(token, userId);
       setUsers(prev => prev.filter(u => u.id !== userId));
@@ -312,12 +349,14 @@ export default function AdminPage() {
         }
       }
       showToast("error", "Failed to delete user");
+    } finally {
+      setDeleting(false);
     }
   };
 
   const handleLogout = async () => {
     await logout(getToken() ?? "");
-    router.replace("/login");
+    router.replace(routes.login());
   };
 
   const filtered = users.filter(u =>
@@ -354,7 +393,7 @@ export default function AdminPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.push(routes.dashboard())}
             className="text-[11px] font-medium text-white/70 hover:text-white px-3 py-1.5 rounded-[var(--radius-button)] hover:bg-white/10 transition-colors font-sans"
           >
             ← Back to app
@@ -480,8 +519,12 @@ export default function AdminPage() {
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2.5">
                         <div className="h-7 w-7 rounded-full bg-brand-fill flex items-center justify-center flex-shrink-0">
+                          {/* ISS-405: user.email[0] throws TypeError when email is an empty
+                              string (e.g. persisted via a direct API POST that bypasses the
+                              client's presence check). Guard with || '?' so the avatar still
+                              renders rather than crashing the whole /admin table. */}
                           <span className="text-[10px] font-bold text-brand">
-                            {user.email[0].toUpperCase()}
+                            {(user.email || "?")[0].toUpperCase()}
                           </span>
                         </div>
                         <div>
@@ -503,6 +546,7 @@ export default function AdminPage() {
                     <td className="px-4 py-3.5 text-center">
                       <button
                         onClick={() => handleUpdateRole(user.id, !user.is_admin)}
+                        disabled={rolePending.includes(user.id)}
                         aria-label={user.is_admin ? `Remove admin access from ${user.email}` : `Grant admin access to ${user.email}`}
                         className="inline-flex items-center"
                         title={user.is_admin ? "Click to remove admin access" : "Click to grant admin access"}
@@ -562,7 +606,7 @@ export default function AdminPage() {
                           </button>
                         )}
                         <button
-                          onClick={() => setDeleteConfirm(user.id)}
+                          onClick={() => setDeleteConfirm({ id: user.id, email: user.email })}
                           aria-label={`Delete ${user.email}`}
                           title="Permanently delete this account"
                           className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-button)] text-ink-400 hover:text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors"
@@ -639,7 +683,7 @@ export default function AdminPage() {
                 </p>
                 <Button
                   onClick={handleCreateUser}
-                  disabled={creating || !newEmail}
+                  disabled={creating || !EMAIL_PATTERN.test(newEmail)}
                   className="w-full mt-1"
                 >
                   {creating ? "Sending invite..." : "Send Invitation"}
@@ -671,6 +715,10 @@ export default function AdminPage() {
                 <Trash2 className="h-5 w-5 text-status-failed" />
               </div>
               <h3 className="text-[14px] font-semibold text-ink-900 mb-1 font-sans">Delete user?</h3>
+              {/* ISS-415: show the email so the admin can confirm they are
+                  deleting the right account. deleteConfirm now carries {id, email}
+                  instead of just the id string. */}
+              <p className="text-[11px] font-medium text-ink-700 mb-1 truncate px-2">{deleteConfirm.email || "(no email)"}</p>
               <p className="text-[12px] text-ink-500 mb-5">
                 This will permanently delete the user and all their data. This cannot be undone.
                 The account is disabled immediately; if the identity-provider cleanup can&apos;t
@@ -680,8 +728,9 @@ export default function AdminPage() {
                 <Button variant="secondary" onClick={() => setDeleteConfirm(null)} className="flex-1">
                   Cancel
                 </Button>
-                <button onClick={() => handleDeleteUser(deleteConfirm)}
-                  className="flex-1 py-2.5 rounded-[var(--radius-button)] bg-status-failed text-white text-[12.5px] font-semibold font-sans hover:opacity-90 transition-opacity">
+                <button onClick={() => handleDeleteUser(deleteConfirm.id)}
+                  disabled={deleting}
+                  className="flex-1 py-2.5 rounded-[var(--radius-button)] bg-status-failed text-white text-[12.5px] font-semibold font-sans hover:opacity-90 transition-opacity disabled:cursor-not-allowed disabled:opacity-60">
                   Delete
                 </button>
               </div>

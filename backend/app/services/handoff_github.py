@@ -34,6 +34,8 @@ from typing import Iterable, Optional
 
 import httpx
 
+from app.core.http_client import default_ssl_context
+
 logger = logging.getLogger("app.services.handoff_github")
 
 
@@ -291,7 +293,7 @@ async def get_repo_metadata(target: RepoTarget, pat: str) -> dict[str, str]:
     non-2xx responses; the caller surfaces this as a pipeline failure.
     """
     url = f"{target.api_base}/repos/{target.owner}/{target.repo}"
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, verify=default_ssl_context()) as client:
         resp = await client.get(
             url,
             headers={
@@ -333,7 +335,7 @@ async def create_pull_request(
         "draft": draft,
         "maintainer_can_modify": True,
     }
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, verify=default_ssl_context()) as client:
         resp = await client.post(
             url,
             headers={

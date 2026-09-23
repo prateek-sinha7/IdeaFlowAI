@@ -322,3 +322,81 @@ describe("AuditTab (SC-3 — 3-endpoint reader + category-group filters + export
     expect(await screen.findByText(/No audit records/i)).toBeTruthy();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG-20260828-013900-runs-id-audit — ordinary audit_logger hook_runs telemetry
+// (before_step/tool_call/tool_result) is fabricated into Governance/Gate rows
+// instead of the "activity" fine category that already exists for exactly this
+// lifecycle telemetry. ISS-202 (root), ISS-211 (export inherits it), ISS-212
+// (also fires on an in-progress run because the fetch effect never keys off
+// isRunning).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("AuditTab — audit_logger hook_runs telemetry must not fabricate Governance/Gate rows (BUG-20260828-013900-runs-id-audit)", () => {
+  const RUN = "r1";
+  const AUDIT_LOGGER_HOOK_RUNS = {
+    workflow_id: RUN,
+    hook_runs: [
+      {
+        id: "h1",
+        run_id: RUN,
+        hook: "audit_logger",
+        event: "before_step",
+        outcome: "continue",
+        detail: { step: "build", summary: "step build started" },
+        created_at: "2026-07-08T10:00:00Z",
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.mocked(api.getToken).mockReturnValue("tok");
+    vi.mocked(api.getRunGateEvents).mockResolvedValue({ workflow_id: RUN, gate_events: [] });
+    vi.mocked(api.getRunValidationResults).mockResolvedValue({ workflow_id: RUN, validation_results: [] });
+    vi.mocked(api.getRunExecRuns).mockResolvedValue({ workflow_id: RUN, exec_runs: [] });
+    vi.mocked(api.getRunHookRuns).mockResolvedValue(AUDIT_LOGGER_HOOK_RUNS);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("[ISS-202] an audit_logger hook_runs row lands in the Activity group, not Governance", async () => {
+    render(<AuditTab workflowRunId={RUN} />);
+    await waitFor(() => expect(api.getRunHookRuns).toHaveBeenCalled());
+    await waitFor(() => {
+      // one merged row total (only the hook_runs entry — gates/validations/execs are empty).
+      expect(screen.getByTestId("audit-stat-checks").textContent).toContain("1");
+    });
+    // Real gate-events endpoint reported zero gates, so Governance must show 0.
+    expect(screen.getByTestId("audit-filter-gov").textContent).toContain("0");
+    // The audit_logger telemetry must instead count under Activity.
+    expect(screen.getByTestId("audit-filter-act").textContent).toContain("1");
+  });
+
+  it("[ISS-212] the same fabrication-free result holds while the run is still in progress (isRunning=true)", async () => {
+    render(<AuditTab workflowRunId={RUN} isRunning />);
+    await waitFor(() => expect(api.getRunHookRuns).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.getByTestId("audit-stat-checks").textContent).toContain("1");
+    });
+    expect(screen.getByTestId("audit-filter-gov").textContent).toContain("0");
+    expect(screen.getByTestId("audit-filter-act").textContent).toContain("1");
+  });
+
+  it("[ISS-211] the CSV/JSON export inherits the fix — no exported row is mis-tagged category:\"gate\" for audit_logger telemetry", async () => {
+    const jsonSpy = vi.spyOn(exporterMod, "exportAuditJSON").mockImplementation(() => {});
+    render(<AuditTab workflowRunId={RUN} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("audit-stat-checks").textContent).toContain("1");
+    });
+    fireEvent.click(screen.getByTestId("audit-export-menu"));
+    fireEvent.click(screen.getByTestId("audit-export-json"));
+    expect(jsonSpy).toHaveBeenCalledTimes(1);
+    const exported = jsonSpy.mock.calls[0][0] as Array<{ category: string; fineCategory: string }>;
+    expect(exported).toHaveLength(1);
+    expect(exported[0].category).not.toBe("gate");
+    expect(exported[0].fineCategory).toBe("activity");
+    jsonSpy.mockRestore();
+  });
+});

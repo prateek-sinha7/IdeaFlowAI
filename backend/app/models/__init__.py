@@ -51,6 +51,11 @@ from app.models.subagent_run import SubagentRun  # noqa: F401
 # Alembic autogenerate/check (Pitfall 5).
 from app.models.wave_run import WaveRun  # noqa: F401
 
+# Sandbox git versioning task 5.1/8.2 — imported here so Base.metadata sees the
+# tables for Alembic autogenerate/check (Pitfall 5).
+from app.models.run_finalization import RunFinalization  # noqa: F401
+from app.models.run_provenance_audit import RunProvenanceAudit  # noqa: F401
+
 # Cognito-only auth migration (0038) — imported here so Base.metadata sees it
 # for Alembic autogenerate/check (Pitfall 5).
 from app.models.pending_cognito_deletion import PendingCognitoDeletion  # noqa: F401

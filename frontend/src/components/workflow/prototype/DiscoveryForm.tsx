@@ -141,9 +141,9 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200/70 bg-white p-6">
-      <h3 className="text-[14px] font-semibold text-gray-900">{title}</h3>
-      {hint && <p className="mt-1 text-[12px] text-gray-500">{hint}</p>}
+    <div className="rounded-2xl border border-line-border bg-surface-white p-6">
+      <h3 className="text-[14px] font-semibold text-ink-900">{title}</h3>
+      {hint && <p className="mt-1 text-[12px] text-ink-500">{hint}</p>}
       <div className="mt-5">{children}</div>
     </div>
   );
@@ -162,14 +162,14 @@ function FieldText({
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[12px] font-medium text-gray-800">{label}</span>
-      {description && <span className="text-[11px] text-gray-500">{description}</span>}
+      <span className="text-[12px] font-medium text-ink-800">{label}</span>
+      {description && <span className="text-[11px] text-ink-500">{description}</span>}
       <input
         type="text"
         name={label.toLowerCase().replace(/\s+/g, "-")}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-0.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+        className="mt-0.5 rounded-lg border border-line-border bg-surface-white px-3 py-2 text-[13px] text-ink-900 placeholder:text-ink-400 focus:border-brand focus:outline-none"
       />
     </label>
   );
@@ -188,7 +188,7 @@ function FieldRadio({
 }) {
   return (
     <fieldset className="flex flex-col gap-2">
-      <legend className="text-[12px] font-medium text-gray-800">{label}</legend>
+      <legend className="text-[12px] font-medium text-ink-800">{label}</legend>
       <div className="flex flex-wrap gap-2">
         {options.map((opt) => {
           const selected = value === opt;
@@ -202,8 +202,8 @@ function FieldRadio({
               onClick={() => onChange(selected ? "" : opt)}
               className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                 selected
-                  ? "border-[#1B2A4A] bg-[#1B2A4A] text-white"
-                  : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                  ? "border-brand bg-brand text-white"
+                  : "border-line-border bg-surface-white text-ink-700 hover:border-line-control"
               }`}
             >
               {opt}

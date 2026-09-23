@@ -1,0 +1,70 @@
+"""Add share_token + share_expires_at to workflow_runs (Option B public share).
+
+Adds two nullable columns so run owners can mint a short-lived public share
+token that lets anyone view the deliverable without authenticating:
+
+  * ``share_token``      (String, nullable, unique) — a cryptographically
+    random token (32 URL-safe bytes, 43 base64url chars).  NULL means the
+    run has never been shared.  The owner can revoke the share by clearing it.
+
+  * ``share_expires_at`` (DateTime, nullable) — optional expiry; NULL means
+    the share is permanent until revoked.  The /s/{token} route checks this
+    and returns 410 Gone when expired.
+
+SECURITY NOTES:
+  - The token is opaque and carries no user or run id — it is a pure lookup
+    key.  Cross-ownership is impossible: the /s/ route only echoes the
+    ``output`` + ``deliverable_mimetype`` columns (not input, agent_outputs,
+    token_usage, or any PII).
+  - The unique index lets the /s/ route resolve in O(log n) without scanning
+    the whole table.
+  - Revoke by DELETE /api/runs/{id}/share sets share_token = NULL.
+
+ADDITIVE ONLY: no existing column is altered, no existing data is affected.
+``batch_alter_table`` for SQLite portability (the 0027/0038/0039 pattern),
+reached via ``add_column_if_missing``.
+
+RE-APPLIABILITY (guarded retroactively): the idempotency ratchet was installed
+at 0038 and 0041-0050 shipped unguarded, so re-running this against a database
+that already holds ``share_token`` raised ``DuplicateColumn`` and crash-looped
+the container (``docker-entrypoint.sh`` runs ``alembic upgrade head`` under
+``set -eu``). The guards change only that branch; the end schema is identical.
+"""
+
+import sqlalchemy as sa
+from alembic import op
+
+from migration_helpers import add_column_if_missing, create_index_if_missing
+
+revision = "0043"
+down_revision = "0042"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    add_column_if_missing(
+        "workflow_runs", sa.Column("share_token", sa.String(), nullable=True)
+    )
+    add_column_if_missing(
+        "workflow_runs", sa.Column("share_expires_at", sa.DateTime(), nullable=True)
+    )
+
+    # Sparse unique index — only one row per token value; NULLs are excluded
+    # (both SQLite and Postgres treat NULLs as distinct in a unique index, but
+    # the WHERE clause makes the intent explicit and avoids vendor surprises).
+    create_index_if_missing(
+        "uq_workflow_runs_share_token",
+        "workflow_runs",
+        ["share_token"],
+        unique=True,
+        sqlite_where=sa.text("share_token IS NOT NULL"),
+        postgresql_where=sa.text("share_token IS NOT NULL"),
+    )
+
+
+def downgrade() -> None:
+    op.drop_index("uq_workflow_runs_share_token", table_name="workflow_runs")
+    with op.batch_alter_table("workflow_runs") as b:
+        b.drop_column("share_expires_at")
+        b.drop_column("share_token")

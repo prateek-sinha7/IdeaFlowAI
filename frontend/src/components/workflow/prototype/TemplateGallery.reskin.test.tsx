@@ -87,7 +87,7 @@ describe("TemplateGallery reskin — real search / filter / select preserved", (
     const onSelect = vi.fn();
     render(<TemplateGallery templates={TEMPLATES} selectedId="alpha" onSelect={onSelect} />);
 
-    fireEvent.click(screen.getByText("No template"));
+    fireEvent.click(screen.getByText("Default Template"));
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 

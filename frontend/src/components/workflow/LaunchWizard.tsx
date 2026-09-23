@@ -1,15 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip,
-  Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon, ArrowLeft,
+  Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon, ArrowLeft, Lock,
+  AlertTriangle,
 } from "lucide-react";
-import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
-import { ATTACH_MAX_CHARS } from "@/lib/constants";
-import { agentMatchesPipelineType } from "@/lib/workflowIcons";
+import {
+  getToken,
+  getMe,
+  extractFileText,
+  stageRunFile,
+  createUserWorkflow,
+  handleSessionExpiry,
+  getWorkflowDetail,
+  setWorkflowOverrideEnabled,
+} from "@/lib/api";
+import { orderedStagedUploadIds } from "@/components/workflow/IdeaInputPage";
+import { agentsFromManifest } from "@/lib/manifestAgents";
+import type { ManifestStep } from "@/types";
 import { buildLoginRedirect } from "@/lib/authRedirect";
+import { routes } from "@/lib/routes";
+import { goBackOr } from "@/lib/navigation";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
+import { CHAIN_SOURCE_RUN_ID_KEY, CHAIN_SOURCE_STATUS_KEY, migrateChainStorageV2 } from "@/lib/workflowChaining";
+import { canRunPipeline, getUpgradeTier, TIER_LABELS, type Tier } from "@/lib/entitlements";
+import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -25,7 +42,7 @@ import {
   type DiscoveryAnswers,
 } from "@/components/workflow/prototype/DiscoveryForm";
 import { ReviewGatesSection } from "@/components/workflow/ReviewGatesSection";
-import { AgentsPopup } from "@/components/workflow/AgentsPopup";
+import { AgentsPopup, type SelectionsMap } from "@/components/workflow/AgentsPopup";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
@@ -38,7 +55,9 @@ import {
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
 import type { AgentDef } from "@/types/index";
-import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
+import { CUSTOM_AGENT_PREFIX } from "@/store/api/userWorkflows";
+import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
+import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload } from "@/lib/uploadTypes";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -57,17 +76,24 @@ import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflow
  * All colours route through the @theme token layer; NO retired palette.
  */
 
-/** The Web/Deck stepper toggle value ↔ the deliverable mode. */
-const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", ppt: "deck" };
-function modeFromStepper(m: "web" | "deck"): LaunchMode {
-  return m === "web" ? "prototype" : "ppt";
+/** The Web/Deck stepper toggle value ↔ the deliverable mode. `ppt_v2` is a deck
+ *  deliverable, so it sits under "deck" alongside `ppt`. */
+const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", prototype_v2: "web", ppt: "deck", ppt_v2: "deck" };
+/** Two deck modes share one stepper slot, so the toggle cannot recover which one
+ *  from "deck" alone. `deckMode` is the family this wizard was opened for, which
+ *  is what toggling web → deck must restore; without it a ppt_v2 launch would
+ *  silently downgrade to ppt on a round-trip through the toggle. */
+function modeFromStepper(m: "web" | "deck", deckMode: LaunchMode, webMode: LaunchMode): LaunchMode {
+  return m === "web" ? webMode : deckMode;
 }
 
 interface ModeConfig {
   /** AgentLibraryData `pipeline_type` for the default lineup. */
-  agentPipeline: "prototype" | "ppt";
-  /** `base_pipeline_type` sent to POST /api/user-workflows on Save. */
-  savePipeline: "od_prototype" | "od_ppt";
+  agentPipeline: LaunchMode;
+  /** `base_pipeline_type` sent to POST /api/user-workflows on Save — must be
+   *  a live catalog id. `od_prototype`/`od_ppt` are retired aliases the
+   *  backend no longer accepts (422 "Unsupported base_pipeline_type"). */
+  savePipeline: LaunchMode;
   title: string;
   chainingTitle: string;
   eyebrow: string;
@@ -80,7 +106,7 @@ interface ModeConfig {
 const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   prototype: {
     agentPipeline: "prototype",
-    savePipeline: "od_prototype",
+    savePipeline: "prototype",
     title: "Configure your prototype",
     chainingTitle: "Pick a template & design system",
     eyebrow: "New prototype",
@@ -92,10 +118,41 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   },
   ppt: {
     agentPipeline: "ppt",
-    savePipeline: "od_ppt",
+    savePipeline: "ppt",
     title: "Configure your presentation",
     chainingTitle: "Pick a template",
     eyebrow: "New presentation",
+    chainingEyebrow: "Chained presentation",
+    placeholder:
+      "e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors.",
+    briefLabel: "Describe your presentation",
+    saveTitle: "Save presentation workflow",
+  },
+  // Same web wizard as `prototype` — same template step, same design systems —
+  // because it declares the same `opendesign` context provider and `design_mode`.
+  // Only the pipeline it launches and the copy differ (the ppt/ppt_v2 precedent).
+  prototype_v2: {
+    agentPipeline: "prototype_v2",
+    savePipeline: "prototype_v2",
+    title: "Configure your prototype",
+    chainingTitle: "Pick a template & design system",
+    eyebrow: "New prototype from documents",
+    chainingEyebrow: "Chained prototype",
+    placeholder:
+      "e.g. Read the attached job aids and build a clickable prototype of the screens they describe.",
+    briefLabel: "Describe what you're building",
+    saveTitle: "Save prototype workflow",
+  },
+  // Spec 017. Same deck wizard as `ppt` — same template step, same design
+  // systems — because it reuses ppt's first two agents verbatim and needs the
+  // same opendesign template context they inject. Only the pipeline it launches
+  // and the copy differ.
+  ppt_v2: {
+    agentPipeline: "ppt_v2",
+    savePipeline: "ppt_v2",
+    title: "Configure your presentation",
+    chainingTitle: "Pick a template",
+    eyebrow: "New presentation + PowerPoint",
     chainingEyebrow: "Chained presentation",
     placeholder:
       "e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors.",
@@ -112,6 +169,40 @@ const CHAIN_SOURCE_LABEL: Record<string, string> = {
   app_builder: "App Builder", app_builder_revision: "App Builder",
 };
 
+/**
+ * Complete a plan row from the agent library WITHOUT losing the plan's own shape.
+ *
+ * The library copy carries presentation only (icon, duration, canonical name/role).
+ * The PLAN row carries the authoring shape — `children` (a fan-out parent's
+ * sub-agents), `strategy`, `maxParallel`, `route`, `prompt`, `tools`. Swapping the
+ * whole node for the library one, as this used to do, silently discarded all of
+ * that for any step whose id the library happens to know — so a `wave_scheduler`
+ * step rendered as a plain node and a fan-out parent lost its children.
+ */
+export function mergePlanWithLibrary(
+  planAgents: AgentDef[],
+  libraryAgents: AgentDef[],
+): AgentDef[] {
+  const byId = new Map(libraryAgents.map((a) => [a.id, a]));
+  const merge = (step: AgentDef): AgentDef => {
+    const lib = byId.get(step.id);
+    const merged: AgentDef = lib
+      ? {
+          ...step,
+          name: step.name || lib.name,
+          role: step.role || lib.role,
+          description: step.description || lib.description,
+          icon: step.icon || lib.icon,
+          estimated_duration: step.estimated_duration || lib.estimated_duration,
+        }
+      : step;
+    return step.children?.length
+      ? { ...merged, children: step.children.map(merge) }
+      : merged;
+  };
+  return planAgents.map(merge);
+}
+
 const defaultAgentsFor = (libraryAgents: AgentDef[], mode: LaunchMode): AgentDef[] =>
   libraryAgents.filter((a) => agentMatchesPipelineType(a.pipeline_type, MODE_CONFIG[mode].agentPipeline)).sort(
     (a, b) => a.order - b.order,
@@ -127,7 +218,22 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const { libraryAgents } = useAgentLibrary();
 
   const [authChecked, setAuthChecked] = useState(false);
+  // ISS-321: the signed-in tier, for the entitlement gate below. `null` until
+  // the profile resolves (or if it fails) — the wizard is never locked on a
+  // tier it does not know, so a profile blip cannot brick an entitled user.
+  const [tier, setTier] = useState<Tier | null>(null);
   const [mode, setMode] = useState<LaunchMode>(initialMode);
+  // Which deck deliverable the Deck half of the toggle means for THIS wizard —
+  // see modeFromStepper. Fixed at open; the toggle switches families, not
+  // deliverables within a family.
+  const deckMode: LaunchMode = initialMode === "ppt_v2" ? "ppt_v2" : "ppt";
+  // The web analogue of deckMode: which web deliverable the Web half of the toggle
+  // means for THIS wizard. Without it, toggling deck -> web would silently downgrade
+  // a prototype_v2 launch to prototype — the same bug deckMode exists to prevent.
+  const webMode: LaunchMode = initialMode === "prototype_v2" ? "prototype_v2" : "prototype";
+  // Web-family test. Keyed on STEPPER_MODE data, never on a workflow name, so a new
+  // web deliverable joins by adding one STEPPER_MODE row (SC-001 / INV-1).
+  const isWeb = STEPPER_MODE[mode] === "web";
   // Chrome (title/eyebrow/brief label/placeholder/save-modal title) MUST track the
   // LIVE mode, not the immutable initialMode — the Web/Deck toggle switches families
   // in-page, and freezing chrome to initialMode mislabels a deck as a prototype.
@@ -156,6 +262,15 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // Image-input Wave 2 (D3): images ride OUT-OF-BAND via the draft `images`
   // field — SEPARATE from attachedFileContents (which is inlined into the brief).
   const [attachedImages, setAttachedImages] = useState<{ name: string; mime_type: string; data: string }[]>([]);
+  // UPLD-05: raw documents staged server-side at attach time, exactly as
+  // `useBriefAttachments` does for IdeaInputPage/ComposerPage. This wizard used to
+  // ONLY inline the capped text extraction, so `.uploads/` was empty at launch and a
+  // file-reading workflow (prototype_v2's `fi-planner` opens `.uploads/manifest.json`)
+  // had nothing to read — unlaunchable from its own declared `launch_surface: wizard`.
+  // `attachIndex` is stamped synchronously below because these entries append in
+  // stage-RESPONSE order, not attach order.
+  const [stagedUploads, setStagedUploads] = useState<{ name: string; stageId: string; attachIndex: number }[]>([]);
+  const attachIndexRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } =
@@ -163,36 +278,74 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   const [chainFrom, setChainFrom] = useState<string | null>(null);
   const [chainContextBlock, setChainContextBlock] = useState<string | null>(null);
+  // SGV2 11.7: published status of the chain source run when it is non-success
+  // (e.g. "failed", "cancelled", "degraded"). Null means completed / no source.
+  const [chainSourceStatus, setChainSourceStatus] = useState<string | null>(null);
+  // SGV2 11.7: whether the user has acknowledged the pre-launch warning for a
+  // non-success source. Must be true before launch is permitted.
+  const [warningAcknowledged, setWarningAcknowledged] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
 
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
 
+  // ── The compiled plan's steps, for roster completion (spec 017) ─────────────
+  // `defaultAgentsFor` filters the agent library by each AGENT.md's single
+  // `pipeline_type` field. That is a complete roster only while every step of a
+  // workflow declares that workflow. `ppt_v2` REUSES ppt's first two steps, so
+  // the library yields 2 of its 4 — a partial lineup, in the one place the user
+  // reads to learn what will run. The manifest is the authority; when it lists
+  // more steps than the library found, it wins.
+  const [planAgents, setPlanAgents] = useState<AgentDef[] | null>(null);
+  // The manifest's RAW steps, for the Advanced canvas. `planAgents` is a flat
+  // roster (agent_ids are built from it); the canvas needs the tree, so it is
+  // rebuilt from these by `workflowCanvasModel` inside AgentsPopup.
+  const [planManifestSteps, setPlanManifestSteps] = useState<ManifestStep[] | undefined>(undefined);
+
+  // ── Spec 016: this user's saved override of the built-in ────────────────────
+  // OVERLAY, never replace. `pipelineAgents`'s initial value above stays the
+  // library roster: swapping its source wholesale would change this screen for
+  // every user, override or not, and the two sources are not guaranteed to agree
+  // (the library sorts by AGENT.md `order`; a manifest is the compiled sequence).
+  // The effect below returns early unless an ENABLED override exists, so a user
+  // without one sees a byte-identical screen having issued one extra GET.
+  const [overrideInfo, setOverrideInfo] = useState<{
+    id: string;
+    enabled: boolean;
+  } | null>(null);
+  // The override's rows + declared gates, fetched once and held so toggling the
+  // checkbox is instant and does not re-hit the API.
+  const [overrideAgents, setOverrideAgents] = useState<AgentDef[] | null>(null);
+  const [overrideSelections, setOverrideSelections] = useState<
+    Record<string, Record<string, unknown>> | undefined
+  >(undefined);
+  const [showOverride, setShowOverride] = useState(false);
+  // The built-in's DECLARED run config, so the Advanced rail shows what this
+  // workflow actually does instead of CanvasView's blank-canvas defaults.
+  // Read-only — no onRunConfigChange is forwarded, so nothing here is editable
+  // or sent; it exists purely so the panel stops misreporting.
+  const [declaredRunConfig, setDeclaredRunConfig] = useState<
+    import("@/types/index").WorkflowRunConfig | undefined
+  >(undefined);
+
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
-  // react-hooks/refs flags `selectionsRef.current` read at the JSX attribute
-  // below, even though it's a legitimate read-once-at-mount seed: AgentsPopup
-  // is keyed on `userWorkflowId`, so a key change forces a REMOUNT and the
-  // seed is consumed by AgentsPopup's OWN useState initializer (read once,
-  // not tracked reactively) — the sanctioned "reset via key change" idiom the
-  // rule's static analysis cannot see through a `key`. Mirrors the fix in
-  // useMeasuredVirtualWindow.ts: sync the ref into state via a layout effect
-  // (committed before paint, so the FIRST render already has the real seed —
-  // no flash of an empty AgentsPopup) and read ONLY state at the JSX site.
-  const [selectionsSeed, setSelectionsSeed] = useState<
-    Record<string, Record<string, unknown>>
-  >({});
-  // No dependency array: the seed must re-sync on every render, because
-  // selectionsRef.current is written by an effect (draft restore), a mode
-  // change and every AgentsPopup lever edit — none of which are values a
-  // dependency array can track. The identity guard below (returning `prev`
-  // when the ref object has not changed) is what prevents an update loop.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => {
-    setSelectionsSeed((prev) =>
-      prev === selectionsRef.current ? prev : selectionsRef.current,
-    );
-  });
-  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+  // ISS-247 — the LIVE map the Advanced modal renders from. AgentsPopup used to
+  // own this privately (a mount-once seed off `selectionsRef`), so a gate checked
+  // in the Review-gates checklist on this page was invisible inside the modal.
+  // Every writer below goes through `handleSelectionsChange`, which keeps the ref
+  // (read by launch + save) and this state in step.
+  const [liveSelections, setLiveSelections] = useState<SelectionsMap>({});
+  // The ONE writer of that pair — every restore/reset below routes through it so
+  // the ref and the rendered map can never drift apart (ISS-247).
+  const handleSelectionsChange = useCallback((s: SelectionsMap) => {
+    selectionsRef.current = s;
+    setLiveSelections(s);
+  }, []);
+  // `touched: true` from the start is FIX-323: `gate_agent_ids` is ALWAYS sent, so
+  // an empty selection reads as an explicit "no gates" rather than an absent field
+  // the backend would fill from its own defaults. ISS-247 changed the live map, not
+  // this contract — do not revert it to false.
+  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
 
   // Save-workflow state.
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -212,17 +365,33 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     const token = getToken();
     if (!token) { router.replace(buildLoginRedirect()); return; }
     setAuthChecked(true);
+    // ISS-321: the wizard is reached from two separate routes (the `[...view]`
+    // catch-all's wizardMode branch and the standalone `/workflow/create`
+    // page), so it owns the tier lookup rather than taking it as a prop from
+    // one of them. Non-fatal: a failure leaves `tier` null and gates nothing.
+    getMe(token).then((u) => setTier(u.tier)).catch(() => {});
     const from = sessionStorage.getItem("chain.from");
     if (from) {
       setChainFrom(from);
       sessionStorage.removeItem("chain.from");
     }
-    const ctx = sessionStorage.getItem("chain.context_block");
-    if (ctx) setChainContextBlock(ctx);
+    // SGV2 11.7: pick up the source run status written by WorkflowHistory when
+    // chaining from a non-success run.
+    const sourceStatus = sessionStorage.getItem(CHAIN_SOURCE_STATUS_KEY);
+    if (sourceStatus) {
+      setChainSourceStatus(sourceStatus);
+      sessionStorage.removeItem(CHAIN_SOURCE_STATUS_KEY);
+    }
+    // v2: migrate away from the legacy chain.context_block key on first load.
+    migrateChainStorageV2();
   }, [router]);
 
   // Restore the draft the dashboard/Saved-workflow hand-off wrote for THIS mode,
   // then clear it (FIX-005: one-shot, so a fresh open never pre-fills stale data).
+  // T29 / cold-mount fix: libraryAgents is included in the dependency array so the
+  // effect re-runs when agents load, allowing the agentIds→agent mapping to succeed
+  // (line 229 uses libraryAgents; without it, a cold mount of /workflows/{id}/run
+  // with agents would fail to restore them if libraryAgents hadn't loaded yet).
   useEffect(() => {
     if (!authChecked) return;
     try {
@@ -233,7 +402,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         sessionStorage.removeItem("chain.from");
         return;
       }
-      const draftKey = initialMode === "prototype" ? "prototype.draft" : "ppt.draft";
+      const draftKey = STEPPER_MODE[initialMode] === "web" ? "prototype.draft" : "ppt.draft";
       const raw = sessionStorage.getItem(draftKey);
       if (!raw) return;
       const d = JSON.parse(raw) as {
@@ -248,13 +417,13 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (d.brief) setBrief(d.brief);
       if (d.customDsBody) setCustomDsBody(d.customDsBody);
       if (d.customTemplateBody) setCustomTemplateBody(d.customTemplateBody);
-      if (d.agentIds && d.agentIds.length > 0) {
+      if (d.agentIds && d.agentIds.length > 0 && libraryAgents.length > 0) {
         const restored = d.agentIds
           .map((id) => libraryAgents.find((a) => a.id === id))
           .filter(Boolean) as AgentDef[];
         if (restored.length > 0) setPipelineAgents(restored);
       }
-      if (d.selections) selectionsRef.current = d.selections;
+      if (d.selections) handleSelectionsChange(d.selections);
       if (d.gateAgentIds !== undefined) gateSelectionRef.current = { ids: d.gateAgentIds, touched: true };
       // ISS-167: restored BEFORE the AgentsPopup below (keyed on userWorkflowId)
       // remounts, so its initialSelections seed reads the now-populated ref
@@ -262,30 +431,230 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (d.id) setUserWorkflowId(d.id);
       if (d.name) setSavedName(d.name);
       if (d.description) setSavedDescription(d.description);
-      sessionStorage.removeItem(draftKey);
+      // Clear draft only if we've successfully processed agents (when libraryAgents is available),
+      // or if there are no agents to restore. This allows the effect to re-run when libraryAgents
+      // loads if it wasn't available on the first run.
+      if (!d.agentIds || d.agentIds.length === 0 || libraryAgents.length > 0) {
+        sessionStorage.removeItem(draftKey);
+      }
     } catch { /* ignore malformed session data */ }
-  }, [authChecked, initialMode]);
+  }, [authChecked, initialMode, libraryAgents, handleSelectionsChange]);
 
-  // Load both template families + the design-system registry once authed.
+  // `pipelineAgents`'s initial value (below) is computed once at mount from
+  // `libraryAgents` — Redux state populated by an async fetch on sign-in. If
+  // that fetch hasn't resolved yet when this component mounts, the lazy
+  // initializer captures an empty array, and a plain fresh open with no draft
+  // to restore (the effect above only re-populates agents when there IS a
+  // draft) never gets another chance — "Advanced" is stuck at 0 agents.
+  // Re-derive once real agents arrive, but only while pipelineAgents is still
+  // that empty race-loss state, so this never overwrites a user's deliberate
+  // removal of every agent.
+  // ISS-228: the "still empty" test MUST be a functional updater. This effect
+  // shares the `libraryAgents` dependency with the draft-restore effect above,
+  // so both run in the same passive-effect flush; reading `pipelineAgents` from
+  // the render closure would see the value from BEFORE that sibling's
+  // setPipelineAgents(restored) — always 0 on a cold mount — and this effect,
+  // declared last, would enqueue the generic per-pipeline roster over the saved
+  // workflow's real one. `prev` is resolved against the queued update instead,
+  // so a restored roster is visible here and left alone.
+  useEffect(() => {
+    if (libraryAgents.length === 0) return;
+    setPipelineAgents((prev) =>
+      prev.length > 0 ? prev : defaultAgentsFor(libraryAgents, mode),
+    );
+  }, [libraryAgents, mode]);
+
+  // Complete a partial library roster from the compiled plan (see `planAgents`).
+  // Guarded on "the plan lists MORE steps than we are showing" so a workflow the
+  // library covers fully, and any lineup the user has edited or added to, is
+  // left exactly as it is. Plan rows are hydrated from the library where it has
+  // the agent, so the shared steps keep their real icon and duration.
+  useEffect(() => {
+    if (!planAgents) return;
+    setPipelineAgents((prev) => {
+      // The plan also wins when it carries a sub-agent TREE the current lineup
+      // does not. A fan-out parent and its children are ONE plan row (the
+      // children hang off `.children`), so a nested workflow can have fewer
+      // rows than the flat library roster and still be the richer answer —
+      // the length test alone left the Advanced canvas showing a parent with
+      // an empty "+ Sub-agent" slot while the full canvas drew its children.
+      const planHasTree = planAgents.some((a) => (a.children?.length ?? 0) > 0);
+      const prevHasTree = prev.some((a) => (a.children?.length ?? 0) > 0);
+      if (planAgents.length <= prev.length && !(planHasTree && !prevHasTree)) return prev;
+      return mergePlanWithLibrary(planAgents, libraryAgents);
+    });
+  }, [planAgents, libraryAgents]);
+
+  // ── Spec 016: fetch this user's override of the built-in, if any ────────────
+  // Additive. `is_overridden` is false for every user who has never saved one,
+  // so this returns before touching any state and the screen is unchanged.
+  useEffect(() => {
+    if (!authChecked) return;
+    const token = getToken();
+    if (!token) return;
+    const pipeline = MODE_CONFIG[mode].agentPipeline;
+    let cancelled = false;
+    // Reset first: switching Web <-> Deck changes which built-in we are asking
+    // about, and a stale override from the other family must not survive.
+    setOverrideInfo(null);
+    setPlanAgents(null);
+    setPlanManifestSteps(undefined);
+    setOverrideAgents(null);
+    setOverrideSelections(undefined);
+    setShowOverride(false);
+
+    setDeclaredRunConfig(undefined);
+
+    getWorkflowDetail(token, pipeline)
+      .then((detail) => {
+        if (cancelled) return;
+        // Declared config first — it is true whether or not an override exists,
+        // and the override branch below returns early when there is none.
+        setDeclaredRunConfig({
+          deliverable: {
+            strategy: detail.deliverable?.strategy ?? "streamed_text",
+            name: detail.deliverable?.name ?? "output.md",
+          },
+          // The API types these as plain strings; the composer's config model
+          // narrows them. Both are closed sets server-side, so a mismatch means
+          // a new manifest value the composer does not model yet — fall back to
+          // the safe reading rather than rendering something invented.
+          planner: detail.planner === "run" ? "run" : "skip",
+          clarify: {
+            mode: detail.clarify_mode === "auto" ? "auto" : "skip",
+            defaults: detail.clarify_defaults ?? [],
+          },
+        });
+        // ISS-429 (Mechanism A): on a plain /create/ppt or /create/prototype load
+        // (no override active), liveSelections was always initialised to {} and
+        // only handleSelectionsChange from the override/draft branches ever wrote
+        // it — so a manifest-declared before-human gate never reached the
+        // ReviewGatesSection's seed. FIX-377 fixed IdeaInputPage.tsx via the
+        // selections prop on ReviewGatesSection; this is the matching fix for
+        // LaunchWizard: extract the manifest's declared selections and seed the
+        // live map ONLY when no override is active (the override branch below
+        // overwrites it anyway), preserving display-only semantics (INV-3 —
+        // `selectionsRef` is not touched here, so an untouched run still omits
+        // `selections` from the launch payload).
+        const planProj = agentsFromManifest(detail, pipeline);
+        setPlanAgents(planProj.agents);
+        setPlanManifestSteps(planProj.rawSteps ?? undefined);
+        if (!detail.has_override || !detail.is_overridden) {
+          if (planProj.selections && Object.keys(planProj.selections).length > 0) {
+            setLiveSelections(planProj.selections);
+          }
+        }
+        if (!detail.has_override || !detail.override_id) return;
+        setOverrideInfo({ id: detail.override_id, enabled: !!detail.is_overridden });
+        // `detail` already carries the override's steps whenever it is enabled,
+        // so no second request. When it is saved-but-off the payload is the
+        // system version; the rows are fetched on demand when the box is ticked.
+        if (detail.is_overridden) {
+          const proj = agentsFromManifest(detail, pipeline);
+          setOverrideAgents(proj.agents);
+          setOverrideSelections(proj.selections);
+          setShowOverride(true);
+          if (proj.agents.length > 0) setPipelineAgents(proj.agents);
+          if (proj.selections) handleSelectionsChange(proj.selections);
+        }
+      })
+      .catch(() => {
+        // A workflow with no manifest, or a transient failure. The library
+        // roster is already rendered — degrade to "no override", never blank
+        // the screen over an optional enhancement.
+      });
+    return () => { cancelled = true; };
+  }, [authChecked, mode, handleSelectionsChange]);
+
+  /** Flip between the override's steps and the system ones (spec 016 T8). */
+  const handleToggleOverride = useCallback(
+    async (next: boolean) => {
+      if (!overrideInfo) return;
+      const token = getToken();
+      if (!token) return;
+      setShowOverride(next);
+
+      if (!next) {
+        // Back to the system version — the library roster, exactly as a user
+        // with no override sees it.
+        setPipelineAgents(defaultAgentsFor(libraryAgents, mode));
+        handleSelectionsChange({});
+      } else if (overrideAgents) {
+        setPipelineAgents(overrideAgents);
+        handleSelectionsChange(overrideSelections ?? {});
+      } else {
+        // Saved-but-off at mount, so the rows were never fetched. Enable the row
+        // first, then read back the payload the server now serves as overridden.
+        try {
+          await setWorkflowOverrideEnabled(token, overrideInfo.id, true);
+          const detail = await getWorkflowDetail(token, MODE_CONFIG[mode].agentPipeline);
+          const proj = agentsFromManifest(detail, MODE_CONFIG[mode].agentPipeline);
+          setOverrideAgents(proj.agents);
+          setOverrideSelections(proj.selections);
+          if (proj.agents.length > 0) setPipelineAgents(proj.agents);
+          handleSelectionsChange(proj.selections ?? {});
+          setOverrideInfo({ ...overrideInfo, enabled: true });
+          return;
+        } catch {
+          setShowOverride(false);
+          return;
+        }
+      }
+
+      // Persist the choice so the detail page and the RUN agree with what is on
+      // screen — a view-only toggle would let the page show one plan while the
+      // launch executed the other.
+      try {
+        await setWorkflowOverrideEnabled(token, overrideInfo.id, next);
+        setOverrideInfo({ ...overrideInfo, enabled: next });
+      } catch {
+        /* the roster already reflects the choice; the flag retries on next toggle */
+      }
+    },
+    [overrideInfo, overrideAgents, overrideSelections, libraryAgents, mode, handleSelectionsChange],
+  );
+
+  // ISS-793/ISS-828: load the ACTIVE family's templates once authed, not both.
+  // Only one family is ever rendered (`isWeb` picks the picker), so fetching
+  // both made every prototype open pull the PPT catalog and every deck open
+  // pull the prototype one. Same family ternary as DesignPickerModal.tsx:108,
+  // and `isWeb` is in the deps so the deliverable toggle (handleModeChange)
+  // loads the family it switches to.
   useEffect(() => {
     if (!authChecked) return;
     const token = getToken();
     if (!token) return;
     let cancelled = false;
 
-    listPrototypeTemplates(token)
-      .then((t) => { if (!cancelled) setWebTemplates(t); })
-      .catch((err: Error) => {
-        if (cancelled) return;
-        if (err.message.startsWith("401")) { router.replace(buildLoginRedirect()); return; }
-        setLoadError(err.message);
-      });
-    listPPTTemplates(token)
-      .then((t) => { if (!cancelled) setDeckTemplates(t); })
-      .catch((err: Error) => {
-        if (cancelled) return;
-        if (err.message.startsWith("401")) { router.replace(buildLoginRedirect()); }
-      });
+    if (isWeb) {
+      listPrototypeTemplates(token)
+        .then((t) => { if (!cancelled) setWebTemplates(t); })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (err.message.startsWith("401")) { handleSessionExpiry(); return; }
+          setLoadError(err.message);
+        });
+    } else {
+      listPPTTemplates(token)
+        .then((t) => { if (!cancelled) setDeckTemplates(t); })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (err.message.startsWith("401")) { handleSessionExpiry(); }
+        });
+    }
+
+    return () => { cancelled = true; };
+  }, [authChecked, router, isWeb]);
+
+  // The design-system registry keeps its own once-per-mount effect: both
+  // families read it (ISS-828), and re-running it on a family toggle would
+  // re-fire FIX-103's auto-select over a selection the user had cleared.
+  useEffect(() => {
+    if (!authChecked) return;
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+
     listDesignSystems(token)
       .then((s) => {
         if (!cancelled) {
@@ -322,11 +691,15 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     [webTemplates, selectedTemplateId],
   );
   // ppt design system is only required for templates that declare it.
-  const dsRequired = mode === "ppt" && selectedDeckTemplate?.design_system?.requires === true;
-  const dsVisible = mode === "prototype" || dsRequired;
+  // Spec 017: every branch below asks "is this a DECK deliverable", which is now
+  // two modes, not one. Branching on `mode === "ppt"` here is what would have
+  // hidden the template step — and with it the design choice — from ppt_v2.
+  const isDeck = STEPPER_MODE[mode] === "deck";
+  const dsRequired = isDeck && selectedDeckTemplate?.design_system?.requires === true;
+  const dsVisible = isWeb || dsRequired;
 
   const examplePrompt =
-    mode === "prototype" ? selectedWebTemplate?.example_prompt : selectedDeckTemplate?.example_prompt;
+    isWeb ? selectedWebTemplate?.example_prompt : selectedDeckTemplate?.example_prompt;
 
   // Optional-agent budget (defaults are free; up to 5 extra), per active lineup.
   const defaultAgentIds = useMemo(
@@ -337,27 +710,36 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const canAddMore = optionalAgentCount < 5;
 
   const handleModeChange = useCallback((next: "web" | "deck") => {
-    const nextMode = modeFromStepper(next);
+    const nextMode = modeFromStepper(next, deckMode, webMode);
     setMode(nextMode);
     // Switching deliverable family is a fresh choice: reset the family-specific
     // selection + lineup + levers; shared inputs (brief/DS/files/images) persist.
     setSelectedTemplateId(null);
     setCustomTemplateBody(null);
     setPipelineAgents(defaultAgentsFor(libraryAgents, nextMode));
-    selectionsRef.current = {};
-    gateSelectionRef.current = { ids: [], touched: false };
-  }, [libraryAgents]);
+    handleSelectionsChange({});
+    gateSelectionRef.current = { ids: [], touched: true };
+  }, [libraryAgents, deckMode, handleSelectionsChange]);
 
-  const handleAddAgent = useCallback((agent: AgentDef) => {
+  const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {
     setPipelineAgents((prev) => {
       // Reusable blank template — mint a fresh instance id per add (R-03).
       const node = instantiateIfTemplate(agent, collectAgentIds(prev));
       if (prev.find((a) => a.id === node.id)) return prev;
       if (prev.filter((a) => !defaultAgentIds.has(a.id)).length >= 5) return prev;
-      const insertIdx = prev.length > 0 ? prev.length - 1 : 0;
+      // Land the new node where the user clicked. `insertBeforeId` names the
+      // agent it should go IN FRONT OF, so index 0 prepends — which is the whole
+      // point of the canvas's head "+".
+      //
+      // This used to be `prev.length - 1` unconditionally: every add landed
+      // second-to-last regardless of which "+" was clicked, so prepending was
+      // impossible even once the affordance existed.
+      const at = insertBeforeId ? prev.findIndex((a) => a.id === insertBeforeId) : -1;
+      const insertIdx = at >= 0 ? at : prev.length;
       const updated = [...prev];
       updated.splice(insertIdx, 0, { ...node, order: insertIdx + 1 });
-      return updated;
+      // Keep `order` contiguous after a splice — it drives the display sequence.
+      return updated.map((a, i) => ({ ...a, order: i + 1 }));
     });
   }, [defaultAgentIds]);
 
@@ -369,9 +751,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setPipelineAgents(reordered);
   }, []);
 
-  const handleSelectionsChange = useCallback((s: Record<string, Record<string, unknown>>) => {
-    selectionsRef.current = s;
-  }, []);
   const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
     gateSelectionRef.current = { ids, touched };
   }, []);
@@ -396,7 +775,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const removeFile = useCallback((idx: number) => {
     setAttachedFiles((prev) => {
       const removedName = prev[idx]?.name;
-      if (removedName) setAttachedFileContents((c) => c.filter((f) => f.name !== removedName));
+      if (removedName) {
+        setAttachedFileContents((c) => c.filter((f) => f.name !== removedName));
+        setStagedUploads((s) => s.filter((f) => f.name !== removedName));
+      }
       return prev.filter((_, i) => i !== idx);
     });
   }, []);
@@ -421,17 +803,38 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
       };
       setAttachedFiles((p) => [...p, meta]);
-      const isTextFile = /\.(txt|md|json|csv)$/i.test(f.name);
-      const isBinaryFile = /\.(pdf|docx|pptx)$/i.test(f.name);
+      const isTextFile = isTextUpload(f.name);
+      const isBinaryFile = isBinaryUpload(f.name);
+      const jwt = getToken();
+      // UPLD-05: park the raw bytes server-side for EVERY document, text ones
+      // included (fire-and-forget — a staging failure degrades to the
+      // pre-existing text-only behavior). `.uploads/` is the only thing a
+      // file-reading workflow opens, so a .csv/.md read client-side below would
+      // otherwise reach the run as inlined brief text and nothing else — the
+      // attached file would be missing from `.uploads/manifest.json` entirely.
+      // `attachIndex` is captured HERE, synchronously, before the async call:
+      // the client is the only place true attach order is known.
+      const attachIndex = attachIndexRef.current++;
+      const stagedPromise = jwt && (isTextFile || isBinaryFile)
+        ? stageRunFile(jwt, f)
+            .then((res) => {
+              setStagedUploads((p) => [...p, { name: f.name, stageId: res.stage_id, attachIndex }]);
+              return true;
+            })
+            .catch(() => false)
+        : Promise.resolve(false);
       if (isTextFile) {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const content = (ev.target?.result as string) ?? "";
-          setAttachedFileContents((p) => [...p, { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) }]);
+          // ISS-423: replicate FIX-374 — the binary branch already appended a
+          // visible truncation note; the text branch silently sliced with no
+          // indication. Use the same shared truncateAttachmentText helper so
+          // both branches are consistent (one guard, no forked logic).
+          setAttachedFileContents((p) => [...p, { name: f.name, content: truncateAttachmentText(content) }]);
         };
         reader.readAsText(f);
       } else if (isBinaryFile) {
-        const jwt = getToken();
         if (jwt) {
           extractFileText(jwt, f)
             .then((res) => {
@@ -439,7 +842,23 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
               setAttachedFileContents((p) => [...p, { name: res.filename, content: `${res.text}${truncNote}` }]);
             })
             .catch(() => {
-              setAttachedFileContents((p) => [...p, { name: f.name, content: "[could not extract text]" }]);
+              // The in-browser extraction is a best-effort PREVIEW; the server-side
+              // stage above is what agents actually read via extract_text. If staging
+              // succeeded, say nothing — a "[could not extract text]" block convinces
+              // an agent the document is genuinely unreadable when it isn't. Only when
+              // staging ALSO failed do we owe the brief a note, and even then never a
+              // phrase readable as "unreadable/empty".
+              stagedPromise.then((staged) => {
+                if (staged) return;
+                setAttachedFileContents((p) => [
+                  ...p,
+                  {
+                    name: f.name,
+                    content:
+                      "[This document is attached but its text could not be extracted in-browser; do not assume it is empty.]",
+                  },
+                ]);
+              });
             });
         } else {
           setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
@@ -460,13 +879,24 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const hasBuildInput = Boolean(brief.trim() || chainContextBlock?.trim());
 
   const canContinue = useMemo(() => {
-    if (mode === "prototype") {
+    // SGV2 11.7: if the source run is non-success, the warning must be acknowledged.
+    if (chainSourceStatus && !warningAcknowledged) return false;
+    if (isWeb) {
       // KAN-87: template optional; DS required (color tokens).
       return Boolean(selectedDsId && hasBuildInput);
     }
     // ppt: template required; DS only when the template declares it.
     return Boolean(selectedTemplateId && hasBuildInput && (!dsRequired || selectedDsId));
-  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput]);
+  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput, chainSourceStatus, warningAcknowledged]);
+
+  // ISS-321: the deliverable this wizard launches, gated on the same
+  // `canRunPipeline` the dashboard catalog card uses (HomeLaunchGrid) and the
+  // backend enforces at run creation (`_require_tier_entitlement`). Without it
+  // an unentitled tier reached a submit-ready Continue via a direct URL, the
+  // one surface the locked catalog card never covers.
+  const launchPipeline = MODE_CONFIG[mode].savePipeline;
+  const locked = tier !== null && !canRunPipeline(tier, launchPipeline);
+  const upgradeTo = tier !== null ? getUpgradeTier(tier, launchPipeline) : null;
 
   const handleSaveWorkflow = useCallback(async (name: string, description: string) => {
     setShowSaveModal(false);
@@ -477,7 +907,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
     const wizardConfig: Record<string, unknown> = {
       templateId: selectedTemplateId,
-      designSystemId: mode === "ppt" ? (dsRequired ? selectedDsId : null) : selectedDsId,
+      designSystemId: isDeck ? (dsRequired ? selectedDsId : null) : selectedDsId,
       brief,
       ...(gatesTouched ? { gateAgentIds } : {}),
       ...(customDsBody ? { customDsBody } : {}),
@@ -500,19 +930,64 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     } catch (e) {
       setSaveError((e as Error)?.message ?? "Failed to save workflow.");
     }
-  }, [mode, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, pipelineAgents]);
+  }, [mode, isDeck, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, pipelineAgents]);
+
+  /**
+   * Save the current lineup as THIS USER'S version of the built-in (spec 016).
+   *
+   * Distinct from "Save workflow" above, which creates a separate saved
+   * workflow and leaves the built-in alone. This one binds to the built-in via
+   * `overrides_pipeline_type`, and the server UPSERTS on it — so saving twice
+   * updates the same row rather than 409ing on the name.
+   *
+   * Sends `manifest`, never `selections`: the override resolve reads
+   * `manifest_json["steps"]`, and a selections map has no steps in it, so a
+   * selections-shaped save would store a row that silently never applies. The
+   * two fields are mutually exclusive server-side (422), which is why this is a
+   * separate call rather than an extra field on the one above.
+   */
+  const handleSaveAsOverride = useCallback(async () => {
+    setSaveError(null);
+    const jwt = getToken();
+    if (!jwt) { setSaveError("Not authenticated."); return; }
+    const pipeline = MODE_CONFIG[mode].savePipeline;
+    try {
+      const saved = await createUserWorkflow(jwt, {
+        name: `My ${cfg.eyebrow.replace(/^New /, "")}`,
+        // ISS-226/ISS-279 — was a hardcoded literal, so the saved row was
+        // byte-identical no matter what was on screen. `handleLaunch` below
+        // reads exactly these three pieces of state for the same click.
+        description: overrideDescription({
+          brief,
+          templateId: selectedTemplateId,
+          designSystemId: isDeck ? (dsRequired ? selectedDsId : null) : selectedDsId,
+        }),
+        base_pipeline_type: pipeline,
+        agent_ids: pipelineAgents.map((a) => a.id),
+        manifest: buildWorkflowManifest(
+          pipelineAgents,
+          undefined,
+          selectionsRef.current,
+        ) as unknown as Record<string, unknown>,
+        overrides_pipeline_type: pipeline,
+      });
+      setOverrideInfo({ id: saved.id, enabled: true });
+      setOverrideAgents(pipelineAgents);
+      setOverrideSelections(selectionsRef.current);
+      setShowOverride(true);
+      setSavedConfirm(true);
+      setTimeout(() => setSavedConfirm(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to save your version.");
+    }
+  }, [mode, cfg.eyebrow, pipelineAgents, brief, selectedTemplateId, selectedDsId, isDeck, dsRequired]);
 
   const handleLaunch = useCallback(() => {
-    if (!canContinue) return;
-    const sourceRunId = isChaining ? (sessionStorage.getItem("chain.source_run_id") ?? undefined) : undefined;
-    sessionStorage.removeItem("chain.source_run_id");
-    const contextBlock = sessionStorage.getItem("chain.context_block") ?? undefined;
-    sessionStorage.removeItem("chain.context_block");
+    if (!canContinue || locked) return;
+    const sourceRunId = isChaining ? (sessionStorage.getItem(CHAIN_SOURCE_RUN_ID_KEY) ?? undefined) : undefined;
+    sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
 
-    let finalBrief: string;
-    if (isChaining && contextBlock) finalBrief = contextBlock;
-    else if (contextBlock && brief.trim()) finalBrief = `${brief.trim()}\n\n${contextBlock}`;
-    else finalBrief = brief.trim();
+    let finalBrief: string = brief.trim();
 
     const fileBlocks = attachedFileContents
       .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
@@ -520,7 +995,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     if (fileBlocks) finalBrief = `${finalBrief}${fileBlocks}`;
 
     const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
-    const designSystemId = mode === "ppt" ? (dsRequired ? selectedDsId : null) : selectedDsId;
+    const designSystemId = isDeck ? (dsRequired ? selectedDsId : null) : selectedDsId;
 
     const draft = buildLaunchDraft(mode, {
       templateId: selectedTemplateId,
@@ -533,22 +1008,37 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       gatesTouched,
       selections: selectionsRef.current,
       images: attachedImages,
-      agentIds: pipelineAgents.map((a) => a.id),
+      // UPLD-05 — see the `stagedUploads` note above. Sorted back into attach order.
+      stagedUploadIds: orderedStagedUploadIds(stagedUploads),
+      // `agent_ids` is a SUBSET selector over a pipeline's REGISTERED agents:
+      // run_commands.launch_run checks each id against registry.allowed_custom_agent_ids(),
+      // which is built from AGENT.md `pipeline_type` frontmatter. 14 of the 35 file
+      // workflows are built from `custom-agent` instances instead (pdf_to_prototype, the
+      // seven ex_A* examples, prototype_v2), and those compile to `custom-agent:<instance_id>`
+      // ids that have no AGENT.md and therefore can NEVER appear in that allow-list — so
+      // sending them is a guaranteed 400. It was latent until prototype_v2 became the first
+      // custom-agent workflow wired to this wizard.
+      //
+      // Omitting them is correct, not a workaround: for a manifest-driven workflow the
+      // compiled plan IS the roster, and this wizard's AgentsPopup edits `selections`
+      // (per-step config), not membership. prototype/ppt/ppt_v2 are unaffected — their
+      // steps are registered agents, so nothing is filtered.
+      agentIds: pipelineAgents.map((a) => a.id).filter((id) => !id.startsWith(CUSTOM_AGENT_PREFIX)),
     });
 
     sessionStorage.setItem(draft.draftKey, draft.draftJson);
     // Prototype discovery hand-off — write the answers, or clear the key so no
     // stale answers leak; ppt has no discovery step.
-    if (mode === "prototype") {
+    if (isWeb) {
       const discovery = buildDiscoveryValue(discoveryAnswers);
       if (discovery) sessionStorage.setItem(DISCOVERY_KEY, discovery);
       else sessionStorage.removeItem(DISCOVERY_KEY);
     }
     sessionStorage.setItem(draft.pendingKey, "true");
-    router.push("/dashboard");
+    router.push(routes.home());
   }, [
-    canContinue, mode, isChaining, brief, attachedFileContents, attachedImages,
-    dsRequired, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
+    canContinue, locked, mode, isChaining, brief, attachedFileContents, attachedImages, stagedUploads,
+    dsRequired, isDeck, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
     discoveryAnswers, pipelineAgents, router,
   ]);
 
@@ -566,7 +1056,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
           <button
             type="button"
-            onClick={() => router.push("/dashboard")}
+            // ISS-786: "Back" pops the entry the user came from; pushing a
+            // second Home entry left the wizard route (/create/{mode} via the
+            // catch-all, or /workflow/create) on the stack, so the browser's
+            // own Back walked right back into the wizard.
+            onClick={() => goBackOr(router, () => router.push(routes.home()))}
             aria-label="Back to dashboard"
             className="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
           >
@@ -576,8 +1070,13 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-400">
               {isChaining ? cfg.chainingEyebrow : cfg.eyebrow}
             </p>
+            {/* ISS-384: savedName restored into state at line 313 was only ever
+                passed to the closed AgentsPopup modal — the header always rendered
+                cfg.title, so a saved workflow's launch panel was visually
+                indistinguishable from a brand-new one. Render the saved name when
+                present, with cfg.title as the fallback for a plain new-workflow open. */}
             <h1 className="font-serif text-[15px] font-normal italic text-ink-900">
-              {isChaining ? cfg.chainingTitle : cfg.title}
+              {savedName ?? (isChaining ? cfg.chainingTitle : cfg.title)}
             </h1>
           </div>
         </div>
@@ -641,6 +1140,54 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           </div>
         )}
 
+        {/* SGV2 11.7 — Pre-launch warning for non-success chain sources.
+            Shown when chainFrom is set and the source run's status is not
+            "completed" (i.e. failed / cancelled / degraded).
+            Accessibility: role="alert" announces it immediately; AlertTriangle
+            icon + text label means the warning is not color-alone; the checkbox
+            is the keyboard-reachable acknowledgment gate. */}
+        {chainFrom && chainSourceStatus && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="rounded-[var(--radius-card)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3"
+          >
+            <div className="flex items-start gap-3">
+              {/* Non-color indicator: icon + text, not color alone */}
+              <AlertTriangle
+                className="mt-0.5 h-4 w-4 flex-shrink-0 text-status-failed"
+                aria-hidden="true"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-semibold text-status-failed">
+                  Source run {chainSourceStatus} — output may be incomplete
+                </p>
+                <p className="mt-1 text-[11px] text-status-failed/80 leading-relaxed">
+                  The{" "}
+                  <strong>{CHAIN_SOURCE_LABEL[chainFrom] ?? "previous pipeline"}</strong> run
+                  you are chaining from has status{" "}
+                  <strong>&ldquo;{chainSourceStatus}&rdquo;</strong>. Its output may be
+                  partial or missing. The next pipeline will receive whatever partial
+                  output was captured.
+                </p>
+                {/* Accessible checkbox acknowledgment. */}
+                <label className="mt-3 flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={warningAcknowledged}
+                    onChange={(e) => setWarningAcknowledged(e.target.checked)}
+                    aria-label="I understand the output may be incomplete and want to proceed"
+                    className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 accent-status-failed"
+                  />
+                  <span className="text-[11px] text-status-failed font-medium leading-tight">
+                    I understand the output may be incomplete and want to proceed
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Brief (hidden when chaining — topic comes from the previous run). ── */}
         {!isChaining && (
           <section>
@@ -684,7 +1231,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,image/png,image/jpeg,image/webp,image/gif"
+                  accept={DOCUMENT_AND_IMAGE_ACCEPT}
                   className="hidden"
                   onChange={(e) => { if (e.target.files) onFilesPicked(e.target.files); e.target.value = ""; }}
                 />
@@ -748,17 +1295,17 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           <WizardStepper
             mode={STEPPER_MODE[mode]}
             onModeChange={handleModeChange}
-            steps={mode === "ppt" ? ["template"] : ["template", "design-system", "discovery"]}
+            steps={isDeck ? ["template"] : ["template", "design-system", "discovery"]}
             webTemplates={webTemplates}
-            webSelectedId={mode === "prototype" && !customTemplateBody ? selectedTemplateId : null}
+            webSelectedId={isWeb && !customTemplateBody ? selectedTemplateId : null}
             onWebSelect={handleSelectTemplate}
             onWebSelectCustomTemplate={handleSelectCustomTemplate}
-            webSelectedCustomTemplateId={mode === "prototype" && customTemplateBody ? selectedTemplateId : null}
+            webSelectedCustomTemplateId={isWeb && customTemplateBody ? selectedTemplateId : null}
             deckTemplates={deckTemplates}
-            deckSelectedId={mode === "ppt" && !customTemplateBody ? selectedTemplateId : null}
+            deckSelectedId={isDeck && !customTemplateBody ? selectedTemplateId : null}
             onDeckSelect={handleSelectTemplate}
             onDeckSelectCustomTemplate={handleSelectCustomTemplate}
-            deckSelectedCustomTemplateId={mode === "ppt" && customTemplateBody ? selectedTemplateId : null}
+            deckSelectedCustomTemplateId={isDeck && customTemplateBody ? selectedTemplateId : null}
             dsSlot={
               dsVisible ? (
                 systems.length === 0 ? (
@@ -776,7 +1323,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
               )
             }
             discoverySlot={
-              mode === "prototype" ? (
+              isWeb ? (
                 <DiscoveryForm templateInputs={[]} answers={discoveryAnswers} onChange={setDiscoveryAnswers} />
               ) : (
                 <StepNote>Discovery questions apply to web prototypes. Your deck brief is enough to generate.</StepNote>
@@ -792,21 +1339,38 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             subtitle="Optionally pause the pipeline for your review after specific agents."
           />
           <div className="mt-3">
-            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} />
+            <ReviewGatesSection
+              agents={pipelineAgents}
+              onChange={handleGatesChange}
+              selections={liveSelections}
+              onSelectionsChange={handleSelectionsChange}
+            />
           </div>
         </section>
 
         {/* ── Launch. ── */}
         <div className="pt-2">
-          {!canContinue && (
+          {/* ISS-321: the same locked state the dashboard catalog card shows
+              for this deliverable — reaching the wizard by direct URL must not
+              be the one path that hides it. */}
+          {locked && (
+            <div className="mb-4 flex items-center gap-2 rounded-[var(--radius-button)] border border-brand/20 bg-brand-fill px-3 py-2 text-[11px] font-semibold text-brand">
+              <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+              {upgradeTo
+                ? `Requires ${TIER_LABELS[upgradeTo]} plan — your plan does not include this deliverable.`
+                : "Your plan does not include this deliverable."}
+            </div>
+          )}
+
+          {!canContinue && !locked && (
             <div className="mb-4 flex flex-wrap gap-2">
               {/* ISS-155: keyed on hasBuildInput, NOT on `!isChaining`. A chained
                   launch whose context block failed to load now blocks Continue, and
                   the old condition hid this pill for every chained launch — leaving
                   a disabled button with no stated reason. */}
               {!hasBuildInput && <Pill label="Add a brief" />}
-              {mode === "ppt" && !selectedTemplateId && <Pill label="Pick a template" />}
-              {(mode === "prototype" || dsRequired) && !selectedDsId && <Pill label="Pick a design system" />}
+              {isDeck && !selectedTemplateId && <Pill label="Pick a template" />}
+              {(isWeb || dsRequired) && !selectedDsId && <Pill label="Pick a design system" />}
             </div>
           )}
 
@@ -831,10 +1395,24 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
               <Save className="h-4 w-4" />
               Save workflow
             </button>
+            {/* Spec 016 — bind this lineup to the built-in so it is what THIS
+                user gets whenever they open it. Separate from "Save workflow",
+                which creates an unrelated saved copy; the two produce different
+                rows and a silent mode is how someone overwrites what they meant
+                to fork. */}
+            <button
+              type="button"
+              onClick={handleSaveAsOverride}
+              title="Make this lineup your default for this workflow"
+              className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm"
+            >
+              <Save className="h-4 w-4" />
+              Save as my version
+            </button>
             <button
               type="button"
               onClick={handleLaunch}
-              disabled={!canContinue}
+              disabled={!canContinue || locked}
               className="flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-card)] bg-brand px-6 py-4 text-[14px] font-semibold text-white shadow-[var(--elevation-raised)] transition-all hover:bg-brand-pressed disabled:cursor-not-allowed disabled:bg-line-divider disabled:text-ink-400 disabled:shadow-none"
             >
               Continue
@@ -845,6 +1423,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       </main>
 
       <AgentsPopup
+        // A built-in's lineup — whether run directly or saved as this user's
+        // override — may only contain agents that exist as files on disk. The
+        // blank template mints a `custom-agent:<instance_id>` step the launch
+        // ingress rejects as an invalid agent id for this pipeline, so it is
+        // offered only on the composer canvas, never here.
+        allowCustomAgentTemplate={false}
         // ISS-167: AgentsPopup seeds its live selections from `initialSelections`
         // ONCE at mount (a useState initializer, not reactive to prop changes) —
         // so on a reopened saved workflow, remount it the moment the draft
@@ -853,13 +1437,40 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         key={userWorkflowId ?? "new"}
         isOpen={showAgents}
         onClose={() => setShowAgents(false)}
+        // "Open in full canvas". LaunchWizard renders OUTSIDE DashboardLayout (a
+        // page-level early return in [...view]/page.tsx), so unlike IdeaInputPage it
+        // cannot call setSavedComposition directly. Hand off through sessionStorage —
+        // the same channel this wizard already uses for prototype.pending/ppt.pending —
+        // and let DashboardLayout pick it up when the composer route mounts.
+        //
+        // agentIds alone is enough here: a wizard pipeline's steps are real library
+        // agents with an AGENT.md, so ComposerPage resolves them against
+        // ALL_LIBRARY_AGENTS. The manifest-steps channel exists for COMPOSED workflows
+        // (custom-agent:<instance_id>), which have no library entry to resolve.
+        // "Open in full canvas" — navigation only. The canvas URL names the
+        // workflow, so the composer refetches its manifest on mount; a sessionStorage
+        // handoff is unnecessary and was read by whatever mounted next, which blanked
+        // the launch panel on the way back.
+        onOpenInCanvas={() => {
+          setShowAgents(false);
+          router.push(`/workflows/${encodeURIComponent(MODE_CONFIG[mode].agentPipeline)}/canvas`);
+        }}
         agents={pipelineAgents}
+        manifestSteps={planManifestSteps}
         pipelineType={MODE_CONFIG[mode].agentPipeline}
+        // Spec 016 — both undefined unless this user saved an override of this
+        // built-in, in which case the modal renders a checkbox that swaps the
+        // roster between their version and the system one.
+        runConfig={declaredRunConfig}
+        overrideAvailable={overrideInfo !== null}
+        overrideActive={showOverride}
+        onToggleOverride={overrideInfo ? handleToggleOverride : undefined}
         onAddAgent={handleAddAgent}
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
-        initialSelections={selectionsSeed}
+        initialSelections={selectionsRef.current}
+        selections={liveSelections}
         onSelectionsChange={handleSelectionsChange}
         userWorkflowId={userWorkflowId}
         savedName={savedName}

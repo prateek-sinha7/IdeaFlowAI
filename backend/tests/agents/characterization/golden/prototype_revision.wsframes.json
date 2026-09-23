@@ -15,14 +15,14 @@
           "icon": "✏️",
           "id": "prototype-revision-agent",
           "name": "Revision Specialist Agent",
-          "order": 1,
+          "order": 2,
           "role": "Targeted UI Refinement"
         },
         {
           "icon": "✅",
           "id": "prototype-validate",
           "name": "Validation Agent",
-          "order": 5,
+          "order": 6,
           "role": "Structural Validation & Delivery"
         }
       ],
@@ -78,7 +78,7 @@
     "chunk": null,
     "data": {
       "agent_id": "prototype-revision-agent",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "context_message": "",
       "tool_calls": []
     },
     "section": "prototype_revision",
@@ -148,7 +148,7 @@
     "chunk": null,
     "data": {
       "agent_id": "prototype-revision-analyzer",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===",
       "tool_calls": []
     },
     "section": "prototype_revision",
@@ -208,7 +208,7 @@
     "chunk": null,
     "data": {
       "agent_id": "prototype-validate",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "context_message": "",
       "tool_calls": []
     },
     "section": "prototype_revision",
@@ -250,6 +250,7 @@
       "agents_total": 3,
       "final_output": "<!doctype html><html><body>revised</body></html>",
       "pipeline_type": "prototype_revision",
+      "status": "degraded",
       "total_input_tokens": "<normalized>",
       "total_output_tokens": "<normalized>",
       "total_tokens": "<normalized>"

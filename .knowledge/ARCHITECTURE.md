@@ -113,40 +113,43 @@ flowchart TD
   errors["llm_errors.py"]
   chat["app/agents/chat_runner.py"]
 
-  engine -->|"resolve(spec, step) â†’ model id"| resolver
+  engine -->|"resolve(spec, step) → model id"| resolver
   resolver -->|"is_allowed / cost_class"| catalog
   engine -->|"create_runner(agent_id, ctx.model)"| factory
   factory -->|"resolve('runtime','langchain_deepagents')"| registry
   registry --> adapter
-  adapter -->|"ctx.build() â€” kernel â†’ app seam"| runner
+  adapter -->|"ctx.build() — kernel → app seam"| runner
   runner -->|"build_model(model, max_tokens)"| build
   cached -->|"build_model(model, max_tokens)"| build
-  runner -->|"_is_transient_throttle(exc) â†’ re-raise"| engine
-  engine -->|"resolver.advance() â†’ rebuild on next id"| factory
+  runner -->|"_is_transient_throttle(exc) → re-raise"| engine
+  engine -->|"resolver.advance() → rebuild on next id"| factory
   engine -->|"estimate_cost_usd(model_id, tokens)"| pricing
   pricing -->|"ModelEntry.pricing"| catalog
-  chat -->|"map_exception(exc) â†’ code/recoverable"| errors
+  chat -->|"map_exception(exc) → code/recoverable"| errors
 ```
 
 ### [Auth and entitlements — who may run what](architecture/DOMAIN-auth-and-entitlements.md)
 
-This domain answers three questions the rest of the system is not allowed to answer for itself: *who is calling* (a verified Cognito RS256 access token, or a long-lived API key, resolved to the same local `User` ownership row), *what may that principal run* (effective tier and admin status derived from the verified token's `cognito:groups` claim), and *which rows may it see* (`owner_id` + `workspace_id`, enforced on every durable read by `ScopedStore`).
+This domain answers three questions that the rest of the system is not allowed to answer for itself: *who is calling* (a Cognito access token or a long-lived API key, all resolved to a `User` row), *what plan are they on* (Cognito `cognito:groups` mapped to tier via identity.py::effective_tier, checked against `TIER_PIPELINES` before a run is launched), and *which rows may they see* (`owner_id` + `workspace_id`, enforced on every durable read by `ScopedStore`).
 
 ```mermaid
 flowchart LR
-  config["core/config.py"] -->|"pool/client configuration"| cognito["core/cognito.py"]
-  auth["api/auth.py"] -->|"Cognito login / challenge / refresh"| cognito
-  deps["core/dependencies.py"] -->|"verify credential"| identity["core/identity.py"]
-  identity -->|"verify RS256 access token"| cognito
-  identity -->|"cognito_sub mapping + JIT provision"| user["models/user.py"]
-  identity -->|"jti and validity-cutoff checks"| revoked["models/revoked_token.py"]
+  cognito_m["core/cognito.py"] -->|"verify_cognito_access_token"| identity["core/identity.py"]
+  identity -->|"Principal: sub + groups"| deps["core/dependencies.py"]
+  deps -->|"resolve_principal"| user["models/user.py"]
+  deps -->|"is_token_revoked(jti)"| revoked["models/revoked_token.py"]
+  security["core/security.py"] -->|"is_token_revoked"| revoked
   apikey["api/api_key_auth.py"] -->|"X-Flowin-API-Key digest"| user
-  admin["api/admin.py"] -->|"group mutations and lifecycle"| lifecycle["core/cognito_admin.py"]
-  runcmd["api/run_commands.py"] -->|"effective tier from Principal.groups"| ent["core/entitlements.py"]
+  admin["api/admin.py"] -->|"calls cognito_admin"| ca["core/cognito_admin.py"]
+  ca -->|"user mutations"| user
+  ca -->|"audit events"| auth_events["core/auth_events.py"]
+  runcmd["api/run_commands.py"] -->|"Depends(get_current_user)"| deps
+  identity -->|"effective_tier, effective_is_admin"| ent["core/entitlements.py"]
+  runcmd -->|"can_run_pipeline"| ent
   fe["frontend/src/lib/entitlements.ts"] -.->|"advisory UI mirror"| ent
   runcmd -->|"ScopedStore(owner_id, workspace_id)"| authz["agents/authz.py"]
   engine["execution_engine/engine.py"] -->|"owner_id = user_id or anon:sid"| authz
-  authz -->|"encrypted credential storage"| crypto["core/crypto.py"]
+  authz -->|"encrypt_pat / decrypt_pat"| crypto["core/crypto.py"]
   authz -->|"owner-scoped rows"| mcpcred["models/mcp_credential.py"]
 ```
 
@@ -171,8 +174,8 @@ flowchart LR
   catalog["capabilities/model_catalog.py"]
 
   compiler -->|"is_registered(kind,name)"| known
-  compiler -->|"is_user_allowed â†’ CAP-03"| impls
-  engine -->|"resolve(kind,name) â†’ impl"| impls
+  compiler -->|"is_user_allowed → CAP-03"| impls
+  engine -->|"resolve(kind,name) → impl"| impls
   api -->|"discover(); sorted(_KNOWN)"| known
   api -->|"describe / is_user_allowed"| impls
   api -->|"ModelCatalog().list()"| catalog
@@ -187,13 +190,13 @@ flowchart LR
 
 ### [Chat and handoff — the conversational surfaces](architecture/DOMAIN-chat-and-handoff.md)
 
-This domain owns every place a human talks to Velocity in prose rather than by starting a workflow â€” and, crucially, owns the rule that prose is never allowed to become an action on its own.
+This domain owns every place a human talks to Velocity in prose rather than by starting a workflow — and, crucially, owns the rule that prose is never allowed to become an action on its own.
 
 ```mermaid
 flowchart LR
   run_commands["run_commands.py"] -->|"RunState + ChatTurn"| chat_router["chat_router.py"]
   chat_router -->|"Dispatch(channel)"| run_commands
-  run_commands -->|"converse(ctx, msg)"| concierge["chat/concierge.py"]
+  run_commands -->|"converse(ctx, msg, on_chunk)"| concierge["chat/concierge.py"]
   concierge -->|"bounded owner-scoped reads"| scoped["agents/authz.ScopedStore"]
   concierge -->|"exclude_builtin_tools=True"| runner["deep_agent_runner.py"]
   concierge -->|"ProposalIntent"| run_commands
@@ -226,16 +229,16 @@ flowchart LR
 
 ### [Context assembly — what an agent is told](architecture/DOMAIN-context-assembly.md)
 
-This domain owns the answer to one question: **when the kernel is about to invoke an agent, what text does that agent actually see?** It covers both halves of that text â€” the system prompt (identity, guardrails, skills, hooks, constitution, body) and the per-dispatch context message (the user brief, upstream outputs, design-system and template blocks, uploaded documents, chat history, revision subjects, steering notes) â€” plus the transforms that keep either half from outgrowing the model's window.
+This domain owns the answer to one question: **when the kernel is about to invoke an agent, what system prompt does that agent receive?** (The per-dispatch context message is no longer the domain's responsibility — agents read their context directly from sandbox files instead of receiving pasted world state.) It covers the system prompt assembly — identity, guardrails, skills, hooks, constitution, body — selected by the `prompt_policy` in `AGENT.md` frontmatter (`default`, `body_only`, or `governance`).
 
 ```mermaid
 flowchart TD
     launch["app/api/launch_context.py"] -->|"resolve_launch_od_context"| odctx["od_context.py"]
     odctx -->|"template / DS disk reads"| odloader["app/services/od_loader.py"]
-    odctx -->|"od_context dict"| ectx["context.py â€” ExecutionContext"]
+    odctx -->|"od_context dict"| ectx["context.py — ExecutionContext"]
     memory["workflow_memory/memory.py"] -->|"SessionLocal query"| db["app/models/workflow_memory.py"]
     memory -->|"prewarmed_constitution"| ectx
-    engine["engine.py â€” _compose_context_message"] --> ectx
+    engine["engine.py — _compose_context_message"] --> ectx
     engine -->|"resolve(context_provider, name)"| registry["capabilities/registry.py"]
     registry --> providers["context_providers/*.py"]
     providers -->|"ctx.runner / ctx.scoped_store"| ectx
@@ -267,7 +270,7 @@ flowchart LR
 
 ### [Durable state and resume — surviving restart and crash](architecture/DOMAIN-durable-state-resume.md)
 
-This domain owns the answer to one question: **after the process dies, what does the next process know?** It is the durable substrate a run is reconstructed from â€” the append-only event log (run_event.py), the per-child and per-wave progress rows (subagent_run.py, wave_run.py), the per-run capability snapshot (run_capabilities.py), the exec audit trail (exec_runs.py) â€” plus the SQLAlchemy engine/session/`Base` those tables hang off (database.py).
+This domain owns the answer to one question: **after the process dies, what does the next process know?** It is the durable substrate a run is reconstructed from — the append-only event log (run_event.py), the per-child and per-wave progress rows (subagent_run.py, wave_run.py), the per-run capability snapshot (run_capabilities.py), the exec audit trail (exec_runs.py) — plus the SQLAlchemy engine/session/`Base` those tables hang off (database.py).
 
 ```mermaid
 flowchart LR
@@ -302,8 +305,8 @@ flowchart TD
     budget["execution_engine/budget.py::BudgetManager"]
     state["execution_engine/state_machine.py"]
 
-    reg -->|"get_pipeline_agents â†’ membership"| engine
-    engine -->|"validate(agents) â†’ topo DAG"| resolver
+    reg -->|"get_pipeline_agents → membership"| engine
+    engine -->|"validate(agents) → topo DAG"| resolver
     engine -->|"one instance per run"| ectx
     engine -->|"plan(brief, pipeline_type)"| planner
     engine -->|"gate_verdict == CLARIFY_REQUIRED"| clarify
@@ -311,13 +314,13 @@ flowchart TD
     engine -->|"transition(run_id, state)"| state
     ectx -->|"ctx.runner"| services
     ectx -->|"ctx.budget"| budget
-    services -->|"run_agent â†’ _run_agent"| engine
-    services -->|"run_fanout â†’ reserve()"| budget
+    services -->|"run_agent → _run_agent"| engine
+    services -->|"run_fanout → reserve()"| budget
 ```
 
 ### [Execution strategies — how a step is driven](architecture/DOMAIN-execution-strategies.md)
 
-This domain owns the answer to one question: **given a compiled step, how is its work actually driven?** Five strategies answer it five ways â€” run the agent once (`single_shot`), split a plan into tasks and run one isolated sub-agent per task against a cumulative file (`task_loop`), fan a task list out to parallel workers in one batch (`fanout_batch`), partition a dependency-carrying task list into topological waves and fan each wave out in turn (`wave_scheduler`), or run already- distinct sibling sub-agents concurrently then run the parent over their results (`parallel_group`).
+This domain owns the answer to one question: **given a compiled step, how is its work actually driven?** Five strategies answer it five ways — run the agent once (`single_shot`), split a plan into tasks and run one isolated sub-agent per task against a cumulative file (`task_loop`), fan a task list out to parallel workers in one batch (`fanout_batch`), partition a dependency-carrying task list into topological waves and fan each wave out in turn (`wave_scheduler`), or run already- distinct sibling sub-agents concurrently then run the parent over their results (`parallel_group`).
 
 ```mermaid
 flowchart LR
@@ -336,12 +339,16 @@ flowchart LR
     fanout_batch --> runner
     wave_scheduler --> runner
     parallel_group --> runner
+    wave_scheduler --> wave_stream["_fanout_wave_stream.py"]
+    parallel_group --> fanout_stream["_fanout_stream.py"]
+    wave_stream --> runner
+    fanout_stream --> runner
     runner --> fanout["fanout.py::run_fanout"]
 ```
 
 ### [Human-in-the-loop gating — pause, approve, resume](architecture/DOMAIN-hitl-gating.md)
 
-This domain owns the **step boundary as a decision point**: before (and after) a step runs, something other than the model gets to say *pass*, *block*, or *stop and ask a human* â€” and if it asks, the run has to survive the wait.
+This domain owns the **step boundary as a decision point**: before (and after) a step runs, something other than the model gets to say *pass*, *block*, or *stop and ask a human* — and if it asks, the run has to survive the wait.
 
 ```mermaid
 flowchart LR
@@ -363,7 +370,7 @@ flowchart LR
     hitl -->|"ctx.runner.run_human_gate"| delegate
     delegate --> review
     review -->|"get_review_event / get_review_response"| store
-    run_commands -->|"set_review_response â†’ event.set()"| store
+    run_commands -->|"set_review_response → event.set()"| store
     run_commands -->|"review_event_pending"| store
     hitl --> base
     policy --> base
@@ -413,7 +420,7 @@ flowchart LR
 
 ### [Validation and quality gates — judging agent output](architecture/DOMAIN-validation-and-quality.md)
 
-This domain owns the question **"is what the agent just produced actually any good?"** â€” and, crucially, it owns only the *judging*.
+This domain owns the question **"is what the agent just produced actually any good?"** — and, crucially, it owns only the *judging*.
 
 ```mermaid
 flowchart LR
@@ -439,7 +446,7 @@ flowchart LR
     static --> routes
     render --> routes
     render --> static
-    poststeps -->|"resolve('validator', â€¦)"| apiprefix
+    poststeps -->|"resolve('validator', …)"| apiprefix
     appval -->|"record_validation_result"| model
 ```
 
@@ -479,11 +486,11 @@ flowchart LR
 
     runtime -->|"satisfies the Protocol ports"| base
     caps -->|"resolve('runtime_env','local')"| runtime
-    row -->|"workspaces.id â†’ workspace_id"| runtime
+    row -->|"workspaces.id → workspace_id"| runtime
     runtime -->|"create_workspace(has_git, exec)"| workspace
     workspace -->|"policy.allows('exec')"| policy
     workspace -->|"path_for / cleanup"| sandbox
-    sandbox -->|"_ws() â†’ read_file / write_file"| workspace
+    sandbox -->|"_ws() → read_file / write_file"| workspace
     workspace -->|"allocate_sub_sandbox / allocate_worktree"| child
     sandbox -->|"root under RUNS_ROOT"| sweep
     sandbox -->|"root walked"| serialize
@@ -495,52 +502,52 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-37 logical modules over 686 tracked source files. Each entry links to its
+37 logical modules over 923 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (329 files)
+### Backend — Python (385 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 120 |
-| [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 39 |
-| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 39 |
-| [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 31 |
-| [MOD-backend](architecture/MOD-backend.md) | `backend` | 28 |
-| [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 25 |
-| [MOD-backend-app-core](architecture/MOD-backend-app-core.md) | `backend/app/core` | 14 |
-| [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 11 |
+| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 142 |
+| [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 49 |
+| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 45 |
+| [MOD-backend](architecture/MOD-backend.md) | `backend` | 37 |
+| [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 33 |
+| [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 27 |
+| [MOD-backend-app-core](architecture/MOD-backend-app-core.md) | `backend/app/core` | 17 |
+| [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 12 |
 | [MOD-backend-evals](architecture/MOD-backend-evals.md) | `backend/evals` | 9 |
 | [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 7 |
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 3 |
+| [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 2 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
-| [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 1 |
 
-### Frontend — TypeScript (357 files)
+### Frontend — TypeScript (538 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 56 |
-| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 48 |
+| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 84 |
+| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 81 |
+| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 64 |
+| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 47 |
+| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 42 |
+| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 41 |
 | [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 38 |
-| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 36 |
-| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 33 |
-| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 29 |
-| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 27 |
-| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 18 |
-| [MOD-frontend-src-components-ui](architecture/MOD-frontend-src-components-ui.md) | `frontend/src/components/ui` | 13 |
-| [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 11 |
-| [MOD-frontend-src-components-handoff](architecture/MOD-frontend-src-components-handoff.md) | `frontend/src/components/handoff` | 8 |
-| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 7 |
+| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 36 |
+| [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 18 |
+| [MOD-frontend-src-components-ui](architecture/MOD-frontend-src-components-ui.md) | `frontend/src/components/ui` | 17 |
+| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 15 |
+| [MOD-frontend-src-components-handoff](architecture/MOD-frontend-src-components-handoff.md) | `frontend/src/components/handoff` | 10 |
 | [MOD-frontend-src-components-analytics](architecture/MOD-frontend-src-components-analytics.md) | `frontend/src/components/analytics` | 6 |
-| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 4 |
-| [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 4 |
-| [MOD-frontend-src-providers](architecture/MOD-frontend-src-providers.md) | `frontend/src/providers` | 4 |
-| [MOD-frontend-src-components-library](architecture/MOD-frontend-src-components-library.md) | `frontend/src/components/library` | 3 |
-| [MOD-frontend-src-components](architecture/MOD-frontend-src-components.md) | `frontend/src/components` | 2 |
-| [MOD-frontend-src-components-savedworkflows](architecture/MOD-frontend-src-components-savedworkflows.md) | `frontend/src/components/savedworkflows` | 2 |
+| [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 6 |
+| [MOD-frontend-src-components](architecture/MOD-frontend-src-components.md) | `frontend/src/components` | 5 |
+| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 5 |
+| [MOD-frontend-src-components-library](architecture/MOD-frontend-src-components-library.md) | `frontend/src/components/library` | 5 |
+| [MOD-frontend-src-components-savedworkflows](architecture/MOD-frontend-src-components-savedworkflows.md) | `frontend/src/components/savedworkflows` | 5 |
+| [MOD-frontend-src-providers](architecture/MOD-frontend-src-providers.md) | `frontend/src/providers` | 5 |
 | [MOD-frontend-src-components-sidebar](architecture/MOD-frontend-src-components-sidebar.md) | `frontend/src/components/sidebar` | 2 |
 | [MOD-frontend-src-styles](architecture/MOD-frontend-src-styles.md) | `frontend/src/styles` | 2 |
 | [MOD-frontend-src-types](architecture/MOD-frontend-src-types.md) | `frontend/src/types` | 2 |

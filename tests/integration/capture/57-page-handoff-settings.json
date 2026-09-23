@@ -1,0 +1,20 @@
+{
+  "url": "http://localhost:3000/handoff/settings",
+  "h": [
+    "H1:Handoff integrations",
+    "H2:Install the /flowin-handoff slash command",
+    "H2:GitHub access token",
+    "H2:VelocityAI API keys"
+  ],
+  "btn": [
+    "Copy",
+    "@",
+    "Save",
+    "Create key"
+  ],
+  "inp": [
+    "input[github-pat]",
+    "input[api-key-name]"
+  ],
+  "text": "Handoff integrations\nInstall the slash command, save your GitHub PAT, manage VelocityAI API keys.\nInstall the /flowin-handoff slash command\nRun on each machine where you use Claude Code. Idempotent — safe to re-run to pull updates.\ncurl -fsSL http://localhost:8000/install/flowin-handoff | bash\nCopy\nGitHub access token\nNeeds repo scope. Encrypted at rest, never returned by any API.\nNo GitHub token saved yet.\nSave\nVelocityAI API keys\nUsed by the slash command / MCP client. Plaintext shown once.\nNo API keys yet.\nCreate key"
+}

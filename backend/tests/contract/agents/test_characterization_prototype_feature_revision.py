@@ -17,9 +17,11 @@ Carries no live-LLM marker so CI runs it; regenerate with ``SNAPSHOT_UPDATE=1``.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
-from tests.agents._scripted_model import _drive
+from tests.agents._scripted_model import _RUNS_ROOT, _drive
 from tests.agents.characterization import (
     SNAPSHOT_UPDATE,
     assert_deliverable_snapshot,
@@ -142,7 +144,16 @@ async def test_prototype_feature_revision_analyzer_is_step_0() -> None:
 
 @pytest.mark.asyncio
 async def test_prototype_feature_revision_revision_analysis_in_step1_context() -> None:
-    """Req 4.2/5.3: === REVISION ANALYSIS === must appear in step-1 (feature-specify) context_message."""
+    """Req 4.2/5.3, updated by M10 (GAPS §0.3/§1 P1 Q4 rollout): the solution plan
+    reaches step 1 (feature-specify), but the CHANNEL changed. Both agents are
+    migrated (``prompt_policy: governance``) as of M10, so the row-17 world block
+    (``=== REVISION ANALYSIS ===``, gated ``not _is_migrated`` in
+    ``_compose_context_message``) no longer pastes into the context_message — the
+    engine instead writes the analyzer's streamed output, unconditionally, to
+    ``.agents/01-prototype-revision-analyzer.md`` (``write_agent_output``, step index
+    0), and prototype-revision-feature-specify's own Sandbox Reading Guide points it
+    there. Proves BOTH halves: the paste is gone AND the real producer→consumer file
+    read actually works (not a check that would also pass on a broken pipe)."""
     events = await _drive("prototype_feature_revision")
     assert events, "prototype_feature_revision produced no events"
 
@@ -157,16 +168,31 @@ async def test_prototype_feature_revision_revision_analysis_in_step1_context() -
 
     assert specify_inputs, (
         "prototype_feature_revision: no agent_input event found for "
-        "prototype-revision-feature-specify. Cannot verify === REVISION ANALYSIS === injection."
+        "prototype-revision-feature-specify. Cannot verify the solution plan delivery."
     )
 
     for ev in specify_inputs:
         ctx_msg = (ev.get("data") or {}).get("context_message", "")
-        assert "=== REVISION ANALYSIS ===" in ctx_msg, (
-            "prototype_feature_revision: === REVISION ANALYSIS === block is MISSING "
-            "from prototype-revision-feature-specify context_message. "
-            "The produces_solution_plan hook must populate ectx.analyzer_solution "
-            "after step 0, which _compose_context_message then injects at position 5 "
-            "(Req 4.2/5.3).\n"
+        assert "=== REVISION ANALYSIS ===" not in ctx_msg, (
+            "prototype_feature_revision: === REVISION ANALYSIS === is still being "
+            "PASTED into prototype-revision-feature-specify's context_message — both "
+            "agents are migrated (governance), so this world block (row 17) must stay "
+            "gated behind `not _is_migrated`.\n"
             f"context_message (first 500 chars): {ctx_msg[:500]!r}"
         )
+
+    run_id = (specify_inputs[0].get("data") or {}).get("pipeline_run_id")
+    assert run_id, "agent_input event carried no pipeline_run_id — cannot locate the sandbox"
+    solution_plan_path = (
+        pathlib.Path(_RUNS_ROOT) / "harness-user" / run_id
+        / ".agents" / "01-prototype-revision-analyzer.md"
+    )
+    assert solution_plan_path.is_file(), (
+        "prototype_feature_revision: the analyzer's solution plan was not written to "
+        f"{solution_plan_path} — prototype-revision-feature-specify's Sandbox Reading "
+        "Guide has nothing to read (the paste is retired with no working disk substitute)."
+    )
+    assert "## Solution Plan" in solution_plan_path.read_text(encoding="utf-8"), (
+        f"{solution_plan_path} exists but does not contain the analyzer's "
+        "'## Solution Plan' output contract"
+    )
