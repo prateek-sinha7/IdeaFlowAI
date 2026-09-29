@@ -1,6 +1,6 @@
 /**
  * The "pick a design" wiring for a file-backed workflow that declares
- * `context_providers: [opendesign]` (e.g. `pdf_to_prototype`) — the same
+ * `context_providers: [opendesign]` (e.g. `prototype_v2`) — the same
  * DesignPickerModal ComposerPage already mounts, offered on IdeaInputPage
  * (the launch surface a catalog card with no dedicated wizard falls to,
  * see HomeLaunchGrid.handleClick -> selectWorkflowWizardPath), driven off
@@ -21,13 +21,13 @@ import { IdeaInputPage } from "./IdeaInputPage";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
 import type { AgentDef, WorkflowType } from "@/types/index";
 
-// `pdf_to_prototype` is a real, entitled, user_launchable workflow (backend
-// entitlements.py / launch_context.py), but is not yet in the FE `WorkflowType`
+// `prototype_v2` is a real, entitled, user_launchable workflow that declares
+// `context_providers: [opendesign]`, but is not in the FE `WorkflowType`
 // string-literal union — HomeLaunchGrid already works around this the same
 // way (`row.id as WorkflowType`) rather than widening the exhaustive union
 // (Sidebar.tsx, etc. `Record<WorkflowType, ...>` maps would all need a new
 // case). Out of scope here; cast at the one call site that needs it.
-const PDF_TO_PROTOTYPE = "pdf_to_prototype" as WorkflowType;
+const PDF_TO_PROTOTYPE = "prototype_v2" as WorkflowType;
 
 vi.mock("@/hooks/useSpeechRecognition", () => ({
   useSpeechRecognition: () => ({
@@ -77,7 +77,7 @@ const mockAgents: AgentDef[] = [
     name: "Reading Planner",
     role: "Plans reading",
     description: "Assigns documents to readers",
-    pipeline_type: "pdf_to_prototype",
+    pipeline_type: "prototype_v2",
     order: 1,
     icon: "search",
     estimated_duration: 60,
@@ -105,7 +105,7 @@ function renderPage(
         global: {
           workflows: [
             {
-              id: "pdf_to_prototype",
+              id: "prototype_v2",
               name: "PDF to Prototype",
               description: "Build a prototype from uploaded PDFs.",
               step_count: 1,

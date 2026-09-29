@@ -34,10 +34,10 @@ from framework.locators import run_detail as RD
 # `name` is the catalogue card's `display_name`; `delivers` is the manifest's
 # `deliverable.name`. None means the strategy is `serialized_sandbox`, which
 # delivers a tree rather than one named file.
-PPT = ("Pitch an idea", "presentation.pptx", r"PPT|PRESENTATION|Pitch")
-PPT_V2 = ("Pitch an idea (v2)", "presentation.html", r"PPT|PRESENTATION|Pitch")
+PPT = ("Pitch an idea (Fast)", "presentation.pptx", r"PPT|PRESENTATION|Pitch")
+PPT_V2 = ("Pitch an idea (Detailed)", "presentation.html", r"PPT|PRESENTATION|Pitch")
 USER_STORIES = ("Generate product requirements", "user_stories.md", r"USER[ _]STORIES|REQUIREMENTS")
-PROTOTYPE = ("Build an interactive prototype", "prototype.html", r"PROTOTYPE")
+PROTOTYPE = ("Build an interactive prototype (Fast)", "prototype.html", r"PROTOTYPE")
 APP_BUILDER = ("Build an end-to-end application", None, r"APP[ _]BUILDER|APPLICATION")
 
 # The smallest thing that is true of a real file of each type and false of a

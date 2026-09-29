@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,59 @@ def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
     for rel, content in (od_context.get("template_files") or {}).items():
         if content:
             _safe_write(f".context/design/template/{rel}", content)
+
+
+USER_PROMPT_PATH = ".context/user-prompt.md"
+
+_ATTACHMENT_BLOCK_RE = re.compile(
+    r"\n*=== Attached: (.+?) ===\n[\s\S]*?\n=== End: \1 ===", re.MULTILINE
+)
+
+
+def strip_inline_attachments(user_message: str) -> str:
+    """Replace the wizard's inlined ``=== Attached: … ===`` blocks with a pointer.
+
+    For a workflow that extracts its uploads itself (a step granted the
+    ``file_extract`` tool set), the pasted document text lets the first agent
+    skip its own job and do the whole workflow from the prompt. The files are
+    already in ``.uploads/`` (listed in ``.uploads/manifest.json``), so only
+    their names are kept.
+    """
+    names = _ATTACHMENT_BLOCK_RE.findall(user_message or "")
+    if not names:
+        return user_message
+    stripped = _ATTACHMENT_BLOCK_RE.sub("", user_message).rstrip()
+    listing = "\n".join(f"- .uploads/{n}" for n in names)
+    return (
+        f"{stripped}\n\nAttached files (uploaded to .uploads/, listed in "
+        f".uploads/manifest.json; their text is not included here):\n{listing}"
+    )
+
+
+def write_user_prompt_to_sandbox(sandbox: object, user_message: str) -> None:
+    """Write the user's request to ``.context/user-prompt.md``.
+
+    Only the first agent gets the request inline; this file lets any later agent
+    with ``read_files`` read it too. ``.context/`` is reserved (agents cannot
+    write it) and agent-readable. A chained run's inherited
+    ``=== CONTEXT FROM PREVIOUS PIPELINE`` block is stripped, matching the clean
+    brief downstream agents see. A revision overwrites the file with its own
+    request. Best-effort, never-raising.
+    """
+    writer = getattr(sandbox, "write", None)
+    if not callable(writer) or not user_message:
+        return
+    brief = user_message.split("\n\n=== CONTEXT FROM PREVIOUS PIPELINE")[0].strip()
+    if not brief:
+        return
+    try:
+        writer(USER_PROMPT_PATH, brief + "\n")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "write_user_prompt_to_sandbox: failed to write %s",
+            USER_PROMPT_PATH,
+            exc_info=True,
+        )
 
 
 def context_already_present(sandbox: object) -> bool:

@@ -50,10 +50,10 @@
 id: ex_A4_human_gate
 user_launchable: true
 is_beta: false
-display_name: Ask a Human, Then Decide
+display_name: "Let a reviewer choose the path"
 short_name: Human Gate
 icon: GitBranch
-description: Smallest example of a human choosing the branch at a review gate.
+description: "The run pauses at a review gate and a person picks which branch comes next."
 version: 1
 planner: skip
 clarify:

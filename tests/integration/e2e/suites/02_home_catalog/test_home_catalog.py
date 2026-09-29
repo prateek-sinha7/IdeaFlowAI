@@ -43,12 +43,12 @@ def test_create_renders_the_identical_catalog(page, shot):
     # Wait for a CARD, not just the heading: the heading paints before the
     # catalog data arrives, and collecting then returns an empty set that
     # compares equal to another empty set — a test that passes on nothing.
-    expect(page.locator(L.card("Pitch an idea"))).to_be_visible()
+    expect(page.locator(L.card("Pitch an idea (Fast)"))).to_be_visible()
     dashboard_titles = page.locator("h2").all_inner_texts()
 
     with shot("create", 'When I cold-load "/create"'):
         page.goto("/create")
-        expect(page.locator(L.card("Pitch an idea"))).to_be_visible()
+        expect(page.locator(L.card("Pitch an idea (Fast)"))).to_be_visible()
 
     # Both routes map to MainView "home" on purpose. Asserting the SET rather
     # than the markup means a refactor cannot split them without failing here.
@@ -60,6 +60,7 @@ def test_coming_soon_cards_are_present_but_not_launchable(page, shot):
     """Scenario: Coming Soon cards are present but not launchable"""
     with shot("coming-soon", 'Then I see "Reverse engineer a codebase" under Coming Soon'):
         page.goto("/dashboard")
+        page.locator(L.COMING_SOON_SECTION).click()
         card = page.locator(L.card("Reverse engineer a codebase"))
         expect(card).to_be_visible()
         expect(card).to_be_disabled()
@@ -95,8 +96,8 @@ def test_the_inspect_affordance_opens_details_without_launching(page, shot):
     page.goto("/dashboard")
     expect(page.get_by_text(L.HEADING)).to_be_visible()
 
-    with shot("inspect-open", 'When I click "Inspect Pitch an idea details"'):
-        page.click(L.inspect("Pitch an idea"))
+    with shot("inspect-open", 'When I click "Inspect Pitch an idea (Fast) details"'):
+        page.click(L.inspect("Pitch an idea (Fast)"))
         expect(page.get_by_role("dialog")).to_be_visible()
 
     # No run started: still on the dashboard, not on a run surface.
@@ -130,16 +131,16 @@ def test_every_catalog_card_renders_regardless_of_tier(page, shot):
         ("basic", "Generate product requirements", None),
         # spec 017 entitled ppt and ppt_v2 on EVERY tier — the deck is the
         # entry-level product now. The spec's matrix predates that merge.
-        ("basic", "Pitch an idea", None),
-        ("basic", "Pitch an idea (v2)", None),
-        ("basic", "Build an interactive prototype", "Pro"),
+        ("basic", "Pitch an idea (Fast)", None),
+        ("basic", "Pitch an idea (Detailed)", None),
+        ("basic", "Build an interactive prototype (Fast)", "Pro"),
         ("basic", "Compose a custom workflow", "Enterprise"),
-        ("pro", "Pitch an idea", None),
+        ("pro", "Pitch an idea (Fast)", None),
         ("pro", "Build an end-to-end application", None),
         ("pro", "Compose a custom workflow", "Enterprise"),
-        ("pro", "Branch by Language", "Enterprise"),
+        ("pro", "Branch on a decision", "Enterprise"),
         ("enterprise", "Compose a custom workflow", None),
-        ("enterprise", "Branch by Language", None),
+        ("enterprise", "Branch on a decision", None),
     ],
 )
 def test_the_lock_badge_names_the_tier_a_card_needs(page_as, shot, role, card_title, lock):
@@ -152,6 +153,9 @@ def test_the_lock_badge_names_the_tier_a_card_needs(page_as, shot, role, card_ti
     page.goto("/dashboard")
     card = page.locator(L.card(card_title))
     expect(card).to_have_count(1)
+    # "Branch on a decision" lives in the collapsed Engine examples section; open
+    # it so the badge assertion below checks something a user can see.
+    page.locator(L.EXAMPLES_SECTION).click()
 
     if lock is None:
         expect(card).to_be_enabled()
@@ -202,30 +206,28 @@ def test_the_backend_refuses_a_launch_the_badge_says_is_locked(page, shot):
 
 
 @pytest.mark.scenario("S-02-10")
-@pytest.mark.defect
 @pytest.mark.role("enterprise")
-def test_spec_014_test_fixtures_appear_as_launchable_product_cards(page, shot):
-    """Scenario: spec-014 test fixtures appear as launchable product cards"""
-    # D-04 / ISS-187. Recorded as CURRENT behaviour, not correct behaviour: seven
-    # spec-014 test fixtures sit in the product catalog beside real workflows.
-    # If they are hidden, rewrite this to assert their absence and drop the tag.
+def test_spec_014_test_fixtures_are_launchable_under_engine_examples(page, shot):
+    """Scenario: spec-014 test fixtures are launchable under Engine examples"""
+    # D-04 / ISS-187, resolved: the fixtures left the product grid for a
+    # collapsed "Engine examples" section, and stay launchable there.
     fixtures = [
-        "Retry Until It Passes",
-        "Branch by Language",
-        "Spanish Greeter",
-        "Dutch Greeter",
-        "Hand Off to Another Workflow",
-        "Ask a Human, Then Hand Off",
-        "Ask a Human, Then Decide",
+        "Retry until it passes",
+        "Branch on a decision",
+        "Handoff target: Spanish reply",
+        "Handoff target: Dutch reply",
+        "Hand off to another workflow",
+        "Let a reviewer choose the handoff",
+        "Let a reviewer choose the path",
     ]
-    with shot("fixtures-in-catalog", "Then I see the test fixtures as launchable cards"):
+    with shot("fixtures-in-examples", "Then I see the test fixtures under Engine examples"):
         page.goto("/dashboard")
+        page.locator(L.EXAMPLES_SECTION).click()
         for title in fixtures:
             expect(page.locator(L.card(title))).to_be_enabled()
 
-    # The internal id leaks into user-facing copy, which is the sharper half of
-    # this defect — a customer reads "ex_A3_divert" on a product card.
-    expect(page.locator(L.card("Spanish Greeter"))).to_contain_text("ex_A3_divert")
+    # The internal id no longer leaks into user-facing copy.
+    expect(page.locator(L.card("Handoff target: Spanish reply"))).not_to_contain_text("ex_A3_divert")
 
 
 @pytest.mark.scenario("S-02-11")

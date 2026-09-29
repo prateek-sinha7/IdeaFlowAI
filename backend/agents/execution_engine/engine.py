@@ -2252,7 +2252,7 @@ async def finalize_terminal_run(
 
         # Propagate non-chainable to the attempt — EXCEPT when it is
         # non-chainable BY DESIGN (no deliverable name declared, Req 4 AC 4:
-        # sample_wave / sample_fanout / playwright_smoke_test). That is not a
+        # sample_wave / sample_fanout / ex_playwright_smoke_test). That is not a
         # failure and must not degrade an otherwise-successful run (GAPS R6) —
         # a declared name whose bytes could not be produced still degrades.
         if (
@@ -4452,6 +4452,17 @@ class ExecutionEngine:
                     ".context/ seed failed for run %s", pipeline_run_id, exc_info=True
                 )
 
+        # Persist the user's request to .context/user-prompt.md before step 1 so any
+        # agent (not just the first, which gets it inline) can read it. Never-raising.
+        try:
+            from app.api.launch_context import write_user_prompt_to_sandbox
+
+            write_user_prompt_to_sandbox(sandbox, user_message)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "user-prompt seed failed for run %s", pipeline_run_id, exc_info=True
+            )
+
         # ── Per-run state: ONE ExecutionContext, threaded explicitly (CTX-01/CTX-02) ──
         # Construct the per-run value object immediately after the sandbox so NO per-run
         # datum is stashed on the ExecutionEngine singleton (the INV-2 concurrency
@@ -4836,6 +4847,20 @@ class ExecutionEngine:
             if compiled_override is not None
             else compile_for_run(pipeline_type)
         )
+        # A workflow that extracts its uploads itself (a step granted the declared
+        # ``file_extract`` tool set) must not also receive the wizard's inlined
+        # document text: with every page in its prompt the first agent does the
+        # whole workflow on its own. The files are in .uploads/, so keep only names.
+        if any("file_extract" in (s.tools.tool_sets or []) for s in compiled.steps):
+            from app.api.launch_context import (
+                strip_inline_attachments,
+                write_user_prompt_to_sandbox,
+            )
+
+            _stripped = strip_inline_attachments(user_message)
+            if _stripped != user_message:
+                user_message = _stripped
+                write_user_prompt_to_sandbox(sandbox, user_message)
         # ── Roster seam (ADR-0003, refined by ADR-0008) ───────────────────────────
         # The plan FILLS IN the roster; it never overrules a caller that has one.
         # ``not agents`` is the load-bearing discriminator: rebuilding whenever the
@@ -16039,9 +16064,9 @@ class ExecutionEngine:
         # (Req 14 AC 2). We peek at pending_route_feedback WITHOUT popping it here; the
         # retry feedback block below does the authoritative pop-and-render.
         #
-        # REQUEST.md is NEVER created — the engine does not write the raw request to disk
-        # and does not propagate it downstream outside the Requirement 14 retry classes
-        # (Req 13 AC 4).
+        # The request is not broadcast inline outside the Requirement 14 retry classes
+        # (Req 13 AC 4), but it IS persisted to .context/user-prompt.md before step 1
+        # (write_user_prompt_to_sandbox) so a later agent with read_files can read it.
         _pending_fb_store = ectx.pending_route_feedback
         _spec_id = getattr(spec, "id", None)
         _has_retry_feedback = bool(_pending_fb_store.get(_spec_id))

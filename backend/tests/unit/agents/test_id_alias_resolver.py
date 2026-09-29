@@ -199,12 +199,8 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "ex_test_loop_reachable_skip": [],
     "ex_test_transitive_skip": [],
     "ex_validation_retry": [],
-    # clarify.mode: skip — pdf_to_prototype is a shipped pipeline, not a
-    # fixture: it gathers its requirements from the uploaded documents rather
-    # than from clarify questions, so it declares no clarify defaults.
-    "pdf_to_prototype": [],
     # clarify.mode: skip — spec 018 temporary playwright smoke test.
-    "playwright_smoke_test": [],
+    "ex_playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
     "sc001-test-fixture": [],
 }
@@ -370,7 +366,7 @@ def test_prototype_runs_its_own_plan() -> None:
             pid,
             marks=[pytest.mark.issue("ISS-635")],
         )
-        if pid == "playwright_smoke_test"
+        if pid == "ex_playwright_smoke_test"
         else pid
         for pid in _CLARIFY_PINNED
     ],
@@ -455,15 +451,10 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "ex_test_transitive_skip",
     "ex_validation_retry",
     # ── planner: skip because the manifest plans for itself ─────────────────
-    # pdf_to_prototype is NOT a fixture and NOT temporary — it is a shipped,
-    # enterprise-entitled pipeline. It declares `planner: skip` deliberately:
-    # it carries its own Doc Splitter -> Synthesizer -> Planner steps, so the
-    # generic deep planner would duplicate work the manifest already does.
-    "pdf_to_prototype",
     # spec 018: a genuinely temporary smoke-test pipeline for the playwright
     # tool set — minimal by design, and expected to be deleted once that tool
     # set is covered by real pipelines.
-    "playwright_smoke_test",
+    "ex_playwright_smoke_test",
 }
 
 
@@ -474,7 +465,7 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
             pid,
             marks=[pytest.mark.issue("ISS-635")],
         )
-        if pid == "playwright_smoke_test"
+        if pid == "ex_playwright_smoke_test"
         else pid
         for pid in _DISPATCHABLE
     ],

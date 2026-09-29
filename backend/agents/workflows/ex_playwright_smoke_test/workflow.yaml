@@ -1,4 +1,4 @@
-# playwright_smoke_test — throwaway single-step pipeline for validating spec 018's
+# ex_playwright_smoke_test — throwaway single-step pipeline for validating spec 018's
 # playwright tool set end to end, live, without waiting on a full ppt_v2/prototype run.
 #
 # THIS IS TEMPORARY. Delete this directory and agents/prompts/playwright-smoke-test/
@@ -10,13 +10,13 @@
 # exclusion (FR-006) rather than trivially not-including-it the way a single named
 # deliverable would.
 
-id: playwright_smoke_test
+id: ex_playwright_smoke_test
 user_launchable: true
 is_beta: false
-display_name: Playwright Smoke Test
+display_name: "Browser check"
 short_name: PW Smoke Test
 icon: TestTube
-description: Temporary one-step check that the playwright tool set works (spec 018).
+description: "A single step that opens a page in a real browser to confirm browser tools work."
 version: 1
 planner: skip
 clarify:

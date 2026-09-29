@@ -594,7 +594,7 @@ def test_changing_another_users_tier_takes_effect(page, shot, disposable_user, b
 
         # `prototype` is the entitlement basic does NOT hold and pro does, so it
         # is what proves the change reached the catalogue and not just the badge.
-        card = theirs.locator(HOME.card("Build an interactive prototype"))
+        card = theirs.locator(HOME.card("Build an interactive prototype (Fast)"))
         expect(card).to_be_visible()
         assert "Requires" not in card.inner_text(), (
             "the row says PRO but the catalogue still locks a pro workflow — the "

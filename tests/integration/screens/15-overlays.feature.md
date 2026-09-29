@@ -89,7 +89,7 @@ Feature: Overlays
   @S-15-01
   Scenario: Inspecting a catalog workflow describes it without launching
     When I cold-load "/dashboard"
-    And I click "Inspect Pitch an idea (v2) details"
+    And I click "Inspect Pitch an idea (Detailed) details"
     Then a dialog opens headed with that workflow's name
     And it shows the ordered step chain
     And it shows CONTEXT PROVIDERS, CAPABILITIES and COMPACTION sections

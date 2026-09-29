@@ -75,14 +75,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
         # spec 018: temporary smoke-test pipeline for the playwright tool set.
         # Same gap as the ex_A* fixtures above — user_launchable: true alone
         # doesn't entitle a pipeline, it needs a tier row too.
-        "playwright_smoke_test",
-        # spec: document-driven prototype build. The file manifest carries the
-        # raised limits a wave fan-out needs (a db manifest may not raise them),
-        # and user_launchable: true alone does not entitle a pipeline.
-        # The former sibling id `pdf_to_prototype_v2` is gone: that directory
-        # held a byte-identical stale snapshot of this manifest and was removed,
-        # so this is the only id the two entitlement maps need to agree on.
-        "pdf_to_prototype",
+        "ex_playwright_smoke_test",
         # reference fan-out fixture — entitled so its canvas rendering can be
         # compared against a real workflow.
         "sample_subagents_parallel",

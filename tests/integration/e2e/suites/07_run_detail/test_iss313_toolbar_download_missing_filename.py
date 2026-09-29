@@ -6,7 +6,7 @@ Root cause (confirmed, see ISS-313): `WorkflowCompiler._compile_deliverable`
 (`backend/agents/workflows/compiler.py:1446-1451`) copies `deliverable.name`
 verbatim from the manifest with no fallback when the manifest declares
 `deliverable.strategy` without `deliverable.name` — unlike `mimetype`, which
-gets a computed per-strategy default. `playwright_smoke_test/workflow.yaml`
+gets a computed per-strategy default. `ex_playwright_smoke_test/workflow.yaml`
 is exactly such a manifest, and it is `user_launchable: true`, so any run of
 it completes with `deliverable_mimetype` set but `deliverable_filename` null.
 `PreviewPanel.tsx`'s toolbar-download effect gates the button on that name

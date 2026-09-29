@@ -52,6 +52,7 @@ import {
   FileCode,
   FileJson,
   FileText,
+  Folder,
   Globe,
   Image as ImageIcon,
   Loader2,
@@ -909,6 +910,107 @@ function FileRow({
   );
 }
 
+/** Split `files` under `prefix` into the files directly in it and its sub-folders. */
+export function folderLevel(
+  files: SandboxFile[],
+  prefix: string,
+): { here: SandboxFile[]; dirs: [string, SandboxFile[]][] } {
+  const here: SandboxFile[] = [];
+  const dirs = new Map<string, SandboxFile[]>();
+  for (const f of files) {
+    const rel = f.path.slice(prefix.length);
+    const slash = rel.indexOf("/");
+    if (slash < 0) {
+      here.push(f);
+      continue;
+    }
+    const name = rel.slice(0, slash);
+    const list = dirs.get(name);
+    if (list) list.push(f);
+    else dirs.set(name, [f]);
+  }
+  return { here, dirs: [...dirs].sort((a, b) => a[0].localeCompare(b[0])) };
+}
+
+/** Every sub-folder path below a top-level directory — what Expand all opens. */
+export function allSubDirs(files: SandboxFile[]): Set<string> {
+  const out = new Set<string>();
+  for (const f of files) {
+    const parts = f.path.split("/");
+    for (let i = 2; i < parts.length; i++) out.add(parts.slice(0, i).join("/"));
+  }
+  return out;
+}
+
+/** A directory group's files as a real tree: sub-folders (collapsed until
+ *  clicked) first, then the files directly inside, named by basename. */
+function FolderTree({
+  files,
+  prefix,
+  sort,
+  openDirs,
+  onToggleDir,
+  activePath,
+  onSelect,
+}: {
+  files: SandboxFile[];
+  prefix: string;
+  sort: SortKey;
+  openDirs: Set<string>;
+  onToggleDir: (path: string) => void;
+  activePath?: string;
+  onSelect: (f: SandboxFile) => void;
+}) {
+  const { here, dirs } = folderLevel(files, prefix);
+  return (
+    <>
+      {dirs.map(([name, list]) => {
+        const path = `${prefix}${name}`;
+        const open = openDirs.has(path);
+        return (
+          <div key={path}>
+            <button
+              type="button"
+              onClick={() => onToggleDir(path)}
+              aria-expanded={open}
+              className="flex w-full items-center gap-1.5 rounded-[9px] px-1.5 py-1.5 text-left text-[12px] font-medium text-ink-700 transition-colors hover:bg-surface-card"
+            >
+              <ChevronRight
+                className={`h-3 w-3 flex-none text-ink-400 transition-transform ${open ? "rotate-90" : ""}`}
+              />
+              <Folder className="h-3.5 w-3.5 flex-none text-ink-400" strokeWidth={1.7} />
+              <span className="min-w-0 flex-1 truncate">{name}</span>
+              <span className="flex-none text-[10px] tabular-nums text-ink-400">{list.length}</span>
+            </button>
+            {open && (
+              <div className="ml-[11px] space-y-1.5 border-l border-line-divider pl-2.5 pt-1">
+                <FolderTree
+                  files={list}
+                  prefix={`${path}/`}
+                  sort={sort}
+                  openDirs={openDirs}
+                  onToggleDir={onToggleDir}
+                  activePath={activePath}
+                  onSelect={onSelect}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {sortFiles(here, sort).map((f) => (
+        <FileRow
+          key={f.path}
+          file={f}
+          label={f.path.slice(prefix.length)}
+          active={activePath === f.path}
+          onSelect={onSelect}
+        />
+      ))}
+    </>
+  );
+}
+
 function GroupBlock({
   group,
   open,
@@ -991,6 +1093,17 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
   const [pane, setPane] = useState<"artifacts" | "all">("artifacts");
   const [sort, setSort] = useState<SortKey>("name");
   const [shut, setShut] = useState<Set<string>>(new Set());
+  // Sub-folders inside an All files directory group — OPEN ones, so every
+  // sub-folder starts collapsed.
+  const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
+  const toggleDir = useCallback((path: string) => {
+    setOpenDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
 
   // ── Ref (version tag) selection (Requirement 17/19) ──────────────────────
   // ``selectedRef=null`` means "live working tree". When a ref is selected the
@@ -1293,14 +1406,20 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
             <span className="flex-1" />
             <button
               type="button"
-              onClick={() => setShut(new Set())}
+              onClick={() => {
+                setShut(new Set());
+                setOpenDirs(allSubDirs(files));
+              }}
               className="flex items-center gap-1 rounded-[7px] px-1.5 py-1 text-[11px] font-medium text-ink-500 transition-colors hover:bg-surface-card hover:text-ink-800"
             >
               <ChevronsUpDown className="h-3 w-3" strokeWidth={1.8} /> Expand all
             </button>
             <button
               type="button"
-              onClick={() => setShut(new Set(groups.map((g) => g.id)))}
+              onClick={() => {
+                setShut(new Set(groups.map((g) => g.id)));
+                setOpenDirs(new Set());
+              }}
               className="flex items-center gap-1 rounded-[7px] px-1.5 py-1 text-[11px] font-medium text-ink-500 transition-colors hover:bg-surface-card hover:text-ink-800"
             >
               <ChevronsDownUp className="h-3 w-3" strokeWidth={1.8} /> Collapse all
@@ -1363,6 +1482,16 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
                       );
                     })}
                   </div>
+                ) : group.id.startsWith("dir:") ? (
+                  <FolderTree
+                    files={group.files}
+                    prefix={`${group.label}/`}
+                    sort={sort}
+                    openDirs={openDirs}
+                    onToggleDir={toggleDir}
+                    activePath={active?.path}
+                    onSelect={handleSelect}
+                  />
                 ) : (
                   rows.map((f) => {
                     const d = describe(group, f);

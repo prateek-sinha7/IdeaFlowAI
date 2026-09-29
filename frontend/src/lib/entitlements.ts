@@ -82,11 +82,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // spec 018: temporary smoke-test pipeline for the playwright tool set.
     // Entitled on the backend but missed here on first pass — same drift class
     // as the ex_A* fixtures above.
-    "playwright_smoke_test",
-    // document-driven prototype build (wave fan-out). Kept in parity with
-    // backend/app/core/entitlements.py — a manifest that is user_launchable
-    // and non-beta still renders LOCKED until it appears in both maps.
-    "pdf_to_prototype",
+    "ex_playwright_smoke_test",
     // reference fan-out fixture — kept in parity with the backend map.
   ]),
 };

@@ -238,19 +238,19 @@ def test_deliverable_access_matches_the_tier(page_as, shot, role, plan, includes
 def test_deliverable_access_omits_workflows_the_catalog_offers(page, shot):
     """Scenario: Deliverable Access omits workflows the catalog offers
 
-    Asserts TODAY'S behaviour — D-04. The catalogue offers "Branch by Language"
+    Asserts TODAY'S behaviour — D-04. The catalogue offers "Branch on a decision"
     to an enterprise user and Deliverable Access does not mention it, so the two
     surfaces disagree about what the plan includes.
     """
     with shot("catalog-offers", 'When I cold-load "/dashboard" as enterprise'):
         page.goto("/dashboard")
-        expect(page.get_by_text("Branch by Language")).to_be_visible()
+        expect(page.get_by_text("Branch on a decision")).to_be_visible()
 
     with shot("usage-omits", 'When I cold-load "/settings/usage"'):
         page.goto("/settings/usage")
         expect(page.get_by_text(SET.DELIVERABLE_ACCESS)).to_be_visible()
 
-    assert "Branch by Language" not in page.evaluate("() => document.body.innerText"), (
+    assert "Branch on a decision" not in page.evaluate("() => document.body.innerText"), (
         "Deliverable Access now lists it — D-04's two surfaces agree. Re-read "
         "the defect before changing this test."
     )
@@ -297,8 +297,8 @@ def test_a_hexaware_user_gains_prototype_and_loses_presentations(browser, shot, 
             expect(page.get_by_text(HOME.HEADING)).to_be_visible()
             page.wait_for_timeout(settings.SETTLE_MS)
 
-        prototype = page.locator(HOME.card("Build an interactive prototype"))
-        presentation = page.locator(HOME.card("Pitch an idea"))
+        prototype = page.locator(HOME.card("Build an interactive prototype (Fast)"))
+        presentation = page.locator(HOME.card("Pitch an idea (Fast)"))
         expect(prototype).to_be_visible()
         expect(presentation).to_be_visible()
 

@@ -15,10 +15,10 @@ gate and branch mechanics, which belong with 22-handoff-and-gates.
 
 | Workflow | Catalogue card | Deliverable strategy | Delivers |
 |---|---|---|---|
-| `ppt` | Pitch an idea | `ppt` | `presentation.pptx` |
-| `ppt_v2` | Pitch an idea (v2) | `single_file` | `presentation.html` |
+| `ppt` | Pitch an idea (Fast) | `ppt` | `presentation.pptx` |
+| `ppt_v2` | Pitch an idea (Detailed) | `single_file` | `presentation.html` |
 | `user_stories` | Generate product requirements | `streamed_text` | `user_stories.md` |
-| `prototype` | Build an interactive prototype | `single_file` | `prototype.html` |
+| `prototype` | Build an interactive prototype (Fast) | `single_file` | `prototype.html` |
 | `app_builder` | Build an end-to-end application | `serialized_sandbox` | a sandbox tree |
 
 **Every scenario here is `@live` and `@destructive`.** Each one dispatches a real
@@ -73,7 +73,7 @@ fingerprint of one would be noise.
   @destructive
   # live: dispatches a real run, so it cannot run in the offline tier.
   Scenario: Pitch an idea runs end to end and delivers a deck
-    Given the catalogue card "Pitch an idea"
+    Given the catalogue card "Pitch an idea (Fast)"
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state
@@ -87,7 +87,7 @@ fingerprint of one would be noise.
   @destructive
   # live: dispatches a real run, so it cannot run in the offline tier.
   Scenario: Pitch an idea v2 runs end to end and delivers a deck
-    Given the catalogue card "Pitch an idea (v2)"
+    Given the catalogue card "Pitch an idea (Detailed)"
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state
@@ -115,7 +115,7 @@ fingerprint of one would be noise.
   @destructive
   # live: dispatches a real run, so it cannot run in the offline tier.
   Scenario: Build an interactive prototype runs end to end and delivers a page
-    Given the catalogue card "Build an interactive prototype"
+    Given the catalogue card "Build an interactive prototype (Fast)"
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state

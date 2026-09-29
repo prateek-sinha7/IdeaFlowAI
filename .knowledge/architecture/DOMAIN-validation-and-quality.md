@@ -160,10 +160,10 @@ flowchart LR
   [spec_plan_coverage.py](../../backend/agents/capabilities/validators/spec_plan_coverage.py) (a spec heading with no matching plan task is a
   coverage gap), [screens_plan_coverage.py](../../backend/agents/capabilities/validators/screens_plan_coverage.py) (a screen declared in spec.md is missing from build/screens.json),
   [api_prefix.py](../../backend/agents/capabilities/validators/api_prefix.py) (infra files referencing an app endpoint
-  outside `/api/v1`), [journeys_coverage.py](../../backend/agents/capabilities/validators/journeys_coverage.py) (pdf_to_prototype: journeys.md
+  outside `/api/v1`), [journeys_coverage.py](../../backend/agents/capabilities/validators/journeys_coverage.py) (written for the retired pdf_to_prototype: journeys.md
   cross-check against documented screens), [html_element_floor.py](../../backend/agents/capabilities/validators/html_element_floor.py)
-  (pdf_to_prototype: detect draft truncation via element-count or byte-size collapse), and [fragment_field_coverage.py](../../backend/agents/capabilities/validators/fragment_field_coverage.py)
-  (pdf_to_prototype: screens/*.html fragments must have all fields named in journeys.md, flag sidecars). First four emit only
+  (written for the retired pdf_to_prototype: detect draft truncation via element-count or byte-size collapse), and [fragment_field_coverage.py](../../backend/agents/capabilities/validators/fragment_field_coverage.py)
+  (written for the retired pdf_to_prototype: screens/*.html fragments must have all fields named in journeys.md, flag sidecars). First four emit only
   `P1`/`P2`; the three workflow-specific ones emit `P0`/`P1` for silent hard faults (content loss).
 - **The exec-backed code validators** — [code_compile.py](../../backend/agents/capabilities/validators/code_compile.py), [code_lint.py](../../backend/agents/capabilities/validators/code_lint.py),
   [code_test.py](../../backend/agents/capabilities/validators/code_test.py) each drive one argv (`python3 -c` compile driver, `ruff check`,
@@ -416,9 +416,12 @@ swallows every exception. It is event-free on purpose — see below.
 they are exercised only by tests/agents/test_validators.py and
 tests/agents/test_code_validators.py. The other six (the three `api_prefix` /
 `html_static` / `html_render` legacy trio, and the three new `journeys_coverage` /
-`html_element_floor` / `fragment_field_coverage` pdf_to_prototype trio) are either
-manifested as post-steps or directly wired into workflow.yaml. Reading the manifests
-alone would not tell you the unused seven exist.
+`html_element_floor` / `fragment_field_coverage` trio) are either
+manifested as post-steps or directly wired into workflow.yaml — except the trio,
+whose only user, pdf_to_prototype, was retired
+([ADR-0054](../cards/20260925-1201-ADR-0054.md)); they stay registered and
+Composer-selectable but no file workflow runs them. Reading the manifests alone
+would not tell you the unused seven exist.
 
 ## Why this shape
 

@@ -20,7 +20,12 @@
 - 132 of the 133 unit setup errors are `UnitIsolationError: Unit test opened a real database connection` (one more hits it inside a test).
 - `frontend/src/components/workflow/WorkflowView.attachmentRemove.test.tsx` hangs, even when run alone, and stalls the full vitest run.
 - `tests/smoke` and `tests/ci` have no tests in the offline tier.
-- Browser e2e (`tests/integration/e2e`) has not been run yet.
+- **Browser e2e (`tests/integration/e2e`) is blocked locally — sign-in cannot work on `dev`:**
+  - `POST /api/auth/login` returns 500: `column users.status does not exist`. The local Postgres is stamped `0040`, but migrations 0041–0050 are already physically applied, while the Cognito migration `0038_cognito_only_users` (adds `users.status`, drops `password_hash`) never ran.
+  - `alembic upgrade head` fails (`DuplicateColumn diverted_at_step_id`), and `0038`'s preflight would refuse anyway: all 8 local users have `cognito_sub IS NULL`.
+  - `dev` is Cognito-only, and `backend/.env` has no `COGNITO_USER_POOL_ID` / `COGNITO_CLIENT_ID` / `COGNITO_CLIENT_SECRET`; there is no local auth bypass.
+  - To unblock: set the Cognito env vars, link users with `python -m scripts.migrate_local_users_to_cognito --report` then `--link`, apply `0038`–`0040`, and `alembic stamp 0050`.
+  - Partial result before stopping: `01_auth` — 6 passed, 10 failed (every signed-in scenario timed out after ~93s).
 
 ## Failures
 

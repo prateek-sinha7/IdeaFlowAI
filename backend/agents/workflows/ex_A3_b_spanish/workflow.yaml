@@ -27,10 +27,10 @@
 id: ex_A3_b_spanish
 user_launchable: true
 is_beta: false
-display_name: Spanish Greeter
+display_name: "Handoff target: Spanish reply"
 short_name: Spanish Greeter
 icon: GitBranch
-description: The plain workflow ex_A3_divert diverts into for the "spanish" outcome.
+description: "Where a branching workflow hands off when it picks the Spanish outcome."
 version: 1
 planner: skip
 clarify:

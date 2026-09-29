@@ -37,7 +37,7 @@ def _is_deck(od):
 
 
 @pytest.mark.parametrize(
-    "pipeline_type", ["prototype", "prototype_feature_revision", "custom", "pdf_to_prototype"]
+    "pipeline_type", ["prototype", "prototype_feature_revision", "custom", "prototype_v2"]
 )
 def test_web_pipelines_get_the_page_loader(pipeline_type):
     """Named web pipelines, a composed run, and a web FILE workflow all agree."""
@@ -75,7 +75,7 @@ def test_an_unknown_pipeline_follows_its_template(monkeypatch):
 def test_no_opendesign_declaration_resolves_nothing():
     """Unchanged: a workflow that does not declare the provider gets no context."""
     base, od = resolve_launch_od_context(
-        "pdf_to_prototype", _WEB_TEMPLATE, _DS, fatal=True, context_providers=[]
+        "prototype_v2", _WEB_TEMPLATE, _DS, fatal=True, context_providers=[]
     )
     assert od is None
-    assert base == "pdf_to_prototype"
+    assert base == "prototype_v2"

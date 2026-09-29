@@ -409,7 +409,7 @@ MIGRATED_WORKFLOWS: list[str] = sorted(
         "user_stories",
         "user_stories_revision",
         "sc001-test-fixture",
-        "playwright_smoke_test",
+        "ex_playwright_smoke_test",
         "custom",
         "custom_revision",
         "chat",

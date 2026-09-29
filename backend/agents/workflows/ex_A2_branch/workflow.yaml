@@ -21,10 +21,10 @@
 id: ex_A2_branch
 user_launchable: true
 is_beta: false
-display_name: Branch by Language
+display_name: "Branch on a decision"
 short_name: Language Branch
 icon: GitBranch
-description: Smallest possible example of a conditional gate picking one of three forward branches.
+description: "An agent reads your message, picks a language, and the run follows that branch."
 version: 1
 planner: skip
 clarify:

@@ -319,7 +319,7 @@ Feature: The concierge chat lane
     Given the completed prototype run
     When I cold-load "/runs/{id}"
     Then I see the heading "TAKE THIS FURTHER"
-    And I see chips "Pitch an idea" and "Generate product requirements"
+    And I see chips "Pitch an idea (Fast)" and "Generate product requirements"
     And I see a chip "Build an end-to-end application" badged "SOON"
 
   @S-18-18

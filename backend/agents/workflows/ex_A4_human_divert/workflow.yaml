@@ -38,10 +38,10 @@
 id: ex_A4_human_divert
 user_launchable: true
 is_beta: false
-display_name: Ask a Human, Then Hand Off
+display_name: "Let a reviewer choose the handoff"
 short_name: Human Handoff
 icon: GitBranch
-description: A human chooses at a review gate which separate workflow the run hands off to.
+description: "A person at a review gate picks which separate workflow the run hands off to."
 version: 1
 planner: skip
 clarify:

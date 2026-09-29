@@ -583,7 +583,7 @@ describe("SandboxTab", () => {
     expect(downloadBlob.mock.calls[0][1]).toBe("presentation.pptx");
   });
 
-  it("keeps a nested file's path relative to its group, not just the basename", async () => {
+  it("shows a directory group's sub-folders as a tree, so same-named files stay apart", async () => {
     getRunSandbox.mockResolvedValue({
       run_id: "run-1",
       expired: false,
@@ -599,10 +599,17 @@ describe("SandboxTab", () => {
     await userEvent.click(screen.getByRole("button", { name: /see all 2 files/i }));
     await userEvent.click(screen.getByRole("button", { name: /expand all/i }));
 
-    // Two files named page.tsx — a bare basename would render them identically.
-    const rail = screen.getByText("src").closest("div")!;
-    expect(within(rail).getByText("app/page.tsx")).toBeInTheDocument();
-    expect(within(rail).getByText("lib/page.tsx")).toBeInTheDocument();
+    // Two files named page.tsx — each sits under its own sub-folder row.
+    const app = screen.getByRole("button", { name: /^app/ });
+    const lib = screen.getByRole("button", { name: /^lib/ });
+    expect(app).toHaveAttribute("aria-expanded", "true");
+    expect(within(app.parentElement!).getByText("page.tsx")).toBeInTheDocument();
+    expect(within(lib.parentElement!).getByText("page.tsx")).toBeInTheDocument();
+
+    // Collapsing a sub-folder hides only its own files.
+    await userEvent.click(app);
+    expect(within(app.parentElement!).queryByText("page.tsx")).not.toBeInTheDocument();
+    expect(within(lib.parentElement!).getByText("page.tsx")).toBeInTheDocument();
   });
 
   it("downloads the whole workspace as one zip", async () => {

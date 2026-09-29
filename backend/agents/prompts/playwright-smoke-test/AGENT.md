@@ -2,7 +2,7 @@
 id: playwright-smoke-test
 name: Playwright Smoke Test
 role: One-turn live check that the playwright tool set actually works
-pipeline_type: playwright_smoke_test
+pipeline_type: ex_playwright_smoke_test
 order: 1
 max_tokens: 4000
 icon: "🧪"

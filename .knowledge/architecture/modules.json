@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-23",
+  "generated_at": "2026-09-25",
   "modules": [
     {
       "id": "MOD-backend",
@@ -712,31 +712,9 @@
         "frontend/src/store/slices/hooksSlice.ts",
         "frontend/src/store/slices/skillsSlice.ts"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "external_deps": [
-        "@reduxjs/toolkit",
-        "axios",
-        "fs",
-        "lucide-react",
-        "next",
-        "path",
-        "react",
-        "react-redux",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-app",
@@ -786,33 +764,9 @@
         "frontend/src/app/workflow/page.test.tsx",
         "frontend/src/app/workflow/page.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components",
-        "MOD-frontend-src-components-handoff",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers",
-        "MOD-frontend-src-types"
-      ],
+      "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "fs",
-        "lucide-react",
-        "motion",
-        "next",
-        "path",
-        "react",
-        "vitest"
-      ]
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components",
@@ -826,21 +780,9 @@
         "frontend/src/components/admin/CapacityMatrix.test.tsx",
         "frontend/src/components/admin/CapacityMatrix.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-ui"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-chat"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "lucide-react",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-analytics",
@@ -855,54 +797,26 @@
         "frontend/src/components/analytics/charts/DonutChart.test.tsx",
         "frontend/src/components/analytics/charts/DonutChart.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-catalog",
       "path": "frontend/src/components/catalog",
       "language": "typescript",
-      "file_count": 5,
+      "file_count": 6,
       "files": [
+        "frontend/src/components/catalog/HomeLaunchGrid.categories.test.ts",
         "frontend/src/components/catalog/HomeLaunchGrid.crossAccountLeak.test.tsx",
         "frontend/src/components/catalog/HomeLaunchGrid.inspect.test.tsx",
         "frontend/src/components/catalog/HomeLaunchGrid.test.tsx",
         "frontend/src/components/catalog/HomeLaunchGrid.tsx",
         "frontend/src/components/catalog/NameWorkflowModal.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-workflow"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-chat",
@@ -949,31 +863,9 @@
         "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.test.ts",
         "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-results"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "fs",
-        "lucide-react",
-        "motion",
-        "path",
-        "react",
-        "react-dom",
-        "react-markdown",
-        "remark-gfm",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-handoff",
@@ -992,21 +884,9 @@
         "frontend/src/components/handoff/types.ts",
         "frontend/src/components/handoff/useHandoffPipelineState.ts"
       ],
-      "imports": [
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-history",
@@ -1033,28 +913,9 @@
         "frontend/src/components/history/WorkflowHistory.test.tsx",
         "frontend/src/components/history/WorkflowHistory.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-types"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-results"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-home",
@@ -1064,16 +925,9 @@
       "files": [
         "frontend/src/components/home/CreationHub.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
+      "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "lucide-react",
-        "motion",
-        "next",
-        "react"
-      ]
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-layout",
@@ -1097,40 +951,9 @@
         "frontend/src/components/layout/DashboardLayout.launchLatch.test.tsx",
         "frontend/src/components/layout/DashboardLayout.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-analytics",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-settings",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "fs",
-        "lucide-react",
-        "motion",
-        "next",
-        "path",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-library",
@@ -1144,28 +967,9 @@
         "frontend/src/components/library/LibraryPage.test.tsx",
         "frontend/src/components/library/LibraryPage.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@/test",
-        "@reduxjs/toolkit",
-        "@testing-library/react",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "react-redux",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-preview",
@@ -1210,34 +1014,15 @@
         "frontend/src/components/preview/VersionSwitch.integration.test.tsx",
         "frontend/src/components/preview/__tests__/PreviewPanel.switcher.test.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-results"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "react",
-        "react-markdown",
-        "remark-gfm",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-results",
       "path": "frontend/src/components/results",
       "language": "typescript",
-      "file_count": 64,
+      "file_count": 65,
       "files": [
         "frontend/src/components/results/ActivityTrail.test.tsx",
         "frontend/src/components/results/ActivityTrail.tsx",
@@ -1280,6 +1065,7 @@
         "frontend/src/components/results/JudgedContent.tsx",
         "frontend/src/components/results/MermaidBlock.tsx",
         "frontend/src/components/results/SandboxTab.defects.test.tsx",
+        "frontend/src/components/results/SandboxTab.folderTree.test.ts",
         "frontend/src/components/results/SandboxTab.iss830.test.tsx",
         "frontend/src/components/results/SandboxTab.readOnlyIndicator.test.tsx",
         "frontend/src/components/results/SandboxTab.runs.test.tsx",
@@ -1304,47 +1090,9 @@
         "frontend/src/components/results/artifactPreview.test.tsx",
         "frontend/src/components/results/artifactPreview.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-workflow"
-      ],
-      "external_deps": [
-        "@/test",
-        "@codemirror/commands",
-        "@codemirror/lang-css",
-        "@codemirror/lang-html",
-        "@codemirror/lang-javascript",
-        "@codemirror/lang-markdown",
-        "@codemirror/language",
-        "@codemirror/search",
-        "@codemirror/state",
-        "@codemirror/view",
-        "@lezer/highlight",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "fs",
-        "lucide-react",
-        "mermaid",
-        "motion",
-        "next",
-        "path",
-        "react",
-        "react-dom",
-        "react-markdown",
-        "remark-gfm",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-savedworkflows",
@@ -1358,28 +1106,9 @@
         "frontend/src/components/savedworkflows/WorkflowDetailView.tsx",
         "frontend/src/components/savedworkflows/pipelineLabel.ts"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@reduxjs/toolkit",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "react-redux",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-settings",
@@ -1394,23 +1123,9 @@
         "frontend/src/components/settings/SecuritySection.tsx",
         "frontend/src/components/settings/UpgradePlanModal.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-components-layout"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "next",
-        "react",
-        "react-dom",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-sidebar",
@@ -1421,15 +1136,9 @@
         "frontend/src/components/sidebar/ChatSessionItem.tsx",
         "frontend/src/components/sidebar/Sidebar.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-lib"
-      ],
+      "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "lucide-react",
-        "motion",
-        "react"
-      ]
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-ui",
@@ -1455,34 +1164,9 @@
         "frontend/src/components/ui/__tests__/modal.test.tsx",
         "frontend/src/components/ui/__tests__/primitives.test.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-settings",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-providers"
-      ],
-      "external_deps": [
-        "@/test",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "lucide-react",
-        "motion",
-        "react",
-        "react-markdown",
-        "remark-gfm",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-components-workflow",
@@ -1575,38 +1259,9 @@
         "frontend/src/components/workflow/prototype/TemplateGallery.reskin.test.tsx",
         "frontend/src/components/workflow/prototype/TemplateGallery.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-context",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-lib"
-      ],
-      "external_deps": [
-        "@/test",
-        "@reduxjs/toolkit",
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "fs",
-        "lucide-react",
-        "motion",
-        "next",
-        "path",
-        "react",
-        "react-dom",
-        "react-redux",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-context",
@@ -1617,15 +1272,8 @@
         "frontend/src/context/SkillsHooksContext.tsx"
       ],
       "imports": [],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-workflow"
-      ],
-      "external_deps": [
-        "react"
-      ]
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-hooks",
@@ -1681,35 +1329,9 @@
         "frontend/src/hooks/useWorkflow.waveWorkers.test.ts",
         "frontend/src/hooks/useWorkflowMetadata.ts"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers",
-        "MOD-frontend-src-types"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-handoff",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-lib",
-        "MOD-frontend-src-providers"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "fs",
-        "path",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-lib",
@@ -1799,40 +1421,9 @@
         "frontend/src/lib/wsReplayState.test.ts",
         "frontend/src/lib/wsReplayState.ts"
       ],
-      "imports": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-providers"
-      ],
-      "imported_by": [
-        "MOD-frontend-src",
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-analytics",
-        "MOD-frontend-src-components-catalog",
-        "MOD-frontend-src-components-chat",
-        "MOD-frontend-src-components-handoff",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-components-home",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-components-library",
-        "MOD-frontend-src-components-preview",
-        "MOD-frontend-src-components-results",
-        "MOD-frontend-src-components-savedworkflows",
-        "MOD-frontend-src-components-settings",
-        "MOD-frontend-src-components-sidebar",
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-components-workflow",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-providers"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "lucide-react",
-        "pptxgenjs",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-providers",
@@ -1846,23 +1437,9 @@
         "frontend/src/providers/ServiceBusyProvider.test.tsx",
         "frontend/src/providers/ServiceBusyProvider.tsx"
       ],
-      "imports": [
-        "MOD-frontend-src-components-ui",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-layout",
-        "MOD-frontend-src-hooks",
-        "MOD-frontend-src-lib"
-      ],
-      "external_deps": [
-        "@testing-library/react",
-        "@testing-library/user-event",
-        "react",
-        "vitest"
-      ]
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-styles",
@@ -1875,11 +1452,7 @@
       ],
       "imports": [],
       "imported_by": [],
-      "external_deps": [
-        "fs",
-        "path",
-        "vitest"
-      ]
+      "external_deps": []
     },
     {
       "id": "MOD-frontend-src-types",
@@ -1891,14 +1464,8 @@
         "frontend/src/types/index.ts"
       ],
       "imports": [],
-      "imported_by": [
-        "MOD-frontend-src-app",
-        "MOD-frontend-src-components-history",
-        "MOD-frontend-src-hooks"
-      ],
-      "external_deps": [
-        "vitest"
-      ]
+      "imported_by": [],
+      "external_deps": []
     }
   ]
 }

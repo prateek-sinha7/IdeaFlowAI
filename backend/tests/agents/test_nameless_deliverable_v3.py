@@ -5,7 +5,7 @@ GAPS closure — Phase R row **R6** (FR-016 / Req 4 AC 4 / FR-060; exposed by U2
 
 Why this file exists
 ---------------------
-``sample_wave``, ``sample_fanout`` and ``playwright_smoke_test`` declare
+``sample_wave``, ``sample_fanout`` and ``ex_playwright_smoke_test`` declare
 ``deliverable: {strategy: serialized_sandbox}`` with NO ``name:`` key —
 Requirement 4 AC 4 makes such a workflow non-chainable BY DESIGN (no single
 named output another run could chain from). ``build_flat_payload`` finds no
@@ -67,7 +67,7 @@ def _make_nameless_ectx(
     revision_ordinal: int = 1,
 ) -> types.SimpleNamespace:
     """An ectx whose deliverable declares NO name — mirrors ``sample_wave`` /
-    ``sample_fanout`` / ``playwright_smoke_test``: ``strategy:
+    ``sample_fanout`` / ``ex_playwright_smoke_test``: ``strategy:
     serialized_sandbox`` with no ``name:`` key, so the compiled
     ``DeliverableSpec.name`` is ``None`` (``compiler.py``'s ``raw_name =
     raw.get("name")``).

@@ -35,10 +35,10 @@
 id: ex_A3_divert
 user_launchable: true
 is_beta: false
-display_name: Hand Off to Another Workflow
+display_name: "Hand off to another workflow"
 short_name: Workflow Handoff
 icon: GitBranch
-description: Smallest possible example of a conditional gate that stays in-run for one outcome and diverts to a separate workflow for the others.
+description: "Continues in the same run for one outcome and hands off to a separate workflow for the others."
 version: 1
 planner: skip
 clarify:

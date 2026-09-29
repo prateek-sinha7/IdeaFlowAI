@@ -18,7 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lock, AlertCircle, Info, Construction } from "lucide-react";
+import { ArrowRight, Lock, AlertCircle, Info, Construction, ChevronRight, FlaskConical } from "lucide-react";
 import { getWorkflowIcon } from "@/lib/workflowIcons";
 import type { WorkflowType } from "@/types/index";
 import type { WorkflowRun } from "@/types/index";
@@ -89,6 +89,18 @@ interface HomeLaunchGridProps {
 }
 
 const RECENTS_LIMIT = 6;
+
+/**
+ * Engine demonstrations, not product capability. The backend's conditional-gate
+ * fixtures use an `ex_` / `sample_` / `sc001` id prefix and stay
+ * `user_launchable` because they genuinely run — but on a flat grid "Spanish
+ * Greeter" read like a peer of "Build an end-to-end application". Classifying
+ * on the prefix is presentation only: no manifest changes, nothing stops being
+ * launchable, and a new fixture following the convention is sorted automatically.
+ * A beta row stays under Coming Soon even when it matches.
+ */
+const EXAMPLE_ID_PREFIX = /^(ex_|sample_|sc001)/i;
+export const isExampleWorkflow = (id: string): boolean => EXAMPLE_ID_PREFIX.test(id);
 
 const STATUS_TONE: Record<string, { label: string; dot: string; text: string }> = {
   completed: { label: "Done",      dot: "bg-status-done",    text: "text-status-done"    },
@@ -275,8 +287,9 @@ export function HomeLaunchGrid({
             "Coming Soon" are visually distinct groups, not one blurred list
             where the only signal is a small per-card badge. */}
         {!loading && !error && workflows.length > 0 && (() => {
-          const activeRows = workflows.filter((w) => !w.is_beta);
-          const betaRows   = workflows.filter((w) => w.is_beta);
+          const productRows = workflows.filter((w) => !w.is_beta && !isExampleWorkflow(w.id));
+          const exampleRows = workflows.filter((w) => !w.is_beta && isExampleWorkflow(w.id));
+          const betaRows    = workflows.filter((w) => w.is_beta);
 
           const renderCard = (row: WorkflowSummary) => {
             const type      = row.id as WorkflowType;
@@ -348,20 +361,60 @@ export function HomeLaunchGrid({
 
           return (
             <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {activeRows.map(renderCard)}
-              </div>
-
-              {betaRows.length > 0 && (
+              {productRows.length > 0 && (
                 <>
-                  <div className="mt-10 mb-3.5 flex items-center gap-2">
-                    <h3 className="text-[13px] font-semibold text-ink-500">Coming Soon</h3>
-                    <span className="text-[11px] text-ink-400">Not yet available on any plan</span>
+                  {/* Stacks under sm so the tracked label never breaks mid-phrase. */}
+                  <div className="mb-3.5 sm:flex sm:items-baseline sm:gap-2">
+                    <h3 className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+                      Start from
+                    </h3>
+                    <span className="mt-1 block text-[13px] text-ink-500 sm:mt-0">
+                      open any of these, change it, make it yours
+                    </span>
                   </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {betaRows.map(renderCard)}
+                    {productRows.map(renderCard)}
                   </div>
                 </>
+              )}
+
+              {/* Engine demonstrations — runnable, but collapsed so they don't
+                  compete with product workflows for the first screen. */}
+              {exampleRows.length > 0 && (
+                <details className="group/ex mt-10">
+                  <summary className="flex cursor-pointer list-none items-start gap-2 rounded-[10px] border border-line-border bg-surface-card px-4 py-3 transition-colors hover:border-line-faint [&::-webkit-details-marker]:hidden sm:items-center">
+                    <ChevronRight className="mt-0.5 h-4 w-4 flex-none text-ink-400 transition-transform group-open/ex:rotate-90 sm:mt-0" />
+                    <FlaskConical className="mt-0.5 h-4 w-4 flex-none text-ink-400 sm:mt-0" />
+                    <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-2">
+                      <h3 className="text-[14px] font-semibold text-ink-700">Engine examples</h3>
+                      <span className="mt-0.5 block text-[13px] text-ink-500 sm:mt-0">
+                        {exampleRows.length} runnable demonstrations of branching, looping and review gates
+                      </span>
+                    </div>
+                  </summary>
+                  <div className="mt-3.5 grid grid-cols-1 gap-4 rounded-[14px] border border-line-border bg-surface-paper p-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {exampleRows.map(renderCard)}
+                  </div>
+                </details>
+              )}
+
+              {/* Collapsed: unavailable workflows shouldn't outrank the user's
+                  own recent work for vertical space. */}
+              {betaRows.length > 0 && (
+                <details className="group/soon mt-10">
+                  <summary className="flex cursor-pointer list-none items-start gap-2 rounded-[10px] border border-line-border bg-surface-card px-4 py-3 transition-colors hover:border-line-faint [&::-webkit-details-marker]:hidden sm:items-center">
+                    <ChevronRight className="mt-0.5 h-4 w-4 flex-none text-ink-400 transition-transform group-open/soon:rotate-90 sm:mt-0" />
+                    <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-2">
+                      <h3 className="text-[14px] font-semibold text-ink-700">Coming Soon</h3>
+                      <span className="mt-0.5 block text-[13px] text-ink-500 sm:mt-0">
+                        {betaRows.length} not yet available on any plan
+                      </span>
+                    </div>
+                  </summary>
+                  <div className="mt-3.5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {betaRows.map(renderCard)}
+                  </div>
+                </details>
               )}
             </>
           );

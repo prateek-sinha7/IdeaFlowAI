@@ -152,15 +152,10 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "ex_test_transitive_skip",
     "ex_validation_retry",
     # ── planner: skip because the manifest plans for itself ─────────────────
-    # pdf_to_prototype is NOT a fixture and NOT temporary — it is a shipped,
-    # enterprise-entitled pipeline. It declares `planner: skip` deliberately:
-    # it carries its own Doc Splitter -> Synthesizer -> Planner steps, so the
-    # generic deep planner would duplicate work the manifest already does.
-    "pdf_to_prototype",
     # spec 018: a genuinely temporary smoke-test pipeline for the playwright
     # tool set — minimal by design, and expected to be deleted once that tool
     # set is covered by real pipelines.
-    "playwright_smoke_test",
+    "ex_playwright_smoke_test",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -283,12 +278,8 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "ex_test_loop_reachable_skip": [],
     "ex_test_transitive_skip": [],
     "ex_validation_retry": [],
-    # clarify.mode: skip — pdf_to_prototype is a shipped pipeline, not a
-    # fixture: it gathers its requirements from the uploaded documents rather
-    # than from clarify questions, so it declares no clarify defaults.
-    "pdf_to_prototype": [],
     # clarify.mode: skip — spec 018 temporary playwright smoke test.
-    "playwright_smoke_test": [],
+    "ex_playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
     # clarify.mode: disabled — the SC-001 proof fixture (d0562d97) declares no
     # clarify.defaults at all. Pinned EXPLICITLY rather than left to the
@@ -335,7 +326,7 @@ def test_prototype_planner_runs() -> None:
             wid,
             marks=[pytest.mark.issue("ISS-635")],
         )
-        if wid == "playwright_smoke_test"
+        if wid == "ex_playwright_smoke_test"
         else wid
         for wid in sorted(set(_MANIFEST_BACKED_IDS) - set(_INTERNAL_PIPELINES))
     ],
@@ -419,7 +410,7 @@ def test_run_revision_revision_agents_declare_no_template_injects() -> None:
             wid,
             marks=[pytest.mark.issue("ISS-635")],
         )
-        if wid == "playwright_smoke_test"
+        if wid == "ex_playwright_smoke_test"
         else wid
         for wid in _MANIFEST_BACKED_IDS
     ],

@@ -2,7 +2,7 @@ id: prototype
 version: 1
 user_launchable: true
 is_beta: false
-display_name: Build an interactive prototype
+display_name: "Build an interactive prototype (Fast)"
 short_name: Prototype
 icon: Layout
 chained_from:

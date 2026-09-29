@@ -61,18 +61,18 @@ is what makes it the useful control.
 | Card | basic | pro | enterprise |
 |---|---|---|---|
 | Generate product requirements | — | — | — |
-| Pitch an idea | Pro | — | — |
-| Pitch an idea (v2) | Pro | — | — |
-| Build an interactive prototype | Pro | — | — |
+| Pitch an idea (Fast) | Pro | — | — |
+| Pitch an idea (Detailed) | Pro | — | — |
+| Build an interactive prototype (Fast) | Pro | — | — |
 | Build an end-to-end application | Pro | — | — |
 | Compose a custom workflow | Enterprise | Enterprise | — |
-| Retry Until It Passes | Enterprise | Enterprise | — |
-| Branch by Language | Enterprise | Enterprise | — |
-| Spanish Greeter | Enterprise | Enterprise | — |
-| Dutch Greeter | Enterprise | Enterprise | — |
-| Hand Off to Another Workflow | Enterprise | Enterprise | — |
-| Ask a Human, Then Hand Off | Enterprise | Enterprise | — |
-| Ask a Human, Then Decide | Enterprise | Enterprise | — |
+| Retry until it passes | Enterprise | Enterprise | — |
+| Branch on a decision | Enterprise | Enterprise | — |
+| Handoff target: Spanish reply | Enterprise | Enterprise | — |
+| Handoff target: Dutch reply | Enterprise | Enterprise | — |
+| Hand off to another workflow | Enterprise | Enterprise | — |
+| Let a reviewer choose the handoff | Enterprise | Enterprise | — |
+| Let a reviewer choose the path | Enterprise | Enterprise | — |
 
 (— = unlocked. Coming Soon cards carry no lock badge; they are gated separately.)
 
@@ -186,7 +186,7 @@ Feature: Tier and role gating
   Scenario: Deliverable Access omits workflows the catalog offers
     Given I am signed in as "qa-enterprise@flowinqa.com"
     When I cold-load "/dashboard"
-    Then "Branch by Language" is launchable
+    Then "Branch on a decision" is launchable
     When I cold-load "/settings/usage"
     Then Deliverable Access does NOT mention it
 
@@ -196,8 +196,8 @@ Feature: Tier and role gating
   Scenario: A hexaware user gains prototype and loses presentations
     Given a user on the "hexaware" tier
     When I cold-load "/dashboard"
-    Then "Build an interactive prototype" is launchable
-    And "Pitch an idea" is locked
+    Then "Build an interactive prototype (Fast)" is launchable
+    And "Pitch an idea (Fast)" is locked
     # This is the case that breaks every other scenario in this file. Basic can
     # make presentations; hexaware cannot. A test that assumes higher tier ⇒
     # superset of entitlements passes vacuously against basic/pro/enterprise

@@ -19,7 +19,7 @@ version: 1
 user_launchable: true
 is_beta: false
 name: PPT
-display_name: Pitch an idea
+display_name: "Pitch an idea (Fast)"
 short_name: PPT
 icon: Presentation
 description: Executive-grade deck with charts, data, and a clear narrative.

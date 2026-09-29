@@ -13,7 +13,7 @@ version: 1
 user_launchable: true
 is_beta: false
 name: Prototype v2
-display_name: Build a prototype from documents
+display_name: "Prototype from documents (Detailed)"
 short_name: Prototype v2
 icon: LayoutTemplate
 description: Read a set of documents end to end, agree what they describe, then build an interactive prototype

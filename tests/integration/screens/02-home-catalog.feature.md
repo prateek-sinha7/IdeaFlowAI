@@ -36,16 +36,16 @@ sibling `button[aria-label="Inspect <title> details"]`.
 | Card | Description | Estimate |
 |---|---|---|
 | Build an end-to-end application | Full-stack code, tests, and infrastructure from a single requirement. | ~1 agents · ~33m |
-| Retry Until It Passes | Smallest possible example of a conditional gate looping back to an earlier step. | ~4 agents |
-| Branch by Language | Smallest possible example of a conditional gate picking one of three forward branches. | ~5 agents |
-| Spanish Greeter | The plain workflow ex_A3_divert diverts into for the "spanish" outcome. | ~1 agents |
-| Dutch Greeter | The plain workflow ex_A3_divert diverts into for the "dutch" outcome. | ~1 agents |
-| Hand Off to Another Workflow | Smallest possible example of a conditional gate that stays in-run for one outcome and diverts to a separate workflow for the others. | ~3 agents |
-| Ask a Human, Then Hand Off | A human chooses at a review gate which separate workflow the run hands off to. | ~3 agents |
-| Ask a Human, Then Decide | Smallest example of a human choosing the branch at a review gate. | ~5 agents · ~1m |
-| Pitch an idea | Executive-grade deck with charts, data, and a clear narrative. | ~3 agents · ~8m |
-| Pitch an idea (v2) | Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file. | ~4 agents · ~8m |
-| Build an interactive prototype | Navigable, high-fidelity HTML prototype from a brief or story set. | ~2 agents · ~21m |
+| Retry until it passes | A step that loops back and tries again until a check passes. | ~4 agents |
+| Branch on a decision | An agent reads your message, picks a language, and the run follows that branch. | ~5 agents |
+| Handoff target: Spanish reply | Where a branching workflow hands off when it picks the Spanish outcome. | ~1 agents |
+| Handoff target: Dutch reply | Where a branching workflow hands off when it picks the Dutch outcome. | ~1 agents |
+| Hand off to another workflow | Continues in the same run for one outcome and hands off to a separate workflow for the others. | ~3 agents |
+| Let a reviewer choose the handoff | A person at a review gate picks which separate workflow the run hands off to. | ~3 agents |
+| Let a reviewer choose the path | The run pauses at a review gate and a person picks which branch comes next. | ~5 agents · ~1m |
+| Pitch an idea (Fast) | Executive-grade deck with charts, data, and a clear narrative. | ~3 agents · ~8m |
+| Pitch an idea (Detailed) | Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file. | ~4 agents · ~8m |
+| Build an interactive prototype (Fast) | Navigable, high-fidelity HTML prototype from a brief or story set. | ~2 agents · ~21m |
 | Generate product requirements | Epics, user stories, and Gherkin acceptance criteria — ready for Jira. | ~7 agents · ~5m |
 | Compose a custom workflow | Assemble specialist agents for tasks outside the standard pipelines. | ~9 agents · ~3m |
 
@@ -100,7 +100,7 @@ Feature: The home catalog
   @S-02-05
   Scenario: The inspect affordance opens details without launching
     When I cold-load "/dashboard"
-    And I click "Inspect Pitch an idea details"
+    And I click "Inspect Pitch an idea (Fast) details"
     Then I see details for that workflow
     And no run has been started
 
@@ -124,14 +124,14 @@ Feature: The home catalog
     Examples:
       | email                      | card                          | lock       |
       | qa-basic@flowinqa.com      | Generate product requirements | (unlocked) |
-      | qa-basic@flowinqa.com      | Pitch an idea                 | Pro        |
+      | qa-basic@flowinqa.com      | Pitch an idea (Fast)                 | Pro        |
       | qa-basic@flowinqa.com      | Compose a custom workflow     | Enterprise |
-      | qa-pro@flowinqa.com        | Pitch an idea                 | (unlocked) |
+      | qa-pro@flowinqa.com        | Pitch an idea (Fast)                 | (unlocked) |
       | qa-pro@flowinqa.com        | Build an end-to-end application | (unlocked) |
       | qa-pro@flowinqa.com        | Compose a custom workflow     | Enterprise |
-      | qa-pro@flowinqa.com        | Branch by Language            | Enterprise |
+      | qa-pro@flowinqa.com        | Branch on a decision           | Enterprise |
       | qa-enterprise@flowinqa.com | Compose a custom workflow     | (unlocked) |
-      | qa-enterprise@flowinqa.com | Branch by Language            | (unlocked) |
+      | qa-enterprise@flowinqa.com | Branch on a decision           | (unlocked) |
     # Source of truth is TIER_PIPELINES in BOTH frontend/src/lib/entitlements.ts
     # and backend/app/core/entitlements.py. test_entitlement_parity keeps them
     # equal; FIX-315 exists because they had drifted. This is the end-to-end half
@@ -154,21 +154,21 @@ Feature: The home catalog
     # recorded a period where launch never checked entitlement at all.
 
   @S-02-10
-  @defect
-  # D-04 / ISS-187. Recorded as current behaviour, NOT as correct behaviour.
-  # If the fixtures are hidden from the catalog, rewrite this scenario to assert
-  # their absence and drop the tag.
-  Scenario: spec-014 test fixtures appear as launchable product cards
+  # D-04 / ISS-187, resolved: the spec-014 test fixtures moved out of the product
+  # grid into a collapsed "Engine examples" section (id prefix ex_/sample_/sc001).
+  # They stay launchable; the internal id no longer appears in their copy.
+  Scenario: spec-014 test fixtures are launchable under Engine examples
     Given I am signed in as "qa-enterprise@flowinqa.com"
     When I cold-load "/dashboard"
-    Then I see the launchable card "Retry Until It Passes"
-    And I see the launchable card "Branch by Language"
-    And I see the launchable card "Spanish Greeter"
-    And I see the launchable card "Dutch Greeter"
-    And I see the launchable card "Hand Off to Another Workflow"
-    And I see the launchable card "Ask a Human, Then Hand Off"
-    And I see the launchable card "Ask a Human, Then Decide"
-    And the description of "Spanish Greeter" contains the internal id "ex_A3_divert"
+    And I open the "Engine examples" section
+    Then I see the launchable card "Retry until it passes"
+    And I see the launchable card "Branch on a decision"
+    And I see the launchable card "Handoff target: Spanish reply"
+    And I see the launchable card "Handoff target: Dutch reply"
+    And I see the launchable card "Hand off to another workflow"
+    And I see the launchable card "Let a reviewer choose the handoff"
+    And I see the launchable card "Let a reviewer choose the path"
+    And the description of "Handoff target: Spanish reply" does not contain the internal id "ex_A3_divert"
 
   @S-02-11
   Scenario: Jump back in lists recent runs and opens them

@@ -8,6 +8,10 @@ the one real handle the grid does expose: `aria-label="Inspect <title> details"`
 HEADING = "What would you like to build today?"
 COMING_SOON_HEADING = 'h3:has-text("Coming Soon")'
 COMING_SOON_BADGE = "Coming Soon"
+# Coming Soon and Engine examples are collapsed <details>; click the summary to
+# open one before asserting on the cards inside it.
+COMING_SOON_SECTION = 'summary:has(h3:text-is("Coming Soon"))'
+EXAMPLES_SECTION = 'summary:has(h3:text-is("Engine examples"))'
 # Rendered "Jump back in" — the spec transcribed the small-caps STYLING,
 # not the DOM text. Match what is in the markup.
 JUMP_BACK_IN = "Jump back in"
@@ -45,19 +49,19 @@ def lock_badge(tier: str) -> str:
 # `user_launchable: true AND is_beta: false` in the workflow manifests, which is
 # exactly what HomeLaunchGrid renders outside the Coming Soon group.
 LAUNCHABLE_TITLES = [
-    "Pitch an idea",
-    "Pitch an idea (v2)",
-    "Build an interactive prototype",
+    "Pitch an idea (Fast)",
+    "Pitch an idea (Detailed)",
+    "Build an interactive prototype (Fast)",
     "Build an end-to-end application",
     "Generate product requirements",
     "Compose a custom workflow",
-    "Retry Until It Passes",
-    "Branch by Language",
-    "Spanish Greeter",
-    "Dutch Greeter",
-    "Hand Off to Another Workflow",
-    "Ask a Human, Then Hand Off",
-    "Ask a Human, Then Decide",
+    "Retry until it passes",
+    "Branch on a decision",
+    "Handoff target: Spanish reply",
+    "Handoff target: Dutch reply",
+    "Hand off to another workflow",
+    "Let a reviewer choose the handoff",
+    "Let a reviewer choose the path",
 ]
 
 # `user_launchable: true` but `is_beta: true` — listed under Coming Soon, greyed,

@@ -502,7 +502,7 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-37 logical modules over 923 tracked source files. Each entry links to its
+37 logical modules over 925 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
@@ -525,13 +525,13 @@ read the domains above.
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 2 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
 
-### Frontend — TypeScript (538 files)
+### Frontend — TypeScript (540 files)
 
 | Module | Path | Files |
 |---|---|---|
 | [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 84 |
 | [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 81 |
-| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 64 |
+| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 65 |
 | [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 47 |
 | [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 42 |
 | [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 41 |
@@ -542,9 +542,9 @@ read the domains above.
 | [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 15 |
 | [MOD-frontend-src-components-handoff](architecture/MOD-frontend-src-components-handoff.md) | `frontend/src/components/handoff` | 10 |
 | [MOD-frontend-src-components-analytics](architecture/MOD-frontend-src-components-analytics.md) | `frontend/src/components/analytics` | 6 |
+| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 6 |
 | [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 6 |
 | [MOD-frontend-src-components](architecture/MOD-frontend-src-components.md) | `frontend/src/components` | 5 |
-| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 5 |
 | [MOD-frontend-src-components-library](architecture/MOD-frontend-src-components-library.md) | `frontend/src/components/library` | 5 |
 | [MOD-frontend-src-components-savedworkflows](architecture/MOD-frontend-src-components-savedworkflows.md) | `frontend/src/components/savedworkflows` | 5 |
 | [MOD-frontend-src-providers](architecture/MOD-frontend-src-providers.md) | `frontend/src/providers` | 5 |
