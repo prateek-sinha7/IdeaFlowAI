@@ -31,7 +31,7 @@ const mockGetWorkflows = vi.fn(() => Promise.resolve([]));
 // RFN-002b — getCapabilities is called on mount to build the model catalog map.
 // Return an empty catalog so model-label lookups degrade to raw id (not under test here).
 const mockGetCapabilities = vi.fn(() =>
-  Promise.resolve({ model_catalog: [] }),
+  Promise.resolve({ model_catalog: [] as Record<string, unknown>[] }),
 );
 
 vi.mock("next/navigation", () => ({

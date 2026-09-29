@@ -362,8 +362,8 @@ describe("wave member duration", () => {
   // "0s" next to 78.7K tokens is a lie; showing nothing is not.
   it("prefers the server's duration over the measured gap", async () => {
     const { handlePipelineMessage } = await import("@/hooks/useWorkflow");
-    let state = { agents: [{ id: "fi-readers", waveWorkers: [] }] } as never;
-    const setState = (fn: never) => { state = typeof fn === "function" ? (fn as never)(state) : fn; };
+    let state: unknown = { agents: [{ id: "fi-readers", waveWorkers: [] }] };
+    const setState = (fn: unknown) => { state = typeof fn === "function" ? (fn as (s: unknown) => unknown)(state) : fn; };
     handlePipelineMessage(
       { type: "agent_start", agent_id: "fi-readers", task_id: "k1" } as never,
       setState as never, { current: {} } as never,
@@ -379,8 +379,8 @@ describe("wave member duration", () => {
 
   it("reports nothing rather than 0s when only a queue-artefact gap is available", async () => {
     const { handlePipelineMessage } = await import("@/hooks/useWorkflow");
-    let state = { agents: [{ id: "fi-readers", waveWorkers: [] }] } as never;
-    const setState = (fn: never) => { state = typeof fn === "function" ? (fn as never)(state) : fn; };
+    let state: unknown = { agents: [{ id: "fi-readers", waveWorkers: [] }] };
+    const setState = (fn: unknown) => { state = typeof fn === "function" ? (fn as (s: unknown) => unknown)(state) : fn; };
     handlePipelineMessage(
       { type: "agent_start", agent_id: "fi-readers", task_id: "k2" } as never,
       setState as never, { current: {} } as never,

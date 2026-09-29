@@ -38,6 +38,10 @@ function mockConnection(sendCommand: ReturnType<typeof makeSendCommand>): void {
     detachRun: vi.fn(),
     subscribe: vi.fn(() => () => {}),
     sendCommand,
+    recentRuns: [],
+    recentRunsLoaded: true,
+    setRecentRuns: vi.fn(),
+    loadRecentRuns: vi.fn(),
   });
 }
 

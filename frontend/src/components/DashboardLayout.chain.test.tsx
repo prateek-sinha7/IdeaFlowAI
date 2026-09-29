@@ -24,7 +24,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
-const getChainContextMock = vi.fn(async () => ({
+const getChainContextMock = vi.fn(async (_token: string, _workflowId: string) => ({
   brief: "Context brief from source",
   // A distinctive marker string — if handleChainPipeline/handleChainFromHistory
   // ever inject this into the outgoing message again, these tests catch it.
@@ -150,6 +150,8 @@ function makeRun(input: string): WorkflowRun {
     input,
     parentRunId: null,
     rootRunId: "hist-run-1",
+    createdAt: "2026-09-01T00:00:00Z",
+    agentCount: 1,
   };
 }
 

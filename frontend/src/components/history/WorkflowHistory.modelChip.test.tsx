@@ -107,6 +107,16 @@ import { WorkflowHistory } from "./WorkflowHistory";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * The persisted `agent_outputs` column is a JSON string, and WorkflowHistory
+ * deliberately accepts that raw shape (`typeof raw === "string"` branch) as well
+ * as the parsed array. `WorkflowRun.agentOutputs` only models the parsed array,
+ * so the raw string is cast here to keep exercising the string branch.
+ */
+function persistedAgentOutputs(entries: Record<string, unknown>[]): WorkflowRun["agentOutputs"] {
+  return JSON.stringify(entries) as unknown as WorkflowRun["agentOutputs"];
+}
+
 function agentOutputsJson(
   agents: Array<{
     agent_id: string;
@@ -117,8 +127,8 @@ function agentOutputsJson(
     duration?: number | null;
     model_id?: string;
   }>,
-) {
-  return JSON.stringify(
+): WorkflowRun["agentOutputs"] {
+  return persistedAgentOutputs(
     agents.map((a) => ({
       icon: "✍️",
       role: "Agent",
@@ -241,7 +251,7 @@ describe("WorkflowHistory — model chip data-flow (RFN-001)", () => {
     // Two entries for the same agent_id — first used Haiku, second used Sonnet.
     // The dedup branch must keep the last non-null model_id.
     const run = makeRun({
-      agentOutputs: JSON.stringify([
+      agentOutputs: persistedAgentOutputs([
         {
           agent_id: "build-agent",
           name: "Build Agent",

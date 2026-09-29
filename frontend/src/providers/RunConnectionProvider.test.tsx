@@ -582,7 +582,9 @@ function launchResponse(body: Record<string, unknown>) {
 
 describe("RunConnectionProvider — mixed-deploy chain launch (SGV2 task 11.8 / Req 21 AC 9)", () => {
   it("new FE + old BE: a chain launch answered without `chain_v2_accepted` fans out `incompatible_backend` instead of launching silently", async () => {
-    const fetchMock = vi.fn(async () => launchResponse({ run_id: "new-run" }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      launchResponse({ run_id: "new-run" }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     try {
       const { result } = renderHook(() => useRunConnection(), {
