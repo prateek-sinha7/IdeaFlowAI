@@ -639,6 +639,41 @@ def _compose_system_prompt(
     if guardrail_items:
         blocks["guardrails"] = guardrail_items
 
+    # 2. Skills — via the ``ui`` skill_provider (versioned blocks; SKILL-01). The
+    # factory consumes the versioned blocks' ``content`` for the prompt slot.
+    # Rendered as one structured block per skill under a shared ``=== SKILLS ===``
+    # header — id/when have no data source today (SkillBlock carries content/
+    # version/name/source only) so they're left empty rather than guessed.
+    #
+    # spec 011 R-03: run-attached skill BODIES are no longer injected — they are staged
+    # to <sandbox>/skills/ and advertised by deepagents (the model reads one on demand).
+    # The per-user DISK skill (ctx.disk_skill / D6) keeps its eager block and is the ONLY
+    # input to the unchanged render below.
+    #
+    # Restored verbatim from 9efb704d^1: that merge dropped this block while keeping the
+    # policy's "skills" slot, so a user's disk SKILL.md silently stopped reaching the
+    # agent (baseline golden/prompt_disk_skill_only.txt still pins it).
+    from agents.capabilities.skills.providers import extract_ui_skill_blocks
+
+    disk_skill = getattr(ctx, "disk_skill", None)
+    skill_blocks = extract_ui_skill_blocks(
+        [{"content": disk_skill}] if disk_skill else []
+    )
+    skill_entries = [b for b in skill_blocks if b.content]
+    if skill_entries:
+        rendered_skills = [
+            f"--- SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
+            f"id: \n"
+            f"name: {b.name}\n"
+            f"when: \n"
+            f"prompt: {b.content}"
+            f"--- END SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
+            for b in skill_entries
+        ]
+        blocks["skills"] = (
+            "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
+        )
+
     # 3. Hooks — via the ``behavioral`` hook_provider (the legacy prompt-only hook
     # survives as a non-executable sub-type; the ## Active Behavioral Hooks block render).
     hook_block = render_behavioral_block(ctx.attached_hooks)

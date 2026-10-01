@@ -131,8 +131,13 @@ class TestBriefGatingByPolicy:
         Requirement 30 AC 5 / INV-1: the first-agent gate must be workflow-agnostic.
         Source check: ``is_first_agent = (len(ordered_agents) == 0 or index == 0)``.
         """
+        import re
+
         text = _engine_text()
-        assert "is_first_agent = (len(ordered_agents) == 0 or index == 0)" in text, (
+        # ruff format (22bbe1bf) drops the redundant parens — accept either form.
+        assert re.search(
+            r"is_first_agent = \(?len\(ordered_agents\) == 0 or index == 0\)?", text
+        ), (
             "engine.py: ``is_first_agent`` must be a pure positional check "
             "(index == 0) — no spec.id / agent-name comparison"
         )

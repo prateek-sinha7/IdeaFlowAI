@@ -13,6 +13,10 @@ Adding a new skill is a folder-drop: no registry, no code change, no restart-
 time list to maintain. The catalog is scanned fresh on first request and
 cached; call ``clear_cache()`` (e.g. in tests) to force a re-scan.
 
+The catalog root is ``settings.GLOBAL_SKILLS_ROOT`` when set (the container image
+bakes it at /app/builtin-skills/global), otherwise the checkout's
+backend/skills/global — see ``_resolve_global_skill_dir``.
+
 ``skills/global/`` holds the real, canonical skill packages (migrated
 verbatim from the top-level ``skills/{ecc,superpowers,gsd,opendesign}/``
 source) — only ``name`` + ``description`` are guaranteed there, matching the
@@ -38,11 +42,51 @@ from pathlib import Path
 
 import frontmatter  # python-frontmatter
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # backend/ root (this file lives in backend/app/agents/)
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
-_GLOBAL_SKILL_DIR = _BACKEND_DIR / "skills" / "global"
+# The checkout layout, backend/skills/global. Used whenever GLOBAL_SKILLS_ROOT is
+# unset, so local dev and the test suite are unchanged.
+_CHECKOUT_GLOBAL_SKILL_DIR = _BACKEND_DIR / "skills" / "global"
+
+
+def _resolve_global_skill_dir() -> Path:
+    """Choose the catalog root. Called once at import; never raises.
+
+    1. ``settings.GLOBAL_SKILLS_ROOT`` when it names an existing directory. The
+       container image bakes the catalog at /app/builtin-skills/global and sets
+       it there (backend/Dockerfile), because /app/skills is the per-user EBS
+       bind-mount and shadows anything baked under it. A relative value is
+       taken relative to backend/.
+    2. Otherwise the checkout default, backend/skills/global. A configured root
+       that is not a directory logs one WARNING naming both paths and falls
+       back, rather than failing the boot.
+    """
+    configured = settings.GLOBAL_SKILLS_ROOT
+    if not configured:
+        return _CHECKOUT_GLOBAL_SKILL_DIR
+    root = Path(configured)
+    if not root.is_absolute():
+        root = _BACKEND_DIR / root
+    try:
+        if root.is_dir():
+            return root
+    except OSError:
+        pass
+    logger.warning(
+        "GLOBAL_SKILLS_ROOT=%s is not a directory; falling back to %s",
+        configured,
+        _CHECKOUT_GLOBAL_SKILL_DIR,
+    )
+    return _CHECKOUT_GLOBAL_SKILL_DIR
+
+
+# Module-level so tests can monkeypatch it; every reader below looks it up at
+# call time (list_global_skills, skill_source_dir).
+_GLOBAL_SKILL_DIR = _resolve_global_skill_dir()
 
 
 @dataclass

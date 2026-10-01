@@ -40,6 +40,10 @@ def _make_spec(
     spec.prompt_body = prompt_body
     spec.guardrails = guardrails or []
     spec.tools = tools or []
+    # AgentSpec.prompt_policy defaults to None (-> the "default" policy). An
+    # unset MagicMock attribute is itself a truthy MagicMock, which the factory
+    # then tries to resolve as a registered prompt-policy name.
+    spec.prompt_policy = None
     return spec
 
 

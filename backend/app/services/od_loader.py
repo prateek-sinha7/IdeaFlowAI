@@ -76,6 +76,16 @@ _DESIGN_SYSTEMS_DIR = _OD_ROOT / "design-systems"
 _CRAFT_DIR = _OD_ROOT / "craft"
 
 
+def od_root() -> Path:
+    """The resolved OpenDesign root: ``OD_ROOT`` (the image bakes /app/opendesign),
+    else the checkout's ``skills/opendesign``. Read at call time so a test can
+    monkeypatch ``_OD_ROOT``. Any module that needs an OpenDesign file (the pptx
+    tools' audit scripts and fonts) must resolve it through here, never through
+    ``__file__``: the image flattens backend/ to /app, so a parents[N] walk
+    that reaches the repo root locally reaches ``/`` in the container."""
+    return _OD_ROOT
+
+
 # ---------------------------------------------------------------------------
 # Frontmatter parser
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 ---
 name: velocity-design
 display_name: Design Template
-description: Provides the active design template instructions for the current run. Use this skill to understand the template purpose, required output structure, step-by-step workflow, and acceptance criteria. Read it before producing any deliverable — the template body defines exactly what sections, formats, data, and self-check gates are expected.
+description: Active design template for this run — its purpose, required output structure, workflow, and acceptance criteria. Read it before producing any deliverable.
 category: workflow
 isBeta: false
 tags:

@@ -233,6 +233,20 @@ def _compose_blocks_for(spec, ctx: AgentContext) -> dict:
     return blocks
 
 
+def _default_policy_spec(agent_id: str):
+    """Load an agent's spec with ``prompt_policy`` forced to the default.
+
+    This class proves the ``default`` policy's join equals the inline composition.
+    Since Requirement 29 (sandbox-git-versioning) most AGENT.md files opt into
+    ``governance`` / ``body_only``, and ``_compose_system_prompt`` honours that —
+    so without pinning, the comparison would pit the default order against a
+    different policy's order and report drift that is simply policy selection.
+    """
+    from dataclasses import replace
+
+    return replace(load_agent_spec(agent_id), prompt_policy=None)
+
+
 class TestPromptAssemblyPolicyParity:
     """The default ``PromptAssemblyPolicy`` reproduces the inline composition byte-for-byte."""
 
@@ -264,7 +278,7 @@ class TestPromptAssemblyPolicyParity:
 
     def test_policy_byte_identical_for_guardrail_agent(self):
         """domain-analyst (guardrails:[agile]) — policy join == inline composition."""
-        spec = load_agent_spec("domain-analyst")
+        spec = _default_policy_spec("domain-analyst")
         ctx = AgentContext(user_request="byte-parity check")
         expected = _compose_system_prompt(spec, ctx)
         actual = self._policy().assemble(_compose_blocks_for(spec, ctx), ctx)
@@ -278,7 +292,7 @@ class TestPromptAssemblyPolicyParity:
         skill BODIES (``ctx.attached_skills``) are staged to disk rather than injected
         (spec 011 R-03) — ``ctx.disk_skill`` (D6) is the only eager skills source left,
         so it is what exercises the ``skills`` slot here."""
-        spec = load_agent_spec("domain-analyst")
+        spec = _default_policy_spec("domain-analyst")
         ctx = AgentContext(
             user_request="full-block parity",
             disk_skill="Use the brand voice.",
@@ -313,7 +327,7 @@ class TestPromptAssemblyPolicyParity:
         policy = self._policy()
         for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
             for agent_id in list_agent_ids(pipeline_type):
-                spec = load_agent_spec(agent_id)
+                spec = _default_policy_spec(agent_id)
                 ctx = AgentContext(
                     user_request="parity sweep",
                     od_context=stub_od_context

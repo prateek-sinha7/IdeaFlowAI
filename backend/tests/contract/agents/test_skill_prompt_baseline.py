@@ -18,6 +18,8 @@ DELIBERATELY with ``SNAPSHOT_UPDATE=1`` — never as a way to make a failure go 
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from agents.factory import AgentContext, _compose_system_prompt
@@ -39,7 +41,13 @@ _DISK_SKILL_BODY = "DISK SKILL BODY\n\nAlways answer in exactly one sentence."
 
 
 def _compose(ctx: AgentContext) -> bytes:
-    spec = load_agent_spec(_AGENT_ID)
+    # Pinned to the ``default`` prompt policy. This baseline guards spec 011's SKILLS
+    # handling (R-04 / D6), which lives in the default order; it was captured while
+    # domain-analyst used that policy. The agent has since opted into
+    # ``prompt_policy: governance`` (Requirement 29, sandbox-git-versioning), whose
+    # order deliberately omits the skills and tool_availability slots — composing
+    # with it would test Requirement 29, not spec 011.
+    spec = replace(load_agent_spec(_AGENT_ID), prompt_policy=None)
     return _compose_system_prompt(spec, ctx, no_tools=True).encode("utf-8")
 
 

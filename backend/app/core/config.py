@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger("app.core.config")
@@ -388,6 +388,18 @@ class Settings(BaseSettings):
     # from the host EBS (mirrors /app/skills). Off-container (local dev) override
     # to a writable dir, e.g. RUNS_ROOT=/tmp/flowin-runs, since /app does not exist.
     RUNS_ROOT: str = "/app/runs"
+    # Root of the built-in global Skills catalog: <root>/<skill_id>/SKILL.md plus
+    # each skill's sibling reference files. app/agents/skills_catalog.py scans it
+    # (Library Skills tab, manifest `skills:`, composer-selected skills) and skill
+    # staging copies a skill's folder into the run sandbox from it.
+    # "" (default) = the checkout's backend/skills/global, so local dev, the test
+    # suite and the characterization goldens resolve exactly what they always did.
+    # The container image sets GLOBAL_SKILLS_ROOT=/app/builtin-skills/global
+    # (backend/Dockerfile ENV): /app/skills is the per-user EBS bind-mount and
+    # shadows anything baked under it, the same reason OD_ROOT exists. A value
+    # that is not an existing directory never blocks boot: the catalog logs a
+    # WARNING and falls back to the checkout default.
+    GLOBAL_SKILLS_ROOT: str = ""
     # Safety ceiling on one agent graph's model<->tool recursion. We DROP the old
     # tight per-agent iteration caps (build 3 / validate 8 / …) in favour of letting
     # agents explore + self-validate; this is only a runaway-loop backstop, not a
@@ -573,6 +585,17 @@ class Settings(BaseSettings):
         # secrets-loader pours every SSM key into the env file, etc.).
         # Without this, any unexpected variable raises ValidationError at boot.
         extra = "ignore"
+
+    @field_validator("GLOBAL_SKILLS_ROOT", mode="before")
+    @classmethod
+    def _normalize_global_skills_root(cls, value: object) -> str:
+        """Coerce an unset value to "" and strip surrounding whitespace.
+
+        A script-written env file often leaves a trailing newline or space, which
+        would name a directory that does not exist and silently empty the
+        catalog. Never raises: this runs at boot.
+        """
+        return "" if value is None else str(value).strip()
 
     @model_validator(mode="after")
     def _validate_cognito_config(self) -> "Settings":

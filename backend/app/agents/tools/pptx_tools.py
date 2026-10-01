@@ -40,6 +40,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 from app.agents.tools import soffice
+from app.services.od_loader import od_root
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +70,17 @@ _HTML_ROTATE = re.compile(r"rotate\(\s*-?[\d.]+\s*deg\s*\)", re.IGNORECASE)
 # per-run state, never something the model should be able to name.
 _SANDBOX: Any = None
 
-_AUDIT_SCRIPTS = (
-    Path(__file__).resolve().parents[4]
-    / "skills" / "opendesign" / "skills" / "pptx-html-fidelity-audit" / "scripts"
-)
+
+def _audit_scripts_dir() -> Path:
+    """The pptx-html-fidelity-audit scripts, under the OpenDesign root.
+
+    This used to be ``Path(__file__).parents[4] / "skills" / "opendesign" / ...``, which
+    is the repo root in a checkout but ``/`` in the image, so every audit ran
+    ``python /skills/.../verify_layout.py``, failed with "can't open file", and
+    render_pptx could never report a shippable deck in a deployed environment.
+    """
+    return od_root() / "skills" / "pptx-html-fidelity-audit" / "scripts"
+
 
 # Pre-fetched, pre-converted (one-time, offline) EOT files for every font used
 # across the opendesign template library — see skills/opendesign/fonts/README.md.
@@ -81,9 +89,9 @@ _AUDIT_SCRIPTS = (
 # deck-styles.json instead of always substituting to an Office-safe stand-in —
 # the recipient's PowerPoint never needs the font installed, the bytes travel
 # with the file, same approach the OpenDesign reference tool uses.
-_FONTS_DIR = (
-    Path(__file__).resolve().parents[4] / "skills" / "opendesign" / "fonts"
-)
+def _fonts_dir() -> Path:
+    """The pre-converted .eot fonts, under the OpenDesign root (see _audit_scripts_dir)."""
+    return od_root() / "fonts"
 
 
 def bind_sandbox(sandbox: Any) -> None:
@@ -368,7 +376,7 @@ def _available_eot(font_name: str) -> Path | None:
     """The pre-fetched .eot for this font name, if the library has one."""
     if not font_name:
         return None
-    path = _FONTS_DIR / f"{_font_slug(font_name)}-Regular.eot"
+    path = _fonts_dir() / f"{_font_slug(font_name)}-Regular.eot"
     return path if path.is_file() else None
 
 
@@ -585,7 +593,7 @@ def _run_audit(script: str, *args: str) -> tuple[int, str]:
     if not path.is_file():
         return 1, f"{PPTX_NAME} does not exist yet — call render_pptx first."
     proc = subprocess.run(
-        [sys.executable, str(_AUDIT_SCRIPTS / script), str(path), *args],
+        [sys.executable, str(_audit_scripts_dir() / script), str(path), *args],
         capture_output=True, text=True, timeout=120,
     )
     return proc.returncode, (proc.stdout + proc.stderr).strip()

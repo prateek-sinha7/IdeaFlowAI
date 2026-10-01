@@ -119,7 +119,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venv/bin:${PATH}" \
-    OD_ROOT=/app/opendesign
+    OD_ROOT=/app/opendesign \
+    GLOBAL_SKILLS_ROOT=/app/builtin-skills/global
 
 # Runtime-only OS deps:
 #   * libpq5     — psycopg2's shared lib at runtime (libpq-dev is build-only)
@@ -230,10 +231,12 @@ RUN groupadd --system --gid 10001 flowin \
 
 WORKDIR /app
 
-# Copy only the bits we need at runtime. tests/, pptx/, skills/ etc. are
+# Copy only the bits we need at runtime. tests/, tools/, skills/ etc. are
 # excluded by .dockerignore as a defence-in-depth (in case the COPY pattern
 # ever changes). We deliberately do NOT copy backend/skills/ — that path
 # is a bind-mounted EBS volume in production (per-user agent state).
+# The one exception is skills/global/ (the built-in Skills catalog), baked to
+# /app/builtin-skills/global further down, outside that mount.
 COPY --chown=flowin:flowin app/ ./app/
 # agents/ is a second top-level package the app imports (folder-per-agent
 # architecture): app/main.py -> app.api.* -> `from agents.execution_engine...`.
@@ -287,6 +290,32 @@ COPY --chown=flowin:flowin --chmod=0755 docker-entrypoint.sh ./docker-entrypoint
 # and owned by the non-root user so both mounts are writable inside the container.
 RUN mkdir -p /app/skills /app/runs \
     && chown -R flowin:flowin /app /app/skills /app/runs
+
+# Repo-shipped, read-only runtime DATA. Copied AFTER the chown above and without
+# --chown, so all three trees stay root-owned and read-only to the runtime user.
+#
+# Built-in global Skills catalog: backend/skills/global/<id>/SKILL.md plus each
+# skill's sibling reference files. app/agents/skills_catalog.py scans it (Library
+# Skills tab, manifest `skills:` such as prototype-specify's, composer-selected
+# skills) and skill staging copies a skill's folder into the run sandbox from it.
+# It CANNOT live at /app/skills/global: /app/skills is the per-user EBS bind-mount
+# above and shadows anything baked there, which is why every manifest skill failed
+# with "unresolvable step skill id" in deployed environments. Baked here instead
+# and selected via ENV GLOBAL_SKILLS_ROOT (same pattern as OD_ROOT/opendesign).
+COPY skills/global/ ./builtin-skills/global/
+# Global Hooks catalog (app/agents/hooks_catalog.py reads <backend>/hooks/global).
+# /app/hooks is not a mount, so it is baked at the path the loader already reads.
+COPY hooks/global/ ./hooks/global/
+# Shipped PPT reference docs (app/agents/skills.py PPTX_SKILLS_DIR = <backend>/pptx).
+COPY pptx/ ./pptx/
+# Fail the BUILD, not a user's run, if any tree the runtime reads is missing,
+# including the OpenDesign files the pptx tools resolve under OD_ROOT.
+RUN test -n "$(find "$GLOBAL_SKILLS_ROOT" -mindepth 2 -maxdepth 2 -name SKILL.md -print -quit)" \
+    && test -n "$(find /app/hooks/global -mindepth 2 -maxdepth 2 -name HOOK.md -print -quit)" \
+    && test -f /app/pptx/SKILL.md \
+    && test -f /app/pptx/pptxgenjs.md \
+    && test -f "$OD_ROOT/skills/pptx-html-fidelity-audit/scripts/verify_layout.py" \
+    && test -d "$OD_ROOT/fonts"
 
 USER 10001:10001
 

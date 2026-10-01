@@ -1,7 +1,7 @@
 ---
-built_from_commit: 1a1b720b75ca84183d5690dce04064ee5a38194f
+built_from_commit: 75a3c207e931f824d136ae6ce40f2740625f4338
 built_at: 2026-09-15
-cards_indexed: 1527
+cards_indexed: 1535
 modules_indexed: 37
 ---
 
@@ -64,8 +64,8 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 | type | total | open/active |
 |---|---|---|
 | adr | 57 | 6 |
-| fix | 633 | 132 |
-| issue | 691 | 160 |
+| fix | 634 | 132 |
+| issue | 698 | 167 |
 | bug | 146 | 25 |
 
 Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carrying a `compact_summary` that states the root cause or resolution. Match the query against those lines, then open only the handful of cards that matched. Never read or grep `cards/*.md` in bulk (see section 5).
@@ -113,7 +113,7 @@ Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carr
 ## 5. Retrieval protocol
 
 **NEVER read or grep `cards/*.md` or `architecture/*.md` in bulk.** That is
-1,527 + 53 files; it blows out the context window and buries the answer. The
+1,535 + 53 files; it blows out the context window and buries the answer. The
 index exists so you never have to. Reading whole directories is the single
 worst thing you can do in this knowledge base.
 

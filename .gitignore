@@ -196,3 +196,6 @@ tests/integration/e2e/.pytest-resume
 /tools/loadtest/
 
 unit-test-prompt
+
+
+.agents

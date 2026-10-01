@@ -7,7 +7,7 @@ Storage layout (post per-user namespacing fix, see WORKFLOWS.md §B6):
                                                           REST endpoints today)
 
 For PPT pipeline agents, additional shipped reference docs are loaded from
-backend/pptx/ (pptxgenjs.md, skill.md). Those are read-only built-ins, not
+backend/pptx/ (pptxgenjs.md, SKILL.md). Those are read-only built-ins, not
 user-managed skills, and are stored outside the skills/ tree on purpose.
 
 Defence-in-depth against prompt injection via user-supplied skill content
@@ -355,7 +355,7 @@ def get_skill_content(agent_id: str, user_id: Optional[str] = None) -> Optional[
     if agent_id == "ppt-code-generator":
         # The code generator gets the full PptxGenJS API reference
         pptxgenjs_path = PPTX_SKILLS_DIR / "pptxgenjs.md"
-        skill_path = PPTX_SKILLS_DIR / "skill.md"
+        skill_path = PPTX_SKILLS_DIR / "SKILL.md"
         parts = []
         if skill_path.exists():
             parts.append(
@@ -370,7 +370,7 @@ def get_skill_content(agent_id: str, user_id: Optional[str] = None) -> Optional[
 
     if agent_id == "ppt-slide-architect":
         # The slide architect gets the design guidelines from skill.md
-        skill_path = PPTX_SKILLS_DIR / "skill.md"
+        skill_path = PPTX_SKILLS_DIR / "SKILL.md"
         if skill_path.exists():
             return f"=== PPTX DESIGN REFERENCE (skill.md) ===\n{skill_path.read_text(encoding='utf-8')}"
 
