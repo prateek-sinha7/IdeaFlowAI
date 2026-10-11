@@ -4421,7 +4421,8 @@ async def _drive_launch_to_queue(
                             if utype == "agent_complete"
                         }
                         _truly_failed = [
-                            a for a in degraded_failed_agents
+                            a
+                            for a in degraded_failed_agents
                             if a not in _agent_complete_ids
                         ]
                         if not _truly_failed:
