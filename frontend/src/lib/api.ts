@@ -1465,9 +1465,15 @@ export async function getRunEvents(
   runId: string,
   afterSeq = 0,
 ): Promise<DurableFrame[]> {
-  const res = await request<RunEventsResponse>(
+  // ISS-871 / FIX-647: use singleFlightGet so concurrent identical calls
+  // (e.g. handleSelectWorkflowRun firing once pre-remount and again from the
+  // cold-mount T11 effect post-remount) share one in-flight request rather
+  // than launching a second 2+ MB fetch.  The key includes the afterSeq
+  // fragment so a cursor-advancing call (afterSeq > 0) never coalesces with
+  // the full-history call (afterSeq == 0).  Mirrors getRunFamily/getWorkflow.
+  const res = await singleFlightGet<RunEventsResponse>(
     `/api/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
-    { method: "GET", headers: authHeaders(token) },
+    token,
   );
   return (res?.events ?? []).map((row) => ({
     type: row.type,

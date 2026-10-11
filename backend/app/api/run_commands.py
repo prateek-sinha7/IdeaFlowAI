@@ -4398,18 +4398,49 @@ async def _drive_launch_to_queue(
                         # _apply_terminal_output_columns below, like every other tier.
                         wr.status = "diverted"
                     elif degraded_failed_agents is not None:
-                        wr.status = "degraded"
-                        # [convergence-limit fix] a suppressed R-07 loop_iterations
-                        # abort carries its own ``degraded_reason`` (no agent failed,
-                        # so ``degraded_failed_agents`` is empty) — prefer it over
-                        # the generic agents-failed message so the UI shows the
-                        # honest, specific reason instead of "agent(s) failed: ".
-                        wr.error = (
-                            first_agent_error_msg
-                            or degraded_reason_msg
-                            or "degraded: agent(s) failed: "
-                            + ", ".join(degraded_failed_agents)
-                        )
+                        # ISS-872 / FIX-648 — R-09 safety net: a pipeline_complete
+                        # can carry status="degraded" with an agents_failed list even
+                        # when every named agent ALSO emitted agent_complete in the
+                        # same live stream (e.g. a visit_count mismatch in the
+                        # ISS-028/R-08 invocation-triple check, or a recoverable
+                        # agent_error that the WR-05 path recovered from but whose
+                        # failed_invocations entry used a different visit_count than
+                        # the completion).  In that case the degraded verdict is a
+                        # false positive: all agents produced output, so the run
+                        # should be "completed", not "degraded".
+                        #
+                        # Verify before writing: collect every agent_id that
+                        # successfully emitted agent_complete in raw_events and
+                        # subtract from the "failed" list.  If nothing remains, the
+                        # run is a clean completion.  If any agent is genuinely
+                        # unrecovered (no agent_complete), keep "degraded" with only
+                        # the truly-failed agents in the error message.
+                        _agent_complete_ids = {
+                            data.get("agent_id")
+                            for utype, data in raw_events
+                            if utype == "agent_complete"
+                        }
+                        _truly_failed = [
+                            a for a in degraded_failed_agents
+                            if a not in _agent_complete_ids
+                        ]
+                        if not _truly_failed:
+                            # Every "failed" agent also completed — false positive.
+                            wr.status = "completed"
+                            wr.error = None
+                        else:
+                            wr.status = "degraded"
+                            # [convergence-limit fix] a suppressed R-07
+                            # loop_iterations abort carries its own
+                            # ``degraded_reason`` (no agent failed, so
+                            # ``degraded_failed_agents`` is empty) — prefer it
+                            # over the generic agents-failed message.
+                            wr.error = (
+                                first_agent_error_msg
+                                or degraded_reason_msg
+                                or "degraded: agent(s) failed: "
+                                + ", ".join(_truly_failed)
+                            )
                     elif (
                         pipeline_complete_seen
                         and not pipeline_error_seen
