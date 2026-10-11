@@ -116,7 +116,9 @@ def _render_body(text: str) -> str:
     for line in text.replace("\r\n", "\n").split("\n"):
         if line.lstrip().startswith("```"):
             if in_code:
-                out.append("<pre><code>" + html.escape("\n".join(code)) + "</code></pre>")
+                out.append(
+                    "<pre><code>" + html.escape("\n".join(code)) + "</code></pre>"
+                )
                 code.clear()
             else:
                 flush_para()

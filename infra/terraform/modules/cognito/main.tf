@@ -91,8 +91,8 @@ resource "aws_cognito_user_pool" "this" {
     allow_admin_create_user_only = true
 
     invite_message_template {
-      email_subject = "Your Flowin account"
-      email_message = "Your username is {username} and temporary password is {####}. Sign in at the Flowin app and you will be asked to set a new password."
+      email_subject = "Your VelocityAI account"
+      email_message = "Your username is {username} and temporary password is {####}. Sign in at the VelocityAI app and you will be asked to set a new password."
       sms_message   = "Your username is {username} and temporary password is {####}."
     }
   }

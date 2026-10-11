@@ -253,5 +253,5 @@ it("a step with injects survives manifest → AgentDef → manifest unchanged an
   const saved = agentsToManifestSteps(agents);
   const savedStep = saved[0] as AuthoredStep;
   expect(savedStep.injects).toEqual(["design_system", "template"]);
-  expect((savedStep as any).extra).toBeUndefined();
+  expect((savedStep as { extra?: unknown }).extra).toBeUndefined();
 });

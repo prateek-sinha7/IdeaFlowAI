@@ -27,7 +27,8 @@ if sys.platform != "win32":
     import resource
 else:
     resource = None  # type: ignore[assignment]
-import subprocess  # nosec B404 — controlled invocation of `git`, scrubbed env, rlimits
+# Bandit B404: controlled invocation of `git` only, with a scrubbed env and rlimits.
+import subprocess  # nosec B404
 import time
 from dataclasses import dataclass
 from typing import Iterable, Optional
@@ -186,7 +187,8 @@ def _run_git(
     env = _build_git_env(workspace=cwd)
     started = time.monotonic()
     try:
-        proc = subprocess.run(  # nosec B603 — `args` is constructed from controlled enum branches
+        # Bandit B603: `args` is constructed from controlled enum branches only.
+        proc = subprocess.run(  # nosec B603
             ["git", *args],
             cwd=cwd,
             env=env,

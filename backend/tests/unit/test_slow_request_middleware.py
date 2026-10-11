@@ -41,7 +41,9 @@ async def test_slow_request_is_logged(caplog, monkeypatch):
 
     assert response == "the-response"
     slow_logs = [r for r in caplog.records if "slow request" in r.message]
-    assert slow_logs, f"expected a slow-request log, got: {[r.message for r in caplog.records]}"
+    assert (
+        slow_logs
+    ), f"expected a slow-request log, got: {[r.message for r in caplog.records]}"
     assert "method=GET" in slow_logs[0].message
     assert "path=/api/slow" in slow_logs[0].message
 

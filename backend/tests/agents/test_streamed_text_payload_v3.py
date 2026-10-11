@@ -50,6 +50,7 @@ from tests.agents.test_finalizer_v2 import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_streamed_ectx(
     run_id: str,
     sandbox: FakeSandbox,
@@ -98,6 +99,7 @@ def _finalize(run_id: str, ectx: types.SimpleNamespace) -> Any:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestStreamedTextPayload:
     """``streamed_text`` materializes ``ectx.last_streamed`` under the nominal name."""
@@ -153,12 +155,12 @@ class TestStreamedTextPayload:
         record = _finalize(run_id, ectx)
 
         assert record is not None
-        assert record.published_status == "degraded", (
-            f"expected degraded, got {record.published_status!r}"
-        )
-        assert sandbox.list_tags() == [], (
-            f"unexpected tag for an empty last_streamed: {sandbox.list_tags()}"
-        )
+        assert (
+            record.published_status == "degraded"
+        ), f"expected degraded, got {record.published_status!r}"
+        assert (
+            sandbox.list_tags() == []
+        ), f"unexpected tag for an empty last_streamed: {sandbox.list_tags()}"
 
     def test_completed_run_mints_its_tag(self, tmp_path: Path) -> None:
         """L5's C-tag(v1): a completed streamed_text run publishes + tags."""
@@ -176,13 +178,11 @@ class TestStreamedTextPayload:
             f"expected completed, got {record.published_status!r} "
             f"(degraded_reason={getattr(record, 'degraded_reason', None)!r})"
         )
-        assert "v1" in sandbox.list_tags(), (
-            f"no v1 tag minted; tags={sandbox.list_tags()}"
-        )
+        assert (
+            "v1" in sandbox.list_tags()
+        ), f"no v1 tag minted; tags={sandbox.list_tags()}"
 
-    def test_literal_file_on_disk_wins_over_last_streamed(
-        self, tmp_path: Path
-    ) -> None:
+    def test_literal_file_on_disk_wins_over_last_streamed(self, tmp_path: Path) -> None:
         """If the declared name already exists as a real file, copy it — do not
         overwrite it with ``ectx.last_streamed`` (the streamed-text fallback
         only fires when no literal file is present, same as ``serialized_sandbox``)."""
@@ -210,6 +210,7 @@ class TestStreamedTextPayload:
 # ---------------------------------------------------------------------------
 # ppt strategy — B4 fix
 # ---------------------------------------------------------------------------
+
 
 def _make_ppt_ectx(
     run_id: str,
@@ -257,7 +258,9 @@ class TestPptPayload:
         sandbox, run_id = _setup_sandbox(tmp_path)
         _plant_logs(sandbox, run_id)
 
-        deck = "<html><body><section class='slide'><h1>Hello</h1></section></body></html>"
+        deck = (
+            "<html><body><section class='slide'><h1>Hello</h1></section></body></html>"
+        )
         ectx = _make_ppt_ectx(run_id, sandbox, last_streamed=deck)
         payload = build_flat_payload(run_id, ectx)
 
@@ -289,9 +292,9 @@ class TestPptPayload:
         record = _finalize(run_id, ectx)
 
         assert record is not None
-        assert record.published_status == "degraded", (
-            f"empty ppt stream must not mint a tag; got {record.published_status!r}"
-        )
+        assert (
+            record.published_status == "degraded"
+        ), f"empty ppt stream must not mint a tag; got {record.published_status!r}"
         assert sandbox.list_tags() == []
 
     def test_ppt_completed_run_mints_tag(self, tmp_path: Path) -> None:
@@ -312,9 +315,9 @@ class TestPptPayload:
             f"degraded_reason={getattr(record, 'degraded_reason', None)!r} — "
             "B4: ppt strategy must materialize from last_streamed in build_flat_payload"
         )
-        assert "v1" in sandbox.list_tags(), (
-            f"ppt run must mint v1; tags={sandbox.list_tags()}"
-        )
+        assert (
+            "v1" in sandbox.list_tags()
+        ), f"ppt run must mint v1; tags={sandbox.list_tags()}"
 
     def test_literal_ppt_file_on_disk_wins_over_last_streamed(
         self, tmp_path: Path
@@ -332,7 +335,9 @@ class TestPptPayload:
         )
         _plant_logs(sandbox, run_id)
 
-        stale_deck = "<html><body><section class='slide'><h1>Stale</h1></section></body></html>"
+        stale_deck = (
+            "<html><body><section class='slide'><h1>Stale</h1></section></body></html>"
+        )
         ectx = _make_ppt_ectx(run_id, sandbox, last_streamed=stale_deck)
         payload = build_flat_payload(run_id, ectx)
 
@@ -340,6 +345,6 @@ class TestPptPayload:
         written = (sandbox.root / ".chain" / "presentation.pptx").read_text(
             encoding="utf-8"
         )
-        assert written == "real file on disk", (
-            "disk file must take precedence over last_streamed for ppt strategy"
-        )
+        assert (
+            written == "real file on disk"
+        ), "disk file must take precedence over last_streamed for ppt strategy"

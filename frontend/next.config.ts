@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   devIndicators: false,
   output: "standalone",
+  // Build type-checks app code only; tests are gated once by `npm run typecheck`.
+  typescript: { tsconfigPath: "tsconfig.build.json" },
   rewrites: async () => [
     // Public share route: /s/{token} → FastAPI backend GET /s/{token}.
     // Next.js serves port 3000; FastAPI serves port 8000.  Without this

@@ -177,7 +177,9 @@ def test_playwright_take_screenshot_rejects_traversal_filename(sandbox, monkeypa
         "app.agents.tools.playwright._get_session",
         lambda run_id: mock.MagicMock(available=False, unavailable_reason="no browser"),
     )
-    out = playwright_tools.playwright_take_screenshot.invoke({"filename": "../../etc/passwd"})
+    out = playwright_tools.playwright_take_screenshot.invoke(
+        {"filename": "../../etc/passwd"}
+    )
     assert isinstance(out, str)
     # The tool should refuse the path, not write anything
     assert "escapes sandbox" in out or "unavailable" in out.lower()
@@ -191,9 +193,9 @@ def test_playwright_take_screenshot_path_is_not_deliverable(sandbox):
     # This test checks the path contract, not actual browser behavior.
     # A screenshot path would be ".browser/screenshot.png"
     screenshot_path = ".browser/screenshot.png"
-    assert not is_deliverable_relpath(screenshot_path), (
-        f"screenshot path {screenshot_path} must not be deliverable"
-    )
+    assert not is_deliverable_relpath(
+        screenshot_path
+    ), f"screenshot path {screenshot_path} must not be deliverable"
 
 
 def test_verify_prefix_still_not_deliverable():
@@ -210,7 +212,9 @@ def test_regular_files_still_deliverable():
 # ─── Policy refusal: names the active policy ──────────────────────────────────
 
 
-def test_playwright_navigate_refuses_out_of_policy_url_and_names_policy(sandbox, monkeypatch):
+def test_playwright_navigate_refuses_out_of_policy_url_and_names_policy(
+    sandbox, monkeypatch
+):
     """A URL refused by policy names BROWSER_URL_POLICY and its value."""
     # Mock the session to be unavailable so we get past the browser check
     # and test the policy resolver itself
@@ -301,14 +305,18 @@ def test_unavailable_browser_type_reports_unavailable(sandbox, unavailable_sessi
     assert "unavailable" in out.lower()
 
 
-def test_unavailable_browser_take_screenshot_reports_unavailable(sandbox, unavailable_session):
+def test_unavailable_browser_take_screenshot_reports_unavailable(
+    sandbox, unavailable_session
+):
     """With unavailable browser, take_screenshot reports unavailable."""
     out = playwright_tools.playwright_take_screenshot.invoke({})
     assert isinstance(out, str)
     assert "unavailable" in out.lower()
 
 
-def test_unavailable_browser_console_messages_reports_unavailable(sandbox, unavailable_session):
+def test_unavailable_browser_console_messages_reports_unavailable(
+    sandbox, unavailable_session
+):
     """With unavailable browser, console_messages reports unavailable."""
     out = playwright_tools.playwright_console_messages.invoke({})
     assert isinstance(out, str)
@@ -343,7 +351,9 @@ def test_unavailable_browser_none_report_success(sandbox, unavailable_session):
     with no browser is exactly the defect spec 018 forbids.
     """
     results = {
-        "navigate": playwright_tools.playwright_navigate.invoke({"url": "http://localhost:8080"}),
+        "navigate": playwright_tools.playwright_navigate.invoke(
+            {"url": "http://localhost:8080"}
+        ),
         "snapshot": playwright_tools.playwright_snapshot.invoke({}),
         "click": playwright_tools.playwright_click.invoke({"ref": "e1"}),
         "type": playwright_tools.playwright_type.invoke({"ref": "e1", "text": "hi"}),
@@ -360,9 +370,11 @@ def test_unavailable_browser_none_report_success(sandbox, unavailable_session):
         # close is special — it just closes, but still shouldn't report working navigation/interaction
         if tool_name != "close":
             # Navigation/interaction tools should report unavailable or error
-            assert "unavailable" in result.lower() or "error" in result.lower() or "failed" in result.lower(), (
-                f"{tool_name}: should report unavailable when browser unavailable, got: {result}"
-            )
+            assert (
+                "unavailable" in result.lower()
+                or "error" in result.lower()
+                or "failed" in result.lower()
+            ), f"{tool_name}: should report unavailable when browser unavailable, got: {result}"
 
 
 # ─── Sanity: screenshot path sanity ──────────────────────────────────────────

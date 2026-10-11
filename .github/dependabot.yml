@@ -1,81 +1,158 @@
+# =============================================================================
+# Dependabot configuration
+# =============================================================================
+# F-05 / F-06 — what was wrong here, because both failures were SILENT:
+#
+#   1. The Python entry used `ignore-conditions:` with a nested
+#      `dependency-update-type:` key. Neither exists in the Dependabot v2 schema
+#      (the key is `ignore:`, and its member is `update-types:`). An unrecognised
+#      key makes the WHOLE FILE invalid, so every one of the six ecosystems below
+#      was disabled — not just the entry carrying the typo. There is no error
+#      anywhere in the repository; the only symptom is an absence of pull
+#      requests, which looks identical to "no updates available".
+#
+#   2. Even parsed, the Python entry was `package-ecosystem: pip` on `/backend`,
+#      which updates `requirements{,-dev,-prod}.txt`. CI does not install from
+#      those files: `.github/actions/setup-backend` runs `uv sync --locked` from
+#      `backend/uv.lock`, and `backend/Dockerfile` runs `uv export --frozen`.
+#      So Dependabot was maintaining files nothing installs, while the actual
+#      resolution authority — `uv.lock` — was tracked by no ecosystem at all and
+#      received no automated security updates. Worse, a `pip` PR that touched
+#      `pyproject.toml` without relocking would break EVERY backend job, because
+#      `--frozen` fails closed when the lock and the manifest disagree.
+#      Fixed by using `package-ecosystem: uv`, which updates `uv.lock` itself.
+#
+#      `requirements{,-dev,-prod}.txt` stay in the repo — developers install from
+#      them — and they cannot drift: `uv lock --check` proves `uv.lock` agrees
+#      with `pyproject.toml`, and
+#      `backend/tests/unit/tools/ci/test_dependency_lock_contracts.py` asserts
+#      `requirements-prod.txt` equals `[project.dependencies]` and
+#      `requirements-dev.txt` equals `[dependency-groups].dev`, pin for pin. Both
+#      run in the `backend-offline` partition, so a uv PR that moves a direct
+#      dependency turns those tests RED until the mirror files are updated in the
+#      same PR. That is the intended coupling: fail-closed, one authority, and no
+#      second generator to keep in sync.
+#
+#   3. `reviewers:` is deprecated in favour of CODEOWNERS and has been removed.
+#      NOTE: `.github/CODEOWNERS` currently names five @Hexaware-HnI teams that
+#      DO NOT EXIST in the organization, so no reviewer is assigned by either
+#      mechanism today. Creating those teams is tracked separately — it is not
+#      something this file can fix.
+#
+#   4. No entry had `open-pull-requests-limit`, so each ecosystem defaulted to 5
+#      concurrent PRs with no deliberate choice recorded.
+#
+#   5. A github-actions bump PR moves a SHA in the workflows, and
+#      `ci/toolchain-lock.json` `external_actions` records the full pin set.
+#      `test_toolchain_pins.py::TestExternalActionPinSet` fails until the lock is
+#      updated in the same PR. That is the intended coupling: verify the new tag
+#      with `git ls-remote --tags`, then record the SHA and version in the lock.
+#
+# DELIBERATE DEVIATION, stated because it reverses the previous intent: the
+# broken block was trying to suppress semver-major updates. It is NOT
+# reinstated in working form. Dependabot's `ignore:` list applies to SECURITY
+# updates as well as version updates, so "ignore all majors" would silently
+# suppress a major-version fix for a known CVE — the exact class of invisible
+# security downgrade this remediation exists to remove. Noise is controlled with
+# `groups` and `open-pull-requests-limit` instead, which cost review time rather
+# than coverage.
+# =============================================================================
+
 version: 2
 
 updates:
-  # Python dependencies (backend)
-  # Dependabot preserves SHA pins and updates the # vX.Y.Z comment alongside.
-  # Group langchain ecosystem together to reduce PR noise while keeping pace with
-  # the agent runtime dependencies.
-  - package-ecosystem: pip
+  # ── Backend Python — uv.lock is the resolution authority ──────────────────
+  # `uv`, NOT `pip`: the pip ecosystem would edit requirements*.txt, which
+  # nothing installs. See https://docs.astral.sh/uv/guides/integration/dependabot/
+  - package-ecosystem: uv
     directory: /backend
     schedule:
       interval: weekly
       day: monday
       time: "09:00"
+    open-pull-requests-limit: 10
     groups:
+      # The agent runtime moves as a set; separate PRs for langchain-core and
+      # langgraph almost always have to be merged together anyway.
       langchain:
         patterns:
           - "langchain*"
           - "langgraph*"
           - "deepagents"
+      # Test/static-analysis tooling. Grouped because a ruff or pyright bump
+      # is reviewed the same way regardless of which one it is.
+      backend-dev-tooling:
+        dependency-type: development
     commit-message:
       prefix: "chore: "
+      prefix-development: "chore: "
       prefix-scope: "deps"
-    reviewers:
-      - "Hexaware-HnI/engineering"
-    allow:
-      - dependency-type: "all"
-    # Avoid opening PRs during deployments (typically Tuesday/Thursday)
-    ignore-conditions:
-      - dependency-update-type: "semver:major"
-        update-types:
-          - "semver:major"
 
-  # Node.js dependencies (frontend)
+  # ── Frontend Node ────────────────────────────────────────────────────────
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
       day: monday
       time: "09:00"
+    open-pull-requests-limit: 10
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      next:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+      frontend-dev-tooling:
+        dependency-type: development
     commit-message:
       prefix: "chore: "
+      prefix-development: "chore: "
       prefix-scope: "deps"
-    reviewers:
-      - "Hexaware-HnI/engineering"
-    allow:
-      - dependency-type: "all"
 
-  # GitHub Actions (shared across workflows)
-  # SHA-pinned actions get their # vX.Y.Z comment updated automatically.
+  # ── GitHub Actions ───────────────────────────────────────────────────────
+  # `/` covers .github/workflows/*.yml (and a root action.yml) only, so the
+  # composite actions under .github/actions/*/action.yml need their own entry;
+  # `directories` accepts globs, `directory` does not. Every `uses:` here is
+  # pinned to a full commit SHA with a trailing `# vX.Y.Z` comment; Dependabot
+  # preserves that shape, moving the SHA and rewriting the comment together.
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/*
     schedule:
       interval: weekly
       day: monday
       time: "09:30"
+    open-pull-requests-limit: 10
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore: "
       prefix-scope: "ci"
-    reviewers:
-      - "Hexaware-HnI/devops"
-    allow:
-      - dependency-type: "all"
 
-  # Container base images (Dockerfile FROM statements)
-  # Tracks updates to python:3.13-slim-bookworm and node:20-bookworm-slim
+  # ── Container base images ────────────────────────────────────────────────
+  # Tracks the digest-pinned FROM lines in each Dockerfile. Both Dockerfiles'
+  # Node bases are digest-pinned: the frontend uses node:24.11.0-bookworm-slim
+  # (the pin_authority Node runtime), while the backend pptx stage stays on
+  # node:20-bookworm-slim deliberately; the backend also uses
+  # python:3.13-slim-bookworm.
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
       day: wednesday
       time: "10:00"
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "chore: "
       prefix-scope: "docker"
-    reviewers:
-      - "Hexaware-HnI/devops"
-    allow:
-      - dependency-type: "all"
 
   - package-ecosystem: docker
     directory: /frontend
@@ -83,26 +160,30 @@ updates:
       interval: weekly
       day: wednesday
       time: "10:00"
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "chore: "
       prefix-scope: "docker"
-    reviewers:
-      - "Hexaware-HnI/devops"
-    allow:
-      - dependency-type: "all"
 
-  # Terraform modules and providers (infrastructure)
-  # Less frequent: IaC changes should be vetted more carefully
+  # ── Terraform providers and modules ──────────────────────────────────────
+  # Monthly, and never auto-applied: CI validates IaC statically
+  # (fmt / validate / tflint / checkov / trivy config) and runs no plan or apply,
+  # so a provider bump is reviewed and applied out of band by an operator.
   - package-ecosystem: terraform
-    directory: /infra/terraform
+    # One entry per root and module: no *.tf lives in /infra/terraform itself,
+    # and Dependabot does not recurse into subdirectories.
+    directories:
+      - /infra/terraform/app
+      - /infra/terraform/bootstrap
+      - /infra/terraform/foundation
+      - /infra/terraform/localstack
+      - /infra/terraform/shared
+      - /infra/terraform/modules/*
     schedule:
       interval: monthly
-      day: 1
+      day: monday
       time: "11:00"
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "chore: "
       prefix-scope: "infra"
-    reviewers:
-      - "Hexaware-HnI/devops"
-    allow:
-      - dependency-type: "all"

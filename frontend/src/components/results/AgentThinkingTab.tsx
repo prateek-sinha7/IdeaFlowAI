@@ -10,7 +10,6 @@ import { Activity } from "lucide-react";
 // that don't provide a router context simply get an empty string back.
 function useSafePathname(): string {
   try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     return usePathname();
   } catch {
     return "";

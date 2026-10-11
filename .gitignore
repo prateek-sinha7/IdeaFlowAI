@@ -20,6 +20,51 @@
 # Local-dev compose overrides — see app.env.example for the convention.
 docker-compose.override.yml
 
+# ── Terraform state and key material, REPO-WIDE (F-28) ───────────────────────
+# `infra/.gitignore` already carries the full Terraform guardrail set for
+# `infra/**`, including the `!terraform/{app,foundation}/<env>.tfvars` and
+# `!terraform/**/localstack.tfvars` exceptions that keep the seven committed,
+# non-secret per-environment config files tracked. It remains the AUTHORITY for
+# that subtree — a nested .gitignore takes precedence, so a negation there
+# cannot be overridden from here, and duplicating its exception list in this
+# file would only create a second copy to drift.
+#
+# What was missing is coverage OUTSIDE `infra/`. A `terraform.tfstate` written
+# at the repo root, a `.pem` dropped in `backend/`, or a `secrets.tfvars` under
+# `scripts/` matched nothing at all. Nothing has leaked — gitleaks scans full
+# history on every CI run — but "no detector happened to match" is not the same
+# as "it could not be committed", and a state file is plaintext by design.
+#
+# `.terraform.lock.hcl` is deliberately NOT matched: it pins provider versions
+# and is committed on purpose.
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+!*.tfvars.example
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+.terraform/
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Private keys, certificate bundles and keystores. No file with any of these
+# extensions is tracked today; these patterns keep it that way.
+*.pem
+*.key
+*.pfx
+*.p12
+*.jks
+*.keystore
+
 # Python
 __pycache__/
 *.py[cod]
@@ -134,6 +179,12 @@ backend/evals/minimal/report.html
 # carries whatever the running server logged, which on this project has
 # included extracted UPLOAD TEXT, so it is local-only and never committed.
 /backend/.logs/
+# Throwaway debug probes (e.g. backend/_golden_probe_tmp.py was committed by
+# accident and broke CI's ruff-format gate). Put scratch scripts in /.tmp/ or
+# name them *_tmp.py / *_probe.py so they can never be staged.
+/backend/_*_tmp.py
+/backend/*_probe.py
+/backend/scratch/
 # Scratch workflow snapshots taken while iterating on a manifest.
 /backend/agents/.workflow-archive/
 
@@ -197,5 +248,4 @@ tests/integration/e2e/.pytest-resume
 
 unit-test-prompt
 
-
-.agents
+.agents/

@@ -497,12 +497,14 @@ def test_pipeline_types_single_pipeline(env):
     """An agent that appears in only one pipeline type reports exactly that type."""
     a = _seed_user(env)
     _seed_run_with_agents(
-        env, a.id,
+        env,
+        a.id,
         pipeline_type="prototype",
         agents=[_agent("build-agent", "Build Agent")],
     )
     _seed_run_with_agents(
-        env, a.id,
+        env,
+        a.id,
         pipeline_type="prototype",
         agents=[_agent("build-agent", "Build Agent")],
     )
@@ -521,7 +523,8 @@ def test_pipeline_types_multi_pipeline_agent(env):
     # Same agent_id appears in three different pipeline runs.
     for pt in ("ppt", "prototype", "user_stories"):
         _seed_run_with_agents(
-            env, a.id,
+            env,
+            a.id,
             pipeline_type=pt,
             agents=[_agent("shared-agent", "Shared Agent")],
         )
@@ -532,14 +535,19 @@ def test_pipeline_types_multi_pipeline_agent(env):
     agent_rows = {r["agent_id"]: r for r in body.get("agents", [])}
     assert "shared-agent" in agent_rows
     # Sorted alphabetically (sorted() on strings).
-    assert agent_rows["shared-agent"]["pipeline_types"] == ["ppt", "prototype", "user_stories"]
+    assert agent_rows["shared-agent"]["pipeline_types"] == [
+        "ppt",
+        "prototype",
+        "user_stories",
+    ]
 
 
 def test_pipeline_types_multiple_agents_in_same_run(env):
     """Each agent in a run gets the run's pipeline_type, not each other's."""
     a = _seed_user(env)
     _seed_run_with_agents(
-        env, a.id,
+        env,
+        a.id,
         pipeline_type="user_stories",
         agents=[
             _agent("agent-a", "Agent A", 300),
@@ -562,13 +570,15 @@ def test_pipeline_types_owner_isolation(env):
 
     # A: prototype run with agent-x.
     _seed_run_with_agents(
-        env, a.id,
+        env,
+        a.id,
         pipeline_type="prototype",
         agents=[_agent("agent-x", "Agent X")],
     )
     # B: ppt run with the SAME agent-x — must not appear in A's aggregate.
     _seed_run_with_agents(
-        env, b.id,
+        env,
+        b.id,
         pipeline_type="ppt",
         agents=[_agent("agent-x", "Agent X")],
     )

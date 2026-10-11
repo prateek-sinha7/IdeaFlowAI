@@ -34,8 +34,11 @@ test.describe("TS-X — B.6b completion notifications (mocked SSE)", () => {
     // ── CompletionToast (bottom-right, success) ──────────────────────────────
     // Text-located (no data-testid on the toast): the success card shows the
     // "<Workflow> complete" line and the unique "View results" affordance.
-    await expect(dashboard.page.getByText("User Stories complete")).toBeVisible();
-    await expect(dashboard.page.getByRole("button", { name: /View results/i })).toBeVisible();
+    // FIX-202 copy: "Run completed" + an "Open" affordance (was "<Workflow>
+    // complete" / "View results"); the card's subline is the run's title.
+    const toastHeadline = dashboard.page.getByText("Run completed", { exact: true });
+    await expect(toastHeadline).toBeVisible();
+    await expect(dashboard.page.getByRole("button", { name: "Open", exact: true })).toBeVisible();
 
     // ── Notification-bell unread badge ───────────────────────────────────────
     // The bell (aria-label="Notifications") gains an unread badge (count "1") once

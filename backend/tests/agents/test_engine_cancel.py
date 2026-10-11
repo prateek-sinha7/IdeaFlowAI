@@ -67,7 +67,9 @@ from tests.integration.agents.test_engine_runner_error_arm import (  # noqa: E40
 )
 
 
-def _install_release_spy(monkeypatch, *, raise_exc: Exception | None = None) -> list[str]:
+def _install_release_spy(
+    monkeypatch, *, raise_exc: Exception | None = None
+) -> list[str]:
     """Wrap the REAL ``playwright_session.release`` to record every call, while
     preserving its no-op/never-raises behaviour — unless ``raise_exc`` is given,
     which proves the engine's own defensive wrapper swallows a misbehaving
@@ -171,9 +173,9 @@ async def test_release_failure_does_not_mask_normal_completion(monkeypatch) -> N
     events, _engine, _run_id, _ids = await _drive_execute(error_ids=set())
 
     assert calls, "release was never even attempted"
-    assert _events_of(events, "pipeline_complete"), (
-        "a raising release() must not mask a normal completion"
-    )
+    assert _events_of(
+        events, "pipeline_complete"
+    ), "a raising release() must not mask a normal completion"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -182,7 +184,9 @@ async def test_release_failure_does_not_mask_normal_completion(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_cooperative_cancel_releases_and_execute_does_not_raise(monkeypatch) -> None:
+async def test_cooperative_cancel_releases_and_execute_does_not_raise(
+    monkeypatch,
+) -> None:
     """AC3/AC6: the ISS-023 cooperative per-chunk cancel (Stop button —
     cancel_event IS set) still RETURNS rather than re-raising, so the public
     ``execute()`` async-for ends normally — and the T7 release still fires on
@@ -199,7 +203,7 @@ async def test_cooperative_cancel_releases_and_execute_does_not_raise(monkeypatc
 async def test_genuine_cancel_still_raises_and_releases(monkeypatch) -> None:
     """AC3/AC6: a GENUINE destructive cancel (no cancel_event — the
     WebSocketDisconnect / defensive-fallback case) must still RE-RAISE
-    CancelledError after yielding the one ``pipeline_cancelled`` (ISS-023), so
+    CancelledError (ISS-023; no terminal yield on this path since Task 5.9), so
     the disconnect cleanup that depends on the propagating exception still
     runs — and the T7 release must still have fired before that exception
     finishes leaving the generator."""
@@ -217,14 +221,12 @@ async def test_genuine_cancel_still_raises_and_releases(monkeypatch) -> None:
         )
         await _advance_to(gen, "agent_start")
         # cancel_event is None here (never supplied) — the genuine, non-cooperative
-        # branch. The except block yields pipeline_cancelled once (returned by this
-        # athrow), then the NEXT resumption hits `if cancel_event is not None and
-        # cancel_event.is_set(): return` (False) and falls through to the bare
-        # `raise`, re-raising on the following __anext__.
-        cancelled_ev = await gen.athrow(asyncio.CancelledError())
-        assert cancelled_ev["type"] == "pipeline_cancelled"
+        # branch. Since Task 5.9 the terminal event is emitted from the finally
+        # block, and on THIS path (_pending_cancel_reraise) that yield is skipped:
+        # the consumer is disconnecting and cannot receive it. So the athrow itself
+        # re-raises — no pipeline_cancelled is yielded first.
         with pytest.raises(asyncio.CancelledError):
-            await gen.__anext__()
+            await gen.athrow(asyncio.CancelledError())
     finally:
         restore()
 

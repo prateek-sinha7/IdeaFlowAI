@@ -19,7 +19,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import type { AnalyticsSummary } from "@/lib/api";
+import type { AnalyticsSummary, CapabilityModelEntry, CapabilitiesPalette } from "@/lib/api";
 
 const mockGetToken = vi.fn(() => "test-token");
 const mockGetAnalyticsSummary =
@@ -30,8 +30,14 @@ const mockGetPreferences = vi.fn(() =>
 const mockGetWorkflows = vi.fn(() => Promise.resolve([]));
 // RFN-002b — getCapabilities is called on mount to build the model catalog map.
 // Return an empty catalog so model-label lookups degrade to raw id (not under test here).
-const mockGetCapabilities = vi.fn(() =>
-  Promise.resolve({ model_catalog: [] as Record<string, unknown>[] }),
+// The return annotation is load-bearing: without it the empty array literal
+// infers `model_catalog: never[]`, and the populated-catalog override in
+// `renderWithModel` below cannot be assigned to it. Kept as a baked-in
+// implementation rather than a `mockResolvedValue` so that a `mockReset()`
+// restores this empty-catalog default instead of wiping it to `undefined`.
+const mockGetCapabilities = vi.fn(
+  (): Promise<CapabilitiesPalette> =>
+    Promise.resolve({ capabilities: [], model_catalog: [] }),
 );
 
 vi.mock("next/navigation", () => ({
@@ -186,14 +192,19 @@ describe("AnalyticsPage — Avg / Run KPI math (MD-2)", () => {
       );
 
       // Scope to the Avg / Run card so no other animated counter can collide.
-      const card = (await screen.findByText("Avg / Run")).closest(
-        "div.bg-surface-card",
-      ) as HTMLElement;
-      expect(card).not.toBeNull();
-      await waitFor(() =>
-        expect(within(card).getByText("90")).toBeInTheDocument(),
-      );
-      expect(within(card).queryByText("225")).not.toBeInTheDocument();
+      // The card is RE-QUERIED on every check: the motion mock's Proxy hands
+      // back a fresh component type per `motion.div` access, so each post-load
+      // re-render (catalog fetch, Model Details seed) remounts the StatCard and
+      // detaches any previously captured node.
+      const avgRunCard = () =>
+        screen.getByText("Avg / Run").closest("div.bg-surface-card") as HTMLElement;
+      await screen.findByText("Avg / Run");
+      await waitFor(() => {
+        const card = avgRunCard();
+        expect(card).not.toBeNull();
+        expect(within(card).getByText("90")).toBeInTheDocument();
+      });
+      expect(within(avgRunCard()).queryByText("225")).not.toBeInTheDocument();
     } finally {
       rafSpy.mockRestore();
     }
@@ -360,7 +371,8 @@ describe("AnalyticsPage — Model Details Thinking row wording (QA-PS-009)", () 
     // mockResolvedValueOnce — leaves the module-level empty-catalog default
     // (mockGetCapabilities) intact for every other describe block in this file.
     mockGetCapabilities.mockResolvedValueOnce({
-      model_catalog: [{ id: modelId, ...catalogEntry }],
+      capabilities: [],
+      model_catalog: [{ id: modelId, ...catalogEntry } as CapabilityModelEntry],
     });
     mockGetAnalyticsSummary.mockResolvedValue(
       summary({
@@ -451,6 +463,17 @@ describe("AnalyticsPage — By Agent pipeline chips (ISS-643)", () => {
     mockGetAnalyticsSummary.mockReset();
   });
 
+  // The agent name and chip labels render in their SOURCE case ("Build Agent",
+  // "Prototype"); the all-caps look is CSS `uppercase`, which jsdom does not
+  // apply to text content. Queries therefore use the source strings.
+  //
+  // Chip labels such as "Prototype" also appear in the pipeline <select> and the
+  // By Pipeline Type rollup, so every chip query is scoped to the agent's own
+  // name+chip row (the name span's parent). The row is re-queried on each call:
+  // the motion mock remounts motion.div subtrees on re-render, detaching nodes.
+  const agentChipRow = (agentName: string) =>
+    screen.getByText(agentName).parentElement as HTMLElement;
+
   it("renders a workflow chip for a single-pipeline agent", async () => {
     mockGetAnalyticsSummary.mockResolvedValue(
       summary({
@@ -475,9 +498,14 @@ describe("AnalyticsPage — By Agent pipeline chips (ISS-643)", () => {
     );
 
     // Agent name visible.
-    expect(await screen.findByText("BUILD AGENT")).toBeInTheDocument();
-    // Pipeline chip shows the friendly label from PIPELINE_LABELS.
-    expect(screen.getByText("PROTOTYPE")).toBeInTheDocument();
+    await screen.findByText("Build Agent");
+    await waitFor(() => {
+      expect(screen.getByText("Build Agent")).toBeInTheDocument();
+      const row = agentChipRow("Build Agent");
+      // Exactly one chip (name + 1 chip), showing the PIPELINE_LABELS label.
+      expect(row.children).toHaveLength(2);
+      expect(within(row).getByText("Prototype")).toBeInTheDocument();
+    });
   });
 
   it("renders no pipeline chip when pipeline_types is empty", async () => {
@@ -503,12 +531,17 @@ describe("AnalyticsPage — By Agent pipeline chips (ISS-643)", () => {
       expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
     );
 
-    expect(await screen.findByText("LEGACY AGENT")).toBeInTheDocument();
-    // No chip elements for this agent beyond the name.
-    // "User Stories", "Prototype", "Presentation" etc. must be absent.
-    expect(screen.queryByText("PROTOTYPE")).not.toBeInTheDocument();
-    expect(screen.queryByText("PRESENTATION")).not.toBeInTheDocument();
-    expect(screen.queryByText("USER STORIES")).not.toBeInTheDocument();
+    await screen.findByText("Legacy Agent");
+    await waitFor(() => {
+      expect(screen.getByText("Legacy Agent")).toBeInTheDocument();
+      const row = agentChipRow("Legacy Agent");
+      // No chip elements for this agent beyond the name.
+      expect(row.children).toHaveLength(1);
+      // "User Stories", "Prototype", "Presentation" etc. must be absent.
+      expect(within(row).queryByText("Prototype")).not.toBeInTheDocument();
+      expect(within(row).queryByText("Presentation")).not.toBeInTheDocument();
+      expect(within(row).queryByText("User Stories")).not.toBeInTheDocument();
+    });
   });
 
   it("renders one chip per pipeline for a multi-pipeline agent", async () => {
@@ -534,11 +567,16 @@ describe("AnalyticsPage — By Agent pipeline chips (ISS-643)", () => {
       expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
     );
 
-    expect(await screen.findByText("SHARED AGENT")).toBeInTheDocument();
-    // All three pipeline labels rendered — one chip each.
-    expect(screen.getByText("PRESENTATION")).toBeInTheDocument();
-    expect(screen.getByText("PROTOTYPE")).toBeInTheDocument();
-    expect(screen.getByText("USER STORIES")).toBeInTheDocument();
+    await screen.findByText("Shared Agent");
+    await waitFor(() => {
+      expect(screen.getByText("Shared Agent")).toBeInTheDocument();
+      const row = agentChipRow("Shared Agent");
+      // All three pipeline labels rendered — one chip each (name + 3 chips).
+      expect(row.children).toHaveLength(4);
+      expect(within(row).getByText("Presentation")).toBeInTheDocument();
+      expect(within(row).getByText("Prototype")).toBeInTheDocument();
+      expect(within(row).getByText("User Stories")).toBeInTheDocument();
+    });
   });
 
   it("uses PIPELINE_LABELS friendly name and normalises revision variants", async () => {
@@ -565,10 +603,14 @@ describe("AnalyticsPage — By Agent pipeline chips (ISS-643)", () => {
       expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
     );
 
-    expect(await screen.findByText("PPT AGENT")).toBeInTheDocument();
-    // ppt_revision normalises to ppt → PIPELINE_LABELS["ppt"] = "Presentation".
-    expect(screen.getByText("PRESENTATION")).toBeInTheDocument();
-    // The raw "ppt_revision" string must not appear as a chip label.
-    expect(screen.queryByText("PPT_REVISION")).not.toBeInTheDocument();
+    await screen.findByText("PPT Agent");
+    await waitFor(() => {
+      expect(screen.getByText("PPT Agent")).toBeInTheDocument();
+      const row = agentChipRow("PPT Agent");
+      // ppt_revision normalises to ppt → PIPELINE_LABELS["ppt"] = "Presentation".
+      expect(within(row).getByText("Presentation")).toBeInTheDocument();
+      // The raw "ppt_revision" string must not appear as a chip label.
+      expect(within(row).queryByText("ppt_revision")).not.toBeInTheDocument();
+    });
   });
 });

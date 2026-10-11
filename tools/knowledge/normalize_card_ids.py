@@ -46,6 +46,7 @@ Only `.knowledge/cards/*.md` are renamed.
 Re-running after a successful run is a no-op (every ID already conforms), so
 this doubles as a linter for cards whose prefix does not match their type.
 """
+
 from __future__ import annotations
 
 import glob
@@ -158,7 +159,9 @@ def plan(cards):
         if new_id == c["old_id"]:
             continue
         if id_map.get(c["old_id"], new_id) != new_id:
-            errors.append((c["path"], f"duplicate old_id {c['old_id']!r} maps two ways"))
+            errors.append(
+                (c["path"], f"duplicate old_id {c['old_id']!r} maps two ways")
+            )
             continue
         id_map[c["old_id"]] = new_id
 
@@ -186,8 +189,12 @@ def plan(cards):
     for fid, group in sorted(final.items()):
         if len(group) > 1:
             names = ", ".join(sorted(os.path.basename(x["path"]) for x in group))
-            errors.append((group[0]["path"],
-                           f"id collision: {len(group)} cards would share id {fid!r} ({names})"))
+            errors.append(
+                (
+                    group[0]["path"],
+                    f"id collision: {len(group)} cards would share id {fid!r} ({names})",
+                )
+            )
 
     return id_map, file_map, errors, adr_count
 
@@ -201,7 +208,9 @@ def build_regex(id_map, file_map):
         return None
     parts = []
     if file_map:
-        parts.append("|".join(re.escape(f) for f in sorted(file_map, key=len, reverse=True)))
+        parts.append(
+            "|".join(re.escape(f) for f in sorted(file_map, key=len, reverse=True))
+        )
     if id_map:
         ids = "|".join(re.escape(i) for i in sorted(id_map, key=len, reverse=True))
         parts.append(rf"(?:{ids})\b(?!\.md)")
@@ -222,7 +231,7 @@ def main():
 
     cards, malformed, skipped = load_cards()
     id_map, file_map, errors, adr_count = plan(cards)
-    errors = malformed + errors   # an unreadable card aborts, same as any other error
+    errors = malformed + errors  # an unreadable card aborts, same as any other error
 
     print(f"Cards loaded:      {len(cards)}")
     if malformed:
@@ -290,7 +299,9 @@ def main():
                     fh.write(new_text)
                 retyped += 1
         if c.get("new_base"):
-            os.rename(c["path"], os.path.join(os.path.dirname(c["path"]), c["new_base"]))
+            os.rename(
+                c["path"], os.path.join(os.path.dirname(c["path"]), c["new_base"])
+            )
             renamed += 1
 
     print(f"Cards retyped (adr -> doc): {retyped}")

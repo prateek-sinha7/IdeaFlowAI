@@ -137,18 +137,18 @@ class TestAggregateFailureScenarios:
 
         assert aggregate_truth(results, current_sha) is False
 
-    def test_sonar_quality_gate_failure(self):
-        """Sonar quality gate fails → aggregate failure."""
+    def test_container_scan_failure(self):
+        """Container image scan fails → aggregate failure."""
         required_signals = compute_aggregate_required_signals()
         current_sha = "1234567890abcdef1234567890abcdef12345678"
         now = datetime.now(timezone.utc)
 
         results = {}
         for signal_name in required_signals:
-            if signal_name == "sonar-quality-gate":
-                # Sonar quality gate did not pass
+            if signal_name == "container-scan[backend]/grype":
+                # Grype found a High/Critical vulnerability in the image
                 state = SignalState.FAILURE
-                error_msg = "Quality gate: duplications > 3.0%"
+                error_msg = "1 CRITICAL finding in the backend image"
             else:
                 state = SignalState.SUCCESS
                 error_msg = None
@@ -175,8 +175,8 @@ class TestAggregateFailureScenarios:
                 # Found a critical vulnerability
                 state = SignalState.FAILURE
                 error_msg = "CRITICAL: CVE-2024-1234 in requests==2.28.0"
-            elif signal_name == "security[backend-deps]":
-                # Found a high vulnerability
+            elif signal_name == "container-scan[frontend]/trivy-lockfile":
+                # Found a high vulnerability in the frontend lockfile
                 state = SignalState.FAILURE
                 error_msg = "HIGH: Prototype Pollution in lodash"
             else:
@@ -251,7 +251,7 @@ class TestStaleAndMissingScenarios:
         current_sha = "1234567890abcdef1234567890abcdef12345678"
         now = datetime.now(timezone.utc)
 
-        # Omit one signal (e.g., Sonar quality gate)
+        # Omit one signal (e.g., the frontend evidence/coverage gate)
         results = {
             signal_name: SignalResult(
                 signal_name=signal_name,
@@ -260,14 +260,14 @@ class TestStaleAndMissingScenarios:
                 timestamp=now,
             )
             for signal_name in required_signals
-            if signal_name != "sonar-quality-gate"
+            if signal_name != "frontend-evidence"
         }
 
         assert aggregate_truth(results, current_sha) is False
 
         explanation = explain_aggregate_failure(results, current_sha)
         assert "Missing mandatory signals" in explanation
-        assert "sonar-quality-gate" in explanation
+        assert "frontend-evidence" in explanation
 
     def test_timed_out_signal(self):
         """Signal timed out → aggregate failure."""
@@ -303,10 +303,10 @@ class TestStaleAndMissingScenarios:
 
         results = {}
         for signal_name in required_signals:
-            if signal_name == "sonar-analysis":
-                # SonarCloud API unreachable
+            if signal_name == "container-scan[frontend]/trivy-lockfile":
+                # The vulnerability database download was unreachable
                 state = SignalState.UNAVAILABLE
-                error_msg = "SonarCloud API returned 503 Service Unavailable"
+                error_msg = "advisory database returned 503 Service Unavailable"
             else:
                 state = SignalState.SUCCESS
                 error_msg = None
@@ -320,6 +320,70 @@ class TestStaleAndMissingScenarios:
             )
 
         assert aggregate_truth(results, current_sha) is False
+
+
+class TestAllowFiltered:
+    """F-15: FILTERED satisfies the gate only when allowed and filterable."""
+
+    SHA = "1234567890abcdef1234567890abcdef12345678"
+
+    def _results_with_filtered(self, filtered_name: str) -> dict[str, SignalResult]:
+        now = datetime.now(timezone.utc)
+        return {
+            name: SignalResult(
+                signal_name=name,
+                state=(
+                    SignalState.FILTERED
+                    if name == filtered_name
+                    else SignalState.SUCCESS
+                ),
+                sha=self.SHA,
+                timestamp=now,
+            )
+            for name in compute_aggregate_required_signals()
+        }
+
+    def test_aggregate_truth_rejects_filtered_when_allow_filtered_defaults_false(
+        self,
+    ):
+        results = self._results_with_filtered("backend-offline")
+
+        assert aggregate_truth(results, self.SHA) is False
+        assert "backend-offline: filtered" in explain_aggregate_failure(
+            results, self.SHA
+        )
+
+    def test_aggregate_truth_accepts_filtered_when_allowed_and_signal_filterable(self):
+        results = self._results_with_filtered("backend-offline")
+
+        assert aggregate_truth(results, self.SHA, allow_filtered=True) is True
+        assert "backend-offline" not in explain_aggregate_failure(
+            results, self.SHA, allow_filtered=True
+        )
+
+    @pytest.mark.parametrize(
+        "signal_name", ["repo-static/compose-config", "security[secrets]"]
+    )
+    def test_aggregate_truth_rejects_filtered_when_signal_never_filterable(
+        self, signal_name
+    ):
+        results = self._results_with_filtered(signal_name)
+
+        assert aggregate_truth(results, self.SHA, allow_filtered=True) is False
+        assert f"{signal_name}: filtered" in explain_aggregate_failure(
+            results, self.SHA, allow_filtered=True
+        )
+
+    def test_aggregate_truth_rejects_skipped_when_allow_filtered_true(self):
+        results = self._results_with_filtered("backend-offline")
+        results["backend-offline"] = SignalResult(
+            signal_name="backend-offline",
+            state=SignalState.SKIPPED,
+            sha=self.SHA,
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        assert aggregate_truth(results, self.SHA, allow_filtered=True) is False
 
 
 class TestSignalRegistryConsistency:
@@ -363,15 +427,32 @@ class TestSignalRegistryConsistency:
 
         security_signals = {
             "security[secrets]",
-            "security[backend-deps]",
-            "security[frontend-deps]",
+            "container-scan[backend]/trivy",
+            "container-scan[frontend]/trivy-lockfile",
         }
         for signal in security_signals:
             assert signal in required_signals, f"{signal} must be in aggregate"
 
-    def test_sonar_signals_in_aggregate(self):
-        """Both Sonar signals must be in aggregate."""
+    def test_no_external_service_signals_in_aggregate(self):
+        """
+        No mandatory signal may be owned by an external service.
+
+        Every signal in the aggregate must be produced by a job in ci.yml on
+        every event type. A signal that can only be produced when a secret is
+        available cannot be evaluated on the pull-request path, which is what
+        forced the `--defer` hole that has since been removed.
+        """
+        from tools.ci.signal_registry import SIGNAL_REGISTRY, SignalType
+
         required_signals = compute_aggregate_required_signals()
 
-        assert "sonar-analysis" in required_signals
-        assert "sonar-quality-gate" in required_signals
+        external = sorted(
+            name
+            for name in required_signals
+            if SIGNAL_REGISTRY[name].signal_type is SignalType.EXTERNAL_GATE
+        )
+        assert external == [], (
+            f"mandatory signals owned by an external gate: {external}. Either "
+            f"give each an owner job in ci.yml that runs on every event type, or "
+            f"drop it from ci-required and require it as its own status context."
+        )

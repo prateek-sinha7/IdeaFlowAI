@@ -12,20 +12,42 @@
  * all", and the "Run {label} Pipeline" / "Run with defaults" summary controls).
  * Clarify is now a single INLINE surface in the Steps spine (`InlineClarifyActions`
  * inside the "Clarifications" card, testid `chat-clarify-actions`): every question
- * as quick-reply chips (`chat-clarify-chip`) + ONE submit "Submit answers & start
- * the build" (`chat-clarify-submit`). The lane composer during clarify is now a
+ * as quick-reply chips (`chat-clarify-chip`) + ONE submit "Submit [N answers] &
+ * proceed" (`chat-clarify-submit`). The lane composer during clarify is now a
  * plain phase-hint input, so `chat-clarify-actions` renders in exactly ONE place.
  * The `submit_questionnaire` resume channel is UNCHANGED.
  *
- * Setup: home → "Generate product requirements" (→ user_stories) → Run, drive
- * `mockSse.questionnaireReady([...])`, then open the Steps tab.
+ * Setup: home → "Generate product requirements" (→ user_stories) → Run, then
+ * `pauseAtClarify` drives planner_start → planner_complete(CLARIFY_REQUIRED) →
+ * questionnaire_ready (the engine's order) and opens the Steps tab.
  */
 import { test, expect } from "../fixtures/test";
 import type { Page } from "@playwright/test";
+import type { DashboardPage } from "../fixtures/dashboard";
+import type { MockSse } from "../fixtures/mockSse";
 
 /** The inline Steps clarify root — the sole clarify surface post-Phase-42. */
 function laneClarify(page: Page) {
   return page.getByTestId("chat-clarify-actions");
+}
+
+type ClarifyQuestionSeed = Parameters<MockSse["questionnaireReady"]>[0][number];
+
+/**
+ * Pause the launched run at clarify in the order the engine emits it
+ * (engine.py: planner_start → planner_complete(CLARIFY_REQUIRED) →
+ * questionnaire_ready, all BEFORE pipeline_start). planner_start is what flips
+ * the run live and mounts the execution view, so the clarify surface is
+ * reachable; then open the Steps tab and return the inline clarify root.
+ */
+async function pauseAtClarify(dashboard: DashboardPage, mockSse: MockSse, questions: ClarifyQuestionSeed[]) {
+  mockSse.plannerStart();
+  mockSse.plannerComplete("Refunds backlog", "CLARIFY_REQUIRED");
+  mockSse.questionnaireReady(questions);
+  await dashboard.openSteps();
+  const clarify = laneClarify(dashboard.page);
+  await expect(clarify).toBeVisible();
+  return clarify;
 }
 
 test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
@@ -35,30 +57,25 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
   });
 
   test("TS-M-02 renders the clarify questions as chips + a single submit", async ({ dashboard, mockSse }) => {
-    mockSse.questionnaireReady([
+    const clarify = await pauseAtClarify(dashboard, mockSse, [
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
-    await dashboard.thinkingTab().click();
 
-    const clarify = laneClarify(dashboard.page);
-    await expect(clarify).toBeVisible();
     // The inline surface lists EVERY clarify question at once (not one-at-a-time).
     await expect(clarify.getByText("Who is the audience?")).toBeVisible();
     await expect(clarify.getByText("Tone?")).toBeVisible();
-    // A single submit — the "Quick Setup" wizard's counter / one-at-a-time flow is
-    // retired (Phase 42-06); the submit label reads "Submit answers & start the build".
-    await expect(clarify.getByTestId("chat-clarify-submit")).toHaveText(/Submit answers & start the build/);
+    // A single submit — the "Quick Setup" wizard's one-at-a-time flow is retired
+    // (Phase 42-06). With nothing answered yet the label carries no count.
+    await expect(clarify.getByTestId("chat-clarify-submit")).toHaveCount(1);
+    await expect(clarify.getByTestId("chat-clarify-submit")).toHaveText(/^\s*Submit answers & proceed\s*$/);
   });
 
   test("TS-M-03 selecting a chip marks it selected (inverted brand fill)", async ({ dashboard, mockSse }) => {
-    mockSse.questionnaireReady([
+    const clarify = await pauseAtClarify(dashboard, mockSse, [
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
-    await dashboard.thinkingTab().click();
-    const clarify = laneClarify(dashboard.page);
-    await expect(clarify).toBeVisible();
 
     // Phase 42-06 REPLACED the wizard's auto-advance + answered counter with a flat
     // chip list. Selecting a chip marks it selected — the reskin-durable signal is
@@ -73,52 +90,82 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     await expect(formal).toHaveClass(/text-white/);
   });
 
-  test.skip("TS-M-04 hybrid question exposes a free-text input that clears the MCQ selection; Owner: frontend", async () => {
-    // The "Quick Setup" wizard's hybrid free-text affordance ("Describe your own" /
-    // "Type your specific answer…") was intentionally REMOVED with the panel (Phase
-    // 42-06, CONTEXT §G / §8 decision 3). The inline clarify (InlineClarifyActions)
-    // is chips-only — a hybrid question renders its MCQ suggestions as chips with no
-    // free-text override. This flow has no inline equivalent; re-home it if the
-    // inline clarify grows a free-text affordance. Replacement surface:
-    // components/chat/InlineClarifyActions.tsx (chat-clarify-actions).
+  // TS-M-04 / TS-M-05a-c were re-anchored from the deleted "Quick Setup" wizard onto
+  // the inline clarify (InlineClarifyActions). The inline surface DOES carry the
+  // behaviours they guarded: a `hybrid` question renders a free-text override
+  // (`chat-clarify-text`) that shares the chips' answer slot, the submit label
+  // counts the answered questions, and "Skip the rest" (`chat-clarify-skip-all`)
+  // resumes with whatever is answered — nothing at all being the run-with-defaults
+  // case. Each case drives the real submit_questionnaire up-channel, and pauses
+  // the run through `pauseAtClarify` (the engine's real planner → clarify order).
+  const TWO_QUESTIONS: ClarifyQuestionSeed[] = [
+    { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
+    { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
+  ];
+
+  test("TS-M-04 hybrid question exposes a free-text input that clears the MCQ selection", async ({ dashboard, mockSse }) => {
+    const clarify = await pauseAtClarify(dashboard, mockSse, [
+      { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "hybrid" },
+    ]);
+
+    // A hybrid question offers its MCQ suggestions as chips AND a free-text field.
+    const executives = clarify.getByRole("button", { name: "Executives" });
+    const freeText = clarify.getByRole("textbox", { name: "Who is the audience?" });
+    await expect(freeText).toBeVisible();
+
+    await executives.click();
+    await expect(executives).toHaveAttribute("aria-pressed", "true");
+
+    // Typing an override REPLACES the chip selection (one shared answer slot).
+    await freeText.fill("Board members");
+    await expect(executives).toHaveAttribute("aria-pressed", "false");
+
+    await clarify.getByTestId("chat-clarify-submit").click();
+    const frame = await mockSse.waitForClientFrame("submit_questionnaire");
+    expect(frame.responses).toEqual([{ question_id: "q1", answer: "Board members" }]);
   });
 
-  test.skip("TS-M-05a all answered → primary 'Run User Stories Pipeline' + skip control; Owner: frontend", async () => {
-    // The wizard's summary slide (a per-answer-count primary control "Run {label}
-    // Pipeline" + "Skip all & run directly") was DELETED with the panel (Phase
-    // 42-06). The inline clarify has a single, answer-count-agnostic submit
-    // ("Submit answers & start the build", asserted by TS-M-02 / TS-M-06). No inline
-    // equivalent for the labelled summary controls. Replacement surface:
-    // components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
+  test("TS-M-05a all answered → the submit counts every answer and no skip control remains", async ({ dashboard, mockSse }) => {
+    const clarify = await pauseAtClarify(dashboard, mockSse, TWO_QUESTIONS);
+
+    await clarify.getByRole("button", { name: "Executives" }).click();
+    await clarify.getByRole("button", { name: "Formal" }).click();
+
+    await expect(clarify.getByTestId("chat-clarify-submit")).toHaveText(/Submit 2 answers & proceed/);
+    // Nothing is left to skip once every question is answered.
+    await expect(clarify.getByTestId("chat-clarify-skip-all")).toHaveCount(0);
   });
 
-  test.skip("TS-M-05b some answered → primary 'Run User Stories Pipeline' (partial label); Owner: frontend", async () => {
-    // As TS-M-05a: the wizard summary's partial-answer "Run {label} Pipeline" control
-    // is retired. The inline clarify submits any (incl. partial) selection through the
-    // one "Submit answers & start the build" control. Replacement surface:
-    // components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
+  test("TS-M-05b some answered → partial count label; submit sends only the answered question", async ({ dashboard, mockSse }) => {
+    const clarify = await pauseAtClarify(dashboard, mockSse, TWO_QUESTIONS);
+
+    await clarify.getByRole("button", { name: "Executives" }).click();
+
+    await expect(clarify.getByTestId("chat-clarify-submit")).toHaveText(/Submit 1 answer & proceed/);
+    await expect(clarify.getByTestId("chat-clarify-skip-all")).toBeVisible();
+
+    await clarify.getByTestId("chat-clarify-submit").click();
+    const frame = await mockSse.waitForClientFrame("submit_questionnaire");
+    // The unanswered question is omitted, not sent as an empty answer.
+    expect(frame.responses).toEqual([{ question_id: "q1", answer: "Executives" }]);
   });
 
-  test.skip("TS-M-05c none answered → 'Run with defaults'; Owner: frontend", async () => {
-    // The wizard's zero-answered "Run with defaults" summary control is retired with
-    // the panel (Phase 42-06). The inline clarify offers only "Submit answers & start
-    // the build"; submitting with no chips selected sends an empty responses array
-    // (the resume-with-defaults behavior) through the SAME submit_questionnaire
-    // channel. No distinct "Run with defaults" affordance survives. Replacement
-    // surface: components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
+  test("TS-M-05c none answered → 'Skip the rest' resumes with defaults (empty responses)", async ({ dashboard, mockSse }) => {
+    const clarify = await pauseAtClarify(dashboard, mockSse, TWO_QUESTIONS);
+
+    // With nothing answered the submit carries no count.
+    await expect(clarify.getByTestId("chat-clarify-submit")).toHaveText(/^\s*Submit answers & proceed\s*$/);
+
+    await clarify.getByTestId("chat-clarify-skip-all").click();
+    const frame = await mockSse.waitForClientFrame("submit_questionnaire");
+    expect(frame.pipeline_run_id).toBe(mockSse.currentRunId);
+    expect(frame.responses).toEqual([]);
   });
 
   test("TS-M-06 submit sends submit_questionnaire; questionnaire_complete dismisses the clarify", async ({ dashboard, mockSse }) => {
-    mockSse.questionnaireReady([
-      { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
-      { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
-    ]);
-    await dashboard.thinkingTab().click();
-
     // Submit through the inline Steps clarify (all questions at once) — it fires the
     // SAME `submit_questionnaire` resume channel the deleted QuestionnairePanel used.
-    const clarify = laneClarify(dashboard.page);
-    await expect(clarify).toBeVisible();
+    const clarify = await pauseAtClarify(dashboard, mockSse, TWO_QUESTIONS);
     await clarify.getByRole("button", { name: "Executives" }).click();
     await clarify.getByRole("button", { name: "Formal" }).click();
     await clarify.getByTestId("chat-clarify-submit").click();

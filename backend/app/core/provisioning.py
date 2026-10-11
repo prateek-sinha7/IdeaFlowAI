@@ -258,7 +258,9 @@ def provision_from_login(
     return _insert_user(db, email=email, sub=sub, groups=groups)
 
 
-def provision_from_token_sub(db: Session, *, sub: str, groups: list[str]) -> User | None:
+def provision_from_token_sub(
+    db: Session, *, sub: str, groups: list[str]
+) -> User | None:
     """Resolve (or create) the local row for a VERIFIED access token's ``sub``.
 
     Decision 4b: a verified RS256 token whose ``sub`` has no local row triggers

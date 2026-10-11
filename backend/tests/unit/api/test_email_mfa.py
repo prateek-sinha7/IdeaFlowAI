@@ -255,9 +255,7 @@ class TestLoginChallengeMapping:
                 "AdminRespondToAuthChallenge",
             )
 
-        monkeypatch.setattr(
-            cognito, "admin_respond_to_auth_challenge", reject_password
-        )
+        monkeypatch.setattr(cognito, "admin_respond_to_auth_challenge", reject_password)
         request = LoginChallengeRequest(
             email=EMAIL,
             session="sess",
@@ -311,9 +309,7 @@ class TestLoginChallengeMapping:
             )
         assert exc.value.status_code == 400
 
-    def test_mfa_setup_redirects_to_enrollment(
-        self, cognito_settings, monkeypatch
-    ):
+    def test_mfa_setup_redirects_to_enrollment(self, cognito_settings, monkeypatch):
         """MFA_SETUP needs a three-call session chain this endpoint cannot express.
         Answering it with a TOTP code would be rejected by Cognito and surface as a
         confusing credential error, so it is refused explicitly instead with a 409

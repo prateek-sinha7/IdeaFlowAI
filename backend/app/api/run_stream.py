@@ -70,6 +70,7 @@ router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
 _REVOCATION_CHECK_TIMEOUT_SECONDS = 5.0
 _REVOCATION_CHECK_SLOW_LOG_THRESHOLD_SECONDS = 1.0
 
+
 def recheck_stream_credential(token: str) -> str | None:
     """Re-verify an established stream's credential IN FULL. Reason, or ``None``.
 

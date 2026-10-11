@@ -36,7 +36,7 @@
  * meant to open something is a list you cannot navigate twice the same way.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -314,24 +314,7 @@ export function fenceAgentPayloads(md: string): string {
   let fenced: string[] = [];
 
   for (const line of lines) {
-    // Check if we're inside a wrapper tag and track its boundaries.
-    if (wrapperTag) {
-      // Inside a wrapper: accumulate and check for closing tag.
-      if (new RegExp(`</${wrapperTag}\\s*>`, 'i').test(line)) {
-        wrapperTag = null;
-      }
-      plain.push(line);
-      continue;
-    } else {
-      // Not inside a wrapper: check if one opens.
-      const openMatch = /^<(spec|tasks|analysis|artifact)\b/i.exec(line);
-      if (openMatch) {
-        wrapperTag = openMatch[1].toLowerCase();
-        plain.push(line);
-        continue;
-      }
-    }
-
+    // Check if we're starting or inside an existing fence.
     const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     if (m) {
       const ch = m[1][0];
@@ -373,6 +356,26 @@ export function fenceAgentPayloads(md: string): string {
       fenced.push(line);
       continue;
     }
+    
+    // Only check for wrapper tags when NOT inside a fence.
+    // Check if we're inside a wrapper tag and track its boundaries.
+    if (wrapperTag) {
+      // Inside a wrapper: accumulate and check for closing tag.
+      if (new RegExp(`</${wrapperTag}\\s*>`, 'i').test(line)) {
+        wrapperTag = null;
+      }
+      plain.push(line);
+      continue;
+    } else {
+      // Not inside a wrapper: check if one opens.
+      const openMatch = /^<(spec|tasks|analysis|artifact)\b/i.exec(line);
+      if (openMatch) {
+        wrapperTag = openMatch[1].toLowerCase();
+        plain.push(line);
+        continue;
+      }
+    }
+    
     // A line this long is not prose. Nothing a person writes reaches 4000
     // characters on one line; what does is source pasted mid-sentence, and
     // `conversation_history` is full of it — 29–32k-character lines that cost
@@ -868,7 +871,10 @@ function FileRow({
   active: boolean;
   onSelect: (f: SandboxFile) => void;
 }) {
-  const Icon = iconFor(file.path.split("/").pop() || file.path);
+  // iconFor returns one of a fixed set of module-level lucide components, so
+  // this is not a component "created during render"; createElement makes that
+  // explicit to react-hooks/static-components instead of a capitalised local.
+  const fileIcon = iconFor(file.path.split("/").pop() || file.path);
   return (
     <div className={node ? "relative flex items-center gap-3 py-1" : ""}>
       {node && (
@@ -886,12 +892,11 @@ function FileRow({
             : "border-line-faint-row bg-surface-card hover:border-line-control hover:bg-surface-white"
         }`}
       >
-        {!node && (
-          <Icon
-            className={`h-4 w-4 flex-none ${active ? "text-brand" : "text-ink-400"}`}
-            strokeWidth={1.7}
-          />
-        )}
+        {!node &&
+          createElement(fileIcon, {
+            className: `h-4 w-4 flex-none ${active ? "text-brand" : "text-ink-400"}`,
+            strokeWidth: 1.7,
+          })}
         <span className="min-w-0 flex-1">
           <span
             className={`block truncate text-[12.5px] font-medium ${

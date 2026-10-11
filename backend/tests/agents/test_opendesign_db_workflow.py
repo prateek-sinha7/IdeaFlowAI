@@ -32,14 +32,24 @@ def test_db_manifest_keeps_context_providers_and_step_injects() -> None:
                 "instance_id": "step-1",
                 "strategy": "single_shot",
                 "gates": [],
-                "tools": {"read_files": True, "write_files": True, "exec": False, "tool_sets": []},
+                "tools": {
+                    "read_files": True,
+                    "write_files": True,
+                    "exec": False,
+                    "tool_sets": [],
+                },
             },
             {
                 "agent": "custom-agent",
                 "instance_id": "step-2",
                 "strategy": "single_shot",
                 "gates": [],
-                "tools": {"read_files": True, "write_files": True, "exec": False, "tool_sets": []},
+                "tools": {
+                    "read_files": True,
+                    "write_files": True,
+                    "exec": False,
+                    "tool_sets": [],
+                },
                 "injects": ["design_system", "template", "template_example"],
                 "depends_on": ["custom-agent:step-1"],
             },
@@ -60,11 +70,17 @@ def test_db_manifest_keeps_context_providers_and_step_injects() -> None:
     assert compiled.context_providers == ["opendesign"]
 
     # Assert step injects are preserved (second step)
-    assert compiled.steps[1].injects == ["design_system", "template", "template_example"]
+    assert compiled.steps[1].injects == [
+        "design_system",
+        "template",
+        "template_example",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_opendesign_provider_emits_blocks_for_a_step_that_declares_injects() -> None:
+async def test_opendesign_provider_emits_blocks_for_a_step_that_declares_injects() -> (
+    None
+):
     """OpenDesignProvider emits blocks when a step declares injects."""
 
     class FakeRunner:
@@ -82,7 +98,11 @@ async def test_opendesign_provider_emits_blocks_for_a_step_that_declares_injects
                 "template_id": "dashboard",
                 "template_body": "TEMPLATE BODY",
             }
-            self.current_spec_injects = {"design_system", "template", "template_example"}
+            self.current_spec_injects = {
+                "design_system",
+                "template",
+                "template_example",
+            }
             self.current_spec_tools = set()
             self.build_task_number = ""
             self.runner = FakeRunner()
@@ -142,7 +162,9 @@ async def test_opendesign_provider_emits_nothing_without_injects() -> None:
 
 
 @pytest.mark.asyncio
-async def test_opendesign_provider_skips_design_system_for_build_task_two_plus() -> None:
+async def test_opendesign_provider_skips_design_system_for_build_task_two_plus() -> (
+    None
+):
     """OpenDesignProvider skips design_system and template for build_task_number >= '2'."""
 
     class FakeRunner:
@@ -160,7 +182,11 @@ async def test_opendesign_provider_skips_design_system_for_build_task_two_plus()
                 "template_id": "dashboard",
                 "template_body": "TEMPLATE BODY",
             }
-            self.current_spec_injects = {"design_system", "template", "template_example"}
+            self.current_spec_injects = {
+                "design_system",
+                "template",
+                "template_example",
+            }
             self.current_spec_tools = {"prototype_emit_only"}
             self.build_task_number = build_task_number
             self.runner = FakeRunner()

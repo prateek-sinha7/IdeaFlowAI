@@ -582,7 +582,10 @@ function launchResponse(body: Record<string, unknown>) {
 
 describe("RunConnectionProvider — mixed-deploy chain launch (SGV2 task 11.8 / Req 21 AC 9)", () => {
   it("new FE + old BE: a chain launch answered without `chain_v2_accepted` fans out `incompatible_backend` instead of launching silently", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    // Declared with fetch's own parameter list so `mock.calls[0][0]` is the
+    // request url. A zero-arg factory would make vitest type every call as the
+    // empty tuple `[]`, and indexing it is a compile error.
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
       launchResponse({ run_id: "new-run" }),
     );
     vi.stubGlobal("fetch", fetchMock);

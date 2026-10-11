@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "producer": "repo-static",
-  "description": "Repository static checks. Three independent signals, one owner. Keys use the schema backend/tools/ci/run_checks.py actually reads (check_id / command / timeout_seconds / mandatory) — an earlier version of this file used id/argv/required, which the runner rejects, so it could never have executed. Command paths are relative to backend/, the runner's working directory (ci.yml sets `working-directory: backend`), which is why each script path is prefixed with `../`; the runner spawns commands with no cwd override, so a repo-root-relative path resolved to nothing and every check exited 127 (`bash: no such file`) in 0.00s. Each script then re-anchors itself on `git rev-parse --show-toplevel`, so only the argv path needs the prefix.",
+  "description": "Repository static checks. Four independent signals, one owner. Keys use the schema backend/tools/ci/run_checks.py actually reads (check_id / command / timeout_seconds / mandatory) — an earlier version of this file used id/argv/required, which the runner rejects, so it could never have executed. Command paths are relative to backend/, the runner's working directory (ci.yml sets `working-directory: backend`), which is why each script path is prefixed with `../`; the runner spawns commands with no cwd override, so a repo-root-relative path resolved to nothing and every check exited 127 (`bash: no such file`) in 0.00s. Each script then re-anchors itself on `git rev-parse --show-toplevel`, so only the argv path needs the prefix.",
   "checks": [
     {
       "check_id": "actionlint",
@@ -21,6 +21,13 @@
       "check_id": "shellcheck",
       "description": "Blocking ShellCheck analysis at warning severity",
       "command": ["bash", "../.github/scripts/ci-shellcheck.sh"],
+      "timeout_seconds": 300,
+      "mandatory": true
+    },
+    {
+      "check_id": "compose-config",
+      "description": "docker compose config -q for the base and base+prod stacks shipped to hosts",
+      "command": ["bash", "../.github/scripts/ci-compose-config.sh"],
       "timeout_seconds": 300,
       "mandatory": true
     }

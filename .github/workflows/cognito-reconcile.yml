@@ -30,7 +30,8 @@
 #                   docstring for why each of those would be an authority
 #                   inversion.
 #
-# SCHEDULED DAILY at 03:00 UTC, in `report` mode only, across dev/stage/prod.
+# SCHEDULED DAILY at 03:00 UTC, in `report` mode only, against dev only (stage
+# and prod declare required reviewers; see the F-14 note on `reconcile`).
 #
 # The earlier version of this comment said "NOT SCHEDULED, deliberately", on the
 # grounds that a scheduled run nobody reads is an alarm nobody hears. That
@@ -79,27 +80,89 @@ on:
           - fix-disabled
         default: report
 
-# The same concurrency group deploy.yml and provision.yml use for this
-# environment, so a reconcile run can never race a deploy's `docker compose`
-# invocation on the same box.
-concurrency:
-  group: deploy-${{ github.event_name == 'schedule' && 'scheduled-reconcile' || inputs.environment }}
-  cancel-in-progress: ${{ github.event_name != 'schedule' && inputs.environment != 'prod' }}
+# CONCURRENCY IS DECLARED PER JOB, NOT HERE (F-10/F-29).
+#
+# * `matrix` only exists inside a job, so only a job-level group can name the
+#   environment a scheduled leg actually targets. A workflow-level group that
+#   resolves to the same `deploy-<env>` name as a job-level group deadlocks the
+#   run on manual dispatch: GitHub cancels it with "Canceling since a deadlock
+#   was detected for concurrency group ... between 'top level workflow' and
+#   '<job>'". The workflow-level block that used to live here did exactly that.
+# * Both jobs share `deploy-<env>` with deploy.yml's `deploy` job and
+#   provision.yml, so a reconcile or retry never runs at the same time as a
+#   deploy or provision on that environment's box (they `docker compose exec`
+#   on the box a deploy runs `docker compose up` on).
+# * GitHub keeps at most one running and one pending entry per group, and a
+#   newly queued entry cancels an older PENDING one regardless of
+#   `cancel-in-progress`. So a nightly run queued behind a running deploy can
+#   supersede another pending entry in that group — including a pending
+#   deploy, which must then be re-run. `cancel-in-progress: false` only
+#   protects the RUNNING entry.
 
 permissions:
   contents: read
 
-env:
-  AWS_REGION_DEFAULT: eu-central-1
+# F-25: the AWS region fallback lives in .github/actions/aws-deploy-auth; every
+# region site reads that action's `steps.aws.outputs.region`.
 
 jobs:
+  # F-14: THE SCHEDULED MATRIX COVERS ONLY ENVIRONMENTS WITH NO REQUIRED REVIEWER.
+  #
+  # It was [dev, stage, prod]. GitHub environment protection applies to any job
+  # that references the environment, whatever triggered it — so once
+  # .github/environments/{stage,prod}.json are actually applied (they declare 1 and
+  # 2 required reviewers respectively, and today are NOT applied: all three live
+  # environments have zero protection rules), each nightly run would sit waiting
+  # for a human approval. A drift alarm that needs a nightly approval to fire is
+  # not an alarm. That was a latent trap: correctly applying prod.json would have
+  # silently stalled this job.
+  #
+  # `environment:` cannot simply be dropped to avoid it. The AWS role ARN and
+  # instance id are Environment variables, and the OIDC trust policy matches
+  # `repo:<owner>/<repo>:environment:<env>` with StringEquals
+  # (infra/terraform/bootstrap/github_oidc.tf), so a job without an environment
+  # gets a subject STS refuses.
+  #
+  # So: dev is checked nightly, automatically. stage and prod are checked by manual
+  # dispatch, which IS reviewer-gated — and that is the right posture for a
+  # workflow whose other mode (`fix-disabled`) revokes user access.
+  #
+  # TRADE-OFF, STATED PLAINLY: prod drift is no longer detected automatically. To
+  # restore that without re-introducing the stall, give the read-only path its own
+  # ungated environment plus a matching OIDC trust subject, then add it here.
+  # backend/tests/unit/tools/ci/test_ruleset_workflow_contract.py
+  # (TestScheduledJobsAreNotReviewerGated) fails the build if a reviewer-gated
+  # environment is added back to a cron-reachable job.
   reconcile:
     name: Cognito Reconcile (${{ github.event_name == 'schedule' && matrix.environment || inputs.environment }}, ${{ github.event_name == 'schedule' && 'report' || inputs.mode }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # F-10/F-29: declared per job (see the note above `permissions:`), and the
+    # group is computed from the SAME expression as `environment:`, so each
+    # matrix leg serialises against its own environment's deploys. The old
+    # workflow-level group resolved to `deploy-scheduled-reconcile` on a schedule,
+    # which shares nothing with `deploy-dev`/`deploy-stage`/`deploy-prod`, so on
+    # the only automatic path it defeated the very race it was documented to
+    # prevent. Deriving the group from `matrix.environment` (rather than a literal)
+    # keeps it correct if more environments are ever added to the schedule.
+    concurrency:
+      group: deploy-${{ github.event_name == 'schedule' && matrix.environment || inputs.environment }}
+      cancel-in-progress: false
     strategy:
+      # fail-fast: false so one environment's drift does not cancel the others'
+      # reports — the whole point is to see every environment. Matches the
+      # `security` and `container-scan` matrices in ci.yml. The
+      # `retry-cognito-deletions` job below uses a byte-identical `include`.
+      #
+      # The dispatch branch builds a ONE-leg matrix from the chosen input
+      # environment. It used to be `fromJson('[]')`, and GitHub fails a job whose
+      # matrix is empty at strategy evaluation ("Matrix must define at least one
+      # vector"), so a manual run never started. `format()` doubles the literal
+      # braces (`{{ }}`) and `{0}` is the input, which is a choice-typed value
+      # (dev/stage/prod), so nothing untrusted reaches the JSON.
+      fail-fast: false
       matrix:
-        include: ${{ github.event_name == 'schedule' && fromJson('[{"environment":"dev"},{"environment":"stage"},{"environment":"prod"}]') || fromJson('[]') }}
+        include: ${{ github.event_name == 'schedule' && fromJson('[{"environment":"dev"}]') || fromJson(format('[{{"environment":"{0}"}}]', inputs.environment)) }}
     environment: ${{ github.event_name == 'schedule' && matrix.environment || inputs.environment }}
     permissions:
       id-token: write
@@ -115,6 +178,7 @@ jobs:
           sparse-checkout: |
             .github/scripts/remote-cognito-reconcile.sh
             .github/actions/ssm-run/
+            .github/actions/aws-deploy-auth/
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -124,25 +188,18 @@ jobs:
       # (infra/terraform/bootstrap/github_oidc.tf), so a `dev` run physically
       # cannot command a `stage`/`prod`-tagged instance whatever value is pasted
       # into EC2_INSTANCE_ID.
+      #
+      # F-25: the aws-deploy-auth composite validates EC2_INSTANCE_ID (set, and
+      # shaped like an instance id) before it mints the session. That replaced
+      # this job's separate "Preflight — validate configuration" step.
       - name: Configure AWS credentials (OIDC — per-env deploy role)
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        id: aws
+        uses: ./.github/actions/aws-deploy-auth
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
-
-      - name: Preflight — validate configuration
-        env:
-          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
-          DEPLOY_ENV: ${{ github.event_name == 'schedule' && matrix.environment || inputs.environment }}
-        run: |
-          set -euo pipefail
-
-          : "${INSTANCE_ID:?EC2_INSTANCE_ID is not set for the '${DEPLOY_ENV}' environment}"
-
-          if [[ ! "$INSTANCE_ID" =~ ^i-[0-9a-f]{8,17}$ ]]; then
-            echo "::error::EC2_INSTANCE_ID '${INSTANCE_ID}' does not look like an EC2 instance ID."
-            exit 1
-          fi
+          region: ${{ vars.AWS_REGION }}
+          instance-id: ${{ vars.EC2_INSTANCE_ID }}
+          require-instance-id: "true"
 
       # Payload ASSEMBLY only — sending and polling are the ssm-run composite
       # action's job (F-05). No SSM parameter prefix is needed here: unlike
@@ -150,7 +207,7 @@ jobs:
       - name: Build SSM reconcile payload
         id: build-payload
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
           MODE: ${{ github.event_name == 'schedule' && 'report' || inputs.mode }}
         run: |
           set -euo pipefail
@@ -173,12 +230,14 @@ jobs:
         uses: ./.github/actions/ssm-run
         with:
           script-path: ${{ steps.build-payload.outputs.path }}
-          instance-id: ${{ vars.EC2_INSTANCE_ID }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          instance-id: ${{ steps.aws.outputs.instance-id }}
+          aws-region: ${{ steps.aws.outputs.region }}
           comment: "velocityai cognito-reconcile ${{ github.event_name == 'schedule' && 'report' || inputs.mode }} (${{ github.repository }} run ${{ github.run_id }})"
-          send-timeout-seconds: "600"
+          # send 120 s + execution 600 s must fit in the poll window (REL-22); the
+          # job's timeout-minutes (15) still bounds the whole run.
+          send-timeout-seconds: "120"
           execution-timeout-seconds: "600"
-          poll-timeout-minutes: "10"
+          poll-timeout-minutes: "12"
 
       # A SECOND, independent drift assertion at the workflow level.
       #
@@ -196,8 +255,8 @@ jobs:
       - name: Assert no drift (scheduled report runs)
         if: github.event_name == 'schedule'
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
-          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
+          INSTANCE_ID: ${{ steps.aws.outputs.instance-id }}
           COMMAND_ID: ${{ steps.reconcile.outputs.command-id }}
           DEPLOY_ENV: ${{ matrix.environment }}
         run: |
@@ -226,15 +285,42 @@ jobs:
 
           echo "No drift in ${DEPLOY_ENV}."
 
-  # Retry pending Cognito deletions — runs only on schedule (not manually).
-  # Uses --max-attempts 3 to give up faster on persistent failures,
-  # leaving exhausted rows for operator review (manual invocation with higher --max-attempts).
+  # Retry pending Cognito deletions. `--max-attempts 3` gives up faster on
+  # persistent failures, leaving exhausted rows for operator review.
+  #
+  # F-14/F-27: this was `environment: prod` hardcoded, on a schedule-only
+  # trigger, and later a hardcoded `'dev'` literal beside reconcile's matrix.
+  #   * It now runs over THE SAME MATRIX as `reconcile`: a byte-identical
+  #     `include` expression, `fail-fast: false`, and the same per-environment
+  #     `deploy-<env>` concurrency group. The two jobs can no longer disagree
+  #     about which environments the schedule covers; adding one is the same
+  #     one-literal change in both (asserted by
+  #     backend/tests/unit/tools/ci/test_cognito_reconcile_contracts.py).
+  #   * The schedule is dev-only because stage and prod declare required
+  #     reviewers (F-14, the long note on `reconcile` above), so a nightly run
+  #     against them would queue for approval forever.
+  #   * stage and prod are drained by a manual dispatch with `mode=fix-disabled`,
+  #     which is reviewer-gated — and that pairing is coherent, because both are
+  #     MUTATING operations: `fix-disabled` revokes access and this job deletes
+  #     pool users. A `report` dispatch stays strictly read-only and does not
+  #     run this job at all.
   retry-cognito-deletions:
-    if: github.event_name == 'schedule'
-    name: Retry Cognito Deletions (scheduled)
-    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'fix-disabled')
+    name: Retry Cognito Deletions (${{ github.event_name == 'schedule' && matrix.environment || inputs.environment }})
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: prod
+    # Shares the deploy concurrency group for this environment so it cannot race a
+    # deploy's `docker compose up` — it runs `compose exec` on the same box.
+    concurrency:
+      group: deploy-${{ github.event_name == 'schedule' && matrix.environment || inputs.environment }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ github.event_name == 'schedule' && fromJson('[{"environment":"dev"}]') || fromJson(format('[{{"environment":"{0}"}}]', inputs.environment)) }}
+    environment: ${{ github.event_name == 'schedule' && matrix.environment || inputs.environment }}
     permissions:
       id-token: write
       contents: read
@@ -245,19 +331,25 @@ jobs:
           sparse-checkout: |
             .github/scripts/
             .github/actions/ssm-run/
+            .github/actions/aws-deploy-auth/
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      # F-25: the aws-deploy-auth composite adds the EC2_INSTANCE_ID shape check
+      # this job never had, and runs it before the session is minted.
       - name: Configure AWS credentials (OIDC — per-env deploy role)
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        id: aws
+        uses: ./.github/actions/aws-deploy-auth
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          region: ${{ vars.AWS_REGION }}
+          instance-id: ${{ vars.EC2_INSTANCE_ID }}
+          require-instance-id: "true"
 
       - name: Build retry payload
         id: build-payload
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
         run: |
           set -euo pipefail
 
@@ -321,9 +413,11 @@ jobs:
         uses: ./.github/actions/ssm-run
         with:
           script-path: ${{ steps.build-payload.outputs.path }}
-          instance-id: ${{ vars.EC2_INSTANCE_ID }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          instance-id: ${{ steps.aws.outputs.instance-id }}
+          aws-region: ${{ steps.aws.outputs.region }}
           comment: "velocityai cognito-retry (${{ github.repository }} run ${{ github.run_id }})"
-          send-timeout-seconds: "600"
+          # send 120 s + execution 600 s must fit in the poll window (REL-22); the
+          # job's timeout-minutes (15) still bounds the whole run.
+          send-timeout-seconds: "120"
           execution-timeout-seconds: "600"
-          poll-timeout-minutes: "10"
+          poll-timeout-minutes: "12"

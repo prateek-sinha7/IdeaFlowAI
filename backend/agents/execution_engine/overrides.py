@@ -6,11 +6,12 @@ workflow-level field — ``deliverable``, ``context_providers``, ``planner``,
 resolve and is never user-editable.
 
 That is not tidiness, it is what makes the feature possible at all. A
-``user``/``db`` manifest is untrusted (``_TRUSTED_SOURCES = {file, builtin}``),
-and ``WorkflowCompiler._check_trust`` rejects any capability not registered
-``user_allowed=True``. Two of ``ppt``'s workflow-level declarations fail that
-check — ``deliverable: ppt`` and ``context_providers: [opendesign]`` are both
-registered without the flag, and ``is_user_allowed`` defaults to False. Omitting
+``user``/``db`` manifest is not fully trusted (``_TRUSTED_SOURCES = {file,
+builtin}``; ADR-0054 restored this after ADR-0039 had widened it), and
+``WorkflowCompiler._check_trust`` rejects any capability not registered
+``user_allowed=True`` (or, for ``db`` only, ``saved_workflow_allowed=True``).
+Sourcing workflow-level fields from the file means an override never needs
+either flag for them. Omitting
 ``opendesign`` instead is worse: ``load_ppt_od_context`` never runs and the deck
 is built with no template.
 

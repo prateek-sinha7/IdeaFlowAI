@@ -1,0 +1,149 @@
+# Composite action: check out the repository and prove it is the exact revision
+# this evaluation claims to judge.
+#
+# R-01: every job in ci.yml opened with the same two steps — an
+# `actions/checkout` with `persist-credentials: false`, immediately followed by a
+# step with `id: sha` running `.github/scripts/ci-verify-sha.sh` with
+# `EXPECTED_SHA: ${{ github.sha }}`. Twelve copies of a four-line pair.
+#
+# The duplication was not merely verbose, it was unsafe in one specific way: the
+# verification step is what binds every artifact name and every recorded verdict
+# to one revision, and nothing forced a job author to include it. A new job that
+# copied only the checkout half would upload evidence named after
+# `steps.sha.outputs.evaluation_sha` — an empty string — and the aggregate would
+# then look for artifacts that do not exist. Bundling the two makes the
+# verification impossible to omit: you cannot check out without it.
+#
+# `persist-credentials: false` is fixed here, not an input, for the same reason
+# (Phase 9 / F-30): `actions/checkout` otherwise writes GITHUB_TOKEN into
+# .git/config, where any later step in the job can read it. No caller has a
+# reason to want that, so it is not offered.
+#
+# F-01: WHICH SHA IS "THE EXACT EVALUATED REVISION"
+# -------------------------------------------------
+# It is the PULL REQUEST HEAD on `pull_request` events, and `github.sha`
+# everywhere else. Both the `ref:` below and `EXPECTED_SHA` say so explicitly.
+#
+# This used to be `github.sha` alone, which is WRONG for a pull request: on that
+# event GitHub sets `github.sha` to a temporary MERGE commit (PR head merged into
+# the base), not to the commit the contributor pushed. `actions/checkout` also
+# defaults to that merge ref, so HEAD did equal `github.sha` and
+# ci-verify-sha.sh passed — the bug was silent here and surfaced two steps away:
+#
+#   * every evidence artifact was named `ci-<mergeSha>-...`, while
+#     ci-authoritative.yml downloads `ci-<prHeadSha>-...` (it reads
+#     `workflow_run.head_sha`, which IS the PR head). The names could never
+#     match, so the finalizer's download 404'd, `attest-evaluation` failed, and
+#     `ci-required` was published as FAILURE for every pull request. It has
+#     never once been green.
+#   * the merge SHA is ephemeral and not a commit in anyone's history, so a
+#     commit status written against it is invisible on the PR.
+#   * `tools/ci/evaluation_identity.py` asserts
+#     `event.sha == pull_request.head.sha`. That invariant is only true once the
+#     evaluation SHA is the head SHA — i.e. from this change onward.
+#
+# F-33: THIS ACTION CANNOT BE A JOB'S FIRST STEP
+# -----------------------------------------------
+# Every caller must put a bootstrap `actions/checkout` BEFORE this action.
+#
+# A local action (`uses: ./...`) is read from the runner's filesystem. GitHub
+# fetches third-party actions for you; it does not fetch local ones, because
+# they are expected to arrive with the repository. So referencing this action
+# before any checkout fails instantly with:
+#
+#   Can't find 'action.yml', 'action.yaml' or 'Dockerfile' under
+#   '/home/runner/work/velocityai/velocityai/.github/actions/checkout-exact'.
+#   Did you forget to run actions/checkout before running your local action?
+#
+# That is precisely what happened. The R-01 consolidation above removed the
+# inline `actions/checkout` + verify pair from all 13 jobs in ci.yml and replaced
+# it with this action — but that inline checkout was also what made the local
+# reference resolvable. Nothing else provided it. On run 35959713557 all 13 jobs
+# failed on step 1, before a single check executed, so the run produced no
+# verdicts at all: not red checks, but absent ones.
+#
+# The bootstrap checkout is deliberately NOT the authoritative one. It is shallow
+# and throwaway; the checkout below re-checks out the exact evaluated revision
+# and remains the only thing that exports `evaluation_sha`. Two properties make
+# the pair safe:
+#
+#   * the bootstrap is never sparse. actions/checkout#1498 shows sparse state
+#     leaking from an earlier checkout into a later non-sparse one in the same
+#     workspace, which here would silently hide `backend/` from the real
+#     checkout — a green run that tested nothing.
+#   * a shallow bootstrap does not defeat `fetch-depth: 0`. actions/checkout
+#     v7.0.1 adds `--unshallow` when it finds `.git/shallow` and no depth, so the
+#     full-history secret-scanning leg still sees all history.
+#
+# `assert_local_actions_run_after_a_checkout` in
+# backend/tests/unit/tools/ci/test_workflow_contracts.py enforces the ordering
+# for every job in every workflow, so this cannot regress silently again.
+#
+# TRADE-OFF, STATED PLAINLY: checking out the head commit means CI evaluates the
+# contributor's tip, not the merged result, so a semantic conflict with a moved
+# base is not caught by the run itself. The compensating control is
+# `strict_required_status_checks_policy: true` in .github/rulesets/main.json,
+# which forces a PR to be up to date with the base before it can merge — making
+# head and merged result equivalent at the moment that matters. dev-staging.json
+# sets that policy to false deliberately (routine iteration should not need a
+# rebase per upstream push), so on those branches the merged result is confirmed
+# by the post-merge `push` run instead.
+name: Checkout the exact evaluated revision
+description: >-
+  Checks out the repository with credentials not persisted, then verifies HEAD is
+  the evaluation SHA (the PR head on pull_request, github.sha otherwise) and
+  exports it.
+
+inputs:
+  fetch-depth:
+    description: >-
+      Number of commits to fetch. '0' means full history — needed only by jobs
+      that read history, such as full-history secret scanning. Quoted string, not
+      a number: see the note on the caller side in ci.yml's security job about
+      `cond && '0' || '1'` and falsy zero.
+    required: false
+    default: "1"
+  sparse-checkout:
+    description: >-
+      Optional newline-separated sparse-checkout patterns. Left empty, the whole
+      repository is checked out: actions/checkout reads this with
+      `getMultilineInput`, which filters blank lines, so an empty value yields an
+      empty list and no sparse checkout is configured at all.
+      `sparse-checkout-cone-mode: false` below is therefore inert unless a caller
+      passes patterns — and when one does, cone mode off is the right default,
+      matching the existing sparse checkouts in deploy.yml/provision.yml whose
+      sets mix root-level files with nested paths.
+    required: false
+    default: ""
+
+outputs:
+  evaluation_sha:
+    description: The verified 40-character SHA this job is evaluating.
+    value: ${{ steps.sha.outputs.evaluation_sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout (exact SHA)
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # Explicit, never the default. The default on `pull_request` is the
+        # merge ref; see the F-01 note in this file's header. `github.event`
+        # belongs to the CALLER for a reusable workflow, so on the deploy gate
+        # path (push / tag / dispatch) `pull_request` is absent and this falls
+        # through to `github.sha`, which is correct for those events.
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        fetch-depth: ${{ inputs.fetch-depth }}
+        sparse-checkout: ${{ inputs.sparse-checkout }}
+        sparse-checkout-cone-mode: false
+        persist-credentials: false
+
+    - name: Verify evaluation SHA
+      id: sha
+      shell: bash
+      run: bash .github/scripts/ci-verify-sha.sh
+      env:
+        # MUST stay byte-identical to `ref:` above. If the two ever disagree the
+        # verification fails closed, which is the intended behaviour but a
+        # confusing way to learn about a typo.
+        EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -418,6 +418,9 @@ async def test_drive_live_does_not_hang_at_clarify_gate(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ``live``: a real Bedrock call → the credential-gated live partition, not the mandatory
+# offline one (where it could only skip). The offline fault-injection test stays offline.
+@pytest.mark.live
 @_requires_live_bedrock
 @pytest.mark.asyncio
 async def test_token_delta_live() -> None:

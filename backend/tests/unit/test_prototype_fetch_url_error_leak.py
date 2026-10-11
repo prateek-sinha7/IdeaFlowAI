@@ -36,7 +36,9 @@ async def _call_fetch_url(url: str) -> HTTPException:
     failing exactly as the cards' repro describes, and return the raised
     HTTPException."""
     with (
-        patch("app.api.prototype_templates.socket.gethostbyname", side_effect=DNS_FAILURE),
+        patch(
+            "app.api.prototype_templates.socket.gethostbyname", side_effect=DNS_FAILURE
+        ),
         patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=DNS_FAILURE)),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -59,7 +61,9 @@ async def test_fetch_url_unreachable_domain_does_not_leak_raw_errno() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.issue("ISS-584")
-async def test_fetch_url_unreachable_domain_does_not_leak_raw_errno_second_domain() -> None:
+async def test_fetch_url_unreachable_domain_does_not_leak_raw_errno_second_domain() -> (
+    None
+):
     """Same guard, second unreachable domain — pins the deterministic,
     domain-independent nature of the leak the /create/ppt sibling (ISS-584)
     reaches through the identical shared endpoint."""

@@ -53,7 +53,9 @@ class User(Base):
     # by the credential verifier regardless of token validity -- set when an
     # admin disables a user or `reconcile_cognito_users.py --fix-disabled`
     # confirms the pool user is gone/disabled.
-    status = Column(String(20), nullable=False, default="active", server_default="active")
+    status = Column(
+        String(20), nullable=False, default="active", server_default="active"
+    )
     # Generalizes password_changed_at: any JWT/Cognito-token whose `iat` is
     # before max(password_changed_at, tokens_valid_from) is rejected. A role
     # or tier change stamps this to force re-authentication with fresh groups.

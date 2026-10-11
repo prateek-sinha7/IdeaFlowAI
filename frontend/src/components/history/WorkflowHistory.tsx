@@ -337,24 +337,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     return () => observer.disconnect();
   }, [handleLoadMore]);
 
-  const handleSelectRun = useCallback(async (run: WorkflowRun, opts?: { forChain?: boolean }) => {
+  const handleSelectRun = useCallback(async (run: WorkflowRun) => {
     // KAN-96: if this run is the currently-active pipeline, navigate to the
     // live execution view rather than opening the static history detail.
+    // BUG-002: route the tap into the shared run screen (parity with Home-recents).
     if (activeRunId && run.id === activeRunId && onViewRunningPipeline) {
       onViewRunningPipeline(run.id);
       return;
     }
-    // BUG-002: route the tap into the shared run screen (parity with Home-recents)
-    // instead of the divergent internal RunDetailPage. T3-chaining-reachable:
-    // the prior "carry-over" comment here claimed cross-workflow chaining stayed
-    // reachable via the History LIST rows, but nothing implemented that — once
-    // onOpenRun is set (the real DashboardLayout call site always sets it), this
-    // branch always won and the internal detail's chain panel below was dead
-    // code. opts.forChain is the row's explicit "Chain" menu action opting OUT
-    // of the redirect so that panel is reachable again; the plain row click
-    // (opts undefined) still redirects — the default "open this run" behaviour
-    // is unchanged.
-    if (onOpenRun && !opts?.forChain) {
+    if (onOpenRun) {
       onOpenRun(run);
       return;
     }

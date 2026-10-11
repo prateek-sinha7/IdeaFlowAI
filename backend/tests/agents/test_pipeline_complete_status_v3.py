@@ -88,7 +88,9 @@ class TestFinalizerDegradeSurfacesOnPipelineComplete:
             events = await _drive("custom")
 
         completes = _pipeline_complete_events(events)
-        assert len(completes) == 1, f"expected exactly 1 pipeline_complete, got {completes}"
+        assert (
+            len(completes) == 1
+        ), f"expected exactly 1 pipeline_complete, got {completes}"
         data = completes[0]["data"]
 
         assert data.get("published_status") == "degraded"
@@ -113,7 +115,9 @@ class TestFinalizerDegradeSurfacesOnPipelineComplete:
             events = await _drive("custom")
 
         completes = _pipeline_complete_events(events)
-        assert len(completes) == 1, f"expected exactly 1 pipeline_complete, got {completes}"
+        assert (
+            len(completes) == 1
+        ), f"expected exactly 1 pipeline_complete, got {completes}"
         data = completes[0]["data"]
 
         assert data.get("published_status") == "completed"

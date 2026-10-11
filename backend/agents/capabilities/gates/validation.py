@@ -206,7 +206,9 @@ def _build_validation_target(
         # progressively narrower so existing gate fakes still drive the gate (parity).
         try:
             return factory(
-                name=name, step=step_id, task_meta={"attempt": 0},
+                name=name,
+                step=step_id,
+                task_meta={"attempt": 0},
                 require_render=require_render,
             )
         except TypeError:

@@ -6,7 +6,7 @@
 #   - Docker:  uv export --frozen --no-dev     (see backend/Dockerfile)
 #   - Local dev: uv sync                       (reads pyproject.toml directly)
 #
-# backend/tests/ci/test_dependency_lock_contracts.py keeps requirements-prod.txt
+# backend/tests/unit/tools/ci/test_dependency_lock_contracts.py keeps requirements-prod.txt
 # and requirements-dev.txt pins identical to pyproject.toml's
 # project.dependencies / [dependency-groups].dev, so this convenience include
 # cannot silently disagree with the actual resolution authority.

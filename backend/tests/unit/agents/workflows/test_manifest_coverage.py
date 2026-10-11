@@ -119,6 +119,8 @@ _SHARED_ANALYZER_DRIFT = {
     "prototype_large_revision",
     "prototype_feature_revision",
 }
+
+
 def _is_manifest_supplied(agent_id: str, workflow_id: str) -> bool:
     """True when a manifest step's agent is legitimately absent from THIS roster.
 
@@ -143,15 +145,14 @@ def _is_manifest_supplied(agent_id: str, workflow_id: str) -> bool:
     )
 
 
-@pytest.mark.parametrize("workflow_id", _MANIFEST_BACKED_IDS)
+# Shared-analyzer workflows are filtered out when the parameters are built — the
+# roster comparison does not apply to them (ADR-0003/ADR-0005). A run-time xfail
+# is a failure in CI's offline partition.
+@pytest.mark.parametrize(
+    "workflow_id",
+    [w for w in _MANIFEST_BACKED_IDS if w not in _SHARED_ANALYZER_DRIFT],
+)
 def test_all_load_compile(workflow_id: str) -> None:
-    if workflow_id in _SHARED_ANALYZER_DRIFT:
-        pytest.xfail(
-            f"{workflow_id}: step 0 is the SHARED prototype-revision-analyzer, which "
-            "declares its own pipeline_type so registry membership cannot list it "
-            "(ADR-0003/ADR-0005 — see _SHARED_ANALYZER_DRIFT)"
-        )
-
     manifest = load_manifest(workflow_id, _BASE)
     plan = WorkflowCompiler().compile(manifest, CapabilityRegistry())
 

@@ -4,7 +4,7 @@ import authReducer, { signedIn } from "@/store/slices/authSlice";
 import agentsReducer from "@/store/slices/agentsSlice";
 import skillsReducer from "@/store/slices/skillsSlice";
 import hooksReducer from "@/store/slices/hooksSlice";
-import globalReducer, { fetchWorkflows, fetchRecentRuns } from "@/store/slices/globalSlice";
+import globalReducer from "@/store/slices/globalSlice";
 import type { WorkflowSummary } from "@/store/api/workflows";
 import type { WorkflowRun } from "@/types/index";
 import { getWorkflows } from "@/lib/api";

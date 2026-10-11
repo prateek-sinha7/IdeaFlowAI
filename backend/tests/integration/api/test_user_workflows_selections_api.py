@@ -120,6 +120,7 @@ def _save_body(selections=None, **kw):
         body["selections"] = selections
     return body
 
+
 # ---------------------------------------------------------------------------
 # EMP-03 — round-trip: save → list → reopen shows the same selections
 # ---------------------------------------------------------------------------
@@ -210,6 +211,7 @@ def test_cross_owner_get_is_404(api):
 
 _DISALLOWED_MODEL = "openai-gpt-totally-not-allowed"
 
+
 def test_save_rejects_disallowed_selection_model(api):
     """A selection ``model`` id outside the catalog → 422 at SAVE (no orphan row)."""
     client, _ = api
@@ -230,6 +232,7 @@ def test_save_accepts_allowed_selection_model(api):
     r = client.post("/api/user-workflows", json=_save_body(selections))
     assert r.status_code == 201, r.text
 
+
 def test_save_accepts_bare_numeric_retry(api):
     """The FE emits ``retry`` as a bare value; save must NOT 422 (it is coerced)."""
     client, _ = api
@@ -239,4 +242,3 @@ def test_save_accepts_bare_numeric_retry(api):
             "/api/user-workflows", json=_save_body(selections, name=f"wf-{retry_value}")
         )
         assert r.status_code == 201, r.text
-

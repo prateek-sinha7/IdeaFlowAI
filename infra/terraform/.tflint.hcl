@@ -5,8 +5,9 @@
 #   - .pre-commit-config.yaml  — local hook, exports TFLINT_CONFIG_FILE to this
 #     file and runs `tflint --chdir=infra/terraform --recursive
 #     --minimum-failure-severity=error`
-#   - .github/workflows/ci.yml — the `security-scan` job runs the identical
-#     command, so a commit that passes pre-commit cannot fail CI on lint alone
+#   - .github/workflows/ci.yml — the `security` matrix leg `iac` runs the
+#     identical command, so a commit that passes pre-commit cannot fail CI on
+#     lint alone
 #
 # Both consumers referenced this path before it existed; this file closes that
 # gap. Scope is deliberately narrow: the bundled `terraform` ruleset on its

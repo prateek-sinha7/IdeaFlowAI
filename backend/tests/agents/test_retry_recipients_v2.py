@@ -44,6 +44,7 @@ from tests.unit.agents.test_redo_gate_safety import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _turn(text: str) -> list[_ScriptedTurn]:
     return [_ScriptedTurn(texts=[text], usage=(5, 3))]
 
@@ -53,8 +54,7 @@ def _collect_context_messages(events: list[dict]) -> list[str]:
     return [
         ev["data"].get("context_message", "")
         for ev in events
-        if ev.get("type") == "agent_input"
-        and "context_message" in ev.get("data", {})
+        if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
     ]
 
 
@@ -78,6 +78,7 @@ class _RecordingRunner:
 # AC 7 (baseline) — declared fields
 # ---------------------------------------------------------------------------
 
+
 def test_ac7_pending_fields_are_declared_dataclass_fields() -> None:
     """[Req 14 AC 7] pending_route_feedback and pending_validation_fix are declared
     dataclass fields on ExecutionContext, not dynamic attributes, with default {}.
@@ -86,12 +87,12 @@ def test_ac7_pending_fields_are_declared_dataclass_fields() -> None:
     import dataclasses
 
     fields = {f.name for f in dataclasses.fields(ExecutionContext)}
-    assert "pending_route_feedback" in fields, (
-        "pending_route_feedback must be a declared dataclass field (AC 7)"
-    )
-    assert "pending_validation_fix" in fields, (
-        "pending_validation_fix must be a declared dataclass field (AC 7)"
-    )
+    assert (
+        "pending_route_feedback" in fields
+    ), "pending_route_feedback must be a declared dataclass field (AC 7)"
+    assert (
+        "pending_validation_fix" in fields
+    ), "pending_validation_fix must be a declared dataclass field (AC 7)"
 
     ectx = ExecutionContext(run_id="ac7-run", owner_id="anon")
     assert isinstance(ectx.pending_route_feedback, dict)
@@ -104,6 +105,7 @@ def test_ac7_pending_fields_are_declared_dataclass_fields() -> None:
 # AC 1 — Provider/transient retry
 # ---------------------------------------------------------------------------
 
+
 def test_ac1_provider_retry_scratch_fields_unaffected() -> None:
     """[Req 14 AC 1] A provider/transient retry of a different agent must not drain
     the pending Req 14 scratch entries for other agents.
@@ -115,11 +117,16 @@ def test_ac1_provider_retry_scratch_fields_unaffected() -> None:
     ectx = ExecutionContext(run_id="ac1-run", owner_id="anon")
 
     ectx.pending_route_feedback["agent-b"] = {
-        "from_step": "judge", "decision": "fail", "from_output": "",
-        "pass_number": 2, "max_passes": 3, "authored": None,
+        "from_step": "judge",
+        "decision": "fail",
+        "from_output": "",
+        "pass_number": 2,
+        "max_passes": 3,
+        "authored": None,
     }
     ectx.pending_validation_fix["agent-b"] = {
-        "filename": "proto.html", "errors": ["Error: line 5"],
+        "filename": "proto.html",
+        "errors": ["Error: line 5"],
     }
 
     # Simulate provider retry of a different agent (drain agent-a only).
@@ -127,17 +134,18 @@ def test_ac1_provider_retry_scratch_fields_unaffected() -> None:
     ectx.pending_validation_fix.pop("agent-a", None)
 
     # Agent B's entries must remain intact.
-    assert "agent-b" in ectx.pending_route_feedback, (
-        "provider retry of a different agent must not drain the pending feedback"
-    )
-    assert "agent-b" in ectx.pending_validation_fix, (
-        "provider retry of a different agent must not drain the validation fix"
-    )
+    assert (
+        "agent-b" in ectx.pending_route_feedback
+    ), "provider retry of a different agent must not drain the pending feedback"
+    assert (
+        "agent-b" in ectx.pending_validation_fix
+    ), "provider retry of a different agent must not drain the validation fix"
 
 
 # ---------------------------------------------------------------------------
 # AC 2 — Conditional-gate backward retry
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_ac2_conditional_retry_delivers_retry_block_to_retrying_agent() -> None:
@@ -169,10 +177,20 @@ async def test_ac2_conditional_retry_delivers_retry_block_to_retrying_agent() ->
 
         results: list[dict] = []
         events_a = await _drive_agent(
-            h.engine, spec_a, ectx, results, [spec_a, spec_b], index=0,
+            h.engine,
+            spec_a,
+            ectx,
+            results,
+            [spec_a, spec_b],
+            index=0,
         )
         events_b = await _drive_agent(
-            h.engine, spec_b, ectx, results, [spec_a, spec_b], index=1,
+            h.engine,
+            spec_b,
+            ectx,
+            results,
+            [spec_a, spec_b],
+            index=1,
         )
 
     msgs_a = _collect_context_messages(events_a)
@@ -180,22 +198,20 @@ async def test_ac2_conditional_retry_delivers_retry_block_to_retrying_agent() ->
 
     # Agent A must receive the RETRY block.
     assert msgs_a, "spec_a produced no agent_input events"
-    assert "=== RETRY" in msgs_a[0], (
-        f"agent_a missing RETRY block:\n{msgs_a[0][:500]}"
-    )
+    assert "=== RETRY" in msgs_a[0], f"agent_a missing RETRY block:\n{msgs_a[0][:500]}"
     assert "pass 2 of 3" in msgs_a[0], "retry pass number not injected"
     assert "judge-step" in msgs_a[0], "source step id not injected"
 
     # Agent B must NOT receive the RETRY block.
     assert msgs_b, "spec_b produced no agent_input events"
-    assert "=== RETRY" not in msgs_b[0], (
-        f"agent_b unexpectedly received a RETRY block:\n{msgs_b[0][:500]}"
-    )
+    assert (
+        "=== RETRY" not in msgs_b[0]
+    ), f"agent_b unexpectedly received a RETRY block:\n{msgs_b[0][:500]}"
 
     # The feedback entry must be drained.
-    assert TARGET_ID not in ectx.pending_route_feedback, (
-        "pending_route_feedback not drained after dispatch"
-    )
+    assert (
+        TARGET_ID not in ectx.pending_route_feedback
+    ), "pending_route_feedback not drained after dispatch"
 
 
 @pytest.mark.asyncio
@@ -215,8 +231,12 @@ async def test_ac2_retry_feedback_drained_on_compose_error() -> None:
 
         TARGET_ID = spec.id
         ectx.pending_route_feedback[TARGET_ID] = {
-            "from_step": "src", "decision": "bad", "from_output": "",
-            "pass_number": 2, "max_passes": 3, "authored": None,
+            "from_step": "src",
+            "decision": "bad",
+            "from_output": "",
+            "pass_number": 2,
+            "max_passes": 3,
+            "authored": None,
         }
 
         original_compose = h.engine._compose_context_message
@@ -230,14 +250,15 @@ async def test_ac2_retry_feedback_drained_on_compose_error() -> None:
             await _drive_agent(h.engine, spec, ectx, results, [spec], index=0)
         h.engine._compose_context_message = original_compose
 
-        assert TARGET_ID not in ectx.pending_route_feedback, (
-            "pending_route_feedback NOT drained after compose error — AC 7 violation"
-        )
+        assert (
+            TARGET_ID not in ectx.pending_route_feedback
+        ), "pending_route_feedback NOT drained after compose error — AC 7 violation"
 
 
 # ---------------------------------------------------------------------------
 # AC 3 — Human-gate redo (consume-once contract)
 # ---------------------------------------------------------------------------
+
 
 def test_ac3_redo_directive_is_publish_around_dispatch() -> None:
     """[Req 14 AC 3] redo_directive follows the publish-around-dispatch (F3) pattern:
@@ -280,6 +301,7 @@ def test_ac3_redo_directive_cleared_on_error() -> None:
 # AC 4 — Validation-fix loop
 # ---------------------------------------------------------------------------
 
+
 def test_ac4_pending_validation_fix_declared_field() -> None:
     """[Req 14 AC 4] pending_validation_fix is a declared dict field with default {},
     and setting + clearing it works as consume-once.
@@ -319,9 +341,9 @@ def test_ac4_validation_fix_lifecycle_via_direct_field() -> None:
     assert ectx.pending_validation_fix[AGENT_ID]["filename"] == FILENAME
 
     ectx.pending_validation_fix.pop(AGENT_ID, None)
-    assert AGENT_ID not in ectx.pending_validation_fix, (
-        "pending_validation_fix not cleared after loop (AC 7)"
-    )
+    assert (
+        AGENT_ID not in ectx.pending_validation_fix
+    ), "pending_validation_fix not cleared after loop (AC 7)"
 
 
 def test_ac4_validation_fix_cleared_on_exception() -> None:
@@ -331,7 +353,8 @@ def test_ac4_validation_fix_cleared_on_exception() -> None:
     ectx = ExecutionContext(run_id="ac7-vfix-run", owner_id="anon")
     AGENT_ID = "build-agent"
     ectx.pending_validation_fix[AGENT_ID] = {
-        "filename": "prototype.html", "errors": ["Error: line 5"],
+        "filename": "prototype.html",
+        "errors": ["Error: line 5"],
     }
 
     try:
@@ -341,9 +364,9 @@ def test_ac4_validation_fix_cleared_on_exception() -> None:
     finally:
         ectx.pending_validation_fix.pop(AGENT_ID, None)
 
-    assert AGENT_ID not in ectx.pending_validation_fix, (
-        "pending_validation_fix NOT cleared after fix loop exception — AC 7 violation"
-    )
+    assert (
+        AGENT_ID not in ectx.pending_validation_fix
+    ), "pending_validation_fix NOT cleared after fix loop exception — AC 7 violation"
 
 
 @pytest.mark.asyncio
@@ -356,9 +379,7 @@ async def test_ac4_compose_renders_only_errors_and_filename() -> None:
 
     spec = load_agent_spec("domain-analyst")
 
-    with _EngineHarness(
-        lambda aid, idx: ScriptedFakeChatModel(_turn("output"))
-    ) as h:
+    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_turn("output"))) as h:
         ectx = _make_ectx("vfix-compose-run")
         ectx.gate_agent_ids = []
         ERRORS = ["Error: missing </div> on line 10.", "Error: undefined variable `x`."]
@@ -379,14 +400,15 @@ async def test_ac4_compose_renders_only_errors_and_filename() -> None:
     assert "=== VALIDATION ERRORS" in msg, "VALIDATION ERRORS block header missing"
 
     # After dispatch, the field must be drained.
-    assert spec.id not in ectx.pending_validation_fix, (
-        "pending_validation_fix not drained after compose"
-    )
+    assert (
+        spec.id not in ectx.pending_validation_fix
+    ), "pending_validation_fix not drained after compose"
 
 
 # ---------------------------------------------------------------------------
 # AC 5 — Merge-agent attempt
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_ac5_merge_agent_receives_conflict_artifact_only() -> None:
@@ -406,12 +428,10 @@ async def test_ac5_merge_agent_receives_conflict_artifact_only() -> None:
     # Verify the signature: no user_message param.
     sig = inspect.signature(_run_merge_agent)
     param_names = list(sig.parameters.keys())
-    assert "user_message" not in param_names, (
-        "_run_merge_agent must NOT accept user_message (Req 14 AC 5)"
-    )
-    assert "payload" in param_names, (
-        "_run_merge_agent must accept a payload parameter"
-    )
+    assert (
+        "user_message" not in param_names
+    ), "_run_merge_agent must NOT accept user_message (Req 14 AC 5)"
+    assert "payload" in param_names, "_run_merge_agent must accept a payload parameter"
 
     # Verify the emitted events don't carry a user brief.
     class _FakeRunner:
@@ -429,14 +449,15 @@ async def test_ac5_merge_agent_receives_conflict_artifact_only() -> None:
     assert attempt_events, "no merge_agent_attempt event emitted"
     ae = attempt_events[0]
     assert ae["data"]["attempt"] == 1
-    assert "original_user_brief" not in ae["data"], (
-        "merge_agent_attempt event must NOT carry original_user_brief"
-    )
+    assert (
+        "original_user_brief" not in ae["data"]
+    ), "merge_agent_attempt event must NOT carry original_user_brief"
 
 
 # ---------------------------------------------------------------------------
 # AC 6 — Dispatch-consumption record
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_ac6_conditional_retry_consumption_written_to_gate_events() -> None:
@@ -448,29 +469,33 @@ async def test_ac6_conditional_retry_consumption_written_to_gate_events() -> Non
     spec = load_agent_spec("domain-analyst")
     recorder = _RecordingRunner()
 
-    with _EngineHarness(
-        lambda aid, idx: ScriptedFakeChatModel(_turn("output"))
-    ) as h:
+    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_turn("output"))) as h:
         ectx = _make_ectx("ac6-run")
         ectx.gate_agent_ids = []
         ectx.runner = recorder  # wire the recording runner
 
         ectx.pending_route_feedback[spec.id] = {
-            "from_step": "judge", "decision": "fail", "from_output": "",
-            "pass_number": 2, "max_passes": 3, "authored": None,
+            "from_step": "judge",
+            "decision": "fail",
+            "from_output": "",
+            "pass_number": 2,
+            "max_passes": 3,
+            "authored": None,
         }
 
         results: list[dict] = []
         await _drive_agent(h.engine, spec, ectx, results, [spec], index=0)
 
-    assert recorder.gate_events, "no gate_events row written on conditional retry consumption"
+    assert (
+        recorder.gate_events
+    ), "no gate_events row written on conditional retry consumption"
     step_written, gate_type, outcome, detail = recorder.gate_events[0]
     assert step_written == spec.id, f"gate_event step mismatch: {step_written!r}"
     assert gate_type == "conditional", f"expected 'conditional', got {gate_type!r}"
     assert outcome == "retry_consumed", f"expected 'retry_consumed', got {outcome!r}"
-    assert detail is not None and "from_step" in detail, (
-        "gate_event detail must carry from_step"
-    )
+    assert (
+        detail is not None and "from_step" in detail
+    ), "gate_event detail must carry from_step"
 
 
 # ===========================================================================
@@ -535,9 +560,9 @@ class TestFullComposerSkilledDiscoverable:
             "(Requirement 13 AC 3)"
         )
         # The prompt body is still present.
-        assert "# Test agent body" in result, (
-            "AC 3: body_only must still emit prompt_body"
-        )
+        assert (
+            "# Test agent body" in result
+        ), "AC 3: body_only must still emit prompt_body"
 
 
 class TestFullComposerNoRequestMd:
@@ -551,7 +576,12 @@ class TestFullComposerNoRequestMd:
 
         Source check within the full composer's definition.
         """
-        engine_py = Path(__file__).resolve().parents[2] / "agents" / "execution_engine" / "engine.py"
+        engine_py = (
+            Path(__file__).resolve().parents[2]
+            / "agents"
+            / "execution_engine"
+            / "engine.py"
+        )
         text = engine_py.read_text(encoding="utf-8")
 
         # Isolate the _compose_context_message method body.
@@ -559,20 +589,27 @@ class TestFullComposerNoRequestMd:
         assert idx != -1, "_compose_context_message not found in engine.py"
 
         # Look for any sandbox.write containing REQUEST.md in the method scope.
-        method_text = text[idx:idx + 8000]  # ~300 lines around the method start
+        method_text = text[idx : idx + 8000]  # ~300 lines around the method start
         assert 'write("REQUEST.md"' not in method_text, (
             "AC 4: _compose_context_message must NEVER call sandbox.write('REQUEST.md') — "
             "the raw user request must not be persisted to disk for downstream agents "
             "(Requirement 13 AC 4)"
         )
 
-    def test_downstream_agents_on_migrated_workflow_get_no_brief_by_default(self) -> None:
+    def test_downstream_agents_on_migrated_workflow_get_no_brief_by_default(
+        self,
+    ) -> None:
         """AC 4 (full composer): on a migrated workflow, agents 2+ start with
         parts=[] — no brief, no upstream raw request.
 
         Source check: the else branch sets parts=[] for later migrated agents.
         """
-        engine_py = Path(__file__).resolve().parents[2] / "agents" / "execution_engine" / "engine.py"
+        engine_py = (
+            Path(__file__).resolve().parents[2]
+            / "agents"
+            / "execution_engine"
+            / "engine.py"
+        )
         text = engine_py.read_text(encoding="utf-8")
         assert "parts = []  # later agents read context from .agents/ files" in text, (
             "AC 4 (full composer): migrated later-agent else-branch must set "
@@ -596,23 +633,28 @@ class TestReq14AC2ConditionalRetryFullComposerCoverage:
         Source check: the RETRY block emitted by _compose_context_message must
         include the header, pass number, source step, and closing marker.
         """
-        engine_py = Path(__file__).resolve().parents[2] / "agents" / "execution_engine" / "engine.py"
+        engine_py = (
+            Path(__file__).resolve().parents[2]
+            / "agents"
+            / "execution_engine"
+            / "engine.py"
+        )
         text = engine_py.read_text(encoding="utf-8")
 
         assert "=== RETRY — pass" in text, (
             "AC 2 (full composer): RETRY block header must be present "
             "(Requirement 14 AC 2 / Requirement 13 AC 8)"
         )
-        assert "=== END RETRY ===" in text, (
-            "AC 2 (full composer): RETRY block must have a closing marker"
-        )
+        assert (
+            "=== END RETRY ===" in text
+        ), "AC 2 (full composer): RETRY block must have a closing marker"
         assert "pass_number" in text and "max_passes" in text, (
             "AC 2 (full composer): RETRY block must include pass_number / max_passes "
             "fields from pending_route_feedback"
         )
-        assert "from_step" in text, (
-            "AC 2 (full composer): RETRY block must include the source step id"
-        )
+        assert (
+            "from_step" in text
+        ), "AC 2 (full composer): RETRY block must include the source step id"
 
     def test_conditional_retry_gate_events_record_written(self) -> None:
         """AC 6 (full composer): a gate_events row is written when a one-shot
@@ -621,19 +663,24 @@ class TestReq14AC2ConditionalRetryFullComposerCoverage:
         Source check: the Requirement 14 AC 6 comment + record_gate_event call
         are present in _compose_context_message.
         """
-        engine_py = Path(__file__).resolve().parents[2] / "agents" / "execution_engine" / "engine.py"
+        engine_py = (
+            Path(__file__).resolve().parents[2]
+            / "agents"
+            / "execution_engine"
+            / "engine.py"
+        )
         text = engine_py.read_text(encoding="utf-8")
         assert "record_gate_event" in text, (
             "AC 6 (full composer): record_gate_event must be called in "
             "_compose_context_message when a one-shot conditional-gate payload "
             "is consumed (Requirement 14 AC 6)"
         )
-        assert '"conditional"' in text or "'conditional'" in text, (
-            "AC 6 (full composer): the gate_events row must use gate='conditional'"
-        )
-        assert '"retry_consumed"' in text or "'retry_consumed'" in text, (
-            "AC 6 (full composer): the gate_events row must use outcome='retry_consumed'"
-        )
+        assert (
+            '"conditional"' in text or "'conditional'" in text
+        ), "AC 6 (full composer): the gate_events row must use gate='conditional'"
+        assert (
+            '"retry_consumed"' in text or "'retry_consumed'" in text
+        ), "AC 6 (full composer): the gate_events row must use outcome='retry_consumed'"
 
 
 class TestReq14AC7ConsumeOnceResumeNoReplay:
@@ -653,8 +700,12 @@ class TestReq14AC7ConsumeOnceResumeNoReplay:
         AGENT_ID = "domain-analyst"
 
         ectx.pending_route_feedback[AGENT_ID] = {
-            "from_step": "src", "decision": "fail", "from_output": "",
-            "pass_number": 1, "max_passes": 3, "authored": None,
+            "from_step": "src",
+            "decision": "fail",
+            "from_output": "",
+            "pass_number": 1,
+            "max_passes": 3,
+            "authored": None,
         }
 
         # First dispatch: consume.
@@ -724,7 +775,12 @@ class TestReq14AC7ConsumeOnceResumeNoReplay:
         pending_route_feedback[_agent_id_key] and pending_validation_fix[_agent_id_key]
         unconditionally.
         """
-        engine_py = Path(__file__).resolve().parents[2] / "agents" / "execution_engine" / "engine.py"
+        engine_py = (
+            Path(__file__).resolve().parents[2]
+            / "agents"
+            / "execution_engine"
+            / "engine.py"
+        )
         text = engine_py.read_text(encoding="utf-8")
 
         # The finally block that drains the fields must be present.

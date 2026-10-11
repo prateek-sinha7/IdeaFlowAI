@@ -27,7 +27,12 @@ from sqlalchemy.orm import Session
 from app.core import cognito
 from app.core.config import settings
 from app.core.dependencies import get_current_user_with_payload
-from app.core.identity import enforce_admin_mfa, AdminMfaRequired, Principal, effective_is_admin
+from app.core.identity import (
+    enforce_admin_mfa,
+    AdminMfaRequired,
+    Principal,
+    effective_is_admin,
+)
 from app.models.user import User
 
 
@@ -128,9 +133,7 @@ class TestAdminMfaEnforcement:
         with pytest.raises(AdminMfaRequired):
             enforce_admin_mfa(admin, principal)
 
-    def test_totp_enrollment_associate_and_verify(
-        self, cognito_settings, monkeypatch
-    ):
+    def test_totp_enrollment_associate_and_verify(self, cognito_settings, monkeypatch):
         """Admin enrolls TOTP: associate returns secret, verify confirms enrollment."""
         from app.api.auth import associate_totp, verify_totp, TotpVerifyRequest
         from unittest.mock import patch
@@ -140,7 +143,9 @@ class TestAdminMfaEnforcement:
 
         # Mock Cognito responses
         fake_client = MagicMock()
-        fake_client.associate_software_token.return_value = {"SecretCode": "SECRETCODE123"}
+        fake_client.associate_software_token.return_value = {
+            "SecretCode": "SECRETCODE123"
+        }
         fake_client.verify_software_token.return_value = {"Status": "SUCCESS"}
         fake_client.admin_get_user.return_value = {
             "UserMFASettingList": [],
@@ -148,7 +153,9 @@ class TestAdminMfaEnforcement:
         fake_client.set_user_mfa_preference.return_value = {}
 
         with patch.object(cognito, "_client", return_value=fake_client):
-            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=ACCESS_TOKEN)
+            credentials = HTTPAuthorizationCredentials(
+                scheme="Bearer", credentials=ACCESS_TOKEN
+            )
             payload = {
                 "sub": admin.cognito_sub,
                 "jti": "jti-token",
@@ -158,9 +165,7 @@ class TestAdminMfaEnforcement:
             auth_tuple = (admin, payload)
 
             # Step 1: Associate (get the secret)
-            result = associate_totp(
-                credentials=credentials, auth=auth_tuple, db=db
-            )
+            result = associate_totp(credentials=credentials, auth=auth_tuple, db=db)
             assert "secret" in result
             assert result["secret"] == "SECRETCODE123"
             assert "otpauth_uri" in result
@@ -178,9 +183,7 @@ class TestAdminMfaEnforcement:
             call_kwargs = fake_client.set_user_mfa_preference.call_args.kwargs
             assert call_kwargs["SoftwareTokenMfaSettings"]["Enabled"] is True
 
-    def test_admin_with_mfa_verified_at_passes_gate(
-        self, cognito_settings
-    ):
+    def test_admin_with_mfa_verified_at_passes_gate(self, cognito_settings):
         """After login challenge with SOFTWARE_TOKEN_MFA, gate allows admin access."""
         admin = _admin_user_mfa_verified()
         mfa_timestamp = int(admin.mfa_verified_at.timestamp())
@@ -267,9 +270,9 @@ class TestAdminGateContract:
             # Not merely un-gated: still authenticated. Cognito's
             # AssociateSoftwareToken/VerifySoftwareToken are ACCESS-TOKEN APIs,
             # so a caller with no bearer has nothing to enrol against.
-            assert "get_current_user_with_payload" in deps, (
-                f"{path} must still require an authenticated caller"
-            )
+            assert (
+                "get_current_user_with_payload" in deps
+            ), f"{path} must still require an authenticated caller"
 
     def test_admin_after_totp_login_passes(self, cognito_settings):
         """A token minted after the MFA stamp clears the gate and returns the user.

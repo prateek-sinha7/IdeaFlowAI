@@ -192,6 +192,20 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# setuptools CVE-2025-47273 (path traversal in PackageIndex, fixed in 78.1.1).
+# setuptools is NOT a project dependency (absent from backend/uv.lock); the
+# image scans find it in the SYSTEM interpreter's site-packages that the
+# python:3.13-slim-bookworm base ships. It has a published fix, so it is
+# upgraded here rather than accepted in backend/tools/ci/scan_accepts.py.
+#
+# `/usr/local/bin/python` explicitly: PATH puts /opt/venv/bin first, so a bare
+# `pip` would target the venv, which is the wrong interpreter. Conditional on
+# presence so this never ADDS setuptools to a base that does not carry it.
+# Runs before the venv is copied in, so it cannot touch the locked venv.
+RUN if /usr/local/bin/python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('setuptools') else 1)"; then \
+        /usr/local/bin/python -m pip install --no-cache-dir --upgrade 'setuptools==80.9.0'; \
+    fi
+
 # Bring the pre-built venv across.
 COPY --from=builder /opt/venv /opt/venv
 
@@ -212,11 +226,20 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN playwright install --with-deps chromium \
     && chown -R 10001:10001 /opt/playwright
 
-# Node 20 runtime binary, taken from the same official image used by the
-# pptx-builder stage so the ABI matches the node_modules copied below.
+# Node 20 runtime binary, taken from the pptx-builder STAGE rather than by
+# repeating the node image reference. That stage is already
+# `FROM node:20-bookworm-slim@sha256:3d0f...`, so this copies from the identical
+# image by construction and the digest is written once.
+#
+# R-10: this used to repeat the full `node:20-bookworm-slim@sha256:...` reference
+# inline. Two copies of a digest is a silent-divergence hazard of the exact kind
+# this Dockerfile cares about: bumping only one would ship a `node` binary built
+# against a different image than the `node_modules` copied below it, and an ABI
+# mismatch between them surfaces at runtime inside pptx_export, not at build time.
+#
 # We need only the `node` binary itself — `npm` is not invoked at runtime;
 # the FastAPI service in pptx_export.py spawns `node <script>` directly.
-COPY --from=node:20-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c /usr/local/bin/node /usr/local/bin/node
+COPY --from=pptx-builder /usr/local/bin/node /usr/local/bin/node
 
 # Bring the pre-installed pptxgenjs node_modules across. Owned by the non-root
 # runtime user so `node` can read them when invoked from the FastAPI process.
@@ -324,6 +347,12 @@ EXPOSE 8000
 # /health is defined in app/main.py and returns 200 once the app is ready.
 # --start-period gives the lifespan hook (incl. alembic check + DB connect)
 # room to settle before failures start counting against --retries.
+#
+# NOTE: in production this is NOT the effective healthcheck. docker-compose.yml
+# declares its own `healthcheck:` for the backend service, and a compose-level
+# healthcheck overrides the image's. Kept anyway: it is what makes `docker run`
+# of this image self-describing, and it documents the probe compose should agree
+# with. Change one, check the other.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["curl", "--fail", "--silent", "--show-error", "http://localhost:8000/health"]
 

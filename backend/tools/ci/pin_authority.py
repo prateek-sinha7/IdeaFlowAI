@@ -57,10 +57,6 @@ class PinAuthority:
     # See: https://docs.astral.sh/ruff/configuration/#target-version
     ruff_target_version: str = "py313"
 
-    # SonarCloud Python metadata (used in sonar-project.properties)
-    # Must match or be <= the runtime version
-    sonar_python_version: str = "3.13"
-
     # =========================================================================
     # Node.js Runtime
     # =========================================================================
@@ -68,6 +64,11 @@ class PinAuthority:
     # Current LTS: Node 24 (released Oct 2024, maintenance until Oct 2026)
     # Rationale: Phase 4 hardening decided to move from Node 20 LTS (EOL Mar 2026)
     #            to Node 24 LTS to ensure security patches through deployment horizon
+    # Installed by: .github/actions/setup-frontend/action.yml (`node-version`
+    # input default, passed straight to actions/setup-node) and
+    # frontend/Dockerfile (the tag of frontend_base_image below);
+    # frontend/package.json engines.node must bound it. All three are asserted
+    # by tests/unit/tools/ci/test_toolchain_pins.py (F-07).
     node_runtime_version: str = "24.11.0"
 
     # Node version range for package.json engines (lock down to major.minor;
@@ -76,17 +77,30 @@ class PinAuthority:
     node_engines_maximum: str = "25.0.0"  # upper bound
 
     # =========================================================================
+    # uv (Python package/project manager)
+    # =========================================================================
+    # Authority: https://github.com/astral-sh/uv/releases
+    # Installed by: .github/actions/setup-backend/action.yml (`astral-sh/setup-uv`
+    # `version:` input). Without that input setup-uv looked for a uv.toml /
+    # pyproject.toml at the REPO root (the backend project lives in backend/),
+    # found neither, and fell back to "latest" — so a new uv release could change
+    # every backend CI job with no commit here (CI run 36718805906 got 0.12.21).
+    # 0.12.21 is the version that run resolved and installed successfully.
+    uv_version: str = "0.12.21"
+
+    # =========================================================================
     # PostgreSQL Service
     # =========================================================================
     # Authority: PostgreSQL.org version support schedule
     # Current maintained: PostgreSQL 16 (released Oct 2023, maintained until Oct 2028)
-    # Service image tag is PostgreSQL version only (registry pulls latest patch)
     postgres_major_version: str = "16"
 
-    # Exact digest for production Dockerfile (docker pull postgres:16@sha256:...)
-    # This will be set to the digest once the image scan (Task 3.18) completes.
-    # For now, use the tag; task 3.18 will update this.
-    postgres_service_image: str = "postgres:16"
+    # The CI service container for the backend-postgres job: a patch-level tag,
+    # NOT a digest. Must equal ci.yml `services.postgres.image` and
+    # ci/toolchain-lock.json runtime_pins.postgresql.image (asserted by
+    # test_postgres_service_image_matches_ci_when_backend_postgres_runs). A
+    # digest pin is stronger and remains the target.
+    postgres_service_image: str = "postgres:16.10-bookworm"
 
     # =========================================================================
     # Playwright Browser Automation
@@ -165,46 +179,86 @@ class PinAuthority:
 
     # gitleaks: Secret scanning
     # Authority: https://github.com/gitleaks/gitleaks/releases
-    # Installed by: .github/workflows/ci.yml, checksummed download at TWO sites
-    # (fast-checks and security-scan-secrets), both `version: v8.30.1`.
+    # Installed by: .github/workflows/ci.yml, checksummed download in the
+    # `security` matrix leg `secrets`. This said "TWO sites (fast-checks and
+    # security-scan-secrets)"; neither job exists — single-owner consolidation
+    # merged them into the one `security` matrix, which is also why there is now
+    # only one install site to keep in step with this pin.
     gitleaks_version: str = "8.30.1"
 
     # Trivy: Multi-scanner (image/config/fs vulnerability scanning)
     # Authority: https://github.com/aquasecurity/trivy/releases
     # Installed by: workflow-level `env.TRIVY_VERSION`, deliberately duplicated
-    # across THREE files (ci.yml, deploy.yml, _docker.yml) because workflow-level
-    # `env:` cannot be shared across workflow files. All three must be bumped
-    # together; the drift test checks all three.
+    # across TWO files (ci.yml, deploy.yml) because workflow-level `env:` cannot
+    # be shared across workflow files. Both must be bumped together; the drift
+    # test checks both. There was a third copy in _docker.yml until that
+    # workflow was deleted for having no caller.
     trivy_version: str = "0.69.3"
 
     # Grype: Software vulnerability scanner (cross-language supply chain)
     # Authority: https://github.com/anchore/grype/releases
-    # Installed by: .github/workflows/_docker.yml (`env.GRYPE_VERSION: "0.75.0"`).
-    # Note this is LOWER than the stale 0.76.1 recorded here before — the record
-    # was ahead of reality for grype and behind it for the other nine, which is
-    # what an unenforced "source of truth" looks like.
-    grype_version: str = "0.75.0"
+    # Installed by: .github/workflows/ci.yml (`env.GRYPE_VERSION: "0.119.0"`),
+    # via ./.github/actions/install-checksummed-tool. The declaration used to be
+    # read from _docker.yml, which also installed grype by unverified `curl`;
+    # both went away with that workflow.
+    # F-37: bumped from 0.75.0, whose schema-v5 vulnerability DB is no longer
+    # rebuilt upstream — the scanner refused to load a 28-week-old DB and every
+    # container-scan[*]/grype signal failed on an empty report.
+    grype_version: str = "0.119.0"
 
     # TFLint: Terraform linter
     # Authority: https://github.com/terraform-linters/tflint/releases
-    # Installed by: .github/workflows/ci.yml security-scan-terraform
-    # (`version: v0.64.0`, sha256-verified).
+    # Installed by: .github/workflows/ci.yml, the `security` matrix leg `iac`
+    # (was `security-scan-terraform`, a job that no longer exists).
     tflint_version: str = "0.64.0"
+
+    # Terraform CLI (static use only: fmt / init -backend=false / validate)
+    # Authority: https://github.com/hashicorp/terraform/releases
+    # Installed by: .github/workflows/ci.yml, the `security` matrix leg `iac`
+    # (hashicorp/setup-terraform `terraform_version:` input). Recorded in
+    # ci/toolchain-lock.json pinned_action.terraform. Deliberately NOT part of
+    # get_scanner_versions(): terraform is a CLI the scanners run against, not a
+    # scanner, and that accessor's key set is pinned by its own test.
+    terraform_version: str = "1.9.8"
 
     # Checkov: Infrastructure-as-code security scanning
     # Authority: https://github.com/bridgecrewio/checkov/releases
-    # Installed by: .github/workflows/ci.yml security-scan-iac, as an EPHEMERAL
-    # dependency — `uv run --no-sync --with checkov==3.2.200`. It is deliberately
-    # NOT in requirements-dev.txt: it is only needed by that one job, so keeping
-    # it out of backend/.venv avoids pulling checkov's large dependency tree into
-    # every backend job's cached venv.
+    # Installed by: .github/workflows/ci.yml, the `security` matrix leg `iac`
+    # (was `security-scan-iac`, a job that no longer exists), via
+    # .github/scripts/ci-iac-scan.sh as `uv tool run --from checkov==<this>` in
+    # its own isolated environment (checkov pins boto3, which would make
+    # backend/uv.lock unresolvable). It is deliberately NOT in
+    # requirements-dev.txt: it is only needed by that one job. Only checkov
+    # itself is pinned here; its transitive dependencies are resolved at run
+    # time and are not locked.
     checkov_version: str = "3.2.200"
 
     # Actionlint: GitHub Actions linter
     # Authority: https://github.com/rhysd/actionlint/releases
-    # Installed by: .github/workflows/ci.yml fast-checks (`version: v1.7.12`,
-    # sha256-verified against the release's own checksums file).
+    # Installed by: .github/workflows/ci.yml, the repo-static job
+    # (install-checksummed-tool, version from env ACTIONLINT_VERSION,
+    # sha256-verified against the release's own checksums file). A job named
+    # fast-checks once installed it; that job no longer exists.
     actionlint_version: str = "1.7.12"
+
+    # ShellCheck: shell static analysis (repo-static/shellcheck)
+    # Authority: https://github.com/koalaman/shellcheck/releases
+    # Installed by: .github/workflows/ci.yml, the repo-static job
+    # (install-checksummed-tool, version from env SHELLCHECK_VERSION, archive
+    # member shellcheck-v<version>/shellcheck). The project publishes NO
+    # checksums file, so the sha256 is the GitHub release-asset digest, cross-
+    # checked against a locally recomputed hash; see ci/toolchain-lock.json.
+    # .github/scripts/ci-shellcheck.sh fails if the installed binary differs.
+    shellcheck_version: str = "0.11.0"
+
+    # GitHub-hosted runner image label used by every `runs-on`.
+    # Installed by: every runs-on in .github/workflows/*.yml (an exact label, never
+    # the floating `ubuntu-latest`). Tools the workflows rely on but do not install
+    # come from this image: jq and the AWS CLI v2 (the ssm-run composite and the
+    # deploy/provision/cognito scripts), gh (release.yml), bash and docker compose
+    # (repo-static), git, curl, sudo, tar and unzip. A runner-image bump is a
+    # reviewed change to this field, ci/toolchain-lock.json and every runs-on.
+    runner_image: str = "ubuntu-24.04"
 
     # =========================================================================
     # Container Base Images (all digest-pinned)
@@ -233,18 +287,18 @@ class PinAuthority:
     # Same digest as pptx-builder to guarantee ABI compatibility.
     backend_node_runtime_image: str = backend_pptx_builder_image
 
-    # Frontend builder & runtime base authority.
-    # Format: node:24-bookworm-slim@sha256:DIGEST
-    # Authority: Must match node_runtime_version (24.x) — see Task 3.15.
-    # NOTE: frontend/Dockerfile currently pins node:20-bookworm-slim@sha256:...
-    # (matching the backend Node toolchain, digest-pinned as part of Task 3.18's
-    # scan/remediation). Migrating the frontend RUNTIME to Node 24 is a
-    # behavior-affecting change tracked separately from Task 3.18, which is
-    # scoped to eliminating existing High/Critical scanner findings in the
-    # two production-context images as they are built today, not to bumping
-    # a runtime major version. This field intentionally stays aspirational
-    # (Task 3.15's authority) until that follow-on migration lands.
-    frontend_base_image: str = "node:24-bookworm-slim"
+    # Frontend builder & runtime base, digest-pinned.
+    # Installed by: frontend/Dockerfile (deps, builder, runner stages).
+    # The tag names the exact node_runtime_version, so the image runs the same
+    # Node that setup-frontend installs in CI; the digest pins the bytes.
+    # Provenance: Docker Hub tag API
+    # https://hub.docker.com/v2/repositories/library/node/tags/24.11.0-bookworm-slim
+    # field `digest` (the multi-arch OCI image index digest, last pushed
+    # 2025-11-04). Re-resolve it from the same endpoint when bumping the tag.
+    frontend_base_image: str = (
+        "node:24.11.0-bookworm-slim"
+        "@sha256:76d0ed0ed93bed4f4376211e9d8fddac4d8b3fbdb54cc45955696001a3c91152"
+    )
 
     # =========================================================================
     # Pin Update History (for documentation)

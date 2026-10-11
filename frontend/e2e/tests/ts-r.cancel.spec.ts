@@ -85,13 +85,14 @@ test.describe("TS-R — cancel", () => {
     await expect(dashboard.cancelledHeading()).toHaveCount(0);
   });
 
-  test("TS-R-04 cancel-during-revision writes no poisoned parent", async () => {
-    // Backend-gated persistence concern (Phase 14): a cancel that lands during a
-    // revision run must not write a poisoned/partial parent record. There is no
-    // FE-observable surface for this in mocked mode (it is a DB/state-machine
-    // invariant), so it cannot be exercised here.
-    test.skip(true, "revision-cancel persistence is backend-gated (Phase 14); Owner: backend");
-  });
+  // TS-R-04 (cancel-during-revision writes no poisoned parent) was DELETED from the
+  // mocked project: it is a DB/state-machine invariant with no browser-observable
+  // surface (the mock has no persistence), so it could only ever be skipped here.
+  // Owner: backend — backend/tests/integration/api/test_rest_answers_cancel_api.py
+  // ::test_revision_driver_cancellation_is_durable proves a cancelled revision
+  // lands exactly one durable pipeline_cancelled row and status "cancelled" on the
+  // revision run. KNOWN GAP: no backend test yet asserts the PARENT run's row is
+  // left untouched by that cancel.
 });
 
 /**

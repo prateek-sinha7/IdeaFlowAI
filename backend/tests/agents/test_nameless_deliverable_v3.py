@@ -60,6 +60,7 @@ from tests.agents.test_finalizer_v2 import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_nameless_ectx(
     run_id: str,
     sandbox: FakeSandbox,
@@ -102,6 +103,7 @@ def _finalize(run_id: str, ectx: types.SimpleNamespace) -> Any:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestNamelessDeliverableIsNotADegrade:
     """No declared name → non-chainable by design, never a degrade (GAPS R6)."""
 
@@ -134,9 +136,7 @@ class TestNamelessDeliverableIsNotADegrade:
         )
         assert record.git_tag == "v1"
 
-    def test_nameless_run_still_commits_logs_and_summary(
-        self, tmp_path: Path
-    ) -> None:
+    def test_nameless_run_still_commits_logs_and_summary(self, tmp_path: Path) -> None:
         """.chain/logs.jsonl and .chain/summary.md are still written and
         force-staged even though there is no output file to chain from — the
         run log and summary are useful regardless of chainability (Req 4)."""
@@ -152,10 +152,10 @@ class TestNamelessDeliverableIsNotADegrade:
         tracked = _run_git("ls-files", ".chain/", cwd=sandbox.root)
         assert ".chain/logs.jsonl" in tracked
         assert ".chain/summary.md" in tracked
-        chain_status = _run_git("status", "--porcelain", "--", ".chain/", cwd=sandbox.root)
-        assert chain_status == "", (
-            f".chain/ not fully committed: {chain_status!r}"
+        chain_status = _run_git(
+            "status", "--porcelain", "--", ".chain/", cwd=sandbox.root
         )
+        assert chain_status == "", f".chain/ not fully committed: {chain_status!r}"
 
 
 class TestDeclaredNameStillDegradesWhenUnmaterializable:
@@ -176,9 +176,9 @@ class TestDeclaredNameStillDegradesWhenUnmaterializable:
         record = _finalize(run_id, ectx)
 
         assert record is not None
-        assert record.published_status == "degraded", (
-            f"expected degraded, got {record.published_status!r}"
-        )
+        assert (
+            record.published_status == "degraded"
+        ), f"expected degraded, got {record.published_status!r}"
         assert record.non_chainable_reason == "output_unmaterializable"
         assert sandbox.list_tags() == [], (
             f"unexpected tag for an unmaterializable declared output: "

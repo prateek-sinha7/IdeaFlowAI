@@ -15,11 +15,14 @@
 import { test, expect } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
 
-// Placeholders copied verbatim from TYPE_CONFIG in IdeaInputPage.tsx.
+// Placeholders copied verbatim from TYPE_CONFIG in IdeaInputPage.tsx — except
+// `custom`: since 41-04 (e1490fad) the custom row opens the full-page Composer,
+// whose brief placeholder is ComposerPage.tsx / CanvasView.tsx's literal (the
+// IdeaInputPage TYPE_CONFIG.custom copy is no longer reachable from home).
 const PLACEHOLDER = {
   user_stories: "e.g. Generate epics and stories for a refunds workflow with multi-currency support.",
   app_builder: "e.g. A SaaS platform for managing freelance invoices with Stripe integration.",
-  custom: "e.g. Research the competitive landscape for AI coding assistants and generate a SWOT analysis.",
+  custom: "Describe what you want this workflow to produce…",
   mulesoft_to_springboot:
     "e.g. Migrate three Mulesoft 4 apps powering our orders + claims platform onto AWS, splitting into Spring Boot microservices with Aurora Postgres and SQS messaging.",
 };
@@ -31,9 +34,6 @@ test.describe("TS-C — idea input & trigger", () => {
   });
 
   test("TS-C-01 placeholder matches TYPE_CONFIG per workflow type", async ({ dashboard, page }) => {
-    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline)
-    // Owner: frontend
-    test.skip(true, "pre-existing feat/ui-2 red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     // user_stories
     await dashboard.selectWorkflow("Generate product requirements");
     await expect(dashboard.ideaTextarea()).toHaveAttribute("placeholder", PLACEHOLDER.user_stories);
@@ -43,29 +43,38 @@ test.describe("TS-C — idea input & trigger", () => {
     await dashboard.selectWorkflow("Build an end-to-end application");
     await expect(dashboard.ideaTextarea()).toHaveAttribute("placeholder", PLACEHOLDER.app_builder);
 
-    // back → custom
+    // back → custom (opens the full-page Composer — its brief field)
     await page.getByRole("button", { name: "Back" }).click();
     await dashboard.selectWorkflow("Compose a custom workflow");
-    await expect(dashboard.ideaTextarea()).toHaveAttribute("placeholder", PLACEHOLDER.custom);
+    await expect(dashboard.composerEyebrow()).toBeVisible();
+    await expect(dashboard.composerBrief()).toHaveAttribute("placeholder", PLACEHOLDER.custom);
   });
 
-  test("TS-C-02 Run-button disabled states (empty idea, no agents)", async ({ dashboard, page }) => {
-    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline)
-    // Owner: frontend
-    test.skip(true, "pre-existing feat/ui-2 red (8c2f0b9d) — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
+  test("TS-C-02 Run-button disabled states (empty idea, no agents)", async ({ dashboard, mockSse, page }) => {
     // user_stories seeds default agents → empty idea ⇒ Run disabled but labelled "Run workflow".
     await dashboard.selectWorkflow("Generate product requirements");
     const run = dashboard.runButton();
     await expect(run).toBeDisabled();
     await expect(run).toHaveText(/Run workflow/);
 
-    // custom seeds NO library agents (CUSTOM_AGENTS live outside LIBRARY_AGENTS)
-    // → the Run button advertises "Add agents first" and stays disabled.
+    // custom opens the full-page Composer (41-04, e1490fad) on an EMPTY canvas
+    // (0 agents). Its "Run once" is not HTML-disabled for the no-agents case:
+    // ISS-333 guards it in the click handler instead — the button advertises the
+    // missing precondition ("Add at least one agent first") and a click, even with
+    // a valid brief, surfaces "Add at least one agent before running." and does
+    // NOT launch. Assert all three (advertised, blocked with feedback, no launch).
     await page.getByRole("button", { name: "Back" }).click();
     await dashboard.selectWorkflow("Compose a custom workflow");
-    const customRun = dashboard.runButton();
-    await expect(customRun).toBeDisabled();
-    await expect(customRun).toHaveText(/Add agents first/);
+    await expect(dashboard.composerSummary()).toContainText("0 agents");
+    const customRun = dashboard.composerRunOnce();
+    await expect(customRun).toHaveAttribute("title", "Add at least one agent first");
+
+    await dashboard.composerBrief().fill("Research the competitive landscape for AI coding assistants.");
+    await customRun.click();
+    await expect(page.getByText("Add at least one agent before running.", { exact: true })).toBeVisible();
+    expect(mockSse.framesOfType("run_pipeline")).toHaveLength(0);
+    // Still on the Composer — no transition to the execution view.
+    await expect(dashboard.composerEyebrow()).toBeVisible();
   });
 
   test("TS-C-03 Run enables once a brief is typed (user_stories)", async ({ dashboard }) => {

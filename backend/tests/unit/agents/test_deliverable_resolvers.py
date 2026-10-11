@@ -132,14 +132,21 @@ def test_single_file_publishes_highest_versioned_draft_byte_for_byte(sandbox):
     performs the publish."""
     sandbox.write("draft.v1.html", "<html>v1 — oldest</html>")
     sandbox.write("draft.v2.html", "<html>v2</html>")
-    sandbox.write("draft.v10.html", "<html>v10 — the real highest, lexically 'draft.v2' > 'draft.v10'</html>")
+    sandbox.write(
+        "draft.v10.html",
+        "<html>v10 — the real highest, lexically 'draft.v2' > 'draft.v10'</html>",
+    )
     # A stray/corrupt prototype.html (e.g. a model's chat narration) must be
     # overwritten by the mechanical publish, never trusted.
-    sandbox.write("prototype.html", "Finding the highest draft version: Highest is v2...")
+    sandbox.write(
+        "prototype.html", "Finding the highest draft version: Highest is v2..."
+    )
     ctx = _Ctx(
         _FakeRunner(sandbox),
         deliverable=_Deliverable(
-            name="prototype.html", strategy="single_file", publish_from_glob="draft.v*.html"
+            name="prototype.html",
+            strategy="single_file",
+            publish_from_glob="draft.v*.html",
         ),
     )
     out = SingleFileResolver().resolve(ctx)
@@ -156,7 +163,9 @@ def test_single_file_no_drafts_leaves_existing_behavior_unaffected(sandbox):
     ctx = _Ctx(
         _FakeRunner(sandbox),
         deliverable=_Deliverable(
-            name="prototype.html", strategy="single_file", publish_from_glob="draft.v*.html"
+            name="prototype.html",
+            strategy="single_file",
+            publish_from_glob="draft.v*.html",
         ),
     )
     assert (
@@ -391,5 +400,7 @@ def test_ppt_unfenced_deck_is_untouched_by_the_fence_strip(sandbox):
     )
 
     ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_CAROUSEL_DECK)
-    expected = unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(_CAROUSEL_DECK)))
+    expected = unwrap_artifact(
+        strip_pre_slide_body_text(sanitize_carousel_deck_html(_CAROUSEL_DECK))
+    )
     assert PptResolver().resolve(ctx) == expected

@@ -99,6 +99,10 @@ from app.api.run_engine import (
 # API-001 (task.md R-05): the single canonical terminal-status set (engine.py —
 # see its own docstring for why it now exists beside NON_TERMINAL_RUN_STATUSES).
 from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
+from agents.execution_engine.trigger_port import (
+    TriggerLaunchPort,
+    register_trigger_launch_port,
+)
 
 logger = logging.getLogger("app.api.run_commands")
 
@@ -830,24 +834,16 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
         events = await store.read_events(run_id, after_seq=0)
         cancelled = any(e.type == "pipeline_cancelled" for e in events)
-        failed = any(e.type == "pipeline_failed" for e in events)
         completes = [e for e in events if e.type == "pipeline_complete"]
-        # FIX-247: the degraded verdict must track only the LATEST pipeline_complete, not
-        # "was ANY completion ever degraded". A run completes at most once per attempt, so
-        # last-by-seq IS the latest attempt's verdict — the same attempt-scoping idea the
-        # ``resume_supersedes`` check just below already applies to ``cancelled``, minus the
-        # extra boundary lookup (that one needs a boundary because a cancellation and a
-        # completion can interleave within or across attempts; two completions can't — the
-        # highest seq is always the newest one). The old unscoped ``any()`` let ONE degraded
-        # completion from an EARLIER attempt permanently outrank a later clean completion —
-        # run 4bdf9398 failed, a resume degraded on credential expiry, the NEXT resume
-        # completed all 11 steps cleanly, and the run still read "degraded" forever.
+        # FIX-247: the degraded verdict must track only the LATEST attempt, not "was ANY
+        # completion ever degraded" — the old unscoped ``any()`` let ONE degraded
+        # completion from an EARLIER attempt permanently outrank a later clean completion
+        # (run 4bdf9398 failed, a resume degraded on credential expiry, the NEXT resume
+        # completed all 11 steps cleanly, and the run still read "degraded" forever). The
+        # verdict itself is the attempt-scoped ``degraded_current`` below (ISS-436/437).
+        # ``_latest_complete`` — the newest completion by seq; a run completes at most once
+        # per attempt — supplies the degraded reason derived further down.
         _latest_complete = max(completes, key=lambda e: e.seq) if completes else None
-        degraded = bool(
-            _latest_complete is not None
-            and isinstance(_latest_complete.payload_json, dict)
-            and _latest_complete.payload_json.get("status") == "degraded"
-        )
         # KAN-120: a resumed run has BOTH pipeline_cancelled (from the original
         # cancellation) AND pipeline_complete (from the resume) in the durable tail.
         # The original logic unconditionally prioritised cancelled, leaving a
@@ -934,9 +930,8 @@ async def _reconcile_terminal_status(run_id: str) -> None:
                 e.type == "pipeline_failed" and e.seq >= last_reattempt_seq
                 for e in events
             )
-            # Use the scoped flags for the status ladder, but keep the unscoped
-            # variables for backwards-compat with the _persist_resume_output_columns
-            # call below (which needs the full event tail).
+            # The status ladder reads only these attempt-scoped flags
+            # (_persist_resume_output_columns below reads the full event tail itself).
             if degraded_current:
                 new_status = "degraded"
             elif current_attempt_completes and not failed_current:
@@ -2988,8 +2983,17 @@ async def _launch_run_core(
         parent_run_id = (
             parent_run_id_override
             if parent_run_id_override is not None
+            # The REQUEST source id, not the chain-ADMITTED one: a revision
+            # pipeline without a chains_from manifest is declaration-gated,
+            # which zeroes the admitted id and silently dropped the family
+            # edge. _resolve_owned_parent_run_id is itself owner-checked
+            # (foreign/unknown → None), so this widens nothing.
             else (
-                _resolve_owned_parent_run_id(db, source_workflow_run_id, user.id)
+                _resolve_owned_parent_run_id(
+                    db,
+                    request_source_workflow_run_id or source_workflow_run_id,
+                    user.id,
+                )
                 if pipeline_type.endswith("_revision")
                 else None
             )
@@ -3206,6 +3210,96 @@ async def _launch_run_core(
     if source_workflow_run_id:
         response_body["chain_v2_accepted"] = True
     return response_body
+
+
+# ── Workflow-trigger adapter (spec 014 R-12 / R-15 / R-16) ────────────────────
+# ``KernelServices.run_trigger_workflow`` reaches these through
+# ``agents.execution_engine.trigger_port`` — the kernel must not import app.api
+# (import-linter). Registered below, at import of this module.
+def _resolve_saved_trigger_target(
+    workflow_ref: str, owner_id: str
+) -> tuple[str, list | None, CompiledWorkflow | None]:
+    """Resolve a saved ``user_workflow_id`` named by a ``trigger: workflow`` outcome.
+
+    Returns ``(pipeline_type, agents, compiled)`` for the new run. Moved verbatim
+    from ``KernelServices.run_trigger_workflow``: the same owner-scoped ``_owned``
+    lookup (a cross-owner / unknown id raises the same ``HTTPException`` 404,
+    IDOR→404) and the same Case 2 (flat ``agent_ids``) / Case 3 (composed
+    manifest) branching ``launch_run`` uses.
+    """
+    from app.api.run_engine import _get_db
+    from app.api.user_workflows import _owned
+
+    db = _get_db()
+    try:
+        row = _owned(db, workflow_ref, SimpleNamespace(id=owner_id))
+        manifest_json = row.manifest_json
+        base_pipeline_type = row.base_pipeline_type
+        row_agents_json = row.agents
+        row_id = row.id
+    finally:
+        db.close()
+
+    if isinstance(manifest_json, dict) and "steps" in manifest_json:
+        # Case 3 — composed manifest (mirrors launch_run's
+        # USER_WORKFLOW_MANIFEST branch, minus the request-body override
+        # chain: a trigger carries no request body, so the row's own
+        # saved values are authoritative, with the SAME hardcoded
+        # fallbacks launch_run uses when a value is absent).
+        from agents.execution_engine.engine import (
+            _CAPABILITY_REGISTRY,
+            _WORKFLOW_COMPILER,
+        )
+        from agents.workflows.manifest import build_manifest_from_dict
+
+        raw_manifest = dict(manifest_json)
+        raw_manifest.setdefault("id", f"user-workflow-{row_id}")
+        raw_manifest.setdefault(
+            "deliverable", {"strategy": "streamed_text", "name": "output.md"}
+        )
+        raw_manifest.setdefault("planner", "skip")
+        raw_manifest.setdefault("clarify", {"mode": "skip", "defaults": []})
+        raw_manifest.setdefault("capabilities", {})
+        parsed_manifest = build_manifest_from_dict(raw_manifest, f"workflow:{row_id}")
+        target_compiled = _WORKFLOW_COMPILER.compile(
+            parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+        )
+        target_pipeline_type = base_pipeline_type
+        target_agents = None
+    else:
+        # Case 2 — flat agent_ids (mirrors launch_run's
+        # USER_WORKFLOW_FLAT branch).
+        import json as _json
+
+        from agents.loader import load_agent_spec
+
+        agent_ids = _json.loads(row_agents_json) if row_agents_json else []
+        target_agents = [load_agent_spec(aid) for aid in agent_ids]
+        if target_agents:
+            from app.api.composition_order import presort_specs
+
+            target_agents = presort_specs(target_agents)
+        target_pipeline_type = base_pipeline_type
+        target_compiled = None
+    return target_pipeline_type, target_agents, target_compiled
+
+
+async def _launch_triggered_run(**launch_kwargs: Any) -> dict:
+    """Mint + spawn a triggered run via ``_launch_run_core``.
+
+    Resolved at CALL time, so a test that monkeypatches
+    ``run_commands._launch_run_core`` still intercepts the trigger path, exactly
+    as when the kernel imported it lazily.
+    """
+    return await _launch_run_core(**launch_kwargs)
+
+
+register_trigger_launch_port(
+    TriggerLaunchPort(
+        resolve_saved_workflow=_resolve_saved_trigger_target,
+        launch_run=_launch_triggered_run,
+    )
+)
 
 
 @router.post("")
@@ -3757,11 +3851,12 @@ async def launch_run(
         _chain_db.close()
     # ── task 6.4: Route the admission result to _launch_run_core ────────────
     #
-    # admit_chain_launch already raised HTTPException(422) for every non-
-    # degradable refusal (source_running, source_not_finalized,
-    # source_non_chainable, source_provenance_conflict) — and for a refused
-    # source_payload_missing when chain_policy != "degrade" — so execution
-    # only reaches here for three outcomes:
+    # admit_chain_launch already raised HTTPException(422) for every refusal
+    # (source_running, source_not_finalized, source_non_chainable,
+    # source_provenance_conflict, source_payload_missing — B5: the last one
+    # refuses whatever the manifest's chain_policy) — so execution reaches here
+    # for outcomes (a) and (b) only. (c) is documented for B30: it becomes
+    # reachable again only if a degrade policy is reinstated at admission.
     #
     #   a) declaration_gate (active=False, source_id=None):
     #      The workflow does not declare chaining, or no source_run_id was
@@ -5170,10 +5265,9 @@ def admit_chain_launch(
     5. Source sandbox open (``_open_source_sandbox_or_refuse``).
     6. Payload selection and provenance validation (``select_source_payload``).
 
-    On any ``ChainRefused`` with a non-degradable reason the function writes a
-    ``chain_refused`` audit row and raises ``HTTPException(422)`` (no run row,
-    no edge).  On ``source_payload_missing`` with ``chain_policy == "degrade"``
-    it returns an admitted-with-no-payload ``ChainAdmission``.
+    On any ``ChainRefused`` the function writes a ``chain_refused`` audit row and
+    raises ``HTTPException(422)`` (no run row, no edge) — ``source_payload_missing``
+    included, whatever the manifest's ``chain_policy`` (B5 owner decision).
 
     Parameters
     ----------
@@ -5215,11 +5309,6 @@ def admit_chain_launch(
         effective_compiled.deliverable.chains_from
         if effective_compiled is not None
         else False
-    )
-    chain_policy: str = (
-        effective_compiled.deliverable.chain_policy
-        if effective_compiled is not None
-        else "refuse"
     )
     # B22-chain-fix: The receiving workflow's own deliverable.name must NOT
     # be used to constrain the source payload's filename.  Cross-type chaining
@@ -5321,34 +5410,14 @@ def admit_chain_launch(
             declared_output_basename=declared_output_basename,
         )
     except ChainRefused as exc:
-        if exc.reason == "source_payload_missing" and chain_policy == "degrade":
-            # B5 fix: this branch is now unreachable for all production manifests
-            # because chain_policy defaults to "refuse" and no manifest declares
-            # "degrade".  The guard is kept as dead code rather than removed to
-            # preserve the documented Departure N2 contract, but the degrade path
-            # is intentionally blocked by the owner's decision (2026-09-14):
-            # a missing/swept payload must refuse the launch so the user gets a
-            # clear error rather than silently starting a run with no context.
-            # See GIT_VERSIONING_BUGS.md B5.
-            #
-            # If a future manifest needs to opt into degrading launches
-            # (e.g. a resilience-focused workflow), it must explicitly set
-            # chain_policy: degrade AND this guard must be reinstated by removing
-            # the False override below.
-            if False:  # noqa: SIM210 — B5: owner decision, always refuse
-                logger.info(
-                    "admit_chain_launch: source payload missing for %s, degrading "
-                    "(chain_policy=degrade, user=%s)",
-                    source_run_id,
-                    current_user.id,
-                )
-                return ChainAdmission(
-                    active=True,
-                    source_id=source_run_id,
-                    record=record,
-                    selection=None,
-                    refusal_reason=None,
-                )
+        # B5 (owner decision, 2026-09-14): every refusal — source_payload_missing
+        # included — refuses the launch, whatever the manifest's chain_policy, so the
+        # user gets a clear 422 instead of a run that silently starts with no context.
+        # The degrade branch that used to sit here behind ``if False:`` was deleted
+        # (B30: dead code in shipped admission logic). Reinstating a degrade policy
+        # means restoring an admitted-with-no-payload ChainAdmission here AND
+        # reconciling the compiler / chain_context paths that still accept it —
+        # see GIT_VERSIONING_BUGS.md B5 / B30.
         raise _refuse(exc.reason)
 
     logger.info(

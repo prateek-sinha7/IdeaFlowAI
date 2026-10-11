@@ -75,7 +75,10 @@ test.describe("TS-G — pre-run Review-gates section", () => {
     // Collapsed by default → aria-expanded=false, body (helper text) hidden.
     await expect(header).toHaveAttribute("aria-expanded", "false");
     const helper = page.getByText(
-      "Checked agents pause the pipeline for your review after they finish. Pre-set to the recommended defaults — adjust as needed.",
+      // Copy shortened in 9efb704d (the "Pre-set to the recommended defaults"
+      // tail was dropped from ReviewGatesSection).
+      "Checked agents pause the pipeline for your review after they finish.",
+      { exact: true },
     );
     await expect(helper).toBeHidden();
 
@@ -168,34 +171,44 @@ test.describe("TS-G — pre-run Review-gates section", () => {
     expect(f.gate_agent_ids).toBeUndefined();
   });
 
-  // TS-G-04 — the section self-hides when there are zero agents (returns null).
-  // We CAN reach a real 0-agent IdeaInputPage: the `custom` workflow seeds NO
-  // default agents. Its agents live in the separate CUSTOM_AGENTS array, which
-  // IdeaInputPage does NOT use for seeding — it seeds from
-  // `LIBRARY_AGENTS.filter(a => a.pipeline_type === effectiveType)`, and no
-  // LIBRARY_AGENTS row carries `pipeline_type: "custom"`. So on the custom page
-  // `pipelineAgents` starts as [] → <ReviewGatesSection> receives an empty list
-  // and returns null → the "Review gates" header is absent. `custom` is
-  // enterprise-gated, so we navigate as an enterprise user.
+  // TS-G-04 — no review-gate affordance is offered when there are zero agents.
+  // The `custom` workflow is the zero-agent entry: it opens the full-page
+  // Composer on an EMPTY canvas (ComposerPage seeds [] when no saved manifest /
+  // agent ids are handed in). `custom` is enterprise-gated, so we navigate as an
+  // enterprise user.
   test("TS-G-04 hidden when no agents (custom workflow seeds zero agents)", async ({ dashboard }) => {
-    test.skip(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     const page = dashboard.page;
 
     // CONTRAST: the seeded `user_stories` page (from beforeEach) DOES show the
     // header — proving the null-render below is genuinely agent-count-driven.
     await expect(gatesHeader(page)).toBeVisible();
 
-    // Navigate fresh to the custom IdeaInputPage as an enterprise user (full
-    // page reload discards the prior user_stories state).
+    // RE-ANCHORED: since 41-04 (e1490fad) the custom row opens the full-page
+    // Composer, not IdeaInputPage, so the zero-agent custom surface is the empty
+    // Composer canvas. There, review gates are offered PER AGENT (each agent node
+    // carries a "Gate" control) and counted in the header summary
+    // ("N review gates"); ReviewGatesSection itself is not mounted.
     await dashboard.goto({ tier: "enterprise" });
     await dashboard.selectWorkflow("Compose a custom workflow");
-    // Confirm we're on the custom IdeaInputPage (its heading copy), and that it
-    // truly has zero agents — the Run button reads "Add agents first".
-    await expect(page.getByRole("heading", { name: "Describe the task" })).toBeVisible();
-    await dashboard.fillIdea("Research the competitive landscape for AI coding assistants.");
-    await expect(dashboard.runButton()).toContainText("Add agents first");
+    await expect(dashboard.composerEyebrow()).toBeVisible();
+    await dashboard.composerBrief().fill("Research the competitive landscape for AI coding assistants.");
+    // Truly zero agents — the summary and the Run-once precondition both say so.
+    await expect(dashboard.composerSummary()).toContainText("0 agents");
+    await expect(dashboard.composerRunOnce()).toHaveAttribute("title", "Add at least one agent first");
 
-    // 0 agents → ReviewGatesSection returns null → no "Review gates" header.
+    // 0 agents → no review-gate affordance of any kind: no "Review gates"
+    // section header, no per-agent "Gate" control, and 0 review gates counted.
     await expect(gatesHeader(page)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Gate", exact: true })).toHaveCount(0);
+    await expect(dashboard.composerSummary()).toContainText("0 review gates");
+
+    // CONTRAST (agent-count-driven, not structural): add one agent → the gate
+    // affordance appears for it.
+    await page.getByRole("button", { name: "Add agent at end" }).click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
+    await page.getByRole("button", { name: /^\+ Add$/ }).first().click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
+    await expect(dashboard.composerSummary()).toContainText("1 agents");
+    await expect(page.getByRole("button", { name: "Gate", exact: true })).toHaveCount(1);
   });
 });

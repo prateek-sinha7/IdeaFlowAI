@@ -628,10 +628,14 @@ def _resolve_provider(set_name: str):
 
 
 def test_tool_provider_workspace_binds_identical_set() -> None:
-    """``workspace`` provider → ``([], exclude_builtin=False)`` (native fs, no custom)."""
+    """``workspace`` provider → ``(["reserved_path_guard"], False)``.
+
+    Native fs, no custom tool; the guard key activates the reserved-path
+    middleware (Requirement 18 AC 3, V2-Q7).
+    """
     provider = _resolve_provider("workspace")
     keys, exclude = provider.provide(spec=None, ctx=None)
-    assert keys == []
+    assert keys == ["reserved_path_guard"]
     assert exclude is False
 
 
@@ -646,7 +650,10 @@ def test_tool_provider_prototype_binds_report_task_complete() -> None:
     for set_name in ("prototype", "prototype_emit_only"):
         provider = _resolve_provider(set_name)
         keys, exclude = provider.provide(spec=None, ctx=None)
-        assert keys == ["report_task_complete"], f"{set_name} bound {keys}"
+        assert keys == [
+            "report_task_complete",
+            "reserved_path_guard",
+        ], f"{set_name} bound {keys}"
         assert exclude is False
 
 

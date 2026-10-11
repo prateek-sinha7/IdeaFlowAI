@@ -70,7 +70,9 @@ async def _compose_for_consumer(*, read_files: bool | None) -> str:
     from agents.execution_engine.engine import ExecutionEngine
 
     producer = _spec("custom-agent:greet", produces=["greeting"])
-    consumer = _spec("custom-agent:check", consumes=["greeting"], produces=["route_decision"])
+    consumer = _spec(
+        "custom-agent:check", consumes=["greeting"], produces=["route_decision"]
+    )
 
     ectx = ExecutionContext(run_id="l4-consumes-run", owner_id="anon")
     ectx.disk_principal = "anon"
@@ -99,7 +101,9 @@ async def _compose_for_consumer(*, read_files: bool | None) -> str:
 
 
 @pytest.mark.asyncio
-async def test_migrated_consumer_without_read_files_still_gets_upstream_output() -> None:
+async def test_migrated_consumer_without_read_files_still_gets_upstream_output() -> (
+    None
+):
     msg = await _compose_for_consumer(read_files=False)
 
     assert "--- Output from" in msg, (
@@ -107,9 +111,9 @@ async def test_migrated_consumer_without_read_files_still_gets_upstream_output()
         ".agents/NN-<agent>.md, so suppressing the paste leaves its declared "
         "consumes: with NO delivery channel — the L4 ex_A1_loop empty-message defect"
     )
-    assert _UPSTREAM_OUTPUT in msg, (
-        "the upstream CONTENT, not just the envelope, must reach the consumer"
-    )
+    assert (
+        _UPSTREAM_OUTPUT in msg
+    ), "the upstream CONTENT, not just the envelope, must reach the consumer"
 
 
 @pytest.mark.asyncio

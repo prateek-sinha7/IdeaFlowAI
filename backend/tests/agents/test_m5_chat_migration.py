@@ -57,17 +57,17 @@ def test_chat_agent_is_migrated_off_default(agent_id: str) -> None:
     guardrails/hooks/a Constitution in practice, so body_only — not
     governance — is the correct §3 recipe choice)."""
     spec = load_agent_spec(agent_id)
-    assert spec.prompt_policy == "body_only", (
-        f"{agent_id}: expected prompt_policy=body_only, got {spec.prompt_policy!r}"
-    )
+    assert (
+        spec.prompt_policy == "body_only"
+    ), f"{agent_id}: expected prompt_policy=body_only, got {spec.prompt_policy!r}"
 
 
 @pytest.mark.parametrize("agent_id", _CHAT_AGENT_IDS)
 def test_chat_agent_has_sandbox_reading_guide(agent_id: str) -> None:
     spec = load_agent_spec(agent_id)
-    assert "## Sandbox Reading Guide" in (spec.prompt_body or ""), (
-        f"{agent_id}: AGENT.md is missing the Sandbox Reading Guide"
-    )
+    assert "## Sandbox Reading Guide" in (
+        spec.prompt_body or ""
+    ), f"{agent_id}: AGENT.md is missing the Sandbox Reading Guide"
 
 
 @pytest.mark.parametrize("agent_id", _CHAT_AGENT_IDS)
@@ -79,14 +79,16 @@ def test_chat_agent_composed_prompt_has_no_leaked_tool_preamble(agent_id: str) -
     composed prompt must be exactly the agent's AGENT.md body.
     """
     spec = load_agent_spec(agent_id)
-    composed = _compose_system_prompt(spec, _ctx(), no_tools=True, has_write_access=False)
+    composed = _compose_system_prompt(
+        spec, _ctx(), no_tools=True, has_write_access=False
+    )
     assert composed == spec.prompt_body, (
         f"{agent_id}: body_only composition must equal the raw AGENT.md body; "
         f"got extra content (len {len(composed)} vs body len {len(spec.prompt_body or '')})"
     )
-    assert "## Tool Availability" not in composed, (
-        f"{agent_id}: body_only composition leaked the tool-availability preamble"
-    )
+    assert (
+        "## Tool Availability" not in composed
+    ), f"{agent_id}: body_only composition leaked the tool-availability preamble"
 
 
 def test_default_policy_control_would_leak_the_preamble() -> None:
@@ -97,7 +99,9 @@ def test_default_policy_control_would_leak_the_preamble() -> None:
     the switch.
     """
     spec = dataclasses.replace(load_agent_spec("chat-discovery"), prompt_policy=None)
-    composed = _compose_system_prompt(spec, _ctx(), no_tools=True, has_write_access=False)
+    composed = _compose_system_prompt(
+        spec, _ctx(), no_tools=True, has_write_access=False
+    )
     assert "## Tool Availability" in composed, (
         "control: default policy must still emit the tool-availability preamble "
         "for a tool-less agent — otherwise the body_only assertions above prove nothing"

@@ -235,9 +235,9 @@ def _check_schema(db, report: Report) -> bool:
     # Phase 2 addition, and the check that makes C2's failure message actionable:
     # C2 can only say "the migration did not run", this says which revision the
     # database is actually parked on.
-    stamped = db.execute(
-        sa.text("SELECT version_num FROM alembic_version")
-    ).scalars().all()
+    stamped = (
+        db.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+    )
     if len(stamped) != 1:
         report.record(
             _FAIL,

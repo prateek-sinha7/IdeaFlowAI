@@ -89,7 +89,7 @@ violation = validator.validate_image_reference(
 - No network calls (`requests`, `urllib`, `socket`, `http.client`)
 - No subprocess execution (`subprocess`, `os.system`, `os.popen`)
 - No environment variable writes
-- No credential accesses (AWS_, GITHUB_, SONAR_, API_KEY)
+- No credential accesses (AWS_, GITHUB_, API_KEY)
 
 **Validation Methods**:
 - `validate_installer_function(func_name, func_code, location)` - Validates function source code

@@ -77,8 +77,14 @@ class TestNoToolsPreamblePresence:
         explicitly with ``no_tools=True``, is still ordered before guardrails and
         the prompt body — the block's OWN ordering is unchanged even though no
         live agent triggers it anymore."""
-        spec = load_agent_spec("epic-architect")
+        import copy
+
+        spec = copy.copy(load_agent_spec("epic-architect"))
         assert "agile" in spec.guardrails, "precondition: epic-architect carries agile"
+        # epic-architect's AGENT.md now selects the ``governance`` policy, which
+        # intentionally drops ``tool_availability``. This test pins the block's
+        # position in the DEFAULT order, so select that policy explicitly.
+        spec.prompt_policy = "default"
 
         ctx = AgentContext(user_request="test request")
         prompt = _compose_system_prompt(spec, ctx, no_tools=True)

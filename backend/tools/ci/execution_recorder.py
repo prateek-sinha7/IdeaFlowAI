@@ -85,6 +85,12 @@ class _Recorder:
         #: visible rather than collapsing into one entry.
         self.outcomes: dict[str, Counter] = {}
         self.skip_reasons: dict[str, str] = {}
+        #: nodeid -> known-bug metadata (strict xfail + issue ids), captured at
+        #: collection so verify-execution can accept ONLY a strict, issue-linked
+        #: xfail (it still runs every time and fails the moment the bug is fixed).
+        self.xfail_meta: dict[str, dict[str, Any]] = {}
+        #: nodes whose terminal outcome was an xfail (not a plain skip).
+        self.xfailed: set[str] = set()
 
     # -- collection ------------------------------------------------------
     def record_item(self, item: pytest.Item) -> None:
@@ -96,6 +102,7 @@ class _Recorder:
             "markers": sorted(marker_names),
             "partition": _partition_for(marker_names),
         }
+        self.xfail_meta[item.nodeid] = _known_bug_meta(item)
 
     def record_collection_error(self, message: str) -> None:
         """Record a collection failure. Any of these invalidates the inventory."""
@@ -117,9 +124,19 @@ class _Recorder:
 
         if report.outcome == "skipped":
             reason = ""
-            longrepr = getattr(report, "longrepr", None)
-            if isinstance(longrepr, tuple) and len(longrepr) == 3:
-                reason = str(longrepr[2])
+            # An xfail is reported as outcome "skipped" too, but its reason lives
+            # on ``wasxfail`` and its ``longrepr`` is the failure traceback, not a
+            # (path, line, reason) tuple — so without this every xfailed node was
+            # recorded with no reason at all. Prefixed so verify-execution's output
+            # tells a known-red xfail apart from a plain skip.
+            wasxfail = getattr(report, "wasxfail", None)
+            if wasxfail is not None:
+                reason = f"xfail: {wasxfail}" if wasxfail else "xfail"
+                self.xfailed.add(report.nodeid)
+            else:
+                longrepr = getattr(report, "longrepr", None)
+                if isinstance(longrepr, tuple) and len(longrepr) == 3:
+                    reason = str(longrepr[2])
             self.skip_reasons.setdefault(report.nodeid, reason)
 
     # -- output ----------------------------------------------------------
@@ -148,6 +165,10 @@ class _Recorder:
                             "outcomes": dict(counter),
                             "terminal_count": sum(counter.values()),
                             "skip_reason": self.skip_reasons.get(nodeid),
+                            "xfailed": nodeid in self.xfailed,
+                            **self.xfail_meta.get(
+                                nodeid, {"strict_xfail": False, "issues": []}
+                            ),
                         }
                         for nodeid, counter in sorted(self.outcomes.items())
                     ],
@@ -159,6 +180,32 @@ class _Recorder:
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _known_bug_meta(item: Any) -> dict[str, Any]:
+    """Return ``{"strict_xfail": bool, "issues": [ids]}`` for a collected item.
+
+    ``strict_xfail`` is True only for an ``xfail`` MARKER (not an imperative
+    ``pytest.xfail()`` call, which can never be strict) whose effective strictness
+    is on — its own ``strict=`` kwarg, else the ``xfail_strict`` ini default — and
+    that still RUNS (``run=False`` never executes, so it could never flip red when
+    the bug is fixed). ``issues`` are the ``@pytest.mark.issue("ISS-…")`` ids.
+    """
+    strict = False
+    marker = item.get_closest_marker("xfail")
+    if marker is not None and marker.kwargs.get("run", True):
+        default = False
+        config = getattr(item, "config", None)
+        if config is not None:
+            try:
+                default = bool(config.getini("xfail_strict"))
+            except (ValueError, KeyError):
+                default = False
+        strict = bool(marker.kwargs.get("strict", default))
+    issues = [
+        str(arg) for mark in item.iter_markers("issue") for arg in mark.args if arg
+    ]
+    return {"strict_xfail": strict, "issues": sorted(set(issues))}
 
 
 _recorder: _Recorder | None = None

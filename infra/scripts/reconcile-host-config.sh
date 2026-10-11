@@ -38,10 +38,40 @@ fi
 # sourced above for anything downstream that wants them.
 DOMAIN="${VELOCITYAI_FQDN:?VELOCITYAI_FQDN missing in /etc/velocityai/bootstrap.env}"
 ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:?VELOCITYAI_ENVIRONMENT missing in /etc/velocityai/bootstrap.env}"
-# Title-cased for the CloudWatch namespace ("prod" -> "VelocityAI/Prod"), which
-# matches the monitoring module's `cw_metric_namespace`. Read at the agent
-# config heredoc further down.
-ENV_TITLE="${ENVIRONMENT^}"
+# ── 1b. Shared host helpers ───────────────────────────────────────────
+# cw_namespace() lives in infra/scripts/lib/host-common.sh, fetched to
+# /opt/velocityai/lib/ by bootstrap-ec2.sh §1b. This script always runs after
+# bootstrap on the same host (bootstrap §13/14 invokes it, and deploy re-runs it),
+# so the library is on disk by the time we get here — but assert it rather than
+# letting `cw_namespace: command not found` surface as an empty namespace.
+if [[ ! -s /opt/velocityai/lib/host-common.sh ]]; then
+    echo "[reconcile] ERROR: /opt/velocityai/lib/host-common.sh is missing." >&2
+    echo "[reconcile]        It is fetched from s3://<bucket>/config/host-common.sh by" >&2
+    echo "[reconcile]        bootstrap-ec2.sh §1b. Re-run Provision for this environment." >&2
+    exit 1
+fi
+# SC2034 disabled with cause: read by `_hc_log`/`_hc_err` in host-common.sh,
+# sourced on the next lines from an absolute runtime path with
+# `# shellcheck source=/dev/null`, so ShellCheck cannot see the consumer.
+# Deleting it would silently downgrade every log line to the "[host]" default.
+# shellcheck disable=SC2034
+HOST_COMMON_LOG_PREFIX="[reconcile]"
+# shellcheck source=/dev/null
+. /opt/velocityai/lib/host-common.sh
+
+# The CloudWatch metric namespace, read at the agent config heredoc further down.
+#
+# R-13: this was `ENV_TITLE="${ENVIRONMENT^}"`, a SECOND derivation of the same
+# value that bootstrap's velocityai-cw-namespace wrapper derived from an explicit
+# dev|stage|prod map. The two agree for those three names and diverge for anything
+# else: `${ENVIRONMENT^}` turns "staging" into "VelocityAI/Staging" and "qa" into
+# "VelocityAI/Qa" — syntactically valid namespaces that no alarm queries, so
+# metrics disappear silently and every alarm sits in INSUFFICIENT_DATA looking
+# like a quiet system. cw_namespace() fails closed instead.
+#
+# NOTE this is now the full namespace, not just the title-cased word: the heredoc
+# below uses "${CW_NAMESPACE}" directly rather than "VelocityAI/${ENV_TITLE}".
+CW_NAMESPACE="$(cw_namespace "$ENVIRONMENT")"
 
 echo "[reconcile] ENVIRONMENT=$ENVIRONMENT DOMAIN=$DOMAIN"
 
@@ -128,7 +158,6 @@ mkdir -p /var/www/letsencrypt /etc/nginx/snippets
 
 cat > /etc/nginx/conf.d/velocityai-limits.conf <<'EOF'
 limit_req_zone $binary_remote_addr zone=velocityai_login:10m rate=10r/m;
-limit_req_zone $binary_remote_addr zone=velocityai_register:10m rate=5r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_change_pw:10m rate=10r/m;
 # COGNITO-MIGRATION-PLAN §3.6 / §7 Phase 1: /api/auth/refresh is a NEW endpoint
 # (Phase 3) with no dedicated rate limit before this — silent token-refresh
@@ -248,12 +277,6 @@ server {
 
     location /api/auth/login {
         limit_req zone=velocityai_login burst=5 nodelay;
-        limit_req_status 429;
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-    }
-    location /api/auth/register {
-        limit_req zone=velocityai_register burst=3 nodelay;
         limit_req_status 429;
         proxy_pass         http://velocityai_backend;
         include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
@@ -507,7 +530,7 @@ if [[ "$CW_AGENT_OK" -eq 1 ]]; then
     "run_as_user": "cwagent"
   },
   "metrics": {
-    "namespace": "VelocityAI/${ENV_TITLE}",
+    "namespace": "${CW_NAMESPACE}",
     "metrics_collected": {
       "cpu":    {"measurement": ["cpu_usage_idle","cpu_usage_iowait","cpu_usage_user","cpu_usage_system"], "totalcpu": true, "metrics_collection_interval": 60},
       "mem":    {"measurement": ["mem_used_percent","mem_available"], "metrics_collection_interval": 60},

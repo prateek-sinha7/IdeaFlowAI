@@ -22,15 +22,16 @@ test.describe("TS-B — workflow selection", () => {
   });
 
   test("TS-B-02 'Pitch an idea' hard-navigates to the PPT template wizard", async ({ dashboard, page }) => {
-    // ppt routes via router.push("/workflow/create?mode=ppt") — NOT an input view.
+    // ppt routes to /create/ppt (015-frontend-routing; the legacy
+    // /workflow/create?mode=ppt redirects there) — NOT an input view.
     await dashboard.selectWorkflow("Pitch an idea");
-    await page.waitForURL(/\/workflow\/create\?mode=ppt/);
+    await page.waitForURL(/\/create\/ppt(\?|$)/);
   });
 
   test("TS-B-03 'Build an interactive prototype' hard-navigates to the prototype template wizard", async ({ dashboard, page }) => {
-    // prototype routes via router.push("/workflow/create?mode=prototype") — NOT an input view.
+    // prototype routes to /create/prototype (015-frontend-routing) — NOT an input view.
     await dashboard.selectWorkflow("Build an interactive prototype");
-    await page.waitForURL(/\/workflow\/create\?mode=prototype/);
+    await page.waitForURL(/\/create\/prototype(\?|$)/);
   });
 
   test("TS-B-04 'Build an end-to-end application' opens the application input view", async ({ dashboard, page }) => {
@@ -59,11 +60,19 @@ test.describe("TS-B — workflow selection", () => {
     await expect(dashboard.runButton()).toBeVisible();
   });
 
+  // RE-ANCHORED: since 41-04 (e1490fad, D-CMP-ENTRY) the custom row no longer
+  // opens IdeaInputPage ("Describe the task" heading, itself renamed by KAN-112
+  // 7732c79a) — DashboardLayout.handleSelectFeature routes COMPOSER_ENABLED_TYPES
+  // ("custom") to the full-page Composer at /workflows/new. The custom task-input
+  // view is now the Composer: its "Custom · Composer" header + the brief field.
   test("TS-B-06 'Compose a custom workflow' opens the custom task input view", async ({ dashboard, page }) => {
-    test.skip(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     await dashboard.selectWorkflow("Compose a custom workflow");
-    // IdeaInputPage heading for custom (TYPE_CONFIG.custom.heading).
-    await expect(page.getByRole("heading", { name: "Describe the task" })).toBeVisible();
+    await page.waitForURL(/\/workflows\/new$/);
+    await expect(dashboard.composerEyebrow()).toBeVisible();
+    await expect(dashboard.composerNameInput()).toBeVisible();
+    // The task input the custom view exists to collect.
+    await expect(dashboard.composerBrief()).toBeVisible();
+    await expect(dashboard.composerBrief()).toBeEditable();
   });
 
   test("TS-B-07 workflow rows are focusable, enabled buttons (hover affordance proxy)", async ({ page }) => {

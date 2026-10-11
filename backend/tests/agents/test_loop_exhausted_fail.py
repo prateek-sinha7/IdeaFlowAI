@@ -80,28 +80,36 @@ class TestOnLoopExhaustedCompiler:
 
     def test_on_loop_exhausted_fail_compiles_successfully(self):
         """Positive case: on_loop_exhausted: fail compiles without error."""
-        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(on_loop_exhausted="fail")
+        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(
+            on_loop_exhausted="fail"
+        )
         compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
         assert compiled.steps[0].route is not None
         assert compiled.steps[0].route.on_loop_exhausted == "fail"
 
     def test_on_loop_exhausted_continue_compiles_successfully(self):
         """Positive case: on_loop_exhausted: continue compiles without error."""
-        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(on_loop_exhausted="continue")
+        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(
+            on_loop_exhausted="continue"
+        )
         compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
         assert compiled.steps[0].route is not None
         assert compiled.steps[0].route.on_loop_exhausted == "continue"
 
     def test_on_loop_exhausted_omitted_uses_default(self):
         """Positive case: omitting on_loop_exhausted uses the default ("continue")."""
-        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(on_loop_exhausted=None)
+        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(
+            on_loop_exhausted=None
+        )
         compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
         assert compiled.steps[0].route is not None
         assert compiled.steps[0].route.on_loop_exhausted == "continue"
 
     def test_on_loop_exhausted_invalid_value_raises_compiler_error(self):
         """Negative case: on_loop_exhausted: banana raises CompilerError."""
-        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(on_loop_exhausted="banana")
+        manifest = _minimal_conditional_manifest_with_on_loop_exhausted(
+            on_loop_exhausted="banana"
+        )
         with pytest.raises(CompilerError) as exc:
             WorkflowCompiler().compile(manifest, CapabilityRegistry())
 
@@ -151,12 +159,14 @@ async def test_loop_exhausted_fail_raises_budget_exceeded():
             return compiled
 
         import agents.execution_engine.engine as engine_mod
+
         engine_mod.compile_for_run = _patched_compile_for_run_fail
 
         events = await _drive(_PIPELINE)
     finally:
         _sm._scripts_for = orig_scripts_for
         import agents.execution_engine.engine as engine_mod
+
         engine_mod.compile_for_run = orig_compile_for_run
 
     assert events, f"{_PIPELINE} produced no events"
@@ -191,10 +201,12 @@ async def test_loop_exhausted_fail_raises_budget_exceeded():
     )
 
     # Verify done step was never started (it comes after the gate that failed)
-    done_starts = [e for e in events if e.get("type") == "agent_start" and "done" in str(e)]
-    assert len(done_starts) == 0, (
-        f"expected no agent_start for done step, got {done_starts}"
-    )
+    done_starts = [
+        e for e in events if e.get("type") == "agent_start" and "done" in str(e)
+    ]
+    assert (
+        len(done_starts) == 0
+    ), f"expected no agent_start for done step, got {done_starts}"
 
 
 @pytest.mark.asyncio

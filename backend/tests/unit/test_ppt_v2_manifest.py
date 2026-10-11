@@ -12,7 +12,12 @@ import pytest
 from agents.execution_engine.engine import compile_for_run
 from agents.registry import allowed_custom_agent_ids
 
-_V2_STEPS = ["ppt-brief-analyst", "ppt-composer", "ppt-deck-qa-v2", "ppt-code-generator"]
+_V2_STEPS = [
+    "ppt-brief-analyst",
+    "ppt-composer",
+    "ppt-deck-qa-v2",
+    "ppt-code-generator",
+]
 
 
 def test_ppt_v2_compiles_with_the_declared_four_steps():
@@ -37,7 +42,9 @@ def test_ppt_is_byte_identical_to_its_own_manifest():
     """ppt must not have moved. Pinned literally, not compared to ppt_v2."""
     compiled = compile_for_run("ppt")
     assert [s.agent_id for s in compiled.steps] == [
-        "ppt-brief-analyst", "ppt-composer", "ppt-validator",
+        "ppt-brief-analyst",
+        "ppt-composer",
+        "ppt-validator",
     ]
     assert compiled.deliverable.strategy == "ppt"
     assert compiled.deliverable.name == "presentation.pptx"
@@ -67,7 +74,9 @@ def test_every_ppt_v2_step_is_launchable_from_the_wizard():
     assert set(_V2_STEPS) <= allowed
 
 
-@pytest.mark.parametrize("pipeline,expected", [("chat", set()), ("zzz_not_a_pipeline", set())])
+@pytest.mark.parametrize(
+    "pipeline,expected", [("chat", set()), ("zzz_not_a_pipeline", set())]
+)
 def test_the_allow_list_still_fails_closed(pipeline, expected):
     """The own-manifest union must not have widened the security fallback."""
     assert allowed_custom_agent_ids(pipeline) == expected

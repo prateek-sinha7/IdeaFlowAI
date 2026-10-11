@@ -845,9 +845,7 @@ async def test_raising_hitl_gate_blocks_and_stops_gate_evaluation():
             yield  # pragma: no cover — makes this an async generator
 
     registry_mod._IMPLS[("gate", "human")] = _BoomHuman()
-    step = _GatedStep(
-        gates=["human", "validation"], validators=["v_short_circuit"]
-    )
+    step = _GatedStep(gates=["human", "validation"], validators=["v_short_circuit"])
 
     events, outcomes = await _collect_gates(
         engine, step, _Ctx(_RecordingRunner()), phase="post"
@@ -1249,7 +1247,7 @@ async def test_human_gate_without_a_route_is_byte_identical():
     prototype / prototype_feature_revision / sc001-test-fixture all declare human
     gates on steps with NO route; they must keep the plain string output and an
     empty artifact_kind."""
-    step = _GatedStep(gates=["human"])          # no .route attribute at all
+    step = _GatedStep(gates=["human"])  # no .route attribute at all
     seen = await _drive_human_gate(step)
     assert seen["output"] == "(awaiting choice)"
     assert seen["artifact_kind"] == ""
@@ -1267,9 +1265,6 @@ async def test_approval_gate_payload_path_is_untouched():
     """The approval gate's D-04 snapshot rides the SAME output field. A non-None
     payload must skip the choice branch entirely, even on a routed step."""
     snapshot = {"exec_policy": "deny"}
-    seen = await _drive_human_gate(
-        _routed_step({"english": 1}), payload=snapshot
-    )
+    seen = await _drive_human_gate(_routed_step({"english": 1}), payload=snapshot)
     assert seen["output"] == snapshot
     assert seen["artifact_kind"] == ""
-

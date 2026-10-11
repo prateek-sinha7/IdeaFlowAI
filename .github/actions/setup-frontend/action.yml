@@ -3,30 +3,45 @@ description: Install Node.js and cache npm dependencies
 
 inputs:
   node-version:
-    description: Node.js version to use
+    description: >-
+      Exact Node.js version to install. The default must equal
+      backend/tools/ci/pin_authority.py node_runtime_version; that is asserted
+      by backend/tests/unit/tools/ci/test_toolchain_pins.py.
     required: false
-    default: "20"
+    default: "24.11.0"
 
 runs:
   using: composite
   steps:
     - name: Setup Node.js
-      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # `node-version` (not `node-version-file: frontend/package.json`): the file
+      # form resolved the engines RANGE (>=24.0.0 <25.0.0) to whichever 24.x was
+      # newest that day, so the `node-version` input above was dead and CI did
+      # not run the pinned authority version (F-07). engines.node still bounds
+      # the pin, enforced at install time by the engine-strict .npmrc below.
       with:
         node-version: ${{ inputs.node-version }}
         cache: npm
         cache-dependency-path: frontend/package-lock.json
+
+    - name: Create .npmrc with engine-strict
+      shell: bash
+      working-directory: frontend
+      run: |
+        echo "engine-strict=true" >> .npmrc
 
     - name: Install npm dependencies
       shell: bash
       working-directory: frontend
       # `--no-audit` is deliberately NOT passed: it would silently skip npm's
       # install-time advisory check on every install, which is exactly the
-      # "npm ci used to bypass audit" pattern Task 3.16 forbids. The dedicated
-      # blocking `npm audit` step later in ci.yml is a separate, explicit
-      # policy gate — it does not make a quieter install-time check redundant,
-      # it is just the enforcement point. `--prefer-offline` only prefers the
-      # local cache over the registry; it does not affect determinism because
-      # `npm ci` already installs the exact resolved tree from
-      # package-lock.json and fails if package.json disagrees with it.
+      # "npm ci used to bypass audit" pattern Task 3.16 forbids. There is no
+      # separate `npm audit` gate any more (it was retired; Trivy and Grype in
+      # `container-scan`, plus `trivy fs` on package-lock.json, now give every
+      # dependency-vulnerability verdict), so this install-time check is only
+      # advisory output, not an enforcement point. `--prefer-offline` only
+      # prefers the local cache over the registry; it does not affect
+      # determinism because `npm ci` already installs the exact resolved tree
+      # from package-lock.json and fails if package.json disagrees with it.
       run: npm ci --prefer-offline

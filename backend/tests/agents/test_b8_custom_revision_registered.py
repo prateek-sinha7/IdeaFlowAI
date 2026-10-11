@@ -44,9 +44,9 @@ def test_custom_revision_pipeline_has_registered_agents() -> None:
         "custom-revision-planner must be registered for custom_revision "
         "(declares pipeline_type: custom_revision in its AGENT.md)"
     )
-    assert "custom-revision-builder" in agent_ids, (
-        "custom-revision-builder must be registered for custom_revision"
-    )
+    assert (
+        "custom-revision-builder" in agent_ids
+    ), "custom-revision-builder must be registered for custom_revision"
 
 
 def test_custom_type_run_derives_correct_revision_pipeline() -> None:

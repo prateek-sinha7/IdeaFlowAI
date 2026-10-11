@@ -17,11 +17,15 @@ const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<RunFamily>
 const mockGetRunSandbox = vi.fn();
 const mockGetRunSandboxFileBlob = vi.fn();
 const mockDownloadBlob = vi.fn();
+// RunHeader's VersionMenu lists the run's git tags (GET …/sandbox/refs). The
+// default — no tags yet — keeps the static, non-interactive version chip.
+const mockGetRunSandboxRefs = vi.fn<(token: string, id: string) => Promise<string[]>>();
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
   getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
+  getRunSandboxRefs: (token: string, id: string) => mockGetRunSandboxRefs(token, id),
   getRunSandbox: (token: string, id: string) => mockGetRunSandbox(token, id),
   getRunSandboxFileBlob: (token: string, id: string, path: string) =>
     mockGetRunSandboxFileBlob(token, id, path),
@@ -116,6 +120,7 @@ beforeEach(() => {
   mockGetToken.mockReset().mockReturnValue("test-token");
   mockGetWorkflow.mockReset();
   mockGetRunFamily.mockReset();
+  mockGetRunSandboxRefs.mockReset().mockResolvedValue([]);
 });
 
 describe("PreviewPanel — Phase 39 run header + tabs", () => {
@@ -143,14 +148,19 @@ describe("PreviewPanel — Phase 39 run header + tabs", () => {
     expect(screen.queryByTestId("tab-workspace")).toBeNull();
   });
 
-  it("mounts the run header and exactly ONE version affordance (INV-3) in the settled state", () => {
+  it("mounts the run header and exactly ONE version affordance (INV-3) in the settled state", async () => {
+    mockGetRunSandboxRefs.mockResolvedValue(["v1", "v2"]);
     render(
       <PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={family2} liveRunId="r1" />,
     );
     expect(screen.getByTestId("run-header")).toBeInTheDocument();
+    // The version chooser is the RunHeader VersionMenu chip; its accessible name
+    // is its visible text ("v2 ▾") since 24f11270 dropped the
+    // "Version v2, choose version" aria-label.
+    const chip = await screen.findByRole("button", { name: /^v2\b/ });
+    expect(chip).toHaveAttribute("aria-haspopup", "listbox");
     // Exactly one version-menu affordance — the retired LiveVersionChip pill is gone.
-    expect(screen.getAllByLabelText(/choose version/)).toHaveLength(1);
-    expect(screen.getByLabelText(/Version v2, choose version/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^(Viewing )?v\d+\b/ })).toHaveLength(1);
   });
 
   it("shows the Steps review dot while the run is paused on a review gate", () => {

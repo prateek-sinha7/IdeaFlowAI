@@ -70,22 +70,36 @@ async def test_pipeline_threads_usage_sink_to_classify_and_agents() -> None:
             calls["TestAgent"] = usage_sink
 
         async def analyse(self, **kwargs) -> dict[str, Any]:
-            return {"summary": "ok", "verdict": "concerns", "tests_present": [],
-                     "missing_coverage": [], "quality_issues": [], "recommended_additions": []}
+            return {
+                "summary": "ok",
+                "verdict": "concerns",
+                "tests_present": [],
+                "missing_coverage": [],
+                "quality_issues": [],
+                "recommended_additions": [],
+            }
 
     class SpyComplianceAgent:
         def __init__(self, usage_sink=None) -> None:
             calls["ComplianceAgent"] = usage_sink
 
         async def review(self, **kwargs) -> dict[str, Any]:
-            return {"summary": "ok", "verdict": "approve_with_changes", "findings": [],
-                     "positives": []}
+            return {
+                "summary": "ok",
+                "verdict": "approve_with_changes",
+                "findings": [],
+                "positives": [],
+            }
 
     stack = contextlib.ExitStack()
     stack.enter_context(patch.object(gh, "clone", _fake_clone))
     stack.enter_context(patch.object(gh, "get_repo_metadata", _fake_get_repo_metadata))
-    stack.enter_context(patch.object(gh, "create_pull_request", _fake_create_pull_request))
-    stack.enter_context(patch.object(gh, "checkout_new_branch", lambda ws, b: _FakeGitResult(0)))
+    stack.enter_context(
+        patch.object(gh, "create_pull_request", _fake_create_pull_request)
+    )
+    stack.enter_context(
+        patch.object(gh, "checkout_new_branch", lambda ws, b: _FakeGitResult(0))
+    )
     stack.enter_context(patch.object(gh, "stage_all", lambda ws: _FakeGitResult(0)))
     stack.enter_context(patch.object(gh, "commit", lambda ws, m: _FakeGitResult(0)))
     stack.enter_context(patch.object(gh, "push", lambda t, p, ws, b: _FakeGitResult(0)))
@@ -130,8 +144,12 @@ def test_handoff_session_has_a_token_usage_column() -> None:
 
     column_names = {c.name for c in HandoffSession.__table__.columns}
     token_columns = {c for c in column_names if "token" in c.lower() and c != "token"}
-    cost_columns = {c for c in column_names if any(w in c.lower() for w in ("usage", "cost", "spend"))}
+    cost_columns = {
+        c
+        for c in column_names
+        if any(w in c.lower() for w in ("usage", "cost", "spend"))
+    }
 
-    assert token_columns or cost_columns, (
-        f"handoff_sessions has no token/cost column; columns={sorted(column_names)}"
-    )
+    assert (
+        token_columns or cost_columns
+    ), f"handoff_sessions has no token/cost column; columns={sorted(column_names)}"

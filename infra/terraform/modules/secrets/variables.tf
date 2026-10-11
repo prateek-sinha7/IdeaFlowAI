@@ -71,6 +71,15 @@ variable "cors_origins" {
   default     = ""
 }
 
+# JUSTIFICATION for the suppression below (required before any linter is
+# silenced): the variable's own description already records that it is unused as
+# of Phase 4 and retained only until operational tooling is audited off
+# ACCESS_TOKEN_EXPIRE_HOURS. Both `foundation/main.tf` and `localstack/main.tf`
+# still pass it, so deleting the variable here fails those roots with "An
+# argument named access_token_expire_hours is not expected here". The `validation`
+# block is kept so the retained value cannot become nonsense in the meantime.
+# Retire this suppression together with the variable and both call sites.
+# tflint-ignore: terraform_unused_declarations
 variable "access_token_expire_hours" {
   description = "JWT lifetime in hours. UNUSED as of Phase 4 of the Cognito-only auth migration -- Cognito is the sole authentication authority and controls its own access-token lifetime via the app client (see the cognito module's access_token_validity_minutes). Retained as a variable only because ACCESS_TOKEN_EXPIRE_HOURS may still be read by operational tooling that has not been audited off it; the value itself governs nothing in the application."
   type        = number

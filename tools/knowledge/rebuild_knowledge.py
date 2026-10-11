@@ -40,6 +40,7 @@ future sync.
 
 This script does NOT run git. Committing the regenerated files is yours.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -162,8 +163,12 @@ def _run(argv: list[str], label: str, tail: int = 14, filt=None) -> int:
         say("")
         say(label, bold=True)
     proc = subprocess.Popen(
-        [sys.executable, "-u"] + argv, cwd=ROOT,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+        [sys.executable, "-u"] + argv,
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
     assert proc.stdout is not None
     for raw in proc.stdout:
@@ -208,8 +213,10 @@ def hook_mode() -> int:
     if probe != 0:
         rc = _run([str(arch)], "      rebuilding (pydeps + dependency-cruiser, ~40s)")
         if rc != 0:
-            say("  ! architecture rebuild failed — continuing; "
-                  "the commit is not blocked by this phase")
+            say(
+                "  ! architecture rebuild failed — continuing; "
+                "the commit is not blocked by this phase"
+            )
         else:
             _git_add(".knowledge/architecture", ".knowledge/ARCHITECTURE.md")
     else:
@@ -223,15 +230,23 @@ def hook_mode() -> int:
     say("")
     say("[2/3] domain cards", bold=True)
     n_cards = len(list((ROOT / ".knowledge" / "architecture").glob("DOMAIN-*.md")))
-    staged = subprocess.run(["git", "diff", "--name-only", "--cached"],
-                            cwd=ROOT, capture_output=True, text=True).stdout.split()
+    staged = subprocess.run(
+        ["git", "diff", "--name-only", "--cached"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
     src = [f for f in staged if not f.startswith(".knowledge/")]
-    say(f"  {n_cards} domain card(s) known; "
-          f"{len(src)} source file(s) staged of {len(staged)} total")
+    say(
+        f"  {n_cards} domain card(s) known; "
+        f"{len(src)} source file(s) staged of {len(staged)} total"
+    )
     rc = _run([str(arch), "--refresh-affected"], "", tail=20)
     if rc != 0:
-        say("  ! domain refresh reported a problem — continuing; "
-              "documentation never blocks a commit")
+        say(
+            "  ! domain refresh reported a problem — continuing; "
+            "documentation never blocks a commit"
+        )
     _git_add(".knowledge/architecture", ".knowledge/ARCHITECTURE.md")
 
     # ── 3. derived artifacts ───────────────────────────────────────────
@@ -243,8 +258,13 @@ def hook_mode() -> int:
     # Flatten the inner run's own stage numbering as it streams. It prints its
     # own "[1/3] index" headings, which nested inside this phase's "[3/3]" gave
     # two competing counters and read as a bug.
-    noise = ("Rebuilding .knowledge/", "All stages completed", "--check complete",
-             "Regenerated files")
+    noise = (
+        "Rebuilding .knowledge/",
+        "All stages completed",
+        "--check complete",
+        "Regenerated files",
+    )
+
     def _flatten(line: str):
         s = line.strip()
         if not s or s.startswith(noise):
@@ -252,8 +272,7 @@ def hook_mode() -> int:
         m = re.match(r"^\[\d+/\d+\]\s", s)
         return s.split("]", 1)[1].strip() if m else s
 
-    rc = _run([str(Path(__file__).resolve()), "--skip-architecture"], "",
-              filt=_flatten)
+    rc = _run([str(Path(__file__).resolve()), "--skip-architecture"], "", filt=_flatten)
     if rc != 0:
         say(BAR)
         say("COMMIT BLOCKED: a derived artifact could not be rebuilt.")
@@ -261,8 +280,12 @@ def hook_mode() -> int:
         say("is a real failure, not churn. Re-running will not fix it.")
         say(BAR)
         return 1
-    _git_add(".knowledge/INDEX.md", ".knowledge/state.yaml",
-             ".knowledge/CONTEXT.md", ".knowledge/cards")
+    _git_add(
+        ".knowledge/INDEX.md",
+        ".knowledge/state.yaml",
+        ".knowledge/CONTEXT.md",
+        ".knowledge/cards",
+    )
 
     say(BAR)
     say("knowledge base up to date; regenerated files staged into this commit")
@@ -280,23 +303,34 @@ def _git_add(*paths: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="dry-run where supported")
-    ap.add_argument("--skip-architecture", action="store_true",
-                    help="skip the slow source-scanning stage (cards-only changes)")
-    ap.add_argument("--hook", action="store_true",
-                    help="everything the pre-commit hook does, in three logged "
-                         "phases: architecture, domain refresh, derived "
-                         "artifacts. Only the last can fail the commit.")
-    ap.add_argument("--set-sync-point", action="store_true",
-                    help="after a successful rebuild, move state.yaml's "
-                         "last_sync_commit/last_sync_date to HEAD. Only "
-                         "`sync` (after reconciling the commit delta) should "
-                         "pass this -- see build_index.py --set-sync-point.")
+    ap.add_argument(
+        "--skip-architecture",
+        action="store_true",
+        help="skip the slow source-scanning stage (cards-only changes)",
+    )
+    ap.add_argument(
+        "--hook",
+        action="store_true",
+        help="everything the pre-commit hook does, in three logged "
+        "phases: architecture, domain refresh, derived "
+        "artifacts. Only the last can fail the commit.",
+    )
+    ap.add_argument(
+        "--set-sync-point",
+        action="store_true",
+        help="after a successful rebuild, move state.yaml's "
+        "last_sync_commit/last_sync_date to HEAD. Only "
+        "`sync` (after reconciling the commit delta) should "
+        "pass this -- see build_index.py --set-sync-point.",
+    )
     args = ap.parse_args()
 
     if args.hook:
         return hook_mode()
 
-    stages = [s for s in STAGES if not (args.skip_architecture and s[0] == "architecture")]
+    stages = [
+        s for s in STAGES if not (args.skip_architecture and s[0] == "architecture")
+    ]
 
     # `validate` inspects ALL of .knowledge/, including the architecture cards
     # it does not itself produce. That makes stage ORDER load-bearing in a way
@@ -309,19 +343,25 @@ def main() -> int:
     names = [s[0] for s in stages]
     if "validate" in names and "architecture" in names:
         if names.index("validate") < names.index("architecture"):
-            print("ERROR: 'validate' is ordered before 'architecture'. It checks "
-                  "links INTO architecture cards, so it must run after they are "
-                  "regenerated. Fix STAGES.")
+            print(
+                "ERROR: 'validate' is ordered before 'architecture'. It checks "
+                "links INTO architecture cards, so it must run after they are "
+                "regenerated. Fix STAGES."
+            )
             return 1
     if "validate" in names and names[-1] != "validate":
         print(f"ERROR: 'validate' must run last; STAGES ends with {names[-1]!r}.")
         return 1
 
-    print(f"Rebuilding .knowledge/ ({len(stages)} stages)"
-          + (" [--check: no writes]" if args.check else ""))
+    print(
+        f"Rebuilding .knowledge/ ({len(stages)} stages)"
+        + (" [--check: no writes]" if args.check else "")
+    )
     for i, (name, script, supports_check, readonly) in enumerate(stages, 1):
         print(f"\n[{i}/{len(stages)}] {name}  ({script})")
-        extra = ["--set-sync-point"] if (name == "index" and args.set_sync_point) else None
+        extra = (
+            ["--set-sync-point"] if (name == "index" and args.set_sync_point) else None
+        )
         if not run_stage(script, supports_check, readonly, args.check, extra):
             print(f"\nAborted at stage {name!r}. Nothing further was run.")
             return 1

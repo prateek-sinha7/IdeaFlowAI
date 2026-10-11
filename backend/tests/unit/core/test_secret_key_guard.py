@@ -58,7 +58,9 @@ _SHIPPED_DEFAULT = "dev-secret-key-change-in-production"
 _STRONG = "x" * 64
 
 
-def _build_cognito_configured_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str):
+def _build_cognito_configured_settings(
+    monkeypatch: pytest.MonkeyPatch, **overrides: str
+):
     """Like ``_build_settings``, but also supplies the Cognito settings the
     boot guard requires outside development (unrelated to SECRET_KEY, but
     ``_validate_cognito_config`` runs as part of the same model_validator

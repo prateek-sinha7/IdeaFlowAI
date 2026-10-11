@@ -126,7 +126,9 @@ class FakeCognitoAuth:
         self.monkeypatch.setattr(settings, "COGNITO_CLIENT_SECRET", self.client_secret)
         self.monkeypatch.setattr(settings, "COGNITO_REGION", self.region)
         self.monkeypatch.setattr(cognito, "_fetch_jwks", lambda: {self.kid: self._jwk})
-        self.monkeypatch.setattr(cognito, "admin_initiate_auth", self._admin_initiate_auth)
+        self.monkeypatch.setattr(
+            cognito, "admin_initiate_auth", self._admin_initiate_auth
+        )
         # The JWKS cache is module-level state keyed by kid. Every
         # FakeCognitoAuth generates a fresh RSA key but reuses the SAME
         # literal kid ("test-key-1"), so a stale cache entry from a

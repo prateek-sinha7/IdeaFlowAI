@@ -109,7 +109,8 @@ export interface DashboardLayoutProps {
   chatTitleUpdate?: { chat_session_id: string; title: string } | null;
   processSteps?: ProcessStep[];
   pipelineState?: PipelineRunState;
-  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
+  /** Resolves to whether the launch was accepted (when the caller can tell). */
+  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void | Promise<boolean>;
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
   /** ISS-757: false until page.tsx's initial getWorkflows has settled. Lets the
@@ -581,11 +582,19 @@ export function DashboardLayout({
   // forward pushes (the triggering handler already set the same mainView
   // directly) and skipped when initialMainView is undefined (routes with no
   // MainView equivalent fall back to whatever mainView already is).
+  //
+  // Keyed on the PROP changing only (not on mainView): depending on mainView too
+  // made the effect revert every handler-driven change made before the URL caught
+  // up — e.g. handleRunPipeline's optimistic "execution" swap was snapped back to
+  // the /create/{type} "input" view until pipeline_start pushed /runs/{id}/stream.
+  const prevInitialMainViewRef = useRef(initialMainView);
   useEffect(() => {
-    if (initialMainView && initialMainView !== mainView) {
+    if (initialMainView === prevInitialMainViewRef.current) return;
+    prevInitialMainViewRef.current = initialMainView;
+    if (initialMainView) {
       setMainView(initialMainView);
     }
-  }, [initialMainView, mainView]);
+  }, [initialMainView]);
 
   // Which Account Settings tab a navigation asked for, plus a monotonic nonce so
   // that asking for the SAME tab twice still forces a fresh mount (see
@@ -884,6 +893,33 @@ export function DashboardLayout({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipelineState?.isRunning, pipelineState?.pipeline_type, pipelineState?.pipelineRunId]);
+
+  // 015-frontend-routing remount recovery: the launch pushes routes.runStream(id),
+  // which remounts this layout and wipes the currentPipelineNotifId refs set by
+  // handleRunPipeline — so the completion effect below found no notification and
+  // the CompletionToast never fired. Notifications persist (localStorage) and
+  // carry the run id once Fix-C stamps it, so re-adopt the viewed run's live one.
+  // Declared BEFORE the completion effect so it runs first in the same commit.
+  useEffect(() => {
+    const runId = pipelineState?.pipelineRunId;
+    if (!runId || currentPipelineNotifId.current) return;
+    const owned = notifications.find(
+      (n) => n.workflowRunId === runId && (n.status === "running" || n.status === "gate"),
+    );
+    // Not stamped yet (the remount beat Fix-C): the launch's own notification is
+    // the newest running one with no run id — the same rule FIX-205 uses.
+    // Only for a LIVE viewed run — never bind a stray notification to a reopened one.
+    const unbound = owned || !pipelineState?.isRunning
+      ? undefined
+      : notifications.find((n) => n.status === "running" && !n.workflowRunId);
+    const adopt = owned ?? unbound;
+    if (adopt) {
+      currentPipelineNotifId.current = adopt.id;
+      currentPipelineNotifRunId.current = runId;
+      if (unbound) setNotifWorkflowRunId(unbound.id, runId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineState?.pipelineRunId, notifications]);
 
   // Capture output when pipeline completes (for chaining)
   useEffect(() => {
@@ -1700,7 +1736,8 @@ export function DashboardLayout({
   // Spring Boot or .NET→Azure) before invoking us. We sync `workflowType`
   // here so downstream effects (chaining, sidebar labels, completion
   // tracking) see the real pipeline.
-  const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => {
+  const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>): Promise<boolean> | undefined => {
+    const viewBeforeLaunch = mainView;
     setWorkflowInput(message);
     setMainView("execution");
     // T9/T25 (015-frontend-routing): no run id exists yet at this call site —
@@ -1756,12 +1793,22 @@ export function DashboardLayout({
         ? { ...(extraParams || {}), _display_title: notifTitle.slice(0, 60) }
         : extraParams;
       if (connectionStatus === "connected") {
-        onStartPipeline(resolvedType, message, agentIds, attachedHooks, enrichedExtraParams);
+        const launch = onStartPipeline(resolvedType, message, agentIds, attachedHooks, enrichedExtraParams);
+        // TS-Z3-02: a REJECTED launch (e.g. 503 host_capacity_exhausted) must not
+        // strand the user on an empty execution lane — return to the screen the
+        // launch came from (the brief is still there) so Run can be retried.
+        if (launch) {
+          return launch.then((accepted) => {
+            if (!accepted) setMainView(viewBeforeLaunch);
+            return accepted;
+          });
+        }
       } else {
         pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams: enrichedExtraParams };
       }
     }
-  }, [onStartPipeline, onResetPipeline, connectionStatus, attachedHooks, addRunningNotification]);
+    return undefined;
+  }, [onStartPipeline, onResetPipeline, connectionStatus, attachedHooks, addRunningNotification, mainView]);
 
   // Go back to home
   const handleGoHome = useCallback(() => {

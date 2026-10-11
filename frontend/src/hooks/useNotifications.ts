@@ -53,8 +53,24 @@ function loadFromStorage(): PipelineNotification[] {
   }
 }
 
+// 015-frontend-routing: a launch pushes /runs/{id}/stream, which REMOUNTS the
+// layout that owns this hook — and running/gate notifications are deliberately
+// never written to localStorage (FIX-204), so the remount dropped the live
+// notification and its run never got a CompletionToast. Keep the live entries
+// in module memory: it survives an in-app remount but NOT a page refresh, so
+// FIX-204's refresh semantics (no stale eternally-spinning entries) still hold.
+let liveNotificationsCache: PipelineNotification[] = [];
+
+/** Drop the in-memory live notifications. Called on sign-out (the logout is a
+ *  soft router.replace, so module memory would otherwise carry one account's
+ *  running-run titles into the next sign-in on the same tab). */
+export function resetLiveNotificationsCache(): void {
+  liveNotificationsCache = [];
+}
+
 function saveToStorage(notifications: PipelineNotification[]): void {
   if (typeof window === "undefined") return;
+  liveNotificationsCache = notifications.filter((n) => n.status === "running" || n.status === "gate");
   try {
     // FIX-204: only persist terminal notifications (completed/failed/cancelled).
     // Running and gate notifications are ephemeral — they belong to a live SSE
@@ -117,9 +133,12 @@ export function getWorkflowLabel(type: string): string {
 
 export function useNotifications() {
   // FIX-202: hydrate from localStorage on mount so notifications survive refresh.
-  const [notifications, setNotifications] = useState<PipelineNotification[]>(() =>
-    loadFromStorage()
-  );
+  const [notifications, setNotifications] = useState<PipelineNotification[]>(() => {
+    const persisted = loadFromStorage();
+    // Re-adopt live entries carried across an in-app remount (see the cache note).
+    const live = liveNotificationsCache.filter((n) => !persisted.some((p) => p.id === n.id));
+    return [...live, ...persisted];
+  });
 
   // FIX-202: persist to localStorage on every state change.
   useEffect(() => {

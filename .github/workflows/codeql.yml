@@ -1,0 +1,111 @@
+# =============================================================================
+# CodeQL — semantic static analysis for Python and TypeScript
+# =============================================================================
+# F-32: the repository had no semantic SAST. Its Python security coverage was
+# bandit (pattern-based, per-file) plus ruff; its JavaScript coverage was ESLint.
+# None of those follow data across function or module boundaries, so the whole
+# class of "untrusted value reaches a dangerous sink several calls away" was
+# unchecked — in a codebase whose central job is executing LLM-directed agent
+# workflows and which explicitly treats model output as untrusted input.
+#
+# WHY THIS IS A SEPARATE WORKFLOW AND NOT A JOB IN ci.yml
+#   ci.yml is the unprivileged evaluator: `permissions: contents: read`, no
+#   elevated scope anywhere except the one status publisher, and
+#   backend/tests/unit/tools/ci/test_ruleset_workflow_contract.py asserts it
+#   requests no `contents: write`, no `packages`, and no `id-token`. CodeQL needs
+#   `security-events: write` to upload a SARIF result. Adding that to ci.yml would
+#   widen the evaluator's token for every job in it, which is the opposite of what
+#   that file is for.
+#
+#   The consequence is that CodeQL is NOT one of the mandatory signals in
+#   backend/tools/ci/signal_registry.py and does NOT feed `ci-required`. It is
+#   advisory-by-architecture for now. Making it blocking is a deliberate follow-up
+#   with two parts: a `code_scanning` rule in .github/rulesets/main.json (the REST
+#   rules API supports one, with an alerts/security-alerts threshold), or a
+#   registered signal with its own owner job. Do NOT "fix" this by moving the job
+#   into ci.yml.
+#
+# COST CONTROL
+#   `pull_request` on the two source trees only, plus a weekly full scan. Without
+#   the path filter this ran on every docs- and `.knowledge/`-only change, which is
+#   most commits here because a pre-commit hook regenerates `.knowledge/` — two
+#   CodeQL analyses of a full monorepo for a changed markdown file. The weekly run
+#   is what keeps coverage honest when a path filter excludes something it should
+#   not have.
+# =============================================================================
+
+name: CodeQL
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/codeql.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    # Mondays 04:00 UTC — after the 03:00 Cognito reconcile so the two do not
+    # contend for runners, and before the working week starts.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # The only elevated scope, and the reason this is not a job in ci.yml.
+      security-events: write
+    strategy:
+      # Both languages always report. A failure in one must not hide the other's
+      # findings — the same reasoning as ci.yml's `security` and `container-scan`
+      # matrices.
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - javascript-typescript
+    steps:
+      # F-01: the same evaluation-SHA rule as every other workflow here. On a
+      # pull_request event `github.sha` is a temporary merge commit; CodeQL
+      # results must be attributed to the PR head so the alerts land on commits
+      # that exist in the contributor's branch.
+      - name: Checkout the exact evaluated revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
+        with:
+          languages: ${{ matrix.language }}
+          # `security-and-quality` over the default `security-extended`: this
+          # repository already enforces lint and dead-code gates, so the quality
+          # queries overlap with checks that are blocking elsewhere — but CodeQL
+          # sees across module boundaries where ruff and ESLint do not.
+          queries: security-and-quality
+
+      # No `autobuild` step. Both languages here are interpreted, so CodeQL
+      # extracts them directly from source; autobuild would try to resolve and
+      # install the dependency graph, which for this repo means `uv sync` and
+      # `npm ci` for no analysis benefit and several minutes per language.
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@3ea06614dafe36dec890db3446326e0d40ce53d4 # v3.38.1
+        with:
+          category: "/language:${{ matrix.language }}"

@@ -29,6 +29,9 @@ from agents.capabilities.registry import register
 @register(
     "compaction",
     "html_skeleton",
+    # ADR-0054: a saved (Composer) copy of a built-in may reference this; it
+    # stays in the run's own owner-scoped sandbox and reaches no host resource.
+    saved_workflow_allowed=True,
     description="Compact prior HTML context down to a structural skeleton to fit the model context window.",
 )
 class HtmlSkeletonCompaction:

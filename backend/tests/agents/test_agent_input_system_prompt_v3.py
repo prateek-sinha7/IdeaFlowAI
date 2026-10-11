@@ -48,6 +48,7 @@ from tests.unit.agents.test_redo_gate_safety import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _turn(text: str) -> list[_ScriptedTurn]:
     return [_ScriptedTurn(texts=[text], usage=(5, 3))]
 
@@ -57,11 +58,7 @@ def _expected_first_agent_context_message(task_message: str) -> str:
     of a run (``engine.py`` ~13538): ``is_first_agent`` unconditionally selects
     this branch, independent of ``prompt_policy``/migration state.
     """
-    return (
-        "=== ORIGINAL USER REQUEST ===\n"
-        f"{task_message}\n"
-        "=== END REQUEST ==="
-    )
+    return "=== ORIGINAL USER REQUEST ===\n" f"{task_message}\n" "=== END REQUEST ==="
 
 
 def _collect_agent_input_events(events: list[dict]) -> list[dict]:
@@ -69,8 +66,7 @@ def _collect_agent_input_events(events: list[dict]) -> list[dict]:
     return [
         ev["data"]
         for ev in events
-        if ev.get("type") == "agent_input"
-        and "context_message" in ev.get("data", {})
+        if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
     ]
 
 
@@ -124,6 +120,7 @@ async def _drive_agent_with_sandbox(
 # FR-044 test — system_prompt and context_message in agent_input event
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_agent_input_carries_system_prompt_and_context_message() -> None:
     """[FR-044] The agent_input SSE event carries both system_prompt (the factory's
@@ -161,7 +158,13 @@ async def test_agent_input_carries_system_prompt_and_context_message() -> None:
 
             results: list[dict] = []
             events = await _drive_agent_with_sandbox(
-                h.engine, spec, ectx, results, [spec], sandbox, index=0,
+                h.engine,
+                spec,
+                ectx,
+                results,
+                [spec],
+                sandbox,
+                index=0,
                 task_message=task_message,
             )
     finally:
@@ -172,20 +175,20 @@ async def test_agent_input_carries_system_prompt_and_context_message() -> None:
     assert agent_inputs, "no agent_input events in the stream"
 
     # There should be exactly one agent_input event (one agent, one pass)
-    assert len(agent_inputs) == 1, (
-        f"expected 1 agent_input event, got {len(agent_inputs)}"
-    )
-    assert len(composed_system_prompts) == 1, (
-        f"expected exactly 1 _compose_system_prompt call, got {len(composed_system_prompts)}"
-    )
+    assert (
+        len(agent_inputs) == 1
+    ), f"expected 1 agent_input event, got {len(agent_inputs)}"
+    assert (
+        len(composed_system_prompts) == 1
+    ), f"expected exactly 1 _compose_system_prompt call, got {len(composed_system_prompts)}"
 
     agent_input = agent_inputs[0]
 
     # (1) system_prompt must be present and EQUAL to the factory's own composed
     # string (policy.assemble output) for this call.
-    assert "system_prompt" in agent_input, (
-        "agent_input event missing 'system_prompt' field"
-    )
+    assert (
+        "system_prompt" in agent_input
+    ), "agent_input event missing 'system_prompt' field"
     system_prompt = agent_input["system_prompt"]
     assert system_prompt == composed_system_prompts[0], (
         "emitted system_prompt does not equal the factory's composed string "
@@ -195,9 +198,9 @@ async def test_agent_input_carries_system_prompt_and_context_message() -> None:
 
     # (2) context_message must be EQUAL to the exact envelope
     # _compose_context_message builds for the first agent of a run.
-    assert "context_message" in agent_input, (
-        "agent_input event missing 'context_message' field"
-    )
+    assert (
+        "context_message" in agent_input
+    ), "agent_input event missing 'context_message' field"
     context_message = agent_input["context_message"]
     expected_context_message = _expected_first_agent_context_message(task_message)
     assert context_message == expected_context_message, (
@@ -207,9 +210,9 @@ async def test_agent_input_carries_system_prompt_and_context_message() -> None:
     )
 
     # (3) sanity: not a trivial/empty string.
-    assert len(system_prompt) > 100, (
-        f"system_prompt seems incomplete ({len(system_prompt)} chars): {system_prompt[:200]}"
-    )
+    assert (
+        len(system_prompt) > 100
+    ), f"system_prompt seems incomplete ({len(system_prompt)} chars): {system_prompt[:200]}"
 
 
 @pytest.mark.asyncio
@@ -251,9 +254,20 @@ async def test_agent_input_system_prompt_present_at_yield_time() -> None:
 
         snapshots_at_yield: list[dict] = []
         async for ev in h.engine._run_agent(
-            spec, 0, [spec], task_message, sandbox, ectx.run_id,
-            "user_stories", h.engine._default_planning_context(task_message),
-            None, None, "test-model-id", results, None, ectx,
+            spec,
+            0,
+            [spec],
+            task_message,
+            sandbox,
+            ectx.run_id,
+            "user_stories",
+            h.engine._default_planning_context(task_message),
+            None,
+            None,
+            "test-model-id",
+            results,
+            None,
+            ectx,
         ):
             # Snapshot immediately — the same instant a real consumer
             # (sink.persist / RunTrace.observe) would serialize it — BEFORE
@@ -261,9 +275,9 @@ async def test_agent_input_system_prompt_present_at_yield_time() -> None:
             if ev.get("type") == "agent_input":
                 snapshots_at_yield.append(dict(ev.get("data") or {}))
 
-    assert len(snapshots_at_yield) == 1, (
-        f"expected 1 agent_input event, got {len(snapshots_at_yield)}"
-    )
+    assert (
+        len(snapshots_at_yield) == 1
+    ), f"expected 1 agent_input event, got {len(snapshots_at_yield)}"
     snapshot = snapshots_at_yield[0]
     assert "system_prompt" in snapshot, (
         "agent_input event's data dict did not carry 'system_prompt' AT YIELD "
@@ -281,7 +295,9 @@ async def test_agent_input_context_message_matches_task() -> None:
     from agents.loader import load_agent_spec
 
     spec = load_agent_spec("domain-analyst")
-    task_message = "Design a microservices architecture for a real-time analytics platform."
+    task_message = (
+        "Design a microservices architecture for a real-time analytics platform."
+    )
     run_id = "context-message-run"
 
     with _EngineHarness(
@@ -294,7 +310,13 @@ async def test_agent_input_context_message_matches_task() -> None:
 
         results: list[dict] = []
         events = await _drive_agent_with_sandbox(
-            h.engine, spec, ectx, results, [spec], sandbox, index=0,
+            h.engine,
+            spec,
+            ectx,
+            results,
+            [spec],
+            sandbox,
+            index=0,
             task_message=task_message,
         )
 

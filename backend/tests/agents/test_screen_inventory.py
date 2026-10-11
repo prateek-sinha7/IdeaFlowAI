@@ -131,9 +131,7 @@ class TestParseInventoryDefaults:
         assert any("unknown kind" in n for n in inv.notes)
 
     def test_kind_unknown_no_suffix_defaults_to_page(self):
-        inv = parse_inventory(
-            '{"screens": [{"id": "home", "kind": "unknown"}]}'
-        )
+        inv = parse_inventory('{"screens": [{"id": "home", "kind": "unknown"}]}')
         assert inv.screens[0].kind == "page"
 
     def test_screen_id_normalised_and_noted(self):
@@ -168,7 +166,9 @@ class TestParseInventoryTransitions:
         )
         settings = inv.screens[1]
         assert len(settings.transitions) >= 1
-        assert any(t.to == "settings" and t.attr == "data-opens" for t in settings.transitions)
+        assert any(
+            t.to == "settings" and t.attr == "data-opens" for t in settings.transitions
+        )
 
     def test_transition_attr_inferred_for_self_reference_as_tab(self):
         inv = parse_inventory(
@@ -191,9 +191,7 @@ class TestParseInventoryTransitions:
         assert any("changed to data-opens" in n for n in inv.notes)
 
     def test_transition_dialog_auto_close_added(self):
-        inv = parse_inventory(
-            '{"screens": [{"id": "modal", "kind": "dialog"}]}'
-        )
+        inv = parse_inventory('{"screens": [{"id": "modal", "kind": "dialog"}]}')
         modal = inv.screens[0]
         assert any(t.attr == "data-closes" for t in modal.transitions)
         assert any("close transition" in n for n in inv.notes)
@@ -242,9 +240,7 @@ class TestParseInventoryById:
     """Test the by_id() method."""
 
     def test_by_id_returns_dict_keyed_by_screen_id(self):
-        inv = parse_inventory(
-            '{"screens": [{"id": "home"}, {"id": "about"}]}'
-        )
+        inv = parse_inventory('{"screens": [{"id": "home"}, {"id": "about"}]}')
         by_id = inv.by_id()
         assert "home" in by_id
         assert "about" in by_id
@@ -425,8 +421,14 @@ def test_spec_fields_is_empty_without_a_fields_block():
 
 def test_flow_moves_names_both_ends_and_a_label_when_the_line_has_one():
     moves = flow_moves(_SPEC)
-    assert ("search", "account", "") in moves or ("search", "account", "account name") in moves
-    assert ("account", "edit-dialog", "") in moves or any(m[:2] == ("account", "edit-dialog") for m in moves)
+    assert ("search", "account", "") in moves or (
+        "search",
+        "account",
+        "account name",
+    ) in moves
+    assert ("account", "edit-dialog", "") in moves or any(
+        m[:2] == ("account", "edit-dialog") for m in moves
+    )
     assert any(m[:2] == ("account", "policy") and m[2] == "Policy Info" for m in moves)
     assert not any(m[0] == m[1] for m in moves)
 
@@ -441,11 +443,17 @@ def test_apply_flow_backstop_adds_missing_moves_and_leaves_existing_and_dialog_s
     )
     notes = apply_flow_backstop(inv, _SPEC)
     by = inv.by_id()
-    assert [t.to for t in by["search"].transitions] == ["account"]  # existing, not duplicated
+    assert [t.to for t in by["search"].transitions] == [
+        "account"
+    ]  # existing, not duplicated
     added = {(t.attr, t.to): t.label for t in by["account"].transitions}
     assert added[("data-opens", "edit-dialog")]  # page → dialog becomes data-opens
-    assert added[("data-goto", "policy")] == "Policy Info"  # label taken from the flow line
-    assert all(t.attr == "data-closes" for t in by["edit-dialog"].transitions)  # dialog source untouched
+    assert (
+        added[("data-goto", "policy")] == "Policy Info"
+    )  # label taken from the flow line
+    assert all(
+        t.attr == "data-closes" for t in by["edit-dialog"].transitions
+    )  # dialog source untouched
     assert len(notes) == 2 and all(n.startswith("flow backstop: added") for n in notes)
     assert notes == inv.notes[-2:]
 
@@ -526,9 +534,17 @@ def test_flow_moves_reads_each_screens_actions_table_destination_column():
 ## Missing
 """
     moves = flow_moves(spec)
-    assert ("account-search", "account-transactions", "Folder icon (Trans column)") in moves
+    assert (
+        "account-search",
+        "account-transactions",
+        "Folder icon (Trans column)",
+    ) in moves
     assert ("account-search", "transaction-type", "Clone icon") in moves
     assert ("account-transactions", "account-search", "Back") in moves
-    assert not any(a == b for a, b, _ in moves), "a row that stays on its screen is not a move"
+    assert not any(
+        a == b for a, b, _ in moves
+    ), "a row that stays on its screen is not a move"
     assert not any(b in ("stays", "—") for _, b, _ in moves)
-    assert not any(a == "account-search" and b == "182067033019" for a, b, _ in moves), "Fields rows are not actions"
+    assert not any(
+        a == "account-search" and b == "182067033019" for a, b, _ in moves
+    ), "Fields rows are not actions"

@@ -168,9 +168,9 @@ class TestRunSandboxTwoIdSplit:
         assert sb.root == (tmp_path / "user1" / root_id).resolve()
         # Log path uses current_run_id.
         assert sb.run_log_path.name == f"{rev_id}.jsonl"
-        assert root_id not in sb.run_log_path.name, (
-            "run_log_path filename must use current_run_id, not sandbox_root_id"
-        )
+        assert (
+            root_id not in sb.run_log_path.name
+        ), "run_log_path filename must use current_run_id, not sandbox_root_id"
 
     def test_revision_verify_dir_uses_current_run_id(self, tmp_path: Path) -> None:
         """verify_dir must embed current_run_id (Requirement 3 AC 4)."""
@@ -291,9 +291,7 @@ class TestResolveRevisionRoot:
         root_id = _run_id()
         rev_id = _run_id()
         _seed_run(db_session, run_id=root_id, user_id="alice")
-        _seed_run(
-            db_session, run_id=rev_id, user_id="alice", parent_run_id=root_id
-        )
+        _seed_run(db_session, run_id=rev_id, user_id="alice", parent_run_id=root_id)
 
         result = resolve_revision_root(db_session, rev_id, "alice")
 
@@ -311,12 +309,8 @@ class TestResolveRevisionRoot:
         rev1_id = _run_id()
         rev2_id = _run_id()
         _seed_run(db_session, run_id=root_id, user_id="alice")
-        _seed_run(
-            db_session, run_id=rev1_id, user_id="alice", parent_run_id=root_id
-        )
-        _seed_run(
-            db_session, run_id=rev2_id, user_id="alice", parent_run_id=rev1_id
-        )
+        _seed_run(db_session, run_id=rev1_id, user_id="alice", parent_run_id=root_id)
+        _seed_run(db_session, run_id=rev2_id, user_id="alice", parent_run_id=rev1_id)
 
         result_rev1 = resolve_revision_root(db_session, rev1_id, "alice")
         result_rev2 = resolve_revision_root(db_session, rev2_id, "alice")
@@ -327,9 +321,7 @@ class TestResolveRevisionRoot:
         assert result_rev1.root_id == root_id
         assert result_rev2.root_id == root_id
 
-    def test_chain_from_depth_two_revision_is_different_root(
-        self, db_session
-    ) -> None:
+    def test_chain_from_depth_two_revision_is_different_root(self, db_session) -> None:
         """A chained workflow from a depth-two revision receives a DIFFERENT root.
 
         V2-Q1 / Requirement 2 AC 2–3: source_run_id is NEVER followed when
@@ -346,12 +338,8 @@ class TestResolveRevisionRoot:
         rev1_id = _run_id()
         rev2_id = _run_id()
         _seed_run(db_session, run_id=root_id, user_id="alice")
-        _seed_run(
-            db_session, run_id=rev1_id, user_id="alice", parent_run_id=root_id
-        )
-        _seed_run(
-            db_session, run_id=rev2_id, user_id="alice", parent_run_id=rev1_id
-        )
+        _seed_run(db_session, run_id=rev1_id, user_id="alice", parent_run_id=root_id)
+        _seed_run(db_session, run_id=rev2_id, user_id="alice", parent_run_id=rev1_id)
 
         # A chained workflow from rev2 — has source_run_id=rev2, NO parent_run_id.
         chain_id = _run_id()
@@ -379,9 +367,7 @@ class TestResolveRevisionRoot:
             "source's revision family (V2-Q1)"
         )
 
-    def test_resolver_walks_parent_run_id_not_source_run_id(
-        self, db_session
-    ) -> None:
+    def test_resolver_walks_parent_run_id_not_source_run_id(self, db_session) -> None:
         """Regression guard: if source_run_id is set, the resolver must NOT follow
         it when computing the revision root.  Only parent_run_id is the walk edge.
         (V2-Q1 / Requirement 2 AC 2)"""
@@ -400,7 +386,7 @@ class TestResolveRevisionRoot:
             db_session,
             run_id=chained_rev_id,
             user_id="alice",
-            parent_run_id=my_root_id,   # the real parent / physical sandbox key
+            parent_run_id=my_root_id,  # the real parent / physical sandbox key
             source_run_id=source_root_id,  # the chain source — must be ignored
         )
 
@@ -427,9 +413,9 @@ class TestResolveRevisionRoot:
 
         for empty in ("", None):
             result = resolve_revision_root(db_session, run_id, empty)  # type: ignore[arg-type]
-            assert isinstance(result, RevisionRootUnresolved), (
-                f"Empty principal {empty!r} must produce RevisionRootUnresolved"
-            )
+            assert isinstance(
+                result, RevisionRootUnresolved
+            ), f"Empty principal {empty!r} must produce RevisionRootUnresolved"
             assert result.reason == "null_principal"
 
     def test_self_parent_cycle_produces_unresolved(self, db_session) -> None:
@@ -441,16 +427,16 @@ class TestResolveRevisionRoot:
         run_id = _run_id()
         # Insert the row first without a parent, then update to create the cycle.
         _seed_run(db_session, run_id=run_id, user_id="alice")
-        db_session.query(WorkflowRun).filter(
-            WorkflowRun.id == run_id
-        ).update({"parent_run_id": run_id})
+        db_session.query(WorkflowRun).filter(WorkflowRun.id == run_id).update(
+            {"parent_run_id": run_id}
+        )
         db_session.commit()
 
         result = resolve_revision_root(db_session, run_id, "alice")
 
-        assert isinstance(result, RevisionRootUnresolved), (
-            "A self-parent cycle must produce RevisionRootUnresolved"
-        )
+        assert isinstance(
+            result, RevisionRootUnresolved
+        ), "A self-parent cycle must produce RevisionRootUnresolved"
         assert result.reason == "cycle"
         assert result.repeated_node == run_id
 
@@ -466,12 +452,12 @@ class TestResolveRevisionRoot:
         # Seed A with B as parent, B with A as parent.
         _seed_run(db_session, run_id=run_a, user_id="alice")
         _seed_run(db_session, run_id=run_b, user_id="alice")
-        db_session.query(WorkflowRun).filter(
-            WorkflowRun.id == run_a
-        ).update({"parent_run_id": run_b})
-        db_session.query(WorkflowRun).filter(
-            WorkflowRun.id == run_b
-        ).update({"parent_run_id": run_a})
+        db_session.query(WorkflowRun).filter(WorkflowRun.id == run_a).update(
+            {"parent_run_id": run_b}
+        )
+        db_session.query(WorkflowRun).filter(WorkflowRun.id == run_b).update(
+            {"parent_run_id": run_a}
+        )
         db_session.commit()
 
         result = resolve_revision_root(db_session, run_a, "alice")
@@ -565,9 +551,9 @@ class TestResolveRevisionRoot:
 
         run_id = _run_id()
         _seed_run(db_session, run_id=run_id, user_id="alice")
-        db_session.query(WorkflowRun).filter(
-            WorkflowRun.id == run_id
-        ).update({"parent_run_id": run_id})
+        db_session.query(WorkflowRun).filter(WorkflowRun.id == run_id).update(
+            {"parent_run_id": run_id}
+        )
         db_session.commit()
 
         result = resolve_revision_root(db_session, run_id, "alice")
@@ -589,9 +575,9 @@ class TestResolveRevisionRoot:
 
         run_id = _run_id()
         _seed_run(db_session, run_id=run_id, user_id="alice")
-        db_session.query(WorkflowRun).filter(
-            WorkflowRun.id == run_id
-        ).update({"parent_run_id": run_id})
+        db_session.query(WorkflowRun).filter(WorkflowRun.id == run_id).update(
+            {"parent_run_id": run_id}
+        )
         db_session.commit()
 
         result = resolve_revision_root(db_session, run_id, "alice")
@@ -618,9 +604,9 @@ class TestResolveRevisionRoot:
         result = resolve_revision_root(db_session, run_id, "alice")
 
         assert isinstance(result, RevisionRootUnresolved)
-        assert result.repeated_node is None, (
-            "repeated_node must be None for non-cycle failures"
-        )
+        assert (
+            result.repeated_node is None
+        ), "repeated_node must be None for non-cycle failures"
 
 
 # ===========================================================================
@@ -689,9 +675,9 @@ class TestTTLSweepProtectedSet:
         )
 
         assert removed == 0
-        assert run_dir.exists(), (
-            "sandbox with an active descendant (protected root) must NOT be swept"
-        )
+        assert (
+            run_dir.exists()
+        ), "sandbox with an active descendant (protected root) must NOT be swept"
 
     def test_gate_paused_descendant_protects_sandbox(self, tmp_path: Path) -> None:
         """A run durably paused at a human gate is non-terminal and protects
@@ -714,9 +700,9 @@ class TestTTLSweepProtectedSet:
         )
 
         assert removed == 0
-        assert run_dir.exists(), (
-            "gate-paused (non-terminal) descendant must protect the sandbox"
-        )
+        assert (
+            run_dir.exists()
+        ), "gate-paused (non-terminal) descendant must protect the sandbox"
 
     def test_resolver_failure_protects_sandbox(self, tmp_path: Path) -> None:
         """A resolver failure (ambiguous or cyclic ancestry) must protect the
@@ -903,9 +889,10 @@ class TestAdmissionAtomicityUnderFamilyLock:
         t2.join(timeout=5.0)
 
         assert not errors, f"Unexpected errors: {errors}"
-        assert set(acquired) == {"A", "B"}, (
-            "Both different-family locks must be acquired independently"
-        )
+        assert set(acquired) == {
+            "A",
+            "B",
+        }, "Both different-family locks must be acquired independently"
 
     def test_family_lock_timeout_raises_family_lock_timeout(
         self, tmp_path: Path
@@ -1013,9 +1000,10 @@ class TestLockOrder:
         t2.join(timeout=5.0)
 
         assert not errors, f"Unexpected errors: {errors}"
-        assert set(results) == {"T1", "T2"}, (
-            "Both threads must complete when they follow the correct lock order"
-        )
+        assert set(results) == {
+            "T1",
+            "T2",
+        }, "Both threads must complete when they follow the correct lock order"
 
     def test_reverse_lock_order_causes_deadlock(self, tmp_path: Path) -> None:
         """DIAGNOSTIC: acquiring manifest first, then family, causes deadlock when
@@ -1104,9 +1092,9 @@ class TestLockOrder:
 
         doc = inspect.getdoc(family_lock) or ""
         # The docstring must mention both the order and the consequence.
-        assert "family lock" in doc.lower() or "family" in doc.lower(), (
-            "family_lock docstring must mention 'family lock'"
-        )
+        assert (
+            "family lock" in doc.lower() or "family" in doc.lower()
+        ), "family_lock docstring must mention 'family lock'"
         assert "manifest" in doc.lower(), (
             "family_lock docstring must mention 'manifest' lock to document the "
             "correct ordering (family first, manifest second)"

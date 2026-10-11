@@ -838,7 +838,7 @@ export function manifestStepsToGateSelections(
           }
         }
         // Model hydration
-        const model = (step as any).model?.model;
+        const model = (step as { model?: { model?: string } }).model?.model;
         if (model) {
           entry.model = model;
         }

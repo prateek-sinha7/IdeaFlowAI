@@ -22,7 +22,9 @@ from agents.factory import AgentContext, _inject_constitution
 # Larger than any plausible per-agent prompt budget; small next to the backend's
 # real 1_048_576-char cap (ConstitutionRequest.content, app/api/settings.py:355),
 # so this is well within what a user can actually save.
-_OVERSIZED_CONSTITUTION = "PRINCIPLE: never conflict with policy.\n" * 5000  # ~200K chars
+_OVERSIZED_CONSTITUTION = (
+    "PRINCIPLE: never conflict with policy.\n" * 5000
+)  # ~200K chars
 
 
 @pytest.mark.issue("ISS-402")

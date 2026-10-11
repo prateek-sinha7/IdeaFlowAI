@@ -95,22 +95,56 @@ test.describe("TS-Y — resilience / long-run", () => {
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   });
 
-  // TS-Y-02 — backend-restart mid-run durable resume (SIGKILL mid-wave, restart;
-  // completed wave skipped, first incomplete wave re-runs). There is no mocked
-  // FE surface that models a *backend process* restart distinct from a socket
-  // reconnect — the durable-resume contract is exercised by TS-S (FE reconnect
-  // handshake + replay branches) and the backend resume tests (BE-RES-02). The
-  // standalone fixme keeps the case visible in the run report without skipping
-  // its siblings.
-  test("TS-Y-02 backend-restart durable resume (covered elsewhere)", () => {
-    test.skip(true, "durable resume covered by TS-S + BE-RES-02; Owner: backend");
-  });
+  // TS-Y-02 (backend restart mid-wave → durable resume: completed wave skipped,
+  // first incomplete wave re-runs) was DELETED from the mocked project: a backend
+  // PROCESS restart has no browser surface distinct from a stream reattach, so the
+  // case could only ever be skipped here. Owners:
+  //   FE reattach + replay verdicts — ts-s.reconnect.spec.ts TS-S-01/02/03.
+  //   Backend resume — backend/tests/integration/agents/test_restart_resume_db.py
+  //     ::test_midwave_resume_does_not_reinvoke_completed_workers
+  //     ::test_midwave_resume_reruns_whole_inflight_wave_no_parallel_dropout
+  //     ::test_cross_step_does_not_skip_second_steps_waves
 
-  // TS-Y-03 — long-run heartbeat: the 20s client ping that keeps the socket
-  // alive through idle proxies is asserted in TS-X-01 (the keepalive ping
-  // contract). Re-driving a multi-minute idle run here would only duplicate that
-  // coverage with a flaky wall-clock wait. Standalone fixme — siblings still run.
-  test("TS-Y-03 long-run heartbeat keepalive (covered elsewhere)", () => {
-    test.skip(true, "keepalive covered by TS-X-01; Owner: frontend");
+  // TS-Y-03 — long-run keepalive. The retired WS client ping (old TS-X-01) is gone;
+  // keepalive is now the SERVER's `pipeline_heartbeat` / `pong` frames on the SSE
+  // stream. useRunStream must CONSUME them (advance its resume cursor) without
+  // handing them to the reducer, and the stream must keep delivering real frames
+  // afterwards. A heartbeat the client failed to consume would be replayed on every
+  // reattach and pin the cursor; one that leaked into the reducer could disturb the
+  // live run.
+  test("TS-Y-03 server heartbeats keep a long run live: consumed past the cursor, run unaffected", async ({ dashboard, mockSse }) => {
+    const agents = AGENTS.user_stories;
+    await dashboard.goto();
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "Long-running refunds backlog" });
+
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
+    await expect(dashboard.runningBadge().first()).toBeVisible();
+    // Caught up: the app has re-attached carrying the current tail as its cursor.
+    await expect.poll(() => mockSse.lastAttachCursor, { timeout: 15_000 }).toBe(mockSse.currentSeq);
+
+    // An idle stretch of the long run: the server emits only keepalives.
+    mockSse.emit("pipeline_heartbeat", { pipeline_run_id: mockSse.currentRunId });
+    const pong = mockSse.emit("pong", {});
+
+    // The next reattach resumes PAST the keepalives — they were consumed, so the
+    // server never has to replay them.
+    await expect
+      .poll(() => mockSse.lastAttachCursor, { timeout: 15_000 })
+      .toBe(pong.data.seq as number);
+
+    // The run is untouched by the keepalives: still live, Stop still armed.
+    await expect(dashboard.runningBadge().first()).toBeVisible();
+    await expect(dashboard.stopButton()).toBeVisible();
+
+    // …and the stream keeps delivering real frames after them, to a normal finish.
+    mockSse.agentComplete(agents[0].id);
+    for (const a of agents.slice(1)) {
+      mockSse.agentStart(a.id);
+      mockSse.agentComplete(a.id);
+    }
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
+    await expect(dashboard.doneBadge()).toBeVisible();
+    await expect(dashboard.stopButton()).toHaveCount(0);
   });
 });

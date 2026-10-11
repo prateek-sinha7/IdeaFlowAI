@@ -270,12 +270,14 @@ def _revision_model_factory(agent_id: str) -> ScriptedFakeChatModel:
                             json.dumps(
                                 {
                                     "file_path": "prototype.html",
-                                    "old_string": "<section data-page='dashboard'>hi</section>",
-                                    "new_string": (
-                                        "<a class='nav-item' href='#/dashboard'>Dashboard</a>"
-                                        "<section data-page='dashboard' class='is-active'>"
-                                        "<h1>Home</h1></section>"
-                                    ),
+                                    # The seeded prototype.html is the
+                                    # === EXISTING PROTOTYPE HTML === block of
+                                    # _REVISION_MESSAGE (previous_run: message
+                                    # markers win; the parent sandbox is only
+                                    # the no-marker fallback), so the edit
+                                    # targets that HTML's dashboard heading.
+                                    "old_string": "<h1>Dashboard</h1>",
+                                    "new_string": "<h1>Home</h1>",
                                 }
                             ),
                             "rev_edit",
@@ -298,9 +300,7 @@ def _revision_model_factory(agent_id: str) -> ScriptedFakeChatModel:
         )
     # Fallback for any other agents in the pipeline.
     return ScriptedFakeChatModel(
-        [
-            _ScriptedTurn(texts=[f"{agent_id} revision output."], usage=(8, 4))
-        ]
+        [_ScriptedTurn(texts=[f"{agent_id} revision output."], usage=(8, 4))]
     )
 
 
@@ -502,6 +502,9 @@ class _LiveCredsRecheckMixin:
         _skip_if_creds_lapsed_mid_sweep()
 
 
+# `live`: real Bedrock → the credential-gated live partition (never the mandatory
+# offline one, where it could only skip). See tools/ci/execution_recorder.LIVE_MARKERS.
+@pytest.mark.live
 @requires_live
 class TestLivePipelines(_LiveCredsRecheckMixin):
     """LIVE Bedrock per-pipeline cases — gated on RUN_LIVE_BEDROCK=1 + creds.
@@ -614,6 +617,9 @@ class TestLivePipelines(_LiveCredsRecheckMixin):
         assert_under_budget(captures, LIVE_BUDGET_USD)
 
 
+# `live`: real Bedrock → the credential-gated live partition (never the mandatory
+# offline one, where it could only skip). See tools/ci/execution_recorder.LIVE_MARKERS.
+@pytest.mark.live
 @requires_live
 class TestLiveHITL(_LiveCredsRecheckMixin):
     """LIVE HITL on/off against the real model (gated on RUN_LIVE_BEDROCK=1).
@@ -820,11 +826,15 @@ class TestOfflineProof:
         assert result.completed and result.label == "test"
         assert_capture(result, require_tokens=False)
 
+    # `live`: repo-input code-gen needs a real source repo; it is exercised by the
+    # LIVE cases, so the offline partition deselects it instead of skipping it.
+    @pytest.mark.live
     @pytest.mark.asyncio
     async def test_mulesoft_to_springboot_offline_skipped(self) -> None:
         """Documented SKIP: repo-input code-gen can't be driven offline without a repo."""
         _skip_codegen_offline()
 
+    @pytest.mark.live
     @pytest.mark.asyncio
     async def test_dotnet_to_azure_offline_skipped(self) -> None:
         """Documented SKIP: repo-input code-gen can't be driven offline without a repo."""

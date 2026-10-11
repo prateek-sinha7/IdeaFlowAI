@@ -110,19 +110,45 @@ EXTRACTION_MAX_DEPTH: int = 2
 
 # Extensions that identify Office Open XML / ZIP containers that can be safely
 # extracted and text-scanned.
-_EXTRACTABLE_EXTENSIONS: frozenset[str] = frozenset(
-    {".pptx", ".docx", ".xlsx", ".zip"}
-)
+_EXTRACTABLE_EXTENSIONS: frozenset[str] = frozenset({".pptx", ".docx", ".xlsx", ".zip"})
 
 # Extensions we treat as *text-content* binary (e.g. XML-heavy zips already
 # covered above) — anything not in this set and not text is UNKNOWN → BLOCK.
 _TEXT_EXTENSIONS: frozenset[str] = frozenset(
     {
-        ".txt", ".md", ".rst", ".csv", ".json", ".yaml", ".yml",
-        ".toml", ".ini", ".cfg", ".conf", ".log", ".xml", ".html",
-        ".htm", ".js", ".ts", ".py", ".rb", ".go", ".java", ".c",
-        ".h", ".cpp", ".cs", ".sh", ".bash", ".zsh", ".fish",
-        ".sql", ".env", ".gitignore", ".gitattributes",
+        ".txt",
+        ".md",
+        ".rst",
+        ".csv",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".log",
+        ".xml",
+        ".html",
+        ".htm",
+        ".js",
+        ".ts",
+        ".py",
+        ".rb",
+        ".go",
+        ".java",
+        ".c",
+        ".h",
+        ".cpp",
+        ".cs",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+        ".sql",
+        ".env",
+        ".gitignore",
+        ".gitattributes",
     }
 )
 
@@ -237,7 +263,11 @@ def _safe_extract_text(
                 raise ValueError(
                     f"malformed nested ZIP member '{info.filename}': {exc}"
                 ) from exc
-            texts.append(_safe_extract_text(nested_zf, depth=depth + 1, budget_bytes=budget_bytes))
+            texts.append(
+                _safe_extract_text(
+                    nested_zf, depth=depth + 1, budget_bytes=budget_bytes
+                )
+            )
             continue
 
         # Extract printable text from XML-based parts (Office Open XML stores
@@ -251,7 +281,10 @@ def _safe_extract_text(
             continue
 
         # For other text-adjacent members, attempt decode.
-        if any(lower_name.endswith(ext) for ext in (".txt", ".csv", ".json", ".yaml", ".yml")):
+        if any(
+            lower_name.endswith(ext)
+            for ext in (".txt", ".csv", ".json", ".yaml", ".yml")
+        ):
             try:
                 text = raw.decode("utf-8", errors="replace")
             except Exception:  # noqa: BLE001
@@ -318,9 +351,7 @@ def scan_staged_binary(filename: str, content_bytes: bytes) -> str | None:
         try:
             zf = zipfile.ZipFile(io.BytesIO(content_bytes))
         except zipfile.BadZipFile as exc:
-            return (
-                f"malformed container '{filename}': {exc} — blocked (fail-closed)"
-            )
+            return f"malformed container '{filename}': {exc} — blocked (fail-closed)"
         try:
             budget: list[int] = [0]
             extracted_text = _safe_extract_text(zf, depth=0, budget_bytes=budget)
@@ -439,7 +470,11 @@ class SecretScanHook:
                 return HookOutcome(outcome=HOOK_BLOCK, detail=detail)
 
             await write_hook_run(
-                ctx, self.name, event_name, HOOK_CONTINUE, {"matched": False, "binary": True}
+                ctx,
+                self.name,
+                event_name,
+                HOOK_CONTINUE,
+                {"matched": False, "binary": True},
             )
             return HookOutcome(outcome=HOOK_CONTINUE)
 

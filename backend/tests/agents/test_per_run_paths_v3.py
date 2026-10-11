@@ -20,7 +20,7 @@ under test actually did (it would still pass if `run_log_path` regressed to key 
 `sandbox_root_id`). It also never fed the harness a family the engine could
 resolve: `drive_engine_pipeline` calls the real `ExecutionEngine.execute()`, whose
 `_resolve_root_id` looks up `parent_run_id` via a REAL DB query
-(`app.api.runs.resolve_revision_root`) — with no `WorkflowRun` row for the
+(`app.services.revision_root.resolve_revision_root`) — with no `WorkflowRun` row for the
 revision's run id, resolution fails closed and DEGRADES the revision to its OWN
 run id as the sandbox root, so root and revision silently land in two SEPARATE
 physical directories instead of sharing one family sandbox (verified by direct
@@ -92,11 +92,13 @@ def _turn(text: str):
     return [_ScriptedTurn(texts=[text], usage=(5, 3))]
 
 
-def _seed_family_rows(*, db_user_id: str, root_id: str, revision_ids: list[str]) -> None:
+def _seed_family_rows(
+    *, db_user_id: str, root_id: str, revision_ids: list[str]
+) -> None:
     """Insert a ``User`` + ``WorkflowRun`` family chain via ``SessionLocal``.
 
     ``_resolve_root_id`` (``engine.py``) walks ``parent_run_id`` via a DB
-    query (``app.api.runs.resolve_revision_root``) to find the shared sandbox
+    query (``app.services.revision_root.resolve_revision_root``) to find the shared sandbox
     root for a revision. In production this row exists because the API mints it
     at launch time, before calling ``engine.execute()``. This harness calls
     ``execute()`` directly, so without seeding this row the revision's root
@@ -115,20 +117,37 @@ def _seed_family_rows(*, db_user_id: str, root_id: str, revision_ids: list[str])
 
     db = SessionLocal()
     try:
-        db.add(User(id=db_user_id, email=f"{db_user_id}@test.local"))
+        # users.cognito_sub is NOT NULL since the Cognito-only auth migration (b2a621f8).
+        db.add(
+            User(
+                id=db_user_id,
+                email=f"{db_user_id}@test.local",
+                cognito_sub=f"sub-{db_user_id}",
+            )
+        )
         db.add(
             WorkflowRun(
-                id=root_id, user_id=db_user_id, title="v7 fixture root",
-                type="user_stories", status="completed", input="seed",
-                owner_id=db_user_id, parent_run_id=None,
+                id=root_id,
+                user_id=db_user_id,
+                title="v7 fixture root",
+                type="user_stories",
+                status="completed",
+                input="seed",
+                owner_id=db_user_id,
+                parent_run_id=None,
             )
         )
         for rev_id in revision_ids:
             db.add(
                 WorkflowRun(
-                    id=rev_id, user_id=db_user_id, title="v7 fixture revision",
-                    type="user_stories", status="running", input="seed",
-                    owner_id=db_user_id, parent_run_id=root_id,
+                    id=rev_id,
+                    user_id=db_user_id,
+                    title="v7 fixture revision",
+                    type="user_stories",
+                    status="running",
+                    input="seed",
+                    owner_id=db_user_id,
+                    parent_run_id=root_id,
                 )
             )
         db.commit()
@@ -243,19 +262,22 @@ class TestPerRunPathsDistinct:
         # ── Read back the REAL sandbox the engine used — not a recomputed path. ──
         root_sb = RunSandbox(db_user_id, root_run_id, runs_root=str(_RUNS_ROOT))
         rev_sb = RunSandbox(
-            db_user_id, root_run_id, current_run_id=rev_run_id, runs_root=str(_RUNS_ROOT)
+            db_user_id,
+            root_run_id,
+            current_run_id=rev_run_id,
+            runs_root=str(_RUNS_ROOT),
         )
 
         assert root_sb.root == rev_sb.root, (
             "the revision must share the root's physical sandbox directory "
             "(family-root resolution failed — check the WorkflowRun seed)"
         )
-        assert root_sb.run_log_path.parent == rev_sb.run_log_path.parent, (
-            "both runs must use .logs under the shared sandbox root"
-        )
-        assert root_sb.run_log_path != rev_sb.run_log_path, (
-            "root and revision must use different log file paths"
-        )
+        assert (
+            root_sb.run_log_path.parent == rev_sb.run_log_path.parent
+        ), "both runs must use .logs under the shared sandbox root"
+        assert (
+            root_sb.run_log_path != rev_sb.run_log_path
+        ), "root and revision must use different log file paths"
         assert root_sb.run_log_path.exists(), (
             f"the engine must have written the root's real log file at "
             f"{root_sb.run_log_path}"
@@ -297,16 +319,16 @@ class TestPerRunPathsDistinct:
         )
 
         # Both share the same physical root directory.
-        assert root_sb.root == rev_sb.root, (
-            "Root and revision should share the same physical sandbox directory"
-        )
+        assert (
+            root_sb.root == rev_sb.root
+        ), "Root and revision should share the same physical sandbox directory"
 
         # But each has its own verify_dir.
         assert root_sb.verify_dir == root_sb.root / ".verify" / root_id
         assert rev_sb.verify_dir == rev_sb.root / ".verify" / rev_id
-        assert root_sb.verify_dir != rev_sb.verify_dir, (
-            "verify_dir must use run_id to separate revisions"
-        )
+        assert (
+            root_sb.verify_dir != rev_sb.verify_dir
+        ), "verify_dir must use run_id to separate revisions"
 
         # ── Drive the REAL writer for each sandbox in turn (bind_sandbox is
         #    exactly what the factory does at runner-composition time). ──
@@ -324,17 +346,24 @@ class TestPerRunPathsDistinct:
 
         root_attempt = root_sb.verify_dir / "attempt-01.js"
         rev_attempt = rev_sb.verify_dir / "attempt-01.js"
-        assert root_attempt.exists() and root_attempt.read_text() == "root attempt source"
-        assert rev_attempt.exists() and rev_attempt.read_text() == "revision attempt source"
-        assert root_attempt != rev_attempt, "each revision's attempt file must be its own"
+        assert (
+            root_attempt.exists() and root_attempt.read_text() == "root attempt source"
+        )
+        assert (
+            rev_attempt.exists()
+            and rev_attempt.read_text() == "revision attempt source"
+        )
+        assert (
+            root_attempt != rev_attempt
+        ), "each revision's attempt file must be its own"
 
         root_report = root_sb.verify_dir / "report.txt"
         rev_report = rev_sb.verify_dir / "report.txt"
         assert root_report.exists() and "root report body" in root_report.read_text()
         assert rev_report.exists() and "revision report body" in rev_report.read_text()
-        assert "revision report body" not in root_report.read_text(), (
-            "the revision's report must not land in the root's verify dir"
-        )
+        assert (
+            "revision report body" not in root_report.read_text()
+        ), "the revision's report must not land in the root's verify dir"
 
     @pytest.mark.asyncio
     async def test_revision_uses_correct_browser_dir_path(
@@ -368,16 +397,16 @@ class TestPerRunPathsDistinct:
         )
 
         # Both share the same physical root directory.
-        assert root_sb.root == rev_sb.root, (
-            "Root and revision should share the same physical sandbox directory"
-        )
+        assert (
+            root_sb.root == rev_sb.root
+        ), "Root and revision should share the same physical sandbox directory"
 
         # But each has its own browser_dir.
         assert root_sb.browser_dir == root_sb.root / ".browser" / root_id
         assert rev_sb.browser_dir == rev_sb.root / ".browser" / rev_id
-        assert root_sb.browser_dir != rev_sb.browser_dir, (
-            "browser_dir must use run_id to separate revisions"
-        )
+        assert (
+            root_sb.browser_dir != rev_sb.browser_dir
+        ), "browser_dir must use run_id to separate revisions"
 
     @pytest.mark.asyncio
     async def test_revision_browser_dir_writer_driven(
@@ -416,15 +445,20 @@ class TestPerRunPathsDistinct:
         rev_sb = RunSandbox(
             user_id, root_id, current_run_id=rev_id, runs_root=str(tmp_path)
         )
-        assert root_sb.root == rev_sb.root, (
-            "root and revision should share the same physical sandbox directory"
-        )
+        assert (
+            root_sb.root == rev_sb.root
+        ), "root and revision should share the same physical sandbox directory"
 
         root_sb.ensure()
         (root_sb.root / "root.html").write_text("<html><body>root page</body></html>")
-        (root_sb.root / "rev.html").write_text("<html><body>revision page</body></html>")
+        (root_sb.root / "rev.html").write_text(
+            "<html><body>revision page</body></html>"
+        )
 
-        _orig_sandbox = playwright_tools._SANDBOX
+        # The binding lives in context variables since spec 018 / FR-010 (per-worker
+        # BrowserContext isolation), not a module-level ``_SANDBOX``; restore both.
+        _orig_sandbox = playwright_tools._SANDBOX_VAR.get()
+        _orig_agent_key = playwright_tools._AGENT_KEY_VAR.get()
         try:
             # ── Root: navigate + screenshot through the REAL tools. ──
             playwright_tools.bind_sandbox(root_sb, agent_id="root-agent")
@@ -441,20 +475,23 @@ class TestPerRunPathsDistinct:
             playwright_tools.playwright_take_screenshot.invoke({"filename": "shot.png"})
         finally:
             playwright_tools.playwright_close.invoke({})
-            playwright_tools._SANDBOX = _orig_sandbox
+            playwright_tools._SANDBOX_VAR.set(_orig_sandbox)
+            playwright_tools._AGENT_KEY_VAR.set(_orig_agent_key)
 
         root_shot = root_sb.browser_dir / "shot.png"
         rev_shot = rev_sb.browser_dir / "shot.png"
         assert root_shot != rev_shot, "each revision's screenshot must be its own path"
-        assert root_shot.exists() and root_shot.stat().st_size > 0, (
-            f"the real playwright_take_screenshot writer must have written {root_shot}"
-        )
-        assert rev_shot.exists() and rev_shot.stat().st_size > 0, (
-            f"the real playwright_take_screenshot writer must have written {rev_shot}"
-        )
+        assert (
+            root_shot.exists() and root_shot.stat().st_size > 0
+        ), f"the real playwright_take_screenshot writer must have written {root_shot}"
+        assert (
+            rev_shot.exists() and rev_shot.stat().st_size > 0
+        ), f"the real playwright_take_screenshot writer must have written {rev_shot}"
 
     @pytest.mark.asyncio
-    async def test_three_runs_produce_three_distinct_log_paths(self, isolated_db) -> None:
+    async def test_three_runs_produce_three_distinct_log_paths(
+        self, isolated_db
+    ) -> None:
         """Root + two revisions each write to distinct `.logs/{run_id}.jsonl` files.
 
         Requirement 37 AC 1: multiple revisions in one family produce three
@@ -521,28 +558,41 @@ class TestPerRunPathsDistinct:
         # ── Read back the REAL sandboxes the engine used. ──
         root_sb = RunSandbox(db_user_id, root_run_id, runs_root=str(_RUNS_ROOT))
         rev1_sb = RunSandbox(
-            db_user_id, root_run_id, current_run_id=rev1_run_id, runs_root=str(_RUNS_ROOT)
+            db_user_id,
+            root_run_id,
+            current_run_id=rev1_run_id,
+            runs_root=str(_RUNS_ROOT),
         )
         rev2_sb = RunSandbox(
-            db_user_id, root_run_id, current_run_id=rev2_run_id, runs_root=str(_RUNS_ROOT)
+            db_user_id,
+            root_run_id,
+            current_run_id=rev2_run_id,
+            runs_root=str(_RUNS_ROOT),
         )
 
-        assert root_sb.root == rev1_sb.root == rev2_sb.root, (
-            "all three runs must share one physical sandbox directory"
-        )
+        assert (
+            root_sb.root == rev1_sb.root == rev2_sb.root
+        ), "all three runs must share one physical sandbox directory"
 
         root_log, rev1_log, rev2_log = (
-            root_sb.run_log_path, rev1_sb.run_log_path, rev2_sb.run_log_path,
+            root_sb.run_log_path,
+            rev1_sb.run_log_path,
+            rev2_sb.run_log_path,
         )
 
-        assert root_log.parent == rev1_log.parent == rev2_log.parent == root_sb.root / ".logs", (
-            "all three runs must use the same .logs directory under the shared sandbox root"
-        )
+        assert (
+            root_log.parent
+            == rev1_log.parent
+            == rev2_log.parent
+            == root_sb.root / ".logs"
+        ), "all three runs must use the same .logs directory under the shared sandbox root"
 
         log_paths = {root_log, rev1_log, rev2_log}
-        assert len(log_paths) == 3, (
-            f"three runs must produce 3 distinct log paths, got {log_paths}"
-        )
+        assert (
+            len(log_paths) == 3
+        ), f"three runs must produce 3 distinct log paths, got {log_paths}"
 
         for path in (root_log, rev1_log, rev2_log):
-            assert path.exists(), f"the engine must have written the real log file at {path}"
+            assert (
+                path.exists()
+            ), f"the engine must have written the real log file at {path}"

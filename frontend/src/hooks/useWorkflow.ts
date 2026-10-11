@@ -118,7 +118,11 @@ export function useWorkflow(): UseWorkflowReturn {
       // The generic Object.assign is the ONLY send site — do not also assign
       // `payload.model_overrides` separately or it would double-send.
       if (context) {
-        Object.assign(payload, context);
+        // `_display_title` is a client-only display hint (FIX-130/KAN-116) read
+        // by the page before this call — it must never reach the wire (INV-3:
+        // the run_pipeline payload stays byte-identical for plain runs).
+        const { _display_title, ...wireContext } = context;
+        Object.assign(payload, wireContext);
       }
 
       // Send the `run_pipeline` payload up-channel over REST (POST /api/runs).

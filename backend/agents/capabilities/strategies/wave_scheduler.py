@@ -420,7 +420,12 @@ class WaveSchedulerStrategy:
                 },
             }
 
-            async def _dispatch_wave(disp_requests, disp_task_ids):
+            async def _dispatch_wave(disp_requests, disp_task_ids, disp_wave_index):
+                # The wave index is a parameter, not a closure over the loop
+                # variable: this generator only ever runs inside the iteration that
+                # defines it today, but binding it explicitly keeps that true even if
+                # the generator is ever stored or consumed later (ruff B023).
+                #
                 # CR-06 (backend half) + per-worker identity: ``stream_wave_fanout``
                 # stamps every WORKER-queue event with wave_index/step/task_id/
                 # worker_index/wave_total (the whole point — a wave clones one agent
@@ -434,18 +439,18 @@ class WaveSchedulerStrategy:
                     disp_requests,
                     ctx,
                     step=step,
-                    wave_index=wave_index,
+                    wave_index=disp_wave_index,
                     task_ids=disp_task_ids,
                 ):
                     if event.get("type") in ("subagent_spawned", "subagent_result"):
                         _data = dict(event.get("data") or {})
-                        _data["wave_index"] = wave_index
+                        _data["wave_index"] = disp_wave_index
                         _data["step"] = step_id
                         event = {**event, "data": _data}
                     yield event
 
             try:
-                async for event in _dispatch_wave(requests, task_ids):
+                async for event in _dispatch_wave(requests, task_ids, wave_index):
                     yield event
             except asyncio.CancelledError:
                 # ISS-098: ``CancelledError`` has inherited from ``BaseException`` (not
@@ -514,8 +519,9 @@ class WaveSchedulerStrategy:
             if sandbox is not None and not _sandbox_repair_capable:
                 sandbox = None
             if sandbox is not None:
-
-                def _target_missing(path: str) -> bool:
+                # ``sandbox`` is bound as a default so the check reads THIS wave's
+                # handle even if the function outlives the iteration (ruff B023).
+                def _target_missing(path: str, sandbox=sandbox) -> bool:
                     try:
                         content = sandbox.read(path)
                     except Exception:  # noqa: BLE001 — a read failure counts as missing
@@ -558,7 +564,9 @@ class WaveSchedulerStrategy:
                         for t in missing_tasks
                     ]
                     try:
-                        async for event in _dispatch_wave(repair_requests, missing_ids):
+                        async for event in _dispatch_wave(
+                            repair_requests, missing_ids, wave_index
+                        ):
                             yield event
                     except Exception as exc:  # noqa: BLE001 — repair stays non-fatal
                         logger.warning(

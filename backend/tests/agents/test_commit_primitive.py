@@ -75,9 +75,12 @@ def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=Flowin Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
+            "-c",
+            "user.name=Flowin Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
             *args,
         ],
         cwd=str(cwd),
@@ -109,7 +112,9 @@ async def test_commit_in_sandbox_returns_no_change_when_has_git_false(
     ectx = _make_ectx()
     step = _make_step()
 
-    result = await commit_in_sandbox(sb, "test: no-git", ectx, step, audit_operation=None)
+    result = await commit_in_sandbox(
+        sb, "test: no-git", ectx, step, audit_operation=None
+    )
 
     assert isinstance(result, CommitInSandboxResult)
     assert result.no_change is True, "has_git=False must yield no_change=True"
@@ -174,9 +179,9 @@ async def test_commit_blocked_by_declared_pre_commit_hook(
     )
 
     # ectx.last_commit_blocked must be set True by the primitive.
-    assert ectx.last_commit_blocked is True, (
-        "commit_in_sandbox must set ectx.last_commit_blocked=True on block"
-    )
+    assert (
+        ectx.last_commit_blocked is True
+    ), "commit_in_sandbox must set ectx.last_commit_blocked=True on block"
 
 
 # ---------------------------------------------------------------------------
@@ -265,9 +270,9 @@ async def test_commit_succeeds_with_clean_staged_diff(
 
     # The SHA must be reachable from HEAD.
     head_sha = _git(sb.root, "rev-parse", "HEAD").strip()
-    assert result.sha == head_sha, (
-        f"returned SHA {result.sha!r} must equal HEAD {head_sha!r}"
-    )
+    assert (
+        result.sha == head_sha
+    ), f"returned SHA {result.sha!r} must equal HEAD {head_sha!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -296,9 +301,7 @@ async def test_planted_secret_unreachable_from_git_after_block(
 
     # Plant a secret — OpenAI/Anthropic style key prefix.
     secret_value = "sk-" + "A" * 24  # matches the sk-[A-Za-z0-9]{20,} pattern
-    (sb.root / "leaked.txt").write_text(
-        f"token = '{secret_value}'\n", encoding="utf-8"
-    )
+    (sb.root / "leaked.txt").write_text(f"token = '{secret_value}'\n", encoding="utf-8")
 
     await commit_in_sandbox(
         sb, "test: should be blocked", ectx, step, audit_operation=None, registry=None
@@ -330,7 +333,9 @@ async def test_has_git_true_nothing_staged_warns(
 
     # Call commit_in_sandbox without creating any changes to stage.
     # This triggers the no_change early return at line 659-660.
-    result = await commit_in_sandbox(sb, "test: no changes", ectx, step, audit_operation=None)
+    result = await commit_in_sandbox(
+        sb, "test: no changes", ectx, step, audit_operation=None
+    )
 
     # Assert the result is correct (no_change=True, no error).
     assert isinstance(result, CommitInSandboxResult)
@@ -340,7 +345,9 @@ async def test_has_git_true_nothing_staged_warns(
 
     # Assert the warning was logged with the run_id and step_id.
     caplog.clear()
-    result = await commit_in_sandbox(sb, "test: no changes", ectx, step, audit_operation=None)
+    result = await commit_in_sandbox(
+        sb, "test: no changes", ectx, step, audit_operation=None
+    )
 
     # Capture the warning message and verify it includes run_id and step_id.
     assert any(

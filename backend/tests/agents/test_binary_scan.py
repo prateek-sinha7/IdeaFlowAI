@@ -101,12 +101,12 @@ def test_pptx_with_embedded_secret_is_blocked() -> None:
     )
     reason = scan_staged_binary("report.pptx", pptx_bytes)
 
-    assert reason is not None, (
-        "PPTX containing an AWS key in its XML must be blocked; got reason=None"
-    )
-    assert "secret" in reason.lower() or "detected" in reason.lower(), (
-        f"Block reason must indicate a secret was detected; got: {reason!r}"
-    )
+    assert (
+        reason is not None
+    ), "PPTX containing an AWS key in its XML must be blocked; got reason=None"
+    assert (
+        "secret" in reason.lower() or "detected" in reason.lower()
+    ), f"Block reason must indicate a secret was detected; got: {reason!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -129,12 +129,12 @@ def test_zipslip_member_is_blocked() -> None:
     # Use .zip extension to trigger the EXTRACT_SCAN path.
     reason = scan_staged_binary("archive.zip", slippy_bytes)
 
-    assert reason is not None, (
-        "A ZIP with a zip-slip member must be blocked; got reason=None"
-    )
-    assert "zip-slip" in reason.lower() or "escape" in reason.lower(), (
-        f"Block reason must mention zip-slip; got: {reason!r}"
-    )
+    assert (
+        reason is not None
+    ), "A ZIP with a zip-slip member must be blocked; got reason=None"
+    assert (
+        "zip-slip" in reason.lower() or "escape" in reason.lower()
+    ), f"Block reason must mention zip-slip; got: {reason!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,10 @@ def test_oversized_binary_is_blocked() -> None:
     Requirement 11 AC 15 (BLOCK_SIZE): oversized binaries are blocked to
     avoid unbounded memory.
     """
-    from agents.capabilities.hooks.secret_scan import BINARY_MAX_BYTES, scan_staged_binary
+    from agents.capabilities.hooks.secret_scan import (
+        BINARY_MAX_BYTES,
+        scan_staged_binary,
+    )
 
     # Construct a byte string one byte beyond the limit.
     oversized = b"\x00" * (BINARY_MAX_BYTES + 1)
@@ -161,9 +164,9 @@ def test_oversized_binary_is_blocked() -> None:
         f"A file of {len(oversized)} bytes (>{BINARY_MAX_BYTES}) must be blocked; "
         "got reason=None"
     )
-    assert "exceeds" in reason.lower() or "maximum" in reason.lower(), (
-        f"Block reason must mention size limit; got: {reason!r}"
-    )
+    assert (
+        "exceeds" in reason.lower() or "maximum" in reason.lower()
+    ), f"Block reason must mention size limit; got: {reason!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -191,12 +194,12 @@ def test_unknown_binary_type_is_blocked() -> None:
     exe_bytes = b"\x4d\x5a" + b"\x00" * 100  # minimal MZ (PE) header bytes
     reason = scan_staged_binary("tool.exe", exe_bytes)
 
-    assert reason is not None, (
-        "An .exe file must be blocked unconditionally; got reason=None"
-    )
-    assert "unknown" in reason.lower() or "blocked" in reason.lower(), (
-        f"Block reason must indicate unknown type block; got: {reason!r}"
-    )
+    assert (
+        reason is not None
+    ), "An .exe file must be blocked unconditionally; got reason=None"
+    assert (
+        "unknown" in reason.lower() or "blocked" in reason.lower()
+    ), f"Block reason must indicate unknown type block; got: {reason!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -223,9 +226,9 @@ def test_env_file_with_secret_is_caught() -> None:
 
     reason = scan_staged_binary(".env", env_content)
 
-    assert reason is not None, (
-        ".env file containing an API key must be blocked; got reason=None"
-    )
+    assert (
+        reason is not None
+    ), ".env file containing an API key must be blocked; got reason=None"
 
 
 # ---------------------------------------------------------------------------
@@ -246,9 +249,9 @@ def test_clean_pptx_passes() -> None:
     clean_pptx_bytes = _make_pptx_bytes(_CLEAN_XML)
     reason = scan_staged_binary("slides.pptx", clean_pptx_bytes)
 
-    assert reason is None, (
-        f"A clean PPTX must pass the binary scan; got reason={reason!r}"
-    )
+    assert (
+        reason is None
+    ), f"A clean PPTX must pass the binary scan; got reason={reason!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +295,9 @@ class TestApprovedExemption:
         clean_bytes = b"just some proprietary binary data without secrets"
         reason = scan_staged_binary("model.custom", clean_bytes)
 
-        assert reason is None, (
-            f"An approved-exemption file with no secrets must pass; got reason={reason!r}"
-        )
+        assert (
+            reason is None
+        ), f"An approved-exemption file with no secrets must pass; got reason={reason!r}"
 
     def test_approved_exemption_file_with_secret_is_still_blocked(self) -> None:
         """A file matching the exemption but containing a secret must still be blocked.
@@ -307,15 +310,13 @@ class TestApprovedExemption:
         """
         from agents.capabilities.hooks.secret_scan import scan_staged_binary
 
-        secret_bytes = (
-            f"HEADER binary\napi_key = '{_SK_KEY}'\nEOF\n".encode("utf-8")
-        )
+        secret_bytes = f"HEADER binary\napi_key = '{_SK_KEY}'\nEOF\n".encode("utf-8")
         reason = scan_staged_binary("model.custom", secret_bytes)
 
         assert reason is not None, (
             "An approved-exemption file containing a secret must still be blocked; "
             "got reason=None"
         )
-        assert "approval" in reason.lower() or "secret" in reason.lower(), (
-            f"Block reason must mention secret detection in exempted file; got: {reason!r}"
-        )
+        assert (
+            "approval" in reason.lower() or "secret" in reason.lower()
+        ), f"Block reason must mention secret detection in exempted file; got: {reason!r}"

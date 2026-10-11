@@ -388,4 +388,6 @@ def write_events_golden(name: str, data: list[dict]) -> None:
     """
     GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
     text = json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    _events_golden_path(name).write_text(text, encoding="utf-8")
+    # newline="\n": the golden dir is ``-text`` in git, so a Windows regenerate
+    # would otherwise commit CRLF and rewrite every line of the diff.
+    _events_golden_path(name).write_text(text, encoding="utf-8", newline="\n")

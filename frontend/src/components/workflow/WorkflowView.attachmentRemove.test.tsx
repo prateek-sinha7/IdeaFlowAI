@@ -31,12 +31,17 @@ vi.mock("@/hooks/useSpeechRecognition", () => ({
 // ISS-603: stub useAgentLibrary so pipelineAgents is non-empty (avoids the
 // post-ISS-328 guard that disables the Run button when there are no agents).
 // Hoisted by vitest to the top of the module regardless of where it appears.
-vi.mock("@/hooks/useAgentLibrary", () => ({
-  useAgentLibrary: () => ({
-    allAgents: [{ id: "stub-agent", name: "Stub", pipeline_type: "user_stories", order: 0, description: "", role: "", estimated_duration: 0, has_skill: false, gate: null, skills: [] }],
-    libraryAgents: [{ id: "stub-agent", name: "Stub", pipeline_type: "user_stories", order: 0, description: "", role: "", estimated_duration: 0, has_skill: false, gate: null, skills: [] }],
-  }),
-}));
+//
+// The returned arrays MUST be stable references. WorkflowView.tsx:139-142 runs
+// `setPipelineAgents(libraryAgents.filter(...))` in an effect keyed on
+// `libraryAgents`; a fresh array per call made every render re-fire that effect,
+// which re-rendered, which built a fresh array — an infinite render loop that
+// hung this file (its 3 tests never finished and the full suite stalled on it).
+vi.mock("@/hooks/useAgentLibrary", () => {
+  const agents = [{ id: "stub-agent", name: "Stub", pipeline_type: "user_stories", order: 0, description: "", role: "", estimated_duration: 0, has_skill: false, gate: null, skills: [] }];
+  const library = { allAgents: agents, libraryAgents: agents };
+  return { useAgentLibrary: () => library };
+});
 
 function makeFile(name: string) {
   return new File(["zz-hunt content"], name, { type: "text/plain" });

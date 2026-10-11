@@ -448,7 +448,11 @@ def test_agent_outputs_are_listed_but_never_delivered(tmp_path):
     sb = _mk_sandbox(tmp_path)
     sb.write("presentation.html", "<h1>deck</h1>")
     written = write_agent_output(
-        sb, index=2, agent_id="ppt-composer", name="PPT Composer", output="I composed a deck."
+        sb,
+        index=2,
+        agent_id="ppt-composer",
+        name="PPT Composer",
+        output="I composed a deck.",
     )
     # 1-based: the engine's step 2 is the third step, and these names are read
     # by a person — a run whose first file is "00-" reads as a numbering bug.
@@ -472,11 +476,21 @@ def test_repeated_invocations_do_not_overwrite_each_other(tmp_path):
 
     sb = _mk_sandbox(tmp_path)
     first = write_agent_output(
-        sb, index=1, agent_id="builder", name="Builder", output="pass one", visit_count=0
+        sb,
+        index=1,
+        agent_id="builder",
+        name="Builder",
+        output="pass one",
+        visit_count=0,
     )
     second = write_agent_output(
-        sb, index=1, agent_id="builder", name="Builder", output="pass two",
-        task_number="2", visit_count=2,
+        sb,
+        index=1,
+        agent_id="builder",
+        name="Builder",
+        output="pass two",
+        task_number="2",
+        visit_count=2,
     )
     assert first != second
     assert sb.read(first).endswith("pass one")
@@ -498,7 +512,9 @@ def test_write_agent_output_is_best_effort(tmp_path):
         def write(self, *_a, **_k):
             raise OSError("no space left on device")
 
-    assert write_agent_output(Boom(), index=0, agent_id="a", name="A", output="x") is None
+    assert (
+        write_agent_output(Boom(), index=0, agent_id="a", name="A", output="x") is None
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -613,7 +613,11 @@ def _short_diff_value(value: object) -> str:
     if value is _DIFF_MISSING:
         return "<absent>"
     if isinstance(value, str):
-        return repr(value) if len(value) <= 80 else f"<str len={len(value)}: {value[:77]!r}...>"
+        return (
+            repr(value)
+            if len(value) <= 80
+            else f"<str len={len(value)}: {value[:77]!r}...>"
+        )
     if isinstance(value, (dict, list)):
         return f"<{type(value).__name__} len={len(value)}>"
     return repr(value)
@@ -829,7 +833,9 @@ def create_user_workflow(
             db.refresh(prior)
             logger.info(
                 "override: user %s updated their %s override (row %s)",
-                current_user.id, _ov_target, prior.id,
+                current_user.id,
+                _ov_target,
+                prior.id,
             )
             return _project(prior)
 
@@ -1074,6 +1080,8 @@ def sync_user_workflow_from_file(
 
     logger.info(
         "sync-from-file: workflow %s synced from pipeline_type=%s (%d field(s) changed)",
-        workflow_id, body.pipeline_type, len(diff),
+        workflow_id,
+        body.pipeline_type,
+        len(diff),
     )
     return SyncFromFileResponse(diff=diff)

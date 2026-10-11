@@ -53,6 +53,7 @@ def _factory_text() -> str:
 # Row-level policy lookup helpers
 # ===========================================================================
 
+
 def _read_agent_md(agent_id: str) -> str:
     path = _PROMPTS_ROOT / agent_id / "AGENT.md"
     assert path.exists(), f"AGENT.md not found at {path}"
@@ -106,9 +107,9 @@ class TestLedgerRows1to7SystemPromptBlocks:
             "Row 2: prototype-specify must declare 'template' in injects — "
             "template material is gated on this declaration (Requirement 13 AC 6 Row 2)"
         )
-        assert "design_system" in spec_md, (
-            "Row 2: prototype-specify must declare 'design_system' in injects"
-        )
+        assert (
+            "design_system" in spec_md
+        ), "Row 2: prototype-specify must declare 'design_system' in injects"
 
     def test_row3_guardrails_in_governance_order(self) -> None:
         """Row 3: guardrails stay in the governance system-prompt order."""
@@ -138,9 +139,9 @@ class TestLedgerRows1to7SystemPromptBlocks:
         governance_policy = registry.resolve("prompt", "governance")
 
         # Default still includes the skills slot (for byte-identical INV-3 goldens).
-        assert "skills" in default_policy.order, (
-            "Row 4: default policy must retain 'skills' slot for INV-3 byte-parity"
-        )
+        assert (
+            "skills" in default_policy.order
+        ), "Row 4: default policy must retain 'skills' slot for INV-3 byte-parity"
         # body_only and governance drop it (Seam 2 / factory skills block removed).
         assert "skills" not in body_only_policy.order, (
             "Row 4: body_only policy must NOT include 'skills' slot — "
@@ -245,7 +246,8 @@ class TestLedgerRows8to9BriefAndRetryDelivery:
         msgs = [
             ev["data"]["context_message"]
             for ev in events
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs, "No agent_input events emitted"
         assert "=== ORIGINAL USER REQUEST ===" in msgs[0], (
@@ -280,26 +282,32 @@ class TestLedgerRows8to9BriefAndRetryDelivery:
         ) as h:
             ectx = _make_ectx("row8-non-first-run")
             results: list = []
-            events = await _drive_agent(h.engine, spec_b, ectx, results, ordered, index=1)
+            events = await _drive_agent(
+                h.engine, spec_b, ectx, results, ordered, index=1
+            )
 
         msgs = [
             ev["data"]["context_message"]
             for ev in events
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs, "No agent_input events for non-first agent"
-        assert "=== ORIGINAL USER REQUEST ===" not in msgs[0], (
-            "Row 8: non-first agent must NOT receive '=== ORIGINAL USER REQUEST ==='"
-        )
+        assert (
+            "=== ORIGINAL USER REQUEST ===" not in msgs[0]
+        ), "Row 8: non-first agent must NOT receive '=== ORIGINAL USER REQUEST ==='"
         # Also confirm no other world-block markers leak
         _WORLD_BLOCKS = (
-            "ACTIVE DESIGN SYSTEM", "ACTIVE TEMPLATE", "## Uploaded Files",
-            "## Planning Context", "TEMPLATE COMPLIANCE",
+            "ACTIVE DESIGN SYSTEM",
+            "ACTIVE TEMPLATE",
+            "## Uploaded Files",
+            "## Planning Context",
+            "TEMPLATE COMPLIANCE",
         )
         for marker in _WORLD_BLOCKS:
-            assert marker not in msgs[0], (
-                f"Row 8: non-first agent must not receive world-block marker {marker!r}"
-            )
+            assert (
+                marker not in msgs[0]
+            ), f"Row 8: non-first agent must not receive world-block marker {marker!r}"
 
     @pytest.mark.asyncio
     async def test_row8_seam2_deleted_no_policy_branch_in_context_message(self) -> None:
@@ -329,7 +337,9 @@ class TestLedgerRows8to9BriefAndRetryDelivery:
         ) as h:
             ectx = _make_ectx("row8-gov-run")
             results: list = []
-            evs_gov = await _drive_agent(h.engine, spec_b, ectx, results, ordered, index=1)
+            evs_gov = await _drive_agent(
+                h.engine, spec_b, ectx, results, ordered, index=1
+            )
 
         with _EngineHarness(
             lambda aid, idx: ScriptedFakeChatModel(
@@ -338,12 +348,18 @@ class TestLedgerRows8to9BriefAndRetryDelivery:
         ) as h:
             ectx2 = _make_ectx("row8-body-run")
             results2: list = []
-            evs_body = await _drive_agent(h.engine, spec_b_body, ectx2, results2, [spec_a, spec_b_body], index=1)
+            evs_body = await _drive_agent(
+                h.engine, spec_b_body, ectx2, results2, [spec_a, spec_b_body], index=1
+            )
 
         def _ctx(evs):
             return next(
-                (ev["data"]["context_message"] for ev in evs
-                 if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})),
+                (
+                    ev["data"]["context_message"]
+                    for ev in evs
+                    if ev.get("type") == "agent_input"
+                    and "context_message" in ev.get("data", {})
+                ),
                 None,
             )
 
@@ -352,9 +368,17 @@ class TestLedgerRows8to9BriefAndRetryDelivery:
         assert msg_gov is not None, "governance non-first agent must emit agent_input"
         assert msg_body is not None, "body_only non-first agent must emit agent_input"
         # Neither should contain world blocks or the brief
-        for marker in ("=== ORIGINAL USER REQUEST", "ACTIVE DESIGN SYSTEM", "ACTIVE TEMPLATE"):
-            assert marker not in msg_gov, f"governance non-first must not carry {marker!r}"
-            assert marker not in msg_body, f"body_only non-first must not carry {marker!r}"
+        for marker in (
+            "=== ORIGINAL USER REQUEST",
+            "ACTIVE DESIGN SYSTEM",
+            "ACTIVE TEMPLATE",
+        ):
+            assert (
+                marker not in msg_gov
+            ), f"governance non-first must not carry {marker!r}"
+            assert (
+                marker not in msg_body
+            ), f"body_only non-first must not carry {marker!r}"
         assert msg_gov == msg_body, (
             "Row 8 [Phase Z]: context_message must be identical for governance and "
             "body_only non-first agents — prompt_policy must not affect seam-2 output"
@@ -377,8 +401,8 @@ class TestLedgerRows8to9BriefAndRetryDelivery:
             _make_ectx,
         )
 
-        spec_a = load_agent_spec("domain-analyst")     # the retrying agent
-        spec_b = load_agent_spec("epic-architect")     # unrelated, same ectx
+        spec_a = load_agent_spec("domain-analyst")  # the retrying agent
+        spec_b = load_agent_spec("epic-architect")  # unrelated, same ectx
         ordered = [spec_a, spec_b]
 
         with _EngineHarness(
@@ -400,34 +424,42 @@ class TestLedgerRows8to9BriefAndRetryDelivery:
 
             results: list = []
             # spec_b dispatched first at index=1 — must NOT consume spec_a's feedback
-            evs_b = await _drive_agent(h.engine, spec_b, ectx, results, ordered, index=1)
+            evs_b = await _drive_agent(
+                h.engine, spec_b, ectx, results, ordered, index=1
+            )
             # spec_a dispatched second at index=0 (retry — index doesn't matter for fb)
-            evs_a = await _drive_agent(h.engine, spec_a, ectx, results, ordered, index=0)
+            evs_a = await _drive_agent(
+                h.engine, spec_a, ectx, results, ordered, index=0
+            )
 
         def _ctx(evs):
             return next(
-                (ev["data"]["context_message"] for ev in evs
-                 if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})),
+                (
+                    ev["data"]["context_message"]
+                    for ev in evs
+                    if ev.get("type") == "agent_input"
+                    and "context_message" in ev.get("data", {})
+                ),
                 "",
             )
 
         msg_a = _ctx(evs_a)
         msg_b = _ctx(evs_b)
 
-        assert "=== RETRY" in msg_a, (
-            "Row 9: retrying agent must receive the RETRY block in context_message"
-        )
-        assert "Please try again differently." in msg_a, (
-            "Row 9: authored feedback must appear in the retrying agent's message"
-        )
+        assert (
+            "=== RETRY" in msg_a
+        ), "Row 9: retrying agent must receive the RETRY block in context_message"
+        assert (
+            "Please try again differently." in msg_a
+        ), "Row 9: authored feedback must appear in the retrying agent's message"
         assert "=== RETRY" not in msg_b, (
             "Row 9: non-retrying agent must NOT receive the RETRY block "
             "(Requirement 14 AC 2 — targeted per-agent, not broadcast)"
         )
         # Consume-once: store drained after spec_a's dispatch
-        assert ectx.pending_route_feedback.get(spec_a.id) is None, (
-            "Row 9: feedback store must be empty after delivery (consume-once)"
-        )
+        assert (
+            ectx.pending_route_feedback.get(spec_a.id) is None
+        ), "Row 9: feedback store must be empty after delivery (consume-once)"
 
 
 # ===========================================================================
@@ -553,12 +585,15 @@ class TestLedgerRowsInjectionBlocks:
 
             ordered = [spec_a, spec_b]
             results: list = []
-            events = await _drive_agent(h.engine, spec_b, ectx, results, ordered, index=1)
+            events = await _drive_agent(
+                h.engine, spec_b, ectx, results, ordered, index=1
+            )
 
         msgs = [
             ev["data"]["context_message"]
             for ev in events
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs, "No agent_input events emitted for spec_b"
         assert "--- Output from" in msgs[0], (
@@ -640,9 +675,9 @@ class TestLedgerRowsInjectionBlocks:
         msg2 = await engine._compose_context_message(
             spec, 0, [spec], "Build something.", {}, ectx2
         )
-        assert "=== ADDITIONAL INSTRUCTIONS (REVISE) ===" not in msg2, (
-            "Row 14: REVISE block must NOT appear when redo_directive is empty (dormant)"
-        )
+        assert (
+            "=== ADDITIONAL INSTRUCTIONS (REVISE) ===" not in msg2
+        ), "Row 14: REVISE block must NOT appear when redo_directive is empty (dormant)"
 
     @pytest.mark.asyncio
     async def test_row15_spec_revision_context_appears_when_set(self) -> None:
@@ -677,9 +712,9 @@ class TestLedgerRowsInjectionBlocks:
         msg2 = await engine._compose_context_message(
             spec, 0, [spec], "Build something.", {}, ectx2
         )
-        assert "=== SPEC KIT ANALYSIS REPORT" not in msg2, (
-            "Row 15: block must NOT appear when spec_revision_context is empty"
-        )
+        assert (
+            "=== SPEC KIT ANALYSIS REPORT" not in msg2
+        ), "Row 15: block must NOT appear when spec_revision_context is empty"
 
     @pytest.mark.asyncio
     async def test_row16_user_guidance_one_shot_consumed_sticky_retained(self) -> None:
@@ -712,7 +747,8 @@ class TestLedgerRowsInjectionBlocks:
         msgs = [
             ev["data"]["context_message"]
             for ev in events
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs, "No agent_input events"
         assert "=== USER GUIDANCE ===" in msgs[0], (
@@ -725,12 +761,12 @@ class TestLedgerRowsInjectionBlocks:
         # Consume-once: one-shot dropped, sticky retained
         remaining = getattr(ectx, "steering_notes", [])
         texts = [n["text"] for n in remaining if isinstance(n, dict)]
-        assert "One-shot instruction." not in texts, (
-            "Row 16: one-shot note must be dropped after dispatch"
-        )
-        assert "Sticky note." in texts, (
-            "Row 16: sticky note must be retained after dispatch (D-06)"
-        )
+        assert (
+            "One-shot instruction." not in texts
+        ), "Row 16: one-shot note must be dropped after dispatch"
+        assert (
+            "Sticky note." in texts
+        ), "Row 16: sticky note must be retained after dispatch (D-06)"
 
         # Dormant when empty.
         with _EngineHarness(
@@ -740,17 +776,20 @@ class TestLedgerRowsInjectionBlocks:
         ) as h:
             ectx2 = _make_ectx("row16-no-guidance-run")
             results2: list = []
-            events2 = await _drive_agent(h.engine, spec, ectx2, results2, [spec], index=0)
+            events2 = await _drive_agent(
+                h.engine, spec, ectx2, results2, [spec], index=0
+            )
 
         msgs2 = [
             ev["data"]["context_message"]
             for ev in events2
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs2
-        assert "=== USER GUIDANCE ===" not in msgs2[0], (
-            "Row 16: USER GUIDANCE block must NOT appear when steering_notes is empty"
-        )
+        assert (
+            "=== USER GUIDANCE ===" not in msgs2[0]
+        ), "Row 16: USER GUIDANCE block must NOT appear when steering_notes is empty"
 
     def test_row17_revision_analysis_paste_retired(self) -> None:
         """Row 17 [Phase Z]: the REVISION ANALYSIS paste is RETIRED.
@@ -776,9 +815,9 @@ class TestLedgerRowsInjectionBlocks:
         # (It DOES appear in a comment documenting the retired path — that is expected.)
         text = _engine_text()
         executable_lines_with_marker = [
-            line for line in text.splitlines()
-            if "=== REVISION ANALYSIS ===" in line
-            and not line.lstrip().startswith("#")
+            line
+            for line in text.splitlines()
+            if "=== REVISION ANALYSIS ===" in line and not line.lstrip().startswith("#")
         ]
         assert not executable_lines_with_marker, (
             "Row 17: '=== REVISION ANALYSIS ===' must not appear in executable "
@@ -802,9 +841,9 @@ class TestLedgerRowsInjectionBlocks:
             "Row 18: revision_original_html must still be present in engine.py "
             "(other consumers besides the retired paste)"
         )
-        assert "=== CURRENT PROTOTYPE HTML ===" not in text, (
-            "Row 18: the CURRENT PROTOTYPE HTML paste must be gone (Phase Z)"
-        )
+        assert (
+            "=== CURRENT PROTOTYPE HTML ===" not in text
+        ), "Row 18: the CURRENT PROTOTYPE HTML paste must be gone (Phase Z)"
 
     @pytest.mark.asyncio
     async def test_row19_current_task_block_appears_when_build_task_set(self) -> None:
@@ -829,8 +868,8 @@ class TestLedgerRowsInjectionBlocks:
             )
         ) as h:
             ectx = _make_ectx("row19-task-run")
-            ectx.build_task_number = "2"       # type: ignore[attr-defined]
-            ectx.build_task_total = "5"        # type: ignore[attr-defined]
+            ectx.build_task_number = "2"  # type: ignore[attr-defined]
+            ectx.build_task_total = "5"  # type: ignore[attr-defined]
             ectx.current_task_block = "Add a delete button."  # type: ignore[attr-defined]
             results: list = []
             events = await _drive_agent(h.engine, spec, ectx, results, [spec], index=0)
@@ -838,7 +877,8 @@ class TestLedgerRowsInjectionBlocks:
         msgs = [
             ev["data"]["context_message"]
             for ev in events
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs, "No agent_input events (task-set case)"
         assert "=== CURRENT TASK ===" in msgs[0], (
@@ -857,17 +897,20 @@ class TestLedgerRowsInjectionBlocks:
             ectx2 = _make_ectx("row19-no-task-run")
             # build_task_number defaults to empty
             results2: list = []
-            events2 = await _drive_agent(h.engine, spec, ectx2, results2, [spec], index=0)
+            events2 = await _drive_agent(
+                h.engine, spec, ectx2, results2, [spec], index=0
+            )
 
         msgs2 = [
             ev["data"]["context_message"]
             for ev in events2
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs2
-        assert "=== CURRENT TASK ===" not in msgs2[0], (
-            "Row 19: CURRENT TASK block must NOT appear when build_task_number is empty"
-        )
+        assert (
+            "=== CURRENT TASK ===" not in msgs2[0]
+        ), "Row 19: CURRENT TASK block must NOT appear when build_task_number is empty"
 
     def test_row20_compacted_build_skeleton_retired(self) -> None:
         """Row 20 [Phase Z, GAPS §0.3 step N+1]: the skeleton paste is RETIRED.
@@ -879,23 +922,27 @@ class TestLedgerRowsInjectionBlocks:
         compacted skeleton pasted.
         """
         text = _engine_text()
-        assert "=== CURRENT PROTOTYPE (skeleton" not in text, (
-            "Row 20: the CURRENT PROTOTYPE (skeleton ...) paste must be gone (Phase Z)"
-        )
+        assert (
+            "=== CURRENT PROTOTYPE (skeleton" not in text
+        ), "Row 20: the CURRENT PROTOTYPE (skeleton ...) paste must be gone (Phase Z)"
 
     def test_row21_template_compliance_ids_via_context_selections_json(self) -> None:
         """Row 21: template-compliance ids → .context/selections.json.
 
-        Source check: ``selections.json`` is mentioned in the engine or
-        launch_context as the context selections file destination.
+        Source check: ``selections.json`` is mentioned by the ``.context/``
+        writer (``app/services/od_context_sandbox.py``, moved out of
+        ``app/api/launch_context.py`` so the kernel never imports ``app.api``)
+        as the context selections file destination.
         """
-        # Check launch_context.py for selections.json write.
-        launch_context_py = _BACKEND_ROOT / "app" / "api" / "launch_context.py"
-        if not launch_context_py.exists():
-            pytest.skip("launch_context.py not found — cannot verify Row 21")
-        text = launch_context_py.read_text(encoding="utf-8")
+        # Check the .context/ writer for the selections.json write.
+        od_context_sandbox_py = (
+            _BACKEND_ROOT / "app" / "services" / "od_context_sandbox.py"
+        )
+        if not od_context_sandbox_py.exists():
+            pytest.skip("od_context_sandbox.py not found — cannot verify Row 21")
+        text = od_context_sandbox_py.read_text(encoding="utf-8")
         assert "selections.json" in text, (
-            "Row 21: selections.json must be written by launch_context.py to "
+            "Row 21: selections.json must be written by od_context_sandbox.py to "
             ".context/ (Requirement 13 AC 6 Row 21)"
         )
 
@@ -925,16 +972,20 @@ class TestLedgerRowsInjectionBlocks:
         Source check: ``write_od_context_to_sandbox`` writes to .context/;
         ``rebuild_od_context_from_sandbox`` restores it on resume.
         """
-        launch_context_py = _BACKEND_ROOT / "app" / "api" / "launch_context.py"
-        if not launch_context_py.exists():
-            pytest.skip("launch_context.py not found — cannot verify Row 23")
-        text = launch_context_py.read_text(encoding="utf-8")
+        od_context_sandbox_py = (
+            _BACKEND_ROOT / "app" / "services" / "od_context_sandbox.py"
+        )
+        if not od_context_sandbox_py.exists():
+            pytest.skip("od_context_sandbox.py not found — cannot verify Row 23")
+        text = od_context_sandbox_py.read_text(encoding="utf-8")
         assert "write_od_context_to_sandbox" in text, (
-            "Row 23: write_od_context_to_sandbox must be present in launch_context.py "
+            "Row 23: write_od_context_to_sandbox must be present in od_context_sandbox.py "
             "(Requirement 13 AC 6 Row 23)"
         )
-        assert "rebuild_od_context_from_sandbox" in text or "rebuild_od_context" in text, (
-            "Row 23: rebuild_od_context_from_sandbox must be present in launch_context.py "
+        assert (
+            "rebuild_od_context_from_sandbox" in text or "rebuild_od_context" in text
+        ), (
+            "Row 23: rebuild_od_context_from_sandbox must be present in od_context_sandbox.py "
             "for the resume path"
         )
 
@@ -979,9 +1030,9 @@ class TestLedgerRowsInjectionBlocks:
                 "Row 25: 'previous_run' context_provider must be registered — "
                 "previous-run seed comes from the shared revision tree via this provider"
             )
-        assert provider is not None, (
-            "Row 25: previous_run context_provider must not be None"
-        )
+        assert (
+            provider is not None
+        ), "Row 25: previous_run context_provider must not be None"
 
     def test_row26_uploaded_files_remain_in_uploads_dir(self) -> None:
         """Row 26: uploaded-files context → .uploads/ raw and extracted sidecars.
@@ -1024,7 +1075,9 @@ class TestLedgerRowsInjectionBlocks:
         )
 
     @pytest.mark.asyncio
-    async def test_row28_validation_fix_block_carries_errors_and_filename_only(self) -> None:
+    async def test_row28_validation_fix_block_carries_errors_and_filename_only(
+        self,
+    ) -> None:
         """Row 28: the VALIDATION ERRORS block appears when pending_validation_fix
         is set for the target agent, carries only errors and filename (no brief,
         no upstream context), and is consumed once.
@@ -1055,7 +1108,8 @@ class TestLedgerRowsInjectionBlocks:
         msgs = [
             ev["data"]["context_message"]
             for ev in events
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs, "No agent_input events"
         msg = msgs[0]
@@ -1075,9 +1129,9 @@ class TestLedgerRowsInjectionBlocks:
         )
 
         # Consume-once: store must be drained after dispatch
-        assert ectx.pending_validation_fix.get(spec.id) is None, (
-            "Row 28: pending_validation_fix must be cleared after dispatch (consume-once)"
-        )
+        assert (
+            ectx.pending_validation_fix.get(spec.id) is None
+        ), "Row 28: pending_validation_fix must be cleared after dispatch (consume-once)"
 
         # Dormant when empty — no VALIDATION ERRORS block.
         with _EngineHarness(
@@ -1087,17 +1141,20 @@ class TestLedgerRowsInjectionBlocks:
         ) as h:
             ectx2 = _make_ectx("row28-no-vfix-run")
             results2: list = []
-            events2 = await _drive_agent(h.engine, spec, ectx2, results2, [spec], index=0)
+            events2 = await _drive_agent(
+                h.engine, spec, ectx2, results2, [spec], index=0
+            )
 
         msgs2 = [
             ev["data"]["context_message"]
             for ev in events2
-            if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
+            if ev.get("type") == "agent_input"
+            and "context_message" in ev.get("data", {})
         ]
         assert msgs2
-        assert "=== VALIDATION ERRORS" not in msgs2[0], (
-            "Row 28: VALIDATION ERRORS block must NOT appear when store is empty"
-        )
+        assert (
+            "=== VALIDATION ERRORS" not in msgs2[0]
+        ), "Row 28: VALIDATION ERRORS block must NOT appear when store is empty"
 
     def test_row29_planner_design_context_in_process_rebuilt_from_context(self) -> None:
         """Row 29: planner design-context argument → in-process; rebuilt from .context/ on resume.
@@ -1167,9 +1224,9 @@ class TestLedgerAC3StagedSkillsDiscoverable:
             "so deepagents' SKILLS_SYSTEM_PROMPT remains populated "
             "(Requirement 13 AC 3)"
         )
-        assert '"/skills"' in text or "'/skills'" in text, (
-            "AC 3: stage_skills must set sources=['/skills'] for deepagents discovery"
-        )
+        assert (
+            '"/skills"' in text or "'/skills'" in text
+        ), "AC 3: stage_skills must set sources=['/skills'] for deepagents discovery"
 
     def test_default_policy_retains_skills_slot_for_inv3_parity(self) -> None:
         """AC 3: default policy still includes the 'skills' slot so INV-3 goldens stay
@@ -1209,9 +1266,9 @@ class TestLedgerAC4NoRequestMd:
             "the raw request must never be written to disk "
             "(Requirement 13 AC 4)"
         )
-        assert 'write("REQUEST.md"' not in text, (
-            "AC 4: engine.py MUST NOT create REQUEST.md in any form"
-        )
+        assert (
+            'write("REQUEST.md"' not in text
+        ), "AC 4: engine.py MUST NOT create REQUEST.md in any form"
 
     def test_request_md_absence_documented_in_engine(self) -> None:
         """Source check: the REQUEST.md non-creation is documented in engine.py.
@@ -1239,7 +1296,8 @@ class TestLedgerAC4NoRequestMd:
         # The only allowed write-containing line is the comment that SAYS it never
         # creates the file.
         real_writes = [
-            line for line in write_lines
+            line
+            for line in write_lines
             if not line.startswith("#")
             and "NEVER" not in line
             and "must" not in line.lower()
@@ -1338,15 +1396,15 @@ class TestLedgerAC2GovernedAgentConstitutionRetained:
             "governed agent must NOT silently lose its Constitution "
             "(Requirement 13 AC 2)"
         )
-        assert "## Guardrail: safety" in result, (
-            "AC 2: governance policy assemble() must include guardrails"
-        )
-        assert "## Active Behavioral Hooks" in result, (
-            "AC 2: governance policy assemble() must include hooks"
-        )
-        assert "# Agent body" in result, (
-            "AC 2: governance policy assemble() must include prompt_body"
-        )
+        assert (
+            "## Guardrail: safety" in result
+        ), "AC 2: governance policy assemble() must include guardrails"
+        assert (
+            "## Active Behavioral Hooks" in result
+        ), "AC 2: governance policy assemble() must include hooks"
+        assert (
+            "# Agent body" in result
+        ), "AC 2: governance policy assemble() must include prompt_body"
 
     def test_body_only_assemble_drops_constitution_intentionally(self) -> None:
         """Via full assemble(): body_only policy drops Constitution (intentional for
@@ -1368,9 +1426,9 @@ class TestLedgerAC2GovernedAgentConstitutionRetained:
             "AC 2: body_only assemble() must NOT include the constitution block — "
             "governed agents must use 'governance' policy instead"
         )
-        assert "# Agent body" in result, (
-            "AC 2: body_only assemble() must include prompt_body"
-        )
+        assert (
+            "# Agent body" in result
+        ), "AC 2: body_only assemble() must include prompt_body"
 
     def test_domain_analyst_uses_governance_policy(self) -> None:
         """domain-analyst is a governed agent and must use the governance policy.
@@ -1405,7 +1463,9 @@ class TestLedgerAC9PromptViewer:
         legitimately short; the viewer re-labels it as 'Task message' rather
         than showing 'N chars' (which would look like 'no context').
         """
-        agent_detail_panel = _FRONTEND_ROOT / "components" / "results" / "AgentDetailPanel.tsx"
+        agent_detail_panel = (
+            _FRONTEND_ROOT / "components" / "results" / "AgentDetailPanel.tsx"
+        )
         if not agent_detail_panel.exists():
             pytest.skip("AgentDetailPanel.tsx not found — skipping frontend test")
         text = agent_detail_panel.read_text(encoding="utf-8")
@@ -1418,7 +1478,9 @@ class TestLedgerAC9PromptViewer:
         """When contextIsFileBased=true, the label changes from 'Full input prompt'
         to 'Task message' with a note explaining that context came from files.
         """
-        agent_detail_panel = _FRONTEND_ROOT / "components" / "results" / "AgentDetailPanel.tsx"
+        agent_detail_panel = (
+            _FRONTEND_ROOT / "components" / "results" / "AgentDetailPanel.tsx"
+        )
         if not agent_detail_panel.exists():
             pytest.skip("AgentDetailPanel.tsx not found")
         text = agent_detail_panel.read_text(encoding="utf-8")
@@ -1438,7 +1500,9 @@ class TestLedgerAC9PromptViewer:
         s.type === 'run_input' || s.type === 'context_block')`` — a legitimate short
         message is never misread as 'no context'.
         """
-        agent_detail_panel = _FRONTEND_ROOT / "components" / "results" / "AgentDetailPanel.tsx"
+        agent_detail_panel = (
+            _FRONTEND_ROOT / "components" / "results" / "AgentDetailPanel.tsx"
+        )
         if not agent_detail_panel.exists():
             pytest.skip("AgentDetailPanel.tsx not found")
         text = agent_detail_panel.read_text(encoding="utf-8")
@@ -1446,9 +1510,9 @@ class TestLedgerAC9PromptViewer:
             "AC 9: contextIsFileBased must check for 'run_input' source type — "
             "Requirement 13 AC 9"
         )
-        assert "context_block" in text, (
-            "AC 9: contextIsFileBased must check for 'context_block' source type"
-        )
+        assert (
+            "context_block" in text
+        ), "AC 9: contextIsFileBased must check for 'context_block' source type"
 
 
 # ===========================================================================
@@ -1480,13 +1544,13 @@ class TestLedgerFiveModes:
 
         ectx = ExecutionContext(run_id="nm-run", owner_id="anon")
         assert isinstance(ectx.pending_route_feedback, dict)
-        assert ectx.pending_route_feedback == {}, (
-            "Normal mode: pending_route_feedback must start empty — no retry in flight"
-        )
+        assert (
+            ectx.pending_route_feedback == {}
+        ), "Normal mode: pending_route_feedback must start empty — no retry in flight"
         assert isinstance(ectx.pending_validation_fix, dict)
-        assert ectx.pending_validation_fix == {}, (
-            "Normal mode: pending_validation_fix must start empty — no fix loop"
-        )
+        assert (
+            ectx.pending_validation_fix == {}
+        ), "Normal mode: pending_validation_fix must start empty — no fix loop"
 
     def test_retry_mode_feedback_keyed_on_agent_id(self) -> None:
         """Retry mode: feedback is keyed on the target agent id, dormant for others.
@@ -1500,8 +1564,12 @@ class TestLedgerFiveModes:
         OTHER = "epic-architect"
 
         ectx.pending_route_feedback[TARGET] = {
-            "from_step": "judge", "decision": "fail", "from_output": "",
-            "pass_number": 2, "max_passes": 3, "authored": "Fix this.",
+            "from_step": "judge",
+            "decision": "fail",
+            "from_output": "",
+            "pass_number": 2,
+            "max_passes": 3,
+            "authored": "Fix this.",
         }
 
         # Pop simulates what _compose_context_message does.
@@ -1513,9 +1581,9 @@ class TestLedgerFiveModes:
             "Retry mode: other agents must NOT receive feedback — "
             "Requirement 14 AC 2 / Requirement 13 AC 6 Row 9"
         )
-        assert ectx.pending_route_feedback == {}, (
-            "Retry mode: store must be drained after delivery"
-        )
+        assert (
+            ectx.pending_route_feedback == {}
+        ), "Retry mode: store must be drained after delivery"
 
     def test_redo_mode_directive_cleared_after_dispatch(self) -> None:
         """Redo mode: redo_directive is a consume-once field, cleared in finally.
@@ -1525,14 +1593,16 @@ class TestLedgerFiveModes:
         from agents.execution_engine.context import ExecutionContext
 
         ectx = ExecutionContext(run_id="redo-run", owner_id="anon")
-        assert ectx.redo_directive == "", "Redo mode: redo_directive must default to empty"
+        assert (
+            ectx.redo_directive == ""
+        ), "Redo mode: redo_directive must default to empty"
 
         ectx.redo_directive = "Revise section 3."
         captured = ectx.redo_directive
         ectx.redo_directive = ""  # cleared unconditionally (F3 pattern)
-        assert captured == "Revise section 3.", (
-            "Redo mode: redo_directive must be readable during compose"
-        )
+        assert (
+            captured == "Revise section 3."
+        ), "Redo mode: redo_directive must be readable during compose"
         assert ectx.redo_directive == "", (
             "Redo mode: redo_directive must be cleared after dispatch — "
             "Requirement 14 AC 3 / Requirement 13 AC 6 Row 14"
@@ -1552,8 +1622,12 @@ class TestLedgerFiveModes:
 
         # Simulate a one-shot feedback that was consumed on the first dispatch.
         ectx.pending_route_feedback[AGENT_ID] = {
-            "from_step": "judge", "decision": "fail", "from_output": "",
-            "pass_number": 1, "max_passes": 3, "authored": None,
+            "from_step": "judge",
+            "decision": "fail",
+            "from_output": "",
+            "pass_number": 1,
+            "max_passes": 3,
+            "authored": None,
         }
         # Consumed (first dispatch).
         ectx.pending_route_feedback.pop(AGENT_ID, None)

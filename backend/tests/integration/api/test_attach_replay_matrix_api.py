@@ -454,6 +454,7 @@ class TestTerminalAttach:
         # No live frame beyond the handshake (last frame is the handshake, live:false).
         assert parsed[-1]["type"] == "stream_attached"
         assert parsed[-1]["data"]["live"] is False
+
     @pytest.mark.asyncio
     async def test_terminal_replay_binds_to_wire_parity_projection(self, matrix):
         """Non-vacuity: the terminal full-replay frames, reference-projected, equal the
@@ -572,6 +573,7 @@ class TestRestartReArm:
         assert (
             after == before
         ), "gate re-arm must be READ-ONLY (no run_events mutation, ND-9)"
+
     @pytest.mark.asyncio
     async def test_resolved_gate_does_not_reemit_after_restart(self, matrix):
         db = matrix["db"]
@@ -615,8 +617,11 @@ class TestGateAnswerWhileStreamDown:
          and every subsequent event replay IN ORDER, and the now-resolved gate is NOT
          re-armed. Durable resume proven across the stream-down window (SC-2).
     """
+
     @pytest.mark.asyncio
-    async def test_gate_answered_while_down_replays_resolution_on_reattach(self, matrix):
+    async def test_gate_answered_while_down_replays_resolution_on_reattach(
+        self, matrix
+    ):
         db = matrix["db"]
         client = matrix["client"]
         store = matrix["store"]
@@ -686,6 +691,7 @@ class TestGateAnswerWhileStreamDown:
         assert (
             [p for p in replay if p["type"] == "review_gate_ready"] == []
         ), "an answered gate must not re-open on reattach (SC-2 durable resolution)"
+
     @pytest.mark.asyncio
     async def test_gate_answer_survives_a_full_fresh_reattach_from_zero(self, matrix):
         """The strongest SC-2 framing: even a client that lost ALL cursor state

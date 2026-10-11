@@ -320,6 +320,7 @@ def test_resume_already_running_409(env, caplog):
     env["ws"]._PIPELINE_TASKS[run_id] = object()
 
     import logging
+
     with caplog.at_level(logging.WARNING, logger="app.api.run_commands"):
         resp = _post_resume(env, run_id)
     assert resp.status_code == 409

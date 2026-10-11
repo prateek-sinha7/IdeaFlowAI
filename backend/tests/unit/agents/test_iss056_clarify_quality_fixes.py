@@ -327,7 +327,9 @@ class TestH3SmartPlannerDesignNote:
         with patch.object(SmartPlanner, "_build_llm", return_value=MagicMock()):
             return SmartPlanner(model_id=None)
 
-    def test_design_note_present_when_design_context_supplied(self, stub_provider_classes) -> None:
+    def test_design_note_present_when_design_context_supplied(
+        self, stub_provider_classes
+    ) -> None:
         """ISS-056/H3(b): 'Design already chosen' must appear when design_context is non-None."""
         planner = self._make_planner()
         prompt = planner._build_prompt(
@@ -346,7 +348,9 @@ class TestH3SmartPlannerDesignNote:
         assert "Web Prototype" in prompt
         assert "Do NOT flag visual style" in prompt
 
-    def test_design_note_absent_when_design_context_none(self, stub_provider_classes) -> None:
+    def test_design_note_absent_when_design_context_none(
+        self, stub_provider_classes
+    ) -> None:
         """Safety boundary: prompt must NOT mention design_context when it is None."""
         planner = self._make_planner()
         prompt = planner._build_prompt(
@@ -359,7 +363,9 @@ class TestH3SmartPlannerDesignNote:
             "when design_context is None"
         )
 
-    def test_design_note_absent_when_both_names_missing(self, stub_provider_classes) -> None:
+    def test_design_note_absent_when_both_names_missing(
+        self, stub_provider_classes
+    ) -> None:
         """Edge case: empty design_context dict must not inject the note."""
         planner = self._make_planner()
         prompt = planner._build_prompt(

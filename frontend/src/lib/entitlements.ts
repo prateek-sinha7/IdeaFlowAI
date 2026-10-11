@@ -84,6 +84,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // as the ex_A* fixtures above.
     "ex_playwright_smoke_test",
     // reference fan-out fixture — kept in parity with the backend map.
+    "sample_subagents_parallel",
   ]),
 };
 

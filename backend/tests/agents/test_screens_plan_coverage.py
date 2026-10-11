@@ -82,7 +82,9 @@ def _inventory(*ids: str) -> str:
     )
 
 
-def _build_sandbox(tmp_path: Path, *, spec: str | None, screens_json: str | None) -> Path:
+def _build_sandbox(
+    tmp_path: Path, *, spec: str | None, screens_json: str | None
+) -> Path:
     root = tmp_path / "sandbox"
     root.mkdir()
     if spec is not None:
@@ -139,7 +141,9 @@ async def test_missing_screens_json_file_flags_the_path(tmp_path):
 
 @pytest.mark.asyncio
 async def test_unparseable_screens_json_flags_one_issue_no_crash(tmp_path):
-    root = _build_sandbox(tmp_path, spec=_spec("search"), screens_json="not json at all {")
+    root = _build_sandbox(
+        tmp_path, spec=_spec("search"), screens_json="not json at all {"
+    )
     v = CapabilityRegistry().resolve("validator", "screens_plan_coverage")
     issues = await v.validate(_Target(_FakeRunner(root)))
     assert len(issues) == 1

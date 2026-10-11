@@ -152,6 +152,8 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "ex_test_transitive_skip",
     "ex_validation_retry",
     # ── planner: skip because the manifest plans for itself ─────────────────
+    # prototype_v2 plans for itself too (fi-planner custom step) - planner: skip.
+    "prototype_v2",
     # spec 018: a genuinely temporary smoke-test pipeline for the playwright
     # tool set — minimal by design, and expected to be deleted once that tool
     # set is covered by real pipelines.
@@ -278,6 +280,8 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "ex_test_loop_reachable_skip": [],
     "ex_test_transitive_skip": [],
     "ex_validation_retry": [],
+    # clarify.mode: skip - prototype_v2 reads requirements from uploaded documents.
+    "prototype_v2": [],
     # clarify.mode: skip — spec 018 temporary playwright smoke test.
     "ex_playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.

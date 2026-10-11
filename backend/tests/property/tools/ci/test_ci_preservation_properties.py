@@ -60,7 +60,7 @@ class CIBoundarySnapshot:
     # Constraints enforced by CI
     least_privilege_checks: Dict[str, Set[str]]  # job -> allowed permissions
     terraform_static_only: bool  # No plan/apply in CI
-    provides_sonar_input: bool  # LCOV and Cobertura are Sonar inputs
+    provides_coverage_input: bool  # LCOV and Cobertura feed the coverage gates
     deterministic_output: bool  # No nondeterministic hashes/timestamps
 
 
@@ -219,7 +219,7 @@ def extract_ci_boundary_snapshot() -> CIBoundarySnapshot:
         characterization_golden_files=characterization_golden_files,
         least_privilege_checks=least_privilege_checks,
         terraform_static_only=True,
-        provides_sonar_input=True,
+        provides_coverage_input=True,
         deterministic_output=True,
     )
 
@@ -508,11 +508,11 @@ class TestIaCExceptionPreservationProperty:
             pass
 
 
-class TestSonarReportPreservationProperty:
-    """Property: Sonar report formats are preserved."""
+class TestCoverageReportPreservationProperty:
+    """Property: coverage report formats are preserved."""
 
-    def test_sonar_inputs_format_preserved(self):
-        """Property: Backend Cobertura and frontend LCOV remain Sonar inputs.
+    def test_coverage_inputs_format_preserved(self):
+        """Property: Backend Cobertura and frontend LCOV remain the gate inputs.
 
         Report formats must be:
         - Backend: Cobertura XML with repository-relative paths
@@ -520,7 +520,7 @@ class TestSonarReportPreservationProperty:
 
         Validates: Requirements 3.8
         """
-        # Sonar requires specific formats
+        # The coverage gates parse these specific formats
         assert True  # Verified by integration tests
 
 

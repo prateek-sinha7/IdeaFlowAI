@@ -6,13 +6,12 @@
  * AgentTokenPill (`{X}K tokens`).
  *
  * formatTokens: ≥1e6 → `{n/1e6}M` (1dp), ≥1000 → `{n/1000}K` (1dp), else raw.
- * formatCost:   0 → `—` (em dash), <0.001 → `<$0.001`, else `~$X.XXX` (3dp).
  * The summary renders only when (totalTokens || totalInputTokens) is truthy
- * AND the panel isComplete. The cost label model name comes from model_id
- * (mockSse.complete sends the Haiku 4.5 id → `Est. cost (Haiku 4.5)`).
+ * AND the panel isComplete. (The "Est. cost" row and its formatCost were
+ * removed in the KAN-83 restyle — see the TS-L-03 note below.)
  */
 import { test, expect } from "../fixtures/test";
-import { AGENTS, runAgent } from "../fixtures/scenarios";
+import { AGENTS } from "../fixtures/scenarios";
 
 test.describe("TS-L — token usage summary", () => {
   test.beforeEach(async ({ dashboard }) => {
@@ -23,20 +22,30 @@ test.describe("TS-L — token usage summary", () => {
     });
   });
 
-  /** Innermost flex row whose text starts with "Est. cost" — label + value. */
-  const costRow = (dashboard: { page: import("@playwright/test").Page }) =>
-    dashboard.page.locator("div").filter({ hasText: /^Est\. cost/ }).last();
-
-  /** Start the canned user_stories run and run every agent to done. */
-  async function runAllAgents(mockSse: import("../fixtures/mockSse").MockSse) {
+  /** Start the canned user_stories run and run every agent to done. ISS-304: the
+   *  summary totals ACCUMULATE from agent_complete (the same set the persisted
+   *  token_usage is built from) — pipeline_complete's own totals are only a
+   *  fallback — so each agent reports its share of the expected run totals. */
+  async function runAllAgents(
+    mockSse: import("../fixtures/mockSse").MockSse,
+    usage: Array<{ inputTokens: number; outputTokens: number }>,
+  ) {
     const agents = AGENTS.user_stories;
     mockSse.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockSse, a.id);
+    agents.forEach((a, i) => {
+      mockSse.agentStart(a.id);
+      mockSse.agentComplete(a.id, { ...usage[i], totalTokens: usage[i].inputTokens + usage[i].outputTokens });
+    });
     return agents;
   }
 
   test("TS-L-01 summary card: total, input/output breakdown, cost label + value", async ({ dashboard, mockSse }) => {
-    await runAllAgents(mockSse);
+    // 5000 input / 3000 output across the three agents.
+    await runAllAgents(mockSse, [
+      { inputTokens: 2000, outputTokens: 1000 },
+      { inputTokens: 2000, outputTokens: 1000 },
+      { inputTokens: 1000, outputTokens: 1000 },
+    ]);
     mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
@@ -63,7 +72,11 @@ test.describe("TS-L — token usage summary", () => {
   });
 
   test("TS-L-02 number format: 1.5M total", async ({ dashboard, mockSse }) => {
-    await runAllAgents(mockSse);
+    await runAllAgents(mockSse, [
+      { inputTokens: 500_000, outputTokens: 0 },
+      { inputTokens: 500_000, outputTokens: 0 },
+      { inputTokens: 0, outputTokens: 500_000 },
+    ]);
     mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
@@ -75,7 +88,11 @@ test.describe("TS-L — token usage summary", () => {
   });
 
   test("TS-L-02 number format: raw 950 total", async ({ dashboard, mockSse }) => {
-    await runAllAgents(mockSse);
+    await runAllAgents(mockSse, [
+      { inputTokens: 200, outputTokens: 150 },
+      { inputTokens: 200, outputTokens: 100 },
+      { inputTokens: 200, outputTokens: 100 },
+    ]);
     mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
@@ -86,61 +103,23 @@ test.describe("TS-L — token usage summary", () => {
     await expect(dashboard.page.getByText("950 total", { exact: true })).toBeVisible();
   });
 
-  // The three TS-L-03 cost-format cases below assert the summary's cost row
-  // (em-dash / "<$0.001" / "~$0.042"). That row was removed in the KAN-83
-  // token-summary restyle — the summary now shows only total·input·output, and
-  // the sole surviving `formatCost` lives in ChatTokenWidget, which is NOT
-  // mounted anywhere. These test only the removed cost display, so they are
-  // marked test.fixme (skipped) to preserve the exact assertions for re-enable
-  // if cost estimation returns — see each test.fixme reason below.
-  test.skip("TS-L-03 cost format: zero → em dash — cost display removed in KAN-83 restyle; re-enable if cost estimation returns; Owner: frontend", async ({ dashboard, mockSse }) => {
-    await runAllAgents(mockSse);
-    mockSse.complete({
-      pipelineType: "user_stories",
-      finalOutput: "# Product Backlog\n",
-      totalTokens: 8000, // keep card visible; only the cost is under test
-      estimatedCostUsd: 0,
-    });
-    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
-    await dashboard.openSteps();
-    await expect(dashboard.page.getByText("Est. cost (Haiku 4.5)", { exact: true })).toBeVisible();
-    await expect(costRow(dashboard)).toContainText("—");
-  });
+  // TS-L-03 (cost format: 0 → "—", sub-cent → "<$0.001", 0.042 → "~$0.042") was
+  // DELETED: it asserted the summary's "Est. cost" row, which the KAN-83 restyle
+  // removed — no mounted surface renders an estimated cost any more, so there is
+  // nothing for a browser test to observe. The formatter itself survives only in
+  // the unmounted ChatTokenWidget; its branches are owned by the unit test
+  // src/components/chat/ChatTokenWidget.test.tsx ("formats cost …" cases, plus
+  // "renders the pinned P26 totals and cost" for ~$0.042).
 
-  test.skip("TS-L-03 cost format: sub-cent → <$0.001 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns; Owner: frontend", async ({ dashboard, mockSse }) => {
-    await runAllAgents(mockSse);
-    mockSse.complete({
-      pipelineType: "user_stories",
-      finalOutput: "# Product Backlog\n",
-      totalTokens: 8000,
-      estimatedCostUsd: 0.0005,
-    });
-    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
-    await dashboard.openSteps();
-    await expect(costRow(dashboard)).toContainText("<$0.001");
-  });
-
-  test.skip("TS-L-03 cost format: 0.042 → ~$0.042 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns; Owner: frontend", async ({ dashboard, mockSse }) => {
-    await runAllAgents(mockSse);
-    mockSse.complete({
-      pipelineType: "user_stories",
-      finalOutput: "# Product Backlog\n",
-      totalTokens: 8000,
-      estimatedCostUsd: 0.042,
-    });
-    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
-    await dashboard.openSteps();
-    await expect(costRow(dashboard)).toContainText("~$0.042");
-  });
-
-  // TS-L-04 is FLAKY under dev-server contention: the L2 detail occasionally opens
-  // without the "3.1K tok" pill when the drill-in races agent_complete processing
-  // (verified ~2/8 full-file runs; a done-state pre-wait + 20s timeouts did NOT
-  // resolve it). This is a test-harness timing issue, NOT an app bug — useWorkflow
-  // sets status:"done" and totalTokens ATOMICALLY (useWorkflow.ts:383-388), so a
-  // done agent always carries its tokens in production (where the panel opens on a
-  // settled run). Quarantined pending a robust drill-in sync; body preserved verbatim.
-  test.skip("TS-L-04 per-agent token count: DONE agent detail shows 3.1K tok (flaky drill-in — see note above); Owner: frontend", async ({ dashboard, mockSse }) => {
+  // TS-L-04 was quarantined as a drill-in timing flake (~2/10 runs). It was not a
+  // race: the L2 detail header renders its meta as ONE text node joined with " · "
+  // (AgentDetailPanel.tsx:1371-1374, 1441) — "3.1K tok" when the agent has no
+  // measured duration, "0s · 3.1K tok" when it does. Whether a duration is set
+  // depends on the start→complete gap in the mocked stream, so the old exact
+  // getByText("3.1K tok") missed whenever the duration prefix was present. The
+  // locator now anchors the token count as the LAST meta bit, with or without a
+  // preceding duration. (The title is unchanged: renames need a migration plan.)
+  test("TS-L-04 per-agent token count: DONE agent detail shows 3.1K tok (flaky drill-in — see note above); Owner: frontend", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
     mockSse.start(agents, { pipelineType: "user_stories" });
     // Complete the first agent with an explicit per-agent total.
@@ -153,6 +132,7 @@ test.describe("TS-L — token usage summary", () => {
     // Drill in via the Steps spine and assert the new "3.1K tok" format.
     await dashboard.openSteps();
     await dashboard.openAgentDetail(agents[0].name); // "Domain Discovery Agent"
-    await expect(dashboard.page.getByText("3.1K tok", { exact: true })).toBeVisible();
+    // "3.1K tok" or "<duration> · 3.1K tok" — the whole meta node, token count last.
+    await expect(dashboard.page.getByText(/^(?:\S+ · )?3\.1K tok$/)).toBeVisible();
   });
 });

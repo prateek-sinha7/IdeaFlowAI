@@ -805,18 +805,24 @@ class TestStagedUploadOrdering:
         stage_b = _stage(env, user, "2-amber.docx")
         given_order = [stage_a, stage_b, stage_c]
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             ingest_staged_uploads(
-                user_id=user.id, workspace_id="ws-1", run_id=run_id,
+                user_id=user.id,
+                workspace_id="ws-1",
+                run_id=run_id,
                 stage_ids=given_order,
             )
         )
 
         assert _manifest_names(env, user.id, run_id) == [
-            "1-crimson.pdf", "2-amber.docx", "3-verdant.pptx",
+            "1-crimson.pdf",
+            "2-amber.docx",
+            "3-verdant.pptx",
         ]
 
-    def test_failing_stage_does_not_drop_stages_queued_behind_it(self, env, monkeypatch):
+    def test_failing_stage_does_not_drop_stages_queued_behind_it(
+        self, env, monkeypatch
+    ):
         """BUG 1: a stage whose persist raises is skipped, but every stage
         queued AFTER it in stage_ids order still lands."""
         import asyncio
@@ -837,15 +843,20 @@ class TestStagedUploadOrdering:
             if any(name == "b.txt" for name, *_ in validated):
                 raise RuntimeError("simulated persist failure")
             return await real_persist(
-                store, user_id=user_id, workspace_id=workspace_id,
-                run_id=run_id, validated=validated,
+                store,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                validated=validated,
             )
 
         monkeypatch.setattr(rf_module, "_persist_documents", _boom_for_b)
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             ingest_staged_uploads(
-                user_id=user.id, workspace_id="ws-1", run_id=run_id,
+                user_id=user.id,
+                workspace_id="ws-1",
+                run_id=run_id,
                 stage_ids=[stage_a, stage_b, stage_c],
             )
         )
@@ -878,15 +889,18 @@ class TestDurableMirrorNoWorkspaceYet:
 
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)
-        monkeypatch.setattr(env["rf"], "extract_upload_text",
-                            lambda name, data: "EXTRACTED DOC TEXT")
+        monkeypatch.setattr(
+            env["rf"], "extract_upload_text", lambda name, data: "EXTRACTED DOC TEXT"
+        )
 
         stage_id = _stage(env, user, "report.pdf", b"%PDF-bytes")
 
         with caplog.at_level(logging.WARNING, logger="app.api.run_files"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 ingest_staged_uploads(
-                    user_id=user.id, workspace_id=None, run_id=run_id,
+                    user_id=user.id,
+                    workspace_id=None,
+                    run_id=run_id,
                     stage_ids=[stage_id],
                 )
             )
@@ -894,16 +908,18 @@ class TestDurableMirrorNoWorkspaceYet:
         # Sandbox landing is unaffected — the durable mirror is best-effort only.
         assert _manifest_names(env, user.id, run_id) == ["report.pdf"]
         sb = _sandbox(env, user.id, run_id)
-        assert sb.path_for(".uploads/report.pdf.txt").read_text(
-            encoding="utf-8"
-        ) == "EXTRACTED DOC TEXT"
+        assert (
+            sb.path_for(".uploads/report.pdf.txt").read_text(encoding="utf-8")
+            == "EXTRACTED DOC TEXT"
+        )
 
         # No durable upload_text row — never attempted with a None workspace_id.
         assert _upload_text_rows(env, run_id) == []
 
         # Exactly one clean warning; never the raw exception / row content.
         mirror_warnings = [
-            rec for rec in caplog.records
+            rec
+            for rec in caplog.records
             if rec.levelno == logging.WARNING and "durable mirror" in rec.getMessage()
         ]
         assert len(mirror_warnings) == 1
@@ -922,15 +938,18 @@ class TestDurableMirrorNoWorkspaceYet:
         user = _seed_user(env, "u")
         run_id = _owned_run(env, user)  # workspace_id="ws-1" on the WorkflowRun row
         env["state"]["user"] = user
-        monkeypatch.setattr(env["rf"], "extract_upload_text",
-                            lambda name, data: "EXTRACTED DOC TEXT")
+        monkeypatch.setattr(
+            env["rf"], "extract_upload_text", lambda name, data: "EXTRACTED DOC TEXT"
+        )
 
-        resp = _post(env, run_id,
-                     [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))])
+        resp = _post(
+            env, run_id, [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))]
+        )
         assert resp.status_code == 200, resp.text
 
         rows = _upload_text_rows(env, run_id)
         assert {r.location for r in rows} == {
-            ".uploads/report.pdf.txt", ".uploads/manifest.json",
+            ".uploads/report.pdf.txt",
+            ".uploads/manifest.json",
         }
         assert all(r.workspace_id == "ws-1" for r in rows)

@@ -33,7 +33,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agents.capabilities.base import Validator  # port
 from agents.capabilities.registry import register
 from agents.capabilities.validators.severity import map_severity  # single source
 

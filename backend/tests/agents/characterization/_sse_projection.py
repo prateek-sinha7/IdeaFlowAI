@@ -205,11 +205,23 @@ def assert_wire_parity(ws_frames: list[dict], run_events: list[dict]) -> None:
     if ws_norm != projected_norm:
         ws_types = [f["type"] for f in ws_norm]
         proj_types = [f["type"] for f in projected_norm]
+        # Name the FIRST differing frame so a drift is diagnosable from the CI log
+        # alone (the type lists are often identical when only a payload moved).
+        first_diff = next(
+            (
+                f"  first diff at #{i}: WS={w!r:.600}\n              SSE={p!r:.600}\n"
+                # strict=False: the lengths may legitimately differ on a drift.
+                for i, (w, p) in enumerate(zip(ws_norm, projected_norm, strict=False))
+                if w != p
+            ),
+            "",
+        )
         raise AssertionError(
             "WIRE PARITY DRIFT: the run_events→SSE projection diverged from the "
             "recorded WS frame sequence (volatile-stripped, order-canonical).\n"
             f"  WS frame count={len(ws_norm)} types={ws_types}\n"
             f"  SSE projection count={len(projected_norm)} types={proj_types}\n"
+            f"{first_diff}"
             "This is the CHAT-07 binding gate: the SSE transport is NOT a faithful "
             "replacement of the /ws/chat drainer. If the change is intentional, "
             "regenerate the *.wsframes.json goldens with SNAPSHOT_UPDATE=1 and review."

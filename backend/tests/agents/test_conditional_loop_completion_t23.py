@@ -50,7 +50,9 @@ def _make_scripts_for():
         if agent_id == "custom-agent:check":
             calls["check"] += 1
             decision = "retry" if calls["check"] <= 2 else "ok"
-            return [_ScriptedTurn(texts=[f'{{"decision": "{decision}"}}'], usage=(5, 3))]
+            return [
+                _ScriptedTurn(texts=[f'{{"decision": "{decision}"}}'], usage=(5, 3))
+            ]
         return [_ScriptedTurn(texts=[f"{agent_id} default output."], usage=(5, 3))]
 
     return _fn
@@ -68,7 +70,9 @@ async def test_retry_twice_then_ok_completes_normally():
     assert events, f"{_PIPELINE} produced no events"
 
     types = [e.get("type") for e in events]
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
 
     print("EVENT TYPES:", types)
     print("AGENT_START agent_ids:", started)

@@ -28,7 +28,12 @@ for u in http://localhost:3000/login http://localhost:8000/docs; do
 done
 
 mkdir -p "$LOG"
-cd "$E2E"
+# Guarded because this script runs under `set -u` only, NOT `set -e`: an
+# unguarded `cd` failure would not stop anything. The next line would then run
+# `find suites` in whatever directory we happened to be in, match nothing, and
+# the script would report "0 files" and exit 0 — a silent pass that ran no tests
+# at all. (SC2164)
+cd "$E2E" || { echo "cannot cd to $E2E — nothing was run"; exit 1; }
 find suites -name 'test_*.py' | grep -- "$FILTER" | sort > "$LOG/files.txt"
 total=$(wc -l < "$LOG/files.txt" | tr -d ' ')
 echo "$total files, logs in $LOG"

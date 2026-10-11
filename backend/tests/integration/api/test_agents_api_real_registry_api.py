@@ -95,20 +95,19 @@ class TestPrototypePipelineEndpointReturnsRealRegistry:
             set(ids) & legacy_v1
         ), f"retired prototype_v1 ids leaked into the endpoint: {set(ids) & legacy_v1}"
 
-    @pytest.mark.issue("ISS-636")
     def test_prototype_endpoint_gate_values(self, api_client):
-        """``gate`` is the new additive field, and EVERY prototype agent is
-        ungated (``None``). FIX-323 removed the static ``gate: Human_Gate``
-        frontmatter deliberately — a review gate is now an explicit per-run
-        ``gate_agent_ids`` opt-in — so this pins the ABSENCE of a static
-        default: one silently coming back fails here.
+        """``gate`` is the additive AGENT.md frontmatter projection. The static
+        ``gate: Human_Gate`` was removed from prototype-specify/plan (PR #10) —
+        human review is now declared per step in the manifest (``gates: [human]``),
+        so every prototype agent projects ``None`` here.
         """
         resp = api_client.get("/api/agents/pipelines/prototype")
         assert resp.status_code == 200, resp.text
         gate_by_id = {a["id"]: a["gate"] for a in resp.json()["agents"]}
-        assert all(
-            g is None for g in gate_by_id.values()
-        ), f"a static prototype gate came back: {gate_by_id}"
+        assert gate_by_id["prototype-specify"] is None
+        assert gate_by_id["prototype-plan"] is None
+        assert gate_by_id["prototype-build"] is None
+        assert gate_by_id["prototype-validate"] is None
 
     def test_prototype_endpoint_descriptions_non_empty(self, api_client):
         """T1's loader fallback guarantees a non-empty ``description`` (falls
@@ -174,7 +173,8 @@ class TestAgentLibraryEndpoint:
         # gate is exposed on every entry (value may be None).
         for a in body["agents"]:
             assert "gate" in a
-        # No prototype agent carries a static gate — FIX-323 removed those
-        # defaults; gating is an explicit per-run gate_agent_ids opt-in.
+        # The frontmatter gate is still projected: clarify-agent is the one
+        # agent that keeps a static ``gate: Human_Gate``.
         gate_by_id = {a["id"]: a["gate"] for a in body["agents"]}
+        assert gate_by_id.get("clarify-agent") == "Human_Gate"
         assert gate_by_id["prototype-specify"] is None

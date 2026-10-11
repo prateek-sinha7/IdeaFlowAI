@@ -48,6 +48,7 @@ from tests.agents.live_harness import drive_engine_pipeline  # noqa: E402
 # Row 10 — PLANNER.md written after clarify merge and read back
 # ===========================================================================
 
+
 @pytest.mark.asyncio
 async def test_planner_md_written_after_clarify_merge(monkeypatch) -> None:
     """[Row 10 / FR-030] PLANNER.md is written AFTER a clarify-gate round
@@ -112,6 +113,7 @@ async def test_planner_md_written_after_clarify_merge(monkeypatch) -> None:
 # Row 13 — Two-pass agent output with -p{visit} suffix
 # ===========================================================================
 
+
 @pytest.mark.asyncio
 async def test_agent_output_written_with_visit_suffix_on_multiple_passes() -> None:
     """[Row 13 / FR-030] Agent outputs with visit_count > 1 are written with
@@ -143,20 +145,20 @@ async def test_agent_output_written_with_visit_suffix_on_multiple_passes() -> No
         )
 
         assert output_path_1 is not None, "First agent output write failed"
-        assert ".agents/01-domain-analyst.md" in output_path_1, (
-            f"First output path should not have visit suffix: {output_path_1}"
-        )
+        assert (
+            ".agents/01-domain-analyst.md" in output_path_1
+        ), f"First output path should not have visit suffix: {output_path_1}"
 
         # Verify the first pass file exists and contains the output
         # (write_agent_output adds a markdown header)
         content_1 = sandbox.read(output_path_1)
         assert content_1 is not None, "First agent output was not written"
-        assert "First analysis of the requirements." in content_1, (
-            "First agent output content mismatch"
-        )
-        assert "# domain-analyst-output" in content_1, (
-            "First agent output missing header"
-        )
+        assert (
+            "First analysis of the requirements." in content_1
+        ), "First agent output content mismatch"
+        assert (
+            "# domain-analyst-output" in content_1
+        ), "First agent output missing header"
 
         # Write a second pass output (visit_count=1, with `-p1` suffix)
         output_path_2 = write_agent_output(
@@ -170,21 +172,21 @@ async def test_agent_output_written_with_visit_suffix_on_multiple_passes() -> No
         )
 
         assert output_path_2 is not None, "Second agent output write failed"
-        assert ".agents/01-domain-analyst-p1.md" in output_path_2, (
-            f"Second output path should have -p1 suffix: {output_path_2}"
-        )
+        assert (
+            ".agents/01-domain-analyst-p1.md" in output_path_2
+        ), f"Second output path should have -p1 suffix: {output_path_2}"
 
         # Verify the second pass file exists with correct content
         content_2 = sandbox.read(output_path_2)
-        assert "Second analysis - refined understanding." in content_2, (
-            "Second agent output content mismatch"
-        )
+        assert (
+            "Second analysis - refined understanding." in content_2
+        ), "Second agent output content mismatch"
 
         # Verify both files are independently readable
         content_1_reread = sandbox.read(output_path_1)
-        assert "First analysis of the requirements." in content_1_reread, (
-            "First pass output not readable after second pass write"
-        )
+        assert (
+            "First analysis of the requirements." in content_1_reread
+        ), "First pass output not readable after second pass write"
 
         # Write a third pass with visit_count=2 (suffix `-p2`)
         output_path_3 = write_agent_output(
@@ -198,14 +200,14 @@ async def test_agent_output_written_with_visit_suffix_on_multiple_passes() -> No
         )
 
         assert output_path_3 is not None, "Third agent output write failed"
-        assert ".agents/01-domain-analyst-p2.md" in output_path_3, (
-            f"Third output path should have -p2 suffix: {output_path_3}"
-        )
+        assert (
+            ".agents/01-domain-analyst-p2.md" in output_path_3
+        ), f"Third output path should have -p2 suffix: {output_path_3}"
 
         content_3 = sandbox.read(output_path_3)
-        assert "Third analysis - final refinement." in content_3, (
-            "Third agent output content mismatch"
-        )
+        assert (
+            "Third analysis - final refinement." in content_3
+        ), "Third agent output content mismatch"
 
         # Verify all three passes can be read back independently
         content_1_final = sandbox.read(".agents/01-domain-analyst.md")

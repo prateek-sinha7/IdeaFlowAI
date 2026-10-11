@@ -81,7 +81,9 @@ def test_market_research_agent_states_the_durable_brief_artefact() -> None:
 
 
 @pytest.mark.parametrize("agent_id", _CUSTOM_DOWNSTREAM_AGENTS)
-def test_custom_downstream_agents_read_the_brief_file_not_a_paste(agent_id: str) -> None:
+def test_custom_downstream_agents_read_the_brief_file_not_a_paste(
+    agent_id: str,
+) -> None:
     spec = load_agent_spec(agent_id)
     assert spec.prompt_policy == "body_only", f"{agent_id}: not migrated"
     body = spec.prompt_body or ""
@@ -90,12 +92,16 @@ def test_custom_downstream_agents_read_the_brief_file_not_a_paste(agent_id: str)
     # output, which carries the brief this agent no longer receives pasted.
     assert ".agents/01-market-research-agent.md" in body
     for marker in _WORLD_MARKERS:
-        assert marker not in body, f"{agent_id}: AGENT.md still promises pasted {marker!r}"
+        assert (
+            marker not in body
+        ), f"{agent_id}: AGENT.md still promises pasted {marker!r}"
 
 
 def test_custom_workflow_grants_read_files_to_every_downstream_step() -> None:
     manifest = yaml.safe_load(
-        (_BACKEND_ROOT / "agents" / "workflows" / "custom" / "workflow.yaml").read_text()
+        (
+            _BACKEND_ROOT / "agents" / "workflows" / "custom" / "workflow.yaml"
+        ).read_text()
     )
     steps = {s["agent"]: s for s in manifest["steps"]}
     assert set(steps) == {"market-research-agent", *_CUSTOM_DOWNSTREAM_AGENTS}
@@ -137,7 +143,9 @@ def test_custom_revision_builder_no_longer_promises_a_paste_it_wont_get() -> Non
 
 def test_custom_revision_workflow_keeps_read_and_write_tools() -> None:
     manifest = yaml.safe_load(
-        (_BACKEND_ROOT / "agents" / "workflows" / "custom_revision" / "workflow.yaml").read_text()
+        (
+            _BACKEND_ROOT / "agents" / "workflows" / "custom_revision" / "workflow.yaml"
+        ).read_text()
     )
     steps = {s["agent"]: s for s in manifest["steps"]}
     for agent_id in ("custom-revision-planner", "custom-revision-builder"):

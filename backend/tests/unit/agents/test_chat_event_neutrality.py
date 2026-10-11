@@ -51,7 +51,9 @@ _GOLDEN_PIPELINES = (
     "app_builder",
 )
 
-_GOLDEN_DIR = Path(__file__).resolve().parents[2] / "agents" / "characterization" / "golden"
+_GOLDEN_DIR = (
+    Path(__file__).resolve().parents[2] / "agents" / "characterization" / "golden"
+)
 
 
 def _load_golden_types(pipeline: str) -> list[str]:

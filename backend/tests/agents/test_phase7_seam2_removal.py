@@ -280,13 +280,21 @@ class TestGovernedAgentConstitutionRetained:
         # The imports are local inside _compose_system_prompt; patch them at their
         # source module so the factory function sees the stub regardless of import timing.
         with (
-            patch("agents.capabilities.skills.providers.extract_ui_skill_blocks", return_value=[]),
-            patch("agents.capabilities.hooks.behavioral.render_behavioral_block", return_value=""),
+            patch(
+                "agents.capabilities.skills.providers.extract_ui_skill_blocks",
+                return_value=[],
+            ),
+            patch(
+                "agents.capabilities.hooks.behavioral.render_behavioral_block",
+                return_value="",
+            ),
             patch("agents.workflows.artifacts.artifact_name", return_value="out.md"),
             caplog.at_level(logging.WARNING, logger="agents.factory"),
         ):
             try:
-                _compose_system_prompt(spec, ctx, no_tools=False, has_write_access=False)
+                _compose_system_prompt(
+                    spec, ctx, no_tools=False, has_write_access=False
+                )
             except Exception:
                 # The function may raise for other missing attrs on the mock spec;
                 # the warning fires before any raise, so capture it regardless.
@@ -321,18 +329,20 @@ class TestRetryBlockTargeting:
         text = _engine_text()
         # The pop must be keyed on spec.id (either directly or via a local derived from it).
         assert (
-            "_fb_store.pop(getattr(spec, " in text
-            or "_fb_store.pop(_spec_id," in text
+            "_fb_store.pop(getattr(spec, " in text or "_fb_store.pop(_spec_id," in text
         ), (
             "engine.py: the retry block must be popped with the spec's id as the key — "
             "``_fb_store.pop(_spec_id, None)`` keyed on ``_spec_id = getattr(spec, 'id', None)``"
         )
         # The code must derive _spec_id from spec.id.
-        assert "_spec_id = getattr(spec, " in text or "_spec_id = spec.id" in text or (
-            "_fb_store.pop" in text and "spec.id" in text.replace("_spec_id", "spec.id")
-        ), (
-            "engine.py: the retry block targeting must be keyed on spec.id"
-        )
+        assert (
+            "_spec_id = getattr(spec, " in text
+            or "_spec_id = spec.id" in text
+            or (
+                "_fb_store.pop" in text
+                and "spec.id" in text.replace("_spec_id", "spec.id")
+            )
+        ), "engine.py: the retry block targeting must be keyed on spec.id"
 
     def test_retry_fb_store_is_popped_so_second_agent_gets_nothing(self) -> None:
         """A popped entry is consumed — agent B never replays agent A's retry block.
@@ -353,9 +363,9 @@ class TestRetryBlockTargeting:
 
         # First pop: the retrying agent receives the block.
         retrying_agent_fb = fb_store.pop("agent-retrying", None)
-        assert retrying_agent_fb is not None, (
-            "The retrying agent must receive the feedback block"
-        )
+        assert (
+            retrying_agent_fb is not None
+        ), "The retrying agent must receive the feedback block"
         assert retrying_agent_fb["pass_number"] == 2
 
         # Second pop: a different agent (or a re-run of any agent) gets nothing.
@@ -366,9 +376,9 @@ class TestRetryBlockTargeting:
         )
 
         # The store is now empty — the block was consumed exactly once.
-        assert fb_store == {}, (
-            "pending_route_feedback must be empty after the retrying agent consumed it"
-        )
+        assert (
+            fb_store == {}
+        ), "pending_route_feedback must be empty after the retrying agent consumed it"
 
     def test_retry_block_header_text_is_in_engine(self) -> None:
         """The retry block header uses the documented marker ``=== RETRY — pass N of M ===``.
@@ -380,9 +390,9 @@ class TestRetryBlockTargeting:
             "engine.py: the retry block header must be "
             "``=== RETRY — pass {N} of {M} ===`` (Requirement 30 AC 6)"
         )
-        assert "=== END RETRY ===" in text, (
-            "engine.py: the retry block must have a closing ``=== END RETRY ===`` marker"
-        )
+        assert (
+            "=== END RETRY ===" in text
+        ), "engine.py: the retry block must have a closing ``=== END RETRY ===`` marker"
 
     def test_non_retrying_agent_gets_no_retry_block(self) -> None:
         """An agent with no pending feedback produces no retry section in the message.
@@ -448,20 +458,20 @@ class TestSandboxReadingGuideInAgentMD:
     def test_agent_md_names_agents_path_and_ordering(self, agent_id: str) -> None:
         """Requirement 31 AC 1: AGENT.md names .agents/ and that it is ordered by step."""
         text = self._read_agent_md(agent_id)
-        assert ".agents/" in text, (
-            f"AGENT.md for '{agent_id}' must mention the '.agents/' path"
-        )
+        assert (
+            ".agents/" in text
+        ), f"AGENT.md for '{agent_id}' must mention the '.agents/' path"
 
     @pytest.mark.parametrize("agent_id", _AGENT_IDS)
     def test_agent_md_names_context_and_uploads_paths(self, agent_id: str) -> None:
         """Requirement 31 AC 1: AGENT.md names .context/ and .uploads/."""
         text = self._read_agent_md(agent_id)
-        assert ".context/" in text, (
-            f"AGENT.md for '{agent_id}' must mention '.context/' path"
-        )
-        assert ".uploads/" in text, (
-            f"AGENT.md for '{agent_id}' must mention '.uploads/' path"
-        )
+        assert (
+            ".context/" in text
+        ), f"AGENT.md for '{agent_id}' must mention '.context/' path"
+        assert (
+            ".uploads/" in text
+        ), f"AGENT.md for '{agent_id}' must mention '.uploads/' path"
 
     def test_domain_analyst_brief_comes_from_engine_task_message(self) -> None:
         """Requirement 31 AC 3: domain-analyst (step 1) states the brief comes from the
@@ -526,8 +536,7 @@ class TestSandboxReadingGuideInAgentMD:
             ".agents/03-story-estimator.md",
         ]:
             assert path in text, (
-                f"nfr-specialist AGENT.md must list '{path}' — "
-                "Requirement 31 AC 1"
+                f"nfr-specialist AGENT.md must list '{path}' — " "Requirement 31 AC 1"
             )
 
     @pytest.mark.parametrize(
@@ -625,7 +634,9 @@ class TestPlannerMdWrittenAfterClarify:
         text = _engine_text()
         lines = text.splitlines()
 
-        emit_planner_line = self._locate_line(text, "async for event in self._emit_planner_events(")
+        emit_planner_line = self._locate_line(
+            text, "async for event in self._emit_planner_events("
+        )
         planner_write_line = self._locate_line(text, 'sandbox.write("PLANNER.md"')
 
         if emit_planner_line == -1 or planner_write_line == -1:
@@ -642,7 +653,9 @@ class TestPlannerMdWrittenAfterClarify:
         emit_indent = len(emit_line_content) - len(emit_line_content.lstrip())
 
         block_end_line = emit_planner_line + 1
-        for i, line in enumerate(lines[emit_planner_line + 1 :], start=emit_planner_line + 1):
+        for i, line in enumerate(
+            lines[emit_planner_line + 1 :], start=emit_planner_line + 1
+        ):
             stripped = line.lstrip()
             if stripped == "":
                 continue  # blank lines don't end a block
@@ -670,7 +683,9 @@ class TestPlannerMdWrittenAfterClarify:
         planner_write_line = self._locate_line(text, 'sandbox.write("PLANNER.md"')
 
         if clarify_gate_line == -1 or planner_write_line == -1:
-            pytest.skip("Clarify gate or PLANNER.md write not found — skip ordering check")
+            pytest.skip(
+                "Clarify gate or PLANNER.md write not found — skip ordering check"
+            )
 
         assert planner_write_line > clarify_gate_line, (
             f"engine.py: PLANNER.md write (line {planner_write_line}) must not appear "

@@ -11,7 +11,9 @@ from app.core.config import Settings
 
 def test_normalize_global_skills_root_strips_whitespace_when_value_padded():
     # Act
-    normalized = Settings._normalize_global_skills_root("  /app/builtin-skills/global\n")
+    normalized = Settings._normalize_global_skills_root(
+        "  /app/builtin-skills/global\n"
+    )
 
     # Assert
     assert normalized == "/app/builtin-skills/global"

@@ -292,13 +292,16 @@ def test_expired_bedrock_token_rejected_pre_mint(env, monkeypatch):
     minted — no agent ever independently discovers the same dead credential."""
     from app.core.config import settings
 
-    monkeypatch.setattr(settings, "AWS_BEARER_TOKEN_BEDROCK", _expired_bedrock_bearer_token())
+    monkeypatch.setattr(
+        settings, "AWS_BEARER_TOKEN_BEDROCK", _expired_bedrock_bearer_token()
+    )
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
 
     user = _seed_user(env)
     env["state"]["user"] = user
-    resp = _post_launch(env, message="build a stationery ordering flow",
-                        pipeline_type="user_stories")
+    resp = _post_launch(
+        env, message="build a stationery ordering flow", pipeline_type="user_stories"
+    )
     assert resp.status_code == 503
     detail = resp.json()["detail"]
     assert detail["code"] == "model_provider_unavailable"
@@ -791,6 +794,7 @@ async def test_driver_pipeline_failed_records_failed(env, monkeypatch):
     assert row.status == "failed"
     assert row.status != "completed"
 
+
 # ────────────────────────────────────────────────────────────────────────────
 # 5. Parent-link ownership — the primary run_pipeline IDOR path (Site 1, T-44-08-01)
 #
@@ -870,7 +874,11 @@ def test_foreign_source_drops_the_link_but_still_launches(env):
     resp = _post_launch(
         env,
         message="steal the lineage",
-        pipeline_type="user_stories",
+        # user_stories now declares deliverable.chains_from, so a foreign source
+        # there is refused 404 by admit_chain_launch's IDOR gate (see
+        # test_foreign_source_on_a_chaining_workflow_is_a_404). The drop-the-link
+        # contract lives on the declaration-gated revision arm.
+        pipeline_type="user_stories_revision",
         source_workflow_run_id=foreign_parent,
     )
     assert resp.status_code == 200, resp.text
@@ -889,11 +897,37 @@ def test_unknown_source_drops_the_link_but_still_launches(env):
     resp = _post_launch(
         env,
         message="unknown parent",
-        pipeline_type="user_stories",
+        pipeline_type="user_stories_revision",  # declaration-gated arm; see above
         source_workflow_run_id=str(uuid.uuid4()),
     )
     assert resp.status_code == 200, resp.text
     assert _latest_run(env).parent_run_id is None
+
+
+def test_foreign_source_on_a_chaining_workflow_is_a_404(env):
+    """A workflow that declares ``chains_from`` refuses a foreign or unknown
+    source with the SAME 404 (IDOR, never 403; no existence oracle) and mints
+    nothing — Requirement 6 AC 1 via admit_chain_launch."""
+    owner = _seed_user(env)
+    attacker = _seed_user(env)
+    foreign_parent = _seed_run_owned_by(env, owner.id)
+    env["state"]["user"] = attacker
+
+    foreign = _post_launch(
+        env,
+        message="steal the lineage",
+        pipeline_type="user_stories",
+        source_workflow_run_id=foreign_parent,
+    )
+    unknown = _post_launch(
+        env,
+        message="unknown parent",
+        pipeline_type="user_stories",
+        source_workflow_run_id=str(uuid.uuid4()),
+    )
+    assert foreign.status_code == unknown.status_code == 404
+    assert foreign.json() == unknown.json()
+    assert _run_count(env) == 1  # only the owner's seeded source row
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1056,17 +1090,30 @@ def test_launch_run_core_is_plain_async_function_decoupled_from_fastapi():
         p.kind == inspect.Parameter.KEYWORD_ONLY for p in sig.parameters.values()
     )
     expected = {
-        "content", "pipeline_type", "agents", "compiled", "od_context",
-        "validated_images", "model_overrides", "user", "source_workflow_run_id",
-        "selections", "gate_agent_ids", "attached_skills", "attached_hooks",
+        "content",
+        "pipeline_type",
+        "agents",
+        "compiled",
+        "od_context",
+        "validated_images",
+        "model_overrides",
+        "user",
+        "source_workflow_run_id",
+        "selections",
+        "gate_agent_ids",
+        "attached_skills",
+        "attached_hooks",
         # T28's R-15/R-18 threading: defaulted keyword-only additions the HTTP
         # wrapper never passes (so the HTTP path is unchanged) and
         # ``run_trigger_workflow`` passes unconditionally.
-        "parent_run_id_override", "owner_id_override", "workspace_id_override",
+        "parent_run_id_override",
+        "owner_id_override",
+        "workspace_id_override",
         "trigger_depth",
         # UPLD-05 / migration 0040: defaulted keyword-only additions for staged
         # document ingest and composed-workflow manifest persistence.
-        "staged_upload_ids", "manifest_json",
+        "staged_upload_ids",
+        "manifest_json",
         # Task 9.3 / Requirement 21 AC 10: the ORIGINAL request-body source run
         # id for the duplicate-context strip guard.  Defaults to None so all
         # existing non-HTTP callers are unaffected.
@@ -1091,7 +1138,9 @@ async def test_launch_run_core_called_directly_matches_http_endpoint_shape(env):
     env["state"]["user"] = user
 
     # Path A — the real HTTP endpoint.
-    http_resp = _post_launch(env, message="build a backlog", pipeline_type="user_stories")
+    http_resp = _post_launch(
+        env, message="build a backlog", pipeline_type="user_stories"
+    )
     assert http_resp.status_code == 200, http_resp.text
     http_body = http_resp.json()
     assert set(http_body.keys()) == {"run_id"}
@@ -1148,7 +1197,8 @@ async def test_launch_run_core_called_directly_matches_http_endpoint_shape(env):
 
 @pytest.mark.asyncio
 async def test_launch_run_mints_workspace_before_ingest_staged_uploads(
-    env, monkeypatch,
+    env,
+    monkeypatch,
 ):
     """UPLD-09 / DEFECT B: _launch_run_core must mint the workspace BEFORE
     calling ingest_staged_uploads, so _persist_documents receives a non-None
@@ -1166,14 +1216,17 @@ async def test_launch_run_mints_workspace_before_ingest_staged_uploads(
     captured_workspace_ids: list[str | None] = []
 
     async def mock_persist_documents(
-        store, *, user_id, workspace_id, run_id, validated,
+        store,
+        *,
+        user_id,
+        workspace_id,
+        run_id,
+        validated,
     ):
         """Mock _persist_documents to capture workspace_id."""
         captured_workspace_ids.append(workspace_id)
 
-    monkeypatch.setattr(
-        "app.api.run_files._persist_documents", mock_persist_documents
-    )
+    monkeypatch.setattr("app.api.run_files._persist_documents", mock_persist_documents)
 
     # Mock ingest_staged_uploads to trigger the _persist_documents call
     # without needing actual staged files on disk. When staged_upload_ids
@@ -1221,12 +1274,10 @@ async def test_launch_run_mints_workspace_before_ingest_staged_uploads(
 
     # Verify _persist_documents was called with non-None workspace_id.
     # The workspace is minted early (UPLD-09), BEFORE ingest_staged_uploads.
-    assert len(captured_workspace_ids) > 0, (
-        "Expected _persist_documents to be called with workspace_id"
-    )
-    assert all(
-        ws_id is not None for ws_id in captured_workspace_ids
-    ), (
+    assert (
+        len(captured_workspace_ids) > 0
+    ), "Expected _persist_documents to be called with workspace_id"
+    assert all(ws_id is not None for ws_id in captured_workspace_ids), (
         f"Expected all workspace_ids to be non-None for durable mirror, "
         f"but got: {captured_workspace_ids}"
     )

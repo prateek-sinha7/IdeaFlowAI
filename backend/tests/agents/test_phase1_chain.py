@@ -112,9 +112,9 @@ class TestChainPrefixDeliverableExclusion:
         files, truncated = sb.list_files()
         paths = [f["path"] for f in files]
 
-        assert ".chain/run-abc/summary.md" in paths, (
-            ".chain/ files must appear in list_files output"
-        )
+        assert (
+            ".chain/run-abc/summary.md" in paths
+        ), ".chain/ files must appear in list_files output"
         assert "output.html" in paths
 
     def test_count_excludes_chain_files(self, tmp_path: Path) -> None:
@@ -174,9 +174,9 @@ class TestChainPayloadWrittenForAllTerminalStatuses:
         _write_chain_payload(run_id, ectx)
 
         chain_run_dir = sb.root / ".chain" / run_id
-        assert chain_run_dir.is_dir(), (
-            f".chain/{run_id}/ must be created for terminal status '{status}'"
-        )
+        assert (
+            chain_run_dir.is_dir()
+        ), f".chain/{run_id}/ must be created for terminal status '{status}'"
 
     @pytest.mark.parametrize("status", _TERMINAL_STATUSES)
     def test_summary_md_written_for_status(self, tmp_path: Path, status: str) -> None:
@@ -189,16 +189,14 @@ class TestChainPayloadWrittenForAllTerminalStatuses:
         _write_chain_payload(run_id, ectx)
 
         summary_path = sb.root / ".chain" / run_id / "summary.md"
-        assert summary_path.is_file(), (
-            f"summary.md must exist in .chain/{run_id}/ for status '{status}'"
-        )
+        assert (
+            summary_path.is_file()
+        ), f"summary.md must exist in .chain/{run_id}/ for status '{status}'"
         content = summary_path.read_text(encoding="utf-8")
-        assert f"**status**: {status}" in content, (
-            f"summary.md must record the terminal status '{status}'"
-        )
-        assert f"**run_id**: {run_id}" in content, (
-            "summary.md must record the run_id"
-        )
+        assert (
+            f"**status**: {status}" in content
+        ), f"summary.md must record the terminal status '{status}'"
+        assert f"**run_id**: {run_id}" in content, "summary.md must record the run_id"
 
     @pytest.mark.parametrize("status", _TERMINAL_STATUSES)
     def test_logs_subdir_created_for_status(self, tmp_path: Path, status: str) -> None:
@@ -211,9 +209,9 @@ class TestChainPayloadWrittenForAllTerminalStatuses:
         _write_chain_payload(run_id, ectx)
 
         logs_dir = sb.root / ".chain" / run_id / "logs"
-        assert logs_dir.is_dir(), (
-            f".chain/{run_id}/logs/ must be created for terminal status '{status}'"
-        )
+        assert (
+            logs_dir.is_dir()
+        ), f".chain/{run_id}/logs/ must be created for terminal status '{status}'"
 
     def test_payload_written_per_run_never_flat(self, tmp_path: Path) -> None:
         """Payload is per-run subdirectory — never a flat .chain/ layout.
@@ -271,9 +269,7 @@ class TestChainPayloadWrittenForAllTerminalStatuses:
         _write_chain_payload(run_id, ectx)
 
         copied_log = sb.root / ".chain" / run_id / "logs" / f"{run_id}.jsonl"
-        assert copied_log.is_file(), (
-            "Run log must be copied into .chain/{run_id}/logs/"
-        )
+        assert copied_log.is_file(), "Run log must be copied into .chain/{run_id}/logs/"
         assert copied_log.read_text(encoding="utf-8") == log_content
 
     def test_agent_transcripts_copied_when_present(self, tmp_path: Path) -> None:
@@ -293,9 +289,9 @@ class TestChainPayloadWrittenForAllTerminalStatuses:
         _write_chain_payload(run_id, ectx)
 
         copied = sb.root / ".chain" / run_id / "logs" / "01-my-agent.md"
-        assert copied.is_file(), (
-            ".agents/ transcript must be copied into .chain/{run_id}/logs/"
-        )
+        assert (
+            copied.is_file()
+        ), ".agents/ transcript must be copied into .chain/{run_id}/logs/"
 
 
 # ===========================================================================
@@ -313,9 +309,9 @@ class TestReservedPrefixGuardSmoke:
         from agents.capabilities.context_providers.previous_run import _is_reserved
 
         assert _is_reserved(".chain/"), ".chain/ must be a reserved prefix"
-        assert _is_reserved(".chain/run-abc/summary.md"), (
-            "nested .chain/ path must also be reserved"
-        )
+        assert _is_reserved(
+            ".chain/run-abc/summary.md"
+        ), "nested .chain/ path must also be reserved"
 
     def test_all_eight_prefixes_are_reserved(self) -> None:
         """All eight documented reserved prefixes are blocked."""
@@ -335,11 +331,11 @@ class TestReservedPrefixGuardSmoke:
             "skills/",
         }
         for prefix in expected:
-            assert _is_reserved(prefix), (
-                f"{prefix!r} must be blocked by _is_reserved"
-            )
+            assert _is_reserved(prefix), f"{prefix!r} must be blocked by _is_reserved"
         # No unexpected removals from the canonical set.
-        assert expected <= _RESERVED_PREFIXES | {p.rstrip("/") for p in _RESERVED_PREFIXES}
+        assert expected <= _RESERVED_PREFIXES | {
+            p.rstrip("/") for p in _RESERVED_PREFIXES
+        }
 
     def test_normal_seed_files_are_not_reserved(self) -> None:
         from agents.capabilities.context_providers.previous_run import _is_reserved

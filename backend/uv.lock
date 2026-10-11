@@ -3067,6 +3067,11 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+ci-tools = [
+    { name = "defusedxml" },
+    { name = "pyyaml" },
+    { name = "requests" },
+]
 dev = [
     { name = "bandit" },
     { name = "defusedxml" },
@@ -3128,6 +3133,11 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+ci-tools = [
+    { name = "defusedxml", specifier = "==0.7.1" },
+    { name = "pyyaml", specifier = "==6.0.3" },
+    { name = "requests", specifier = "==2.34.2" },
+]
 dev = [
     { name = "bandit", extras = ["toml"], specifier = "==1.9.4" },
     { name = "defusedxml", specifier = "==0.7.1" },

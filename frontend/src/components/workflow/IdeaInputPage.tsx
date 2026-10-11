@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
-  ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
+  ArrowLeft, ArrowRight, Paperclip, X, FileText,
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
   Save, Check, Image as ImageIcon, Sparkles, Plus, Palette, AlertCircle,
 } from "lucide-react";
@@ -22,7 +22,7 @@ import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { AnimatePresence } from "motion/react";
-import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook, DesignMode } from "@/types/index";
+import type { WorkflowType, AgentDef, DesignMode } from "@/types/index";
 import { useWorkflowCatalogEntry } from "@/hooks/useWorkflowMetadata";
 
 // Migration is a meta-pipeline: the home page sends `workflowType="migration"`
@@ -782,7 +782,8 @@ interface IdeaInputPageProps {
   // run_pipeline payload by useWorkflow). Currently used only for the per-run
   // `gate_agent_ids` toggle — present only when the user touches the Review-gates
   // section; omitted otherwise so the backend uses its static default.
-  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => void;
+  /** May resolve to whether the launch was accepted; `false` re-enables Run. */
+  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => void | Promise<boolean> | undefined;
   // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — saved-workflow launch preload. When a
   // saved row is launched, `DashboardLayout` threads its persisted composition in
   // here so the composer mounts PRE-LOADED instead of re-deriving from the (empty
@@ -940,7 +941,7 @@ const TYPE_CONFIG: Partial<Record<string, PageCopy>> = {
 };
 
 export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId, onOpenInCanvas }: IdeaInputPageProps) {
-  const { libraryAgents: LIBRARY_AGENTS, customAgents: CUSTOM_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
+  const { libraryAgents: LIBRARY_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
   const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
   // KAN-91 / Image-input Wave 2 — shared with ComposerPage's Simple-view Brief
@@ -1560,7 +1561,6 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // the model_overrides discipline: include ONLY when ≥1 lever is set, so an
     // untouched composer emits a byte-identical payload (INV-3 / SC-001).
     const selections = selectionsRef.current;
-    const hasSelections = Object.keys(selections).length > 0;
     // Image-input Wave 2: ship captured images OUT-OF-BAND as `images` (D3 —
     // NEVER inlined into finalMessage). Include only when ≥1 image is attached
     // so an image-less run emits a byte-identical payload (INV-3).
@@ -1632,12 +1632,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       manifestRoster !== null &&
       manifestRoster.length === currentRoster.length &&
       manifestRoster.every((id, i) => id === currentRoster[i]);
-    onRun(
+    const launch = onRun(
       finalMessage,
       isUnmodifiedManifestRoster ? [] : currentRoster,
       dispatchType,
       finalExtraParams,
     );
+    // TS-Z3-02: a rejected launch hands control back to this (still-mounted)
+    // screen — release the double-submit latch so Run can be retried.
+    void launch?.then((accepted) => {
+      if (!accepted) {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      }
+    });
   };
 
   // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
@@ -2066,9 +2074,6 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                 </div>
                 <button
                   onClick={() => {
-                    const missingAgents = companionSuggestion.missing
-                      .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
-                      .filter(Boolean) as AgentDef[];
                     // Replace current agents with the full ordered pipeline group
                     const groupIds = new Set(companionSuggestion.group.ids);
                     const nonGroupAgents = pipelineAgents.filter((a) => !groupIds.has(a.id));

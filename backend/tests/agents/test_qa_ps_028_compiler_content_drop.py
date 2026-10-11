@@ -77,6 +77,7 @@ def _clean_finalizer():
 
     return _finalize
 
+
 _PIPELINE = "user_stories"
 
 # The dropped epic's content, mirroring the live evidence shape in BUGS.md#qa-ps-028
@@ -170,7 +171,11 @@ def test_sdlc_governance_agents_lack_completeness_checklist():
     enumerate the upstream items it read and cross-check that list against what
     it wrote — a structural completeness contract, not just a prose "cover
     everything" instruction. None of the three carries one today."""
-    agent_ids = ["app-sdlc-governance", "dotnet-sdlc-governance", "mulesoft-sdlc-governance"]
+    agent_ids = [
+        "app-sdlc-governance",
+        "dotnet-sdlc-governance",
+        "mulesoft-sdlc-governance",
+    ]
     # A structural self-check names BOTH the enumeration step and a check that
     # ties count/coverage back to what was actually read (e.g. "list every ADR
     # source read... the count MUST match").
@@ -206,7 +211,9 @@ def test_revision_agent_recomputes_totals_with_no_completeness_check():
     # A completeness check would tell the agent to verify the seeded document
     # against something external to it (a parent run status, an expected epic
     # count) before recomputing totals purely from what it was handed.
-    verify_pattern = re.compile(r"(?i)verify.{0,80}(complete|parent|degraded|expected count)")
+    verify_pattern = re.compile(
+        r"(?i)verify.{0,80}(complete|parent|degraded|expected count)"
+    )
     assert verify_pattern.search(body), (
         "the revision agent recomputes Backlog Summary totals with no "
         "instruction to verify the seeded backlog was complete first — a "

@@ -47,6 +47,7 @@ from app.agents.sandbox import (
     serialize_sandbox_deliverable as _serialize_sandbox_deliverable,
 )
 from app.agents.static_check import static_check as _static_check
+from agents.execution_engine.trigger_port import get_trigger_launch_port
 
 logger = logging.getLogger("agents.execution_engine.kernel_services")
 
@@ -64,7 +65,9 @@ class RefNotResolvable(Exception):
     def __init__(self, ref: str, sandbox_root_id: str) -> None:
         self.ref = ref
         self.sandbox_root_id = sandbox_root_id
-        super().__init__(f"ref {ref!r} cannot be resolved in sandbox {sandbox_root_id!r}")
+        super().__init__(
+            f"ref {ref!r} cannot be resolved in sandbox {sandbox_root_id!r}"
+        )
 
 
 def _is_file_backed_workflow(workflow_ref: str) -> bool:
@@ -1255,7 +1258,11 @@ class KernelServices:
                 # reason to carry its children's tool needs. A self×N worker has no
                 # declared step of its own, so it falls back to the parent's grant
                 # (the pre-fix behavior, byte-identical for that path).
-                **({} if _declared is not None else {"tools": getattr(step, "tools", None)}),
+                **(
+                    {}
+                    if _declared is not None
+                    else {"tools": getattr(step, "tools", None)}
+                ),
                 # Never inherit a fan-out spec: a worker that re-fans is a spawn loop.
                 fanout=None,
                 dispatched_by="",
@@ -1521,8 +1528,10 @@ class KernelServices:
             that is not literally the name of a real workflow directory can never
             reach the filesystem read (T-04-09), which matters because a
             ``trust="db"`` manifest's ``target`` is user-authored.
-          * anything else — a saved ``user_workflow_id``, resolved via ``_owned``
-            (``app/api/user_workflows.py:413``) — the SAME (and only) existing
+          * anything else — a saved ``user_workflow_id``, resolved by the app
+            layer through the trigger port (``trigger_port.py``; adapter
+            ``app.api.run_commands._resolve_saved_trigger_target``) via ``_owned``
+            (``app/api/user_workflows.py``) — the SAME (and only) existing
             ``user_workflow_id`` lookup T5 identified in the codebase, reused
             verbatim (not a second helper). A cross-owner / unknown id raises the
             SAME ``HTTPException`` (404, IDOR→404) it always has. The resolved
@@ -1553,8 +1562,9 @@ class KernelServices:
         child an instruction. Defaults to ``""``, which is byte-identical to the
         previous unconditional ``content=""``.
 
-        Mint (R-15/R-16): delegates to T27's extracted ``_launch_run_core`` — the
-        SAME mint-and-spawn core the HTTP launch handler uses — with
+        Mint (R-15/R-16): delegates, through the trigger port's ``launch_run``, to
+        T27's extracted ``_launch_run_core`` — the SAME mint-and-spawn core the
+        HTTP launch handler uses — with
         ``parent_run_id_override=ectx.run_id`` and ``owner_id_override`` /
         ``workspace_id_override`` set UNCONDITIONALLY to ``ectx``'s own values
         (R-15 — never independently specified, never left null; this is also what
@@ -1600,68 +1610,24 @@ class KernelServices:
                     for s in compile_for_run(workflow_ref).steps
                 ]
         else:
-            from app.api.run_engine import _get_db
-            from app.api.user_workflows import _owned
-
-            db = _get_db()
-            try:
-                row = _owned(db, workflow_ref, SimpleNamespace(id=ectx.owner_id))
-                manifest_json = row.manifest_json
-                base_pipeline_type = row.base_pipeline_type
-                row_agents_json = row.agents
-                row_id = row.id
-            finally:
-                db.close()
-
-            if isinstance(manifest_json, dict) and "steps" in manifest_json:
-                # Case 3 — composed manifest (mirrors launch_run's
-                # USER_WORKFLOW_MANIFEST branch, minus the request-body override
-                # chain: a trigger carries no request body, so the row's own
-                # saved values are authoritative, with the SAME hardcoded
-                # fallbacks launch_run uses when a value is absent).
-                from agents.execution_engine.engine import (
-                    _CAPABILITY_REGISTRY,
-                    _WORKFLOW_COMPILER,
-                )
-                from agents.workflows.manifest import build_manifest_from_dict
-
-                raw_manifest = dict(manifest_json)
-                raw_manifest.setdefault("id", f"user-workflow-{row_id}")
-                raw_manifest.setdefault(
-                    "deliverable", {"strategy": "streamed_text", "name": "output.md"}
-                )
-                raw_manifest.setdefault("planner", "skip")
-                raw_manifest.setdefault("clarify", {"mode": "skip", "defaults": []})
-                raw_manifest.setdefault("capabilities", {})
-                parsed_manifest = build_manifest_from_dict(
-                    raw_manifest, f"workflow:{row_id}"
-                )
-                target_compiled = _WORKFLOW_COMPILER.compile(
-                    parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
-                )
-                target_pipeline_type = base_pipeline_type
-                target_agents = None
-            else:
-                # Case 2 — flat agent_ids (mirrors launch_run's
-                # USER_WORKFLOW_FLAT branch).
-                import json as _json
-
-                from agents.loader import load_agent_spec
-
-                agent_ids = _json.loads(row_agents_json) if row_agents_json else []
-                target_agents = [load_agent_spec(aid) for aid in agent_ids]
-                if target_agents:
-                    from app.api.composition_order import presort_specs
-
-                    target_agents = presort_specs(target_agents)
-                target_pipeline_type = base_pipeline_type
-                target_compiled = None
+            # A saved ``user_workflow_id``: resolved by the APP layer through the
+            # trigger port — the owner-scoped ``_owned`` lookup + launch_run's
+            # Case 2 / Case 3 branching, moved verbatim to
+            # ``app.api.run_commands._resolve_saved_trigger_target``. The kernel
+            # must not import app.api (import-linter).
+            (
+                target_pipeline_type,
+                target_agents,
+                target_compiled,
+            ) = get_trigger_launch_port().resolve_saved_workflow(
+                workflow_ref, ectx.owner_id
+            )
 
         # ── (3)/(4) Mint via T27's core — parent_run_id + owner_id/workspace_id
         # unconditionally inherited from ectx (R-15) ─────────────────────────────
-        from app.api.run_commands import _launch_run_core
-
-        result = await _launch_run_core(
+        # Through the trigger port: its launch_run is the app layer's
+        # ``_launch_run_core`` (the kernel must not import app.api).
+        result = await get_trigger_launch_port().launch_run(
             # R-28: the diverting outcome's ``feedback`` string, threaded down as the
             # child's user message. A triggered run is otherwise minted with content=""
             # — it inherits parent_run_id/owner/workspace/budget but NOT the parent's
@@ -1842,7 +1808,7 @@ class KernelServices:
         ``resolve_revision_root``.
 
         Raises:
-            ``RevisionRootUnresolved`` (imported from ``app.api.runs``) if
+            ``RevisionRootUnresolved`` (``app.services.revision_root``) if
             resolution fails for any reason: cycle, missing ancestor,
             cross-owner ancestry, null principal, or a DB error.  A
             cross-owner source resolves to ``RevisionRootUnresolved``
@@ -1853,14 +1819,17 @@ class KernelServices:
         ``resolved_or_refuse`` so a ``None`` result is never compared
         silently to another ``None``.
         """
-        from app.api.run_engine import _get_db
-        from app.api.runs import (
+        # The session factory and the resolver come from app.models / app.services,
+        # never app.api — the kernel must not import the web layer (import-linter).
+        # Same deferred SessionLocal lookup engine._resolve_root_id uses.
+        from app.models.database import SessionLocal
+        from app.services.revision_root import (
             RevisionRootResolved,
             RevisionRootUnresolved,
             resolve_revision_root,
         )
 
-        db = _get_db()
+        db = SessionLocal()
         try:
             result = resolve_revision_root(db, source_run_id, self._ectx.disk_principal)
         finally:

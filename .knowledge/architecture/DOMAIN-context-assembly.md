@@ -188,9 +188,9 @@ flowchart TD
   strategy at run entry to keep the `.context/` footprint bounded; they are NOT called by
   the per-dispatch composer (which no longer calls any providers).
 
-- **The user-prompt persistence.** [launch_context.py::write_user_prompt_to_sandbox](../../backend/app/api/launch_context.py)
+- **The user-prompt persistence.** [user_prompt.py::write_user_prompt_to_sandbox](../../backend/agents/execution_engine/user_prompt.py)
   writes the user message to `.context/user-prompt.md` before step 1, making it readable to any agent
-  granted `read_files` — not just the first agent, which receives it inline. [launch_context.py::strip_inline_attachments](../../backend/app/api/launch_context.py)
+  granted `read_files` — not just the first agent, which receives it inline. [user_prompt.py::strip_inline_attachments](../../backend/agents/execution_engine/user_prompt.py)
   removes the wizard's inlined `=== Attached: … ===` document blocks and replaces them with a `.uploads/` file listing
   when a step is granted the `file_extract` tool set (the files are already on disk; pasting them would let the first
   agent skip its own work). Both functions are called from [engine.py](../../backend/agents/execution_engine/engine.py) at run entry.
@@ -313,11 +313,11 @@ sequenceDiagram
    `ctx.is_revision_workflow`; when it fires it seeds the existing artifact, runs
    `assert_owns` on the parent, and writes the parent's `spec.md` / `design.md` /
    `tasks.md` into this run's sandbox.
-9a. [launch_context.py::write_user_prompt_to_sandbox](../../backend/app/api/launch_context.py) writes the user message to `.context/user-prompt.md`,
+9a. [user_prompt.py::write_user_prompt_to_sandbox](../../backend/agents/execution_engine/user_prompt.py) writes the user message to `.context/user-prompt.md`,
    making it readable to any agent with `read_files` permission. The first agent receives
    it inline as before; this file is the path for all downstream agents to read the same request.
 9b. [engine.py](../../backend/agents/execution_engine/engine.py) checks whether any step in the compiled workflow is granted the `file_extract` tool set.
-   If so, [launch_context.py::strip_inline_attachments](../../backend/app/api/launch_context.py) removes the wizard's inlined `=== Attached: … ===` document blocks
+   If so, [user_prompt.py::strip_inline_attachments](../../backend/agents/execution_engine/user_prompt.py) removes the wizard's inlined `=== Attached: … ===` document blocks
    from the user message, replacing them with a `.uploads/` file listing, and rewrites `.context/user-prompt.md` with the stripped version.
    This prevents the first agent from bypassing its own extraction work when files are already on disk.
 

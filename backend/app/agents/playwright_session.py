@@ -55,7 +55,9 @@ class PlaywrightSession:
     calling a tool costs nothing.
     """
 
-    def __init__(self, run_id: str, idle_timeout_s: float = _DEFAULT_IDLE_TIMEOUT_S) -> None:
+    def __init__(
+        self, run_id: str, idle_timeout_s: float = _DEFAULT_IDLE_TIMEOUT_S
+    ) -> None:
         self.run_id = run_id
         self._idle_timeout_s = idle_timeout_s
         # The started (not `async with`-scoped) Playwright handle. See module docstring.
@@ -119,7 +121,8 @@ class PlaywrightSession:
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
                         "PlaywrightSession[%s]: console listener attach failed: %s",
-                        self.run_id, exc,
+                        self.run_id,
+                        exc,
                     )
             return self._contexts[agent_id]
 
@@ -147,7 +150,7 @@ class PlaywrightSession:
         ctx_id = id(context)
         try:
             current_url = page.url
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             current_url = ""
 
         # Get the existing registration for this context
@@ -198,7 +201,11 @@ class PlaywrightSession:
                 logger.warning("Failed to process element: %s", exc)
                 continue
 
-        return "\n".join(snapshot_lines) if snapshot_lines else "No interactive elements found."
+        return (
+            "\n".join(snapshot_lines)
+            if snapshot_lines
+            else "No interactive elements found."
+        )
 
     async def _get_element_info(self, element: Any) -> tuple[str, str]:
         """Extract role and accessible name from an element.
@@ -207,7 +214,9 @@ class PlaywrightSession:
         """
         try:
             # Try to get the element's role via getAttribute or the role property
-            role = await element.evaluate("el => el.getAttribute('role') || el.tagName.toLowerCase()")
+            role = await element.evaluate(
+                "el => el.getAttribute('role') || el.tagName.toLowerCase()"
+            )
             if not role:
                 role = ""
         except Exception:  # noqa: BLE001
@@ -262,9 +271,11 @@ class PlaywrightSession:
 
     def _attach_console_listener(self, context: Any) -> None:
         """Attach a listener to capture console messages from all pages in this context."""
+
         # We need to handle both current pages and future pages (via new_page() calls)
         def _on_page(page: Any) -> None:
             """Attach console listener to a new page."""
+
             def _on_console(msg: Any) -> None:
                 ctx_id = id(context)
                 if ctx_id not in self._console_messages:
@@ -297,7 +308,10 @@ class PlaywrightSession:
         """
         ctx_id = id(context)
         if ctx_id not in self._ref_registries:
-            return (False, "No snapshot taken for this page — take a fresh snapshot first.")
+            return (
+                False,
+                "No snapshot taken for this page — take a fresh snapshot first.",
+            )
 
         old_url, ref_map = self._ref_registries[ctx_id]
 
@@ -310,12 +324,18 @@ class PlaywrightSession:
                     self._ref_registries[ctx_id] = (current_url, {})
                     # Clear console messages on navigation
                     self._console_messages[ctx_id] = []
-                    return (False, f"Reference {ref_token} is stale — take a fresh snapshot after navigation.")
+                    return (
+                        False,
+                        f"Reference {ref_token} is stale — take a fresh snapshot after navigation.",
+                    )
         except Exception:  # noqa: BLE001 — best-effort check, fall through to check ref_map
             pass
 
         if ref_token not in ref_map:
-            return (False, f"Reference {ref_token} is stale or invalid — take a fresh snapshot.")
+            return (
+                False,
+                f"Reference {ref_token} is stale or invalid — take a fresh snapshot.",
+            )
 
         element = ref_map[ref_token]
         return (True, element)
@@ -347,7 +367,9 @@ class PlaywrightSession:
             # launch inside this container, matching render_check.py:207). It is
             # unrelated to RunSandbox's filesystem isolation — the two mechanisms
             # just happen to share the word "sandbox".
-            self._browser = await self._playwright.chromium.launch(args=["--no-sandbox"])
+            self._browser = await self._playwright.chromium.launch(
+                args=["--no-sandbox"]
+            )
         except Exception as exc:  # noqa: BLE001 — binary missing/broken → unavailable
             self._mark_unavailable(f"Chromium unavailable: {exc}")
             await self._playwright.stop()
@@ -390,7 +412,9 @@ class PlaywrightSession:
             try:
                 await ctx.close()
             except Exception as exc:  # noqa: BLE001 — best-effort teardown
-                logger.warning("PlaywrightSession[%s]: context close failed: %s", self.run_id, exc)
+                logger.warning(
+                    "PlaywrightSession[%s]: context close failed: %s", self.run_id, exc
+                )
         self._contexts.clear()
         self._ref_registries.clear()
         self._console_messages.clear()
@@ -398,13 +422,19 @@ class PlaywrightSession:
             try:
                 await self._browser.close()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("PlaywrightSession[%s]: browser close failed: %s", self.run_id, exc)
+                logger.warning(
+                    "PlaywrightSession[%s]: browser close failed: %s", self.run_id, exc
+                )
             self._browser = None
         if self._playwright is not None:
             try:
                 await self._playwright.stop()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("PlaywrightSession[%s]: playwright stop failed: %s", self.run_id, exc)
+                logger.warning(
+                    "PlaywrightSession[%s]: playwright stop failed: %s",
+                    self.run_id,
+                    exc,
+                )
             self._playwright = None
 
 

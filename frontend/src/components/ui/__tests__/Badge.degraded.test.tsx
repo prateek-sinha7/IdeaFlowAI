@@ -64,12 +64,12 @@ describe("Badge — degraded status (Req 20 distinctness)", () => {
     const { container: degradedC } = render(<Badge status="degraded" />);
     const { container: cancelledC } = render(<Badge status="cancelled" />);
     // Both use amber token — tokens may overlap but label text must differ
-    expect(
-      (degradedC.firstElementChild as HTMLElement).textContent,
-    ).not.toBe(
-      (cancelledC.firstElementChild as HTMLElement).textContent,
-    );
-    expect(screen.queryByText("Cancelled")).not.toBeInTheDocument(); // degraded didn't render "Cancelled"
+    const degradedText = (degradedC.firstElementChild as HTMLElement).textContent;
+    const cancelledText = (cancelledC.firstElementChild as HTMLElement).textContent;
+    expect(degradedText).not.toBe(cancelledText);
+    // degraded renders "Degraded" not "Cancelled"
+    expect(degradedText).toBe("Degraded");
+    expect(cancelledText).toBe("Cancelled");
   });
 
   it("the 'Degraded' label text is present as accessible text content", () => {

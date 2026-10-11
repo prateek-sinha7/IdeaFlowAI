@@ -213,9 +213,15 @@ _M10_XFAIL_REASON = (
     "oracle would just be re-deriving `_compose_context_message`'s new output, "
     "duplicating test_characterization_prototype.py's already-re-pinned golden."
 )
+# strict=True: these diverge deterministically, so a non-strict xfail could never
+# signal anything. If the legacy contract is ever reinstated these XPASS and go red.
+# CI's verify-execution accepts an xfail only when it is strict AND carries an
+# @pytest.mark.issue card; ISS-863 tracks this deliberate M10 divergence until the
+# four tests are retired (approved removal) or the oracle is re-targeted.
 
 
-@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
+@pytest.mark.issue("ISS-863")
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=True)
 @pytest.mark.asyncio
 async def test_routed_build_prompt_equals_oracle_byte_for_byte() -> None:
     """07-09 ACCEPTANCE: the routed prototype-build context_message == the oracle bytes.
@@ -264,7 +270,8 @@ async def test_routed_build_prompt_equals_oracle_byte_for_byte() -> None:
     )
 
 
-@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
+@pytest.mark.issue("ISS-863")
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=True)
 @pytest.mark.asyncio
 async def test_routed_build_task_2_equals_oracle_byte_for_byte() -> None:
     """07-09 WR-01: the routed task-2 build prompt == the oracle (skeleton block present).
@@ -317,7 +324,8 @@ async def test_routed_build_task_2_equals_oracle_byte_for_byte() -> None:
     )
 
 
-@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
+@pytest.mark.issue("ISS-863")
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=True)
 @pytest.mark.asyncio
 async def test_routed_build_prompt_has_template_compliance_now() -> None:
     """CR-01 restored: the routed build prompt now CARRIES TEMPLATE COMPLIANCE on every task.
@@ -372,7 +380,8 @@ def _golden_build_context_messages(golden_name: str) -> list[str]:
     return out
 
 
-@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=False)
+@pytest.mark.issue("ISS-863")
+@pytest.mark.xfail(reason=_M10_XFAIL_REASON, strict=True)
 @pytest.mark.parametrize("golden_name", ["prototype.events.json"])
 def test_regenerated_golden_build_prompt_equals_oracle(golden_name: str) -> None:
     """T-07-09-02: the regenerated build-agent context_message in the golden == the oracle.

@@ -68,6 +68,10 @@ _DELIVERABLE_EXCLUDE: frozenset[str] = frozenset(
         ".git",  # git repository metadata — Requirement 9
         ".gitignore",  # git configuration file — Requirement 9
         "skills",  # staged skill bodies must not ship in user deliverables — Requirement 9
+        # family_lock's lock file (see _family_lock_path): it sits in the
+        # revision-root dir, which IS a root run's sandbox, so an upload (which
+        # takes the lock) otherwise ships an empty `.family.lock` block.
+        ".family.lock",
     }
 )
 
@@ -262,7 +266,12 @@ _DELIVERABLE_EXCLUDED_EXACT: frozenset[str] = frozenset(
 # that .chain/, .context/, and .agents/ are deliberately VISIBLE in the listing
 # (Requirement 4 AC 10, Requirement 8 AC 7) — they appear in the Workspace tab but
 # are excluded from the deliverable walk.
-_LISTING_VISIBLE: frozenset[str] = frozenset({".chain/", ".context/", ".agents/"})
+# `.verify/` is visible too (spec 017 viewable media): render_pptx's PNG/PDF
+# verdict evidence is the artifact a reviewer opens the Workspace tab to see.
+# It stays excluded from the deliverable and remains write-reserved.
+_LISTING_VISIBLE: frozenset[str] = frozenset(
+    {".chain/", ".context/", ".agents/", ".verify/"}
+)
 _LISTING_EXCLUDED_PREFIXES: tuple[str, ...] = tuple(
     sorted(
         p
@@ -1073,11 +1082,18 @@ class RunSandbox:
             fn()
         except Exception as exc:  # noqa: BLE001 — best-effort, must never raise
             logger.warning(
-                "git_init_sandbox failed run=%s/%s: %s",
+                "git_init_sandbox failed run=%s/%s: %s — continuing without git",
                 self.user_seg,
                 self.run_seg,
                 exc,
             )
+            # Reflect reality (Task 3.6, sandbox-git-versioning-v2, Requirement 3).
+            # The engine's own fallback flips has_git only when this call RAISES,
+            # which it never does — so without this the sandbox kept claiming
+            # has_git=True over a failed init, and the finalizer degraded every
+            # otherwise-clean run on ref/tag creation instead of taking the no-git
+            # path the has_git=False branches exist for.
+            self.has_git = False
 
     def list_files_at_ref(self, ref: str) -> list[str]:
         """Return the list of file relpaths tracked at ``ref`` (Requirement 17 AC2).

@@ -515,7 +515,7 @@ class InstallerContractValidator:
 
         # Check for credential patterns
         credential_patterns = [
-            r'\bos\.getenv\(["\']?(AWS_|GITHUB_|SONAR_|API_KEY)',
+            r'\bos\.getenv\(["\']?(AWS_|GITHUB_|API_KEY)',
             r"\bgetenv.*SECRET",
             r"\bgetenv.*TOKEN",
         ]

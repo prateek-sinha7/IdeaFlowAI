@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
-  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2, Cpu,
+  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2,
   FileText, Edit3, RotateCcw, Maximize2,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
@@ -493,11 +493,13 @@ export function AgentPromptSection({
 
 export function AgentCapabilitiesModal({
   agent, agentIndex, onClose,
-  attachedHooks: propHooks,
-  onAttachHook: propAttachHook,
+  // Accepted for API compatibility but not read: hooks come from context (see
+  // below), and the Config tab's ConfigLeversFlat does not take priorAgents.
+  attachedHooks: _propHooks,
+  onAttachHook: _propAttachHook,
   onSkillsChange,
   onSelectionsChange, initialSelections, token,
-  priorAgents,
+  priorAgents: _priorAgents,
   asDrawer = false,
 }: {
   agent: AgentDef;
@@ -532,7 +534,7 @@ export function AgentCapabilitiesModal({
    */
   asDrawer?: boolean;
 }) {
-  const { hooks: HOOKS, events: HOOK_EVENTS } = useHooksCatalog();
+  const { hooks: HOOKS } = useHooksCatalog();
   // Always use context — works from Library page, Add agent modal, and AgentsPopup.
   // HOOKS ONLY since ADR-0010; skills come from `agent.skills` and are written
   // back through `onSkillsChange`, not through this context.
@@ -913,7 +915,7 @@ export function AgentCapabilitiesModal({
 // via `composer/AgentSkillsPicker`, and this tab is hooks-only. Hooks stay
 // run-level because no per-step hooks field exists in the manifest to move them
 // to.
-export function HooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
+export function HooksTab({ pipelineType: _pipelineType }: { pipelineType: WorkflowType }) {
   const { hooks: HOOKS, events: HOOK_EVENTS } = useHooksCatalog();
   const { attachedHooks, attachHook, detachHook } = useSkillsHooks();
   const [hooksOpen, setHooksOpen] = useState(false);
@@ -1781,7 +1783,7 @@ function ConfigLeversFlat({
   selections: SelectionsMap;
   onSelectionsChange: (s: SelectionsMap) => void;
 }) {
-  const { validatorOptions, gateOptions, modelOptions, loading, error } =
+  const { validatorOptions, gateOptions, modelOptions, error } =
     useAgentCapabilities(token);
   const [openLever, setOpenLever] = useState<string | null>(null);
   const [localSel, setLocalSel] = useState<SelectionsMap>(initialSelectionsProp);

@@ -142,7 +142,9 @@ def _force_commit_metadata_only(repo: Path, run_id: str) -> str:
 
 def _create_internal_ref(repo: Path, run_id: str, sha: str) -> None:
     """Create refs/ideaflow/runs/{run_id} pointing at sha."""
-    _run_git("update-ref", "--create-reflog", f"refs/ideaflow/runs/{run_id}", sha, cwd=repo)
+    _run_git(
+        "update-ref", "--create-reflog", f"refs/ideaflow/runs/{run_id}", sha, cwd=repo
+    )
 
 
 def _list_all_refs(repo: Path) -> str:
@@ -154,10 +156,13 @@ def _list_all_refs(repo: Path) -> str:
 # R1: Rollback reader ignores unknown .chain/ files
 # ---------------------------------------------------------------------------
 
+
 class TestR1IgnoresUnknownChainFiles:
     """A v1-compatible reader receiving a v2 sandbox does not crash."""
 
-    def test_legacy_payload_selection_ignores_flat_chain_files(self, tmp_path: Path) -> None:
+    def test_legacy_payload_selection_ignores_flat_chain_files(
+        self, tmp_path: Path
+    ) -> None:
         """select_legacy_payload does not confuse flat v2 .chain/ files as a nested
         per-run directory.  The flat files are NOT UUID-named subdirectories, so
         relocate_legacy_payloads must leave them untouched, and select_legacy_payload
@@ -189,7 +194,9 @@ class TestR1IgnoresUnknownChainFiles:
                 return raw.encode()
 
             def list_files_at_ref(self, ref: str) -> list[str]:
-                raw = _run_git("ls-tree", "-r", "--name-only", ref, cwd=repo, check=False)
+                raw = _run_git(
+                    "ls-tree", "-r", "--name-only", ref, cwd=repo, check=False
+                )
                 return [l for l in raw.splitlines() if l]
 
             def resolve_ref_commit(self, ref: str) -> str | None:
@@ -201,8 +208,9 @@ class TestR1IgnoresUnknownChainFiles:
         class _FakeInnerWS:
             def __init__(self, root: Path) -> None:
                 self._root = root
+
             def list_tags(self) -> list[str]:
-                out = _run_git("tag", cwd=root)
+                out = _run_git("tag", cwd=self._root)
                 return [t for t in out.splitlines() if t]
 
         src = _FakeROSandbox()
@@ -210,13 +218,21 @@ class TestR1IgnoresUnknownChainFiles:
         # select_legacy_payload looks for .chain-legacy/{run_id}/ or .chain/{run_id}/
         # — neither exists here (only the flat v2 files are in .chain/).
         # It must return None without raising.
-        result = select_legacy_payload(src, run_id, declared_output_basename=None)
+        #
+        # ``runtime.local.select_legacy_payload`` takes the revision-root sandbox
+        # DIRECTORY (``sandbox_root: Path, source_run_id``) — it has never accepted a
+        # sandbox handle or ``declared_output_basename`` (that is the separate
+        # ``app.agents.sandbox`` variant exercised by TestR6 below).
+        assert src._root == repo
+        result = select_legacy_payload(repo, run_id)
         assert result is None, (
             "select_legacy_payload must return None for a v2 sandbox with only flat files; "
             f"got {result!r}"
         )
 
-    def test_flat_chain_files_not_treated_as_legacy_directory(self, tmp_path: Path) -> None:
+    def test_flat_chain_files_not_treated_as_legacy_directory(
+        self, tmp_path: Path
+    ) -> None:
         """Non-UUID entries in .chain/ are not treated as per-run payload directories."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -236,23 +252,28 @@ class TestR1IgnoresUnknownChainFiles:
 
         # No UUID-shaped subdirectory must appear under .chain/
         uuid_dirs = [
-            p for p in tracked
-            if p.startswith(".chain/") and p != ".chain/"
-            and "/" in p[len(".chain/"):]  # has a further segment = subdirectory entry
+            p
+            for p in tracked
+            if p.startswith(".chain/")
+            and p != ".chain/"
+            and "/" in p[len(".chain/") :]  # has a further segment = subdirectory entry
         ]
-        assert not uuid_dirs, (
-            f"Flat v2 .chain/ must not contain subdirectories; found: {uuid_dirs}"
-        )
+        assert (
+            not uuid_dirs
+        ), f"Flat v2 .chain/ must not contain subdirectories; found: {uuid_dirs}"
 
 
 # ---------------------------------------------------------------------------
 # R2: Metadata-only snapshot not misread as truncated three-file payload
 # ---------------------------------------------------------------------------
 
+
 class TestR2MetadataOnlyNotTruncated:
     """A summary.md-only commit must be recognized as metadata-only, not corrupt."""
 
-    def test_metadata_only_summary_has_payload_chainable_false(self, tmp_path: Path) -> None:
+    def test_metadata_only_summary_has_payload_chainable_false(
+        self, tmp_path: Path
+    ) -> None:
         """The summary.md of a metadata-only snapshot declares payload_chainable: false.
         A rollback-era reader that parses this field will not confuse it with a
         successful three-file payload (Requirement 17 AC 18).
@@ -264,31 +285,33 @@ class TestR2MetadataOnlyNotTruncated:
         repo = tmp_path / run_id
         repo.mkdir()
         _git_init(repo)
-        sha = _force_commit_metadata_only(repo, run_id)
+        _force_commit_metadata_only(repo, run_id)
 
         # Read back the committed summary.md
-        summary_text = _run_git("show", f"HEAD:.chain/summary.md", cwd=repo)
+        summary_text = _run_git("show", "HEAD:.chain/summary.md", cwd=repo)
 
-        assert "schema_version: 2" in summary_text, "summary must carry schema_version: 2"
-        assert "payload_chainable: false" in summary_text, (
-            "metadata-only snapshot must declare payload_chainable: false"
-        )
-        assert "output_filename: " in summary_text, (
-            "metadata-only snapshot must have output_filename field (blank or empty)"
-        )
+        assert (
+            "schema_version: 2" in summary_text
+        ), "summary must carry schema_version: 2"
+        assert (
+            "payload_chainable: false" in summary_text
+        ), "metadata-only snapshot must declare payload_chainable: false"
+        assert (
+            "output_filename: " in summary_text
+        ), "metadata-only snapshot must have output_filename field (blank or empty)"
 
         # logs.jsonl and output file must NOT be in the committed tree
         tree = _run_git("ls-tree", "-r", "--name-only", "HEAD", cwd=repo)
         tracked = tree.splitlines()
-        assert ".chain/logs.jsonl" not in tracked, (
-            "metadata-only commit must NOT contain logs.jsonl"
-        )
-        output_files = [f for f in tracked if f.startswith(".chain/") and f not in {
-            ".chain/summary.md"
-        }]
-        assert not output_files, (
-            f"metadata-only commit must contain ONLY .chain/summary.md; also found: {output_files}"
-        )
+        assert (
+            ".chain/logs.jsonl" not in tracked
+        ), "metadata-only commit must NOT contain logs.jsonl"
+        output_files = [
+            f
+            for f in tracked
+            if f.startswith(".chain/") and f not in {".chain/summary.md"}
+        ]
+        assert not output_files, f"metadata-only commit must contain ONLY .chain/summary.md; also found: {output_files}"
 
     def test_schema_version_field_is_v2_not_v1(self, tmp_path: Path) -> None:
         """The schema_version written by the engine is 2, not 1.
@@ -304,14 +327,16 @@ class TestR2MetadataOnlyNotTruncated:
         _force_commit_chain_files(repo, run_id)
 
         summary_text = _run_git("show", "HEAD:.chain/summary.md", cwd=repo)
-        assert "schema_version: 2" in summary_text, (
-            "v2 summary.md must declare schema_version: 2 for rollback feature detection"
-        )
-        assert "schema_version: 1" not in summary_text, (
-            "v2 summary.md must NOT carry schema_version: 1"
-        )
+        assert (
+            "schema_version: 2" in summary_text
+        ), "v2 summary.md must declare schema_version: 2 for rollback feature detection"
+        assert (
+            "schema_version: 1" not in summary_text
+        ), "v2 summary.md must NOT carry schema_version: 1"
 
-    def test_build_metadata_only_snapshot_produces_summary_only(self, tmp_path: Path) -> None:
+    def test_build_metadata_only_snapshot_produces_summary_only(
+        self, tmp_path: Path
+    ) -> None:
         """build_metadata_only_snapshot stages only .chain/summary.md — not logs.jsonl
         or any output file — confirming the on-disk state a rollback reader will see.
         """
@@ -344,26 +369,31 @@ class TestR2MetadataOnlyNotTruncated:
         )
 
         assert payload.built is True, "metadata-only snapshot must report built=True"
-        assert payload.materialized is False, "metadata-only snapshot must report materialized=False"
-        assert payload.chainable is False, "metadata-only snapshot must report chainable=False"
+        assert (
+            payload.materialized is False
+        ), "metadata-only snapshot must report materialized=False"
+        assert (
+            payload.chainable is False
+        ), "metadata-only snapshot must report chainable=False"
 
         # Staged entry set must be {'.chain/summary.md'} only
-        staged = sandbox.staged_entries() if hasattr(sandbox, "staged_entries") else None
+        staged = (
+            sandbox.staged_entries() if hasattr(sandbox, "staged_entries") else None
+        )
         if staged is not None:
             summary_only = all(e == ".chain/summary.md" for e in staged)
-            assert summary_only, (
-                f"metadata-only snapshot must stage ONLY .chain/summary.md; staged: {staged}"
-            )
+            assert summary_only, f"metadata-only snapshot must stage ONLY .chain/summary.md; staged: {staged}"
 
         # allowlist must be the single-entry set
-        assert payload.allowlist == frozenset({".chain/summary.md"}), (
-            f"metadata-only allowlist must be {{'.chain/summary.md'}}; got {payload.allowlist}"
-        )
+        assert (
+            payload.allowlist == frozenset({".chain/summary.md"})
+        ), f"metadata-only allowlist must be {{'.chain/summary.md'}}; got {payload.allowlist}"
 
 
 # ---------------------------------------------------------------------------
 # R3: read_finalization_record returns None for partial/absent rows
 # ---------------------------------------------------------------------------
+
 
 class TestR3ReadFinalizationRecordPartialRow:
     """Rollback safety: a partial row must not be read as a complete record."""
@@ -378,17 +408,20 @@ class TestR3ReadFinalizationRecordPartialRow:
         with patch("app.models.run_finalization.RunFinalization", MagicMock()):
             result = read_finalization_record(db, "nonexistent-run-id")
 
-        assert result is None, (
-            "read_finalization_record must return None for an absent row"
-        )
+        assert (
+            result is None
+        ), "read_finalization_record must return None for an absent row"
 
-    @pytest.mark.parametrize("missing_field", [
-        "published_status",
-        "candidate_status",
-        "payload_chainable",
-        "commit_sha",
-        "run_id",
-    ])
+    @pytest.mark.parametrize(
+        "missing_field",
+        [
+            "published_status",
+            "candidate_status",
+            "payload_chainable",
+            "commit_sha",
+            "run_id",
+        ],
+    )
     def test_partial_row_returns_none(self, missing_field: str) -> None:
         """A row missing any of the five key fields must be treated as absent."""
         from agents.execution_engine.finalization import read_finalization_record  # noqa: PLC0415
@@ -431,6 +464,7 @@ class TestR3ReadFinalizationRecordPartialRow:
 # R4: Feature detection uses internal ref + schema_version, not global flags
 # ---------------------------------------------------------------------------
 
+
 class TestR4FeatureDetectionNoBooleanFlag:
     """Feature detection is by Git ref + summary.md, never a global toggle."""
 
@@ -441,8 +475,13 @@ class TestR4FeatureDetectionNoBooleanFlag:
         import importlib  # noqa: PLC0415
 
         suspect_patterns = [
-            "V2_ENABLED", "v2_enabled", "FEATURE_FLAG", "feature_flag",
-            "deploy_date", "DEPLOY_DATE", "V2_FLAG",
+            "V2_ENABLED",
+            "v2_enabled",
+            "FEATURE_FLAG",
+            "feature_flag",
+            "deploy_date",
+            "DEPLOY_DATE",
+            "V2_FLAG",
         ]
 
         modules_to_check = [
@@ -459,6 +498,7 @@ class TestR4FeatureDetectionNoBooleanFlag:
             except ImportError:
                 continue
             import inspect  # noqa: PLC0415
+
             src = inspect.getsource(mod)
             for pattern in suspect_patterns:
                 assert pattern not in src, (
@@ -476,23 +516,33 @@ class TestR4FeatureDetectionNoBooleanFlag:
         src = inspect.getsource(is_legacy_source)
 
         # Must not compare against any date or env var
-        for forbidden in ("datetime.now", "os.environ", "V2_ENABLED", "deploy_date", "time.time"):
+        for forbidden in (
+            "datetime.now",
+            "os.environ",
+            "V2_ENABLED",
+            "deploy_date",
+            "time.time",
+        ):
             assert forbidden not in src, (
                 f"is_legacy_source must not use {forbidden!r}; "
                 "detection must be by refs/ideaflow/runs/ presence only."
             )
 
         # Must reference the internal ref namespace
-        assert "refs/ideaflow/runs/" in src or "resolve_ref_commit" in src, (
-            "is_legacy_source must check the internal run ref for feature detection"
-        )
+        assert (
+            "refs/ideaflow/runs/" in src or "resolve_ref_commit" in src
+        ), "is_legacy_source must check the internal run ref for feature detection"
 
     def test_summary_md_carries_schema_version_field(self, tmp_path: Path) -> None:
         """render_summary_text always writes schema_version: 2 as the first field."""
         if not shutil.which("git"):
             pytest.skip("git not available")
 
-        from agents.execution_engine.engine import _render_summary_text  # type: ignore[attr-defined]  # noqa: PLC0415
+        # The renderer has been ``render_summary_md`` since e7305f9d (the commit that
+        # added this test); ``_render_summary_text`` never existed in engine.py.
+        from agents.execution_engine.engine import (  # noqa: PLC0415
+            render_summary_md as _render_summary_text,
+        )
 
         # Build a minimal ectx
         run_id = _make_run_id()
@@ -522,20 +572,23 @@ class TestR4FeatureDetectionNoBooleanFlag:
             non_chainable_reason="",
         )
 
-        assert text.startswith("schema_version: 2\n"), (
-            "summary.md must start with 'schema_version: 2' for rollback detection"
-        )
+        assert text.startswith(
+            "schema_version: 2\n"
+        ), "summary.md must start with 'schema_version: 2' for rollback detection"
 
 
 # ---------------------------------------------------------------------------
 # R5: Rollback stops producing new payloads without deleting existing artifacts
 # ---------------------------------------------------------------------------
 
+
 class TestR5RollbackPreservesExistingArtifacts:
     """Existing tags, refs, and flat files survive a 'rollback' (non-invocation
     of the v2 commit path)."""
 
-    def test_existing_tag_survives_when_v2_commit_not_called(self, tmp_path: Path) -> None:
+    def test_existing_tag_survives_when_v2_commit_not_called(
+        self, tmp_path: Path
+    ) -> None:
         """A pre-existing v2 tag is not removed when the finalizer is not invoked."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -551,14 +604,14 @@ class TestR5RollbackPreservesExistingArtifacts:
         # Simulate a "rollback reader" by NOT calling build_flat_payload or
         # finalize_terminal_run — just reading the state.
         tags_after = _run_git("tag", cwd=repo)
-        assert "v1" in tags_after.splitlines(), (
-            "Existing tag v1 must survive when the v2 finalizer is not invoked"
-        )
+        assert (
+            "v1" in tags_after.splitlines()
+        ), "Existing tag v1 must survive when the v2 finalizer is not invoked"
 
         refs_after = _list_all_refs(repo)
-        assert f"refs/ideaflow/runs/{run_id}" in refs_after, (
-            "Existing internal run ref must survive when the v2 finalizer is not invoked"
-        )
+        assert (
+            f"refs/ideaflow/runs/{run_id}" in refs_after
+        ), "Existing internal run ref must survive when the v2 finalizer is not invoked"
 
     def test_existing_flat_chain_files_survive_rollback(self, tmp_path: Path) -> None:
         """Flat .chain/ files committed to history are never deleted by a rollback reader."""
@@ -586,18 +639,20 @@ class TestR5RollbackPreservesExistingArtifacts:
         # The original .chain/ files must still be accessible at the v1 tag
         # (i.e., history was not rewritten)
         history = _run_git("log", "--oneline", "--all", cwd=repo)
-        assert "snapshot" in history, "The original snapshot commit must still exist in history"
+        assert (
+            "snapshot" in history
+        ), "The original snapshot commit must still exist in history"
 
-        # HEAD tree no longer has .chain/ files (rollback build didn't re-stage them)
-        head_tree = _run_git("ls-tree", "-r", "--name-only", "HEAD", cwd=repo)
-        # They may or may not be at HEAD — rollback build doesn't write them —
-        # but they must be retrievable from history.
+        # Whether the .chain/ files are still at HEAD is not the contract (a rollback
+        # build doesn't write them) — they must be retrievable from history.
         objects = _run_git("rev-list", "--objects", "--all", cwd=repo)
-        assert "logs.jsonl" in objects or ".chain" in objects, (
-            "Committed .chain/ objects must still exist in git history after a rollback build"
-        )
+        assert (
+            "logs.jsonl" in objects or ".chain" in objects
+        ), "Committed .chain/ objects must still exist in git history after a rollback build"
 
-    def test_legacy_payloads_not_deleted_by_metadata_only_snapshot(self, tmp_path: Path) -> None:
+    def test_legacy_payloads_not_deleted_by_metadata_only_snapshot(
+        self, tmp_path: Path
+    ) -> None:
         """.chain-legacy/{run_id}/ payload files are not disturbed when a new
         metadata-only snapshot is built for a subsequent run.
         """
@@ -619,25 +674,30 @@ class TestR5RollbackPreservesExistingArtifacts:
 
         # Run metadata-only snapshot for a NEW run in the same sandbox
         new_run_id = _make_run_id()
-        sha = _force_commit_metadata_only(repo, new_run_id)
+        _force_commit_metadata_only(repo, new_run_id)
 
         # The legacy directory must still exist on disk (not deleted)
-        assert (legacy_dir / "summary.md").exists(), (
+        assert (
+            legacy_dir / "summary.md"
+        ).exists(), (
             ".chain-legacy payload must survive a metadata-only snapshot for a new run"
         )
-        assert (legacy_dir / "out.html").exists(), (
-            ".chain-legacy output file must survive a metadata-only snapshot"
-        )
+        assert (
+            legacy_dir / "out.html"
+        ).exists(), ".chain-legacy output file must survive a metadata-only snapshot"
 
 
 # ---------------------------------------------------------------------------
 # R6: select_legacy_payload does not confuse post-relocation sandbox
 # ---------------------------------------------------------------------------
 
+
 class TestR6LegacySelectDoesNotConfuseV2Layout:
     """After migration the flat v2 .chain/ files must not be selected as legacy."""
 
-    def test_flat_chain_files_not_selected_as_legacy_payload(self, tmp_path: Path) -> None:
+    def test_flat_chain_files_not_selected_as_legacy_payload(
+        self, tmp_path: Path
+    ) -> None:
         """The three flat v2 files are not UUID-shaped subdirectories so
         select_legacy_payload must skip them and return None.
         """
@@ -658,6 +718,25 @@ class TestR6LegacySelectDoesNotConfuseV2Layout:
                 self._root = repo
                 self._inner = _Inner()
 
+            # ``app.agents.sandbox.select_legacy_payload`` reads the LIVE working tree
+            # through ``ReadOnlySandbox.list_prefix`` / ``read_bytes`` (same contract
+            # as ``LocalWorkspace.list_prefix`` — os.walk, no git — and
+            # ``ReadOnlySandbox.read_bytes`` — ``None`` when absent).
+            def list_prefix(self, prefix: str) -> list[str]:
+                return sorted(
+                    rel
+                    for rel in (
+                        f.relative_to(repo).as_posix()
+                        for f in repo.rglob("*")
+                        if f.is_file()
+                    )
+                    if rel.startswith(prefix) and not rel.startswith(".git/")
+                )
+
+            def read_bytes(self, relpath: str) -> bytes | None:
+                target = repo / relpath
+                return target.read_bytes() if target.is_file() else None
+
             def read_bytes_at_ref(self, ref: str, path: str) -> bytes | None:
                 try:
                     raw = _run_git("show", f"{ref}:{path}", cwd=repo, check=False)
@@ -666,7 +745,9 @@ class TestR6LegacySelectDoesNotConfuseV2Layout:
                     return None
 
             def list_files_at_ref(self, ref: str) -> list[str]:
-                raw = _run_git("ls-tree", "-r", "--name-only", ref, cwd=repo, check=False)
+                raw = _run_git(
+                    "ls-tree", "-r", "--name-only", ref, cwd=repo, check=False
+                )
                 return [l for l in raw.splitlines() if l]
 
             def resolve_ref_commit(self, ref: str) -> str | None:
@@ -685,9 +766,9 @@ class TestR6LegacySelectDoesNotConfuseV2Layout:
         # The flat files (.chain/logs.jsonl etc.) are NOT UUID-shaped dirs.
         # select_legacy_payload must return None — no legacy payload found.
         result = select_legacy_payload(src, run_id, declared_output_basename=None)
-        assert result is None, (
-            f"select_legacy_payload must return None for a v2 flat-payload sandbox; got {result!r}"
-        )
+        assert (
+            result is None
+        ), f"select_legacy_payload must return None for a v2 flat-payload sandbox; got {result!r}"
 
     def test_chain_legacy_dir_selected_not_chain_flat(self, tmp_path: Path) -> None:
         """When .chain-legacy/{run_id}/ exists alongside flat .chain/ files,
@@ -718,6 +799,25 @@ class TestR6LegacySelectDoesNotConfuseV2Layout:
                 self._root = repo
                 self._inner = _Inner2()
 
+            # ``app.agents.sandbox.select_legacy_payload`` reads the LIVE working tree
+            # through ``ReadOnlySandbox.list_prefix`` / ``read_bytes`` (same contract
+            # as ``LocalWorkspace.list_prefix`` — os.walk, no git — and
+            # ``ReadOnlySandbox.read_bytes`` — ``None`` when absent).
+            def list_prefix(self, prefix: str) -> list[str]:
+                return sorted(
+                    rel
+                    for rel in (
+                        f.relative_to(repo).as_posix()
+                        for f in repo.rglob("*")
+                        if f.is_file()
+                    )
+                    if rel.startswith(prefix) and not rel.startswith(".git/")
+                )
+
+            def read_bytes(self, relpath: str) -> bytes | None:
+                target = repo / relpath
+                return target.read_bytes() if target.is_file() else None
+
             def read_bytes_at_ref(self, ref: str, path: str) -> bytes | None:
                 try:
                     raw = _run_git("show", f"{ref}:{path}", cwd=repo, check=False)
@@ -726,7 +826,9 @@ class TestR6LegacySelectDoesNotConfuseV2Layout:
                     return None
 
             def list_files_at_ref(self, ref: str) -> list[str]:
-                raw = _run_git("ls-tree", "-r", "--name-only", ref, cwd=repo, check=False)
+                raw = _run_git(
+                    "ls-tree", "-r", "--name-only", ref, cwd=repo, check=False
+                )
                 return [l for l in raw.splitlines() if l]
 
             def resolve_ref_commit(self, ref: str) -> str | None:
@@ -744,9 +846,9 @@ class TestR6LegacySelectDoesNotConfuseV2Layout:
 
         result = select_legacy_payload(src, run_id, declared_output_basename=None)
         # Should find the legacy directory, not the flat v2 files
-        assert result is not None, (
-            "select_legacy_payload must find the .chain-legacy/{run_id}/ directory"
-        )
+        assert (
+            result is not None
+        ), "select_legacy_payload must find the .chain-legacy/{run_id}/ directory"
         # The result must reference the legacy directory, not a flat .chain/ path
         assert result.base is not None  # type: ignore[union-attr]
         assert "chain-legacy" in str(result.base), (  # type: ignore[union-attr]
@@ -757,6 +859,7 @@ class TestR6LegacySelectDoesNotConfuseV2Layout:
 # ---------------------------------------------------------------------------
 # R7: is_legacy_source decided by ref+record, never by date or env var
 # ---------------------------------------------------------------------------
+
 
 class TestR7LegacySourceNoBooleanFlag:
     """is_legacy_source uses only the internal ref and the finalization record."""
@@ -780,9 +883,9 @@ class TestR7LegacySourceNoBooleanFlag:
         src.resolve_ref_commit.return_value = "abc123"  # ref exists
 
         result = is_legacy_source(src, "v2-run", record=record)
-        assert result is False, (
-            "A v2 run with an internal ref and a finalization record must NOT be legacy"
-        )
+        assert (
+            result is False
+        ), "A v2 run with an internal ref and a finalization record must NOT be legacy"
 
     def test_run_without_internal_ref_is_legacy(self) -> None:
         """A run that has no internal ref (pre-v2) is classified as legacy."""

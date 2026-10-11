@@ -21,6 +21,13 @@
 # some-script.sh; } > remote.sh` block, so this only removes the send+poll
 # duplication, not the payload-assembly step (which differs per caller: only
 # deploy.yml's payload carries gzipped compose-file blobs).
+#
+# Runner dependencies (F-22): this composite uses `jq` (to build the send-command
+# payload) and `aws` (AWS CLI v2) from the GitHub-hosted `ubuntu-24.04` image and
+# installs neither. Both are preinstalled there today. A runner-image bump is a
+# reviewed change recorded in ci/toolchain-lock.json `runtime_pins.runner_image`
+# and backend/tools/ci/pin_authority.py `runner_image`; if the image ever drops
+# either tool, this action fails at its first `jq` or `aws` call.
 name: SSM RunCommand (send + poll)
 description: Sends a shell script to an EC2 instance via SSM RunCommand and polls until it reaches a terminal state.
 
@@ -38,13 +45,13 @@ inputs:
     description: Human-readable comment attached to the SSM command (visible in the AWS console / CloudTrail).
     required: true
   execution-timeout-seconds:
-    description: On-box script timeout passed to SSM (must stay below poll-timeout-minutes).
+    description: On-box script timeout passed to SSM. send-timeout-seconds + this value must fit inside poll-timeout-minutes (the send step fails fast otherwise).
     required: false
     default: "1800"
   send-timeout-seconds:
-    description: SSM's own send-command API timeout.
+    description: SSM's own send-command delivery timeout, i.e. how long SSM waits for an offline agent to pick the command up. Kept short so an unreachable instance fails fast; send + execution timeouts must fit inside the poll window.
     required: false
-    default: "600"
+    default: "120"
   poll-interval-seconds:
     description: Seconds to sleep between poll attempts.
     required: false
@@ -76,9 +83,22 @@ runs:
         COMMENT: ${{ inputs.comment }}
         EXEC_TIMEOUT: ${{ inputs.execution-timeout-seconds }}
         SEND_TIMEOUT: ${{ inputs.send-timeout-seconds }}
+        POLL_TIMEOUT_MINUTES: ${{ inputs.poll-timeout-minutes }}
         PAYLOAD_LIMIT_BYTES: ${{ inputs.payload-limit-bytes }}
       run: |
         set -euo pipefail
+
+        # The poll below cancels the command when its window ends. If the window
+        # is shorter than delivery + execution, a healthy command that was merely
+        # delivered late gets cancelled mid-run (REL-22). Fail before sending.
+        if [[ ! "$SEND_TIMEOUT" =~ ^[0-9]+$ || ! "$EXEC_TIMEOUT" =~ ^[0-9]+$ || ! "$POLL_TIMEOUT_MINUTES" =~ ^[0-9]+$ ]]; then
+          echo "::error::send-timeout-seconds, execution-timeout-seconds and poll-timeout-minutes must be whole numbers."
+          exit 1
+        fi
+        if (( POLL_TIMEOUT_MINUTES * 60 < SEND_TIMEOUT + EXEC_TIMEOUT )); then
+          echo "::error::poll-timeout-minutes (${POLL_TIMEOUT_MINUTES} min) is shorter than send-timeout-seconds (${SEND_TIMEOUT}) + execution-timeout-seconds (${EXEC_TIMEOUT}); the poll would cancel a command still inside its allowed time."
+          exit 1
+        fi
 
         PAYLOAD_BYTES="$(wc -c < "$SCRIPT_PATH")"
         echo "SSM payload size: ${PAYLOAD_BYTES} bytes"
@@ -120,18 +140,20 @@ runs:
         echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
 
         print_box_output() {
-          echo "--- box stdout ---"
-          aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --region "$AWS_REGION" \
-            --query 'StandardOutputContent' --output text || true
-          echo "--- box stderr ---"
-          aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --region "$AWS_REGION" \
-            --query 'StandardErrorContent' --output text || true
+          local stream cap text
+          for stream in StandardOutputContent:24000 StandardErrorContent:8000; do
+            cap="${stream#*:}"; stream="${stream%%:*}"
+            echo "--- box ${stream} ---"
+            text="$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query "$stream" --output text || true)"
+            printf '%s\n' "$text"
+            # SSM keeps only the FIRST N characters; say so instead of hiding the
+            # end of the run, where failures are reported (REL-19).
+            (( ${#text} < cap )) || echo "::warning::SSM truncated ${stream} to its first ${cap} characters; the end of the run is not shown here, read the full log on the host."
+          done
         }
 
         declare -i API_ERROR_STREAK=0
@@ -139,11 +161,13 @@ runs:
 
         for i in $(seq 1 "$MAX_ATTEMPTS"); do
           sleep "$POLL_INTERVAL_SECONDS"
+          # `|| RC=$?`: under `set -e` a bare failing assignment ends the step
+          # before the transient-error handling below can run (REL-01).
+          RC=0
           INVOCATION_JSON="$(aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID" \
-            --region "$AWS_REGION" 2>&1)"
-          RC=$?
+            --region "$AWS_REGION" 2>&1)" || RC=$?
 
           if [[ "$RC" -ne 0 ]]; then
             if [[ "$INVOCATION_JSON" == *InvocationDoesNotExist* ]]; then

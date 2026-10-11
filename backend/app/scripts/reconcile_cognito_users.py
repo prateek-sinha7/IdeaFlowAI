@@ -159,7 +159,7 @@ def _reconcile(db, *, fix_disabled: bool) -> bool:
 
     actionable = missing_at_provider + disabled_at_provider
     has_drift = bool(actionable or unprovisioned)
-    
+
     print(f"\nAlready disabled locally: {len(already_disabled_locally)}")
     print(
         f"Totals: {len(local_users)} local row(s), {len(pool)} pool user(s), "
@@ -201,7 +201,7 @@ def _reconcile(db, *, fix_disabled: bool) -> bool:
         "Re-enable through the admin API, not this script — see the module "
         "docstring."
     )
-    
+
     return has_drift
 
 
@@ -226,7 +226,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print("Cognito <-> local user reconciliation")
     print(f"  COGNITO_USER_POOL_ID = {settings.COGNITO_USER_POOL_ID or '(unset)'}")
-    print(f"  mode                 = {'fix-disabled' if args.fix_disabled else 'report'}")
+    print(
+        f"  mode                 = {'fix-disabled' if args.fix_disabled else 'report'}"
+    )
 
     if not settings.COGNITO_USER_POOL_ID:
         print(
@@ -238,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
 
     db = SessionLocal()
     try:
-        has_drift = _reconcile(db, fix_disabled=args.fix_disabled)
+        _reconcile(db, fix_disabled=args.fix_disabled)
         # In --report mode, finding drift is not an error — it's informational.
         # The scheduled workflow will check for "DRIFT" in the output and fail the job if found.
         return EXIT_OK

@@ -26,9 +26,14 @@ import logging
 import shutil
 import time
 import uuid
-from typing import AsyncGenerator, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable
 
 from pathlib import Path
+
+if TYPE_CHECKING:
+    # Annotation-only (quoted annotations below). The runtime imports of
+    # finalization stay deferred inside the functions that use it.
+    from agents.execution_engine.finalization import FinalizationRecord
 
 from agents.artifact_store.store import get_artifact_store
 from agents.artifacts.graph import ArtifactGraph
@@ -113,7 +118,6 @@ from app.agents.sandbox import (  # noqa: E402
     RunSandbox,
     _AGENT_OUTPUTS_PREFIX,
     _CHAIN_PREFIX,
-    _LOGS_PREFIX,
     write_agent_output,
 )
 
@@ -611,7 +615,7 @@ async def commit_in_sandbox(
                 continue
             # Only read files whose diff hunk contains "Binary files differ" — a
             # cheap proxy for "git considered this entry binary".
-            if f"Binary files" not in staged_diff:
+            if "Binary files" not in staged_diff:
                 break  # fast-exit when no binary entries in the whole diff
             _candidate = sandbox.root / _bname
             try:
@@ -910,10 +914,11 @@ def _compute_revision_ordinal(run_id: str, db: "Any") -> int:
 
     This function never had ``_owned_family_members``'s cross-type
     (``_canonical_base``) guard, and this docstring used to warn that the two
-    counting rules could therefore diverge. **They did.** A ``custom`` root
-    with a ``prototype_revision`` child and a ``custom_revision`` child tagged
-    the newest member ``v3`` here while the API's ``revision_index`` called it
-    2 — because the API silently dropped the cross-type member. That guard is
+    counting rules could therefore diverge. **They did.** A root with two
+    revision children minted under DIFFERENT revision pipeline types (a
+    cross-type family) tagged the newest member ``v3`` here while the API's
+    ``revision_index`` called it 2 — because the API silently dropped the
+    cross-type member. That guard is
     now removed (see ``_owned_family_members``' docstring for why it could
     never detect the corruption it was written for), so both sides count every
     family member and the two rules agree again.
@@ -2252,7 +2257,7 @@ async def finalize_terminal_run(
 
         # Propagate non-chainable to the attempt — EXCEPT when it is
         # non-chainable BY DESIGN (no deliverable name declared, Req 4 AC 4:
-        # sample_wave / sample_fanout / ex_playwright_smoke_test). That is not a
+        # a workflow whose manifest declares no output name). That is not a
         # failure and must not degrade an otherwise-successful run (GAPS R6) —
         # a declared name whose bytes could not be produced still degrades.
         if (
@@ -2488,6 +2493,11 @@ async def finalize_terminal_run(
 
         if (
             _sandbox is not None
+            # Same has_git gate as the snapshot commit (step 5) and the run ref
+            # (step 7): a non-git sandbox — the documented fallback when git init
+            # fails — has nothing to tag, and ``create_tag`` raises on it. Without
+            # the gate every such run degraded as ``tag_creation_failed``.
+            and getattr(_sandbox, "has_git", False)
             and _effective_status == "completed"
             and not getattr(ectx, "last_commit_blocked", False)
         ):
@@ -3425,10 +3435,12 @@ import functools as _functools  # noqa: E402
 def _resolve_root_id(run_id: str, owner_id: str) -> str:
     """Canonical revision-root resolver: walks ``parent_run_id`` only (V2-Q1).
 
-    Delegates to ``app.api.runs.resolve_revision_root`` via a short-lived
-    ``SessionLocal`` session (same deferred-import pattern used throughout this
-    module so the import-linter ``capabilities → execution_engine`` boundary
-    stays green — this is an INTRA-engine module-level helper).
+    Delegates to ``app.services.revision_root.resolve_revision_root`` via a
+    short-lived ``SessionLocal`` session (same deferred-import pattern used
+    throughout this module so the import-linter ``capabilities → execution_engine``
+    boundary stays green — this is an INTRA-engine module-level helper). The
+    resolver lives in ``app.services``, not ``app.api``, because the kernel must
+    never import the web layer.
 
     On any ``RevisionRootUnresolved`` outcome (cycle, missing ancestor,
     cross-owner ancestry, DB error) returns ``run_id`` unchanged and logs a
@@ -3442,8 +3454,11 @@ def _resolve_root_id(run_id: str, owner_id: str) -> str:
     ``resolve_revision_root`` directly so they can return 404 on failure.
     """
     try:
-        from app.api.runs import RevisionRootResolved, resolve_revision_root
         from app.models.database import SessionLocal as _SL_rr
+        from app.services.revision_root import (
+            RevisionRootResolved,
+            resolve_revision_root,
+        )
 
         _db_rr = _SL_rr()
         try:
@@ -4442,7 +4457,7 @@ class ExecutionEngine:
         # here because the bytes are identical to what was written at launch time).
         if od_context:
             try:
-                from app.api.launch_context import write_od_context_to_sandbox
+                from app.services.od_context_sandbox import write_od_context_to_sandbox
 
                 write_od_context_to_sandbox(
                     sandbox, od_context, explicit_selection=True
@@ -4455,7 +4470,9 @@ class ExecutionEngine:
         # Persist the user's request to .context/user-prompt.md before step 1 so any
         # agent (not just the first, which gets it inline) can read it. Never-raising.
         try:
-            from app.api.launch_context import write_user_prompt_to_sandbox
+            from agents.execution_engine.user_prompt import (
+                write_user_prompt_to_sandbox,
+            )
 
             write_user_prompt_to_sandbox(sandbox, user_message)
         except Exception:  # noqa: BLE001
@@ -4852,7 +4869,7 @@ class ExecutionEngine:
         # document text: with every page in its prompt the first agent does the
         # whole workflow on its own. The files are in .uploads/, so keep only names.
         if any("file_extract" in (s.tools.tool_sets or []) for s in compiled.steps):
-            from app.api.launch_context import (
+            from agents.execution_engine.user_prompt import (
                 strip_inline_attachments,
                 write_user_prompt_to_sandbox,
             )
@@ -13158,19 +13175,17 @@ class ExecutionEngine:
                     workspace_id=original.workspace_id,
                     kind=target_artifact_type,
                     producer_step="revision",
-                    # Derived from the COMPILED PLAN (IN-05 spirit, SC-001 — no
-                    # agent-id literal): revision pipelines are 1-2 single_shot
-                    # steps and the LAST agent's streamed output is the declared
-                    # deliverable. Read off ``_compiled_revision.steps``, NOT the
-                    # ``agents`` local: revision-pipeline-refactor emptied that list
-                    # so execute() rebuilds the roster from the manifest, which left
-                    # ``agents[-1]`` raising IndexError — the except arm below then
-                    # turned EVERY revision's exact-kind lineage write into
-                    # state_restoration_failed and FR-014 chain link 1 was never
-                    # persisted. The plan is the same source execute() rebuilds from
-                    # (_specs_from_plan(compiled.steps)), so this is the agent that
-                    # actually ran last.
-                    producer_agent=_compiled_revision.steps[-1].agent_id,
+                    # Derived from the COMPILED MANIFEST steps (IN-05 spirit,
+                    # SC-001 — no agent-id literal): the LAST declared step's
+                    # streamed output is the declared deliverable.
+                    # revision-pipeline-refactor: ``agents`` is deliberately []
+                    # here (execute() builds the roster from compiled.steps), so
+                    # the producer MUST come from the manifest — reading
+                    # ``agents[-1]`` raised IndexError and silently sank every
+                    # revision lineage ref into the state_restoration_failed arm.
+                    producer_agent=compile_for_run(revision_pipeline_type)
+                    .steps[-1]
+                    .agent_id,
                     task_id=None,
                     content=final_output,
                     location=f"artifact_refs/{target_artifact_type}",
@@ -15258,7 +15273,7 @@ class ExecutionEngine:
         # Best-effort: any exception falls through to od_context_db (already set above).
         try:
             from app.agents.sandbox import RunSandbox as _RunSandbox
-            from app.api.launch_context import rebuild_od_context_from_sandbox
+            from app.services.od_context_sandbox import rebuild_od_context_from_sandbox
 
             _disk_principal = user_id or "anon"
             _owner_id = user_id or f"anon:{session_id or run_id}"
@@ -16067,6 +16082,8 @@ class ExecutionEngine:
         # The request is not broadcast inline outside the Requirement 14 retry classes
         # (Req 13 AC 4), but it IS persisted to .context/user-prompt.md before step 1
         # (write_user_prompt_to_sandbox) so a later agent with read_files can read it.
+        # REQUEST.md is NEVER created: .context/user-prompt.md is the only on-disk
+        # copy of the raw request (Req 13 AC 4).
         _pending_fb_store = ectx.pending_route_feedback
         _spec_id = getattr(spec, "id", None)
         _has_retry_feedback = bool(_pending_fb_store.get(_spec_id))
@@ -16156,7 +16173,7 @@ class ExecutionEngine:
         # Phase M finished; a migrated agent reads PLANNER.md itself instead.
 
         # [Phase Z / GAPS §0.3, FR-030 rows 2/11/26] World blocks — REMOVED. This used
-        # to be the per-agent provider loop (opendesign + uploaded_files) that pasted
+        # to be the per-agent provider loop (opendesign + uploaded-files) that pasted
         # the OD/template/example/uploaded-files blocks for an agent declaring
         # ``injects`` and still on the default policy. Every agent finished the Q4
         # migration and reads ``.context/design/`` / ``.uploads/`` itself instead — no

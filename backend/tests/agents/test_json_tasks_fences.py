@@ -29,11 +29,20 @@ def parser() -> JsonTasksParser:
 @pytest.mark.parametrize(
     "label,text",
     [
-        ("bare array", '[{"id": "a", "title": "A", "targets": ["x"], "depends_on": [], "body": "b"}]'),
+        (
+            "bare array",
+            '[{"id": "a", "title": "A", "targets": ["x"], "depends_on": [], "body": "b"}]',
+        ),
         ("unfenced object", GOOD),
         ("single fence amid prose", f"here you go\n```json\n{GOOD}\n```"),
-        ("example fence FIRST", f"Format:\n```json\n{{\"tasks\": [ ... ]}}\n```\nPlan:\n```json\n{GOOD}\n```"),
-        ("prose fence FIRST", f"```\nnot json at all\n```\nPlan:\n```json\n{GOOD}\n```"),
+        (
+            "example fence FIRST",
+            f'Format:\n```json\n{{"tasks": [ ... ]}}\n```\nPlan:\n```json\n{GOOD}\n```',
+        ),
+        (
+            "prose fence FIRST",
+            f"```\nnot json at all\n```\nPlan:\n```json\n{GOOD}\n```",
+        ),
         ("empty fence FIRST", f"```\n```\n```json\n{GOOD}\n```"),
     ],
 )
@@ -103,7 +112,9 @@ def test_contract_task_count_as_numeric_string_matches_int(parser):
 
 def test_contract_task_count_as_numeric_string_mismatch_raises(parser):
     """task_count as string "2" with only 1 task → raises ValueError."""
-    payload = '{"contract": {"task_count": "2"}, "tasks": [{"id": "a", "body": "first"}]}'
+    payload = (
+        '{"contract": {"task_count": "2"}, "tasks": [{"id": "a", "body": "first"}]}'
+    )
     with pytest.raises(ValueError) as exc:
         parser.parse(payload)
     msg = str(exc.value)

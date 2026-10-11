@@ -47,6 +47,7 @@ same generator. ``_drive`` itself is now a one-line wrapper around it —
 behavior-preserving (verified: ``test_revision_ordinal_v3.py`` unchanged at
 6 passed after the refactor).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -98,7 +99,9 @@ def _seed_chain(real_db, run_ids: list[str]) -> None:
     from app.models.user import User  # noqa: PLC0415
 
     if real_db.query(User).filter(User.id == _OWNER).first() is None:
-        real_db.add(User(id=_OWNER, email=f"{_OWNER}@test.local"))
+        real_db.add(
+            User(id=_OWNER, email=f"{_OWNER}@test.local", cognito_sub=f"sub-{_OWNER}")
+        )
         real_db.commit()
     parent: str | None = None
     # GAPS T6: distinct created_offset per row — the family-wide counting
@@ -109,8 +112,13 @@ def _seed_chain(real_db, run_ids: list[str]) -> None:
     # (which never reads created_at at all) — newly reached, not newly
     # caused, by this fix (S3 journal precedent).
     for offset, rid in enumerate(run_ids):
-        _seed_run(real_db, run_id=rid, parent_run_id=parent, user_id=_OWNER,
-                  created_offset=offset * 10)
+        _seed_run(
+            real_db,
+            run_id=rid,
+            parent_run_id=parent,
+            user_id=_OWNER,
+            created_offset=offset * 10,
+        )
         parent = rid
 
 
@@ -121,12 +129,18 @@ def _drive_version(run_id: str, parent_run_id: str | None, marker: str) -> dict:
     drive_kwargs: dict = {"pipeline_run_id": run_id}
     if parent_run_id:
         drive_kwargs["parent_run_id"] = parent_run_id
-    with patch.object(scripted_model_mod, "_scripts_for", _scripts_for_with_marker(marker)):
-        events = asyncio.run(_drive("custom", **drive_kwargs))
+    with patch.object(
+        scripted_model_mod, "_scripts_for", _scripts_for_with_marker(marker)
+    ):
+        # ``offline_db=False``: keep the real hermetic SessionLocal ``_seed_chain``
+        # seeded in place. The harness default swaps in a no-database seam, under
+        # which root resolution and the finalizer's tag DB mapping both fail and
+        # every run publishes ``degraded``.
+        events = asyncio.run(_drive("custom", offline_db=False, **drive_kwargs))
     completes = [e for e in events if e.get("type") == "pipeline_complete"]
-    assert len(completes) == 1, (
-        f"run {run_id}: expected exactly 1 pipeline_complete, got {completes}"
-    )
+    assert (
+        len(completes) == 1
+    ), f"run {run_id}: expected exactly 1 pipeline_complete, got {completes}"
     published = completes[0]["data"].get("published_status", "completed")
     assert published == "completed", (
         f"run {run_id} did not complete cleanly (published_status={published!r}) — "
@@ -135,7 +149,9 @@ def _drive_version(run_id: str, parent_run_id: str | None, marker: str) -> dict:
     return completes[0]
 
 
-async def _drive_v4_paused(rev3_id: str, rev2_id: str, sandbox, *, pause_after_completions: int = 3):
+async def _drive_v4_paused(
+    rev3_id: str, rev2_id: str, sandbox, *, pause_after_completions: int = 3
+):
     """Drive v4 via the raw ``execute()`` generator (``_prepare_engine_run``),
     pausing right after the Nth ``agent_complete`` — genuinely mid-flight,
     well before ``pipeline_complete``/finalization/tagging. Captures a
@@ -147,7 +163,10 @@ async def _drive_v4_paused(rev3_id: str, rev2_id: str, sandbox, *, pause_after_c
     ``asyncio.run(...)`` at the call site — agent scripts are looked up
     lazily, per-step, as the generator is pulled on BOTH sides of the pause).
     """
-    agen, restore = _prepare_engine_run("custom", pipeline_run_id=rev3_id, parent_run_id=rev2_id)
+    # ``offline_db=False`` — same reason as ``_drive_version`` above.
+    agen, restore = _prepare_engine_run(
+        "custom", offline_db=False, pipeline_run_id=rev3_id, parent_run_id=rev2_id
+    )
     events: list[dict] = []
     snapshot: dict = {}
     try:
@@ -160,7 +179,9 @@ async def _drive_v4_paused(rev3_id: str, rev2_id: str, sandbox, *, pause_after_c
                 if completions == pause_after_completions:
                     paused = True
                     break
-        assert paused, "v4 finished before reaching the pause boundary — nothing was in flight"
+        assert (
+            paused
+        ), "v4 finished before reaching the pause boundary — nothing was in flight"
 
         # ---- genuinely in-flight here: v4 has not finalized/tagged yet ----
         repo = sandbox.root
@@ -180,12 +201,18 @@ async def _drive_v4_paused(rev3_id: str, rev2_id: str, sandbox, *, pause_after_c
         commits_after = len(_run_git("log", "--oneline", cwd=repo).splitlines())
 
         snapshot = dict(
-            v1_files=v1_files, v1_content=v1_content,
-            v2_files=v2_files, v2_content=v2_content,
-            head_before=head_before, head_after=head_after,
-            status_before=status_before, status_after=status_after,
-            tags_before=tags_before, tags_after=tags_after,
-            commits_before=commits_before, commits_after=commits_after,
+            v1_files=v1_files,
+            v1_content=v1_content,
+            v2_files=v2_files,
+            v2_content=v2_content,
+            head_before=head_before,
+            head_after=head_after,
+            status_before=status_before,
+            status_after=status_after,
+            tags_before=tags_before,
+            tags_after=tags_after,
+            commits_before=commits_before,
+            commits_after=commits_after,
         )
 
         # ---- resume the SAME suspended generator to completion ----
@@ -199,6 +226,7 @@ async def _drive_v4_paused(rev3_id: str, rev2_id: str, sandbox, *, pause_after_c
 # ---------------------------------------------------------------------------
 # Part A — five genuinely distinct versions, re-read after all five exist.
 # ---------------------------------------------------------------------------
+
 
 class TestFiveDistinctVersionFamily:
     def test_five_versions_distinct_content_tags_and_reread(self) -> None:
@@ -224,9 +252,13 @@ class TestFiveDistinctVersionFamily:
 
         sandbox = RunSandbox(_OWNER, root_id)
         tags = sorted(sandbox.list_tags())
-        assert tags == ["v1", "v2", "v3", "v4", "v5"], (
-            f"expected exactly v1..v5, no gaps/reuse — got {tags}"
-        )
+        assert tags == [
+            "v1",
+            "v2",
+            "v3",
+            "v4",
+            "v5",
+        ], f"expected exactly v1..v5, no gaps/reuse — got {tags}"
 
         version_tags = ["v1", "v2", "v3", "v4", "v5"]
 
@@ -235,31 +267,32 @@ class TestFiveDistinctVersionFamily:
         # silently omits a file whose bytes didn't change between revisions).
         for i, tag in enumerate(version_tags, start=1):
             files = sandbox.list_files_at_ref(tag)
-            assert ".chain/output.md" in files, (
-                f"tag {tag}: deliverable missing from the commit tree ({files})"
-            )
+            assert (
+                ".chain/output.md" in files
+            ), f"tag {tag}: deliverable missing from the commit tree ({files})"
             content = sandbox.read_bytes_at_ref(tag, ".chain/output.md").decode("utf-8")
-            assert f"VERSION-{i}" in content, (
-                f"tag {tag}: expected its own VERSION-{i} marker, got {content!r}"
-            )
+            assert (
+                f"VERSION-{i}" in content
+            ), f"tag {tag}: expected its own VERSION-{i} marker, got {content!r}"
             for other in range(1, 6):
                 if other != i:
-                    assert f"VERSION-{other}" not in content, (
-                        f"tag {tag}: leaked VERSION-{other}'s content ({content!r})"
-                    )
+                    assert (
+                        f"VERSION-{other}" not in content
+                    ), f"tag {tag}: leaked VERSION-{other}'s content ({content!r})"
 
         # Re-read every version AGAIN now that all five exist — a later tag
         # must never clobber an earlier one's content.
         for i, tag in enumerate(version_tags, start=1):
             content = sandbox.read_bytes_at_ref(tag, ".chain/output.md").decode("utf-8")
-            assert f"VERSION-{i}" in content, (
-                f"tag {tag}: content changed on re-read after all 5 versions exist ({content!r})"
-            )
+            assert (
+                f"VERSION-{i}" in content
+            ), f"tag {tag}: content changed on re-read after all 5 versions exist ({content!r})"
 
 
 # ---------------------------------------------------------------------------
 # Part B — v4 held genuinely mid-flight: browsing v1/v2 must not affect it.
 # ---------------------------------------------------------------------------
+
 
 class TestConcurrentBrowseDuringInFlightRevision:
     def test_browsing_v1_v2_while_v4_in_flight_does_not_affect_it(self) -> None:
@@ -269,7 +302,9 @@ class TestConcurrentBrowseDuringInFlightRevision:
         from app.agents.sandbox import RunSandbox  # noqa: PLC0415
         from app.models.database import SessionLocal as _RealSessionLocal  # noqa: PLC0415
 
-        root_id, rev1_id, rev2_id, rev3_id, rev4_id = (str(uuid.uuid4()) for _ in range(5))
+        root_id, rev1_id, rev2_id, rev3_id, rev4_id = (
+            str(uuid.uuid4()) for _ in range(5)
+        )
         run_ids = [root_id, rev1_id, rev2_id, rev3_id, rev4_id]
 
         real_db = _RealSessionLocal()
@@ -291,12 +326,18 @@ class TestConcurrentBrowseDuringInFlightRevision:
         # against what the mid-flight browse sees below, to prove it "still
         # reflects that version, not the live tree" of the in-progress v4.
         v1_files_baseline = sandbox.list_files_at_ref("v1")
-        v1_content_baseline = sandbox.read_bytes_at_ref("v1", ".chain/output.md").decode("utf-8")
+        v1_content_baseline = sandbox.read_bytes_at_ref(
+            "v1", ".chain/output.md"
+        ).decode("utf-8")
         v2_files_baseline = sandbox.list_files_at_ref("v2")
-        v2_content_baseline = sandbox.read_bytes_at_ref("v2", ".chain/output.md").decode("utf-8")
+        v2_content_baseline = sandbox.read_bytes_at_ref(
+            "v2", ".chain/output.md"
+        ).decode("utf-8")
 
         # ---- v4 (rev3_id): start, hold mid-flight, browse, resume, finish ----
-        with patch.object(scripted_model_mod, "_scripts_for", _scripts_for_with_marker("VERSION-4")):
+        with patch.object(
+            scripted_model_mod, "_scripts_for", _scripts_for_with_marker("VERSION-4")
+        ):
             events, snap = asyncio.run(_drive_v4_paused(rev3_id, rev2_id, sandbox))
 
         # The browse performed WHILE v4 was in flight returned v1/v2's own,
@@ -310,15 +351,23 @@ class TestConcurrentBrowseDuringInFlightRevision:
 
         # The browse itself changed nothing.
         assert snap["head_after"] == snap["head_before"], "browsing moved HEAD"
-        assert snap["status_after"] == snap["status_before"], "browsing dirtied the working tree"
+        assert (
+            snap["status_after"] == snap["status_before"]
+        ), "browsing dirtied the working tree"
         assert snap["tags_after"] == snap["tags_before"], "browsing changed the tag set"
-        assert snap["commits_after"] == snap["commits_before"], "browsing added a commit"
+        assert (
+            snap["commits_after"] == snap["commits_before"]
+        ), "browsing added a commit"
 
         # v4 finished cleanly after being resumed.
         completes = [e for e in events if e.get("type") == "pipeline_complete"]
-        assert len(completes) == 1, f"expected exactly 1 pipeline_complete for v4, got {completes}"
+        assert (
+            len(completes) == 1
+        ), f"expected exactly 1 pipeline_complete for v4, got {completes}"
         published = completes[0]["data"].get("published_status", "completed")
-        assert published == "completed", f"v4 did not complete cleanly (published_status={published!r})"
+        assert (
+            published == "completed"
+        ), f"v4 did not complete cleanly (published_status={published!r})"
 
         # v4 becomes v4 — not v1, not v5 — with its own content in its own tag.
         assert sorted(sandbox.list_tags()) == ["v1", "v2", "v3", "v4"]
@@ -326,8 +375,14 @@ class TestConcurrentBrowseDuringInFlightRevision:
         assert "VERSION-4" in v4_content
 
         # v1/v2 are still intact and still readable after v4 finalizes.
-        assert sandbox.read_bytes_at_ref("v1", ".chain/output.md").decode("utf-8") == v1_content_baseline
-        assert sandbox.read_bytes_at_ref("v2", ".chain/output.md").decode("utf-8") == v2_content_baseline
+        assert (
+            sandbox.read_bytes_at_ref("v1", ".chain/output.md").decode("utf-8")
+            == v1_content_baseline
+        )
+        assert (
+            sandbox.read_bytes_at_ref("v2", ".chain/output.md").decode("utf-8")
+            == v2_content_baseline
+        )
 
         # A fifth run confirms the sequence continues to v5 after the interleaving.
         _drive_version(rev4_id, rev3_id, "VERSION-5")

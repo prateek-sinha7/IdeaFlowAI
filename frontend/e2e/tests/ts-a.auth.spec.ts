@@ -38,21 +38,30 @@ test.describe("TS-A — auth, routing & tiers", () => {
   });
 
   test("TS-A-06 enterprise tier enables every workflow", async ({ dashboard, page }) => {
-    test.skip(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     await dashboard.goto({ tier: "enterprise" });
-    // Scope to the launch row via its <h2> child — the Phase-39 home row's
+    // Every launchable row the home grid renders (fixtures DEFAULT_WORKFLOWS —
+    // the mirror of GET /api/workflows) is enabled for enterprise, including the
+    // three TS-A-05 proves are LOCKED for basic (app_builder / custom / migration).
+    // Scope each to its launch row via the <h2> child — the Phase-39 home row's
     // sibling "Inspect …" Info button shares the label in its aria-label.
-    await expect(
-      page
-        .getByRole("button")
-        .filter({ has: page.getByRole("heading", { level: 2, name: /Compose a custom workflow/i }) }),
-    ).toBeEnabled();
+    for (const label of [
+      "Generate product requirements",
+      "Build an interactive prototype",
+      "Build an end-to-end application",
+      "Pitch an idea",
+      "Platform workflows",
+      "Compose a custom workflow",
+    ]) {
+      await expect(
+        page.getByRole("button").filter({ has: page.getByRole("heading", { level: 2, name: label, exact: true }) }),
+        `${label} row enabled for enterprise`,
+      ).toBeEnabled();
+    }
     await expect(page.getByText(/Requires (Pro|Enterprise) plan/)).toHaveCount(0);
-    // FLAG (removed behavior): the CreationHub "NEW" pill on the migration row is
-    // GONE in the Phase-39 data-driven home (HomeLaunchGrid sources rows from
-    // GET /api/workflows, whose WorkflowSummary shape carries no badge field).
-    // No equivalent affordance exists to re-target — left asserting the retired
-    // pill for reconciliation.
-    await expect(page.getByText("NEW", { exact: true })).toBeVisible();
+    // The former third assertion — a CreationHub "NEW" pill on the migration row —
+    // is gone: 1fb41883 (22-07, catalog-as-home) stopped mounting CreationHub, and
+    // HomeLaunchGrid's rows (GET /api/workflows WorkflowSummary) carry no badge
+    // field. It was a marketing badge, not part of this test's entitlement
+    // contract, so it was dropped rather than re-targeted.
   });
 });

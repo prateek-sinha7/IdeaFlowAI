@@ -72,9 +72,14 @@ logger = logging.getLogger(__name__)
 #: Trust levels that count as engineer-authored. Anything else — ``user``
 #: or an unrecognised value — is untrusted: an unknown trust level must
 #: never resolve to the more permissive cap.
-TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin", "db"})
+TRUSTED_TRUST_LEVELS: frozenset[str] = frozenset({"file", "builtin"})
 
-#: THE CAP INDEX. Every ceiling in the system is one of these two rows.
+#: Saved-workflow trust (Composer rows, saved step overrides — ADR-0054). Its own
+#: cap: the budget half of trust (``spawn_subagents``) without anything that
+#: reaches the host (exec / network / secrets / git).
+SAVED_TRUST_LEVEL: str = "db"
+
+#: THE CAP INDEX. Every ceiling in the system is one of these three rows.
 PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
     # Engineer-authored manifests: may request the privileged capabilities.
     "trusted": ToolPermissions(
@@ -83,11 +88,11 @@ PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
         exec=True,
         spawn_subagents=True,
         network=False,
-        git=True,   # Task 4.1 (Requirement 42): engine's own commit bypasses this cap
-                    # via commit_all() directly — no agent-callable git tool exists in
-                    # the capability registry. Flipped here in the same change as the
-                    # first declared git hook so the cap accurately reflects the engine's
-                    # new git-enabled sandbox posture (has_git=True global default).
+        git=True,  # Task 4.1 (Requirement 42): engine's own commit bypasses this cap
+        # via commit_all() directly — no agent-callable git tool exists in
+        # the capability registry. Flipped here in the same change as the
+        # first declared git hook so the cap accurately reflects the engine's
+        # new git-enabled sandbox posture (has_git=True global default).
         tool_sets=[
             "workspace",
             "prototype",
@@ -116,6 +121,21 @@ PERMISSION_CAP_INDEX: dict[str, ToolPermissions] = {
         network=False,
         git=False,
         tool_sets=["file_extract", "playwright"],
+    ),
+    # Saved (db-trust) manifests — ADR-0054. The untrusted cap plus exactly what
+    # a Composer copy of a built-in needs: ``spawn_subagents`` (fan-out request
+    # emitter; the engine performs the spawn, bounded by the saved Limits
+    # ceiling) and the sandbox-confined tool sets built-in manifests grant
+    # (``prototype_emit_only`` = store-free report_task_complete; ``ask_user`` =
+    # the HITL question). No exec / network / secrets / git: those reach the host.
+    "saved": ToolPermissions(
+        read_files=True,
+        write_files=True,
+        exec=False,
+        spawn_subagents=True,
+        network=False,
+        git=False,
+        tool_sets=["file_extract", "playwright", "prototype_emit_only", "ask_user"],
     ),
 }
 
@@ -177,7 +197,11 @@ def parse_grant(raw: dict) -> ToolPermissions:
 
 def cap_key_for_trust(trust: str | None) -> str:
     """Map a manifest trust level to its cap key. Unknown ⇒ ``untrusted``."""
-    return "trusted" if (trust or "") in TRUSTED_TRUST_LEVELS else "untrusted"
+    if (trust or "") in TRUSTED_TRUST_LEVELS:
+        return "trusted"
+    if trust == SAVED_TRUST_LEVEL:
+        return "saved"
+    return "untrusted"
 
 
 def cap_for_trust(trust: str | None) -> ToolPermissions:

@@ -2,9 +2,10 @@
 Comprehensive tests for the bounded multi-check runner.
 
 Tests cover:
-- Bounds enforcement (max 100 checks, 120s timeout, 512MB memory)
+- Bounds enforcement (max 100 checks, per-check timeout ceiling)
 - Check sequencing (topological order, offline → postgres → live)
-- Early-exit behavior (exit immediately on first failure)
+- Run-to-completion (a failure never stops later checks; exit non-zero at the end)
+- Failure visibility (job-log groups/annotations, step summary, tool versions)
 - Audit logging (every check start/end/result logged)
 - Output formats (JSON and JUnit)
 - Error conditions (timeout, spawn errors, missing executables)
@@ -13,6 +14,7 @@ Tests cover:
 
 import json
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -353,30 +355,59 @@ class TestCheckExecution:
         assert results[1].status == CheckStatus.SUCCESS
 
 
-class TestLogRedaction:
-    """Tests for log redaction and truncation."""
+class TestLogTruncation:
+    """Tests for inline log truncation and the untruncated .log evidence."""
 
     def test_log_truncation(self):
         """Test that long logs are truncated."""
         runner = BoundedCheckRunner([])
         large_text = "x" * 10000
-        redacted = runner._redact_logs(large_text, max_bytes=1000)
+        truncated = runner._truncate_log(large_text, max_bytes=1000)
 
-        assert len(redacted) < len(large_text)
-        assert "truncated" in redacted
+        assert len(truncated) < len(large_text)
+        assert "truncated" in truncated
 
     def test_empty_log_handling(self):
         """Test that empty logs are handled gracefully."""
         runner = BoundedCheckRunner([])
-        result = runner._redact_logs("", max_bytes=1000)
+        result = runner._truncate_log("", max_bytes=1000)
         assert result == ""
 
     def test_log_under_limit(self):
         """Test that logs under limit are preserved."""
         runner = BoundedCheckRunner([])
         text = "short log"
-        redacted = runner._redact_logs(text, max_bytes=1000)
-        assert redacted == text
+        truncated = runner._truncate_log(text, max_bytes=1000)
+        assert truncated == text
+
+    def test_truncate_log_keeps_head_and_tail_when_over_limit(self):
+        # Tools print their verdict LAST ("✖ 150 problems"); a head-only cut
+        # dropped it from the CI evidence.
+        text = "FIRST-FINDING\n" + ("x" * 50_000) + "\n✖ 150 problems"
+
+        truncated = BoundedCheckRunner._truncate_log(text, max_bytes=200)
+
+        assert truncated.startswith("FIRST-FINDING")
+        assert truncated.endswith("✖ 150 problems")
+        assert f"{len(text) - 200} characters omitted" in truncated
+
+    @_SPAWNS_REAL_PROCESS
+    def test_write_full_logs_writes_untruncated_output_when_inline_copy_is_truncated(
+        self, tmp_path
+    ):
+        big = "line\n" * 20_000  # 100 KB — far above LOG_MAX_BYTES
+        # Built inside the child: a 100 KB literal argv exceeds Windows' 32 KB
+        # command-line limit.
+        cmd = [sys.executable, "-c", "import sys; sys.stdout.write('line\\n' * 20000)"]
+        runner = BoundedCheckRunner([CheckDefinition(check_id="big", command=cmd)])
+        runner.run()
+
+        (path,) = runner.write_full_logs(tmp_path / "evidence", "frontend-static")
+
+        assert path.name == "frontend-static-big.log"
+        assert "truncated" in runner.results[0].stdout
+        assert big in path.read_text(encoding="utf-8")
+        assert "full_stdout" not in runner.results[0].to_dict()
 
 
 class TestOutputFormats:
@@ -691,3 +722,184 @@ class TestPropertyBasedSequencing:
         # Verify order: a before b, b before c
         assert sorted_ids.index("a") < sorted_ids.index("b")
         assert sorted_ids.index("b") < sorted_ids.index("c")
+
+
+# ── Failure visibility, tool versions, JUnit escaping (CI run 36718805906) ──────
+# That run failed `ruff-format` and `import-linter`, but the job log only said
+# "status: failure": the reason lived solely in the JSON evidence artifact. These
+# pin the fix. No process is spawned — results are constructed directly.
+
+
+def _result(
+    check_id: str,
+    status: CheckStatus,
+    *,
+    exit_code: int | None = 1,
+    stdout: str = "",
+    stderr: str = "",
+) -> CheckResult:
+    return CheckResult(
+        check_id=check_id,
+        command=["uv", "run", "--frozen", "ruff", "check", "."],
+        status=status,
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        start_time=1.0,
+        end_time=2.0,
+        duration_seconds=1.0,
+    )
+
+
+def _runner_with(*results: CheckResult) -> BoundedCheckRunner:
+    runner = BoundedCheckRunner([])
+    runner.results = list(results)
+    runner.failed_checks = [
+        r.check_id for r in results if r.status != CheckStatus.SUCCESS
+    ]
+    runner.end_time = 1.0
+    return runner
+
+
+class TestFailureReporting:
+    def test_report_failures_prints_group_and_annotation_when_github_actions(self):
+        import io
+
+        runner = _runner_with(
+            _result("ruff-lint", CheckStatus.SUCCESS, exit_code=0, stdout="ok"),
+            _result(
+                "import-linter",
+                CheckStatus.FAILURE,
+                stdout="kernel imports only capability ports BROKEN\ndetail",
+            ),
+        )
+        out = io.StringIO()
+
+        runner.report_failures(out, github_actions=True)
+
+        text = out.getvalue()
+        assert "::group::FAILED import-linter" in text
+        assert "kernel imports only capability ports BROKEN" in text
+        assert "::endgroup::" in text
+        assert "::error title=import-linter::" in text
+        assert "ruff-lint" not in text  # passing checks stay quiet
+
+    def test_report_failures_fences_tool_output_when_github_actions(self):
+        import io
+        import re
+
+        runner = _runner_with(
+            _result("x", CheckStatus.FAILURE, stdout="::set-env name=A::pwned")
+        )
+        out = io.StringIO()
+
+        runner.report_failures(out, github_actions=True)
+
+        text = out.getvalue()
+        match = re.search(r"::stop-commands::([0-9a-f]+)\n", text)
+        assert match, "tool output must be fenced with ::stop-commands::"
+        token = match.group(1)
+        start = text.index(match.group(0))
+        end = text.index(f"::{token}::")
+        assert start < text.index("::set-env") < end
+
+    def test_report_failures_prints_plain_block_when_not_github_actions(self):
+        import io
+
+        runner = _runner_with(
+            _result("ruff-format", CheckStatus.FAILURE, stdout="Would reformat: a.py")
+        )
+        out = io.StringIO()
+
+        runner.report_failures(out, github_actions=False)
+
+        text = out.getvalue()
+        assert "FAILED ruff-format" in text
+        assert "Would reformat: a.py" in text
+        assert "::" not in text
+
+    def test_report_failures_prints_nothing_when_all_checks_pass(self):
+        import io
+
+        runner = _runner_with(_result("ok", CheckStatus.SUCCESS, exit_code=0))
+        out = io.StringIO()
+
+        runner.report_failures(out, github_actions=True)
+
+        assert out.getvalue() == ""
+
+    def test_to_step_summary_lists_every_check_and_failure_output_when_one_fails(
+        self,
+    ):
+        runner = _runner_with(
+            _result("ruff-lint", CheckStatus.SUCCESS, exit_code=0),
+            _result("ruff-format", CheckStatus.FAILURE, stdout="Would reformat: a.py"),
+        )
+
+        summary = runner.to_step_summary()
+
+        assert "| `ruff-lint` | ✅ success |" in summary
+        assert "| `ruff-format` | ❌ failure |" in summary
+        assert "Would reformat: a.py" in summary
+
+
+class TestJUnitEscaping:
+    def test_to_junit_is_well_formed_xml_when_output_has_markup_characters(self):
+        import xml.etree.ElementTree as ET
+
+        runner = _runner_with(
+            _result(
+                "import-linter",
+                CheckStatus.FAILURE,
+                stdout='a -> b <c> & "d"',
+                stderr="warn",
+            )
+        )
+
+        root = ET.fromstring(runner.to_junit())
+
+        failure = root.find(".//testcase[@name='import-linter']/failure")
+        assert failure is not None
+        assert 'a -> b <c> & "d"' in (failure.text or "")
+        assert "warn" in (failure.text or "")
+
+
+class TestToolVersionDetection:
+    def test_detect_tool_version_reads_installed_dist_when_uv_run_wrapped(self):
+        from tools.ci.run_checks import detect_tool_version
+
+        version = detect_tool_version(["uv", "run", "--frozen", "ruff", "check", "."])
+
+        assert version.startswith("ruff ")
+        assert version != "ruff "
+
+    def test_detect_tool_version_maps_console_script_to_dist_when_names_differ(self):
+        from tools.ci.run_checks import detect_tool_version
+
+        version = detect_tool_version(["uv", "run", "--frozen", "lint-imports"])
+
+        assert version.startswith("import-linter ") or version.startswith(
+            "import_linter "
+        )
+
+    def test_detect_tool_version_reports_interpreter_when_tool_is_python(self):
+        import platform
+
+        from tools.ci.run_checks import detect_tool_version
+
+        version = detect_tool_version(
+            ["uv", "run", "--frozen", "python", "-m", "compileall", "app"]
+        )
+
+        assert version == f"python {platform.python_version()}"
+
+    def test_detect_tool_version_returns_empty_when_tool_is_not_a_python_script(self):
+        from tools.ci.run_checks import detect_tool_version
+
+        assert detect_tool_version(["npm", "run", "lint"]) == ""
+        assert detect_tool_version([]) == ""
+
+    def test_check_result_to_dict_omits_memory_field_when_serialized(self):
+        # memory_peak_mb was always 0.0 (never measured); evidence must not
+        # carry a fabricated number.
+        assert "memory_peak_mb" not in _result("x", CheckStatus.SUCCESS).to_dict()

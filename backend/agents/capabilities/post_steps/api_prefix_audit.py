@@ -52,6 +52,9 @@ class _AuditTarget:
 @register(
     "post_step",
     "api_prefix_audit",
+    # ADR-0054: a saved (Composer) copy of a built-in may reference this; it
+    # stays in the run's own owner-scoped sandbox and reaches no host resource.
+    saved_workflow_allowed=True,
     description="After a step, run an event-free infra audit for endpoints not under the /api/v1 prefix.",
 )
 class ApiPrefixAuditPostStep:

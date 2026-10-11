@@ -1,0 +1,14 @@
+{
+  "//": "Used ONLY by `next build` (next.config.ts typescript.tsconfigPath). Test files are type-checked once, by `npm run typecheck` (tsc --noEmit over tsconfig.json); excluding them here stops one test typo from failing both the typecheck and the build check.",
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "node_modules",
+    "e2e",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**",
+    "vitest.config.*",
+    "vitest.setup.*",
+    "playwright.config.*"
+  ]
+}

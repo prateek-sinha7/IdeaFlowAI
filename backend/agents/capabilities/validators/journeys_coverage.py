@@ -42,7 +42,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agents.capabilities.base import Validator  # port
 from agents.capabilities.registry import register
 from agents.capabilities.validators.severity import map_severity  # single source
 
@@ -120,7 +119,8 @@ def _missing_screen_numbers(sections: dict[str, str]) -> set[str]:
 
 def _unknown_module_headings(text: str) -> list[str]:
     return [
-        ln.strip() for ln in (text or "").splitlines()
+        ln.strip()
+        for ln in (text or "").splitlines()
         if _HEADING_LINE_RE.match(ln) and _UNKNOWN_MODULE_RE.search(ln)
     ]
 
@@ -256,7 +256,7 @@ class JourneysCoverageValidator:
                 Issue(
                     severity="P0",
                     message=(
-                        f"heading {heading!r} contains \"Unknown Module\" — name "
+                        f'heading {heading!r} contains "Unknown Module" — name '
                         "the actual module from the source documents."
                     ),
                 )

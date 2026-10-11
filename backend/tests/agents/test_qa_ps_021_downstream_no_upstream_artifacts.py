@@ -54,11 +54,14 @@ async def test_custom_workflow_compensating_step_is_not_reported_clean():
     import agents.execution_engine.engine as engine_mod
     import tests.agents._scripted_model as _sm
     from tests.agents._scripted_model import _ScriptedTurn
+
     # Stubs the harness finalizer, whose non-UUID run id would otherwise
     # degrade every run for an unrelated reason and mask the clean half.
     from tests.agents.test_qa_ps_027_placeholder_completion import _clean_finalizer
 
-    narration = "Since I cannot use write_file, I'll compose them as responses to the user:"
+    narration = (
+        "Since I cannot use write_file, I'll compose them as responses to the user:"
+    )
     orig = _sm._scripts_for
 
     def _narrating_last_step(agent_id: str):
@@ -118,7 +121,13 @@ def test_apply_selections_carries_write_files_grant_onto_compiled_step():
     step = next(s for s in overlaid.steps if s.agent_id == "documentation-agent")
 
     tools = getattr(step, "tools", None)
-    granted = bool(tools and (getattr(tools, "write_files", None) or (isinstance(tools, dict) and tools.get("write_files"))))
+    granted = bool(
+        tools
+        and (
+            getattr(tools, "write_files", None)
+            or (isinstance(tools, dict) and tools.get("write_files"))
+        )
+    )
     assert granted, (
         "user selected tools.write_files=True for documentation-agent, but the "
         "compiled step's tools were not changed — _apply_selections has no "
@@ -155,9 +164,9 @@ def test_missing_declared_upstream_is_caught_at_run_level_not_by_the_validation_
         revision_baseline_static=None,
     )
     target = _build_validation_target(ctx, "downstream-validator", None)
-    assert target is not None and target.content == "run-level content", (
-        f"the validation gate must keep a real run-level target. target={target!r}"
-    )
+    assert (
+        target is not None and target.content == "run-level content"
+    ), f"the validation gate must keep a real run-level target. target={target!r}"
 
     # The declared upstream builder produced nothing; the step regenerated
     # the deliverable itself (> the 2000-char narration bound).
@@ -199,7 +208,9 @@ async def test_custom_revision_seed_carries_the_degraded_parent_status(monkeypat
     from app.models.database import Base
     from app.models.workflow import WorkflowRun
 
-    db = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    db = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     Base.metadata.create_all(bind=db)
     Session = sessionmaker(bind=db)
     monkeypatch.setattr("app.models.database.SessionLocal", Session, raising=False)
@@ -209,17 +220,39 @@ async def test_custom_revision_seed_carries_the_degraded_parent_status(monkeypat
         "one of its declared sources, produced no content at all"
     )
     s = Session()
-    for run_id, status, error in (("p-degraded", "degraded", reason), ("p-clean", "completed", None)):
-        s.add(WorkflowRun(
-            id=run_id, user_id="owner", owner_id="owner", workspace_id="ws", title="t",
-            type="custom", status=status, error=error, input="t",
-        ))
-        s.add(ArtifactRef(
-            id=f"ref-{run_id}", run_id=run_id, owner_id="owner", workspace_id="ws",
-            kind="deliverable", producer_step="s", producer_agent="task-list-planner",
-            content="# Report", content_hash="h", location="artifact_refs/deliverable",
-            version=1, visibility="workspace",
-        ))
+    for run_id, status, error in (
+        ("p-degraded", "degraded", reason),
+        ("p-clean", "completed", None),
+    ):
+        s.add(
+            WorkflowRun(
+                id=run_id,
+                user_id="owner",
+                owner_id="owner",
+                workspace_id="ws",
+                title="t",
+                type="custom",
+                status=status,
+                error=error,
+                input="t",
+            )
+        )
+        s.add(
+            ArtifactRef(
+                id=f"ref-{run_id}",
+                run_id=run_id,
+                owner_id="owner",
+                workspace_id="ws",
+                kind="deliverable",
+                producer_step="s",
+                producer_agent="task-list-planner",
+                content="# Report",
+                content_hash="h",
+                location="artifact_refs/deliverable",
+                version=1,
+                visibility="workspace",
+            )
+        )
     s.commit()
     s.close()
 
@@ -237,9 +270,12 @@ async def test_custom_revision_seed_carries_the_degraded_parent_status(monkeypat
     try:
         for parent in ("p-degraded", "p-clean"):
             await ExecutionEngine()._handle_revision(
-                parent_run_id=parent, target_artifact_type="custom_output",
-                instruction="Tighten the summary", pipeline_run_id=f"rev-{parent}",
-                websocket_send_fn=_send, owner_id="owner",
+                parent_run_id=parent,
+                target_artifact_type="custom_output",
+                instruction="Tighten the summary",
+                pipeline_run_id=f"rev-{parent}",
+                websocket_send_fn=_send,
+                owner_id="owner",
             )
     finally:
         Base.metadata.drop_all(bind=db)
@@ -249,9 +285,9 @@ async def test_custom_revision_seed_carries_the_degraded_parent_status(monkeypat
         "custom_revision seed carries neither — it revises compensated content "
         f"as if it were clean (ISS-735). seed={seeded['p-degraded']!r}"
     )
-    assert seeded["p-clean"].endswith("=== END REVISION INSTRUCTION ==="), (
-        f"a clean parent must seed exactly as before. seed={seeded['p-clean']!r}"
-    )
+    assert seeded["p-clean"].endswith(
+        "=== END REVISION INSTRUCTION ==="
+    ), f"a clean parent must seed exactly as before. seed={seeded['p-clean']!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +312,9 @@ def test_wrong_attribution_full_regeneration_is_flagged_when_upstream_missing():
     come from the role that was supposed to produce it".
     """
     from agents.capabilities.deliverables._coverage import dropped_section_reason
-    from agents.capabilities.deliverables._placeholder import placeholder_narration_reason
+    from agents.capabilities.deliverables._placeholder import (
+        placeholder_narration_reason,
+    )
 
     # A full, well-formed HTML deck the validator regenerated itself — long,
     # no "I can't"/"unable to" markers, nothing a narration check would catch.

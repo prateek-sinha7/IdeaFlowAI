@@ -36,6 +36,11 @@ class SignalState(str, Enum):
     TIMED_OUT = "timed_out"
     MISSING = "missing"
     UNAVAILABLE = "unavailable"
+    # F-15: did not run on a pull request because its change area was reported
+    # unchanged. Satisfies the aggregate ONLY with `allow_filtered=True` and only
+    # for a signal whose registry `path_filter_area` is not None; see the policy
+    # docblock on `Signal.path_filter_area`.
+    FILTERED = "filtered"
 
 
 @dataclass(frozen=True)
@@ -81,7 +86,6 @@ def compute_aggregate_required_signals(
     - Security checks (gitleaks, pip_audit, npm_audit)
     - IaC checks (terraform_fmt, terraform_validate, tflint, checkov, trivy_config)
     - Container scans (container_scan_backend, container_scan_frontend)
-    - Sonar analysis and quality gate (sonar_analysis, sonar_quality_gate)
 
     The aggregate itself (ci_required) is derived from these signals, not included.
 
@@ -118,10 +122,26 @@ def compute_aggregate_required_signals(
     return required_signals
 
 
+def _is_accepted_filtered(
+    result: SignalResult,
+    signal_name: str,
+    registry: dict[str, Signal],
+    allow_filtered: bool,
+) -> bool:
+    """Return True when a FILTERED result satisfies the gate (F-15 policy)."""
+    return (
+        allow_filtered
+        and result.state == SignalState.FILTERED
+        and registry[signal_name].path_filter_area is not None
+    )
+
+
 def aggregate_truth(
     results: dict[str, SignalResult],
     current_sha: str,
     registry: dict[str, Signal] | None = None,
+    *,
+    allow_filtered: bool = False,
 ) -> bool:
     """
     Determine aggregate gate success based on signal results.
@@ -142,6 +162,10 @@ def aggregate_truth(
         results: Mapping of signal_name -> SignalResult
         current_sha: Expected SHA for all results (full 40-character SHA)
         registry: Signal registry (defaults to SIGNAL_REGISTRY if None)
+        allow_filtered: When True, a FILTERED result satisfies the gate for a
+            signal whose registry `path_filter_area` is not None (F-15). The
+            caller sets it only for a pull request with reported unchanged
+            areas. FILTERED on a never-filterable signal still fails.
 
     Returns:
         True if all mandatory signals succeeded for exact current SHA, False otherwise
@@ -182,8 +206,10 @@ def aggregate_truth(
         if result.sha != current_sha:
             return False
 
-        # Non-success state → False
-        if result.state != SignalState.SUCCESS:
+        # Non-success state → False, unless it is an accepted policy filter
+        if result.state != SignalState.SUCCESS and not _is_accepted_filtered(
+            result, signal_name, registry, allow_filtered
+        ):
             return False
 
     # All mandatory signals succeeded for same exact SHA
@@ -273,6 +299,8 @@ def explain_aggregate_failure(
     results: dict[str, SignalResult],
     current_sha: str,
     registry: dict[str, Signal] | None = None,
+    *,
+    allow_filtered: bool = False,
 ) -> str:
     """
     Generate human-readable explanation of why aggregate gate failed.
@@ -281,6 +309,8 @@ def explain_aggregate_failure(
         results: Mapping of signal_name -> SignalResult
         current_sha: Expected SHA
         registry: Signal registry (defaults to SIGNAL_REGISTRY if None)
+        allow_filtered: Same meaning as in `aggregate_truth`; accepted FILTERED
+            signals are not listed as failures.
 
     Returns:
         Human-readable explanation of failure reason(s)
@@ -319,7 +349,9 @@ def explain_aggregate_failure(
     for signal_name in required_signals:
         if signal_name in results:
             result = results[signal_name]
-            if result.state != SignalState.SUCCESS:
+            if result.state != SignalState.SUCCESS and not _is_accepted_filtered(
+                result, signal_name, registry, allow_filtered
+            ):
                 msg = f"{signal_name}: {result.state.value}"
                 if result.error_message:
                     msg += f" ({result.error_message})"

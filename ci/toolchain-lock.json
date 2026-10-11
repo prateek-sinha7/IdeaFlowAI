@@ -1,11 +1,16 @@
 {
   "schema_version": 2,
-  "description": "Single authoritative record of CI tool versions and the mechanism that verifies each download. Tools are split by acquisition method because the verification story differs: `checksummed_download` tools are fetched by .github/actions/install-checksummed-tool and MUST carry a real publisher-backed SHA-256; `pinned_action` tools are installed by a first-party action pinned to a full commit SHA, which performs its own checksum and signature verification, so no hash is recorded here.",
+  "description": "Single authoritative record of CI tool versions and the mechanism that verifies each download. Tools are split by acquisition method because the verification story differs: `checksummed_download` tools are fetched by .github/actions/install-checksummed-tool and MUST carry a real SHA-256 (publisher-backed from the release's checksums file; shellcheck publishes none, so its value is the release-asset digest cross-checked locally, see notes and its verification_source); `pinned_action` tools are installed by a first-party action pinned to a full commit SHA, which performs its own checksum and signature verification, so no hash is recorded here.",
   "notes": [
-    "Schema v1 of this file contained two fabricated SHA-256 values: tflint's was 60 characters and contained non-hex letters (a1b2c3d4e5f6g7h8...), and sonar_scanner's was 61 characters. Neither could ever have matched a real artifact. It also recorded sonar_scanner 6.1.0.4547 while both workflows downloaded 5.0.1.3006 by unverified wget, and described postgres:16.4-bookworm as a 'pin_digest' when it is a tag.",
-    "Rather than invent replacement hashes, tflint and the Sonar scanner now install via pinned first-party actions that verify their own downloads. That is stronger than a hand-copied hash and removes the drift surface.",
-    "OUTSTANDING: the four checksums below were inherited and have NOT been re-verified against the publishers' checksum files in this change. Verify each against the corresponding release's checksums file before treating them as trusted, and record the verification date here."
+    "Schema v1 of this file contained fabricated SHA-256 values: tflint's was 60 characters and contained non-hex letters (a1b2c3d4e5f6g7h8...), which could never have matched a real artifact. It also described postgres:16.4-bookworm as a 'pin_digest' when it is a tag.",
+    "Rather than invent a replacement hash, tflint now installs via a pinned first-party action that verifies its own download. That is stronger than a hand-copied hash and removes the drift surface.",
+    "RESOLVED 2026-09-23 (F-31): all four checksums below were verified against the publishers' own checksums files, fetched from the exact release tag each `url` points at. Three matched. GRYPE DID NOT: this file and .github/workflows/ci.yml both recorded de8f5eb8e2b3bfe65e906945e5a80a5db92aa8c76fc2e7aba3c95a0b4e3b5b89, while anchore publishes 2a087c9ca09969d0e4aa7a14132b5dd2cdb8f050446c1d4b9095044309ee3aec for grype_0.75.0_linux_amd64.tar.gz. Both sites are corrected. Consequence of the wrong value: install-checksummed-tool's `sha256sum -c` failed at the 'Install Grype' step, which failed BOTH container-scan matrix legs before any scanner ran, so all four container-scan[*] signals had no verdict and the aggregate could not go green.",
+    "2026-09-30 (F-37): grype bumped 0.75.0 -> 0.119.0. 0.75.0 reads the retired schema-v5 vulnerability DB, which anchore no longer rebuilds; CI run 35971448862 failed with 'db could not be loaded: the vulnerability database was built 28 weeks ago (max allowed age is 5 days)', so grype produced an empty report on every container-scan leg. The new sha256 matches both grype_0.119.0_checksums.txt and the GitHub release-asset digest. tflint's pinned_action version was also corrected v0.59.1 -> v0.64.0 to match what ci.yml actually installs.",
+    "2026-10-07 (F-22): shellcheck v0.11.0 added. koalaman/shellcheck publishes NO checksums file, so there is no publisher-signed list to match against. The sha256 is the GitHub release-asset digest for shellcheck-v0.11.0.linux.x86_64.tar.gz (api.github.com/repos/koalaman/shellcheck/releases/latest), and it equals a SHA-256 recomputed locally over the downloaded asset. That is trust-on-first-use through GitHub, weaker than a publisher checksums file, and is recorded as such in verification_source. The archive nests the binary, hence archive_member.",
+    "2026-10-07 (F-23): `external_actions` records every third-party action pin (full commit SHA plus the version comment) and test_toolchain_pins.py::TestExternalActionPinSet asserts the workflows and composites use exactly this set, so a Dependabot bump fails CI until this record is updated in the same PR. Every pin was re-verified with `git ls-remote --tags` against its upstream repository on the date above. upload-artifact v7.0.1 and download-artifact v7.0.0 are deliberately one major (v7); download-artifact has no v7.0.1 tag.",
+    "HOW TO RE-VERIFY when bumping a version: fetch <release>/…_checksums.txt for the new tag and match the line for the exact archive filename in `url`. Do not copy a hash from anywhere else, and do not set verified:true without doing this — backend/tests/unit/tools/ci/test_toolchain_pins.py fails the build on any entry left unverified."
   ],
+  "verified_on": "2026-09-30",
   "checksummed_download": {
     "actionlint": {
       "version": "v1.7.12",
@@ -13,7 +18,7 @@
       "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
       "archive_format": "tar.gz",
       "binary_name": "actionlint",
-      "verified": false,
+      "verified": true,
       "description": "GitHub Actions workflow schema and expression validation"
     },
     "gitleaks": {
@@ -22,7 +27,7 @@
       "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
       "archive_format": "tar.gz",
       "binary_name": "gitleaks",
-      "verified": false,
+      "verified": true,
       "description": "Secret scanning over full git history"
     },
     "trivy": {
@@ -31,22 +36,34 @@
       "sha256": "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75",
       "archive_format": "tar.gz",
       "binary_name": "trivy",
-      "verified": false,
+      "verified": true,
       "description": "Container image and IaC configuration scanner"
     },
     "grype": {
-      "version": "0.75.0",
-      "url": "https://github.com/anchore/grype/releases/download/v0.75.0/grype_0.75.0_linux_amd64.tar.gz",
-      "sha256": "de8f5eb8e2b3bfe65e906945e5a80a5db92aa8c76fc2e7aba3c95a0b4e3b5b89",
+      "version": "0.119.0",
+      "url": "https://github.com/anchore/grype/releases/download/v0.119.0/grype_0.119.0_linux_amd64.tar.gz",
+      "sha256": "3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b",
       "archive_format": "tar.gz",
       "binary_name": "grype",
-      "verified": false,
+      "verified": true,
       "description": "Second independent container vulnerability scanner"
+    },
+    "shellcheck": {
+      "version": "v0.11.0",
+      "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz",
+      "sha256": "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6",
+      "archive_format": "tar.gz",
+      "archive_member": "shellcheck-v0.11.0/shellcheck",
+      "binary_name": "shellcheck",
+      "verified": true,
+      "verified_on": "2026-10-07",
+      "verification_source": "GitHub release-asset digest (koalaman/shellcheck publishes no checksums file) from https://api.github.com/repos/koalaman/shellcheck/releases/latest, cross-checked against a SHA-256 recomputed locally over the downloaded shellcheck-v0.11.0.linux.x86_64.tar.gz; both equal",
+      "description": "Shell static analysis"
     }
   },
   "pinned_action": {
     "tflint": {
-      "version": "v0.59.1",
+      "version": "v0.64.0",
       "action": "terraform-linters/setup-tflint",
       "action_sha": "19a52fbac37dacb22a09518e4ef6ee234f2d4987",
       "description": "Terraform linter. The first-party action verifies the release checksum and GPG signature."
@@ -56,21 +73,43 @@
       "action": "hashicorp/setup-terraform",
       "action_sha": "b9cd54a3c349d3f38e8881555d616ced269862dd",
       "description": "Terraform CLI, static use only (fmt / init -backend=false / validate)."
-    },
-    "sonar_scanner": {
-      "action": "SonarSource/sonarqube-scan-action",
-      "action_sha": "8c71dc039c2dd71d3821e89a2b58ecc7fee6ced9",
-      "description": "SonarCloud scanner. The action pins and verifies its own scanner download; the token is passed via the environment, never on the command line."
+    }
+  },
+  "external_actions": {
+    "verified_on": "2026-10-07",
+    "verification_method": "git ls-remote --tags https://github.com/<repo> refs/tags/<version>; annotated tags compared on the peeled ^{} commit, lightweight tags on the tag line",
+    "pins": {
+      "actions/cache": { "version": "v6.1.0", "sha": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9" },
+      "actions/checkout": { "version": "v7.0.1", "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1" },
+      "actions/download-artifact": { "version": "v7.0.0", "sha": "37930b1c2abaa49bbe596cd826c3c89aef350131" },
+      "actions/github-script": { "version": "v7.0.1", "sha": "60a0d83039c74a4aee543508d2ffcb1c3799cdea" },
+      "actions/setup-node": { "version": "v4.4.0", "sha": "49933ea5288caeca8642d1e84afbd3f7d6820020" },
+      "actions/setup-python": { "version": "v7.0.0", "sha": "5fda3b95a4ea91299a34e894583c3862153e4b97" },
+      "actions/upload-artifact": { "version": "v7.0.1", "sha": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" },
+      "astral-sh/setup-uv": { "version": "v9.0.0", "sha": "c771a70e6277c0a99b617c7a806ffedaca235ff9" },
+      "aws-actions/amazon-ecr-login": { "version": "v2.0.1", "sha": "062b18b96a7aff071d4dc91bc00c4c1a7945b076" },
+      "aws-actions/configure-aws-credentials": { "version": "v6.2.3", "sha": "e6de054238d6b7531b4efff3b6587d9aade6a06c" },
+      "docker/build-push-action": { "version": "v5.3.0", "sha": "2cdde995de11925a030ce8070c3d77a52ffcf1c0" },
+      "docker/setup-buildx-action": { "version": "v3.3.0", "sha": "d70bba72b1f3fd22344832f00baa16ece964efeb" },
+      "dorny/paths-filter": { "version": "v4.0.3", "sha": "ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d" },
+      "github/codeql-action/analyze": { "version": "v3.38.1", "sha": "3ea06614dafe36dec890db3446326e0d40ce53d4" },
+      "github/codeql-action/init": { "version": "v3.38.1", "sha": "3ea06614dafe36dec890db3446326e0d40ce53d4" },
+      "hashicorp/setup-terraform": { "version": "v3.1.2", "sha": "b9cd54a3c349d3f38e8881555d616ced269862dd" },
+      "terraform-linters/setup-tflint": { "version": "v4.0.0", "sha": "19a52fbac37dacb22a09518e4ef6ee234f2d4987" }
     }
   },
   "runtime_pins": {
+    "runner_image": {
+      "label": "ubuntu-24.04",
+      "description": "GitHub-hosted runner image. Must equal pin_authority.runner_image and every runs-on. Preinstalled tools the workflows rely on and do not install: jq and the AWS CLI v2 (the ssm-run composite and the deploy, provision and cognito scripts), gh (release.yml), bash and docker compose (repo-static), git, curl, sudo, tar and unzip. A runner-image bump is a reviewed change to this record."
+    },
     "python": {
       "version": "3.13",
-      "description": "Must agree with backend/pyproject.toml requires-python, [tool.ruff] target-version, backend/Dockerfile, and sonar.python.version."
+      "description": "Must agree with backend/pyproject.toml requires-python, [tool.ruff] target-version, and backend/Dockerfile."
     },
     "node": {
       "version": "24",
-      "description": "Must agree with frontend/package.json engines.node and frontend/Dockerfile."
+      "description": "Node major. Must agree with backend/tools/ci/pin_authority.py node_runtime_version (major), the .github/actions/setup-frontend node-version default (the exact authority version), frontend/package.json engines.node and the frontend/Dockerfile base tag (node:<node_runtime_version>-bookworm-slim). Asserted by backend/tests/unit/tools/ci/test_toolchain_pins.py."
     },
     "postgresql": {
       "image": "postgres:16.10-bookworm",

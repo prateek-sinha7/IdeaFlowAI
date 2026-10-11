@@ -7,6 +7,7 @@ not exist, or a filename whose timestamp or id is wrong.
 
 Read-only. Reusable after any regeneration of INDEX.md / architecture cards.
 """
+
 import re
 import subprocess
 import sys
@@ -15,7 +16,10 @@ from urllib.parse import unquote, urlsplit
 
 REPO_ROOT = Path(
     subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 )
 KNOWLEDGE_DIR = REPO_ROOT / ".knowledge"
@@ -38,7 +42,9 @@ def strip_code(text: str) -> str:
             in_fence = not in_fence
             out.append("")
             continue
-        out.append("" if in_fence else CODESPAN_RE.sub(lambda m: " " * len(m.group(0)), line))
+        out.append(
+            "" if in_fence else CODESPAN_RE.sub(lambda m: " " * len(m.group(0)), line)
+        )
     return "\n".join(out)
 
 
@@ -85,7 +91,7 @@ def related_refs(path: Path):
     m_start = START_LINE.search(text)
     if not m_start:
         return
-    rest = text[m_start.end():]
+    rest = text[m_start.end() :]
     m_end = END_LINE.search(rest)
     block = rest[: m_end.start()] if m_end else rest
     for m in CARD_REF.finditer(block):
@@ -128,8 +134,9 @@ def check_card_filenames(cards_dir: Path):
     for path in sorted(cards_dir.glob("*.md")):
         m = CARD_NAME.match(path.name)
         if not m:
-            problems.append((path, "filename shape",
-                             "expected {YYYYMMDD}[-{HHMM}]-{ID}.md"))
+            problems.append(
+                (path, "filename shape", "expected {YYYYMMDD}[-{HHMM}]-{ID}.md")
+            )
             continue
         day_s, hhmm, file_id = m.groups()
         try:
@@ -144,15 +151,25 @@ def check_card_filenames(cards_dir: Path):
                 continue
             stamp = stamp.replace(hour=hour, minute=minute)
         if stamp > now:
-            problems.append((path, "future timestamp",
-                             f"{stamp:%Y-%m-%d %H:%M} is later than now "
-                             f"({now:%Y-%m-%d %H:%M}) -- use the real authoring time"))
+            problems.append(
+                (
+                    path,
+                    "future timestamp",
+                    f"{stamp:%Y-%m-%d %H:%M} is later than now "
+                    f"({now:%Y-%m-%d %H:%M}) -- use the real authoring time",
+                )
+            )
             continue
         m_id = FM_ID.search(path.read_text(encoding="utf-8", errors="replace"))
         real_id = m_id.group(1).strip().strip("'\"") if m_id else None
         if real_id and real_id != file_id:
-            problems.append((path, "id mismatch",
-                             f"filename says {file_id!r}, frontmatter says {real_id!r}"))
+            problems.append(
+                (
+                    path,
+                    "id mismatch",
+                    f"filename says {file_id!r}, frontmatter says {real_id!r}",
+                )
+            )
     return problems
 
 
@@ -166,8 +183,10 @@ def main() -> int:
     name_problems = check_card_filenames(cards_dir)
     for path, what, detail in name_problems:
         broken.append((str(path.relative_to(REPO_ROOT)), what, detail))
-    print(f"Card filenames checked: {len(list(cards_dir.glob('*.md')))}"
-          + (f" -- {len(name_problems)} PROBLEM(S)" if name_problems else ""))
+    print(
+        f"Card filenames checked: {len(list(cards_dir.glob('*.md')))}"
+        + (f" -- {len(name_problems)} PROBLEM(S)" if name_problems else "")
+    )
     ref_total = 0
     for card in sorted(cards_dir.glob("*.md")):
         for target, ref in related_refs(card):

@@ -129,7 +129,8 @@ class ValidatingFilesystemBackend(FilesystemBackend):
         except (OSError, UnicodeDecodeError) as e:
             restored = _restore(resolved_path, prior_content)
             return EditResult(
-                error=f"Error re-reading file '{file_path}' after edit: {e}. " + _rollback_note(restored)
+                error=f"Error re-reading file '{file_path}' after edit: {e}. "
+                + _rollback_note(restored)
             )
 
         return result

@@ -74,10 +74,14 @@ test.describe("TS-Y — run-scoped clarify reset (BUG-005)", () => {
       ],
     });
 
-    // Ordered barrier: the foreign frame is applied ONCE its agents seed the spine.
-    // Same-stream frames are delivered in order, so the reset block (page.tsx:462)
-    // has already run for the foreign pipeline_start by the time this resolves.
-    await expect(dashboard.stepsAgentRow("Foreign Agent One")).toBeVisible();
+    // Ordered barrier: a narrator turn for the VIEWED run emitted after the foreign
+    // frame. Same-stream frames are delivered in order, so once it renders the
+    // foreign pipeline_start has been processed. (FIX-201: foreign frames now land
+    // in their own per-run store entry, so the foreign agents no longer seed the
+    // viewed run's spine — that structural isolation is asserted too.)
+    mockSse.chatReply({ cardKind: "pipeline", text: "Barrier after the foreign start" });
+    await expect(dashboard.page.getByTestId("chat-transcript")).toContainText("Barrier after the foreign start");
+    await expect(dashboard.stepsAgentRow("Foreign Agent One")).toHaveCount(0);
 
     // Fail-before: the unconditional reset nulled activePipelineRunId → the lane
     // fell through clarify→building (no clarify card, "Building" pill). Pass-after:

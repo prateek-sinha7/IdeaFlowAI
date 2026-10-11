@@ -1,17 +1,34 @@
 {
   "schema_version": 1,
   "producer": "backend-static",
-  "description": "Eight independent backend static-quality signals under one owner with shared setup. Every command runs to completion so each gets its own sub-verdict; the runner then exits non-zero if any failed. Commands are relative to backend/, which is the runner's working directory.",
+  "description": "Eight independent backend static-quality signals under one owner with shared setup. Every command runs to completion so each gets its own sub-verdict; the runner then exits non-zero if any failed. Commands are relative to backend/, which is the runner's working directory. ruff (lint and format) and pyright also cover the repo-root tools/ and scripts/ Python: ruff through the explicit ../tools ../scripts paths with --config pyproject.toml (so files outside backend/ use backend's rules), pyright through backend/pyrightconfig.json include. scope_exclusions records what is deliberately outside that scope; run_checks.py reads only checks.",
+  "scope_exclusions": [
+    {
+      "path": "scripts/generate-skills.js",
+      "tool": "eslint",
+      "reason": "frontend/eslint.config.mjs is a flat config whose base path is frontend/, so ESLint 9 ignores files outside it, and its Next/TypeScript rule set does not fit a standalone Node CommonJS script. A second ESLint config for one file is not proportionate."
+    },
+    {
+      "path": "tools/loadtest/",
+      "tools": ["ruff", "pyright"],
+      "reason": "Gitignored local load-test harness: untracked and absent from every CI checkout. Excluded (ruff extend-exclude, pyright exclude) so local runs match CI."
+    },
+    {
+      "path": "tools/, scripts/",
+      "tools": ["python-compile", "vulture", "bandit"],
+      "reason": "F-18 scope is lint, format and import resolution only. These checks stay on app agents tools."
+    }
+  ],
   "checks": [
     {
       "check_id": "ruff-lint",
-      "command": ["uv", "run", "--frozen", "ruff", "check", "."],
+      "command": ["uv", "run", "--frozen", "ruff", "check", "--config", "pyproject.toml", ".", "../tools", "../scripts"],
       "timeout_seconds": 300,
       "mandatory": true
     },
     {
       "check_id": "ruff-format",
-      "command": ["uv", "run", "--frozen", "ruff", "format", "--check", "."],
+      "command": ["uv", "run", "--frozen", "ruff", "format", "--check", "--config", "pyproject.toml", ".", "../tools", "../scripts"],
       "timeout_seconds": 300,
       "mandatory": true
     },

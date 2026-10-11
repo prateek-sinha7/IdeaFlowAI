@@ -53,20 +53,24 @@ def test_every_page_lands_in_exactly_one_shard():
     pages, tok = _pages(200, 1_400)
     shards = _build_shards("x", "docx", pages, tok)
     seen = [p for s in shards for p in s["pages"]]
-    assert seen == pages, "pages must be contiguous, ordered, and neither lost nor duplicated"
+    assert (
+        seen == pages
+    ), "pages must be contiguous, ordered, and neither lost nor duplicated"
 
 
 def test_ids_are_sequential_and_slug_scoped():
     pages, tok = _pages(100, 3_000)
     shards = _build_shards("4-azure", "xlsx", pages, tok)
-    assert [s["id"] for s in shards] == [f"4-azure-s{i:02d}" for i in range(1, len(shards) + 1)]
+    assert [s["id"] for s in shards] == [
+        f"4-azure-s{i:02d}" for i in range(1, len(shards) + 1)
+    ]
     assert {s["slug"] for s in shards} == {"4-azure"}
     assert {s["format"] for s in shards} == {"xlsx"}
 
 
 def test_the_page_cap_binds_before_the_token_budget():
     # Cheap pages: the budget would allow far more than the API accepts per request.
-    pages, tok = _pages(250, 190)          # a PPTX deck
+    pages, tok = _pages(250, 190)  # a PPTX deck
     assert USABLE // 190 > _SHARD_PAGE_CAP
     shards = _build_shards("deck", "pptx", pages, tok)
     assert max(len(s["pages"]) for s in shards) == _SHARD_PAGE_CAP
@@ -94,8 +98,10 @@ class TestParameters:
 
     def test_the_default_is_haiku(self):
         from app.agents.tools.file_extract_tools import (
-            _SHARD_DEFAULT_MODEL, _SHARD_SAFE_BUDGETS,
+            _SHARD_DEFAULT_MODEL,
+            _SHARD_SAFE_BUDGETS,
         )
+
         assert _SHARD_DEFAULT_MODEL == "haiku-4.5"
         assert _SHARD_SAFE_BUDGETS["haiku-4.5"] == 120_000
 
@@ -103,14 +109,15 @@ class TestParameters:
         pages, tok = _pages(120, 2_250)
         haiku = _build_shards("x", "pdf", pages, tok)
         sonnet = _build_shards("x", "pdf", pages, tok, model="sonnet-4.6")
-        assert len(haiku) == 3          # 46 pages per shard
-        assert len(sonnet) == 2         # 585,000 usable, but the page cap binds at 100
+        assert len(haiku) == 3  # 46 pages per shard
+        assert len(sonnet) == 2  # 585,000 usable, but the page cap binds at 100
         assert [len(s["pages"]) for s in sonnet] == [100, 20]
 
     def test_an_unknown_model_falls_back_to_the_default_rather_than_guessing(self):
         pages, tok = _pages(120, 2_250)
-        assert (_build_shards("x", "pdf", pages, tok, model="not-a-model")
-                == _build_shards("x", "pdf", pages, tok))
+        assert _build_shards(
+            "x", "pdf", pages, tok, model="not-a-model"
+        ) == _build_shards("x", "pdf", pages, tok)
 
     def test_page_cap_is_a_parameter(self):
         pages, tok = _pages(30, 100)
@@ -121,5 +128,5 @@ class TestParameters:
         pages, tok = _pages(100, 2_250)
         lean = _build_shards("x", "pdf", pages, tok, reserve=0)
         fat = _build_shards("x", "pdf", pages, tok, reserve=60_000)
-        assert len(lean[0]["pages"]) == 120_000 // 2_250       # 53 — the doc's figure
-        assert len(fat[0]["pages"]) == 60_000 // 2_250         # 26
+        assert len(lean[0]["pages"]) == 120_000 // 2_250  # 53 — the doc's figure
+        assert len(fat[0]["pages"]) == 60_000 // 2_250  # 26

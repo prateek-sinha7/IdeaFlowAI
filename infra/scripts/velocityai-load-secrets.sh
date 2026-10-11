@@ -13,6 +13,9 @@ set -euo pipefail
 
 OUT=/etc/velocityai/app.env
 TMP=$(mktemp /etc/velocityai/app.env.XXXXXX)
+# Never leave a secret-bearing temp file behind on a fail-closed exit (no-op
+# after the final mv). The `wait "$!"` below needs bash 4.4+ (hosts: bash 5.2).
+trap 'rm -f "$TMP"' EXIT
 chmod 0640 "$TMP"
 chown root:velocityai "$TMP"
 
@@ -79,6 +82,9 @@ done < <(aws ssm get-parameters-by-path \
             --region "$REGION" \
             --query 'Parameters[].{Name:Name,Value:Value}' --output json \
             | jq -c '.[]')
+# Fail closed: set -e/pipefail never see a process substitution's status.
+# Collect it before $OUT is replaced, so an SSM or jq failure keeps the old file.
+wait "$!"
 
 if [[ "$CORS_SET" -eq 0 && -n "$DOMAIN" ]]; then
     emit CORS_ORIGINS "[\"https://${DOMAIN}\"]"

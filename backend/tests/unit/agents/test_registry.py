@@ -160,11 +160,12 @@ class TestGetPipelineAgents:
 
         for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
             if pipeline_type in _SHARED_ANALYZER_DRIFT:
-                pytest.xfail(
-                    f"{pipeline_type}: step 0 is the SHARED prototype-revision-analyzer, which "
-                    "declares its own pipeline_type so registry membership cannot list it "
-                    "(ADR-0003/ADR-0005 — see _SHARED_ANALYZER_DRIFT)"
-                )
+                # Does not apply (ADR-0003/ADR-0005): step 0 is the SHARED
+                # prototype-revision-analyzer, which registry membership cannot
+                # list. `continue`, not xfail: the old xfail raised on the FIRST
+                # such pipeline and silently stopped checking every pipeline
+                # sorted after it.
+                continue
 
             specs = get_pipeline_agents(pipeline_type)
             if not specs:

@@ -169,7 +169,12 @@ class FakeCognitoPool:
         # password itself -- DesiredDeliveryMediums=[EMAIL] is what makes
         # Cognito the one place the temporary password is ever visible).
         user.invited_via = list(desired_delivery_mediums or [])
-        return {"User": {"Username": sub, "Attributes": user.as_admin_get_user()["UserAttributes"]}}
+        return {
+            "User": {
+                "Username": sub,
+                "Attributes": user.as_admin_get_user()["UserAttributes"],
+            }
+        }
 
     def admin_delete_user(self, username: str) -> None:
         user = self._require(username, "AdminDeleteUser")
@@ -184,7 +189,9 @@ class FakeCognitoPool:
 
     def list_users_in_group(self, group_name: str) -> list[dict[str, Any]]:
         return [
-            u.as_list_users_row() for u in self._by_sub.values() if group_name in u.groups
+            u.as_list_users_row()
+            for u in self._by_sub.values()
+            if group_name in u.groups
         ]
 
     def admin_add_user_to_group(self, username: str, group_name: str) -> None:

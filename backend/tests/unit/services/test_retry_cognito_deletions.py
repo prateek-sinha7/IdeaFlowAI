@@ -53,4 +53,3 @@ class TestBackoffSeconds:
         assert all(v >= 0 for v in values)
         assert values == sorted(values)
         assert max(values) == script.BACKOFF_CAP_SECONDS
-

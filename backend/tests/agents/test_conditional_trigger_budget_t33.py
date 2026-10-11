@@ -76,6 +76,7 @@ def env(monkeypatch):
     # need patching (the same reason tests/unit/test_rest_run_launch.py does it).
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
     import app.api.run_commands as rc_module
+
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _StubEngine())
 
@@ -100,11 +101,16 @@ async def test_triggered_run_spend_visible_in_triggering_runs_workspace_aggregat
     session = env["Session"]()
     # Seed the user (WorkflowRun.user_id is FK'd/not-null) + the triggering run's own
     # row, both under the SAME (owner_id, workspace_id) the triggered run must inherit.
-    session.add(User(id=OWNER, email="alice@example.com", password_hash="x"))
+    session.add(User(id=OWNER, email="alice@example.com", cognito_sub=f"sub-{OWNER}"))
     session.add(
         WorkflowRun(
-            id=TRIGGERING_RUN_ID, user_id=OWNER, owner_id=OWNER, workspace_id=WORKSPACE,
-            type="user_stories", status="running", input="go",
+            id=TRIGGERING_RUN_ID,
+            user_id=OWNER,
+            owner_id=OWNER,
+            workspace_id=WORKSPACE,
+            type="user_stories",
+            status="running",
+            input="go",
         )
     )
     session.commit()
@@ -135,7 +141,9 @@ async def test_triggered_run_spend_visible_in_triggering_runs_workspace_aggregat
     # ── (2) R-15: the triggered run inherited owner_id/workspace_id UNCONDITIONALLY ──
     verify_session = env["Session"]()
     triggered_row = (
-        verify_session.query(WorkflowRun).filter(WorkflowRun.id == triggered_run_id).first()
+        verify_session.query(WorkflowRun)
+        .filter(WorkflowRun.id == triggered_run_id)
+        .first()
     )
     assert triggered_row is not None
     assert triggered_row.owner_id == OWNER
@@ -148,11 +156,17 @@ async def test_triggered_run_spend_visible_in_triggering_runs_workspace_aggregat
     # run. This is exactly what a real fan-out inside that run would do via the
     # EXISTING ScopedStore.record_subagent_run writer — no new mechanism.
     record_session = env["Session"]()
-    triggered_store = ScopedStore(owner_id=OWNER, workspace_id=WORKSPACE, session=record_session)
+    triggered_store = ScopedStore(
+        owner_id=OWNER, workspace_id=WORKSPACE, session=record_session
+    )
     for _ in range(3):
         await triggered_store.record_subagent_run(
-            triggered_run_id, parent_step="fan", worker_agent="w",
-            depth=0, isolation="shared_read", status="complete",
+            triggered_run_id,
+            parent_step="fan",
+            worker_agent="w",
+            depth=0,
+            isolation="shared_read",
+            status="complete",
         )
     record_session.close()
 
@@ -161,7 +175,9 @@ async def test_triggered_run_spend_visible_in_triggering_runs_workspace_aggregat
     # run's spend — same owner_id + workspace_id, with NO knowledge of the
     # triggered run's id required.
     read_session = env["Session"]()
-    triggering_store = ScopedStore(owner_id=OWNER, workspace_id=WORKSPACE, session=read_session)
+    triggering_store = ScopedStore(
+        owner_id=OWNER, workspace_id=WORKSPACE, session=read_session
+    )
     aggregate = await triggering_store.workspace_budget_spent(WORKSPACE)
     read_session.close()
     assert aggregate["subagents"] == 3, (

@@ -419,7 +419,7 @@ tests/agents/test_code_validators.py. The other six (the three `api_prefix` /
 `html_element_floor` / `fragment_field_coverage` trio) are either
 manifested as post-steps or directly wired into workflow.yaml — except the trio,
 whose only user, pdf_to_prototype, was retired
-([ADR-0054](../cards/20260925-1201-ADR-0054.md)); they stay registered and
+([ADR-0055](../cards/20260925-1201-ADR-0055.md)); they stay registered and
 Composer-selectable but no file workflow runs them. Reading the manifests alone
 would not tell you the unused seven exist.
 

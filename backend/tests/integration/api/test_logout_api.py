@@ -124,7 +124,9 @@ def _register(
     """
     session = client.SessionLocal()
     try:
-        create_user(session, email, password, cognito_sub=client.fake_auth.sub_for(email))
+        create_user(
+            session, email, password, cognito_sub=client.fake_auth.sub_for(email)
+        )
     finally:
         session.close()
     return _login(client, email=email, password=password)

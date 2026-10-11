@@ -47,6 +47,8 @@ module "iam" {
 | `backup_bucket_arn` | S3 backup bucket the instance writes pg_dumps into. | `string` | — | yes |
 | `bedrock_model_id` | Foundation model ID the invoke policy is scoped to. | `string` | — | yes |
 | `bedrock_inference_profile_id` | Cross-region inference profile ID the invoke policy is scoped to. | `string` | — | yes |
+| `bedrock_allowed_inference_profile_ids` | Additional inference profiles the role may invoke (every model the app can select). Foundation-model ARNs are derived from these. | `list(string)` | `[]` | no |
+| `bedrock_allowed_request_regions` | Regions the role may call Bedrock from (`aws:RequestedRegion`). | `list(string)` | 7 EU regions | no |
 | `policies_dir` | Path (relative to this module) to the policy JSON templates. | `string` | `"../../policies"` | no |
 | `attach_ssm_managed_policy` | Attach `AmazonSSMManagedInstanceCore` (enables Session Manager). | `bool` | `true` | no |
 | `cognito_user_pool_arn` | Cognito User Pool ARN the instance role may administer (Admin* actions, scoped to exactly this pool). Empty (default) creates no Cognito policy. | `string` | `""` | no |
@@ -61,8 +63,17 @@ module "iam" {
 
 ## Notes
 
-- The Bedrock invoke policy is scoped to the exact model + inference-profile
-  ARNs (and the EU regions the profile fans out to) — see
-  `policies/bedrock-invoke.json`.
+- The Bedrock invoke policy is scoped to an explicit allow-list of
+  inference-profile ARNs plus the foundation-model ARNs derived from them (the
+  geography prefix stripped), conditioned on `aws:RequestedRegion` — see
+  `policies/bedrock-invoke.json`. Every model the application can select must be
+  in `bedrock_allowed_inference_profile_ids`; a missing one surfaces as a runtime
+  `AccessDeniedException`, not a deploy-time error.
+- When an `openai.*` (GPT) profile is in scope the policy also grants
+  `bedrock:InvokeModel` on `project/default` in the deploy region, which the
+  bedrock-runtime OpenAI path requires in addition to the profile and
+  foundation-model ARNs. GPT models have no EU geographic profile: from an EU
+  deploy region only `global.openai.*` is callable, and it may process requests
+  outside the EU.
 - Day-to-day host access is SSM Session Manager (no SSH key needed); the SSM
   managed policy is what enables it.

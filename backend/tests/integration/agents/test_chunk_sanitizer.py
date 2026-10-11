@@ -82,7 +82,11 @@ async def _drive_single_agent(
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     specs = get_pipeline_agents(pipeline_type)
-    spec = next(s for s in specs if s.id == agent_id)
+    # Fail fast on an agent id the pipeline doesn't declare (this used to be an
+    # unused ``next(...)`` lookup whose only effect was raising StopIteration).
+    assert any(
+        s.id == agent_id for s in specs
+    ), f"{agent_id!r} is not an agent of pipeline {pipeline_type!r}"
 
     # Disable the auto-clarify override (no live WS round-trip offline).
     _orig_compile_for_run = engine_mod.compile_for_run

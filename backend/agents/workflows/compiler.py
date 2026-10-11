@@ -84,7 +84,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         # consumed in Phase 4 (authored in the 15 manifests)
         "agent",
         "strategy",
-        "mechanical",   # A10 — the no-model step kind (plan.py:Step.mechanical)
+        "mechanical",  # A10 — the no-model step kind (plan.py:Step.mechanical)
         "gates",
         "hooks",  # declared executable-hook capabilities (08-08 / CR-01/WR-03)
         "validators",
@@ -98,8 +98,8 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "fix",
         "fanout",
         "route",
-        "produces",     # spec 014 / R-05b: declared typed-artifact kinds (R-27's produces check)
-        "consumes",     # R-29: the matching half — which upstream outputs reach this step
+        "produces",  # spec 014 / R-05b: declared typed-artifact kinds (R-27's produces check)
+        "consumes",  # R-29: the matching half — which upstream outputs reach this step
         "on_conflict",
         "retry",
         "injects",
@@ -111,7 +111,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "skills",  # per-step skill ids (R-01)
         "subagents",  # declarative child-step group (R-02/R-04)
         "produces_solution_plan",  # post-step solution-plan extraction flag
-        "redoable",     # declared-gate redo opt-in (REDO-GATE follow-up)
+        "redoable",  # declared-gate redo opt-in (REDO-GATE follow-up)
         # sandbox-git-versioning / Req 17, 18: declared output surface for fan-out
         # merge conflict-resolution. Read from the YAML verbatim; never registry-
         # validated (pure manifest-side declarations — INV-5).
@@ -172,7 +172,14 @@ _ALLOWED_FANOUT_KEYS: frozenset[str] = frozenset(
 # (INV-5): the conditional gate kernel owns the condition evaluation control flow, the
 # compiler only materializes the data.
 _ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
-    {"condition_agent", "outcomes", "default_next", "loop_max_iterations", "trigger_max_depth", "on_loop_exhausted"}
+    {
+        "condition_agent",
+        "outcomes",
+        "default_next",
+        "loop_max_iterations",
+        "trigger_max_depth",
+        "on_loop_exhausted",
+    }
 )
 
 # EXACTLY the keys a step ``route.outcomes:`` dict may declare (D-08 at the nested level /
@@ -182,9 +189,7 @@ _ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
 # ``feedback`` (R-28) is authored guidance injected into the target step's context on a
 # BACKWARD jump — still pure data (INV-5): the compiler only records the string, the
 # kernel decides when it applies.
-_ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset(
-    {"trigger", "target", "feedback"}
-)
+_ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset({"trigger", "target", "feedback"})
 
 # EXACTLY the §13 on_conflict policy set a step may declare (FANOUT-08). The kernel
 # ``_resolve_conflict`` dispatches on these four; an unknown policy is rejected at
@@ -212,13 +217,22 @@ _ALLOWED_TOOLS_KEYS: frozenset[str] = ALLOWED_GRANT_KEYS
 # Manifest trust context (CAP-03 / D-02)
 # ---------------------------------------------------------------------------
 
-# The trust levels a manifest source carries. ``file``, ``builtin`` and ``db``
-# are TRUSTED (engineer-authored, version-controlled) — they may reference any
-# registered capability. ``user`` is UNTRUSTED — every reference is
-# additionally checked against the per-capability ``user_allowed`` flag, so a
-# user manifest can never reference a privileged capability (exec/secrets/
-# spawn/powerful runtimes) the engineer did not mark user-grantable.
-_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
+# The trust levels a manifest source carries (ADR-0054, narrowing ADR-0039):
+#
+#   * ``file`` / ``builtin`` — FULLY TRUSTED (engineer-authored, version-
+#     controlled): may reference any registered capability and grant exec.
+#   * ``db`` — a SAVED workflow (Composer row / saved step override). Gets the
+#     BUDGET half of trust only: it may raise ``limits`` up to
+#     ``_LIMITS_SAVED_CEILING`` and grant ``spawn_subagents``. It may NOT grant
+#     exec/network/secrets, declare the security/approval gates, bind the
+#     powerful MCP servers, or reference any ``user_allowed=False`` capability
+#     unless that capability opted in with ``saved_workflow_allowed=True``.
+#   * ``user`` (or anything unknown) — UNTRUSTED: ``user_allowed`` only.
+#
+# ADR-0039 had put ``db`` in the fully-trusted set to unblock Limits; because
+# budget and permissions shared one flag that also handed saved rows exec.
+_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin"})
+_SAVED_TRUST: str = "db"
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +258,17 @@ _LIMITS_DEFAULT_CEILING: dict[str, int] = {
     # "raise above the ceiling" — it is omitted from the raise-rejection set.
 }
 
+# The HARD ceiling a saved (``db``-trust) workflow may raise Limits to (ADR-0054).
+# Each value is the largest any built-in manifest declares (prototype_v2 /
+# pdf_to_prototype: max_subagents 200, wall_clock 10800) so a Composer copy of a
+# built-in keeps working, while a saved row cannot request an unbounded budget.
+# Interim until ADR-0038 moves budget onto its own setting.
+_LIMITS_SAVED_CEILING: dict[str, int] = {
+    "max_subagents": 200,
+    "max_depth": 2,
+    "wall_clock_seconds": 10800,
+}
+
 
 # ---------------------------------------------------------------------------
 # Reserved-path registry — compile-time cross-run selector guard
@@ -258,29 +283,33 @@ _LIMITS_DEFAULT_CEILING: dict[str, int] = {
 #
 # Includes both trailing-slash form and bare name so a manifest author cannot
 # bypass the guard by omitting the slash. ``.chain-legacy/`` is the v2 addition.
-_COMPILER_RESERVED_PATHS: frozenset[str] = frozenset({
-    ".uploads/",
-    ".logs/",
-    ".verify/",
-    ".browser/",
-    ".agents/",
-    ".chain/",
-    ".context/",
-    "skills/",
-    "conversation_history/",
-    ".chain-legacy/",
-    # bare names (no trailing slash) — also blocked
-    ".uploads",
-    ".logs",
-    ".verify",
-    ".browser",
-    ".agents",
-    ".chain",
-    ".context",
-    "skills",
-    "conversation_history",
-    ".chain-legacy",
-})
+_COMPILER_RESERVED_PATHS: frozenset[str] = frozenset(
+    {
+        ".uploads/",
+        ".logs/",
+        ".verify/",
+        ".browser/",
+        ".agents/",
+        ".chain/",
+        ".context/",
+        "skills/",
+        "conversation_history/",
+        ".chain-legacy/",
+        ".extract/",
+        # bare names (no trailing slash) — also blocked
+        ".uploads",
+        ".logs",
+        ".verify",
+        ".browser",
+        ".agents",
+        ".chain",
+        ".context",
+        "skills",
+        "conversation_history",
+        ".chain-legacy",
+        ".extract",
+    }
+)
 
 
 class WorkflowCompiler:
@@ -316,6 +345,8 @@ class WorkflowCompiler:
         # Recorded only so the tool_permission trace can name the workflow a step
         # belongs to — the step compiler has no other handle on the manifest.
         self._workflow_id = manifest.id
+        # Read by _check_trust for the saved-workflow opt-in (ADR-0054).
+        self._trust = trust
 
         # ── instance_id / prompt / subagents validation over the FLATTENED tree ──
         # (spec 012 R-02/R-03/R-05/R-06/R-09/F-03/F-11). Runs BEFORE per-step
@@ -358,7 +389,9 @@ class WorkflowCompiler:
         # cap may RAISE above the default ceiling; under an UNTRUSTED (user/db) manifest
         # a cap that RAISES any ceiling is a CompilerError naming the dimension (user/db
         # may only LOWER — the 08-03/10-02 precedent).
-        limits = self._compile_limits(getattr(manifest, "limits", None), trusted, where)
+        limits = self._compile_limits(
+            getattr(manifest, "limits", None), trusted, where, trust=trust
+        )
 
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
         # R-09 regression guard (spec 014): _validate_dag's Kahn-algorithm graph
@@ -369,9 +402,9 @@ class WorkflowCompiler:
         # itself back this: the assertion inspects its live source rather than
         # duplicating/re-deriving its graph, so a future edit that folds route data
         # into the Kahn graph trips this immediately.
-        assert "route" not in inspect.getsource(self._validate_dag), (
-            "R-09 violated: _validate_dag must never reference step.route/outcomes"
-        )
+        assert "route" not in inspect.getsource(
+            self._validate_dag
+        ), "R-09 violated: _validate_dag must never reference step.route/outcomes"
         self._validate_dag(steps)
 
         # ── Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05) ───────
@@ -425,7 +458,9 @@ class WorkflowCompiler:
     # ── Trust-conditional Limits (FANOUT-09 / OBS-01 / 08-03/10-02 precedent) ──
 
     @staticmethod
-    def _compile_limits(raw_limits: object, trusted: bool, where: str) -> Limits:
+    def _compile_limits(
+        raw_limits: object, trusted: bool, where: str, *, trust: str = ""
+    ) -> Limits:
         """Materialize the workflow ``limits:`` dict → a typed ``Limits`` (trust-conditional).
 
         ``None`` (no ``limits:`` key) → the empty ``Limits()`` (every cap ``None`` →
@@ -455,15 +490,26 @@ class WorkflowCompiler:
                 f"unknown limits key(s) {sorted(extra)} in {where} — manifests are "
                 f"pure data; only {sorted(allowed)} are valid Limits caps (INV-5)"
             )
-        if not trusted:
-            # A user/db manifest may only LOWER a cap. A declared value ABOVE the default
+        if trust == _SAVED_TRUST:
+            # A saved workflow keeps the budget half of trust (ADR-0039): it may
+            # RAISE a cap, but only up to the hard saved ceiling (ADR-0054).
+            for dim, ceiling in _LIMITS_SAVED_CEILING.items():
+                declared = raw_limits.get(dim)
+                if declared is not None and int(declared) > ceiling:
+                    raise CompilerError(
+                        f"limits.{dim}={declared} exceeds the saved-workflow "
+                        f"ceiling {ceiling} in {where} — the largest value any "
+                        f"built-in workflow uses (ADR-0054)"
+                    )
+        elif not trusted:
+            # A user manifest may only LOWER a cap. A declared value ABOVE the default
             # ceiling RAISES it → reject naming the dimension (the static budget gate).
             for dim, ceiling in _LIMITS_DEFAULT_CEILING.items():
                 declared = raw_limits.get(dim)
                 if declared is not None and int(declared) > ceiling:
                     raise CompilerError(
                         f"limits.{dim}={declared} raises the cap above the default "
-                        f"ceiling {ceiling} in {where} — a user/db manifest may only "
+                        f"ceiling {ceiling} in {where} — a user manifest may only "
                         f"LOWER a budget cap, never raise it (FANOUT-09 / CAP-03)"
                     )
         return Limits(
@@ -475,8 +521,8 @@ class WorkflowCompiler:
 
     # ── Trust check (CAP-03 / D-02) ──────────────────────────────────────────
 
-    @staticmethod
     def _check_trust(
+        self,
         registry: CapabilityRegistry,
         kind: str,
         name: str,
@@ -496,11 +542,18 @@ class WorkflowCompiler:
         """
         if trusted:
             return
-        if not registry.is_user_allowed(kind, name):
-            raise CompilerError(
-                f"capability ({kind!r}, {name!r}) is not user-allowed in {where} "
-                f"— a user/db manifest may not reference it (CAP-03)"
-            )
+        if registry.is_user_allowed(kind, name):
+            return
+        # A saved (db) workflow may additionally reference a capability that
+        # opted in with ``saved_workflow_allowed=True`` (ADR-0054). Nothing else.
+        if getattr(self, "_trust", None) == _SAVED_TRUST and (
+            registry.is_saved_workflow_allowed(kind, name)
+        ):
+            return
+        raise CompilerError(
+            f"capability ({kind!r}, {name!r}) is not user-allowed in {where} "
+            f"— a user/db manifest may not reference it (CAP-03 / ADR-0054)"
+        )
 
     @staticmethod
     def _validate_seed_files_reserved(manifest: WorkflowManifest, where: str) -> None:
@@ -1019,17 +1072,21 @@ class WorkflowCompiler:
                 granted_priv.append("network")
             if step_grant.secrets:
                 granted_priv.append("secrets")
-            # WR-01 fail-loud symmetry: spawn_subagents is engineer-only too — the
-            # trust-conditional ceiling already collapses it OFF, but rejecting the
-            # grant NAMES it instead of silently dropping it.
-            if step_grant.spawn_subagents:
+            # WR-01 fail-loud symmetry: spawn_subagents is engineer-only for a
+            # user manifest — the cap already collapses it OFF, but rejecting the
+            # grant NAMES it instead of silently dropping it. A saved (db)
+            # workflow keeps it: it is the budget half of trust (ADR-0054) — it
+            # multiplies cost, bounded by the saved Limits ceiling, and does not
+            # reach the host.
+            if step_grant.spawn_subagents and trust != _SAVED_TRUST:
                 granted_priv.append("spawn_subagents")
             if granted_priv:
                 raise CompilerError(
                     f"step grant of {granted_priv!r} is not permitted for "
                     f"{trust!r}-trust manifests in {where} — "
-                    f"exec/network/secrets/spawn_subagents are engineer-only "
-                    f"(file/builtin trust)"
+                    f"exec/network/secrets are engineer-only (file/builtin "
+                    f"trust); spawn_subagents additionally allows saved (db) "
+                    f"workflows (ADR-0054)"
                 )
 
         # D-01 GATES-REQUIRED: an exec-granting step MUST declare BOTH the
@@ -1208,6 +1265,8 @@ class WorkflowCompiler:
             redoable=redoable,
             outputs=outputs,
             replaces=replaces,
+            # Stamped so the runtime security gate can re-check trust (ADR-0054).
+            trust=trust,
         )
 
     def _compile_task_source(
@@ -1413,7 +1472,9 @@ class WorkflowCompiler:
         if effort is not None:
             declared = raw_model.get("model")
             entry = ModelCatalog().resolve(declared) if declared else None
-            valid = entry.reasoning.levels if entry is not None else REASONING_EFFORT_LEVELS
+            valid = (
+                entry.reasoning.levels if entry is not None else REASONING_EFFORT_LEVELS
+            )
             if effort not in valid:
                 raise CompilerError(
                     f"invalid model effort {effort!r} in {where} — "

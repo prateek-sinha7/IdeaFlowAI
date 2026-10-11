@@ -220,4 +220,3 @@ class TestDeepLinkNonceProjection:
 
         assert not hasattr(narrator, "_ISSUED_NONCES")
         assert not hasattr(narrator, "_mint_nonce")
-

@@ -140,9 +140,7 @@ def _get_user_from_bearer(
             detail="Missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return resolve_api_key(
-        header.split(None, 1)[1].strip(), db, detail="Invalid token"
-    )
+    return resolve_api_key(header.split(None, 1)[1].strip(), db, detail="Invalid token")
 
 
 def _jsonrpc_response(req_id: Any, result: Any) -> dict[str, Any]:

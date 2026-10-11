@@ -47,10 +47,14 @@ def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=Flowin Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
-            "-c", "init.defaultBranch=main",
+            "-c",
+            "user.name=Flowin Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
             *args,
         ],
         cwd=str(cwd),
@@ -142,9 +146,9 @@ def test_disjoint_workers_both_files_present_after_merge(tmp_path: Path) -> None
 
     # ── Merge fragment 0 ─────────────────────────────────────────────────────
     result0 = ws.merge_worktree(branch0, spawn)
-    assert result0["conflicts"] == [], (
-        f"disjoint worker 0 must merge cleanly, got: {result0['conflicts']}"
-    )
+    assert (
+        result0["conflicts"] == []
+    ), f"disjoint worker 0 must merge cleanly, got: {result0['conflicts']}"
 
     # The inter-fragment commit (task 1.2): clear MERGE_HEAD so fragment 1 can merge.
     ws.commit_all(f"merge: {branch0}")
@@ -153,9 +157,9 @@ def test_disjoint_workers_both_files_present_after_merge(tmp_path: Path) -> None
     # Before the fix this either returned conflicts: [] (false clean) or raised
     # due to the refused merge being misclassified, then --abort wiped fragment 0's work.
     result1 = ws.merge_worktree(branch1, spawn)
-    assert result1["conflicts"] == [], (
-        f"disjoint worker 1 must merge cleanly, got: {result1['conflicts']}"
-    )
+    assert (
+        result1["conflicts"] == []
+    ), f"disjoint worker 1 must merge cleanly, got: {result1['conflicts']}"
 
     # Commit the second merge so the working tree is fully clean.
     ws.commit_all(f"merge: {branch1}")
@@ -171,8 +175,12 @@ def test_disjoint_workers_both_files_present_after_merge(tmp_path: Path) -> None
         "(refused merge was not detected)"
     )
 
-    assert (base_root / "worker0.txt").read_text(encoding="utf-8") == "output from worker 0"
-    assert (base_root / "worker1.txt").read_text(encoding="utf-8") == "output from worker 1"
+    assert (base_root / "worker0.txt").read_text(
+        encoding="utf-8"
+    ) == "output from worker 0"
+    assert (base_root / "worker1.txt").read_text(
+        encoding="utf-8"
+    ) == "output from worker 1"
 
     # Tear down worktrees (post-merge cleanup).
     ws.remove_worktree(wt0)
@@ -214,9 +222,9 @@ def test_refused_merge_raises_merge_refused_error_not_clean(tmp_path: Path) -> N
     (ws._root / "conflict.txt").write_text("dirty untracked content", encoding="utf-8")
 
     # Confirm MERGE_HEAD is absent (no in-progress merge).
-    assert not (ws._root / ".git" / "MERGE_HEAD").exists(), (
-        "test setup error: MERGE_HEAD must not exist before the refused merge"
-    )
+    assert not (
+        ws._root / ".git" / "MERGE_HEAD"
+    ).exists(), "test setup error: MERGE_HEAD must not exist before the refused merge"
 
     # The fixed code: CalledProcessError + no MERGE_HEAD → MergeRefusedError.
     # The pre-fix code: CalledProcessError + empty --diff-filter=U → conflicts: [].
@@ -224,9 +232,9 @@ def test_refused_merge_raises_merge_refused_error_not_clean(tmp_path: Path) -> N
         ws.merge_worktree(branch, spawn)
 
     err = exc_info.value
-    assert err.branch == branch, (
-        f"MergeRefusedError.branch must be {branch!r}, got {err.branch!r}"
-    )
+    assert (
+        err.branch == branch
+    ), f"MergeRefusedError.branch must be {branch!r}, got {err.branch!r}"
     assert branch in str(err), f"branch name missing from error str: {err}"
 
 
@@ -251,7 +259,7 @@ class _RealGitRunner:
         return self._ws.merge_worktree(branch, base_commit)
 
 
-def test_git_3way_strategy_disjoint_workers_via_real_git(tmp_path: Path) -> None:
+async def test_git_3way_strategy_disjoint_workers_via_real_git(tmp_path: Path) -> None:
     """Git3WayMerge.merge() produces a clean result with real git worktrees.
 
     This validates the full end-to-end path of the capability:
@@ -291,14 +299,13 @@ def test_git_3way_strategy_disjoint_workers_via_real_git(tmp_path: Path) -> None
 
     strat = Git3WayMerge()
     # base=ws so commit_all is called between fragments (task 1.2 inter-fragment commit).
-    result = strat.merge(base=ws, fragments=[frag0, frag1])
+    result = await strat.merge(base=ws, fragments=[frag0, frag1])
 
-    assert result.clean, (
-        f"expected clean merge of two disjoint workers, got conflicts: {result.conflicts}"
-    )
-    assert set(result.applied) == {branch0, branch1}, (
-        f"both branches must appear in applied: {result.applied}"
-    )
+    assert result.clean, f"expected clean merge of two disjoint workers, got conflicts: {result.conflicts}"
+    assert set(result.applied) == {
+        branch0,
+        branch1,
+    }, f"both branches must appear in applied: {result.applied}"
 
     # Both files must be present in the base working tree.
     base_root = ws._root

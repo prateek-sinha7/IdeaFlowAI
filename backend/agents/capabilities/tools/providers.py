@@ -69,7 +69,7 @@ from agents.capabilities.registry import register
 TOOL_REPORT_TASK_COMPLETE = "report_task_complete"
 TOOL_PLANNING_SET = "planning"
 TOOL_SPAWN_SUBAGENTS = "spawn_subagents"  # Phase 11 / FANOUT-01 (user_allowed=False)
-TOOL_ASK_USER = "ask_user"                # HITL request emitter (user_allowed=False)
+TOOL_ASK_USER = "ask_user"  # HITL request emitter (user_allowed=False)
 
 # Reserved-path guard key (Requirement 18 AC 3, V2-Q7 — SGV2-GAP-002 closure).
 #

@@ -51,10 +51,14 @@ def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=Flowin Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
-            "-c", "init.defaultBranch=main",
+            "-c",
+            "user.name=Flowin Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
             *args,
         ],
         cwd=str(cwd),
@@ -123,7 +127,9 @@ def test_git_init_sandbox_is_idempotent(tmp_path: Path) -> None:
 
     # Capture the HEAD commit after the first call.
     head_after_first = _git(ws._root, "rev-parse", "HEAD").strip()
-    assert head_after_first, "HEAD must be a valid commit after first git_init_sandbox()"
+    assert (
+        head_after_first
+    ), "HEAD must be a valid commit after first git_init_sandbox()"
 
     # Second call — must be a no-op: no exception, no new commit.
     ws.git_init_sandbox()  # must not raise
@@ -178,17 +184,17 @@ def test_fanout_merge_succeeds_after_git_init_no_unborn_head(tmp_path: Path) -> 
     # due to an unborn HEAD, and must not return a false-clean result.
     result = ws.merge_worktree(branch, spawn)
 
-    assert result["conflicts"] == [], (
-        f"single disjoint worker must merge cleanly; got conflicts: {result['conflicts']}"
-    )
+    assert (
+        result["conflicts"] == []
+    ), f"single disjoint worker must merge cleanly; got conflicts: {result['conflicts']}"
 
     # Commit the merge so the working tree is clean.
     ws.commit_all("merge: step1 worker 0")
 
     # The file written by the worker must be present in the base tree.
-    assert (ws._root / "result.txt").is_file(), (
-        "result.txt must be present in the base tree after the merge"
-    )
+    assert (
+        ws._root / "result.txt"
+    ).is_file(), "result.txt must be present in the base tree after the merge"
     assert (ws._root / "result.txt").read_text(encoding="utf-8") == "step 1 output"
 
     # Tear down the worktree.

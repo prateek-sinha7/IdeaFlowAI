@@ -30,8 +30,6 @@ import {
   orderedStagedUploadIds,
 } from "../IdeaInputPage";
 import { saveUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
-import { getTemplateThumbnailUrl } from "@/lib/prototype-api";
-import { getPPTTemplateThumbnailUrl } from "@/lib/ppt-api";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import {
   addChildInTree,
@@ -587,7 +585,7 @@ export function ComposerPage({
     seededRunConfig.current = true;
     setRunConfig(initialRunConfig);
   }, [initialRunConfig]);
-  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [_draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
   // SURF-03 — the opened workflow's declared per-step capabilities (compiled

@@ -86,17 +86,27 @@ class FakeSandbox:
         """Initialize git repo with a .gitignore and initial commit."""
         if shutil.which("git"):
             import subprocess
+
             subprocess.run(["git", "init", "-b", "main"], cwd=self.root, check=True)
-            subprocess.run(["git", "config", "user.email", "test@test.test"], cwd=self.root, check=True)
-            subprocess.run(["git", "config", "user.name", "Test Bot"], cwd=self.root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.test"],
+                cwd=self.root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test Bot"], cwd=self.root, check=True
+            )
             (self.root / ".gitignore").write_text(".chain/\n", encoding="utf-8")
             subprocess.run(["git", "add", ".gitignore"], cwd=self.root, check=True)
-            subprocess.run(["git", "commit", "-m", "chore: init"], cwd=self.root, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "chore: init"], cwd=self.root, check=True
+            )
 
     def commit_all(self, message: str) -> str:
         """Commit all changes via git."""
         if shutil.which("git"):
             import subprocess
+
             subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
             result = subprocess.run(
                 ["git", "commit", "-m", message],
@@ -184,13 +194,14 @@ class TestDiskMetrics:
                 patch("app.models.run_finalization.RunFinalization", MagicMock()),
             ):
                 _async_run(
-                    eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
+                    eng.finalize_terminal_run(
+                        run_id, ectx, candidate_status="completed"
+                    )
                 )
 
         # Find the disk_metrics log record
         disk_metrics_records = [
-            r for r in caplog.records
-            if "disk_metrics" in r.message
+            r for r in caplog.records if "disk_metrics" in r.message
         ]
         assert len(disk_metrics_records) > 0, "No disk_metrics log record found"
 
@@ -202,6 +213,7 @@ class TestDiskMetrics:
 
         # Extract the values from the message
         import re
+
         sandbox_match = re.search(r"sandbox_bytes=(\d+)", record.message)
         git_match = re.search(r"git_bytes=(\d+)", record.message)
         chain_match = re.search(r"chain_depth=(\d+)", record.message)
@@ -248,21 +260,25 @@ class TestDiskMetrics:
                 patch("app.models.run_finalization.RunFinalization", MagicMock()),
             ):
                 _async_run(
-                    eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
+                    eng.finalize_terminal_run(
+                        run_id, ectx, candidate_status="completed"
+                    )
                 )
 
         disk_metrics_records = [
-            r for r in caplog.records
-            if "disk_metrics" in r.message
+            r for r in caplog.records if "disk_metrics" in r.message
         ]
         assert len(disk_metrics_records) > 0
 
         record = disk_metrics_records[0]
         import re
+
         chain_match = re.search(r"chain_depth=(\d+)", record.message)
         assert chain_match is not None
         chain_depth = int(chain_match.group(1))
-        assert chain_depth == 1, "chain_depth should be 1 when chain_source_run_id is set"
+        assert (
+            chain_depth == 1
+        ), "chain_depth should be 1 when chain_source_run_id is set"
 
     @pytest.mark.skipif(not shutil.which("git"), reason="git not available")
     def test_disk_metrics_git_bytes_present(
@@ -293,17 +309,19 @@ class TestDiskMetrics:
                 patch("app.models.run_finalization.RunFinalization", MagicMock()),
             ):
                 _async_run(
-                    eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
+                    eng.finalize_terminal_run(
+                        run_id, ectx, candidate_status="completed"
+                    )
                 )
 
         disk_metrics_records = [
-            r for r in caplog.records
-            if "disk_metrics" in r.message
+            r for r in caplog.records if "disk_metrics" in r.message
         ]
         assert len(disk_metrics_records) > 0
 
         record = disk_metrics_records[0]
         import re
+
         git_match = re.search(r"git_bytes=(\d+)", record.message)
         assert git_match is not None
         git_bytes = int(git_match.group(1))
@@ -344,23 +362,25 @@ class TestDiskMetrics:
                 patch("app.models.run_finalization.RunFinalization", MagicMock()),
             ):
                 _async_run(
-                    eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
+                    eng.finalize_terminal_run(
+                        run_id, ectx, candidate_status="completed"
+                    )
                 )
 
         disk_metrics_records = [
-            r for r in caplog.records
-            if "disk_metrics" in r.message
+            r for r in caplog.records if "disk_metrics" in r.message
         ]
         assert len(disk_metrics_records) > 0
 
         record = disk_metrics_records[0]
         import re
+
         chain_match = re.search(r"chain_depth=(\d+)", record.message)
         assert chain_match is not None
         chain_depth = int(chain_match.group(1))
-        assert chain_depth == 3, (
-            "finalizer must surface the real threaded depth, not clamp to 1"
-        )
+        assert (
+            chain_depth == 3
+        ), "finalizer must surface the real threaded depth, not clamp to 1"
 
 
 # ===========================================================================
@@ -452,9 +472,15 @@ class TestComputeChainDepth:
         from agents.execution_engine.engine import _compute_chain_depth
 
         root_id, mid_a_id, mid_b_id = (f"chain-{uuid.uuid4()}" for _ in range(3))
-        _seed_chain_run(chain_db_session, run_id=root_id, source_run_id=None, created_offset=0)
-        _seed_chain_run(chain_db_session, run_id=mid_a_id, source_run_id=root_id, created_offset=10)
-        _seed_chain_run(chain_db_session, run_id=mid_b_id, source_run_id=mid_a_id, created_offset=20)
+        _seed_chain_run(
+            chain_db_session, run_id=root_id, source_run_id=None, created_offset=0
+        )
+        _seed_chain_run(
+            chain_db_session, run_id=mid_a_id, source_run_id=root_id, created_offset=10
+        )
+        _seed_chain_run(
+            chain_db_session, run_id=mid_b_id, source_run_id=mid_a_id, created_offset=20
+        )
 
         # A run whose OWN chain_source_run_id is root_id: one hop.
         assert _compute_chain_depth(root_id, chain_db_session) == 1
@@ -471,15 +497,21 @@ class TestComputeChainDepth:
         """An unresolvable source id still counts its own hop and stops."""
         from agents.execution_engine.engine import _compute_chain_depth
 
-        assert _compute_chain_depth(f"nonexistent-{uuid.uuid4()}", chain_db_session) == 1
+        assert (
+            _compute_chain_depth(f"nonexistent-{uuid.uuid4()}", chain_db_session) == 1
+        )
 
     def test_cycle_guard_terminates_on_corrupted_data(self, chain_db_session) -> None:
         """A <-> B self-referential corruption must not infinite-loop."""
         from agents.execution_engine.engine import _compute_chain_depth
 
         a_id, b_id = (f"chain-{uuid.uuid4()}" for _ in range(2))
-        _seed_chain_run(chain_db_session, run_id=a_id, source_run_id=b_id, created_offset=0)
-        _seed_chain_run(chain_db_session, run_id=b_id, source_run_id=a_id, created_offset=10)
+        _seed_chain_run(
+            chain_db_session, run_id=a_id, source_run_id=b_id, created_offset=0
+        )
+        _seed_chain_run(
+            chain_db_session, run_id=b_id, source_run_id=a_id, created_offset=10
+        )
 
         # Must terminate (the visited-set guard), whatever the exact count.
         depth = _compute_chain_depth(a_id, chain_db_session)

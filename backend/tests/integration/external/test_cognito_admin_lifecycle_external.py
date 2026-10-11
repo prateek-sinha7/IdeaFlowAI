@@ -115,6 +115,7 @@ class TestInviteUser:
         """T5: When group assignment fails after create, AdminDeleteUser is called
         to compensate, and a ProviderUnavailableError is raised. The pool user is
         deleted and no local User row is created."""
+
         def _boom(_email, _group):
             raise ClientError(
                 {"Error": {"Code": "InternalErrorException", "Message": "boom"}},
@@ -215,7 +216,10 @@ class TestDisableUser:
         """Idempotent UserNotFoundException (module docstring) -- re-running a
         disable after a prior partial failure must converge, not raise."""
         user = User(
-            id="ghost", email="ghost@example.com", cognito_sub="no-such-sub", tier="basic"
+            id="ghost",
+            email="ghost@example.com",
+            cognito_sub="no-such-sub",
+            tier="basic",
         )
         session.add(user)
         session.commit()
@@ -302,7 +306,10 @@ class TestTryDeletePoolUser:
 
         monkeypatch.setattr(cognito, "admin_delete_user", _boom)
 
-        assert cognito_admin.try_delete_pool_user("x@example.com") == "InternalErrorException"
+        assert (
+            cognito_admin.try_delete_pool_user("x@example.com")
+            == "InternalErrorException"
+        )
 
 
 class TestIsLastAdmin:
@@ -422,7 +429,9 @@ class TestIsLastAdmin:
         # already removing the group would be worse than no guard.
         assert ADMIN_GROUP in cognito.admin_list_groups_for_user("stale@example.com")
 
-    def test_is_last_admin_returns_false_when_user_absent_from_pool(self, session, pool):
+    def test_is_last_admin_returns_false_when_user_absent_from_pool(
+        self, session, pool
+    ):
         """When a local ``is_admin=True`` row has no corresponding pool identity,
         the guard returns False (no admin rights to protect).
 

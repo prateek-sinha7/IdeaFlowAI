@@ -19,12 +19,13 @@ Sections 1, 2 and 5 are hand-authored template constants below (editorial
 content that cannot be derived mechanically) and are kept in sync with
 .knowledge/ARCHITECTURE.md by hand when that file's opening changes.
 """
+
 import datetime
 import json
 import re
 import subprocess
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 import yaml
@@ -284,12 +285,12 @@ def build_section_3(cards):
     for typ in type_order:
         entries = by_type.get(typ, [])
         open_n = sum(
-            1 for fm in entries
+            1
+            for fm in entries
             if (fm.get("status") or "").lower() not in CLOSED_STATUSES
         )
         lines.append(f"| {typ} | {len(entries)} | {open_n} |")
     lines.append("")
-
 
     # adr was once listed card-by-card here, back when a single decision record
     # existed and the list cost ~150 chars. At 36 it cost 5,159 — 88% of this
@@ -348,7 +349,7 @@ def build_section_4():
         if mod_card.exists():
             text = mod_card.read_text(encoding="utf-8")
             end = text.find("\n---", 3)
-            body = text[end + 4:] if end != -1 else text
+            body = text[end + 4 :] if end != -1 else text
             m = re.search(r"## Purpose\s*\n\n(.+?)(?:\n\n|\Z)", body, re.S)
             if m:
                 purpose = flatten_links(m.group(1).strip())
@@ -369,7 +370,7 @@ def build_section_4():
 
 
 def main():
-    state = load_state()
+    load_state()
     cards = load_cards()
 
     # Reuse the existing pack's date. `built_at` records when the pack was
@@ -380,7 +381,9 @@ def main():
     prior_built_at = ""
     if OUT_PATH.exists():
         m_ba = re.search(
-            r"^built_at:\s*(\S+)", OUT_PATH.read_text(encoding="utf-8", errors="replace"), re.M
+            r"^built_at:\s*(\S+)",
+            OUT_PATH.read_text(encoding="utf-8", errors="replace"),
+            re.M,
         )
         if m_ba:
             prior_built_at = m_ba.group(1)
@@ -407,28 +410,32 @@ def main():
         "---\n"
     )
 
-    body = "\n".join([
-        frontmatter,
-        "# Velocity -- Context Pack",
-        "",
-        SECTION_1.rstrip(),
-        "",
-        SECTION_2.rstrip(),
-        "",
-        sec3,
-        sec4,
-        SECTION_5.replace("{n_cards}", f"{len(cards):,}")
-                 .replace("{n_arch}", str(len(list(ARCH_DIR.glob('*.md')))))
-                 .rstrip(),
-        "",
-    ])
+    body = "\n".join(
+        [
+            frontmatter,
+            "# Velocity -- Context Pack",
+            "",
+            SECTION_1.rstrip(),
+            "",
+            SECTION_2.rstrip(),
+            "",
+            sec3,
+            sec4,
+            SECTION_5.replace("{n_cards}", f"{len(cards):,}")
+            .replace("{n_arch}", str(len(list(ARCH_DIR.glob("*.md")))))
+            .rstrip(),
+            "",
+        ]
+    )
 
     if OUT_PATH.exists():
         prior = OUT_PATH.read_text(encoding="utf-8", errors="replace")
-        if prior.replace(f"built_at: {built_at}", "") == body.replace(f"built_at: {built_at}", ""):
+        if prior.replace(f"built_at: {built_at}", "") == body.replace(
+            f"built_at: {built_at}", ""
+        ):
             print(f"Wrote {OUT_PATH} (unchanged)")
             return
-    OUT_PATH.write_text(body, encoding='utf-8', newline='\n')
+    OUT_PATH.write_text(body, encoding="utf-8", newline="\n")
 
     approx_tokens = len(body) // 4
     print(f"Wrote {OUT_PATH} ({len(body)} chars, ~{approx_tokens} tokens)")
@@ -440,7 +447,8 @@ def main():
     for typ in ("adr", "issue", "bug", "fix"):
         entries = by_type.get(typ, [])
         open_n = sum(
-            1 for fm in entries
+            1
+            for fm in entries
             if (fm.get("status") or "").lower() not in CLOSED_STATUSES
         )
         print(f"  {typ}: {len(entries)} total, {open_n} open/active")

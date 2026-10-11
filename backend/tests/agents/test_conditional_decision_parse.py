@@ -41,9 +41,10 @@ def test_prose_then_json_is_recovered():
 
 def test_json_then_prose_still_fails_closed():
     """The deliberately-rejected shape stays rejected (t25's fixture verbatim)."""
-    assert _trailing_json_object(
-        '{"decision": "english"}Hello! How can I help you today?'
-    ) is None
+    assert (
+        _trailing_json_object('{"decision": "english"}Hello! How can I help you today?')
+        is None
+    )
 
 
 def test_fenced_json_is_recovered():

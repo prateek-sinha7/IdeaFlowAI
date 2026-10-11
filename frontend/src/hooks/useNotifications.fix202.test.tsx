@@ -12,7 +12,7 @@
  */
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { useNotifications, type PipelineNotification } from "./useNotifications";
+import { useNotifications, resetLiveNotificationsCache, type PipelineNotification } from "./useNotifications";
 
 // ── localStorage stub ─────────────────────────────────────────────────────────
 // jsdom in vitest does not provide a real localStorage. We stub just the keys
@@ -33,6 +33,30 @@ const DISMISSED_STORAGE_KEY = "flowin.notifications.dismissed.v3";
 
 beforeEach(() => {
   localStorageMock.clear();
+  // Each test starts as a fresh page load: drop the in-memory live entries the
+  // hook carries across in-app remounts.
+  resetLiveNotificationsCache();
+});
+
+describe("live notifications across an in-app remount", () => {
+  it("useNotifications_readopts_running_entry_when_layout_remounts", () => {
+    const first = renderHook(() => useNotifications());
+    act(() => { first.result.current.addRunningNotification(RUN_A, "prototype", "Run A", 4); });
+    first.unmount();
+
+    const second = renderHook(() => useNotifications());
+    expect(second.result.current.notifications.map((n) => n.id)).toEqual([RUN_A]);
+  });
+
+  it("useNotifications_drops_running_entry_when_cache_reset_on_sign_out", () => {
+    const first = renderHook(() => useNotifications());
+    act(() => { first.result.current.addRunningNotification(RUN_A, "prototype", "Run A", 4); });
+    first.unmount();
+
+    resetLiveNotificationsCache();
+    const second = renderHook(() => useNotifications());
+    expect(second.result.current.notifications).toHaveLength(0);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

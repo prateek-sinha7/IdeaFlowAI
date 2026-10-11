@@ -15,6 +15,7 @@ and report mode writing NOTHING. Those are row-state claims a mocked Session can
 The pure backoff-curve arithmetic (``min(2 * attempt, 300)``) needs no queue and stays in
 ``tests/unit/services/test_retry_cognito_deletions.py``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -160,6 +161,7 @@ class TestApplyMode:
         remaining = env["session"].query(PendingCognitoDeletion).all()
         assert len(remaining) == 1
         assert remaining[0].cognito_sub == "broken-sub"
+
 
 class TestBackoffIsNotPaidOnSuccess:
     """A fully successful batch must not sleep at all.

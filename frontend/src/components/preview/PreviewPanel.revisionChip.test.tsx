@@ -21,6 +21,9 @@ vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
   getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
+  // RunHeader's VersionMenu fetches the run's git tags (dynamic import); no tags
+  // keeps the static chip, which is all this revision-chip spec needs.
+  getRunSandboxRefs: async () => [],
 }));
 // Strip animation-only props so role/text queries still find rendered nodes.
 const STRIPPED_MOTION_PROPS = new Set([

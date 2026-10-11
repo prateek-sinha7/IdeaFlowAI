@@ -53,14 +53,19 @@ async def test_always_retry_stops_looping_but_completes_cleanly_with_a_warning()
     orig_scripts_for = _sm._scripts_for
     _sm._scripts_for = _always_retry_scripts_for
     try:
-        events = await _drive(_PIPELINE)
+        # ``offline_db=False`` — the no-database seam would degrade every completed
+        # run at the finalizer's tag mapping (Requirement 5 AC 22), which is not the
+        # loop-cap degrade this test is about.
+        events = await _drive(_PIPELINE, offline_db=False)
     finally:
         _sm._scripts_for = orig_scripts_for
 
     assert events, f"{_PIPELINE} produced no events"
 
     types = [e.get("type") for e in events]
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
     budget_events = [e for e in events if e.get("type") == "budget_aborted"]
     completes = [e for e in events if e.get("type") == "pipeline_complete"]
 
@@ -75,7 +80,9 @@ async def test_always_retry_stops_looping_but_completes_cleanly_with_a_warning()
         f"expected exactly one budget_aborted event (the cap is still enforced, "
         f"just no longer fatal), got {len(budget_events)}. Events: {types}"
     )
-    assert budget_events[0]["data"].get("dimension") == "loop_iterations", budget_events[0]
+    assert (
+        budget_events[0]["data"].get("dimension") == "loop_iterations"
+    ), budget_events[0]
 
     # The run must NOT be thrown away: it proceeds forward past the loop and reaches
     # a terminal pipeline_complete rather than aborting.
@@ -90,13 +97,13 @@ async def test_always_retry_stops_looping_but_completes_cleanly_with_a_warning()
         "a suppressed loop-cap convergence limit must not, by itself, degrade a "
         f"run whose deliverable resolved cleanly: {completes[0]['data']}"
     )
-    assert not completes[0]["data"].get("degraded_reason"), (
-        f"a clean completion must carry no degraded_reason: {completes[0]['data']}"
-    )
+    assert not completes[0]["data"].get(
+        "degraded_reason"
+    ), f"a clean completion must carry no degraded_reason: {completes[0]['data']}"
     # The cap message is still recorded — just as a WARNING, not a verdict.
-    assert completes[0]["data"].get("warnings"), (
-        f"the suppressed loop-cap message was dropped entirely: {completes[0]['data']}"
-    )
+    assert completes[0]["data"].get(
+        "warnings"
+    ), f"the suppressed loop-cap message was dropped entirely: {completes[0]['data']}"
 
     # 'done' is the step immediately after the loop in array order — the dispatch
     # loop must advance to it, exactly as if check's gate had returned "ok".

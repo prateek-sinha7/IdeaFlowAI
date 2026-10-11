@@ -211,7 +211,9 @@ class TaskLoopStrategy:
         target = getattr(task_source_decl, "target", None) if task_source_decl else None
         sandbox = getattr(runner, "sandbox", None)
         if hasattr(parser, "parse_preferring_target"):
-            tasks = parser.parse_preferring_target(plan_output, sandbox=sandbox, target=target)
+            tasks = parser.parse_preferring_target(
+                plan_output, sandbox=sandbox, target=target
+            )
         else:
             tasks = parser.parse(plan_output)
 

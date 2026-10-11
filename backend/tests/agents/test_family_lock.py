@@ -302,13 +302,11 @@ class TestRestoreReplayKey:
 
         # Owner B uses the same key — must NOT see owner A's record.
         result_b = lookup_idempotent_restore(db_session, "owner-b", shared_key)
-        assert result_b is None, (
-            "Replay lookup must be owner-scoped; cross-owner lookup must return None"
-        )
+        assert (
+            result_b is None
+        ), "Replay lookup must be owner-scoped; cross-owner lookup must return None"
 
-    def test_concurrent_replay_collapses_via_integrity_error(
-        self, db_session
-    ) -> None:
+    def test_concurrent_replay_collapses_via_integrity_error(self, db_session) -> None:
         """The partial unique index on (owner_id, operation, idempotency_key)
         prevents two concurrent replays from double-committing.
 
@@ -404,14 +402,10 @@ class TestUploadAdmissionStates:
         sb = RunSandbox(user_id, root_id, runs_root=str(tmp_path))
         sb.ensure()
 
-        hold_duration = 0.2  # seconds to hold the lock (simulates an agent step)
-        release_event = threading.Event()
-        acquired_by_second = threading.Event()
+        release_event = threading.Event()  # the "agent step" holds the lock until set
 
         def _hold_lock():
-            with family_lock(
-                user_id, root_id, timeout_s=5.0, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=5.0, runs_root=str(tmp_path)):
                 release_event.wait()  # hold until told to release
 
         holder = threading.Thread(target=_hold_lock, daemon=True)
@@ -469,9 +463,7 @@ class TestUploadAdmissionStates:
             acquired = True
         assert acquired
 
-    def test_state4_finalization_holds_lock_returns_409(
-        self, tmp_path: Path
-    ) -> None:
+    def test_state4_finalization_holds_lock_returns_409(self, tmp_path: Path) -> None:
         """Terminal finalization holds the family lock → FamilyLockTimeout after
         the ceiling expires → maps to HTTP 409 (generic retryable).
 
@@ -489,9 +481,7 @@ class TestUploadAdmissionStates:
         keep_holding = threading.Event()
 
         def _finalization_holds():
-            with family_lock(
-                user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)):
                 lock_acquired_event.set()
                 keep_holding.wait(timeout=5.0)
 
@@ -501,9 +491,7 @@ class TestUploadAdmissionStates:
 
         # The upload handler uses a very short timeout → must time out.
         with pytest.raises(FamilyLockTimeout):
-            with family_lock(
-                user_id, root_id, timeout_s=0.05, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=0.05, runs_root=str(tmp_path)):
                 pass  # must not reach here
 
         keep_holding.set()
@@ -524,9 +512,7 @@ class TestUploadAdmissionStates:
         release_lock = threading.Event()
 
         def _restore_holds():
-            with family_lock(
-                user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)):
                 lock_held.set()
                 release_lock.wait(timeout=5.0)
 
@@ -535,9 +521,7 @@ class TestUploadAdmissionStates:
         lock_held.wait(timeout=5.0)
 
         with pytest.raises(FamilyLockTimeout):
-            with family_lock(
-                user_id, root_id, timeout_s=0.05, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=0.05, runs_root=str(tmp_path)):
                 pass
 
         release_lock.set()
@@ -568,9 +552,7 @@ class TestUploadAdmissionStates:
         upload_attempted = threading.Event()
 
         def _snapshot_holds():
-            with family_lock(
-                user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)):
                 lock_held.set()
                 release_lock.wait(timeout=5.0)
 
@@ -619,9 +601,7 @@ class TestLockOrder:
     order are in place.
     """
 
-    def test_family_lock_acquired_before_manifest_lock(
-        self, tmp_path: Path
-    ) -> None:
+    def test_family_lock_acquired_before_manifest_lock(self, tmp_path: Path) -> None:
         """A thread that holds the family lock can always acquire the manifest
         lock without waiting, because no other thread may hold the manifest lock
         before acquiring the family lock.
@@ -666,9 +646,9 @@ class TestLockOrder:
         # The manifest lock is nested inside .uploads/, which is inside sb.root.
         resolved_root = sb.root.resolve()
         resolved_lock = manifest_lock_path.resolve()
-        assert str(resolved_lock).startswith(str(resolved_root)), (
-            f"manifest lock {resolved_lock} must be inside sandbox root {resolved_root}"
-        )
+        assert str(resolved_lock).startswith(
+            str(resolved_root)
+        ), f"manifest lock {resolved_lock} must be inside sandbox root {resolved_root}"
 
 
 # ===========================================================================
@@ -801,7 +781,7 @@ class TestRestoreNoOp:
             operation="restore",
             source_ref="v1",
             idempotency_key=key,
-            commit_sha=None,   # no-change → no new commit
+            commit_sha=None,  # no-change → no new commit
             tag_name="v1",
             outcome="no_change",
         )
@@ -898,16 +878,16 @@ class TestOrdinalSequence:
         post_tags = set(_list_tags(repo))
 
         # All pre-restore commits must still exist.
-        assert pre_commits.issubset(post_commits), (
-            "Pre-restore commits must survive; a restore commit is forward-only"
-        )
+        assert pre_commits.issubset(
+            post_commits
+        ), "Pre-restore commits must survive; a restore commit is forward-only"
         # One new commit was added (the restore commit itself).
         assert len(post_commits) == len(pre_commits) + 1
 
         # All pre-restore tags must still be in place.
-        assert pre_tags == post_tags, (
-            "Pre-restore tags must survive; a restore must not move or delete tags"
-        )
+        assert (
+            pre_tags == post_tags
+        ), "Pre-restore tags must survive; a restore must not move or delete tags"
 
     def test_restore_commit_has_no_vN_tag(self, tmp_path: Path) -> None:
         """A restore commit is NOT tagged with a vN ordinal.
@@ -921,20 +901,23 @@ class TestOrdinalSequence:
         # Restore commit.
         v1_sha = _git("rev-parse", "v1", cwd=repo)
         _git("checkout", v1_sha, "--", "output.txt", cwd=repo)
-        restore_sha = _add_commit(repo, "output.txt", "v1 content", "restore: run-xyz to v1")
+        restore_sha = _add_commit(
+            repo, "output.txt", "v1 content", "restore: run-xyz to v1"
+        )
 
         tags_after = set(_list_tags(repo))
         restore_tags = {
-            t for t in tags_after
+            t
+            for t in tags_after
             if t not in {"v1", "v2"}  # only new tags (if any)
         }
 
         # The restore commit must not have been tagged with a new vN.
         for tag in restore_tags:
             tag_sha = _git("rev-parse", tag, cwd=repo)
-            assert tag_sha != restore_sha, (
-                f"Restore commit must NOT be tagged with '{tag}'"
-            )
+            assert (
+                tag_sha != restore_sha
+            ), f"Restore commit must NOT be tagged with '{tag}'"
 
     def test_next_completed_run_uses_next_ordinal(self, tmp_path: Path) -> None:
         """After a restore, the next completed run is tagged v3 — no gap, no reuse.
@@ -953,7 +936,9 @@ class TestOrdinalSequence:
         # Simulate the ordinal the engine would compute for the next completed run.
         # The engine counts vN tags on the family sandbox to derive the next ordinal.
         existing_tags = _list_tags(repo)
-        version_tags = [t for t in existing_tags if t.startswith("v") and t[1:].isdigit()]
+        version_tags = [
+            t for t in existing_tags if t.startswith("v") and t[1:].isdigit()
+        ]
         next_ordinal = len(version_tags) + 1  # = 3
 
         # Tag the "next completed run" at HEAD.
@@ -969,9 +954,9 @@ class TestOrdinalSequence:
         nums = sorted(
             int(t[1:]) for t in final_tags if t.startswith("v") and t[1:].isdigit()
         )
-        assert nums == list(range(1, len(nums) + 1)), (
-            f"Version tag sequence must be contiguous with no gaps; got {nums}"
-        )
+        assert nums == list(
+            range(1, len(nums) + 1)
+        ), f"Version tag sequence must be contiguous with no gaps; got {nums}"
 
     def test_ordinal_no_gap_no_reuse_after_restore(self, tmp_path: Path) -> None:
         """Full scenario: root → v1 → v2 → restore (no tag) → v3.
@@ -993,10 +978,13 @@ class TestOrdinalSequence:
 
         # The restore commit must not carry any vN tag.
         restore_commit_tags = [
-            t for t in _list_tags(repo)
+            t
+            for t in _list_tags(repo)
             if _git("rev-parse", t, cwd=repo) == restore_commit_sha
         ]
-        assert not any(t.startswith("v") and t[1:].isdigit() for t in restore_commit_tags), (
+        assert not any(
+            t.startswith("v") and t[1:].isdigit() for t in restore_commit_tags
+        ), (
             f"Restore commit must not be tagged with a vN ordinal; "
             f"found: {restore_commit_tags}"
         )
@@ -1020,9 +1008,11 @@ class TestOrdinalSequence:
         v_nums = sorted(
             int(t[1:]) for t in final_tags if t.startswith("v") and t[1:].isdigit()
         )
-        assert v_nums == [1, 2, 3], (
-            f"Expected contiguous ordinal sequence [1, 2, 3]; got {v_nums}"
-        )
+        assert v_nums == [
+            1,
+            2,
+            3,
+        ], f"Expected contiguous ordinal sequence [1, 2, 3]; got {v_nums}"
 
 
 # ===========================================================================
@@ -1037,9 +1027,7 @@ class TestRestoreLockTimeout:
     - The restore handler's mapping to 503 is correct (structural check).
     """
 
-    def test_family_lock_timeout_raised_when_lock_held(
-        self, tmp_path: Path
-    ) -> None:
+    def test_family_lock_timeout_raised_when_lock_held(self, tmp_path: Path) -> None:
         """If the family lock is held by a concurrent operation (e.g. another
         restore or the finalizer), a restore with a short timeout raises
         FamilyLockTimeout."""
@@ -1054,9 +1042,7 @@ class TestRestoreLockTimeout:
         release = threading.Event()
 
         def _concurrent_holder():
-            with family_lock(
-                user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)):
                 held.set()
                 release.wait(timeout=5.0)
 
@@ -1065,9 +1051,7 @@ class TestRestoreLockTimeout:
         held.wait(timeout=5.0)
 
         with pytest.raises(FamilyLockTimeout):
-            with family_lock(
-                user_id, root_id, timeout_s=0.05, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=0.05, runs_root=str(tmp_path)):
                 pass
 
         release.set()
@@ -1086,13 +1070,13 @@ class TestRestoreLockTimeout:
         src = inspect.getsource(restore_version)
 
         # The handler must explicitly catch FamilyLockTimeout.
-        assert "FamilyLockTimeout" in src, (
-            "restore_version must catch FamilyLockTimeout"
-        )
+        assert (
+            "FamilyLockTimeout" in src
+        ), "restore_version must catch FamilyLockTimeout"
         # It must respond with a 5xx (503) — not swallow it silently.
-        assert "503" in src or "HTTP_503_SERVICE_UNAVAILABLE" in src, (
-            "restore_version must map FamilyLockTimeout to HTTP 503"
-        )
+        assert (
+            "503" in src or "HTTP_503_SERVICE_UNAVAILABLE" in src
+        ), "restore_version must map FamilyLockTimeout to HTTP 503"
 
     def test_upload_handler_timeout_returns_409(self) -> None:
         """The upload_files handler converts FamilyLockTimeout to HTTP 409.
@@ -1102,20 +1086,23 @@ class TestRestoreLockTimeout:
         """
         import inspect
 
-        from app.api.run_files import upload_files
+        from app.api.run_files import _persist_documents, upload_files
 
-        src = inspect.getsource(upload_files)
+        # The lock acquisition was extracted verbatim from upload_files into
+        # _persist_documents (shared with the launch-time staged-upload ingest),
+        # so the handler must route through it and it must own the mapping.
+        assert "_persist_documents" in inspect.getsource(upload_files)
+        src = inspect.getsource(_persist_documents)
 
-        assert "FamilyLockTimeout" in src, (
-            "upload_files must catch FamilyLockTimeout"
-        )
-        assert "409" in src or "HTTP_409_CONFLICT" in src, (
-            "upload_files must map FamilyLockTimeout to HTTP 409"
-        )
+        assert "FamilyLockTimeout" in src, "upload_files must catch FamilyLockTimeout"
+        assert (
+            "409" in src or "HTTP_409_CONFLICT" in src
+        ), "upload_files must map FamilyLockTimeout to HTTP 409"
         # The error detail must not reveal internals.
-        assert "family" not in src.lower().split("familylock")[1].split("detail")[0] or True, (
-            "The 409 detail must be generic and not name the lock type"
-        )
+        assert (
+            "family" not in src.lower().split("familylock")[1].split("detail")[0]
+            or True
+        ), "The 409 detail must be generic and not name the lock type"
 
 
 # ===========================================================================
@@ -1130,9 +1117,7 @@ class TestUploadAtomicity:
     and the finalizer must also hold the family lock to commit the snapshot.
     """
 
-    def test_upload_bytes_durable_before_manifest_entry(
-        self, tmp_path: Path
-    ) -> None:
+    def test_upload_bytes_durable_before_manifest_entry(self, tmp_path: Path) -> None:
         """Upload atomicity: bytes written → manifest entry → response.
 
         The bytes must be on disk BEFORE the manifest is updated; a reader
@@ -1162,7 +1147,9 @@ class TestUploadAtomicity:
 
         manifest_path = sb.path_for(".uploads/manifest.json")
         manifest_path.write_text(
-            json.dumps([{"name": "doc.pdf", "mime": "application/pdf", "has_text": False}]),
+            json.dumps(
+                [{"name": "doc.pdf", "mime": "application/pdf", "has_text": False}]
+            ),
             encoding="utf-8",
         )
 
@@ -1170,9 +1157,9 @@ class TestUploadAtomicity:
         manifest_data = json.loads(manifest_path.read_text())
         for entry in manifest_data:
             entry_path = sb.path_for(f".uploads/{entry['name']}")
-            assert entry_path.exists(), (
-                f"File {entry['name']} recorded in manifest must exist on disk"
-            )
+            assert (
+                entry_path.exists()
+            ), f"File {entry['name']} recorded in manifest must exist on disk"
 
     def test_family_lock_prevents_concurrent_snapshot_and_upload(
         self, tmp_path: Path
@@ -1194,9 +1181,7 @@ class TestUploadAtomicity:
         upload_rejected = threading.Event()
 
         def _snapshot_commit():
-            with family_lock(
-                user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)
-            ):
+            with family_lock(user_id, root_id, timeout_s=30.0, runs_root=str(tmp_path)):
                 snapshot_holds_lock.set()
                 release_snapshot.wait(timeout=5.0)
                 # "commit" the snapshot here (no-op for this test).

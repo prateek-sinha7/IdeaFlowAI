@@ -286,13 +286,33 @@ resource "aws_iam_role" "github_deploy" {
 data "aws_iam_policy_document" "github_deploy" {
   for_each = local.github_env_set
 
-  # Push config from GitHub vars/secrets → SSM, scoped to THIS environment's
+  # Manage config in SSM from GitHub vars/secrets, scoped to THIS environment's
   # prefix only. /velocityai/<other-env>/* is not in the Resource set, so it is
   # denied by default — not by a condition the caller has already satisfied.
+  #
+  # THREE actions, not one. The deploy workflow's `put_param` implements
+  # explicit desired-state semantics (deploy.yml, "Push config to SSM Parameter
+  # Store"), and the `delete-if-empty` policy needs all three:
+  #   ssm:PutParameter    — write/overwrite a value GitHub does set
+  #   ssm:GetParameter    — existence check before deleting, so "cleared in
+  #                         GitHub" can be distinguished from "was never set"
+  #   ssm:DeleteParameter — remove a parameter GitHub has stopped setting, so
+  #                         the host loader's documented fallback applies
+  #                         instead of a stale value from an earlier deploy
+  #
+  # Get and Delete were MISSING while the workflow already called them. Both
+  # failed with AccessDenied, and because the caller discarded stderr the
+  # denial was reported as "no existing parameter" — so `delete-if-empty` was
+  # silently a no-op and every cleared value stayed live on the host.
+  #
+  # NO kms:Decrypt here, deliberately. `get-parameter` is called WITHOUT
+  # `--with-decryption`: it is an existence check only, and for a SecureString
+  # it returns the ciphertext without invoking KMS. Adding Decrypt would let
+  # this role read every secret it writes, which it has no reason to do.
   statement {
-    sid       = "SSMPutParameters"
+    sid       = "SSMManageParameters"
     effect    = "Allow"
-    actions   = ["ssm:PutParameter"]
+    actions   = ["ssm:PutParameter", "ssm:GetParameter", "ssm:DeleteParameter"]
     resources = ["arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/velocityai/${each.key}/*"]
   }
 
@@ -392,10 +412,11 @@ data "aws_iam_policy_document" "github_deploy" {
   # compromised deploy role cannot touch backup data, only redeploy config
   # objects a human can diff against this repo.
   #
-  # GetObject is included so provision.yml can immediately read back what it
-  # just wrote (sha256 verification) rather than trusting a 200 from PutObject
-  # alone. No s3:DeleteObject: replacing an object is enough, deleting it is
-  # not a capability this role needs.
+  # GetObject is kept from an earlier read-back design. No workflow reads these
+  # objects back today: provision.yml hashes the LOCAL file before uploading and
+  # the host compares that hash with what it downloads. Dropping GetObject is an
+  # IAM change and is left for a separate review. No s3:DeleteObject: replacing
+  # an object is enough, deleting it is not a capability this role needs.
   statement {
     sid       = "ConfigObjectUpload"
     effect    = "Allow"

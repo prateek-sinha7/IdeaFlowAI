@@ -111,7 +111,6 @@ def _save_body(selections=None, **kw):
     return body
 
 
-
 # ===========================================================================
 # Task 2 — LAUNCH-side trust=user re-validation + EMP-01 selection-reaches-exec
 # ===========================================================================
@@ -265,7 +264,6 @@ def test_emp01_retry_activates_under_injected_transient_fault(monkeypatch):
 _DISALLOWED_MODEL = "openai-gpt-totally-not-allowed"
 
 
-
 def test_launch_rejects_disallowed_selection_model():
     """A crafted/tampered selections payload requesting a disallowed model id is
     rejected at LAUNCH before execute (CR-01 — the WS chokepoint)."""
@@ -307,7 +305,6 @@ def test_model_resolver_rejects_disallowed_step_model():
 # is coerced to the compiler's ``{max_attempts: N}`` shape so save+launch succeed
 # and the RESUME-02 retry wrapper is reachable.
 # ---------------------------------------------------------------------------
-
 
 
 def test_launch_accepts_bare_numeric_retry():

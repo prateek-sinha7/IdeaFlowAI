@@ -41,7 +41,6 @@ import base64
 import hashlib
 import logging
 import math
-import sys
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -541,6 +540,7 @@ async def _run_playwright_extraction(html_uri: str) -> dict:
 
     async def _extract() -> dict:
         from playwright.async_api import async_playwright
+
         async with async_playwright() as pw:
             try:
                 browser = await pw.chromium.launch(args=["--no-sandbox"])
@@ -553,7 +553,9 @@ async def _run_playwright_extraction(html_uri: str) -> dict:
                     device_scale_factor=2,  # retina — sharper screenshots
                 )
                 page = await context.new_page()
-                await page.goto(html_uri, wait_until="networkidle", timeout=_GOTO_TIMEOUT_MS)
+                await page.goto(
+                    html_uri, wait_until="networkidle", timeout=_GOTO_TIMEOUT_MS
+                )
                 # Give JS-rendered charts, animations and lazy images extra time to settle.
                 await page.wait_for_timeout(1500)
                 # Additionally wait until no network requests are in-flight
@@ -637,8 +639,15 @@ async def _run_playwright_extraction(html_uri: str) -> dict:
                                     full_page=False,
                                     scale="css",
                                 )
-                                screenshot_b64 = "data:image/png;base64," + base64.b64encode(screenshot_bytes).decode()
-                                pixel_hash = hashlib.md5(screenshot_bytes).hexdigest()
+                                screenshot_b64 = (
+                                    "data:image/png;base64,"
+                                    + base64.b64encode(screenshot_bytes).decode()
+                                )
+                                # Dedup key for identical screenshots, not a security
+                                # boundary — MD5 is fine here (bandit B324).
+                                pixel_hash = hashlib.md5(
+                                    screenshot_bytes, usedforsecurity=False
+                                ).hexdigest()
                             except Exception:
                                 screenshot_b64 = None
                                 pixel_hash = label
@@ -661,8 +670,13 @@ async def _run_playwright_extraction(html_uri: str) -> dict:
                 if not all_screens:
                     # No multi-screen nav found — single full-page capture
                     try:
-                        screenshot_bytes = await page.screenshot(type="png", full_page=False, scale="css")
-                        screenshot_b64 = "data:image/png;base64," + base64.b64encode(screenshot_bytes).decode()
+                        screenshot_bytes = await page.screenshot(
+                            type="png", full_page=False, scale="css"
+                        )
+                        screenshot_b64 = (
+                            "data:image/png;base64,"
+                            + base64.b64encode(screenshot_bytes).decode()
+                        )
                     except Exception:
                         screenshot_b64 = None
                     result = await page.evaluate(_SCRAPE_FN)
@@ -670,7 +684,11 @@ async def _run_playwright_extraction(html_uri: str) -> dict:
                         all_screens = result["screens"]
                         if screenshot_b64 and all_screens:
                             all_screens[0]["_screenshot"] = screenshot_b64
-                    vp = result.get("viewport", {"w": _VIEWPORT_W, "h": _VIEWPORT_H}) if result else {"w": _VIEWPORT_W, "h": _VIEWPORT_H}
+                    vp = (
+                        result.get("viewport", {"w": _VIEWPORT_W, "h": _VIEWPORT_H})
+                        if result
+                        else {"w": _VIEWPORT_W, "h": _VIEWPORT_H}
+                    )
                     tokens = result.get("tokens") if result else None
                     return {"screens": all_screens, "viewport": vp, "tokens": tokens}
 
@@ -681,7 +699,9 @@ async def _run_playwright_extraction(html_uri: str) -> dict:
                 """)
                 return {
                     "screens": all_screens,
-                    "viewport": first_result.get("viewport", {"w": _VIEWPORT_W, "h": _VIEWPORT_H}),
+                    "viewport": first_result.get(
+                        "viewport", {"w": _VIEWPORT_W, "h": _VIEWPORT_H}
+                    ),
                     "tokens": first_result.get("tokens"),
                 }
             finally:
@@ -735,12 +755,16 @@ async def figma_export(
     sandbox = RunSandbox(current_user.id, chain_root_id, runs_root=settings.RUNS_ROOT)
 
     if not sandbox.root.is_dir():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace expired")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workspace expired"
+        )
 
     try:
         html_path = sandbox.path_for("prototype.html")
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path"
+        )
 
     if not html_path.is_file():
         raise HTTPException(
@@ -782,9 +806,11 @@ async def figma_export(
     # Python's json.dumps rejects NaN/Infinity — replace them with None.
     sanitized = _sanitize_floats(raw)
 
-    return JSONResponse(content={
-        "version": 3,
-        "screens": sanitized["screens"],
-        "viewport": sanitized.get("viewport", {"w": _VIEWPORT_W, "h": _VIEWPORT_H}),
-        "tokens": sanitized.get("tokens"),
-    })
+    return JSONResponse(
+        content={
+            "version": 3,
+            "screens": sanitized["screens"],
+            "viewport": sanitized.get("viewport", {"w": _VIEWPORT_W, "h": _VIEWPORT_H}),
+            "tokens": sanitized.get("tokens"),
+        }
+    )

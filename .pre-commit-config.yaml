@@ -7,9 +7,16 @@
 # Run manually against the whole repo:
 #     pre-commit run --all-files
 #
-# These hooks fire on `git commit`. They are NOT a replacement for CI —
-# CI re-runs them on every push. The point of pre-commit is to catch
-# obvious regressions before they ever reach review.
+# The two ruff hooks (lint + format check) run on every `git commit` — they are
+# sub-second and mirror CI's mandatory `ruff-lint` / `ruff-format` checks
+# exactly, so a formatting drift is caught locally instead of by CI (CI run
+# 36718805906 went red on eight files formatted by a newer, unpinned ruff).
+# Every other hook is `stages: [manual]`; run those with
+# `pre-commit run --all-files --hook-stage manual`.
+# CI does not run pre-commit itself — it runs the equivalent checks directly
+# (ci/*-checks.json and the `security` matrix in .github/workflows/ci.yml).
+# The point of these hooks is to catch obvious regressions before they ever
+# reach review.
 #
 # Versions are pinned exactly. Do not use `master` / floating refs.
 
@@ -18,22 +25,38 @@ repos:
   # Backend: ruff (correctness rules only — see backend/pyproject.toml).
   # ---------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    # Must equal backend/pyproject.toml's `ruff==` dev pin, or the hook and
+    # CI's `ruff check` disagree about which rules exist. (Was v0.8.4 against a
+    # 0.7.4 dev pin.) Frozen to the commit the v0.7.4 tag pointed at when it was
+    # verified (`git ls-remote https://github.com/astral-sh/ruff-pre-commit
+    # refs/tags/v0.7.4`), so a repointed tag cannot change what runs here.
+    rev: cafecb2f683a620516412e109877570ca7648cbd  # frozen: v0.7.4
     hooks:
       - id: ruff
-        name: ruff (backend)
+        name: ruff (backend, tools, scripts)
         # IMPORTANT: no --fix. We do not auto-modify code in a hook; the
         # developer must decide. See backend/pyproject.toml header.
-        args: []
-        files: ^backend/.*\.py$
-        stages: [manual]
-        # Ruff reads its config from backend/pyproject.toml. We pass the
-        # path explicitly so pre-commit (which runs from the repo root)
-        # picks it up regardless of where git invokes the hook.
-        # `--config` is the documented way; passing it via args.
-        # NOTE: ruff auto-discovers pyproject.toml by walking up from
-        # each file, so this normally works without --config. Leaving it
-        # implicit keeps the command short.
+        # --force-exclude: pre-commit passes explicit file paths, which ruff
+        # otherwise lints even when [tool.ruff] extend-exclude lists them
+        # (alembic/versions, ../tools/loadtest). This keeps the hook's scope
+        # identical to CI's `ruff check --config pyproject.toml . ../tools
+        # ../scripts` from one exclude list.
+        args: [--force-exclude, --config=backend/pyproject.toml]
+        files: ^(backend|tools|scripts)/.*\.py$
+      - id: ruff-format
+        name: ruff format --check (backend, tools, scripts)
+        # Report-only, same policy as the lint hook: `--diff` fails the commit
+        # and shows the exact change without touching the file. Apply it with
+        #     cd backend; uv run --frozen ruff format --config pyproject.toml <file>
+        # (the locked 0.7.4 — NOT an editor-bundled or global ruff, whose newer
+        # style is what CI rejects).
+        args: [--diff, --force-exclude, --config=backend/pyproject.toml]
+        files: ^(backend|tools|scripts)/.*\.py$
+        # NOTE: --config is explicit on both hooks. ruff auto-discovers
+        # pyproject.toml by walking up from each file, which finds
+        # backend/pyproject.toml for backend/ files only; repo-root tools/ and
+        # scripts/ have no config above them and would silently get ruff's
+        # defaults instead of the rules CI applies.
 
   # ---------------------------------------------------------------------
   # Backend: pyright (import resolution only — see backend/pyrightconfig.json).
@@ -102,9 +125,9 @@ repos:
         # the right paths" bugs.
 
   # ---------------------------------------------------------------------
-  # Infra: tflint (Terraform lint — mirrors the `security-scan` job in
+  # Infra: tflint (Terraform lint — mirrors the `security` matrix leg `iac` in
   # .github/workflows/ci.yml, which runs the identical command against the
-  # same infra/terraform/.tflint.hcl ruleset).
+  # same infra/terraform/.tflint.hcl ruleset via TFLINT_CONFIG_FILE).
   #
   # Uses the locally-installed tflint binary (language: system), the same
   # pattern as pyright/eslint above. One-time setup per clone:

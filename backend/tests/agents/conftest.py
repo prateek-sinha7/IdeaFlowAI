@@ -14,4 +14,3 @@ from tests.plugins.agents_fixtures import (  # noqa: F401
     make_agent_md,
     tmp_agent_dir,
 )
-

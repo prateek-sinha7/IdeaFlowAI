@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
+import React from "react";
+import type { PipelineRunState } from "@/types/index";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 
 // The reported defect: a wave step showed DONE while three of its four worker
@@ -285,7 +287,7 @@ describe("AgentDetailPanel — a wave member's page carries the same sections", 
     // Same sections a step page has, in the same collapsed/expanded states.
     expect(body).toContain("4 files written");        // its own output, expanded
     expect(body).toContain("Reasoning");              // its own reasoning card
-    expect(body).toContain("Full input prompt");      // its own input, collapsed
+    expect(body).toContain("Task message");           // its own input, collapsed (file-based context)
     expect(body).toContain("Context received");       // its own context rail
     expect(body).toContain("prompt.md");              // that context source
     expect(body).toContain("Tool calls");             // its own tool calls
@@ -325,7 +327,7 @@ describe("AgentDetailPanel — a member page is the step page, every section", (
     render(<AgentDetailPanel onBack={() => {}} agent={full} breadcrumb={crumbs} />);
     const body = document.body.textContent ?? "";
     for (const section of [
-      "Reasoning", "Tool calls", "Full input prompt", "Agent output", "Context received",
+      "Reasoning", "Tool calls", "Task message", "Agent output", "Context received",
     ]) expect(body, `missing section: ${section}`).toContain(section);
   });
 
@@ -362,34 +364,40 @@ describe("wave member duration", () => {
   // "0s" next to 78.7K tokens is a lie; showing nothing is not.
   it("prefers the server's duration over the measured gap", async () => {
     const { handlePipelineMessage } = await import("@/hooks/useWorkflow");
-    let state: unknown = { agents: [{ id: "fi-readers", waveWorkers: [] }] };
-    const setState = (fn: unknown) => { state = typeof fn === "function" ? (fn as (s: unknown) => unknown)(state) : fn; };
+    let state = { agents: [{ id: "fi-readers", waveWorkers: [] }] } as unknown;
+    const setState: React.Dispatch<React.SetStateAction<PipelineRunState>> = (update) => {
+      state = typeof update === "function" ? update(state as PipelineRunState) : update;
+    };
+    const agentStartEventIds: React.MutableRefObject<Record<string, number>> = { current: {} };
     handlePipelineMessage(
-      { type: "agent_start", agent_id: "fi-readers", task_id: "k1" } as never,
-      setState as never, { current: {} } as never,
+      { type: "agent_start", agent_id: "fi-readers", task_id: "k1" } as { type: string; [key: string]: unknown },
+      setState, agentStartEventIds,
     );
     handlePipelineMessage(
-      { type: "agent_complete", agent_id: "fi-readers", task_id: "k1", duration: 87 } as never,
-      setState as never, { current: {} } as never,
+      { type: "agent_complete", agent_id: "fi-readers", task_id: "k1", duration: 87 } as { type: string; [key: string]: unknown },
+      setState, agentStartEventIds,
     );
-    const w = (state as never as { agents: { waveWorkers: { durationMs?: number }[] }[] })
+    const w = (state as unknown as { agents: { waveWorkers: { durationMs?: number }[] }[] })
       .agents[0].waveWorkers[0];
     expect(w.durationMs).toBe(87_000);
   });
 
   it("reports nothing rather than 0s when only a queue-artefact gap is available", async () => {
     const { handlePipelineMessage } = await import("@/hooks/useWorkflow");
-    let state: unknown = { agents: [{ id: "fi-readers", waveWorkers: [] }] };
-    const setState = (fn: unknown) => { state = typeof fn === "function" ? (fn as (s: unknown) => unknown)(state) : fn; };
+    let state = { agents: [{ id: "fi-readers", waveWorkers: [] }] } as unknown;
+    const setState: React.Dispatch<React.SetStateAction<PipelineRunState>> = (update) => {
+      state = typeof update === "function" ? update(state as PipelineRunState) : update;
+    };
+    const agentStartEventIds: React.MutableRefObject<Record<string, number>> = { current: {} };
     handlePipelineMessage(
-      { type: "agent_start", agent_id: "fi-readers", task_id: "k2" } as never,
-      setState as never, { current: {} } as never,
+      { type: "agent_start", agent_id: "fi-readers", task_id: "k2" } as { type: string; [key: string]: unknown },
+      setState, agentStartEventIds,
     );
     handlePipelineMessage(
-      { type: "agent_complete", agent_id: "fi-readers", task_id: "k2" } as never,
-      setState as never, { current: {} } as never,
+      { type: "agent_complete", agent_id: "fi-readers", task_id: "k2" } as { type: string; [key: string]: unknown },
+      setState, agentStartEventIds,
     );
-    const w = (state as never as { agents: { waveWorkers: { durationMs?: number }[] }[] })
+    const w = (state as unknown as { agents: { waveWorkers: { durationMs?: number }[] }[] })
       .agents[0].waveWorkers[0];
     expect(w.durationMs).toBeUndefined();
   });

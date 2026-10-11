@@ -325,7 +325,7 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
               id="delete-skill-title"
               className="mb-2 font-semibold text-ink-900 text-[15px]"
             >
-              Delete this agent's saved skill?
+              Delete this agent&apos;s saved skill?
             </h2>
             <p className="mb-5 text-sm text-ink-500">
               This permanently removes the SKILL.md that is prepended to every run.

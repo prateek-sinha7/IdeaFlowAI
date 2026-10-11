@@ -638,9 +638,7 @@ def _validate_prompt_policy(agent_id: str, policy_name: str, file_path: str) -> 
     _PENDING_PROMPT_POLICY_VALIDATION.pop(agent_id, None)
 
     # Extract all registered prompt policy names
-    registered_policies = {
-        name for kind, name in registry_known if kind == "prompt"
-    }
+    registered_policies = {name for kind, name in registry_known if kind == "prompt"}
 
     if policy_name not in registered_policies:
         allowed_names = ", ".join(sorted(registered_policies))

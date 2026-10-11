@@ -605,6 +605,14 @@ class Step:
     outputs: list[str] = field(default_factory=list)
     replaces: bool = False
 
+    # trust: the trust level of the manifest this step was compiled from
+    # (``file`` / ``builtin`` / ``db`` / ``user``). COMPILER-STAMPED, never
+    # authored (absent from ``_ALLOWED_STEP_KEYS``). The runtime ``security``
+    # gate reads it as its second check on an exec grant — before this field
+    # existed its ``getattr(step, "trust", "file")`` always saw the default and
+    # passed. Default ``file`` keeps hand-built Steps (tests) on the old value.
+    trust: str = "file"
+
     # is_leaf: Compiler-COMPUTED, never authored (spec 014 / R-26). True iff no `route`
     # outcome (from any step) or default linear-next relationship points FROM this step
     # to a later continuation — i.e., nothing is compiled to run after it on any path

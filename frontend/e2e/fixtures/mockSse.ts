@@ -23,7 +23,9 @@
  * (non-terminal) query, or an imperative `attachRun` after a launch. A spec that
  * emits WITHOUT launching (e.g. `dashboard.goto()` then `mockSse.start(...)`) is
  * served by the LAZY attach: the first emit registers the run into the mock's
- * live-run registry (surfaced on `GET /api/runs`) and fires a page `online` event
+ * live-run registry (surfaced on `GET /api/runs`), records the id in the tab's
+ * `sessionStorage.tab_launched_run_ids` allow-list (KAN-125: the provider only
+ * auto-attaches runs this tab launched), and fires a page `online` event
  * so the provider re-queries and attaches the stream. The durable tail means a
  * frame emitted before the attach completes is still replayed on attach — no race.
  *
@@ -261,6 +263,15 @@ export class MockSse implements SeqSource {
   waveFailed(waveIndex: number, step: string) { this.emit("wave_failed", { wave_index: waveIndex, step }); }
   subagentSpawned(waveIndex: number, step: string, agent: string, worker: number, status = "running") { this.emit("subagent_spawned", { wave_index: waveIndex, step, agent, worker, status }); }
   subagentResult(waveIndex: number, step: string, agent: string, worker: number, status = "completed") { this.emit("subagent_result", { wave_index: waveIndex, step, agent, worker, status }); }
+  /** A wave WORKER's stamped agent_start / agent_complete: the parent step's
+   *  agent_id plus `task_id` (+ wave/worker indices). The reducer folds these into
+   *  the parent's `waveWorkers` rows instead of re-running the parent itself. */
+  waveWorkerStart(agentId: string, taskId: string, waveIndex: number, workerIndex: number, waveTotal = 1) {
+    this.emit("agent_start", { agent_id: agentId, task_id: taskId, wave_index: waveIndex, worker_index: workerIndex, wave_total: waveTotal });
+  }
+  waveWorkerComplete(agentId: string, taskId: string, waveIndex: number, workerIndex: number, waveTotal = 1) {
+    this.emit("agent_complete", { agent_id: agentId, task_id: taskId, wave_index: waveIndex, worker_index: workerIndex, wave_total: waveTotal });
+  }
 
   // terminal
   complete(opts: {
@@ -417,6 +428,49 @@ export class MockSse implements SeqSource {
     this.wakeStreams();
   }
 
+  /**
+   * Opt-in: start a SEPARATE run (e.g. a revision child) on its own tail. Frames
+   * emitted from now on belong to `id`; that run's stream / durable log serve only
+   * them (not the parent's history, which a real per-run endpoint never returns).
+   * Runs never begun this way keep the single shared tail (default behaviour).
+   */
+  beginRun(id: string, pipelineType = "user_stories") {
+    this.runId = id;
+    this.ownedFrom.set(id, this.seq + 1);
+    this.liveRuns = [makeRun({ id, status: "running", type: pipelineType }) as unknown as RawRun];
+  }
+  private ownedFrom = new Map<string, number>();
+  /** The child run id a confirmed revision proposal answers with (default: this run). */
+  revisionRunId: string | null = null;
+  /** Pipeline type of the child run begun when a revision proposal is confirmed. */
+  revisionPipelineType = "ppt_revision";
+  /**
+   * Called synchronously for every `/messages` ASK turn (no `confirm_proposal`),
+   * BEFORE the command is recorded and BEFORE the response is fulfilled. Stand-in
+   * for the backend writing the durable `concierge_proposal` row inside the ASK
+   * turn, so the post-send durable re-fetch can never beat the proposal.
+   */
+  onConciergeAsk: ((ask: RecordedCommand) => void) | null = null;
+
+  /** The tail a given run's stream / log serves (see beginRun). */
+  private tailFor(runId: string | null): SseFrame[] {
+    const from = runId != null ? this.ownedFrom.get(runId) : undefined;
+    if (from != null) return this.frames.filter((f) => (f.data.seq as number) >= from);
+    // The revision child is created by the backend on confirm: until then it has no
+    // events. (GET /api/runs may already list it as running; the app auto-attaches
+    // listed runs, and the shared tail must not be served as that run's history.)
+    if (runId != null && runId === this.revisionRunId) return [];
+    // A run that never began as a child owns only the frames BEFORE the first child
+    // run took over the tail. A real per-run stream never returns a child's frames;
+    // without this a late parent (re)attach replays the parent's terminal
+    // pipeline_complete AFTER the child's and clobbers the revised deck.
+    if (runId != null && this.ownedFrom.size > 0) {
+      const firstChildFrom = Math.min(...this.ownedFrom.values());
+      return this.frames.filter((f) => (f.data.seq as number) < firstChildFrom);
+    }
+    return this.frames;
+  }
+
   /** Frames with seq strictly greater than the cursor (replay-from-Last-Event-ID). */
   framesAfter(cursor: number | null): SseFrame[] {
     if (cursor == null) return [...this.frames];
@@ -439,8 +493,32 @@ export class MockSse implements SeqSource {
     // and attaches the now-live run. Fire-and-forget: the durable tail means any
     // frame already emitted is replayed on attach (no race).
     this.page
-      .evaluate(() => window.dispatchEvent(new Event("online")))
+      .evaluate((runId) => {
+        // KAN-125: the provider only auto-attaches runs this tab launched
+        // (sessionStorage allow-list), so register the run as tab-owned first.
+        const key = "tab_launched_run_ids";
+        let ids: string[] = [];
+        try { ids = JSON.parse(sessionStorage.getItem(key) ?? "[]") as string[]; } catch { ids = []; }
+        if (!ids.includes(runId)) ids.push(runId);
+        sessionStorage.setItem(key, JSON.stringify(ids));
+        window.dispatchEvent(new Event("online"));
+      }, this.runId)
       .catch(() => {});
+  }
+
+  /**
+   * KAN-125: the page seeds its launched-run allow-list from sessionStorage only
+   * at MOUNT, so a spec that emits without launching must have the run id there
+   * before the app boots. Registered as an init script (runs on every navigation).
+   */
+  async seedTabOwnership() {
+    await this.page.addInitScript((runId) => {
+      const key = "tab_launched_run_ids";
+      let ids: string[] = [];
+      try { ids = JSON.parse(sessionStorage.getItem(key) ?? "[]") as string[]; } catch { ids = []; }
+      if (!ids.includes(runId)) ids.push(runId);
+      sessionStorage.setItem(key, JSON.stringify(ids));
+    }, this.runId);
   }
 
   private serialize(frames: SseFrame[]): string {
@@ -523,7 +601,7 @@ export class MockSse implements SeqSource {
     const after = Number(new URL(route.request().url()).searchParams.get("after") ?? 0) || 0;
     // The mock owns exactly one run's durable tail; another run's log is empty here
     // (the real endpoint is per-run + owner-scoped).
-    const tail = runId === this.runId ? this.frames : [];
+    const tail = this.ownedFrom.has(runId) ? this.tailFor(runId) : runId === this.runId ? this.frames : [];
     const events = tail
       .filter((f) => (f.data.seq as number) > after)
       .map((f) => {
@@ -561,9 +639,23 @@ export class MockSse implements SeqSource {
     let cmd: RecordedCommand;
     let resBody: unknown = { ok: true };
     switch (kind) {
-      case "messages":
+      case "messages": {
         cmd = { ...body, ...ids, type: "user_message" };
+        // A confirmed Concierge REVISION proposal launches the revision server-side
+        // and answers `{ proposal: { revision_run_id } }` (run_commands.py; parsed by
+        // RunConnectionProvider.sendCommand). The mock owns one durable tail, so the
+        // revision reuses this run id (same simplification as POST /revisions).
+        const confirm = body.confirm_proposal as { channel?: string } | undefined;
+        if (!body.confirm_proposal) this.onConciergeAsk?.(cmd);
+        if (confirm?.channel === "revision") {
+          // Own the child tail BEFORE the response reaches the browser, so the
+          // remounted child stream never replays the parent's terminal frames.
+          const child = this.revisionRunId ?? this.runId;
+          if (child !== this.runId) this.beginRun(child, this.revisionPipelineType);
+          resBody = { ok: true, proposal: { channel: "revision", revision_run_id: child } };
+        }
         break;
+      }
       case "cancel":
         cmd = { ...body, ...ids, type: "cancel_pipeline" };
         resBody = { ok: true, run_id: runId, cancelled: true };
@@ -612,10 +704,13 @@ export class MockSse implements SeqSource {
     const lastEventId = headers["last-event-id"];
     const cursor = lastEventId != null && lastEventId !== "" ? Number(lastEventId) : null;
     this.lastAttachCursor = cursor;
+    const streamRunId = new URL(route.request().url()).pathname.match(/\/api\/runs\/([^/]+)\/events\/stream/)?.[1] ?? null;
+    const after = (c: number | null) =>
+      this.tailFor(streamRunId).filter((f) => c == null || (f.data.seq as number) > c);
 
     // Long-poll: if nothing new is on the tail, hold the response open until a
     // frame is emitted / the transport drops / a short timeout elapses.
-    if (this.framesAfter(cursor).length === 0) {
+    if (after(cursor).length === 0) {
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, STREAM_LONGPOLL_MS);
         this.streamWaiters.push(() => { clearTimeout(t); resolve(); });
@@ -633,7 +728,7 @@ export class MockSse implements SeqSource {
     // the same response as preceding frames (the app must commit isRunning=true
     // + its pipeline_type sync first). If the first pending frame IS terminal,
     // ship it alone; otherwise ship everything up to (not including) it.
-    let pending = this.framesAfter(cursor);
+    let pending = after(cursor);
     const termIdx = pending.findIndex((f) => TERMINAL_TYPES.has(f.type));
     if (termIdx > 0) pending = pending.slice(0, termIdx);
     else if (termIdx === 0) pending = pending.slice(0, 1);

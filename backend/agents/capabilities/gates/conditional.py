@@ -37,12 +37,16 @@ import json
 import logging
 from typing import Any
 
-from agents.capabilities.gates.base import GATE_BLOCK, GATE_PASS, GATE_ROUTE, GateOutcome
+from agents.capabilities.gates.base import (
+    GATE_BLOCK,
+    GATE_PASS,
+    GATE_ROUTE,
+    GateOutcome,
+)
 from agents.capabilities.gates.write import write_gate_event
 from agents.capabilities.registry import register
 
 logger = logging.getLogger(__name__)
-
 
 
 def _trailing_json_object(content: str) -> dict | None:
@@ -140,7 +144,8 @@ class ConditionalGate:
                 # closed to "no match" rather than crashing the gate (never raise).
                 logger.warning(
                     "conditional gate: step %s got an unhashable decision value from %r",
-                    step_id, decision_source,
+                    step_id,
+                    decision_source,
                 )
                 matched = None
 
@@ -153,7 +158,8 @@ class ConditionalGate:
             # re-scan `route.outcomes` itself (that scan belongs in exactly one
             # place).
             _skipped_targets = [
-                v.target for v in outcomes.values()
+                v.target
+                for v in outcomes.values()
                 if v.trigger == "step" and v.target != matched.target
             ]
             detail = {
@@ -169,7 +175,10 @@ class ConditionalGate:
             _all_options = ", ".join(f"{k!r}->{v.target}" for k, v in outcomes.items())
             logger.info(
                 "condition: step %s picked %r -> target=%s | declared options: %s",
-                step_id, decision, matched.target, _all_options or "-",
+                step_id,
+                decision,
+                matched.target,
+                _all_options or "-",
             )
             await write_gate_event(ctx, step_id, "conditional", GATE_ROUTE, detail)
             return GateOutcome(outcome=GATE_ROUTE, detail=detail)
@@ -227,7 +236,8 @@ class ConditionalGate:
         if not content:
             logger.info(
                 "conditional gate: step %s found no route_decision artifact from %r",
-                step_id, decision_source,
+                step_id,
+                decision_source,
             )
             return None
 
@@ -253,14 +263,16 @@ class ConditionalGate:
             if parsed is None:
                 logger.warning(
                     "conditional gate: step %s got malformed route_decision JSON from %r",
-                    step_id, decision_source,
+                    step_id,
+                    decision_source,
                 )
                 return None
 
         if not isinstance(parsed, dict) or "decision" not in parsed:
             logger.warning(
                 "conditional gate: step %s route_decision from %r has no 'decision' key",
-                step_id, decision_source,
+                step_id,
+                decision_source,
             )
             return None
 

@@ -58,7 +58,7 @@ class TestExtractSection:
         html = '<section class="screen" id="home"><section class="subsection">Sub</section></section>'
         section, notes = extract_section(html, "home")
         assert section is not None
-        assert "<section class=\"subsection\">" in section
+        assert '<section class="subsection">' in section
 
 
 class TestStripForbidden:
@@ -72,7 +72,7 @@ class TestStripForbidden:
         assert any("removed" in n and "script" in n for n in notes)
 
     def test_strip_style_tags(self):
-        html = '<section><style>.x { color: red; }</style>Content</section>'
+        html = "<section><style>.x { color: red; }</style>Content</section>"
         result, notes = strip_forbidden(html)
         assert "<style>" not in result
         assert "Content" in result
@@ -178,7 +178,7 @@ class TestAssemble:
 
         assert validation["totals"]["missing"] == 1
         assert "home" in validation["missing"]
-        assert "data-stub=\"true\"" in html
+        assert 'data-stub="true"' in html
 
     def test_assemble_with_invalid_part(self):
         inv = parse_inventory('{"screens": [{"id": "home"}]}')
@@ -226,7 +226,9 @@ class TestAssemble:
         inv = parse_inventory(
             '{"screens": [{"id": "home", "transitions": [{"label": "Go", "to": "unknown"}]}]}'
         )
-        parts = {"home": '<section class="screen" id="home"><button data-goto="unknown">Go</button></section>'}
+        parts = {
+            "home": '<section class="screen" id="home"><button data-goto="unknown">Go</button></section>'
+        }
         html, validation = assemble(inv, parts)
 
         # Should report broken transition
@@ -237,7 +239,10 @@ class TestAssemble:
         inv = parse_inventory(
             '{"screens": [{"id": "home", "transitions": [{"label": "Go", "to": "about"}]}]}'
         )
-        parts = {"home": '<section class="screen" id="home">Home</section>', "about": "..."}
+        parts = {
+            "home": '<section class="screen" id="home">Home</section>',
+            "about": "...",
+        }
         html, validation = assemble(inv, parts)
 
         # Should report missing expected transition
@@ -367,9 +372,7 @@ class TestMechanicalAssembleStrategy:
     """Test the MechanicalAssembleStrategy class."""
 
     def test_mechanical_assemble_strategy_has_name(self):
-        strategy = MechanicalAssembleStrategy(
-            spec=None, index=0, total=1, results=[]
-        )
+        strategy = MechanicalAssembleStrategy(spec=None, index=0, total=1, results=[])
         assert strategy.name == "assemble_prototype"
 
     @pytest.mark.asyncio
@@ -407,9 +410,7 @@ class TestMechanicalAssembleStrategy:
         )
 
         spec = FakeSpec()
-        strategy = MechanicalAssembleStrategy(
-            spec=spec, index=0, total=1, results=[]
-        )
+        strategy = MechanicalAssembleStrategy(spec=spec, index=0, total=1, results=[])
 
         events = []
         async for event in strategy.run(None, ctx):
@@ -441,9 +442,7 @@ class TestMechanicalAssembleStrategy:
 
         ctx = FakeCtx()
         spec = FakeSpec()
-        strategy = MechanicalAssembleStrategy(
-            spec=spec, index=0, total=1, results=[]
-        )
+        strategy = MechanicalAssembleStrategy(spec=spec, index=0, total=1, results=[])
 
         with pytest.raises(AssembleStepFailed):
             async for event in strategy.run(None, ctx):
@@ -540,16 +539,24 @@ def test_in_screen_states_are_namespaced_validated_and_in_the_shell():
     from agents.capabilities.assemble_step import assemble, namespace_ids
     from agents.capabilities.screen_inventory import parse_inventory
 
-    sec = ('<section class="screen" id="edm"><button data-show="confirm">Finalize</button>'
-           '<div class="state" id="confirm"><button data-hide="confirm">No</button></div>'
-           '<button data-show="ghost">Broken</button></section>')
+    sec = (
+        '<section class="screen" id="edm"><button data-show="confirm">Finalize</button>'
+        '<div class="state" id="confirm"><button data-hide="confirm">No</button></div>'
+        '<button data-show="ghost">Broken</button></section>'
+    )
     out, dups, local = namespace_ids(sec, "edm", set())
-    assert 'id="edm--confirm"' in out and 'data-show="edm--confirm"' in out and 'data-hide="edm--confirm"' in out
+    assert (
+        'id="edm--confirm"' in out
+        and 'data-show="edm--confirm"' in out
+        and 'data-hide="edm--confirm"' in out
+    )
     inv = parse_inventory('{"entry":"edm","screens":[{"id":"edm","title":"EDM"}]}')
     doc, val = assemble(inv, {"edm": sec})
     s = val["screens"][0]
     assert s["status"] == "degraded"
-    assert any(b["attr"] == "data-show" and b["to"] == "ghost" for b in s["broken_transitions"])  # unknown target stays unprefixed
+    assert any(
+        b["attr"] == "data-show" and b["to"] == "ghost" for b in s["broken_transitions"]
+    )  # unknown target stays unprefixed
     assert ".state{display:none}" in doc and ".state.open{display:revert}" in doc
     assert "closeDialog(); openDialog(v);" in doc and "[data-show],[data-hide]" in doc
 
@@ -581,7 +588,9 @@ def test_theme_applied_overrides_root_after_the_shell_defaults():
     assert validation["theme"]["applied"] == ["primary", "font_family", "border_radius"]
     override = ":root{--color-primary:#ff385c;--font-family:Inter, Arial, sans-serif;--border-radius:12px}"
     assert override in doc
-    assert doc.index("--color-primary:#003f7f") < doc.index(override)  # override wins by order
+    assert doc.index("--color-primary:#003f7f") < doc.index(
+        override
+    )  # override wins by order
 
 
 def test_theme_rejects_unknown_keys_and_bad_values_but_applies_the_rest():
@@ -604,7 +613,12 @@ def test_theme_invalid_json_is_reported_and_ignored():
 
 
 def test_theme_keys_map_onto_shell_variables_that_exist():
-    shell = Path(__file__).resolve().parents[2] / "agents" / "capabilities" / "assemble_shell.html"
+    shell = (
+        Path(__file__).resolve().parents[2]
+        / "agents"
+        / "capabilities"
+        / "assemble_shell.html"
+    )
     text = shell.read_text()
     for var in THEME_KEYS.values():
         assert f"{var}:" in text, var
@@ -638,7 +652,9 @@ def test_assemble_prototype_reads_theme_from_the_sandbox():
     summary = assemble_prototype(ctx)
     assert "--color-secondary:#00aa00" in ctx.runner.sandbox.files["prototype.html"]
     assert "Theme applied from build/theme.json: secondary" in summary
-    assert json.loads(ctx.runner.sandbox.files["build/validation.json"])["theme"]["applied"] == ["secondary"]
+    assert json.loads(ctx.runner.sandbox.files["build/validation.json"])["theme"][
+        "applied"
+    ] == ["secondary"]
 
 
 # ── v4 assembler checks: double navigation attributes, untriggered states, field count ─
@@ -648,18 +664,25 @@ _TWO = '{"screens": [{"id": "a", "title": "A", "transitions": [{"label": "Go", "
 def test_double_navigation_attribute_loses_data_tab_and_is_reported():
     inv = parse_inventory(_TWO)
     part = '<section class="screen" id="a"><a class="tab-link" data-tab="x" data-goto="b">Go</a><div class="tab-panel" id="x"></div></section>'
-    doc, v = assemble(inv, {"a": part, "b": '<section class="screen" id="b">B</section>'})
+    doc, v = assemble(
+        inv, {"a": part, "b": '<section class="screen" id="b">B</section>'}
+    )
     a = next(s for s in v["screens"] if s["id"] == "a")
-    assert 'data-goto="b"' in doc and 'data-tab="x"' not in doc.split('id="b"')[0].split('id="a"')[1]
+    assert (
+        'data-goto="b"' in doc
+        and 'data-tab="x"' not in doc.split('id="b"')[0].split('id="a"')[1]
+    )
     assert any("removed data-tab" in i for i in a["issues"])
     assert a["status"] == "ok"  # fixed by code, not a build failure
 
 
 def test_state_nothing_reveals_is_degraded_and_named():
     inv = parse_inventory(_TWO)
-    part = ('<section class="screen" id="a"><button class="btn" data-goto="b">Go</button>'
-            '<div class="state" id="results">r</div><div class="state" id="empty">e</div>'
-            '<button class="btn" data-show="empty">Show</button></section>')
+    part = (
+        '<section class="screen" id="a"><button class="btn" data-goto="b">Go</button>'
+        '<div class="state" id="results">r</div><div class="state" id="empty">e</div>'
+        '<button class="btn" data-show="empty">Show</button></section>'
+    )
     _, v = assemble(inv, {"a": part, "b": '<section class="screen" id="b">B</section>'})
     a = next(s for s in v["screens"] if s["id"] == "a")
     assert a["status"] == "degraded"
@@ -671,10 +694,17 @@ def test_field_count_against_the_spec_marks_thin_screens_degraded():
     inv = parse_inventory(_TWO)
     spec = "## Screens\n### a — A\n- Fields:\n  - One [text]\n  - Two [text]\n  - Three [text]\n  - Four [text]\n  - Five [text]\n### b — B\n"
     thin = '<section class="screen" id="a"><input class="form-control" id="one"><button data-goto="b">Go</button></section>'
-    full = ('<section class="screen" id="a">' + "".join(f'<input class="form-control" id="f{i}">' for i in range(5))
-            + '<button data-goto="b">Go</button></section>')
-    _, v1 = assemble(inv, {"a": thin, "b": "<section class='screen' id='b'>B</section>"}, spec=spec)
-    _, v2 = assemble(inv, {"a": full, "b": "<section class='screen' id='b'>B</section>"}, spec=spec)
+    full = (
+        '<section class="screen" id="a">'
+        + "".join(f'<input class="form-control" id="f{i}">' for i in range(5))
+        + '<button data-goto="b">Go</button></section>'
+    )
+    _, v1 = assemble(
+        inv, {"a": thin, "b": "<section class='screen' id='b'>B</section>"}, spec=spec
+    )
+    _, v2 = assemble(
+        inv, {"a": full, "b": "<section class='screen' id='b'>B</section>"}, spec=spec
+    )
     a1 = next(s for s in v1["screens"] if s["id"] == "a")
     a2 = next(s for s in v2["screens"] if s["id"] == "a")
     assert a1["fields"] == {"expected": 5, "found": 1} and a1["status"] == "degraded"

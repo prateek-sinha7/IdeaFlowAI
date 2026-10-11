@@ -26,7 +26,12 @@ from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX,
     OpenDesignProvider,
 )
-from agents.capabilities.context_providers.previous_run import PreviousRunProvider
+from agents.capabilities.context_providers.previous_run import (
+    _RESERVED_PREFIXES,
+    PreviousRunProvider,
+    _declared_seed_files,
+    _is_reserved,
+)
 
 
 def _raw_part_keys(blocks: dict) -> list[str]:
@@ -709,13 +714,6 @@ def test_od_ppt_agents_template_example_inject_wiring():
 # ===========================================================================
 
 
-from agents.capabilities.context_providers.previous_run import (
-    _RESERVED_PREFIXES,
-    _is_reserved,
-    _declared_seed_files,
-)
-
-
 class _SeedCtx:
     """Minimal ctx stub for _declared_seed_files tests."""
 
@@ -760,15 +758,19 @@ def test_declared_seed_files_filters_reserved_entries(caplog):
     """_declared_seed_files drops reserved entries and emits a warning per skip."""
     import logging
 
-    ctx = _SeedCtx(seed_files={"from_run": [
-        "spec.md",
-        ".chain/",                      # reserved — blocked
-        "design.md",
-        ".uploads/manifest.json",       # reserved — blocked
-        "tasks.md",
-        "skills/my-skill.md",           # reserved — blocked
-        ".agents/trace.txt",            # reserved — blocked
-    ]})
+    ctx = _SeedCtx(
+        seed_files={
+            "from_run": [
+                "spec.md",
+                ".chain/",  # reserved — blocked
+                "design.md",
+                ".uploads/manifest.json",  # reserved — blocked
+                "tasks.md",
+                "skills/my-skill.md",  # reserved — blocked
+                ".agents/trace.txt",  # reserved — blocked
+            ]
+        }
+    )
 
     with caplog.at_level(logging.WARNING):
         result = _declared_seed_files(ctx)
@@ -781,16 +783,20 @@ def test_declared_seed_files_filters_reserved_entries(caplog):
 
 def test_declared_seed_files_all_reserved_returns_empty_tuple():
     """When every entry is reserved the result is an empty tuple (never the fallback)."""
-    ctx = _SeedCtx(seed_files={"from_run": [
-        ".chain/",
-        ".context/",
-        ".uploads/",
-        ".logs/",
-        ".verify/",
-        ".browser/",
-        ".agents/",
-        "skills/",
-    ]})
+    ctx = _SeedCtx(
+        seed_files={
+            "from_run": [
+                ".chain/",
+                ".context/",
+                ".uploads/",
+                ".logs/",
+                ".verify/",
+                ".browser/",
+                ".agents/",
+                "skills/",
+            ]
+        }
+    )
     result = _declared_seed_files(ctx)
     # Empty tuple, not the legacy _SEED_FILES fallback.
     assert result == ()
@@ -820,7 +826,7 @@ async def test_previous_run_reserved_seed_file_is_not_written():
         sandbox=sandbox,
         parent_files={
             "spec.md": "SPEC",
-            ".chain/payload.md": "CHAIN CONTENT",   # reserved — should be silently skipped
+            ".chain/payload.md": "CHAIN CONTENT",  # reserved — should be silently skipped
             "design.md": "DESIGN",
         },
     )
@@ -894,7 +900,9 @@ async def test_previous_run_seed_default_fallback_with_from_run():
     runner = _FakeRunner(
         sandbox=sandbox,
         parent_files={
-            "spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS",
+            "spec.md": "SPEC",
+            "design.md": "DESIGN",
+            "tasks.md": "TASKS",
         },
     )
     store = _FakeScopedStore(cross_owner=False)
@@ -911,5 +919,7 @@ async def test_previous_run_seed_default_fallback_with_from_run():
 
     # All three default files are seeded.
     assert sandbox.written == {
-        "spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS",
+        "spec.md": "SPEC",
+        "design.md": "DESIGN",
+        "tasks.md": "TASKS",
     }

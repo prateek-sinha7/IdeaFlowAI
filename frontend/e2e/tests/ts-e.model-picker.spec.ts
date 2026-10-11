@@ -27,30 +27,37 @@ const ALLOWED_LABELS = ["Haiku 4.5", "Sonnet 4.5", "Sonnet 4.6", "Opus 4.5"];
 
 // ── Phase 39 redesign helpers ────────────────────────────────────────────────
 // The standalone AgentModelPicker ("Per-Agent Model", one <select> per agent) is
-// gone. The per-agent Model lever now lives 3 levels deep: AgentsPopup Agents tab
-// → an agent card's "View capabilities & configure" → AgentCapabilitiesModal
-// "Config" tab → a per-agent "Advanced — {name}" expander (Validator · Gate ·
-// Model · Retry). The Model lever is a native <select> (aria-label "Model for
-// {name}") with options "{label} ({tier})" — the WHOLE catalog per DECIDE-02. The
-// picked model threads up via `selections[agentId].model` on run_pipeline.
-const FIRST_AGENT = "Domain Discovery Agent"; // first user_stories LIBRARY_AGENT
+// gone, and since 24332e0c the popup's Agents tab embeds the Composer canvas
+// (no per-card "View capabilities & configure" button). The per-agent Model lever
+// lives in the canvas config rail: click the agent's node → rail "Config" tab →
+// a native <select aria-label="Model"> whose options are "Default" + each catalog
+// model's label (the tier suffix was dropped — CanvasConfigRail: tier is a
+// display-only legacy label) — the WHOLE catalog per DECIDE-02. The picked model
+// threads up via `selections[agentId].model` on run_pipeline.
+// First user_stories LIBRARY_AGENT ("Domain Discovery Agent").
+const FIRST_AGENT_ID = "domain-analyst";
 type PW = import("@playwright/test").Page;
+
+/** Keep the popup's edits and close it. Cancel DISCARDS the session's edits
+ *  (ISS-258/ISS-363 snapshot restore), so the per-agent lever is kept through the
+ *  footer "Save workflow" → name → Save, which closes the popup with the edit. */
+async function saveAndClosePopup(page: PW) {
+  await page.locator("button:not([title])", { hasText: /^Save workflow$/ }).click();
+  await page.getByPlaceholder(/Competitive research/i).fill("Model pick");
+  await page.getByRole("button", { name: /^Save$/ }).click();
+  await expect(page.getByRole("heading", { name: /^Advanced Workflow Configuration/ })).toHaveCount(0);
+}
 
 /** From the open Agents tab: drill into the FIRST agent's Model lever <select>. */
 async function openFirstAgentModelLever(page: PW) {
-  await page.getByRole("button", { name: "View capabilities & configure" }).first().click();
-  await page.getByRole("tab", { name: "Config" }).click();
-  await page.getByRole("button", { name: new RegExp(`Advanced — ${FIRST_AGENT}`) }).click();
-  const model = page.getByLabel(`Model for ${FIRST_AGENT}`);
+  await page.getByTestId(`canvas-node-${FIRST_AGENT_ID}`).click();
+  await page.getByRole("complementary").getByRole("tab", { name: "Config" }).click();
+  // The rail's Model select is labelled plainly "Model" (one rail, one agent).
+  const model = page.getByRole("complementary").getByRole("combobox", { name: "Model", exact: true });
   await expect(model).toBeVisible();
   return model;
 }
 
-/** Close the AgentCapabilitiesModal (its card is the only .max-w-md dialog; the
- *  first button in it is the header close ✕). */
-async function closeAgentModal(page: PW) {
-  await page.locator("div.max-w-md").getByRole("button").first().click();
-}
 
 test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
   test.beforeEach(async ({ dashboard }) => {
@@ -68,12 +75,10 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
   });
 
   test("TS-E-01 per-agent config → Default-first Model lever", async ({ page }) => {
-    // One "View capabilities & configure" per agent. user_stories seeds 6, so ≥ 1.
-    const configBtns = page.getByRole("button", { name: "View capabilities & configure" });
-    await expect(configBtns.first()).toBeVisible();
-    expect(await configBtns.count()).toBeGreaterThanOrEqual(1);
+    // One configurable canvas node per agent. user_stories seeds 6.
+    await expect(page.locator('[data-testid^="canvas-node-wrap-"]')).toHaveCount(6);
 
-    // Drill into the first agent's Config → Advanced Model lever; its FIRST option
+    // Drill into the first agent's rail Config → Model lever; its FIRST option
     // is the "Default" (no-override) sentinel.
     const model = await openFirstAgentModelLever(page);
     await expect(model.locator("option").first()).toHaveText("Default");
@@ -87,17 +92,11 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
   test("TS-E-02 catalog reflects backend (user_allowed only)", async ({ page }) => {
     const model = await openFirstAgentModelLever(page);
 
-    // Option texts = "Default" + each catalog model as "{label} ({tier})".
+    // Option texts = "Default" + each catalog model's label (no tier suffix).
     const optionTexts = await model.locator("option").allTextContents();
 
-    // All 4 originally-user_allowed catalog models are offered (new tier-suffixed
-    // format). Tiers from constants.ts MODEL_CATALOG.
-    for (const label of [
-      "Haiku 4.5 (fast)",
-      "Sonnet 4.5 (balanced)",
-      "Sonnet 4.6 (balanced)",
-      "Opus 4.5 (powerful)",
-    ]) {
+    // All 4 originally-user_allowed catalog models are offered.
+    for (const label of ALLOWED_LABELS) {
       expect(optionTexts).toContain(label);
     }
     // The no-override sentinel leads the list.
@@ -107,9 +106,9 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     // user_allowed filter was DROPPED. The Model lever (the SAME AdvancedExpander
     // the full-page Composer's inline model picker reuses) offers the WHOLE catalog
     // — server `_validate_model_overrides` is the authoritative allow-list — so the
-    // user_allowed:false model "Opus 4.6 (powerful)" IS offered and there are 6
+    // user_allowed:false model "Opus 4.6" IS offered and there are 6
     // options (Default + 5). Reconciled from the OLD filter contract to this reality.
-    expect(optionTexts).toContain("Opus 4.6 (powerful)");
+    expect(optionTexts).toContain("Opus 4.6");
     expect(optionTexts).toHaveLength(ALLOWED_LABELS.length + 2);
   });
 
@@ -120,10 +119,8 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     const model = await openFirstAgentModelLever(page);
     await model.selectOption(SONNET_46_ID);
 
-    // Close the modal, then the popup (Phase 39: footer "Save changes" → "Cancel";
-    // the selection persists via the live onSelectionsChange ref) and run.
-    await closeAgentModal(page);
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    // Keep the edit (Save closes the popup with it), then run.
+    await saveAndClosePopup(page);
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
@@ -146,8 +143,7 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     await model.selectOption(SONNET_46_ID);
     await model.selectOption(""); // Default (value "") → model key deleted
 
-    await closeAgentModal(page);
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await saveAndClosePopup(page);
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
@@ -184,8 +180,8 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
  *       override (in the TEST, not a fixture) beats the mockApi handler. We open
  *       the picker and assert the loading copy shows while the fetch is in flight.
  *
- *   • no-jwt / fetch-failure copy                          → stays FIXME (below).
- *       See the precise reasons on the test.fixme.
+ *   • no-jwt / fetch-failure copy                          → DELETED (see the
+ *       note at the end of this describe for the covering owner).
  */
 test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
   test("TS-E-01b-noagents composer shows no inline model picker (custom seeds 0 agents)", async ({
@@ -198,9 +194,9 @@ test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
     await dashboard.goto({ tier: "enterprise" });
     await dashboard.selectWorkflow("Compose a custom workflow");
 
-    // We are on the Composer Simple view.
-    await expect(page.getByText(/Custom workflow · Composer/i)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("button", { name: /^Simple$/ })).toBeVisible();
+    // The Composer opens on Canvas (its default); switch to the Simple view.
+    await expect(dashboard.composerEyebrow()).toBeVisible({ timeout: 15000 });
+    await page.getByRole("button", { name: /^Simple$/ }).click();
 
     // 0 agent rows → the empty-state copy, no inline model picker, no config levers.
     await expect(page.locator('[data-testid^="agent-row-"]')).toHaveCount(0);
@@ -213,64 +209,57 @@ test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
     dashboard,
     page,
   }) => {
-    // Land on user_stories (seeds 6 agents) so the picker mounts and fetches.
-    await dashboard.goto({ tier: "enterprise" });
-    await dashboard.selectWorkflow("Generate product requirements");
-    await dashboard.fillIdea("Generate epics for a refunds workflow");
-
-    // Per-test route override (additive; most-recent handler wins) that DELAYS
-    // the capabilities fetch long enough to observe the loading state. This is a
-    // TEST-level page.route — not a fixture edit — which the contract allows.
+    // getCapabilities is a shared cached GET (ISS-782/ISS-796): the FIRST fetch
+    // of the session is the only in-flight window, so the gate goes in BEFORE
+    // the app boots. The handler holds the response until the test releases it —
+    // deterministic, no sleep. Test-level page.route (additive; most-recent
+    // handler wins over mockApi's).
+    let release!: () => void;
+    const released = new Promise<void>((r) => { release = r; });
     await page.route("**/api/capabilities", async (route) => {
-      await new Promise((r) => setTimeout(r, 1500));
-      route.fulfill({
+      await released;
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ capabilities: [], model_catalog: [] }),
       });
     });
 
-    // Open Advanced, then drill into the first agent's Config tab — Phase 39 moved
-    // the AdvancedExpander into the per-agent AgentCapabilitiesModal, so it only
-    // mounts (and fires the now-delayed capabilities fetch) once Config is shown.
-    await dashboard.openAdvanced();
-    await page.getByRole("button", { name: "View capabilities & configure" }).first().click();
-    await page.getByRole("tab", { name: "Config" }).click();
+    // The AdvancedExpander ("Loading levers…") is the full-page Composer's
+    // per-agent config panel since 24332e0c (the Advanced popup's per-agent
+    // levers moved to the canvas rail / the library inspector, which render no
+    // loading copy). Reach it as TS-E-05 does: compose → add an agent → pill.
+    await dashboard.goto({ tier: "enterprise" });
+    await dashboard.selectWorkflow("Compose a custom workflow");
+    await expect(dashboard.composerEyebrow()).toBeVisible({ timeout: 15000 });
+    await page.getByRole("button", { name: /^Simple$/ }).click();
+    await page.getByRole("button", { name: "Add agent" }).first().click();
+    await page.getByRole("button", { name: /^All$/ }).first().click();
+    await page.getByRole("button", { name: /\+ Add/ }).first().click();
+    const pill = page.getByRole("button", { name: /Model for / }).first();
+    await expect(pill).toBeVisible();
+    // The pill opens the row's config panel, which mounts the AdvancedExpander.
+    await pill.click();
 
-    // While the fetch is in flight the lever panel shows the loading copy. Phase
-    // 39: the AdvancedExpander copy is "Loading levers…" (was "Loading model
-    // catalog…"). Assert it appears within the delay window (well under 1.5s).
-    await expect(page.getByText("Loading levers…")).toBeVisible({
-      timeout: 1000,
-    });
+    // While the fetch is held the lever panel shows the loading copy (in place
+    // of the "Advanced — {name}" expander, which renders once loaded).
+    await expect(page.getByText("Loading levers…")).toBeVisible();
 
-    // And once the (empty) catalog resolves, the loading copy goes away — proving
-    // it was the transient in-flight state, not a stuck spinner.
-    await expect(page.getByText("Loading levers…")).toBeHidden({
-      timeout: 4000,
-    });
+    // Once the (empty) catalog resolves, the loading copy goes away — proving it
+    // was the transient in-flight state, not a stuck spinner.
+    release();
+    await expect(page.getByText("Loading levers…")).toBeHidden();
+    await expect(page.getByRole("button", { name: /Advanced — / }).first()).toBeVisible();
   });
-
-  // no-jwt ("Not authenticated.") and the fetch-failure COPY ("Failed to load
-  // models.") are NOT reachable in mocked mode:
-  //
-  //   • no-jwt: the picker only renders inside the dashboard, but the dashboard
-  //     has a route guard — navigating without a token redirects straight to
-  //     /login (verified: url becomes …/login, the home heading never mounts), so
-  //     the AgentModelPicker (and its "Not authenticated." branch) is never
-  //     reached. Clearing the token mid-session would likewise bounce to /login.
-  //
-  //   • "Failed to load models." copy: that string is only the FALLBACK used when
-  //     the rejected error has a nullish `.message`. A route → 500 surfaces the
-  //     response body / statusText instead (e.g. the red error box shows "{}"),
-  //     and route.abort() yields a TypeError whose message is "Failed to fetch" —
-  //     neither is nullish, so the literal "Failed to load models." copy can't be
-  //     produced via route manipulation. (The error UI itself IS reachable, but
-  //     asserting this exact copy would be a false assertion.)
-  test.skip(
-    "TS-E-01b-nojwt-and-failcopy: no-jwt redirects to /login (picker never mounts); 500/abort surface the body/statusText, never the literal 'Failed to load models.' fallback; Owner: frontend",
-    async () => {},
-  );
+  // TS-E-01b-nojwt-and-failcopy was DELETED (it was an empty skipped body). Neither
+  // branch is reachable from a browser:
+  //   • no-jwt: the dashboard route guard redirects a token-less load to /login
+  //     before the picker can mount — that redirect is owned by
+  //     ts-a.auth.spec.ts TS-A-01.
+  //   • "Failed to load models.": only the fallback for a rejection with a nullish
+  //     `.message`; a routed 500 / abort always carries a message, so the literal
+  //     copy cannot be produced here. KNOWN GAP: AgentModelPicker.test.tsx does not
+  //     yet cover the picker's error / no-jwt branches at the component layer.
 });
 
 /**
@@ -290,7 +279,9 @@ test.describe("TS-E-05 — composer inline model picker (full-page Composer)", (
   }) => {
     await dashboard.goto({ tier: "enterprise" });
     await dashboard.selectWorkflow("Compose a custom workflow");
-    await expect(page.getByText(/Custom workflow · Composer/i)).toBeVisible({ timeout: 15000 });
+    await expect(dashboard.composerEyebrow()).toBeVisible({ timeout: 15000 });
+    // The Composer opens on Canvas; the inline model pill lives on Simple rows.
+    await page.getByRole("button", { name: /^Simple$/ }).click();
 
     // Add an agent from the reused AgentLibrary (custom seeds 0).
     await page.getByRole("button", { name: "Add agent" }).first().click();
@@ -311,6 +302,7 @@ test.describe("TS-E-05 — composer inline model picker (full-page Composer)", (
     // The lever is the whole catalog (Default-first), reused from the shared payload.
     const optionTexts = await model.locator("option").allTextContents();
     expect(optionTexts[0]).toBe("Default");
-    expect(optionTexts).toContain("Opus 4.6 (powerful)");
+    // (Option text is the model label alone — the tier suffix was dropped.)
+    expect(optionTexts).toContain("Opus 4.6");
   });
 });

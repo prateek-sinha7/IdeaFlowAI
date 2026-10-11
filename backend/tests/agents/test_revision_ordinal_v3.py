@@ -20,6 +20,7 @@ completed -> failed -> completed family therefore tagged its third run
      from inside the finalizer").
   4. The failed run in that same family gets no tag at all.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -83,9 +84,15 @@ def db_session(db_engine):
         session.close()
 
 
-def _seed_run(db, *, run_id: str, parent_run_id: str | None = None,
-              status: str = "completed", created_offset: int = 0,
-              user_id: str = _USER_ID) -> None:
+def _seed_run(
+    db,
+    *,
+    run_id: str,
+    parent_run_id: str | None = None,
+    status: str = "completed",
+    created_offset: int = 0,
+    user_id: str = _USER_ID,
+) -> None:
     db.add(
         WorkflowRun(
             id=run_id,
@@ -107,14 +114,19 @@ def _seed_mixed_family(db) -> tuple[str, str, str]:
     """completed -> failed -> completed, chronological (root, rev1, rev2)."""
     root_id, rev1_id, rev2_id = (f"ord-{uuid.uuid4()}" for _ in range(3))
     _seed_run(db, run_id=root_id, status="completed", created_offset=0)
-    _seed_run(db, run_id=rev1_id, parent_run_id=root_id, status="failed", created_offset=10)
-    _seed_run(db, run_id=rev2_id, parent_run_id=rev1_id, status="completed", created_offset=20)
+    _seed_run(
+        db, run_id=rev1_id, parent_run_id=root_id, status="failed", created_offset=10
+    )
+    _seed_run(
+        db, run_id=rev2_id, parent_run_id=rev1_id, status="completed", created_offset=20
+    )
     return root_id, rev1_id, rev2_id
 
 
 # ---------------------------------------------------------------------------
 # 1. _compute_revision_ordinal — the counting rule itself
 # ---------------------------------------------------------------------------
+
 
 class TestComputeRevisionOrdinalCountingRule:
     def test_failed_ancestor_still_consumes_an_ordinal(self, db_session) -> None:
@@ -139,10 +151,20 @@ class TestComputeRevisionOrdinalCountingRule:
 
         root_id, rev1_id, rev2_id = (f"ord-{uuid.uuid4()}" for _ in range(3))
         _seed_run(db_session, run_id=root_id, status="completed", created_offset=0)
-        _seed_run(db_session, run_id=rev1_id, parent_run_id=root_id,
-                  status="completed", created_offset=10)
-        _seed_run(db_session, run_id=rev2_id, parent_run_id=rev1_id,
-                  status="completed", created_offset=20)
+        _seed_run(
+            db_session,
+            run_id=rev1_id,
+            parent_run_id=root_id,
+            status="completed",
+            created_offset=10,
+        )
+        _seed_run(
+            db_session,
+            run_id=rev2_id,
+            parent_run_id=rev1_id,
+            status="completed",
+            created_offset=20,
+        )
 
         assert _compute_revision_ordinal(rev2_id, db_session) == 3
 
@@ -165,10 +187,20 @@ class TestComputeRevisionOrdinalCountingRule:
 
         root_id, sib1_id, sib2_id = (f"ord-{uuid.uuid4()}" for _ in range(3))
         _seed_run(db_session, run_id=root_id, status="completed", created_offset=0)
-        _seed_run(db_session, run_id=sib1_id, parent_run_id=root_id,
-                  status="completed", created_offset=10)
-        _seed_run(db_session, run_id=sib2_id, parent_run_id=root_id,
-                  status="completed", created_offset=20)
+        _seed_run(
+            db_session,
+            run_id=sib1_id,
+            parent_run_id=root_id,
+            status="completed",
+            created_offset=10,
+        )
+        _seed_run(
+            db_session,
+            run_id=sib2_id,
+            parent_run_id=root_id,
+            status="completed",
+            created_offset=20,
+        )
 
         assert _compute_revision_ordinal(root_id, db_session) == 1
         assert _compute_revision_ordinal(sib1_id, db_session) == 2
@@ -178,6 +210,7 @@ class TestComputeRevisionOrdinalCountingRule:
 # ---------------------------------------------------------------------------
 # 2. GET /api/runs/{id}/family — the SAME rule, independently computed
 # ---------------------------------------------------------------------------
+
 
 class TestRevisionIndexMatchesEngineOrdinal:
     def test_revision_index_matches_compute_revision_ordinal_on_mixed_family(
@@ -196,9 +229,15 @@ class TestRevisionIndexMatchesEngineOrdinal:
         body = client.get(f"/api/runs/{root_id}/family").json()
         by_id = {m["id"]: m for m in body["members"]}
 
-        assert by_id[root_id]["revision_index"] == _compute_revision_ordinal(root_id, db_session)
-        assert by_id[rev1_id]["revision_index"] == _compute_revision_ordinal(rev1_id, db_session)
-        assert by_id[rev2_id]["revision_index"] == _compute_revision_ordinal(rev2_id, db_session)
+        assert by_id[root_id]["revision_index"] == _compute_revision_ordinal(
+            root_id, db_session
+        )
+        assert by_id[rev1_id]["revision_index"] == _compute_revision_ordinal(
+            rev1_id, db_session
+        )
+        assert by_id[rev2_id]["revision_index"] == _compute_revision_ordinal(
+            rev2_id, db_session
+        )
         assert by_id[rev2_id]["revision_index"] == 3
 
 
@@ -206,6 +245,7 @@ class TestRevisionIndexMatchesEngineOrdinal:
 # 3. finalize_terminal_run: tags v3 on the third run (from ectx, not the DB),
 #    and the failed run in the same family gets no tag at all.
 # ---------------------------------------------------------------------------
+
 
 class TestFinalizerTagsFromContextNotFromDb:
     def _finalize(self, run_id: str, ectx, *, candidate_status: str):
@@ -227,7 +267,9 @@ class TestFinalizerTagsFromContextNotFromDb:
             patch("app.models.run_finalization.RunFinalization", MagicMock()),
         ):
             return asyncio.run(
-                eng.finalize_terminal_run(run_id, ectx, candidate_status=candidate_status)
+                eng.finalize_terminal_run(
+                    run_id, ectx, candidate_status=candidate_status
+                )
             )
 
     def test_third_run_tags_v3_and_finalizer_never_recomputes_the_ordinal(
@@ -248,7 +290,10 @@ class TestFinalizerTagsFromContextNotFromDb:
         repo.mkdir(parents=True)
         _git_init(repo)
         sandbox = FakeSandbox(
-            root=repo, run_id=rev2_id, sandbox_root_id=root_id, current_run_id=rev2_id,
+            root=repo,
+            run_id=rev2_id,
+            sandbox_root_id=root_id,
+            current_run_id=rev2_id,
         )
         _plant_output(sandbox)
         _plant_logs(sandbox, rev2_id)
@@ -273,7 +318,10 @@ class TestFinalizerTagsFromContextNotFromDb:
         repo.mkdir(parents=True)
         _git_init(repo)
         sandbox = FakeSandbox(
-            root=repo, run_id=rev1_id, sandbox_root_id=root_id, current_run_id=rev1_id,
+            root=repo,
+            run_id=rev1_id,
+            sandbox_root_id=root_id,
+            current_run_id=rev1_id,
         )
         _plant_output(sandbox)
         _plant_logs(sandbox, rev1_id)
@@ -302,6 +350,7 @@ class TestFinalizerTagsFromContextNotFromDb:
 #    degraded with no tag. This class is the only one in the file that would
 #    have failed against that bug (and did, pre-fix — see the journal).
 # ---------------------------------------------------------------------------
+
 
 class TestSequentialTagsAcrossRealFinalization:
     def test_three_completed_revisions_tag_v1_v2_v3(self) -> None:
@@ -332,7 +381,13 @@ class TestSequentialTagsAcrossRealFinalization:
         real_db = _RealSessionLocal()
         try:
             if real_db.query(User).filter(User.id == _owner).first() is None:
-                real_db.add(User(id=_owner, email=f"{_owner}@test.local"))
+                real_db.add(
+                    User(
+                        id=_owner,
+                        email=f"{_owner}@test.local",
+                        cognito_sub=f"sub-{_owner}",
+                    )
+                )
                 real_db.commit()
             # GAPS T6: distinct created_offset per row — the family-wide
             # counting rule (BFS down from root, sorted by (created_at, id))
@@ -342,12 +397,27 @@ class TestSequentialTagsAcrossRealFinalization:
             # chain order. Invisible under the old ancestor-CHAIN rule (which
             # never reads created_at at all) — newly reached, not newly
             # caused, by this fix (S3 journal precedent).
-            _seed_run(real_db, run_id=root_id, parent_run_id=None, user_id=_owner,
-                      created_offset=0)
-            _seed_run(real_db, run_id=rev1_id, parent_run_id=root_id, user_id=_owner,
-                      created_offset=10)
-            _seed_run(real_db, run_id=rev2_id, parent_run_id=rev1_id, user_id=_owner,
-                      created_offset=20)
+            _seed_run(
+                real_db,
+                run_id=root_id,
+                parent_run_id=None,
+                user_id=_owner,
+                created_offset=0,
+            )
+            _seed_run(
+                real_db,
+                run_id=rev1_id,
+                parent_run_id=root_id,
+                user_id=_owner,
+                created_offset=10,
+            )
+            _seed_run(
+                real_db,
+                run_id=rev2_id,
+                parent_run_id=rev1_id,
+                user_id=_owner,
+                created_offset=20,
+            )
         finally:
             real_db.close()
 
@@ -359,12 +429,16 @@ class TestSequentialTagsAcrossRealFinalization:
             drive_kwargs = {"pipeline_run_id": run_id}
             if parent_run_id:
                 drive_kwargs["parent_run_id"] = parent_run_id
-            events = asyncio.run(_drive("custom", **drive_kwargs))
+            # ``offline_db=False``: keep the real hermetic SessionLocal seeded
+            # above in place. The harness default swaps in a no-database seam,
+            # under which root resolution and the finalizer's tag DB mapping
+            # both fail and every run publishes ``degraded``.
+            events = asyncio.run(_drive("custom", offline_db=False, **drive_kwargs))
 
             completes = [e for e in events if e.get("type") == "pipeline_complete"]
-            assert len(completes) == 1, (
-                f"run {run_id}: expected exactly 1 pipeline_complete, got {completes}"
-            )
+            assert (
+                len(completes) == 1
+            ), f"run {run_id}: expected exactly 1 pipeline_complete, got {completes}"
             published = completes[0]["data"].get("published_status", "completed")
             assert published == "completed", (
                 f"run {run_id} did not complete cleanly (published_status="
@@ -386,9 +460,9 @@ class TestSequentialTagsAcrossRealFinalization:
         # deliverable.
         for tag in ("v1", "v2", "v3"):
             files = sandbox.list_files_at_ref(tag)
-            assert ".chain/output.md" in files, (
-                f"tag {tag}: deliverable missing from the commit tree ({files})"
-            )
+            assert (
+                ".chain/output.md" in files
+            ), f"tag {tag}: deliverable missing from the commit tree ({files})"
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +476,7 @@ class TestSequentialTagsAcrossRealFinalization:
 #    a chain, and only diverge on siblings. This class is the only one that
 #    would have caught the live bug.
 # ---------------------------------------------------------------------------
+
 
 class TestSequentialTagsAcrossSiblingRevisions:
     def test_two_sibling_revisions_tag_v1_v2_v3_not_v1_v2_v2(self) -> None:
@@ -419,14 +494,30 @@ class TestSequentialTagsAcrossSiblingRevisions:
         real_db = _RealSessionLocal()
         try:
             if real_db.query(User).filter(User.id == _owner).first() is None:
-                real_db.add(User(id=_owner, email=f"{_owner}@test.local"))
+                real_db.add(
+                    User(
+                        id=_owner,
+                        email=f"{_owner}@test.local",
+                        cognito_sub=f"sub-{_owner}",
+                    )
+                )
                 real_db.commit()
             _seed_run(real_db, run_id=root_id, parent_run_id=None, user_id=_owner)
             # Both siblings parented directly on the ROOT — NOT on each other.
-            _seed_run(real_db, run_id=sib1_id, parent_run_id=root_id, user_id=_owner,
-                      created_offset=10)
-            _seed_run(real_db, run_id=sib2_id, parent_run_id=root_id, user_id=_owner,
-                      created_offset=20)
+            _seed_run(
+                real_db,
+                run_id=sib1_id,
+                parent_run_id=root_id,
+                user_id=_owner,
+                created_offset=10,
+            )
+            _seed_run(
+                real_db,
+                run_id=sib2_id,
+                parent_run_id=root_id,
+                user_id=_owner,
+                created_offset=20,
+            )
         finally:
             real_db.close()
 
@@ -438,12 +529,14 @@ class TestSequentialTagsAcrossSiblingRevisions:
             drive_kwargs = {"pipeline_run_id": run_id}
             if parent_run_id:
                 drive_kwargs["parent_run_id"] = parent_run_id
-            events = asyncio.run(_drive("custom", **drive_kwargs))
+            # ``offline_db=False`` — see TestSequentialTagsAcrossRealFinalization
+            # above: the engine must use the real hermetic DB seeded here.
+            events = asyncio.run(_drive("custom", offline_db=False, **drive_kwargs))
 
             completes = [e for e in events if e.get("type") == "pipeline_complete"]
-            assert len(completes) == 1, (
-                f"run {run_id}: expected exactly 1 pipeline_complete, got {completes}"
-            )
+            assert (
+                len(completes) == 1
+            ), f"run {run_id}: expected exactly 1 pipeline_complete, got {completes}"
             published = completes[0]["data"].get("published_status", "completed")
             assert published == "completed", (
                 f"run {run_id} did not complete cleanly (published_status="

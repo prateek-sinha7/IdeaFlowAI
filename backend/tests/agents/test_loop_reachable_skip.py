@@ -36,7 +36,9 @@ def _make_scripts():
             # First pass "bad", every later pass "good". Correct whether the
             # harness builds one model per invocation (``n`` advances) or one
             # model for the whole run (the turn list advances).
-            turns = ['{"decision": "bad"}', '{"decision": "good"}'][n:] or ['{"decision": "good"}']
+            turns = ['{"decision": "bad"}', '{"decision": "good"}'][n:] or [
+                '{"decision": "good"}'
+            ]
             return [_ScriptedTurn(texts=[t], usage=(5, 3)) for t in turns]
         if agent_id == _REVISE_ROUTE:
             return [_ScriptedTurn(texts=['{"decision": "rechecked"}'], usage=(5, 3))]
@@ -58,13 +60,19 @@ async def _drive_loop():
 async def test_branch_target_reachable_by_a_later_loop_is_not_skipped():
     events = await _drive_loop()
 
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
-    skipped = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_skipped"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
+    skipped = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_skipped"
+    ]
 
     print("AGENT_START:", started)
     print("AGENT_SKIPPED:", skipped)
 
-    assert started.count(_VERDICT) == 2, f"verdict should run twice (bad, then good): {started}"
+    assert (
+        started.count(_VERDICT) == 2
+    ), f"verdict should run twice (bad, then good): {started}"
     assert "custom-agent:revise" in started
     assert "custom-agent:finish" in started, f"finish must run on pass 2: {started}"
     assert "custom-agent:finish" not in skipped, (

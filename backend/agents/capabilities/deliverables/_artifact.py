@@ -82,7 +82,7 @@ def strip_pre_document_prose(text: str) -> str:
         len(preamble),
         preamble.strip()[:80],
     )
-    return text[match.start():].strip()
+    return text[match.start() :].strip()
 
 
 def strip_code_fence(text: str) -> str:
@@ -115,7 +115,7 @@ def strip_code_fence(text: str) -> str:
     newline = stripped.find("\n")
     if newline == -1:
         return text  # a lone fence with no body — nothing to salvage
-    body = stripped[newline + 1:]
+    body = stripped[newline + 1 :]
     # Drop the closing fence when the model actually emitted one.
     trailing = body.rstrip()
     if trailing.endswith("```"):

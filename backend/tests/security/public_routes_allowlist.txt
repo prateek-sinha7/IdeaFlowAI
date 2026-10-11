@@ -19,6 +19,12 @@ POST /api/auth/login/challenge  # continues an in-flight login, authorised by th
 POST /api/auth/forgot-password  # pre-credential recovery start; answers uniformly to avoid account enumeration
 POST /api/auth/forgot-password/confirm  # completes recovery; the emailed code is the proof of possession
 
+# --- Public share links (token is the capability) ---------------------------
+# Owner mints/revokes via authed POST/DELETE /api/runs/{id}/share. The viewer
+# holds only an unguessable 32-byte token with expiry; missing/expired → 404.
+# Serves the deliverable only (no input, agent_outputs, owner or PII), CSP-sandboxed.
+GET /s/{token}  # Option-B share link; bearer-of-token capability, deliverable-only, 404 on unknown/expired
+
 # --- Liveness ---------------------------------------------------------------
 GET /health  # load-balancer probe; returns no information about the system or its data
 

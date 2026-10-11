@@ -140,12 +140,13 @@ async def test_planning_context_injected_into_context_message():
     msg = await engine._compose_context_message(
         spec, 0, agents, "test brief", planning_context, _ectx()
     )
-    assert "## Planning Context" in msg
-    assert "Build a login feature" in msg
-    assert "React frontend" in msg
-    assert "WCAG 2.1" in msg
-    assert "Developer" in msg
-    assert "< 200ms response" in msg
+    # [Phase Z / seam-2 deletion, FR-030 row 10] The "## Planning Context" world
+    # block is intentionally no longer pasted — agents read PLANNER.md from the
+    # sandbox themselves. The context message carries only the brief.
+    assert "## Planning Context" not in msg
+    assert "Build a login feature" not in msg
+    assert "test brief" in msg
+    assert "ORIGINAL USER REQUEST" in msg
 
 
 @pytest.mark.asyncio

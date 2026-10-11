@@ -43,7 +43,6 @@ from app.models.chat import ChatSession, Message  # noqa: F401
 from app.models.workflow import WorkflowRun  # noqa: F401
 
 
-
 def _not_authorized(email: str, password: str):
     """Fake ``admin_initiate_auth`` — always rejects, exactly like Cognito
     does for a wrong password OR an unknown email under

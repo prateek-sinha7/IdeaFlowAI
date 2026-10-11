@@ -9,17 +9,31 @@
   "_comment_8": "missing-imports errors. Everything else (untyped functions, optional",
   "_comment_9": "access, etc.) is disabled because adopting full type-checking on a",
   "_comment_10": "live codebase is a separate project.",
+  "_comment_11": "",
+  "_comment_12": "Scope also covers the repo-root ../tools and ../scripts Python (F-18).",
+  "_comment_13": "../tools/loadtest is a gitignored local harness absent from every CI checkout.",
+  "_comment_14": "executionEnvironments: tools/knowledge/status.py imports its sibling",
+  "_comment_15": "build_architecture at runtime after a sys.path.insert of its own directory;",
+  "_comment_16": "extraPaths mirrors that. The entry is scoped to that one directory, so",
+  "_comment_17": "import resolution for app, agents and tools/ci is unchanged.",
 
-  "include": ["app", "agents", "tools"],
+  "include": ["app", "agents", "tools", "../tools", "../scripts"],
   "exclude": [
     "**/__pycache__",
     "**/node_modules",
     ".venv",
     "venv",
     "alembic/versions",
-    "tests"
+    "tests",
+    "../tools/loadtest"
   ],
-  "pythonVersion": "3.12",
+  "executionEnvironments": [
+    {
+      "root": "../tools/knowledge",
+      "extraPaths": ["../tools/knowledge"]
+    }
+  ],
+  "pythonVersion": "3.13",
 
   "typeCheckingMode": "off",
 

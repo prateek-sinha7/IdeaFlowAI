@@ -34,8 +34,8 @@ class RunProvenanceAudit(Base):
     __tablename__ = "run_provenance_audits"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
     run_id = Column(String, nullable=False)
 
     # Operation descriptor — e.g. "snapshot_commit", "restore", "tag_created"

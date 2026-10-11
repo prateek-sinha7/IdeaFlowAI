@@ -45,12 +45,41 @@ BOOTSTRAP_DEGRADED=()
 # ── 0. Wait for cloud-init to finish ───────────────────────────────────
 # Must come BEFORE sourcing /etc/velocityai/bootstrap.env: that file is written
 # by user_data which runs as cloud-init's final stage. `aws ec2 wait
-# instance-status-ok` (used by the calling deploy.sh) only confirms system
-# reachability; on a fast SSM dispatch the box can report status-ok before
-# cloud-init's final stage has written bootstrap.env, and we'd die at the
-# file-existence check below.
+# instance-status-ok` only confirms system reachability; on a fast SSM dispatch
+# the box can report status-ok before cloud-init's final stage has written
+# bootstrap.env, and we'd die at the file-existence check below.
+#
+# This used to be `while ! cloud-init status --wait; do sleep 2; done`, which
+# never terminates when cloud-init has settled into the `error` state: --wait
+# returns non-zero immediately and forever, so the loop span until the SSM
+# execution timeout killed it 30 minutes later with no diagnosis in the log.
+# Bounded and state-aware instead:
+#   done    -> proceed normally
+#   error   -> WARN and proceed. cloud-init reports `error` for any failed
+#              module, including ones this script does not depend on, and §1
+#              below already fails hard if bootstrap.env is genuinely absent.
+#              Refusing to continue here would turn a cosmetic module failure
+#              into an unprovisionable host.
+#   timeout -> abort. Ten minutes without cloud-init reaching a terminal state
+#              means the box is not in a state worth provisioning, and failing
+#              now leaves a legible error instead of a mystery hang.
 echo "[bootstrap] waiting for cloud-init final stage..."
-while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
+timeout 600 cloud-init status --wait > /dev/null 2>&1 || true
+CLOUD_INIT_STATUS="$(cloud-init status 2>/dev/null | awk -F': *' '/^status:/ {print $2}')"
+case "$CLOUD_INIT_STATUS" in
+    done)
+        echo "[bootstrap] cloud-init finished (status: done)"
+        ;;
+    error)
+        echo "[bootstrap] WARNING: cloud-init reports status 'error'. Continuing — §1 below verifies /etc/velocityai/bootstrap.env directly." >&2
+        echo "[bootstrap]          investigate: cloud-init status --long; journalctl -u cloud-final" >&2
+        ;;
+    *)
+        echo "[bootstrap] ERROR: cloud-init did not reach a terminal state within 600s (status: '${CLOUD_INIT_STATUS:-unknown}')." >&2
+        echo "[bootstrap]        investigate: cloud-init status --long; journalctl -u cloud-final" >&2
+        exit 1
+        ;;
+esac
 
 # ── 1. Source operator-controlled values written by user_data ──────────
 #
@@ -67,13 +96,17 @@ while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
 #   VELOCITYAI_DATA_DEVICE    — (optional) block device for the Postgres data
 #                               volume; defaults to /dev/nvme1n1
 #
-# Also expects VELOCITYAI_IMAGE_TAG from the calling environment (deploy.sh
-# `aws ssm send-command` injects this via `export` prepended to the script
-# body). Defaults to "latest" for legacy compatibility, but deploy.sh
-# always sets a git-sha tag so re-runs don't collide with ECR IMMUTABLE.
+# This script takes NO image tag from its caller. Which images the host runs is
+# resolved in §10b from the SSM ${PARAM_PREFIX}/deploy/* parameters that
+# .github/workflows/deploy.yml records after a successful health gate, falling
+# back to S3 config/deploy.env for the pre-first-deploy state. There used to be a
+# VELOCITYAI_IMAGE_TAG input defaulting to "latest"; see §10b for why that
+# default could never resolve against an IMMUTABLE ECR repository.
 #
-# docker-compose.yml is downloaded from s3://$VELOCITYAI_BACKUP_BUCKET/config/
-# (uploaded by Terraform's aws_s3_object.compose_yaml in envs/prod/main.tf).
+# docker-compose.yml is downloaded from s3://$VELOCITYAI_BACKUP_BUCKET/config/,
+# uploaded by Terraform's aws_s3_object.compose_yaml on a Terraform-managed box,
+# by .github/workflows/provision.yml on a hand-created one, and refreshed on
+# every deploy by deploy.yml's "Refresh host config artifacts in S3" step.
 # The EC2 needs no git auth.
 if [[ ! -f /etc/velocityai/bootstrap.env ]]; then
     echo "[bootstrap] ERROR: /etc/velocityai/bootstrap.env missing — terraform apply hasn't completed?" >&2
@@ -81,8 +114,6 @@ if [[ ! -f /etc/velocityai/bootstrap.env ]]; then
 fi
 # shellcheck source=/dev/null
 . /etc/velocityai/bootstrap.env
-
-IMAGE_TAG="${VELOCITYAI_IMAGE_TAG:-latest}"
 
 REGION="${VELOCITYAI_REGION:-eu-central-1}"
 DOMAIN="${VELOCITYAI_FQDN:?VELOCITYAI_FQDN missing in /etc/velocityai/bootstrap.env}"
@@ -114,60 +145,77 @@ if [[ ! -b "$DATA_DEV" ]]; then
     exit 1
 fi
 
+# ── 1b. Shared host helpers ────────────────────────────────────────────────
+# infra/scripts/lib/host-common.sh, delivered to s3://$BACKUP_BUCKET/config/ by
+# provision.yml and by deploy.yml's config refresh, and fetched here. Provides
+# apt_force_https, apt_wait_lock, install_awscli_v2 (with the single AWSCLI_VERSION
+# pin) and cw_namespace — each of which previously existed as a second copy in
+# .github/scripts/remote-bootstrap.sh or reconcile-host-config.sh.
+#
+# Fetched BEFORE §2 because §2 is the first thing that needs apt_force_https, and
+# with the same 30 x 10s retry loop as the other config objects: on a fresh
+# instance this can run before the app layer has finished uploading. Absent after
+# all attempts is fatal — the functions below are not optional.
+#
+# `aws` is available here: on a Terraform box user_data installs a minimal CLI, and
+# on a hand-created box remote-bootstrap.sh §2 installed it before invoking this
+# script. §2b below then asserts the pinned version.
+mkdir -p /opt/velocityai/lib
+for i in $(seq 1 30); do
+    if aws s3 cp "s3://${BACKUP_BUCKET}/config/host-common.sh" \
+         /opt/velocityai/lib/host-common.sh --region "$REGION"; then
+        break
+    fi
+    # Fail on the LAST failed attempt. A post-loop `[[ -s file ]]` check cannot
+    # tell a fresh download from a stale file left by an earlier run, so a fetch
+    # that failed every time would continue with old bytes (REL-21).
+    if [[ "$i" -eq 30 ]]; then
+        echo "[bootstrap] FATAL: config/host-common.sh missing in s3://${BACKUP_BUCKET}/config/. Seed it by running the 'Provision' workflow for this environment with dry_run=true (the S3 upload runs before any host change), then retry." >&2
+        echo "[bootstrap]        apt-over-HTTPS, the AWS CLI pin and the CloudWatch namespace map all live there — aborting" >&2
+        exit 1
+    fi
+    echo "[bootstrap] host-common.sh not available yet (attempt $i) — retrying"
+    sleep 10
+done
+chmod 0644 /opt/velocityai/lib/host-common.sh
+# SC2034 disabled with cause: read by `_hc_log`/`_hc_err` in host-common.sh,
+# which is sourced on the next lines from an absolute runtime path under
+# /opt/velocityai. That source carries `# shellcheck source=/dev/null`, so
+# ShellCheck cannot see the consumer and reports the assignment as unused.
+# Deleting it would silently downgrade every log line to the "[host]" default.
+# shellcheck disable=SC2034
+HOST_COMMON_LOG_PREFIX="[bootstrap]"
+# shellcheck source=/dev/null
+. /opt/velocityai/lib/host-common.sh
+
 # ── 2. Patch & baseline tools ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
 
 # ── 2a. Force apt over HTTPS ───────────────────────────────────────────
-# This host egresses on 443 only (security group has a single outbound
-# rule, tcp/443 to 0.0.0.0/0) and routes via a Transit Gateway rather than
-# a NAT/internet gateway. Ubuntu ships its apt sources as http:// (port
-# 80), so every archive fetch times out and `apt-get install` dies with
-# exit 100 — while SSM, S3 and KMS all keep working, which makes the
-# failure look unrelated to networking.
+# See apt_force_https in infra/scripts/lib/host-common.sh (sourced in §1b) for the
+# full rationale: this host egresses on 443 only, Ubuntu ships http:// sources, and
+# the resulting failure looks unrelated to networking.
+apt_force_https
+
+# Fail fast, and diagnosably, if the archive is still unreachable.
+# `apt-get update` returns 0 even when every index fetch fails, so without this
+# probe the run continues on stale package lists and surfaces the problem several
+# sections later as a bare `exit status 100`.
 #
-# Rewriting the scheme to https:// keeps package fetches on the one port
-# the SG permits. archive.ubuntu.com, security.ubuntu.com and the
-# regional <region>.ec2.archive.ubuntu.com mirrors all serve TLS, so the
-# in-region mirror is preserved (lower latency, no cross-region egress).
-# apt has had native HTTPS support since 1.5 and ca-certificates ships on
-# the Canonical AMI, so this needs no bootstrap package — which matters,
-# because installing one is exactly what's blocked.
+# The source list is rebuilt here rather than shared with apt_force_https: each
+# path is tested with -f because Noble ships no *.list in sources.list.d, the shell
+# leaves the unmatched glob literal, and grep then exits 2 on a nonexistent path —
+# which under `set -e` + `pipefail` aborts the whole run.
 #
-# Idempotent: a second pass finds no http:// Ubuntu URLs left to rewrite.
-# Matched by hostname so third-party lists are untouched (Docker's, added
-# in §7, is already https). Covers both Noble's deb822
-# /etc/apt/sources.list.d/*.sources and the legacy .list format.
-# Collect the source files that actually exist. Globbing inline into grep
-# is unsafe here: Noble ships no *.list in sources.list.d, bash leaves the
-# unmatched glob literal, grep then exits 2 on the nonexistent path, and
-# `set -e` + `pipefail` turn that into a silent abort of the whole run.
+# The `|| true` is load-bearing: grep exits 1 on no-match, and head closing the
+# pipe early can leave grep on SIGPIPE — either of which would abort through
+# pipefail rather than simply skipping the probe.
 apt_src_files=()
 for apt_src in /etc/apt/sources.list \
                /etc/apt/sources.list.d/*.sources \
                /etc/apt/sources.list.d/*.list; do
     [[ -f "$apt_src" ]] && apt_src_files+=("$apt_src")
 done
-
-UBUNTU_APT_HOST_RE='http://([A-Za-z0-9.-]*\.)?(archive|security)\.ubuntu\.com'
-apt_rewritten=0
-for apt_src in ${apt_src_files[@]+"${apt_src_files[@]}"}; do
-    grep -Eq "$UBUNTU_APT_HOST_RE" "$apt_src" || continue
-    [[ -f "${apt_src}.pre-https.bak" ]] || cp -a "$apt_src" "${apt_src}.pre-https.bak"
-    sed -E -i "s#${UBUNTU_APT_HOST_RE}#https://\1\2.ubuntu.com#g" "$apt_src"
-    echo "[bootstrap] apt sources: rewrote http -> https in ${apt_src}"
-    apt_rewritten=1
-done
-if [[ "$apt_rewritten" -eq 0 ]]; then
-    echo "[bootstrap] apt sources: already https (nothing to rewrite)"
-fi
-
-# Fail fast, and diagnosably, if the archive is still unreachable.
-# `apt-get update` returns 0 even when every index fetch fails, so without
-# this probe the run continues on stale package lists and surfaces the
-# problem several sections later as a bare `exit status 100`.
-# The `|| true` is load-bearing: grep exits 1 on no-match and head closing
-# the pipe early can leave grep on SIGPIPE, either of which would abort the
-# run through pipefail rather than simply skipping the probe.
 . /etc/os-release
 apt_probe_uri=""
 if (( ${#apt_src_files[@]} > 0 )); then
@@ -185,6 +233,7 @@ if [[ -n "$apt_probe_uri" && -n "${VERSION_CODENAME:-}" ]] \
     exit 1
 fi
 
+apt_wait_lock
 apt-get update
 apt-get -y full-upgrade
 # Note on awscli: Ubuntu Noble (24.04 LTS) removed the `awscli` apt package
@@ -201,29 +250,28 @@ apt-get install -y \
     ca-certificates gnupg
 
 # ── 2b. AWS CLI v2 (official installer) ────────────────────────────────
-# Ubuntu's apt repo no longer ships awscli; AWS-recommended path is to
-# download the v2 self-contained binary directly. Idempotent: `aws/install
-# --update` is a no-op if v2 is already installed at the same/newer version.
-# Pinning the version (vs latest) makes deploys reproducible; bump
-# AWSCLI_VERSION here to roll forward.
-AWSCLI_VERSION="2.17.42"
-if ! command -v aws >/dev/null 2>&1 \
-    || [[ "$(aws --version 2>&1 | awk -F'[/ ]' '{print $2}')" != "${AWSCLI_VERSION}" ]]; then
-    AWSCLI_TMP="$(mktemp -d)"
-    trap 'rm -rf "$AWSCLI_TMP"' EXIT
-    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip" \
-        -o "${AWSCLI_TMP}/awscliv2.zip"
-    unzip -q "${AWSCLI_TMP}/awscliv2.zip" -d "${AWSCLI_TMP}"
-    "${AWSCLI_TMP}/aws/install" --update --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
-    rm -rf "$AWSCLI_TMP"
-    trap - EXIT
-fi
-echo "[bootstrap] aws cli version: $(aws --version)"
+# install_awscli_v2 and the single AWSCLI_VERSION pin live in
+# infra/scripts/lib/host-common.sh (sourced in §1b). The pin used to be written
+# here AND in .github/scripts/remote-bootstrap.sh §2, so a bump could reach one
+# provisioning path and not the other — and which path a box took depends on
+# whether it was Terraform-created or hand-created.
+install_awscli_v2
 
 # ── 3. Firewall + SSH hardening + unattended upgrades ──────────────────
 ufw default deny incoming
 ufw default allow outgoing
-ufw allow 22/tcp
+# NO `ufw allow 22/tcp`. Nothing in the pipeline uses SSH: deploy.yml and
+# provision.yml both reach this host over SSM RunCommand, which needs no inbound
+# port at all (the SSM agent dials out). The rule was CodeBuild-era, from when CI
+# ssh'd in as a dedicated `velocityai-deploy` user — a user this script no longer
+# creates (see the §15 cleanup block below).
+#
+# `ufw delete` is issued rather than merely omitting the rule, because a host
+# bootstrapped before this change already has the rule persisted in
+# /etc/ufw/user.rules and re-running bootstrap would otherwise leave it in place
+# forever. `|| true` because deleting a rule that is not there exits non-zero,
+# which is the normal case on a fresh box and must not abort under `set -e`.
+ufw delete allow 22/tcp >/dev/null 2>&1 || true
 ufw allow 80/tcp
 ufw allow 443/tcp
 # Postgres reachable only from RFC 1918 ranges Docker uses for its bridge
@@ -398,6 +446,15 @@ if [[ $RECOVERY -eq 0 ]]; then
     DB_PW=$(aws ssm get-parameter --region "$REGION" \
         --name "$PARAM_PREFIX/DATABASE_PASSWORD" \
         --with-decryption --query 'Parameter.Value' --output text)
+    # The password is interpolated into a single-quoted SQL literal below. A `'`
+    # would end the literal early, and psql then echoes the failing statement
+    # (password included) into three logs. Refuse it WITHOUT printing the value
+    # (SEC-14). Generated passwords are alphanumeric, so this only trips on a
+    # hand-set value.
+    if [[ "$DB_PW" == *"'"* ]]; then
+        echo "[bootstrap] FATAL: ${PARAM_PREFIX}/DATABASE_PASSWORD contains a single quote (') and cannot be used in the CREATE USER statement. Set a value without one (value not shown)." >&2
+        exit 1
+    fi
     sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
 CREATE USER velocityai WITH ENCRYPTED PASSWORD '$DB_PW';
 CREATE DATABASE velocityai OWNER velocityai;
@@ -427,6 +484,16 @@ if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
         | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
 fi
+# Trust-on-first-use is not enough for a key that signs root-installed packages:
+# pin Docker's published release-key fingerprint and refuse (and delete) any
+# other key, so a tampered download cannot persist for the next run (SEC-09).
+DOCKER_KEY_FPR="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+_docker_fprs="$(gpg --show-keys --with-colons /etc/apt/keyrings/docker.gpg | awk -F: '$1=="fpr"{print $10}')"
+if ! grep -qx "$DOCKER_KEY_FPR" <<<"$_docker_fprs"; then
+    rm -f /etc/apt/keyrings/docker.gpg
+    echo "[bootstrap] FATAL: Docker apt key fingerprint does not match the pinned ${DOCKER_KEY_FPR} — removed the key and aborting" >&2
+    exit 1
+fi
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
     > /etc/apt/sources.list.d/docker.list
 apt-get update
@@ -436,132 +503,16 @@ systemctl enable --now docker
 echo "[bootstrap] Docker installed: $(docker --version), $(docker compose version)"
 
 # ── 8b. IMDS containment for the pptx_export Node subprocess (C2-2) ────
-#
-# Audit C / TF-Sec CRITICAL-2: the pptx_export.py service spawns a Node
-# subprocess running LLM-generated rendering code. G1-C1 hardened that
-# subprocess with:
-#   - scrubbed env (no AWS_*, DATABASE_URL, SECRET_KEY in the child env)
-#   - prlimit-style rlimits (CPU, AS, NOFILE)
-#   - a Semaphore that caps concurrency at 3
-# But the child INHERITS the container's network namespace. Inside that
-# namespace, 169.254.169.254 (IMDSv2) is reachable because
-# `infra/modules/compute/main.tf` sets `http_put_response_hop_limit = 2`
-# — required so Docker's bridge can forward IMDS to ANY container — and
-# the EC2 security group can't block link-local IMDS (it bypasses VPC
-# routing entirely; 169.254.169.254 is reached via a special hypervisor
-# route not visible to security groups).
-#
-# The Node child can therefore call:
-#   curl -sH "X-aws-ec2-metadata-token-ttl-seconds: 21600" -X PUT \
-#     http://169.254.169.254/latest/api/token \
-#     | xargs -I{} curl -H "X-aws-ec2-metadata-token: {}" \
-#     http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>
-# …and exfiltrate STS credentials valid for ~6h. Those credentials carry
-# Bedrock invoke, SSM Get* on /velocityai/${ENV}/*, KMS Decrypt against the
-# project CMK, and S3 PutObject on the backup bucket.
-#
-# ── Why we can NOT cleanly block this in bootstrap-ec2.sh today ────────
-#
-# Five candidate enforcement points, four of them broken for our shape:
-#
-# 1. `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP`
-#    Drops IMDS from ALL containers. But the BACKEND container ALSO uses
-#    IMDS via boto3 (instance-role credential resolution chain). Blocking
-#    all containers breaks legitimate boto3 → SSM / Bedrock / S3 calls.
-#    Verdict: REJECTED — would break the running service.
-#
-# 2. `iptables -A OUTPUT -m owner --uid-owner 10001 -d 169.254.169.254 -j DROP`
-#    Drops IMDS from any process running as uid 10001 on the host. But
-#    UID 10001 inside the container does NOT map to UID 10001 on the host
-#    in our config — there's no user namespace, but the OUTPUT chain on
-#    the host doesn't see traffic that originates from inside Docker's
-#    bridge network anyway (it goes through the FORWARD path with the
-#    container's bridge IP as source). The `--uid-owner` match requires
-#    locally-originating traffic. Verdict: REJECTED — no effect on
-#    bridge-network-originating IMDS attempts.
-#
-# 3. cgroup-based block: `iptables -A OUTPUT -m cgroup --cgroup <id>`
-#    Container processes ARE in distinct cgroups (per docker), but the
-#    Node subprocess inherits the backend container's cgroup. Distinguishing
-#    parent (backend uvicorn) from child (Node) by cgroup is not feasible
-#    inside the same container's namespace.
-#    Verdict: REJECTED — same-cgroup parent and child are indistinguishable.
-#
-# 4. `unshare -n` (network-namespace isolation for the Node child)
-#    pptx_export.py:48 documents the rejection: "unshare -n would require
-#    CAP_SYS_ADMIN we don't grant." Granting it would let the LLM-generated
-#    Node code mount filesystems, escape the cgroup, etc. — worse than the
-#    IMDS surface. Verdict: REJECTED — net negative.
-#
-# 5. Per-process network namespace via a setuid wrapper that drops IMDS
-#    and then exec's Node:
-#    Possible in principle but: (a) requires us to ship a setuid binary
-#    inside the container, which we explicitly reject as a hardening
-#    practice; (b) the LLM-generated Node code could just curl 169.254.x
-#    after the wrapper exec's — the wrapper drops privileges but doesn't
-#    keep the namespace, since unshare -n requires CAP_SYS_ADMIN per (4).
-#    Verdict: REJECTED — same blocker as (4).
-#
-# ── What we DO have ────────────────────────────────────────────────────
-#
-# Containment is currently layered as follows:
-#   (a) process-level — env-scrubbed subprocess (pptx_export.py:277-320),
-#       so even if Node calls IMDS the IAM creds are fresh, not the long-
-#       lived host vars.
-#   (b) process-level — rlimits cap CPU, address space, file descriptors.
-#   (c) process-level — concurrency cap (Semaphore = 3 max parallel).
-#   (d) VPC-egress level — the EC2 security group restricts the host's
-#       egress to {80, 443, 53, VPC-internal endpoint ranges}; an
-#       attacker exfiltrating credentials over arbitrary TCP ports is
-#       blocked at the SG. (Bedrock, SSM, KMS are 443 — that's what the
-#       SG INTENDS to allow because the legitimate workload needs them.)
-#   (e) detection — Phase C C2-1 (this branch, modules/monitoring) adds a
-#       CloudTrail trail + metric filter + CloudWatch alarm on any
-#       SSM Get* on /velocityai/${ENV}/* or KMS Decrypt from a principal
-#       OTHER than the instance role. An LLM-RCE-exfil attempt would
-#       trigger the UnexpectedSecretRead / UnexpectedKmsDecrypt alarm
-#       within 5 minutes — the "find out" surface for the surface (d)
-#       leaves open.
-#
-# ── The REAL fix (deferred to a follow-up branch) ──────────────────────
-#
-# Sidecar refactor: spin a separate `pptx-renderer` container in
-# docker-compose.yml with:
-#   network_mode: "none"     # NO network namespace at all — can't reach 169.254
-#   read_only: true
-#   cap_drop: [ALL]
-#   pids_limit: 32
-#   mem_limit: 256m
-#   cpus: 0.5
-# The backend (FastAPI) then HTTP-POSTs `js_code` to the renderer over
-# the internal compose network (which the renderer ISN'T attached to —
-# they share a unix socket bind-mounted from the host, or the backend
-# `docker exec`s a one-shot command into the renderer). The renderer
-# can't reach IMDS because it has no network namespace; the backend
-# (which DOES need IMDS for boto3) keeps its current network and
-# never executes LLM-generated code itself.
-#
-# TODO(C3-x, separate PR — see docs/_audit/TRIAGE_PHASE_C.md group C3):
-#   1. Add `pptx-renderer` service to docker-compose.yml with `network_mode: none`.
-#   2. Build a minimal Node-only image (no boto3, no AWS SDK, no curl).
-#   3. Refactor pptx_export.py to POST js_code to the renderer over a
-#      unix-domain socket bind-mounted from the host into both containers.
-#   4. Once landed, this whole §8b comment block can be deleted (the
-#      sidecar's `network_mode: none` is the real fix; the layered
-#      controls (a)-(e) above become defence-in-depth rather than the
-#      primary control).
-#
-# Until then, the layered controls above are what we have. This section
-# adds NO iptables rule because every candidate rule is either ineffective
-# (rejected in 1-5 above) or breaks legitimate backend traffic.
-#
-# What this section DOES add: assertion checks. The TF compute module
-# (`infra/modules/compute/main.tf::metadata_options`) is the authoritative
-# source for IMDS posture (http_tokens=required, hop_limit=2). The
-# instance role does NOT carry `ec2:ModifyInstanceMetadataOptions` (we
-# don't want the host able to grant itself more permissive IMDS), so the
-# bootstrap can only OBSERVE the current setting, not re-assert it.
-#
+# This section adds NO firewall rule: every candidate way to block IMDS for the
+# LLM-code-executing Node child either has no effect on bridge-originating
+# traffic or breaks the backend's own legitimate boto3 IMDS use. The full
+# analysis — five rejected enforcement points, the five layered controls that
+# are in place instead, and the sidecar refactor that is the real fix — lives in
+# docs/CICD-DESIGN-DECISIONS.md, "IMDS containment for the pptx_export Node
+# subprocess (C2-2)". What remains here are two observations, because the TF
+# compute module owns IMDS posture and the instance role cannot re-assert it.
+
+
 # Observation 1: IMDSv2 token-required mode is on. A v1 GET (no token
 # header) should return 401 Unauthorized. If a v1 GET succeeds, the EC2
 # launch template has drifted from TF — page operator.
@@ -653,8 +604,19 @@ chmod 0644 /opt/velocityai/docker-compose.yml /opt/velocityai/docker-compose.pro
 #      object goes stale the moment CI ships anything. Kept as the pre-first-
 #      deploy seed, NOT as a source of truth.
 #
-#   3. ${ECR_REGISTRY}/velocityai/<component>:${IMAGE_TAG} — last-resort
-#      construction. Frequently a tag that does not exist in ECR at all.
+# There is deliberately NO third fallback. One used to exist —
+# ${ECR_REGISTRY}/velocityai/<component>:${IMAGE_TAG} with IMAGE_TAG defaulting
+# to "latest" — and it could never work: these ECR repositories are IMMUTABLE and
+# the pipeline pushes a distinct per-release tag, so no `:latest` is ever
+# published. Its only effect was to replace an honest "no deploy record found"
+# with a concrete-looking image reference that always failed to pull, which §18b
+# then reported as "the pinned images are not in ECR yet" — technically true,
+# actively misleading, and it buried the real cause (neither SSM deploy/* nor
+# S3 deploy.env had a pin).
+#
+# When neither source yields BOTH refs, the refs stay EMPTY. §11 writes no pin
+# lines and §18b takes its existing clean-skip path, which is the correct
+# description of a host that has nothing to run yet.
 #
 # Only (1) is accepted when BOTH refs are present: a half-written pair would
 # otherwise run a backend and frontend from different releases.
@@ -662,13 +624,30 @@ DEPLOY_BACKEND_IMAGE=""
 DEPLOY_FRONTEND_IMAGE=""
 IMAGE_PIN_SOURCE=""
 
-# `|| true` inside the substitution: a missing parameter makes the CLI exit
-# non-zero, and a bare assignment would abort the whole script under `set -e`.
+# Only `ParameterNotFound` means "no deploy record" (prints nothing, returns 0).
+# Any other failure (throttling, expired credentials, a network blip) used to be
+# folded into "absent" by a blanket `|| true`, so a transient SSM error silently
+# sent the host down the stale-S3 fallback below. It now returns 1, which aborts
+# the bootstrap under `set -e` at the `$(...)` assignment sites (REL-20).
 ssm_deploy_param() {
-    aws ssm get-parameter \
+    local out err_file rc=0
+    err_file="$(mktemp)"
+    out="$(aws ssm get-parameter \
         --name "${PARAM_PREFIX}/deploy/$1" \
         --region "$REGION" \
-        --query 'Parameter.Value' --output text 2>/dev/null || true
+        --query 'Parameter.Value' --output text 2>"$err_file")" || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        rm -f "$err_file"
+        printf '%s\n' "$out"
+        return 0
+    fi
+    if grep -q 'ParameterNotFound' "$err_file"; then
+        rm -f "$err_file"
+        return 0
+    fi
+    echo "[bootstrap] ERROR: could not read ${PARAM_PREFIX}/deploy/$1 from SSM (not a ParameterNotFound): $(head -c 300 "$err_file")" >&2
+    rm -f "$err_file"
+    return 1
 }
 
 _ssm_backend="$(ssm_deploy_param backend_image)"
@@ -691,21 +670,44 @@ elif aws s3 cp "s3://${BACKUP_BUCKET}/config/deploy.env" /tmp/deploy.env --regio
     IMAGE_PIN_SOURCE="s3://${BACKUP_BUCKET}/config/deploy.env (Terraform var.image_tag — may be stale)"
 fi
 
-BACKEND_IMAGE_REF="${DEPLOY_BACKEND_IMAGE:-${ECR_REGISTRY}/velocityai/backend:${IMAGE_TAG}}"
-FRONTEND_IMAGE_REF="${DEPLOY_FRONTEND_IMAGE:-${ECR_REGISTRY}/velocityai/frontend:${IMAGE_TAG}}"
-if [[ -z "$IMAGE_PIN_SOURCE" ]]; then
-    IMAGE_PIN_SOURCE="constructed from VELOCITYAI_IMAGE_TAG=${IMAGE_TAG} (no deploy record found)"
+# Both or neither. A single ref on its own is not usable: compose needs both
+# services, and running one from a recorded pin while the other has none would
+# be a split release.
+BACKEND_IMAGE_REF=""
+FRONTEND_IMAGE_REF=""
+if [[ -n "$DEPLOY_BACKEND_IMAGE" && -n "$DEPLOY_FRONTEND_IMAGE" ]]; then
+    BACKEND_IMAGE_REF="$DEPLOY_BACKEND_IMAGE"
+    FRONTEND_IMAGE_REF="$DEPLOY_FRONTEND_IMAGE"
 fi
-echo "[bootstrap] image pins resolved from: ${IMAGE_PIN_SOURCE}"
-echo "[bootstrap]   backend  ${BACKEND_IMAGE_REF}"
-echo "[bootstrap]   frontend ${FRONTEND_IMAGE_REF}"
+
+if [[ -n "$BACKEND_IMAGE_REF" ]]; then
+    echo "[bootstrap] image pins resolved from: ${IMAGE_PIN_SOURCE}"
+    echo "[bootstrap]   backend  ${BACKEND_IMAGE_REF}"
+    echo "[bootstrap]   frontend ${FRONTEND_IMAGE_REF}"
+else
+    IMAGE_PIN_SOURCE="none — no deploy record in SSM ${PARAM_PREFIX}/deploy/* or s3://${BACKUP_BUCKET}/config/deploy.env"
+    echo "[bootstrap] no image pins available (${IMAGE_PIN_SOURCE})"
+    echo "[bootstrap] this host has nothing to run yet; §18b will skip starting the app"
+fi
 
 # ── 11. /etc/velocityai/app.env image-tag pin ──────────────────────────────
-# ECR repos are IMMUTABLE — deploy.sh pushes :<git-sha> (never :latest).
-# On every bootstrap run we overwrite the BACKEND_IMAGE / FRONTEND_IMAGE
-# pin lines so a redeploy points at the just-pushed tag; velocityai-load-secrets
-# preserves these pin lines on subsequent velocityai-app.service starts (it
-# only reloads SSM-sourced secrets, not the image pins).
+# ECR repos are IMMUTABLE, so every release is addressed by a distinct tag and
+# ultimately by digest. The pins written here come from §10b, which reads the
+# SSM deploy/* parameters that deploy.yml recorded (digest-exact) — not from any
+# :latest alias, which would never resolve on an immutable repo.
+#
+# On every bootstrap run we overwrite the BACKEND_IMAGE / FRONTEND_IMAGE pin
+# lines so the box starts on the release the pipeline last deployed.
+#
+# The canonical loader (infra/scripts/velocityai-load-secrets.sh, fetched in §12)
+# preserves FIVE keys across subsequent velocityai-app.service starts — its
+# grep is `^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV|VELOCITYAI_ENVIRONMENT|
+# VELOCITYAI_CW_LOG_GROUP)=` — and this block is the only writer of all five.
+# Three are written unconditionally; the two image pins only when §10b resolved
+# a release (see below). Everything else in app.env is re-derived from SSM
+# ${PARAM_PREFIX}/* on each start. Keep the two lists in step: a key added here
+# but not to the loader's preserve pattern is silently dropped on the first app
+# restart.
 mkdir -p /etc/velocityai
 if [[ -f /etc/velocityai/app.env ]]; then
     # Strip the managed lines; keep everything else operators added.
@@ -716,212 +718,70 @@ else
     # where these values come from.
     cat > /etc/velocityai/app.env.new <<EOF
 # Populated by /usr/local/bin/velocityai-load-secrets on every velocityai-app start.
-# The loader preserves BACKEND_IMAGE / FRONTEND_IMAGE / ENV / VELOCITYAI_* lines
-# below; everything else is overwritten from SSM ${PARAM_PREFIX}/*.
+# The loader preserves exactly these five keys: BACKEND_IMAGE, FRONTEND_IMAGE,
+# ENV, VELOCITYAI_ENVIRONMENT, VELOCITYAI_CW_LOG_GROUP. Everything else is
+# overwritten from SSM ${PARAM_PREFIX}/*.
 
 EOF
 fi
 cat >> /etc/velocityai/app.env.new <<EOF
 ENV=production
-BACKEND_IMAGE=${BACKEND_IMAGE_REF}
-FRONTEND_IMAGE=${FRONTEND_IMAGE_REF}
 VELOCITYAI_ENVIRONMENT=${ENVIRONMENT}
 VELOCITYAI_CW_LOG_GROUP=/velocityai/${ENVIRONMENT}/app
 EOF
+# Pin lines ONLY when §10b actually resolved a release. Writing
+# `BACKEND_IMAGE=` with an empty value would be worse than omitting it: compose
+# interpolates it into `image:`, so the service would resolve to an empty
+# reference and fail with a confusing manifest error instead of §18b's clear
+# "nothing to run yet" skip. An absent key is also what the loader's
+# `grep -qxF` post-conditions and §18b's emptiness test below expect.
+if [[ -n "$BACKEND_IMAGE_REF" && -n "$FRONTEND_IMAGE_REF" ]]; then
+    cat >> /etc/velocityai/app.env.new <<EOF
+BACKEND_IMAGE=${BACKEND_IMAGE_REF}
+FRONTEND_IMAGE=${FRONTEND_IMAGE_REF}
+EOF
+else
+    echo "[bootstrap] no image pins written to /etc/velocityai/app.env (no deploy record yet)"
+fi
 mv /etc/velocityai/app.env.new /etc/velocityai/app.env
 chown root:"$APP_USER" /etc/velocityai/app.env
 chmod 0640 /etc/velocityai/app.env
 
 # ── 12. /usr/local/bin/velocityai-load-secrets ─────────────────────────────
-# Quoted heredoc — no shell expansion at install time. The generated script
-# sources /etc/velocityai/bootstrap.env at run time, so REGION/PREFIX/FQDN come
-# from whatever Terraform last wrote, not from this bootstrap's invocation.
-cat > /usr/local/bin/velocityai-load-secrets <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Read REGION / PREFIX / FQDN from the same bootstrap.env Terraform writes
-# via user_data. Lets `terraform apply` change any of these without a
-# re-bootstrap — next velocityai-app.service restart picks them up.
-# shellcheck source=/dev/null
-. /etc/velocityai/bootstrap.env
-
-OUT=/etc/velocityai/app.env
-TMP=$(mktemp /etc/velocityai/app.env.XXXXXX)
-chmod 0640 "$TMP"; chown root:velocityai "$TMP"
-
-REGION="${VELOCITYAI_REGION:-eu-central-1}"
-PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/prod}"
-DOMAIN="${VELOCITYAI_FQDN:-}"
-
-# Preserve CI-managed image-tag pins + the operator-defined ENV, PLUS the two
-# lines bootstrap-ec2.sh §11 writes that docker-compose.prod.yml's `awslogs`
-# logging driver requires (VELOCITYAI_ENVIRONMENT, VELOCITYAI_CW_LOG_GROUP).
+# Fetched from S3, never generated here. The canonical source is
+# infra/scripts/velocityai-load-secrets.sh, uploaded by the app layer to
+# s3://$BACKUP_BUCKET/config/velocityai-load-secrets.sh — the same delivery
+# mechanism as this script and reconcile-host-config.sh.
 #
-# This loader is invoked as velocityai-app.service's ExecStartPre on EVERY
-# start — not just from a deploy or a fresh bootstrap, but also a bare
-# `systemctl restart velocityai-app.service` (which the velocityai-deploy
-# sudoers entry explicitly permits) and every reboot. Previously this preserve
-# list omitted the CW_LOG_GROUP/ENVIRONMENT lines, so each such start rewrote
-# app.env WITHOUT them; Compose then defaulted VELOCITYAI_CW_LOG_GROUP to a
-# blank string and `docker compose up` failed with "must specify a value for
-# log opt 'awslogs-group'", crash-looping the unit. remote-deploy.sh papers
-# over this for its own callpath by re-asserting the lines after invoking the
-# loader (see its §7 comment) — but that only protects a deploy, not a plain
-# restart/reboot. Fixing the preserve list here fixes it for every caller.
-if [[ -f "$OUT" ]]; then
-    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV|VELOCITYAI_ENVIRONMENT|VELOCITYAI_CW_LOG_GROUP)=' "$OUT" >> "$TMP" || true
-fi
-
-emit() {
-    # Raw VAR=VALUE (no shell-quoting). Both systemd's EnvironmentFile
-    # parser and Docker Compose's env-file reader treat everything after
-    # the first `=` up to end-of-line as the literal value. Previously
-    # this used `printf %s=%q` which works for shell re-evaluation but
-    # produces backslash-escaped output (e.g. `CORS_ORIGINS=\[\"…\"\]`)
-    # that systemd/Compose pass through verbatim, breaking JSON-shaped
-    # values like CORS_ORIGINS (pydantic_settings sees the backslashes
-    # and json.loads raises). SSM parameter values are guaranteed not to
-    # contain literal newlines, so raw VAR=VALUE is safe here.
-    printf '%s=%s\n' "$1" "$2" >> "$TMP"
-}
-
-CORS_SET=0
-PUBLIC_BASE_URL_SET=0
-# Parsed as one compact-JSON object per line (`jq -c`), NOT
-# `--output text` + `IFS=$'\t' read`. A parameter whose Value is itself
-# multi-line (e.g. a JSON blob like cloudwatch-agent/config) renders with
-# literal embedded newlines under `--output text`, so each of ITS lines
-# became its own tab-less "row" here, none of which matched `name<TAB>value`
-# — every fragment fell through to the WARN case below (one warning per
-# line of that value, on every single app start). `jq -c` escapes embedded
-# newlines as the two characters `\n` inside the JSON string, so one
-# parameter is always exactly one line here, no matter what its value
-# contains.
-while IFS= read -r param_json; do
-    name="$(jq -r '.Name' <<<"$param_json")"
-    value="$(jq -r '.Value' <<<"$param_json")"
-    rel="${name#${PREFIX}/}"
-    case "$rel" in
-        CORS_ORIGINS)
-            # Empty/missing CORS_ORIGINS in SSM triggers the FQDN fallback
-            # below — the operator only has to populate this parameter for
-            # multi-origin deployments (staging mirror, alternate domain, …).
-            if [[ -n "$value" ]]; then
-                emit CORS_ORIGINS "$value"
-                CORS_SET=1
-            fi
-            ;;
-        PUBLIC_BASE_URL)
-            # Same FQDN-fallback shape as CORS_ORIGINS. Set this parameter only
-            # when the public URL diverges from https://${VELOCITYAI_FQDN} (custom
-            # apex domain, CDN in front, etc.). The /velocityai-handoff installer
-            # endpoint reads PUBLIC_BASE_URL to format the curl|bash one-liner
-            # baked into ~/.claude/commands/velocityai-handoff.md.
-            if [[ -n "$value" ]]; then
-                emit PUBLIC_BASE_URL "$value"
-                PUBLIC_BASE_URL_SET=1
-            fi
-            ;;
-        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT|HANDOFF_MAX_TRANSCRIPT_BYTES|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_CLIENT_SECRET|COGNITO_REGION|ADMIN_MFA_REQUIRED|AUTH_EMAIL_MFA_ENABLED)
-            # ADMIN_MFA_REQUIRED (P0 fix, COGNITO-AUTH-QA-BUGS.md) and
-            # AUTH_EMAIL_MFA_ENABLED were published to SSM by the secrets module
-            # but omitted here, so both parameters existed in Parameter Store yet
-            # never reached /etc/velocityai/app.env on any deployed host — an
-            # operator flipping either one in Terraform saw no effect at all.
-            #
-            # AUTH_PROVIDER / AUTH_ALLOW_LEGACY_JWT / BREAK_GLASS_ENABLED removed
-            # from this allowlist in Phase 4 of the Cognito-only auth migration
-            # (.kiro/specs/login/prompt.md) -- the secrets module no longer
-            # creates those SSM parameters at all (see modules/secrets/main.tf),
-            # so nothing can arrive under those names any more; leaving them here
-            # would be a dead allowlist entry for a parameter that can never
-            # exist, matching no writer.
-            emit "$rel" "$value" ;;
-        HOST_CAPACITY_*)
-            # specs/014 — host capacity matrix + admission gate. Every
-            # HOST_CAPACITY_* SSM key maps 1:1 to its Settings field name (no
-            # sub-prefix remap like llm/model_id -> BEDROCK_MODEL_ID below), so
-            # a single glob arm covers the whole family — same shape as the
-            # deploy/* / cloudwatch-agent/* / bootstrap/* glob arms elsewhere in
-            # this case. Every field already has a safe default in
-            # app/core/config.py, so an absent SSM parameter is fine; this arm
-            # only fires when deploy.yml actually pushed an override.
-            emit "$rel" "$value" ;;
-        DATABASE_PASSWORD)
-            emit DATABASE_URL "postgresql://velocityai:${value}@host.docker.internal:5432/velocityai" ;;
-        llm/region)               emit AWS_REGION                  "$value" ;;
-        llm/model_id)             emit BEDROCK_MODEL_ID            "$value" ;;
-        llm/inference_profile_id) emit BEDROCK_INFERENCE_PROFILE_ID "$value" ;;
-        llm/coding_model_id)      emit BEDROCK_CODING_MODEL_ID     "$value" ;;
-        deploy/*)
-            # Deploy coordinates, not app config: deploy/{backend,frontend}_image
-            # (read by bootstrap-ec2.sh §10b to recover the last known-good
-            # release on a rebuilt host) and deploy/instance_id. These must NOT
-            # reach app.env — the image pins are host-anchored and re-asserted
-            # from the preserve list above. Skipped silently rather than falling
-            # through to the WARN below, which would fire on every app start.
-            ;;
-        cloudwatch-agent/*)
-            # The CloudWatch agent reads its OWN config from
-            # /opt/aws/amazon-cloudwatch-agent/etc/ (written by bootstrap-ec2.sh
-            # §13/14 and applied via `amazon-cloudwatch-agent-ctl -a fetch-config`)
-            # — this loader never feeds it anything, so this parameter (whose
-            # Value is a multi-line JSON blob) is expected and not misconfig.
-            # Skipped explicitly, same as deploy/* and bootstrap/* above, rather
-            # than falling through to the WARN below on every app start.
-            ;;
-        bootstrap/*)
-            # Historical one-shot initial-administrator credentials
-            # (bootstrap/admin-email, bootstrap/admin-password). The mechanism
-            # that produced and consumed them (remote-deploy.sh §12,
-            # `app.scripts.bootstrap_admin`) was REMOVED in Phase 4 of the
-            # Cognito-only auth migration (.kiro/specs/login/prompt.md) --
-            # nothing pushes new values under this prefix anymore.
-            #
-            # Kept as an explicit skip, not a functional path: an account that
-            # ran an older deploy may still have a leftover bootstrap/* SSM
-            # parameter sitting around until an operator deletes it by hand,
-            # and this arm's only remaining job is to make sure that leftover
-            # never reaches app.env (visible via `docker inspect`, inherited by
-            # every subprocess) and never trains operators to ignore the WARN
-            # below by making it fire on every app start for an expected name.
-            ;;
-        *)
-            echo "[velocityai-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
-    esac
-done < <(aws ssm get-parameters-by-path \
-            --path "$PREFIX" --recursive --with-decryption \
-            --region "$REGION" \
-            --query 'Parameters[].{Name:Name,Value:Value}' --output json \
-            | jq -c '.[]')
-
-# Fallback: if SSM didn't supply a non-empty CORS_ORIGINS, default to a
-# single-origin list containing the FQDN we're serving from. Matches the
-# common case (single domain) and lets the operator opt-out by setting
-# /velocityai/$env/CORS_ORIGINS to a non-empty JSON list.
-if [[ "$CORS_SET" -eq 0 && -n "$DOMAIN" ]]; then
-    emit CORS_ORIGINS "[\"https://${DOMAIN}\"]"
-fi
-
-# Same fallback for PUBLIC_BASE_URL — when SSM didn't override, derive from
-# the FQDN Terraform wrote into bootstrap.env. This is what the handoff
-# installer endpoint will hand back to users in the curl|bash one-liner.
-if [[ "$PUBLIC_BASE_URL_SET" -eq 0 && -n "$DOMAIN" ]]; then
-    emit PUBLIC_BASE_URL "https://${DOMAIN}"
-fi
-
-mv "$TMP" "$OUT"
-chmod 0640 "$OUT"; chown root:velocityai "$OUT"
-EOF
-chmod +x /usr/local/bin/velocityai-load-secrets
-
-# The loader itself is also a versioned config artifact. Keep the legacy
-# heredoc above only as a compatibility fallback for old artifact buckets; a
-# current bootstrap always replaces it with the same canonical file that a
-# normal deploy installs before it reads SSM.
-aws s3 cp "s3://${BACKUP_BUCKET}/config/velocityai-load-secrets.sh" \
-    /opt/velocityai/velocityai-load-secrets.sh --region "$REGION"
+# This block used to ALSO carry a ~180-line inline heredoc copy of the loader,
+# described as "a compatibility fallback for old artifact buckets". It was dead
+# code in the worst way: the `aws s3 cp` below ran unconditionally and
+# overwrote it moments later, so the heredoc version never executed even once —
+# while still being the thing a reader would study to learn what the loader
+# does, and still drifting away from the real file with every edit to it. And
+# because the fetch ran under `set -e` with no retry, a config/ object that was
+# not yet uploaded aborted the whole bootstrap rather than falling back to
+# anything. The "fallback" protected nothing it claimed to protect.
+#
+# Retried on the same 30 x 10s schedule as reconcile-host-config.sh below: a
+# fresh instance can reach this point before the app layer has finished
+# uploading. Absent after all attempts is fatal and loud — without the loader
+# the box has no way to read its own configuration out of SSM, so continuing
+# would only move the failure to a less legible place.
+for i in $(seq 1 30); do
+    if aws s3 cp "s3://${BACKUP_BUCKET}/config/velocityai-load-secrets.sh" \
+         /opt/velocityai/velocityai-load-secrets.sh --region "$REGION"; then
+        break
+    fi
+    # Last failed attempt is fatal; a stale on-disk copy must not pass (REL-21).
+    if [[ "$i" -eq 30 ]]; then
+        echo "[bootstrap] ERROR: could not fetch velocityai-load-secrets.sh from s3://${BACKUP_BUCKET}/config/ after 30 attempts" >&2
+        echo "[bootstrap] ERROR: the host cannot load its configuration from SSM without it — aborting" >&2
+        exit 1
+    fi
+    echo "[bootstrap] velocityai-load-secrets.sh not available yet (attempt $i) — retrying"
+    sleep 10
+done
 install -o root -g root -m 0755 \
     /opt/velocityai/velocityai-load-secrets.sh \
     /usr/local/bin/velocityai-load-secrets
@@ -951,11 +811,14 @@ for i in $(seq 1 30); do
          /opt/velocityai/reconcile-host-config.sh --region "$REGION"; then
         break
     fi
+    # Last failed attempt is fatal; a stale on-disk copy must not pass (REL-21).
+    if [[ "$i" -eq 30 ]]; then
+        echo "[bootstrap] ERROR: could not fetch reconcile-host-config.sh from S3" >&2
+        exit 1
+    fi
     echo "[bootstrap] reconcile-host-config.sh not available yet (attempt $i) — retrying"
     sleep 10
 done
-[[ -s /opt/velocityai/reconcile-host-config.sh ]] || {
-    echo "[bootstrap] ERROR: could not fetch reconcile-host-config.sh from S3" >&2; exit 1; }
 chmod 0755 /opt/velocityai/reconcile-host-config.sh
 
 # Initial cert (HTTP-01 webroot) — only if no cert exists yet for this domain.
@@ -1064,7 +927,8 @@ fi
 # ── 14a. Assert the agent is actually running (not just asked to run) ──
 #
 # WHY THIS IS NOT `exit 1` IN PLACE. Everything from §15 to §20 runs after
-# this point: the velocityai-deploy user + its restricted sudoers, the
+# this point: the §15 cleanup of the retired velocityai-deploy identity, the
+# shared CloudWatch namespace helper, the
 # pg_dump / skills-backup / stuck-workflow scripts, EVERY systemd unit
 # including velocityai-app.service, the first velocityai-load-secrets run
 # that materialises DATABASE_URL and SECRET_KEY into /etc/velocityai/app.env,
@@ -1133,65 +997,43 @@ assert_cloudwatch_agent_running() {
 
 assert_cloudwatch_agent_running || BOOTSTRAP_DEGRADED+=("cloudwatch-agent")
 
-# ── 15. velocityai-deploy user + restricted sudoers + image-tag wrapper ────
-if ! id velocityai-deploy >/dev/null 2>&1; then
-    useradd --system --create-home --shell /bin/bash velocityai-deploy
-    install -d -o velocityai-deploy -g velocityai-deploy -m 0700 /home/velocityai-deploy/.ssh
-    install -o velocityai-deploy -g velocityai-deploy -m 0600 /dev/null \
-        /home/velocityai-deploy/.ssh/authorized_keys
-fi
-
-cat > /usr/local/bin/velocityai-update-image-tag <<'WRAPPER'
-#!/bin/bash
-# /usr/local/bin/velocityai-update-image-tag — called by `sudo` from CI.
-# Usage: velocityai-update-image-tag (backend|frontend) <image_uri>
-set -euo pipefail
-if [ "$#" -ne 2 ]; then
-    echo "ERROR: usage: $0 (backend|frontend) <image_uri>" >&2
-    exit 64
-fi
-component="$1"
-image="$2"
-case "$component" in
-    backend|frontend) ;;
-    *) echo "ERROR: component must be backend or frontend, got: $component" >&2; exit 65 ;;
-esac
-if [ "${#image}" -gt 255 ] || ! [[ "$image" =~ ^[a-z0-9._/:-]+$ ]]; then
-    echo "ERROR: image URI rejected — must match ^[a-z0-9._/:-]+$ (max 255 chars)" >&2
-    exit 66
-fi
-upper="${component^^}"
-sed -i.bak "s|^${upper}_IMAGE=.*|${upper}_IMAGE=${image}|" /etc/velocityai/app.env
-rm -f /etc/velocityai/app.env.bak
-WRAPPER
-chmod 0755 /usr/local/bin/velocityai-update-image-tag
-chown root:root /usr/local/bin/velocityai-update-image-tag
-
-# Restricted sudoers via visudo -cf to refuse a malformed install.
+# ── 15. Remove the retired velocityai-deploy SSH identity ──────────────────
+# This section used to CREATE a `velocityai-deploy` system user with an
+# authorized_keys file, a `/usr/local/bin/velocityai-update-image-tag` sed
+# wrapper, and a sudoers stanza granting it NOPASSWD on that wrapper plus
+# `systemctl restart velocityai-app.service`.
 #
-# L-02: a single `trap ... RETURN`-style cleanup replaces the previous two
-# separate `rm -f "$SUDOERS_TMP"` lines (one in the failure branch, one after
-# the `if`) — a leftover from a careless edit pass. `trap` here fires on the
-# function/script's own EXIT, which is safe because this file has no other
-# EXIT trap active at this point (grep confirms: this is the only trap in
-# the whole script).
-SUDOERS_TMP=$(mktemp)
-trap 'rm -f "$SUDOERS_TMP"' EXIT
-cat > "$SUDOERS_TMP" <<'SUDO'
-# /etc/sudoers.d/velocityai-deploy — generated by VelocityAI bootstrap.
-velocityai-deploy ALL=(root) NOPASSWD: /usr/local/bin/velocityai-update-image-tag backend *
-velocityai-deploy ALL=(root) NOPASSWD: /usr/local/bin/velocityai-update-image-tag frontend *
-velocityai-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart velocityai-app.service
-SUDO
-chmod 0440 "$SUDOERS_TMP"
-if visudo -cf "$SUDOERS_TMP"; then
-    install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/velocityai-deploy
-else
-    echo "[bootstrap] ERROR: velocityai-deploy sudoers stanza failed visudo check" >&2
-    exit 1
+# All of it was CodeBuild-era: CI used to SSH in as that user and mutate
+# /etc/velocityai/app.env through the wrapper. Nothing does that now.
+# deploy.yml reaches this host over SSM RunCommand and remote-deploy.sh rewrites
+# the image pins itself, running as root in the SSM session — so the user, the
+# wrapper and the sudoers grant were an unused standing credential and an unused
+# privilege escalation path. deploy.yml's own header states the design plainly:
+# "no SSH, no open port 22".
+#
+# What remains is the REMOVAL, which must be idempotent: a host bootstrapped
+# before this change still carries all three artifacts, and bootstrap is the only
+# thing that runs on it regularly enough to clean them up. Every step tolerates
+# absence, so this is a no-op on a fresh box.
+#
+# The sshd hardening drop-in in §3 is deliberately KEPT — it is not part of this
+# cleanup. Break-glass human access via SSM Session Manager is unaffected: it
+# does not use sshd, a local user, or port 22.
+if [[ -f /etc/sudoers.d/velocityai-deploy ]]; then
+    echo "[bootstrap] removing retired sudoers stanza /etc/sudoers.d/velocityai-deploy"
+    rm -f /etc/sudoers.d/velocityai-deploy
 fi
-trap - EXIT
-rm -f "$SUDOERS_TMP"
+if [[ -f /usr/local/bin/velocityai-update-image-tag ]]; then
+    echo "[bootstrap] removing retired wrapper /usr/local/bin/velocityai-update-image-tag"
+    rm -f /usr/local/bin/velocityai-update-image-tag
+fi
+if id velocityai-deploy >/dev/null 2>&1; then
+    echo "[bootstrap] removing retired user velocityai-deploy (and its home + authorized_keys)"
+    # No processes should be running as it; `pkill` is tolerant of none matching.
+    pkill -u velocityai-deploy >/dev/null 2>&1 || true
+    userdel --remove velocityai-deploy >/dev/null 2>&1 \
+        || echo "[bootstrap] WARNING: could not fully remove velocityai-deploy — check \`id velocityai-deploy\` and /home/velocityai-deploy" >&2
+fi
 
 # ── 16a. Shared CloudWatch metric namespace for on-host publishers ──────────
 #
@@ -1208,22 +1050,22 @@ rm -f "$SUDOERS_TMP"
 # Callers get VELOCITYAI_ENVIRONMENT from
 # EnvironmentFile=/etc/velocityai/bootstrap.env on velocityai-pg-dump.service
 # and velocityai-stuck-workflows-check.service.
+# The map itself lives in host-common.sh as cw_namespace(), so this wrapper and
+# reconcile-host-config.sh share ONE derivation (R-13). reconcile used
+# `${ENVIRONMENT^}` instead, which is not equivalent: it happily yields
+# "VelocityAI/Staging" or "VelocityAI/Qa" — a valid namespace no alarm queries, so
+# metrics vanish silently and every alarm sits in INSUFFICIENT_DATA looking like a
+# quiet system.
 cat > /usr/local/bin/velocityai-cw-namespace <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=/dev/null
+. /opt/velocityai/lib/host-common.sh
 if [[ -z "${VELOCITYAI_ENVIRONMENT:-}" ]]; then
     echo "velocityai-cw-namespace: VELOCITYAI_ENVIRONMENT is unset (expected from /etc/velocityai/bootstrap.env) - refusing to guess" >&2
     exit 1
 fi
-case "$VELOCITYAI_ENVIRONMENT" in
-    dev)   echo "VelocityAI/Dev"   ;;
-    stage) echo "VelocityAI/Stage" ;;
-    prod)  echo "VelocityAI/Prod"  ;;
-    *)
-        echo "velocityai-cw-namespace: unknown environment '$VELOCITYAI_ENVIRONMENT' (expected dev|stage|prod)" >&2
-        exit 1
-        ;;
-esac
+cw_namespace "$VELOCITYAI_ENVIRONMENT"
 EOF
 chmod 0755 /usr/local/bin/velocityai-cw-namespace
 
@@ -1486,14 +1328,20 @@ systemctl enable velocityai-app.service
 # matters, and it warms the local cache so the unit's own pull is a cache hit.
 # §9's ECR login is still valid here.
 APP_IMAGES_AVAILABLE=1
-for _image_ref in "$BACKEND_IMAGE_REF" "$FRONTEND_IMAGE_REF"; do
-    if docker pull "$_image_ref" >/dev/null 2>&1; then
-        echo "[bootstrap] image available: ${_image_ref}"
-    else
-        echo "[bootstrap] image NOT available: ${_image_ref}" >&2
-        APP_IMAGES_AVAILABLE=0
-    fi
-done
+if [[ -z "$BACKEND_IMAGE_REF" || -z "$FRONTEND_IMAGE_REF" ]]; then
+    # §10b found no deploy record at all, so there is nothing to probe. Skip
+    # straight to the clean-skip path below rather than calling `docker pull ""`.
+    APP_IMAGES_AVAILABLE=0
+else
+    for _image_ref in "$BACKEND_IMAGE_REF" "$FRONTEND_IMAGE_REF"; do
+        if docker pull "$_image_ref" >/dev/null 2>&1; then
+            echo "[bootstrap] image available: ${_image_ref}"
+        else
+            echo "[bootstrap] image NOT available: ${_image_ref}" >&2
+            APP_IMAGES_AVAILABLE=0
+        fi
+    done
+fi
 
 if [[ "$APP_IMAGES_AVAILABLE" -eq 1 ]]; then
     systemctl restart velocityai-app.service

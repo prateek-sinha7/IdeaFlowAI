@@ -28,12 +28,17 @@ Requirement 5 ACs exercised:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import patch
+
+if TYPE_CHECKING:
+    from agents.execution_engine.kernel_services import KernelServices
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_ks(*, disk_principal: str = "user-1") -> "KernelServices":
     """Build a KernelServices instance that bypasses __init__ (offline harness)."""
@@ -57,6 +62,7 @@ def _patch_root_resolve(mapping: dict[str, str]):
         from agents.execution_engine.engine import _resolve_root_id
     We patch at that import source.
     """
+
     def _fake_resolve(run_id: str, owner_id: str) -> str:
         return mapping.get(run_id, run_id)
 
@@ -134,9 +140,9 @@ class TestReadParentFileRootResolution:
 
         assert result == "design content"
         principal, sandbox_run_id = inits[0]
-        assert sandbox_run_id == "run-A", (
-            "depth-2 chain: RunSandbox must use chain root run-A, not mid-chain run-B"
-        )
+        assert (
+            sandbox_run_id == "run-A"
+        ), "depth-2 chain: RunSandbox must use chain root run-A, not mid-chain run-B"
 
     def test_solo_run_resolves_to_itself(self) -> None:
         """A run with no chain (root = itself) is unchanged: self → self."""
@@ -168,14 +174,17 @@ class TestReadParentFileRootResolution:
             calls_made.append((run_id, owner_id))
             return run_id  # identity — no chain to follow
 
-        with patch("agents.execution_engine.engine._resolve_root_id", side_effect=_fake_resolve):
+        with patch(
+            "agents.execution_engine.engine._resolve_root_id", side_effect=_fake_resolve
+        ):
             with patch_ctx:
                 ks.read_parent_file("run-X", "spec.md")
 
         assert len(calls_made) == 1
-        assert calls_made[0] == ("run-X", "user-42"), (
-            "_resolve_root_id must be called with (parent_run_id, disk_principal)"
-        )
+        assert calls_made[0] == (
+            "run-X",
+            "user-42",
+        ), "_resolve_root_id must be called with (parent_run_id, disk_principal)"
 
     def test_raw_parent_id_never_used_as_sandbox_key_at_depth2(self) -> None:
         """Regression guard: the raw mid-chain id must NEVER reach RunSandbox.
@@ -191,9 +200,9 @@ class TestReadParentFileRootResolution:
                 ks.read_parent_file("run-mid", "spec.md")
 
         _, sandbox_run_id = inits[0]
-        assert sandbox_run_id != "run-mid", (
-            "raw mid-chain id 'run-mid' must NEVER be passed to RunSandbox"
-        )
+        assert (
+            sandbox_run_id != "run-mid"
+        ), "raw mid-chain id 'run-mid' must NEVER be passed to RunSandbox"
         assert sandbox_run_id == "run-root"
 
     def test_missing_file_returns_none_not_masked(self) -> None:
@@ -211,9 +220,9 @@ class TestReadParentFileRootResolution:
                 result = ks.read_parent_file("run-B", "nonexistent.md")
 
         # RunSandbox.read returns None for absent files — propagate that, don't mask it.
-        assert result is None, (
-            "a genuinely absent file must return None, not a fabricated empty string"
-        )
+        assert (
+            result is None
+        ), "a genuinely absent file must return None, not a fabricated empty string"
         # Chain root was still resolved correctly.
         _, sandbox_run_id = inits[0]
         assert sandbox_run_id == "run-A"
@@ -228,6 +237,6 @@ class TestReadParentFileRootResolution:
                 ks.read_parent_file("run-B", "spec.md")
 
         principal, _ = inits[0]
-        assert principal == "user-99", (
-            "RunSandbox must be keyed on disk_principal, not owner_id"
-        )
+        assert (
+            principal == "user-99"
+        ), "RunSandbox must be keyed on disk_principal, not owner_id"

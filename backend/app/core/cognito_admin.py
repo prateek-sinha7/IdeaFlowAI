@@ -380,7 +380,9 @@ def invite_user(
             )
         raise
 
-    result = CreatedUser(email=email, cognito_sub=cognito_sub, tier=tier, is_admin=is_admin)
+    result = CreatedUser(
+        email=email, cognito_sub=cognito_sub, tier=tier, is_admin=is_admin
+    )
 
     # Audit: successful user creation
     auth_events.emit(
@@ -420,7 +422,9 @@ def change_tier(user: User, new_tier: str, db: Session) -> None:
         )
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
-        logger.error("Group lookup failed for %s during tier change: %s", user.email, code)
+        logger.error(
+            "Group lookup failed for %s during tier change: %s", user.email, code
+        )
         raise ProviderUnavailableError(
             "Could not read current group membership at the identity provider.",
             code=code,
@@ -486,7 +490,10 @@ def change_role(user: User, is_admin: bool, db: Session) -> None:
     try:
         if is_admin:
             _retry_on_throttle(
-                "AdminAddUserToGroup", cognito.admin_add_user_to_group, user.email, ADMIN_GROUP
+                "AdminAddUserToGroup",
+                cognito.admin_add_user_to_group,
+                user.email,
+                ADMIN_GROUP,
             )
         else:
             _retry_on_throttle(

@@ -64,7 +64,9 @@ def test_render_pptx_writes_the_file_and_reports_its_size(sandbox):
 
 def test_a_compile_error_comes_back_as_text_to_act_on(sandbox):
     """The retry signal. It must name the fault, not merely report failure."""
-    out = pptx_tools.render_pptx.invoke({"pptxgenjs_code": "this is not javascript ((("})
+    out = pptx_tools.render_pptx.invoke(
+        {"pptxgenjs_code": "this is not javascript ((("}
+    )
     assert out.startswith("FAILED")
     assert "SyntaxError" in out
 
@@ -85,7 +87,7 @@ def test_verify_reports_clean_on_a_well_placed_deck(sandbox):
 
 def test_verify_flags_a_shape_that_crosses_the_footer_rail(sandbox):
     """Content must end above 6.70". A box at y=7.0 is over the line."""
-    over = GOOD.replace('y: 2, w: 11, h: 1', 'y: 7.0, w: 11, h: 1')
+    over = GOOD.replace("y: 2, w: 11, h: 1", "y: 7.0, w: 11, h: 1")
     pptx_tools.render_pptx.invoke({"pptxgenjs_code": over})
     out = pptx_tools.verify_pptx_layout.invoke({})
     assert out.startswith("VIOLATIONS")
@@ -188,9 +190,11 @@ def test_forgetting_the_return_fails_with_the_reason(tmp_path):
 
 
 def test_render_pptx_hands_the_crash_back_to_the_agent(sandbox):
-    out = pptx_tools.render_pptx.invoke({
-        "pptxgenjs_code": "const pres = new PptxGenJS(); undefined.boom;",
-    })
+    out = pptx_tools.render_pptx.invoke(
+        {
+            "pptxgenjs_code": "const pres = new PptxGenJS(); undefined.boom;",
+        }
+    )
     assert out.startswith("FAILED")
     assert not (sandbox / pptx_tools.PPTX_NAME).exists()
 
@@ -204,7 +208,7 @@ def test_a_deck_that_lost_slides_is_not_shippable(sandbox):
         "".join(f'<section class="slide">{i}</section>' for i in range(12)),
         encoding="utf-8",
     )
-    out = pptx_tools.render_pptx.invoke({"pptxgenjs_code": GOOD})   # GOOD has 1 slide
+    out = pptx_tools.render_pptx.invoke({"pptxgenjs_code": GOOD})  # GOOD has 1 slide
     assert "INCOMPLETE" in out
     assert "1 slide(s)" in out and "has 12" in out
 

@@ -156,6 +156,16 @@ describe("IdeaInputPage — opendesign design-picker wiring", () => {
 
     expect(onRun).toHaveBeenCalledTimes(1);
     const [, , , extraParams] = onRun.mock.calls[0];
-    expect(extraParams).toBeUndefined();
+    // FIX-323 — the launch surface ALWAYS sends `gate_agent_ids` (gate selection
+    // starts `touched: true`, IdeaInputPage.tsx:1001), so an empty selection
+    // reaches the backend as an explicit "no gates". Same rule the sibling
+    // IdeaInputPage.selections/imageInput/modelOverrides tests pin. (Note: the
+    // card store's FIX-323 file is an unrelated /login fix — an ID collision per
+    // ADR-0051; the rule's rationale lives at LaunchWizard.tsx:344 and
+    // ReviewGatesSection.tsx:74.) What THIS test guards is unchanged: no design
+    // params ride along when the workflow never declares opendesign.
+    expect(extraParams).toEqual({ gate_agent_ids: [] });
+    expect(extraParams).not.toHaveProperty("template_id");
+    expect(extraParams).not.toHaveProperty("design_system_id");
   });
 });

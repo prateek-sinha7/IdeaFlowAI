@@ -103,7 +103,9 @@ class ArtifactStore:
         """
         self._questionnaire_responses.pop(pipeline_run_id, None)
         self._questionnaire_force_proceed.pop(pipeline_run_id, None)
-        logger.debug("ArtifactStore: questionnaire slot cleared for run=%s", pipeline_run_id)
+        logger.debug(
+            "ArtifactStore: questionnaire slot cleared for run=%s", pipeline_run_id
+        )
 
     async def get_questionnaire_responses(
         self,

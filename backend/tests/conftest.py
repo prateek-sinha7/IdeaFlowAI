@@ -37,6 +37,8 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
 # Register plugin modules that provide shared fixtures
 pytest_plugins = [
     "tests.plugins.agents_fixtures",

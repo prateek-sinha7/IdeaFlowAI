@@ -26,6 +26,7 @@ Every test drives a real engine entry point (``finalize_terminal_run`` for
 scenario 1, ``ExecutionEngine._execute_impl`` for scenario 2) and spies on
 ``commit_in_sandbox`` to verify it is the path taken (so hooks apply).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -180,6 +181,7 @@ class FakeSandbox:
     def create_run_ref(self, run_id: str):
         """Create a run ref in git."""
         from app.agents.runtime.local import RefResult  # noqa: PLC0415
+
         ref_name = f"refs/ideaflow/runs/{run_id}"
         head_sha = _run_git("rev-parse", "HEAD", cwd=self.root)
         # Check whether ref exists
@@ -189,16 +191,22 @@ class FakeSandbox:
             existing_sha = None
         if existing_sha is not None:
             if existing_sha == head_sha:
-                return RefResult(state="idempotent", name=ref_name, sha=head_sha, existing=None)
-            return RefResult(state="conflict", name=ref_name, sha=head_sha, existing=existing_sha)
+                return RefResult(
+                    state="idempotent", name=ref_name, sha=head_sha, existing=None
+                )
+            return RefResult(
+                state="conflict", name=ref_name, sha=head_sha, existing=existing_sha
+            )
         _run_git("update-ref", "--create-reflog", ref_name, head_sha, cwd=self.root)
         return RefResult(state="created", name=ref_name, sha=head_sha, existing=None)
 
 
 class _DummyLock:
     """No-op context manager for family lock in tests."""
+
     def __enter__(self):
         return self
+
     def __exit__(self, *_):
         pass
 
@@ -229,7 +237,9 @@ def _make_ectx(
     )
 
 
-def _setup_sandbox(tmp_path: Path, run_id: str | None = None) -> tuple[FakeSandbox, str]:
+def _setup_sandbox(
+    tmp_path: Path, run_id: str | None = None
+) -> tuple[FakeSandbox, str]:
     """Create a git-initialized sandbox under tmp_path. Returns (sandbox, run_id)."""
     if run_id is None:
         run_id = _make_run_id()
@@ -254,9 +264,11 @@ def _make_mock_db() -> MagicMock:
 
 def _patch_db(mock_db: MagicMock):
     """Patch SessionLocal inside engine.py to return mock_db."""
+
     class _FakeSessionLocal:
         def __call__(self):
             return mock_db
+
     return patch(
         "app.models.database.SessionLocal",
         side_effect=_FakeSessionLocal(),
@@ -266,6 +278,7 @@ def _patch_db(mock_db: MagicMock):
 # ---------------------------------------------------------------------------
 # D4 Behavioral Tests: finalize_terminal_run with dirty sandbox
 # ---------------------------------------------------------------------------
+
 
 class TestCancelledRunWipCommit:
     """D4: Drive finalize_terminal_run(candidate_status="cancelled") on dirty sandbox.
@@ -294,7 +307,9 @@ class TestCancelledRunWipCommit:
         sandbox, run_id = _setup_sandbox(tmp_path)
 
         # Make the sandbox dirty with uncommitted changes
-        (sandbox.root / "abandoned_work.md").write_text("partial output", encoding="utf-8")
+        (sandbox.root / "abandoned_work.md").write_text(
+            "partial output", encoding="utf-8"
+        )
         assert sandbox.is_dirty() is True
 
         # Create execution context with step_visit_counts
@@ -311,6 +326,7 @@ class TestCancelledRunWipCommit:
             ) as mock_commit:
                 # Import CommitInSandboxResult after patching to get the right type
                 from agents.execution_engine.engine import CommitInSandboxResult
+
                 mock_commit.return_value = CommitInSandboxResult()
 
                 def _run_test():
@@ -327,7 +343,11 @@ class TestCancelledRunWipCommit:
 
                 # The first call should be the wip commit
                 first_call_args = mock_commit.call_args_list[0]
-                message = first_call_args[0][1] if len(first_call_args[0]) > 1 else first_call_args[1].get("message")
+                message = (
+                    first_call_args[0][1]
+                    if len(first_call_args[0]) > 1
+                    else first_call_args[1].get("message")
+                )
                 assert message is not None
                 assert message.startswith("wip: cancelled at step ")
                 # The message should contain the last step from step_visit_counts
@@ -359,6 +379,7 @@ class TestCancelledRunWipCommit:
                 new_callable=AsyncMock,
             ) as mock_commit:
                 from agents.execution_engine.engine import CommitInSandboxResult
+
                 mock_commit.return_value = CommitInSandboxResult()
 
                 def _run_test():
@@ -373,9 +394,15 @@ class TestCancelledRunWipCommit:
                 # Get the first call (the wip commit)
                 assert mock_commit.call_count >= 1
                 first_call_args = mock_commit.call_args_list[0]
-                message = first_call_args[0][1] if len(first_call_args[0]) > 1 else first_call_args[1].get("message")
+                message = (
+                    first_call_args[0][1]
+                    if len(first_call_args[0]) > 1
+                    else first_call_args[1].get("message")
+                )
                 # The last key in step_visit_counts is "code-gen"
-                assert "code-gen" in message, f"Expected 'code-gen' in message; got: {message!r}"
+                assert (
+                    "code-gen" in message
+                ), f"Expected 'code-gen' in message; got: {message!r}"
 
         _finalize_terminal_run_started.discard(run_id)
 
@@ -402,6 +429,7 @@ class TestCancelledRunWipCommit:
                 new_callable=AsyncMock,
             ) as mock_commit:
                 from agents.execution_engine.engine import CommitInSandboxResult
+
                 mock_commit.return_value = CommitInSandboxResult()
 
                 def _run_test():
@@ -424,6 +452,7 @@ class TestCancelledRunWipCommit:
 # ---------------------------------------------------------------------------
 # Tests: basic sandbox is_dirty() unit tests (unchanged from v1)
 # ---------------------------------------------------------------------------
+
 
 class TestRunSandboxIsDirty:
     """RunSandbox.is_dirty() delegates to LocalWorkspace; gated on has_git."""
@@ -503,6 +532,7 @@ class TestLocalWorkspaceIsDirty:
 # ---------------------------------------------------------------------------
 # Integration: real sandbox wip commit tests
 # ---------------------------------------------------------------------------
+
 
 class TestRealSandboxWipCommit:
     """Integration tests using real git repos."""
@@ -585,7 +615,8 @@ class TestRealSandboxWipCommit:
         )
 
         recovery_calls = [
-            call for call in mock_commit.call_args_list
+            call
+            for call in mock_commit.call_args_list
             if _wip_message_from_call(call).startswith("wip: recovered dirty tree")
         ]
         assert recovery_calls == [], (
@@ -696,10 +727,13 @@ async def _drive_resume_execute_impl(tmp_path: Path, run_id: str, *, seed_dirty:
         compiled = _make_resume_compiled(spec)
         engine = ExecutionEngine()
 
-        with _patch_db(_make_mock_db()), patch(
-            "agents.execution_engine.engine.commit_in_sandbox",
-            new_callable=AsyncMock,
-        ) as mock_commit:
+        with (
+            _patch_db(_make_mock_db()),
+            patch(
+                "agents.execution_engine.engine.commit_in_sandbox",
+                new_callable=AsyncMock,
+            ) as mock_commit,
+        ):
             mock_commit.return_value = CommitInSandboxResult()
             events: list[dict] = []
             async for ev in engine._execute_impl(

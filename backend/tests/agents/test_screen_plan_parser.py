@@ -194,7 +194,9 @@ class TestRenderBody:
         assert "kind: page" in body
 
     def test_render_body_contains_attribute_strings_in_backticks(self):
-        screen = parse_inventory('{"screens": [{"id": "home", "transitions": [{"label": "Go", "to": "about"}]}]}').screens[0]
+        screen = parse_inventory(
+            '{"screens": [{"id": "home", "transitions": [{"label": "Go", "to": "about"}]}]}'
+        ).screens[0]
         inv = parse_inventory('{"screens": [{"id": "home"}, {"id": "about"}]}')
         body = render_body(screen, inv, "")
         # Attribute string should appear in backticks
@@ -207,7 +209,9 @@ class TestRenderBody:
         assert "page-header" in body
 
     def test_render_body_dialog_includes_dialog_rule(self):
-        screen = parse_inventory('{"screens": [{"id": "modal", "kind": "dialog"}]}').screens[0]
+        screen = parse_inventory(
+            '{"screens": [{"id": "modal", "kind": "dialog"}]}'
+        ).screens[0]
         inv = parse_inventory('{"screens": [{"id": "modal", "kind": "dialog"}]}')
         body = render_body(screen, inv, "")
         assert "DIALOG" in body
@@ -262,9 +266,7 @@ class TestScreenPlanInWaves:
     """Test that screen plan tasks land in ONE wave."""
 
     def test_all_screens_in_one_wave(self):
-        inv = parse_inventory(
-            '{"screens": [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}]}'
-        )
+        inv = parse_inventory('{"screens": [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}]}')
         tasks = build_tasks(inv, "")
         waves = build_waves(tasks)
         # All tasks should be in one wave (no dependencies)
@@ -373,7 +375,9 @@ _SPEC_V4 = """## Flows
 
 
 def test_v4_brief_carries_field_count_and_state_and_attribute_rules():
-    inv = parse_inventory('{"screens": [{"id": "home", "title": "Home"}, {"id": "detail", "title": "Detail"}]}')
+    inv = parse_inventory(
+        '{"screens": [{"id": "home", "title": "Home"}, {"id": "detail", "title": "Detail"}]}'
+    )
     body = render_body(inv.by_id()["home"], inv, _SPEC_V4)
     assert "at least 3 form controls" in body and "the SPEC lists 3 fields" in body
     assert "every element with class `state` is named by a `data-show`" in body
@@ -383,26 +387,43 @@ def test_v4_brief_carries_field_count_and_state_and_attribute_rules():
 
 
 def test_v4_parse_preferring_target_applies_the_flow_backstop_and_writes_it_back():
-    sb = _Sandbox({
-        "build/screens.json": '{"screens": [{"id": "home", "title": "Home"}, {"id": "detail", "title": "Detail"}]}',
-        "spec.md": _SPEC_V4,
-    })
-    tasks = ScreenPlanParser().parse_preferring_target("", sandbox=sb, target="build/screens.json")
+    sb = _Sandbox(
+        {
+            "build/screens.json": '{"screens": [{"id": "home", "title": "Home"}, {"id": "detail", "title": "Detail"}]}',
+            "spec.md": _SPEC_V4,
+        }
+    )
+    tasks = ScreenPlanParser().parse_preferring_target(
+        "", sandbox=sb, target="build/screens.json"
+    )
     home = next(t for t in tasks if t.id == "screen-home")
     assert 'data-goto="detail"' in home.body and 'data-goto="detail"' in home.done_when
     import json as _json
+
     written = _json.loads(sb.files["build/screens.json"])
-    assert written["screens"][0]["transitions"] == [{"label": "Go", "attr": "data-goto", "to": "detail"}]
+    assert written["screens"][0]["transitions"] == [
+        {"label": "Go", "attr": "data-goto", "to": "detail"}
+    ]
     assert written["notes"] and written["notes"][0].startswith("flow backstop")
 
 
 def test_v4_write_back_keeps_extra_keys_on_existing_transitions():
-    sb = _Sandbox({
-        "build/screens.json": '{"screens": [{"id": "home", "title": "Home", "transitions": [{"label": "Help", "attr": "data-goto", "to": "detail", "source": "REQ-001"}]}, {"id": "detail", "title": "Detail"}, {"id": "other", "title": "Other"}]}',
-        "spec.md": "## Flows\n### F\n1. `home` — user clicks Next → lands on `other`\n\n## Screens\n### home — Home\n### detail — Detail\n### other — Other\n",
-    })
-    ScreenPlanParser().parse_preferring_target("", sandbox=sb, target="build/screens.json")
+    sb = _Sandbox(
+        {
+            "build/screens.json": '{"screens": [{"id": "home", "title": "Home", "transitions": [{"label": "Help", "attr": "data-goto", "to": "detail", "source": "REQ-001"}]}, {"id": "detail", "title": "Detail"}, {"id": "other", "title": "Other"}]}',
+            "spec.md": "## Flows\n### F\n1. `home` — user clicks Next → lands on `other`\n\n## Screens\n### home — Home\n### detail — Detail\n### other — Other\n",
+        }
+    )
+    ScreenPlanParser().parse_preferring_target(
+        "", sandbox=sb, target="build/screens.json"
+    )
     import json as _json
+
     tr = _json.loads(sb.files["build/screens.json"])["screens"][0]["transitions"]
-    assert tr[0] == {"label": "Help", "attr": "data-goto", "to": "detail", "source": "REQ-001"}
+    assert tr[0] == {
+        "label": "Help",
+        "attr": "data-goto",
+        "to": "detail",
+        "source": "REQ-001",
+    }
     assert tr[1] == {"label": "Next", "attr": "data-goto", "to": "other"}

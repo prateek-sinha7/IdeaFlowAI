@@ -164,6 +164,7 @@ class MockRunSandbox:
 @pytest.fixture
 def mock_playwright_module():
     """Patch the playwright import to return our mock."""
+
     async def mock_start():
         return MockPlaywright()
 
@@ -219,7 +220,9 @@ class TestPlaywrightSessionLifecycle:
         assert ctx1 is ctx2
 
     @pytest.mark.asyncio
-    async def test_fix_307_regression_page_survives_across_calls(self, mock_playwright_module):
+    async def test_fix_307_regression_page_survives_across_calls(
+        self, mock_playwright_module
+    ):
         """FIX-307 regression guard: a page is still usable across two separate acquisitions.
 
         This is the single most important test in spec 018. Without explicit release
@@ -255,7 +258,9 @@ class TestPlaywrightSessionLifecycle:
         assert isinstance(ctx2, MockBrowserContext)
 
     @pytest.mark.asyncio
-    async def test_concurrent_workers_same_agent_different_keys(self, mock_playwright_module):
+    async def test_concurrent_workers_same_agent_different_keys(
+        self, mock_playwright_module
+    ):
         """Two concurrent tasks with different worker_keys (thread_ids) each get their own context.
 
         This tests the ContextVar-based isolation for wave workers: multiple workers
@@ -269,7 +274,9 @@ class TestPlaywrightSessionLifecycle:
 
         async def worker_task(worker_key: str) -> MockBrowserContext:
             """Simulate a wave worker: bind with worker_key, then acquire."""
-            playwright.bind_sandbox(sandbox, agent_id="custom-agent:pb-build", worker_key=worker_key)
+            playwright.bind_sandbox(
+                sandbox, agent_id="custom-agent:pb-build", worker_key=worker_key
+            )
             context = await session.acquire(playwright._AGENT_KEY_VAR.get())
             return context
 
@@ -285,7 +292,9 @@ class TestPlaywrightSessionLifecycle:
         assert isinstance(ctx2, MockBrowserContext)
 
     @pytest.mark.asyncio
-    async def test_bind_sandbox_without_worker_key_backward_compat(self, mock_playwright_module):
+    async def test_bind_sandbox_without_worker_key_backward_compat(
+        self, mock_playwright_module
+    ):
         """bind_sandbox without worker_key still keys by agent_id (backward compatible).
 
         When worker_key is None, bind_sandbox should fall back to agent_id,
@@ -416,7 +425,10 @@ class TestPlaywrightSessionAvailability:
     @pytest.mark.asyncio
     async def test_unavailable_when_playwright_import_fails(self):
         """Session reports unavailable when Playwright import fails."""
-        with patch("playwright.async_api.async_playwright", side_effect=ImportError("not installed")):
+        with patch(
+            "playwright.async_api.async_playwright",
+            side_effect=ImportError("not installed"),
+        ):
             session = PlaywrightSession("run-no-pw")
             ctx = await session.acquire("agent-1")
             assert ctx is None
@@ -426,9 +438,12 @@ class TestPlaywrightSessionAvailability:
     @pytest.mark.asyncio
     async def test_unavailable_when_chromium_launch_fails(self):
         """Session reports unavailable when Chromium fails to launch."""
+
         async def broken_start():
             pw = MockPlaywright()
-            pw.chromium.launch = AsyncMock(side_effect=RuntimeError("Chromium not found"))
+            pw.chromium.launch = AsyncMock(
+                side_effect=RuntimeError("Chromium not found")
+            )
             return pw
 
         async_pw_mock = AsyncMock(start=broken_start)
@@ -442,7 +457,10 @@ class TestPlaywrightSessionAvailability:
     @pytest.mark.asyncio
     async def test_acquire_returns_none_when_unavailable(self):
         """acquire() returns None (never raises) when browser is unavailable."""
-        with patch("playwright.async_api.async_playwright", side_effect=ImportError("not installed")):
+        with patch(
+            "playwright.async_api.async_playwright",
+            side_effect=ImportError("not installed"),
+        ):
             session = PlaywrightSession("run-none")
             ctx = await session.acquire("agent-1")
             assert ctx is None
@@ -500,7 +518,9 @@ class TestURLPolicyResolver:
     def test_widened_policy_permits_https(self):
         """Adding 'http' to the policy permits https:// URLs."""
         sandbox = MockRunSandbox()
-        with patch("app.core.config.settings.BROWSER_URL_POLICY", "file,localhost,http"):
+        with patch(
+            "app.core.config.settings.BROWSER_URL_POLICY", "file,localhost,http"
+        ):
             result = resolve_url_policy("https://example.com", sandbox)
             assert isinstance(result, str)
             assert result == "https://example.com"
@@ -667,10 +687,9 @@ class TestReleaseExitPaths:
     @pytest.mark.asyncio
     async def test_release_called_on_normal_completion(self, mock_playwright_module):
         """release() should be called when an async generator completes normally."""
-        call_tracker = []
 
         async def test_generator():
-            session = await acquire("run-normal", "agent-1")
+            await acquire("run-normal", "agent-1")
             yield "step1"
             yield "step2"
             # Normal completion
@@ -686,7 +705,7 @@ class TestReleaseExitPaths:
         released = []
 
         async def test_coroutine():
-            session = await acquire("run-cancel", "agent-1")
+            await acquire("run-cancel", "agent-1")
             try:
                 await asyncio.sleep(10)  # Will be cancelled
             finally:
@@ -705,12 +724,14 @@ class TestReleaseExitPaths:
         assert len(released) == 1
 
     @pytest.mark.asyncio
-    async def test_release_exception_does_not_mask_propagating_exception(self, mock_playwright_module):
+    async def test_release_exception_does_not_mask_propagating_exception(
+        self, mock_playwright_module
+    ):
         """release() that raises should not mask an exception passing through finally."""
         original_exception = None
 
         async def test_with_exception():
-            session = await acquire("run-except", "agent-1")
+            await acquire("run-except", "agent-1")
             try:
                 raise ValueError("Original error")
             finally:
@@ -752,7 +773,9 @@ class TestPlaywrightSessionIntegration:
     """Integration scenarios combining multiple features."""
 
     @pytest.mark.asyncio
-    async def test_full_workflow_acquire_snapshot_resolve_navigate_stale(self, mock_playwright_module):
+    async def test_full_workflow_acquire_snapshot_resolve_navigate_stale(
+        self, mock_playwright_module
+    ):
         """Full workflow: acquire, snapshot, resolve ref, navigate, ref becomes stale."""
         session = get_session("run-workflow")
 

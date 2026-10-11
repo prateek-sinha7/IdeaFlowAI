@@ -6,11 +6,23 @@ dotfile per tool.
 
 | File | Tool | Consumed by | Passed as |
 |---|---|---|---|
-| `gitleaks.toml` | gitleaks | `ci.yml` (`fast-checks`, `security-scan-secrets`) | `--config ci/gitleaks.toml` |
+| `gitleaks.toml` | gitleaks | `ci.yml`, the `security` matrix leg `secrets` | `--config ci/gitleaks.toml` |
 | `gitleaksignore` | gitleaks | same | `-i ci/gitleaksignore` |
-| `checkov.yaml` | checkov | `ci.yml` (`security-scan-iac`) | `--config-file ci/checkov.yaml` |
-| `trivyignore` | trivy `config` | `ci.yml` (`security-scan-iac`) | `--ignorefile ci/trivyignore` |
-| `trivyignore.images` | *(retired, unconsumed)* | — | Image CVE suppression was removed (Task 3.18, bugfix 2.8): every resolved HIGH/CRITICAL image finding now blocks regardless of fix availability. See the file's own header. |
+| `checkov.yaml` | checkov | `ci.yml`, the `security` matrix leg `iac` | `--config-file ci/checkov.yaml` |
+| `trivyignore` | trivy `config` | `ci.yml`, the `security` matrix leg `iac` | `--ignorefile ci/trivyignore` |
+| `toolchain-lock.json` | *(record, not a tool input)* | `backend/tools/ci` pin-drift tests | Read directly; the authoritative record of tool versions + checksums. |
+| `test-suites.toml` | test inventory | `backend/tools/ci/inventory_cli.py` | Read directly from `ci/test-suites.toml`. |
+
+## Two files were deleted rather than kept as documentation
+
+Both were unconsumed by anything, while looking exactly like live configuration —
+the failure mode being that someone edits them, believes they have changed the
+pipeline, and has not.
+
+| Deleted file | Why it was misleading |
+|---|---|
+| `trivyignore.images` | An image-CVE suppression list that nothing read: `.github/scripts/ci-image-scan.sh` passes no `--ignorefile`, so adding an entry suppressed nothing. Image and lockfile exceptions now live in exactly one place, `backend/tools/ci/scan_accepts.py`: dated, per-package entries applied to the Trivy and Grype reports before the gate, which fail the build when they expire or stop matching. Do not recreate an ignore file here; prefer remediating (patched base digest, dependency bump, package removal) over adding an entry. |
+| `security-checks-config.json` | A full declarative spec of the security matrix: per-check `argv`, timeouts, output paths, and `policy.high_critical_threshold`. Nothing read it. The real implementations are `.github/scripts/ci-gitleaks.sh` and `ci-iac-scan.sh` (the `security` matrix) and `ci-image-scan.sh` / `ci-lockfile-scan.sh` (`container-scan`), with the verdict from `tools.ci.ci_gate`. Editing the threshold in that file would have changed no gate. |
 
 ## Every file here is referenced by an explicit flag
 

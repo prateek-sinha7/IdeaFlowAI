@@ -12,7 +12,7 @@
  *   - brand #3C2CDA, warm ink ramp, Manrope sans, Heebo serif
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { Download, FolderOpen, Puzzle, FileJson, CheckCircle2, X, ChevronRight } from "lucide-react";

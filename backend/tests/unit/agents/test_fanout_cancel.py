@@ -83,7 +83,12 @@ class _CancelRunner:
         self.allocated.append(ws)
         return ws
 
-    async def teardown_isolated_workspace(self, base_workspace, worker_ws):
+    async def teardown_isolated_workspace(
+        self, base_workspace, worker_ws, *, delete_branch=True
+    ):
+        # ``delete_branch`` mirrors KernelServices (Requirement 28); run_fanout's
+        # finally passes it, and a fake without it raised TypeError that the
+        # teardown loop swallows — which read as a leak.
         if worker_ws is not None:
             worker_ws.torn_down = True
             self.torn_down.append(worker_ws.index)

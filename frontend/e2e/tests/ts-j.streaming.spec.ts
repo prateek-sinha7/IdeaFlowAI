@@ -101,17 +101,21 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
 
-    // One agent errors, the rest complete, then pipeline_complete (not running)
-    // → the status line reads "Run failed".
+    // One agent errors, the rest complete, then the server's run-level verdict
+    // pipeline_failed → the status line reads "Run failed". (ISS-701/764: a
+    // per-agent error is not a run verdict — a pipeline_complete after an errored
+    // agent reads "Run complete"; only the terminal marker decides "failed".)
     mockSse.agentStart(agents[0].id);
     mockSse.agentError(agents[0].id, "The model rejected this request.");
     for (const a of agents.slice(1)) {
       mockSse.agentStart(a.id);
       mockSse.agentComplete(a.id);
     }
-    mockSse.complete({ pipelineType: "user_stories", finalOutput: "" });
+    mockSse.failed({ agentsFailed: [agents[0].id], error: "The model rejected this request." });
     // Phase 42-03 (§D) auto-tabs a terminal-FAILED run to Audit, so the Steps
-    // overview status line unmounts. Re-open Steps to read its settled line.
+    // overview status line unmounts. Wait for that settle FIRST (the SSE frame is
+    // async — a re-open before it lands is clobbered), THEN re-open Steps.
+    await expect(dashboard.page.getByRole("tab", { name: /Audit/ })).toHaveAttribute("aria-selected", "true");
     await dashboard.thinkingTab().click();
     await expect(dashboard.page.getByText("Run failed", { exact: true })).toBeVisible();
   });

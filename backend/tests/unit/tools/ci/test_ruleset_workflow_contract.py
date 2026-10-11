@@ -137,6 +137,107 @@ class TestRulesetsParse:
         assert "required_signatures" in types
 
 
+class TestRestrictCreationsIsSatisfiable:
+    """
+    A `creation` rule must leave somebody able to create the ref (F-02).
+
+    GitHub's "Restrict creations" rule permits ONLY bypass actors to create a
+    matching ref. `tags.json` carried that rule on `refs/tags/v*` with an empty
+    `bypass_actors` list, so no account in the organization could cut a release
+    tag — and `deploy.yml` maps `refs/tags/v*` to the prod environment as its only
+    non-break-glass trigger. The production release path was therefore closed by
+    configuration, silently, while the ruleset description claimed creation was
+    "restricted to release-managers".
+
+    A restriction nobody can satisfy is not a strict policy, it is an outage.
+    """
+
+    #: Rules whose effect is "only bypass actors may do this".
+    BYPASS_ONLY_RULES = ("creation", "update")
+
+    def test_bypass_only_rules_have_at_least_one_bypass_actor(self):
+        """A restrict-creations/updates rule with no bypass actor blocks everyone."""
+        offenders: list[str] = []
+
+        for path in sorted(RULESETS_DIR.glob("*.json")):
+            ruleset = json.loads(path.read_text(encoding="utf-8"))
+            types = {rule.get("type") for rule in ruleset.get("rules", [])}
+            restricting = sorted(types & set(self.BYPASS_ONLY_RULES))
+            if not restricting:
+                continue
+            if not ruleset.get("bypass_actors"):
+                offenders.append(
+                    f"{path.name} restricts {restricting} with no bypass actor"
+                )
+
+        assert not offenders, (
+            "these rulesets make a ref impossible to create or update by anyone: "
+            + "; ".join(offenders)
+            + ". Restrict-creations allows only bypass actors, so an empty "
+            "bypass_actors list is a total block, not a strict policy."
+        )
+
+    def test_bypass_actors_are_well_formed(self):
+        """
+        Every bypass actor must use an actor_type the REST API accepts.
+
+        A typo here is silently dropped on apply, which returns the ruleset to the
+        empty-bypass state that caused F-02 while the committed file still looks
+        correct.
+        """
+        valid_types = {
+            "Integration",
+            "OrganizationAdmin",
+            "RepositoryRole",
+            "Team",
+            "DeployKey",
+            "User",
+        }
+        valid_modes = {"always", "pull_request", "exempt"}
+        offenders: list[str] = []
+
+        for path in sorted(RULESETS_DIR.glob("*.json")):
+            ruleset = json.loads(path.read_text(encoding="utf-8"))
+            for actor in ruleset.get("bypass_actors") or []:
+                actor_type = actor.get("actor_type")
+                if actor_type not in valid_types:
+                    offenders.append(f"{path.name}: actor_type {actor_type!r}")
+                mode = actor.get("bypass_mode", "always")
+                if mode not in valid_modes:
+                    offenders.append(f"{path.name}: bypass_mode {mode!r}")
+                # actor_id is required for everything except OrganizationAdmin
+                # (ignored) and DeployKey (must be null).
+                if actor_type in {"Integration", "RepositoryRole", "Team", "User"}:
+                    if not isinstance(actor.get("actor_id"), int):
+                        offenders.append(
+                            f"{path.name}: actor_type {actor_type} needs an integer actor_id"
+                        )
+
+        assert not offenders, "malformed bypass actors: " + "; ".join(offenders)
+
+    def test_creation_rule_carries_no_parameters(self):
+        """
+        The `creation` rule's schema has no `parameters` object.
+
+        `tags.json` nested a `required_status_checks` block under it. GitHub
+        discarded the unknown key on apply, so the live ruleset never enforced it
+        and the committed file advertised a control that did not exist. Status
+        checks belong in their own `required_status_checks` rule.
+        """
+        offenders: list[str] = []
+
+        for path in sorted(RULESETS_DIR.glob("*.json")):
+            ruleset = json.loads(path.read_text(encoding="utf-8"))
+            for rule in ruleset.get("rules", []):
+                if rule.get("type") == "creation" and "parameters" in rule:
+                    offenders.append(f"{path.name}: {sorted(rule['parameters'])}")
+
+        assert not offenders, (
+            "the `creation` rule accepts no parameters; these are silently "
+            "dropped on apply: " + "; ".join(offenders)
+        )
+
+
 class TestPublisherReachability:
     """Required contexts must be publishable, and publishers must be unique."""
 
@@ -183,8 +284,9 @@ class TestPublisherReachability:
         The unprivileged evaluator must not publish the status for a PR.
 
         `ci.yml` runs pull-request code, which may come from a fork, so it holds
-        no secrets and cannot obtain a Sonar verdict. If it also published
-        `ci-required`, a PR could go green without Sonar having run.
+        no secrets and no status-writing token. If it also tried to publish
+        `ci-required`, there would be two claimed publishers for one context and
+        the fork-PR path would write nothing at all while appearing to.
         """
         evaluator = _load_yaml(WORKFLOWS_DIR / "ci.yml")
         publisher_jobs = [
@@ -202,7 +304,7 @@ class TestPublisherReachability:
                 f"ci.yml job '{name}' can publish a commit status but its `if` "
                 f"({condition!r}) does not exclude pull_request events. Pull "
                 f"requests must be finalized by ci-authoritative.yml, which is "
-                f"loaded from the default branch and can see SONAR_TOKEN."
+                f"loaded from the default branch and holds a status-writing token."
             )
 
     def test_finalizer_runs_only_from_the_default_branch(self):
@@ -292,6 +394,130 @@ class TestLeastPrivilege:
 
         assert not offenders, "these checkouts persist credentials: " + ", ".join(
             offenders
+        )
+
+
+class TestScheduledJobsAreNotReviewerGated:
+    """
+    A cron job must not target an environment that requires human approval (F-14).
+
+    `cognito-reconcile.yml` runs daily at 03:00 UTC. Its `reconcile` job resolves
+    `environment:` to dev/stage/prod from a matrix, and `retry-cognito-deletions`
+    hardcodes `environment: prod`. `.github/environments/prod.json` declares two
+    required reviewers from a `release-managers` team.
+
+    Those two facts cannot both be true and useful. GitHub environment protection
+    applies to any job referencing the environment, whatever triggered it — so if
+    prod's reviewers were real, the nightly reconcile would sit waiting for an
+    approval every night, forever, and the drift alarm it exists to raise would
+    never fire.
+
+    Today it happens to work only because the live prod environment has NO
+    protection rules at all — the committed JSON is aspirational, and
+    `setup-rulesets.sh` never applied reviewers (see F-11/F-14). That makes this a
+    latent trap: the first person to correctly apply prod.json silently breaks the
+    nightly job.
+
+    This test turns that trap into a build failure at the moment the decision has
+    to be made, rather than a mystery weeks later. If it fires, pick one:
+      * drop `prod` from the scheduled matrix and check prod drift by manual
+        dispatch (which is reviewer-gated, and correct for a mode that can revoke
+        access); or
+      * give the read-only scheduled path its own ungated environment plus a
+        matching OIDC trust subject in infra/terraform/bootstrap/github_oidc.tf
+        (the trust policy matches `environment:<name>` exactly, so a new
+        environment needs a new subject); or
+      * accept a daily approval and say so here.
+    """
+
+    #: Expression fragments and literals that name an environment.
+    _QUOTED = re.compile(r"'([A-Za-z0-9_-]+)'")
+
+    @staticmethod
+    def _environments_with_reviewers() -> dict[str, int]:
+        """Map environment name -> declared reviewer count, from the committed JSON."""
+        result: dict[str, int] = {}
+        env_dir = REPO_ROOT / ".github" / "environments"
+        for path in sorted(env_dir.glob("*.json")):
+            declared = json.loads(path.read_text(encoding="utf-8"))
+            name = declared.get("name") or path.stem
+            reviewers = declared.get("reviewers") or []
+            if reviewers:
+                result[name] = len(reviewers)
+        return result
+
+    @classmethod
+    def _environment_names_referenced(cls, job: dict, raw_workflow: str) -> set[str]:
+        """
+        Collect every environment name a job could resolve to.
+
+        Handles the literal form (`environment: prod`), the conditional-expression
+        form used by cognito-reconcile.yml, and matrix values injected via
+        `fromJson`. Over-collecting is the safe direction here: a false positive
+        costs a comment, a false negative costs a silently stalled cron job.
+        """
+        environment = job.get("environment")
+        if environment is None:
+            return set()
+
+        # `environment:` may be a string or a mapping with `name:`.
+        if isinstance(environment, dict):
+            environment = environment.get("name", "")
+        text = str(environment)
+
+        if "${{" not in text:
+            return {text.strip()} if text.strip() else set()
+
+        names = set(cls._QUOTED.findall(text))
+        # A matrix-driven environment names its values in the matrix definition,
+        # not in the `environment:` expression.
+        if "matrix.environment" in text:
+            for match in re.finditer(
+                r'"environment"\s*:\s*"([A-Za-z0-9_-]+)"', raw_workflow
+            ):
+                names.add(match.group(1))
+        # Drop expression keywords that the quoted-literal scan picks up.
+        return {
+            n for n in names if n and n not in {"schedule", "report", "fix-disabled"}
+        }
+
+    def test_no_scheduled_job_targets_a_reviewer_gated_environment(self):
+        """Every cron-reachable job must be able to run without a human."""
+        gated = self._environments_with_reviewers()
+        if not gated:
+            pytest.skip("no committed environment declares required reviewers")
+
+        offenders: list[str] = []
+
+        for path, workflow in _all_workflows().items():
+            triggers = workflow.get(True) or workflow.get("on") or {}
+            if "schedule" not in triggers:
+                continue
+
+            raw = path.read_text(encoding="utf-8")
+
+            for job_name, job in (workflow.get("jobs") or {}).items():
+                if not isinstance(job, dict):
+                    continue
+
+                condition = str(job.get("if", ""))
+                # A job explicitly excluded from the schedule is not cron-reachable.
+                if "github.event_name != 'schedule'" in condition:
+                    continue
+
+                for environment in sorted(self._environment_names_referenced(job, raw)):
+                    if environment in gated:
+                        offenders.append(
+                            f"{path.name} / {job_name} -> environment "
+                            f"'{environment}' ({gated[environment]} required "
+                            f"reviewer(s) in .github/environments/{environment}.json)"
+                        )
+
+        assert not offenders, (
+            "these scheduled jobs target an environment that requires human "
+            "approval, so each run will queue for a reviewer instead of reporting: "
+            + "; ".join(offenders)
+            + ". See this class's docstring for the three acceptable resolutions."
         )
 
 

@@ -136,7 +136,10 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
     try:
         import anthropic as anthropic_exc
 
-        if isinstance(exc, anthropic_exc.APIStatusError) and exc.status_code in (401, 403):
+        if isinstance(exc, anthropic_exc.APIStatusError) and exc.status_code in (
+            401,
+            403,
+        ):
             return LLMErrorPayload(_message_for("auth_error"), "auth_error", False)
     except ImportError:  # pragma: no cover — anthropic is always installed when used
         pass

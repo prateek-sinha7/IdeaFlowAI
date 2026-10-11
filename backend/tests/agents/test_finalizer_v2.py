@@ -77,6 +77,7 @@ def _async_run(coro: Any) -> Any:
     """
     return asyncio.run(coro)
 
+
 # ---------------------------------------------------------------------------
 # Helpers — real-git sandbox fixture
 # ---------------------------------------------------------------------------
@@ -152,6 +153,7 @@ class FakeSandbox:
 
     def create_run_ref(self, run_id: str) -> Any:
         from app.agents.runtime.local import RefResult  # noqa: PLC0415
+
         ref_name = f"refs/ideaflow/runs/{run_id}"
         head_sha = _run_git("rev-parse", "HEAD", cwd=self.root)
         # Check whether ref exists
@@ -161,16 +163,23 @@ class FakeSandbox:
             existing_sha = None
         if existing_sha is not None:
             if existing_sha == head_sha:
-                return RefResult(state="idempotent", name=ref_name, sha=head_sha, existing=None)
-            return RefResult(state="conflict", name=ref_name, sha=head_sha, existing=existing_sha)
+                return RefResult(
+                    state="idempotent", name=ref_name, sha=head_sha, existing=None
+                )
+            return RefResult(
+                state="conflict", name=ref_name, sha=head_sha, existing=existing_sha
+            )
         _run_git("update-ref", "--create-reflog", ref_name, head_sha, cwd=self.root)
         return RefResult(state="created", name=ref_name, sha=head_sha, existing=None)
 
     def advance_run_ref(self, run_id: str, *, expected_sha: str, new_sha: str) -> Any:
         from app.agents.runtime.local import RefResult  # noqa: PLC0415
+
         ref_name = f"refs/ideaflow/runs/{run_id}"
         _run_git("update-ref", ref_name, new_sha, expected_sha, cwd=self.root)
-        return RefResult(state="advanced", name=ref_name, sha=new_sha, existing=expected_sha)
+        return RefResult(
+            state="advanced", name=ref_name, sha=new_sha, existing=expected_sha
+        )
 
     def resolve_ref_commit(self, ref: str) -> str | None:
         try:
@@ -194,6 +203,7 @@ class FakeSandbox:
 
     def atomic_replace_dir(self, src: Path, dst: Path) -> None:
         import shutil as _shutil  # noqa: PLC0415
+
         if dst.exists():
             _shutil.rmtree(dst)
         _shutil.move(str(src), str(dst))
@@ -236,8 +246,10 @@ class FakeSandbox:
 
 class _DummyLock:
     """No-op context manager for family lock in tests."""
+
     def __enter__(self) -> "_DummyLock":
         return self
+
     def __exit__(self, *_: Any) -> None:
         pass
 
@@ -270,12 +282,18 @@ def _make_ectx(
     )
 
 
-def _plant_output(sandbox: FakeSandbox, basename: str = "output.html", content: bytes = b"<html>v1</html>") -> None:
+def _plant_output(
+    sandbox: FakeSandbox,
+    basename: str = "output.html",
+    content: bytes = b"<html>v1</html>",
+) -> None:
     """Write a deliverable file into the sandbox root."""
     (sandbox.root / basename).write_bytes(content)
 
 
-def _plant_logs(sandbox: FakeSandbox, run_id: str, content: bytes = b'{"event":"terminal"}\n') -> None:
+def _plant_logs(
+    sandbox: FakeSandbox, run_id: str, content: bytes = b'{"event":"terminal"}\n'
+) -> None:
     """Write a .logs/{run_id}.jsonl file for the trace."""
     logs_dir = sandbox.root / ".logs"
     logs_dir.mkdir(exist_ok=True)
@@ -287,7 +305,9 @@ def _all_objects_content(repo: Path) -> str:
     out = _run_git("rev-list", "--objects", "--all", cwd=repo)
     full = out
     # Also grep blob contents
-    shas = [line.split()[0] for line in out.splitlines() if " " in line or len(line) == 40]
+    shas = [
+        line.split()[0] for line in out.splitlines() if " " in line or len(line) == 40
+    ]
     for sha in shas[:100]:
         try:
             cat = _run_git("cat-file", "-p", sha, cwd=repo, check=False)
@@ -297,7 +317,9 @@ def _all_objects_content(repo: Path) -> str:
     return full
 
 
-def _setup_sandbox(tmp_path: Path, run_id: str | None = None) -> tuple[FakeSandbox, str]:
+def _setup_sandbox(
+    tmp_path: Path, run_id: str | None = None
+) -> tuple[FakeSandbox, str]:
     """Create a git-initialized sandbox under tmp_path. Returns (sandbox, run_id)."""
     if run_id is None:
         run_id = _make_run_id()
@@ -317,6 +339,7 @@ def _setup_sandbox(tmp_path: Path, run_id: str | None = None) -> tuple[FakeSandb
 # Mock DB helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_db() -> MagicMock:
     """Return a MagicMock that satisfies the Session protocol."""
     db = MagicMock()
@@ -327,6 +350,7 @@ def _make_mock_db() -> MagicMock:
 # ---------------------------------------------------------------------------
 # Patching helper — suppress DB access in finalize_terminal_run
 # ---------------------------------------------------------------------------
+
 
 def _patch_db(mock_db: MagicMock) -> Any:
     """Patch SessionLocal inside engine.py to return mock_db."""
@@ -345,6 +369,7 @@ def _patch_db(mock_db: MagicMock) -> Any:
 # ---------------------------------------------------------------------------
 # Core import check
 # ---------------------------------------------------------------------------
+
 
 def test_finalizer_imports_cleanly() -> None:
     """All required symbols are importable without errors."""
@@ -400,11 +425,15 @@ class TestCrashAndRetryPoints:
                 patch("app.models.workflow.WorkflowRun", MagicMock()),
                 patch("app.models.run_finalization.RunFinalization", MagicMock()),
             ):
-                return await eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
+                return await eng.finalize_terminal_run(
+                    run_id, ectx, candidate_status="completed"
+                )
 
         return asyncio.run(_inner())
 
-    def test_a1_before_commit_degrade_no_secret_in_history(self, tmp_path: Path) -> None:
+    def test_a1_before_commit_degrade_no_secret_in_history(
+        self, tmp_path: Path
+    ) -> None:
         """A1/B1: inject failure before commit; secret planted but never committed."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -421,15 +450,15 @@ class TestCrashAndRetryPoints:
         mock_db = _make_mock_db()
 
         # Inject failure: make commit_all raise so the commit never happens
-        original_commit_all = sandbox.commit_all
-
         def _failing_commit_all(*args: Any, **kwargs: Any) -> str:
             from app.agents.runtime.local import GitCommandError  # noqa: PLC0415
+
             raise GitCommandError("injected commit failure")
 
         sandbox.commit_all = _failing_commit_all
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         with (
@@ -451,9 +480,11 @@ class TestCrashAndRetryPoints:
         # Record should indicate degraded (commit failed)
         assert record is not None
         # Either degraded or published status reflects the failure
-        assert record.published_status in ("degraded", "completed", "failed"), (
-            f"Unexpected published_status: {record.published_status}"
-        )
+        assert record.published_status in (
+            "degraded",
+            "completed",
+            "failed",
+        ), f"Unexpected published_status: {record.published_status}"
 
     def test_a2_after_commit_before_ref_idempotent(self, tmp_path: Path) -> None:
         """A2/B2: commit succeeded; ref creation fails on first attempt then succeeds."""
@@ -480,6 +511,7 @@ class TestCrashAndRetryPoints:
         sandbox.create_run_ref = _patched_ref
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         with (
@@ -493,9 +525,9 @@ class TestCrashAndRetryPoints:
 
         # A ref failure degrades the run
         assert record is not None
-        assert record.published_status == "degraded", (
-            f"Expected degraded when ref fails; got {record.published_status}"
-        )
+        assert (
+            record.published_status == "degraded"
+        ), f"Expected degraded when ref fails; got {record.published_status}"
         # Secret never planted in this test — just verify no leak in history
         all_content = _all_objects_content(sandbox.root)
         assert SECRET_PATTERN not in all_content
@@ -513,14 +545,13 @@ class TestCrashAndRetryPoints:
         mock_db = _make_mock_db()
 
         # Inject failure: make tag creation raise
-        original_create_tag = sandbox.create_tag
-
         def _fail_tag(name: str) -> None:
             raise RuntimeError("injected tag creation failure")
 
         sandbox.create_tag = _fail_tag
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         with (
@@ -592,9 +623,9 @@ class TestCrashAndRetryPoints:
 
         assert record is not None
         assert record.published_status == "degraded"
-        assert record.tag_state == "rolled_back", (
-            f"Expected tag_state=rolled_back; got {record.tag_state!r}"
-        )
+        assert (
+            record.tag_state == "rolled_back"
+        ), f"Expected tag_state=rolled_back; got {record.tag_state!r}"
 
     def test_a5_full_success_then_idempotent_reentry(self, tmp_path: Path) -> None:
         """A5: full success; second call converges idempotently."""
@@ -608,6 +639,7 @@ class TestCrashAndRetryPoints:
         ectx = _make_ectx(run_id, sandbox)
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         # DB factory: always returns a fresh MagicMock session with working commit
@@ -644,9 +676,13 @@ class TestCrashAndRetryPoints:
         assert record2 is not None
         # Should not create a second tag
         tags2 = sandbox.list_tags()
-        assert tags2.count("v1") == 1, f"Duplicate tag after idempotent re-entry: {tags2}"
+        assert (
+            tags2.count("v1") == 1
+        ), f"Duplicate tag after idempotent re-entry: {tags2}"
 
-    def test_b_secret_planted_before_commit_never_reaches_history(self, tmp_path: Path) -> None:
+    def test_b_secret_planted_before_commit_never_reaches_history(
+        self, tmp_path: Path
+    ) -> None:
         """B: scan blocks a staged secret → not in any git object."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -671,9 +707,9 @@ class TestCrashAndRetryPoints:
         _run_git("reset", "HEAD", cwd=sandbox.root)
 
         all_content = _all_objects_content(sandbox.root)
-        assert SECRET_PATTERN not in all_content, (
-            "Secret found in git history even after resetting staged content."
-        )
+        assert (
+            SECRET_PATTERN not in all_content
+        ), "Secret found in git history even after resetting staged content."
 
 
 # ===========================================================================
@@ -703,6 +739,7 @@ class TestMetadataOnlySnapshot:
                 p.unlink()
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         db = MagicMock()
@@ -730,9 +767,9 @@ class TestMetadataOnlySnapshot:
         record = self._run(sandbox, run_id, ectx, last_commit_blocked=True)
 
         assert record is not None
-        assert record.published_status == "degraded", (
-            f"Expected degraded for payload_blocked; got {record.published_status}"
-        )
+        assert (
+            record.published_status == "degraded"
+        ), f"Expected degraded for payload_blocked; got {record.published_status}"
         # No tag should exist
         tags = sandbox.list_tags()
         assert not tags, f"Unexpected tag after blocked payload: {tags}"
@@ -740,14 +777,16 @@ class TestMetadataOnlySnapshot:
         # Verify the ref still exists (metadata-only gets a ref)
         ref_name = f"refs/ideaflow/runs/{run_id}"
         ref_sha = sandbox.resolve_ref_commit(ref_name)
-        assert ref_sha is not None, (
-            "Internal run ref must exist even for a metadata-only snapshot."
-        )
+        assert (
+            ref_sha is not None
+        ), "Internal run ref must exist even for a metadata-only snapshot."
 
         # payload_chainable must be False
         assert record.payload_chainable is False or record.payload_chainable is None
 
-    def test_c2_output_unmaterializable_yields_metadata_only(self, tmp_path: Path) -> None:
+    def test_c2_output_unmaterializable_yields_metadata_only(
+        self, tmp_path: Path
+    ) -> None:
         """C2: deliverable declared but not present → metadata-only snapshot."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -761,7 +800,9 @@ class TestMetadataOnlySnapshot:
 
         assert record is not None
         # For output_unmaterializable the finalizer degrades
-        assert record.published_status == "degraded" or record.payload_chainable is False
+        assert (
+            record.published_status == "degraded" or record.payload_chainable is False
+        )
 
         # No user-visible tag
         tags = sandbox.list_tags()
@@ -789,11 +830,13 @@ class TestMetadataOnlySnapshot:
         summary_path = sandbox.root / ".chain" / "summary.md"
         assert summary_path.exists(), ".chain/summary.md not written"
         content = summary_path.read_text(encoding="utf-8")
-        assert "payload_chainable" in content.lower() or "false" in content.lower(), (
-            "summary.md does not mention payload_chainable or false"
-        )
+        assert (
+            "payload_chainable" in content.lower() or "false" in content.lower()
+        ), "summary.md does not mention payload_chainable or false"
 
-    def test_c4_metadata_only_does_not_include_logs_or_output(self, tmp_path: Path) -> None:
+    def test_c4_metadata_only_does_not_include_logs_or_output(
+        self, tmp_path: Path
+    ) -> None:
         """C4: metadata-only allowlist is {'.chain/summary.md'} only."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -812,7 +855,9 @@ class TestMetadataOnlySnapshot:
             f"got {result.allowlist}"
         )
 
-    def test_c5_prior_run_stale_chain_path_untracked_tree_clean(self, tmp_path: Path) -> None:
+    def test_c5_prior_run_stale_chain_path_untracked_tree_clean(
+        self, tmp_path: Path
+    ) -> None:
         """C5: a REAL basename tracked by a PRIOR run's commit is untracked by
         the metadata-only fallback even when the CURRENT run's own declared
         deliverable name is a nominal label (e.g. a ``serialized_sandbox``
@@ -842,7 +887,9 @@ class TestMetadataOnlySnapshot:
         # This run's own deliverable is a nominal name — never a literal
         # file on disk — the output_unmaterializable trigger.
         ectx = _make_ectx(run_id, sandbox, deliverable_name="output")
-        self._run(sandbox, run_id, ectx, deliverable_name="output", write_deliverable=False)
+        self._run(
+            sandbox, run_id, ectx, deliverable_name="output", write_deliverable=False
+        )
 
         tracked = _run_git("ls-files", ".chain/", cwd=sandbox.root)
         assert ".chain/hello.html" not in tracked, (
@@ -898,7 +945,9 @@ class TestTagRefCommitConsistency:
         assert record is not None
 
         if record.published_status != "completed":
-            pytest.skip(f"Finalizer degraded ({record.degraded_reason}); skipping SHA check")
+            pytest.skip(
+                f"Finalizer degraded ({record.degraded_reason}); skipping SHA check"
+            )
 
         commit_sha = record.commit_sha
         assert commit_sha, "commit_sha must be set on a completed record"
@@ -906,16 +955,16 @@ class TestTagRefCommitConsistency:
         # Internal ref must point to the same commit
         ref_name = f"refs/ideaflow/runs/{run_id}"
         ref_sha = sandbox.resolve_ref_commit(ref_name)
-        assert ref_sha == commit_sha, (
-            f"Internal ref {ref_name!r} points to {ref_sha!r}, not commit_sha {commit_sha!r}"
-        )
+        assert (
+            ref_sha == commit_sha
+        ), f"Internal ref {ref_name!r} points to {ref_sha!r}, not commit_sha {commit_sha!r}"
 
         # Tag must point to the same commit
         if record.git_tag:
             tag_sha = _run_git("rev-list", "-n", "1", record.git_tag, cwd=sandbox.root)
-            assert tag_sha == commit_sha, (
-                f"Tag {record.git_tag!r} points to {tag_sha!r}, not {commit_sha!r}"
-            )
+            assert (
+                tag_sha == commit_sha
+            ), f"Tag {record.git_tag!r} points to {tag_sha!r}, not {commit_sha!r}"
 
         # summary.md must contain the run_id
         summary_path = sandbox.root / ".chain" / "summary.md"
@@ -925,9 +974,9 @@ class TestTagRefCommitConsistency:
 
         # summary.md must contain intended_tag (if a tag was created)
         if record.git_tag:
-            assert record.git_tag in summary, (
-                f"summary.md does not mention intended_tag={record.git_tag}"
-            )
+            assert (
+                record.git_tag in summary
+            ), f"summary.md does not mention intended_tag={record.git_tag}"
 
 
 # ===========================================================================
@@ -946,6 +995,7 @@ class TestFlatPayloadMultiRevision:
         ordinal: int,
     ) -> Any:
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         wr_row = MagicMock()
@@ -976,7 +1026,11 @@ class TestFlatPayloadMultiRevision:
         repo.mkdir(parents=True)
         _git_init(repo)
 
-        expected_paths = {".chain/logs.jsonl", ".chain/summary.md", ".chain/output.html"}
+        expected_paths = {
+            ".chain/logs.jsonl",
+            ".chain/summary.md",
+            ".chain/output.html",
+        }
 
         for ordinal in range(1, 4):
             rev_id = _make_run_id()
@@ -1034,6 +1088,7 @@ class TestFlatPayloadMultiRevision:
         ectx = _make_ectx(run_id, sandbox, revision_ordinal=1)
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         def _good_session() -> MagicMock:
@@ -1052,7 +1107,9 @@ class TestFlatPayloadMultiRevision:
             )
 
         if record.published_status != "completed" or not record.git_tag:
-            pytest.skip(f"Finalizer did not complete cleanly: {record.published_status}, {record.degraded_reason}")
+            pytest.skip(
+                f"Finalizer did not complete cleanly: {record.published_status}, {record.degraded_reason}"
+            )
 
         # Run git archive and check contents
         archive_result = subprocess.run(
@@ -1119,6 +1176,7 @@ class TestStaleBasenameReconciliation:
         ectx = _make_ectx(run_id, sandbox, deliverable_name="new_name.html")
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         wr_row = MagicMock()
@@ -1147,9 +1205,9 @@ class TestStaleBasenameReconciliation:
 
         if record.published_status == "completed":
             # new_name.html should be tracked
-            assert ".chain/new_name.html" in tracked, (
-                "New deliverable .chain/new_name.html not tracked after rename."
-            )
+            assert (
+                ".chain/new_name.html" in tracked
+            ), "New deliverable .chain/new_name.html not tracked after rename."
 
 
 # ===========================================================================
@@ -1172,6 +1230,7 @@ class TestCommitMessageContent:
         ectx = _make_ectx(run_id, sandbox)
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         wr_row = MagicMock()
@@ -1194,9 +1253,9 @@ class TestCommitMessageContent:
         # Read the most recent commit message
         log = _run_git("log", "-1", "--pretty=%s", cwd=sandbox.root)
         assert run_id in log, f"Commit message must contain run_id; got: {log!r}"
-        assert "completed" in log or "snapshot" in log, (
-            f"Commit message must contain status 'completed'; got: {log!r}"
-        )
+        assert (
+            "completed" in log or "snapshot" in log
+        ), f"Commit message must contain status 'completed'; got: {log!r}"
 
     def test_h2_commit_message_has_no_user_content(self, tmp_path: Path) -> None:
         """H2: commit message must not contain fake user content."""
@@ -1211,6 +1270,7 @@ class TestCommitMessageContent:
         ectx = _make_ectx(run_id, sandbox)
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         wr_row = MagicMock()
@@ -1276,7 +1336,7 @@ class TestCASCases:
             patch("app.models.workflow.WorkflowRun", MagicMock()),
             patch("app.models.run_finalization.RunFinalization", MagicMock()),
         ):
-            record1 = asyncio.run(
+            asyncio.run(
                 eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
             )
         sha1 = _run_git("rev-parse", "HEAD", cwd=sandbox.root)
@@ -1289,7 +1349,7 @@ class TestCASCases:
             patch("app.models.workflow.WorkflowRun", MagicMock()),
             patch("app.models.run_finalization.RunFinalization", MagicMock()),
         ):
-            record2 = asyncio.run(
+            asyncio.run(
                 eng.finalize_terminal_run(run_id, ectx2, candidate_status="completed")
             )
         sha2 = _run_git("rev-parse", "HEAD", cwd=sandbox.root)
@@ -1309,13 +1369,16 @@ class TestCASCases:
 
         # CAS idempotency: calling create_run_ref a second time returns 'idempotent'
         from app.agents.runtime.local import RefResult  # noqa: PLC0415
+
         r2 = sandbox.create_run_ref(run_id)
         assert r2.state == "idempotent", (
             f"create_run_ref on an existing ref at HEAD must return 'idempotent'; "
             f"got {r2.state!r}"
         )
 
-    def test_i2_manually_corrupted_ref_yields_conflict_degraded(self, tmp_path: Path) -> None:
+    def test_i2_manually_corrupted_ref_yields_conflict_degraded(
+        self, tmp_path: Path
+    ) -> None:
         """I2: ref points to different commit → conflict, run_finalization_failed, degraded, ref preserved."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -1365,9 +1428,9 @@ class TestCASCases:
             )
 
         assert record is not None
-        assert record.published_status == "degraded", (
-            f"Expected degraded on ref conflict; got {record.published_status}"
-        )
+        assert (
+            record.published_status == "degraded"
+        ), f"Expected degraded on ref conflict; got {record.published_status}"
 
         # The EXISTING ref must still point to first_sha (ref not self-healed)
         existing_ref_sha = sandbox.resolve_ref_commit(ref_name)
@@ -1376,14 +1439,15 @@ class TestCASCases:
             "On conflict the ref must be preserved, not overwritten."
         )
 
-        # Both commit SHAs should be in the record (conflict carries 'existing')
-        ref_result = record.internal_ref
         # The record should note the conflict via degraded_reason
-        assert record.degraded_reason in ("ref_conflict", "ref_creation_failed"), (
-            f"Unexpected degraded_reason on ref conflict: {record.degraded_reason!r}"
-        )
+        assert record.degraded_reason in (
+            "ref_conflict",
+            "ref_creation_failed",
+        ), f"Unexpected degraded_reason on ref conflict: {record.degraded_reason!r}"
 
-    def test_i3_ref_without_tag_readable_no_fabricated_tag(self, tmp_path: Path) -> None:
+    def test_i3_ref_without_tag_readable_no_fabricated_tag(
+        self, tmp_path: Path
+    ) -> None:
         """I3: ref survives while tag is absent → readable, no synthesized tag."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -1427,12 +1491,10 @@ class TestCASCases:
         # The internal ref must still be resolvable
         ref_name = f"refs/ideaflow/runs/{run_id}"
         ref_sha = sandbox.resolve_ref_commit(ref_name)
-        assert ref_sha is not None, (
-            "Internal ref must remain after tag deletion."
-        )
-        assert ref_sha == record.commit_sha, (
-            "Ref SHA must still match the original commit SHA."
-        )
+        assert ref_sha is not None, "Internal ref must remain after tag deletion."
+        assert (
+            ref_sha == record.commit_sha
+        ), "Ref SHA must still match the original commit SHA."
 
         # No fabricated tag was created
         tags_after = sandbox.list_tags()
@@ -1450,7 +1512,9 @@ class TestCASCases:
 class TestSnapshotImmutability:
     """K: after finalization failure post-snapshot, committed files not modified."""
 
-    def test_k1_committed_summary_not_modified_after_ref_failure(self, tmp_path: Path) -> None:
+    def test_k1_committed_summary_not_modified_after_ref_failure(
+        self, tmp_path: Path
+    ) -> None:
         """K1: if ref creation fails after commit, the snapshot commit is not amended.
 
         Req 5 AC 20: after a finalization failure that lands after the snapshot commit,
@@ -1519,8 +1583,10 @@ class TestSnapshotImmutability:
 
         # Get the committed summary.md bytes at the snapshot commit
         summary_at_commit = _run_git(
-            "show", f"{commit_sha}:.chain/summary.md",
-            cwd=sandbox.root, check=False,
+            "show",
+            f"{commit_sha}:.chain/summary.md",
+            cwd=sandbox.root,
+            check=False,
         )
         assert summary_at_commit, (
             f"summary.md not found at snapshot commit {commit_sha!r}. "
@@ -1533,11 +1599,14 @@ class TestSnapshotImmutability:
         # commit_sha is an ancestor of HEAD
         if head_sha != commit_sha:
             # Check it's an ancestor
-            is_ancestor = subprocess.run(
-                ["git", "merge-base", "--is-ancestor", commit_sha, head_sha],
-                cwd=sandbox.root,
-                timeout=10,
-            ).returncode == 0
+            is_ancestor = (
+                subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", commit_sha, head_sha],
+                    cwd=sandbox.root,
+                    timeout=10,
+                ).returncode
+                == 0
+            )
             assert is_ancestor, (
                 f"Snapshot commit {commit_sha!r} is not an ancestor of HEAD {head_sha!r}. "
                 "The commit chain must not be rewritten."
@@ -1574,7 +1643,9 @@ class TestDepartureN1:
         eng._finalize_terminal_run_started.discard(run_id)
 
         # Make persist_finalization_record_safe always return an _unpersisted record
-        def _always_fail_persist(db: Any, record: FinalizationRecord) -> FinalizationRecord:
+        def _always_fail_persist(
+            db: Any, record: FinalizationRecord
+        ) -> FinalizationRecord:
             return FinalizationRecord(
                 run_id=record.run_id,
                 owner_id=record.owner_id,
@@ -1612,9 +1683,9 @@ class TestDepartureN1:
 
         # The record must carry enough state for a terminal event
         assert record.run_id == run_id
-        assert record.published_status is not None, (
-            "published_status must not be None even on persist failure."
-        )
+        assert (
+            record.published_status is not None
+        ), "published_status must not be None even on persist failure."
 
     def test_l2_departure_n1_marks_record_unpersisted(self, tmp_path: Path) -> None:
         """L2: the in-memory fallback record is flagged _unpersisted=True."""
@@ -1699,7 +1770,9 @@ class TestPostRunFiringOnce:
         assert attempt.is_degraded
         assert attempt.degrade_reason == "wip_commit_blocked"
 
-    def test_d3_post_run_fires_exactly_once_via_record_returned(self, tmp_path: Path) -> None:
+    def test_d3_post_run_fires_exactly_once_via_record_returned(
+        self, tmp_path: Path
+    ) -> None:
         """D3: finalize_terminal_run returns exactly one record per invocation."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -1709,6 +1782,7 @@ class TestPostRunFiringOnce:
         _plant_logs(sandbox, run_id)
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         wr_row = MagicMock()
@@ -1738,7 +1812,9 @@ class TestPostRunFiringOnce:
                     patch("app.models.workflow.WorkflowRun", MagicMock()),
                     patch("app.models.run_finalization.RunFinalization", MagicMock()),
                 ):
-                    r = await eng.finalize_terminal_run(eid, ectx, candidate_status=status)
+                    r = await eng.finalize_terminal_run(
+                        eid, ectx, candidate_status=status
+                    )
                     records.append(r)
 
         asyncio.run(_run_all())
@@ -1749,8 +1825,12 @@ class TestPostRunFiringOnce:
             assert r is not None
             assert r.run_id is not None
 
-    @pytest.mark.parametrize("status", ["completed", "cancelled", "failed", "degraded", "diverted"])
-    def test_d4_post_run_dispatched_once_per_terminal_status(self, tmp_path: Path, status: str) -> None:
+    @pytest.mark.parametrize(
+        "status", ["completed", "cancelled", "failed", "degraded", "diverted"]
+    )
+    def test_d4_post_run_dispatched_once_per_terminal_status(
+        self, tmp_path: Path, status: str
+    ) -> None:
         """D4: post_run reaches a REAL declared hook exactly once per terminal status.
 
         Drives the actual ``ExecutionEngine._fire_hooks`` (the same recipe as
@@ -1772,6 +1852,7 @@ class TestPostRunFiringOnce:
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
         from agents.execution_engine.engine import ExecutionEngine  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(root_run_id)
 
         wr_row = MagicMock()
@@ -1819,7 +1900,9 @@ class TestPostRunFiringOnce:
                 patch("app.models.workflow.WorkflowRun", MagicMock()),
                 patch("app.models.run_finalization.RunFinalization", MagicMock()),
             ):
-                record = await eng.finalize_terminal_run(run_id, ectx, candidate_status=status)
+                record = await eng.finalize_terminal_run(
+                    run_id, ectx, candidate_status=status
+                )
                 assert record is not None
                 assert record.run_id == run_id
 
@@ -1827,7 +1910,9 @@ class TestPostRunFiringOnce:
                 # fast-path idempotency set this time) — the second call must
                 # take the ``run_id in _finalize_terminal_run_started`` early
                 # return and dispatch post_run NO additional time.
-                record2 = await eng.finalize_terminal_run(run_id, ectx, candidate_status=status)
+                record2 = await eng.finalize_terminal_run(
+                    run_id, ectx, candidate_status=status
+                )
                 assert record2 is not None
 
         asyncio.run(_run_finalize())
@@ -1872,9 +1957,9 @@ class TestFinalizationRecord:
             payload_chainable=True,  # must be overridden
         )
         effective = _enforce_chainability_invariant(record)
-        assert effective.payload_chainable is False, (
-            "chainability invariant: published != candidate must force payload_chainable=False"
-        )
+        assert (
+            effective.payload_chainable is False
+        ), "chainability invariant: published != candidate must force payload_chainable=False"
         assert effective.non_chainable_reason == "published_status_diverged"
 
     def test_chainability_invariant_not_applied_when_statuses_match(self) -> None:
@@ -1926,7 +2011,7 @@ class TestFinalizationRecord:
 
         partial_row = MagicMock()
         partial_row.run_id = "test-run"
-        partial_row.published_status = None   # key field missing
+        partial_row.published_status = None  # key field missing
         partial_row.candidate_status = "completed"
         partial_row.payload_chainable = True
         partial_row.commit_sha = "abc123"
@@ -1994,7 +2079,9 @@ class TestRefResultCASSemantics:
         assert r1.state == "created"
 
         r2 = sandbox.create_run_ref(run_id)
-        assert r2.state == "idempotent", f"Expected idempotent on second call; got {r2.state!r}"
+        assert (
+            r2.state == "idempotent"
+        ), f"Expected idempotent on second call; got {r2.state!r}"
         assert r2.existing is None
 
     def test_ref_conflict_when_head_diverges(self, tmp_path: Path) -> None:
@@ -2022,9 +2109,9 @@ class TestRefResultCASSemantics:
 
         r2 = sandbox.create_run_ref(run_id)
         assert r2.state == "conflict", f"Expected conflict; got {r2.state!r}"
-        assert r2.existing == sha1, (
-            f"existing should be the old sha1={sha1!r}; got {r2.existing!r}"
-        )
+        assert (
+            r2.existing == sha1
+        ), f"existing should be the old sha1={sha1!r}; got {r2.existing!r}"
         # Ref must NOT have moved
         ref_sha = sandbox.resolve_ref_commit(f"refs/ideaflow/runs/{run_id}")
         assert ref_sha == sha1, "Ref must not be moved on conflict"
@@ -2066,6 +2153,7 @@ class TestBuildFlatPayload:
         ectx = _make_ectx(run_id, sandbox)
 
         from agents.execution_engine.engine import build_flat_payload  # noqa: PLC0415
+
         result = build_flat_payload(run_id, ectx)
 
         assert result.built is True
@@ -2074,7 +2162,9 @@ class TestBuildFlatPayload:
         assert (chain_dir / "summary.md").exists()
         assert (chain_dir / "output.html").exists()
 
-    def test_payload_materialized_true_when_output_present(self, tmp_path: Path) -> None:
+    def test_payload_materialized_true_when_output_present(
+        self, tmp_path: Path
+    ) -> None:
         """build_flat_payload.materialized=True iff the output file was copied."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -2086,12 +2176,15 @@ class TestBuildFlatPayload:
         ectx = _make_ectx(run_id, sandbox)
 
         from agents.execution_engine.engine import build_flat_payload  # noqa: PLC0415
+
         result = build_flat_payload(run_id, ectx)
 
         assert result.materialized is True
         assert result.chainable is True
 
-    def test_payload_materialized_false_when_output_absent(self, tmp_path: Path) -> None:
+    def test_payload_materialized_false_when_output_absent(
+        self, tmp_path: Path
+    ) -> None:
         """build_flat_payload.materialized=False when output file does not exist."""
         if not shutil.which("git"):
             pytest.skip("git not available")
@@ -2103,6 +2196,7 @@ class TestBuildFlatPayload:
         ectx = _make_ectx(run_id, sandbox)
 
         from agents.execution_engine.engine import build_flat_payload  # noqa: PLC0415
+
         result = build_flat_payload(run_id, ectx)
 
         assert result.built is True
@@ -2158,7 +2252,9 @@ class _FakeFinalizationSession:
         self._wr_row = wr_row
 
     def query(self, model: Any) -> _FakeFinalizationQuery:
-        return _FakeFinalizationQuery(model, self._rf_class, self._fin_rows, self._wr_row)
+        return _FakeFinalizationQuery(
+            model, self._rf_class, self._fin_rows, self._wr_row
+        )
 
     def add(self, row: Any) -> None:
         self._fin_rows["row"] = row
@@ -2237,9 +2333,9 @@ class TestResumeReFinalization:
             )
 
         completed_sha = _run_git("rev-parse", "HEAD", cwd=sandbox.root)
-        assert completed_sha != cancelled_sha, (
-            "test setup: the resumed pass must produce a genuinely new commit"
-        )
+        assert (
+            completed_sha != cancelled_sha
+        ), "test setup: the resumed pass must produce a genuinely new commit"
 
         # The engine resolved this run as completed — it must publish completed,
         # not degrade it over the ref conflict the two different commits produce.
@@ -2308,7 +2404,9 @@ class TestResumeReFinalization:
             patch("app.models.run_finalization.RunFinalization", MagicMock()),
         ):
             record1 = asyncio.run(
-                eng.finalize_terminal_run(run_id, _build_ectx(), candidate_status="completed")
+                eng.finalize_terminal_run(
+                    run_id, _build_ectx(), candidate_status="completed"
+                )
             )
         sha1 = _run_git("rev-parse", "HEAD", cwd=sandbox.root)
 
@@ -2321,7 +2419,9 @@ class TestResumeReFinalization:
             patch("app.models.run_finalization.RunFinalization", MagicMock()),
         ):
             record2 = asyncio.run(
-                eng.finalize_terminal_run(run_id, _build_ectx(), candidate_status="completed")
+                eng.finalize_terminal_run(
+                    run_id, _build_ectx(), candidate_status="completed"
+                )
             )
         sha2 = _run_git("rev-parse", "HEAD", cwd=sandbox.root)
 

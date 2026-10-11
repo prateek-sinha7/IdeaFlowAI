@@ -64,7 +64,9 @@ async def watch_event_loop_lag() -> None:
                 last_dump = now
                 logger.error(
                     "event loop lag %.2fs (>= %.1fs) — all task stacks:\n%s",
-                    lag, ERROR_LAG_SECONDS, _dump_all_task_stacks(),
+                    lag,
+                    ERROR_LAG_SECONDS,
+                    _dump_all_task_stacks(),
                 )
                 continue
         logger.warning("event loop lag %.2fs (>= %.1fs)", lag, WARN_LAG_SECONDS)

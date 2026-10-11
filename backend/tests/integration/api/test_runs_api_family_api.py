@@ -287,12 +287,18 @@ class TestCrossTypeChildrenAreMembers:
         client, _ = api
         _seed_run(db_session, run_id="root", type="custom", created_offset=0)
         _seed_run(
-            db_session, run_id="rev1", type="prototype_revision",
-            parent_run_id="root", created_offset=10,
+            db_session,
+            run_id="rev1",
+            type="prototype_revision",
+            parent_run_id="root",
+            created_offset=10,
         )
         _seed_run(
-            db_session, run_id="rev2", type="custom_revision",
-            parent_run_id="root", created_offset=20,
+            db_session,
+            run_id="rev2",
+            type="custom_revision",
+            parent_run_id="root",
+            created_offset=20,
         )
 
         body = client.get("/api/runs/root/family").json()
@@ -309,8 +315,11 @@ class TestCrossTypeChildrenAreMembers:
         client, _ = api
         _seed_run(db_session, run_id="root", type="ex_A3_divert", created_offset=0)
         _seed_run(
-            db_session, run_id="child", type="ex_A3_b_spanish",
-            parent_run_id="root", created_offset=10,
+            db_session,
+            run_id="child",
+            type="ex_A3_b_spanish",
+            parent_run_id="root",
+            created_offset=10,
         )
 
         members = client.get("/api/runs/root/family").json()["members"]

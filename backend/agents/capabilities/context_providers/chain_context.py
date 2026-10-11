@@ -151,9 +151,7 @@ class ChainContextProvider:
         chains_from: bool = _chains_from_raw is True
         chain_policy_raw = getattr(deliverable, "chain_policy", "refuse")
         chain_policy: str = (
-            chain_policy_raw
-            if isinstance(chain_policy_raw, str)
-            else "refuse"
+            chain_policy_raw if isinstance(chain_policy_raw, str) else "refuse"
         ) or "refuse"
 
         if not chains_from:
@@ -289,6 +287,7 @@ class ChainContextProvider:
 # V2 byte copier
 # ---------------------------------------------------------------------------
 
+
 def _install_v2(
     *,
     ctx: Any,
@@ -328,10 +327,7 @@ def _install_v2(
         return False
 
     # The three exact paths inside .chain/ at the ref.
-    files_to_copy = [
-        (f".chain/{name}", name)
-        for name in (*_V2_FIXED_FILES, basename)
-    ]
+    files_to_copy = [(f".chain/{name}", name) for name in (*_V2_FIXED_FILES, basename)]
 
     # Open the source sandbox once.
     try:
@@ -376,6 +372,7 @@ def _install_v2(
 # ---------------------------------------------------------------------------
 # Legacy byte copier
 # ---------------------------------------------------------------------------
+
 
 def _install_legacy(
     *,
@@ -441,8 +438,7 @@ def _install_legacy(
         raise _TocTouError(ref=ref_val, path=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "chain_context: install_legacy_chain_context failed for "
-            "source=%s: %s",
+            "chain_context: install_legacy_chain_context failed for " "source=%s: %s",
             source_run_id,
             exc,
         )
@@ -460,6 +456,7 @@ def _install_legacy(
 # ---------------------------------------------------------------------------
 # Atomic directory write helper
 # ---------------------------------------------------------------------------
+
 
 def _atomic_write_context_dir(
     dest_dir: _pathlib.Path,
@@ -511,6 +508,7 @@ def _atomic_write_context_dir(
 # mark_chain_context_installed
 # ---------------------------------------------------------------------------
 
+
 def _mark_chain_context_installed(
     ctx: Any,
     runner: Any,
@@ -532,8 +530,6 @@ def _mark_chain_context_installed(
     ``agents.execution_engine.*`` imports at module level.
     """
     run_id: str = getattr(ctx, "run_id", "") or ""
-    owner_id: str = getattr(ctx, "owner_id", "") or ""
-    workspace_id: str = getattr(ctx, "workspace_id", "") or ""
 
     if not run_id:
         logger.warning(
@@ -572,6 +568,7 @@ def _mark_chain_context_installed(
 # ---------------------------------------------------------------------------
 # Audit row
 # ---------------------------------------------------------------------------
+
 
 def _write_chain_payload_installed_audit(
     ctx: Any,
@@ -625,6 +622,7 @@ def _write_chain_payload_installed_audit(
 # Event emission helpers
 # ---------------------------------------------------------------------------
 
+
 def _emit_chain_context_unavailable(
     ctx: Any,
     *,
@@ -661,10 +659,12 @@ def _emit_chain_context_unavailable(
 
     if queue is not None:
         try:
-            queue.put_nowait({
-                "type": _REASON_UNAVAILABLE,
-                "data": event_payload,
-            })
+            queue.put_nowait(
+                {
+                    "type": _REASON_UNAVAILABLE,
+                    "data": event_payload,
+                }
+            )
         except Exception:  # noqa: BLE001
             pass
 
@@ -736,6 +736,7 @@ def _resolve_install_toctou(
 # Internal exception for TOCTOU
 # ---------------------------------------------------------------------------
 
+
 class _TocTouError(Exception):
     """Raised when a file present at admission is absent at copy time."""
 
@@ -748,6 +749,7 @@ class _TocTouError(Exception):
 # ---------------------------------------------------------------------------
 # Sandbox base-path resolver
 # ---------------------------------------------------------------------------
+
 
 def _resolve_sandbox_base(sandbox: Any) -> _pathlib.Path | None:
     """Return the absolute base path of *sandbox*, or ``None`` if unresolvable.
@@ -769,6 +771,7 @@ def _resolve_sandbox_base(sandbox: Any) -> _pathlib.Path | None:
 # ---------------------------------------------------------------------------
 # Legacy helper (kept for tests that call it directly)
 # ---------------------------------------------------------------------------
+
 
 def _list_chain_files(sandbox: Any, prefix: str) -> list[str]:
     """Return relative paths of all files under ``prefix`` inside ``sandbox``.
@@ -803,7 +806,7 @@ def _list_chain_files(sandbox: Any, prefix: str) -> list[str]:
         for p in all_paths:
             norm = p.lstrip("/")
             if norm.startswith(f"{prefix}/"):
-                rel = norm[len(prefix) + 1:]
+                rel = norm[len(prefix) + 1 :]
                 if rel:
                     matching.append(rel)
         return matching

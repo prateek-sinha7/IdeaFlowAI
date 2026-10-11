@@ -382,7 +382,10 @@ async def _drive_prototype_with_build_task_failure(*, fail_on_build_call: int):
         "is_design_system_required": True,
     }
 
-    run_id = f"iss028-{_uuid.uuid4().hex[:8]}"
+    # A real UUID: LocalWorkspace._validate_run_id (9efb704d) rejects any other shape
+    # for refs/ideaflow/runs/{run_id}, and a rejected ref degrades the finalizer —
+    # which would make the all-success case below report ``degraded`` spuriously.
+    run_id = str(_uuid.uuid4())
     events: list[dict] = []
     try:
         async for ev in engine.execute(

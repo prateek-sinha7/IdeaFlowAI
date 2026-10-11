@@ -26,7 +26,9 @@ from agents.execution_engine.engine import ExecutionEngine
 def test_the_tool_emits_a_request_and_nothing_else():
     from app.agents.tools.runner_tools import ask_user
 
-    out = ask_user.invoke({"questions": [{"id": "g1", "question": "?", "options": ["a", "b"]}]})
+    out = ask_user.invoke(
+        {"questions": [{"id": "g1", "question": "?", "options": ["a", "b"]}]}
+    )
     assert json.loads(out) == {
         "clarify_request": [{"id": "g1", "question": "?", "options": ["a", "b"]}]
     }
@@ -35,7 +37,7 @@ def test_the_tool_emits_a_request_and_nothing_else():
 def test_the_tool_body_pauses_nothing():
     """Like spawn_subagents: no store, no event, no engine import in the body."""
     src = Path(__file__).resolve().parents[2] / "app/agents/tools/runner_tools.py"
-    body = src.read_text().split("def ask_user(")[1].split("\ndef ")[0]
+    body = src.read_text(encoding="utf-8").split("def ask_user(")[1].split("\ndef ")[0]
     for forbidden in ("asyncio", "get_artifact_store", "ClarifyEngine", "Event"):
         assert forbidden not in body, f"ask_user must not touch {forbidden}"
 
@@ -51,14 +53,23 @@ def test_the_provider_is_not_on_the_user_palette():
 
 
 def _ectx(*, tool_sets, run_id="run-1"):
-    step = SimpleNamespace(agent_id="fi-gaps", tools=SimpleNamespace(tool_sets=tool_sets))
-    return SimpleNamespace(current_step=step, pipeline_run_id=run_id,
-                           owner_id="o", workspace_id="w", sandbox=None)
+    step = SimpleNamespace(
+        agent_id="fi-gaps", tools=SimpleNamespace(tool_sets=tool_sets)
+    )
+    return SimpleNamespace(
+        current_step=step,
+        pipeline_run_id=run_id,
+        owner_id="o",
+        workspace_id="w",
+        sandbox=None,
+    )
 
 
 def _event(*questions):
-    return {"tool": "ask_user",
-            "result": json.dumps({"clarify_request": list(questions)})}
+    return {
+        "tool": "ask_user",
+        "result": json.dumps({"clarify_request": list(questions)}),
+    }
 
 
 async def _drain(ectx, event):
@@ -69,8 +80,10 @@ async def _drain(ectx, event):
 @pytest.mark.asyncio
 async def test_an_ungranted_step_cannot_pause_the_run():
     """The factory binds off declared sets, so fulfilment must enforce the grant."""
-    out = await _drain(_ectx(tool_sets=["file_extract"]),
-                       _event({"id": "g1", "question": "?", "options": ["a"]}))
+    out = await _drain(
+        _ectx(tool_sets=["file_extract"]),
+        _event({"id": "g1", "question": "?", "options": ["a"]}),
+    )
     assert out == []
 
 
@@ -89,13 +102,20 @@ async def test_a_malformed_request_does_not_abort_the_run():
 async def test_a_request_with_no_run_id_is_a_no_op():
     ectx = _ectx(tool_sets=["ask_user"])
     ectx.pipeline_run_id = None
-    assert await _drain(ectx, _event({"id": "g1", "question": "?", "options": ["a"]})) == []
+    assert (
+        await _drain(ectx, _event({"id": "g1", "question": "?", "options": ["a"]}))
+        == []
+    )
 
 
 def test_the_engine_reuses_the_one_clarify_implementation():
     """No second questionnaire path — the agent's questions ride replay_questions."""
     src = Path(__file__).resolve().parents[2] / "agents/execution_engine/engine.py"
-    body = src.read_text().split("async def _derive_clarify")[1].split("\n    @staticmethod")[0]
+    body = (
+        src.read_text(encoding="utf-8")
+        .split("async def _derive_clarify")[1]
+        .split("\n    @staticmethod")[0]
+    )
     assert "ClarifyEngine" in body
     assert "replay_questions=questions" in body
     assert "replay_round=1" in body
@@ -111,7 +131,7 @@ def test_the_state_machine_allows_the_pause_and_the_resume():
 
 def test_the_branch_is_dormant_for_every_other_tool():
     src = Path(__file__).resolve().parents[2] / "agents/execution_engine/engine.py"
-    body = src.read_text()
+    body = src.read_text(encoding="utf-8")
     assert re.search(r'elif event\.get\("tool"\) == "ask_user":', body)
 
 
@@ -123,15 +143,17 @@ class TestTheBrowserCanActuallyRenderThem:
     schema. Unmapped, every question renders blank with no options."""
 
     def test_camelcase_from_an_agent_becomes_the_wire_shape(self):
-        out = ExecutionEngine._normalise_question({
-            "id": "gap-1",
-            "question": "Error handling is not specified [1-crimson p.1]",
-            "answerType": "single_choice",
-            "options": ["Inline messages", "Summary banner", "Not applicable"],
-            "recommendedAnswer": "Inline messages",
-            "recommendedReasoning": "every other screen validates per field",
-            "impactLevel": "medium",
-        })
+        out = ExecutionEngine._normalise_question(
+            {
+                "id": "gap-1",
+                "question": "Error handling is not specified [1-crimson p.1]",
+                "answerType": "single_choice",
+                "options": ["Inline messages", "Summary banner", "Not applicable"],
+                "recommendedAnswer": "Inline messages",
+                "recommendedReasoning": "every other screen validates per field",
+                "impactLevel": "medium",
+            }
+        )
         assert out["question_id"] == "gap-1"
         assert out["question_text"].startswith("Error handling")
         assert out["answer_type"] == "single_choice"
@@ -143,26 +165,33 @@ class TestTheBrowserCanActuallyRenderThem:
         assert not ({"id", "question", "answerType", "recommendedAnswer"} & set(out))
 
     def test_an_agent_that_already_writes_the_wire_shape_is_untouched(self):
-        wire = {"question_id": "g1", "question_text": "?", "options": ["a"],
-                "answer_type": "single_choice", "recommended_answer": "a"}
+        wire = {
+            "question_id": "g1",
+            "question_text": "?",
+            "options": ["a"],
+            "answer_type": "single_choice",
+            "recommended_answer": "a",
+        }
         assert ExecutionEngine._normalise_question(dict(wire)) == wire
 
     def test_a_question_never_renders_blank(self):
         """question_text is what the UI shows; without it the row is empty."""
         out = ExecutionEngine._normalise_question({"question": "why?"})
         assert out["question_text"] == "why?"
-        assert out["question_id"]           # never missing — answers key on it
+        assert out["question_id"]  # never missing — answers key on it
         assert out["options"] == []
         assert out["answer_type"] == "single_choice"
 
     def test_an_unknown_field_is_not_silently_dropped(self):
-        out = ExecutionEngine._normalise_question({"id": "g", "question": "q", "future": 1})
+        out = ExecutionEngine._normalise_question(
+            {"id": "g", "question": "q", "future": 1}
+        )
         assert out["future"] == 1
 
 
 @pytest.mark.asyncio
 async def test_skip_all_stops_every_remaining_round():
-    """"Skip all & run directly" ends the questionnaire, not one screen of it.
+    """ "Skip all & run directly" ends the questionnaire, not one screen of it.
 
     Clarify puts a long gap list to the user in batches. The agent cannot see
     that the user skipped, so it goes straight on to the next batch — six more
@@ -184,7 +213,10 @@ async def test_an_unskipped_run_still_asks():
     # for its OWN reason, which is the pre-existing case covered above.
     ectx.pipeline_run_id = None
     ectx.run_id = None
-    assert await _drain(ectx, _event({"id": "g1", "question": "?", "options": ["a"]})) == []
+    assert (
+        await _drain(ectx, _event({"id": "g1", "question": "?", "options": ["a"]}))
+        == []
+    )
 
 
 # ── Multiple rounds ───────────────────────────────────────────────────────────
@@ -195,7 +227,12 @@ async def test_an_unskipped_run_still_asks():
 
 
 def _answer(qid, answer="A", answered=True):
-    return {"id": qid, "question": f"gap {qid}?", "answer": answer, "answered": answered}
+    return {
+        "id": qid,
+        "question": f"gap {qid}?",
+        "answer": answer,
+        "answered": answered,
+    }
 
 
 def _merge(prior, current):
@@ -204,61 +241,128 @@ def _merge(prior, current):
 
 class TestMergeClarifyRounds:
     def test_a_second_round_keeps_the_first_rounds_answers(self):
-        first = {"answers": [_answer("g1"), _answer("g2")], "answered_count": 2,
-                 "clarified_topics": [], "explicit_constraints": []}
-        out = _merge(first, {"answers": [_answer("g3")], "answered_count": 1,
-                             "clarified_topics": [], "explicit_constraints": []})
+        first = {
+            "answers": [_answer("g1"), _answer("g2")],
+            "answered_count": 2,
+            "clarified_topics": [],
+            "explicit_constraints": [],
+        }
+        out = _merge(
+            first,
+            {
+                "answers": [_answer("g3")],
+                "answered_count": 1,
+                "clarified_topics": [],
+                "explicit_constraints": [],
+            },
+        )
         assert [a["id"] for a in out["answers"]] == ["g1", "g2", "g3"]
         assert out["answered_count"] == 3
 
     def test_the_first_round_writes_into_an_empty_file(self):
-        out = _merge({}, {"answers": [_answer("g1")], "answered_count": 1,
-                          "clarified_topics": [], "explicit_constraints": []})
+        out = _merge(
+            {},
+            {
+                "answers": [_answer("g1")],
+                "answered_count": 1,
+                "clarified_topics": [],
+                "explicit_constraints": [],
+            },
+        )
         assert [a["id"] for a in out["answers"]] == ["g1"]
         assert out["rounds"] == 1
 
     def test_rounds_counts_the_calls(self):
-        one = _merge({}, {"answers": [], "clarified_topics": [], "explicit_constraints": []})
-        two = _merge(one, {"answers": [], "clarified_topics": [], "explicit_constraints": []})
+        one = _merge(
+            {}, {"answers": [], "clarified_topics": [], "explicit_constraints": []}
+        )
+        two = _merge(
+            one, {"answers": [], "clarified_topics": [], "explicit_constraints": []}
+        )
         assert (one["rounds"], two["rounds"]) == (1, 2)
 
     def test_re_asking_a_question_is_a_correction_not_a_duplicate(self):
-        first = {"answers": [_answer("g1", "Quarterly")], "clarified_topics": [],
-                 "explicit_constraints": []}
-        out = _merge(first, {"answers": [_answer("g1", "Monthly")],
-                             "clarified_topics": [], "explicit_constraints": []})
+        first = {
+            "answers": [_answer("g1", "Quarterly")],
+            "clarified_topics": [],
+            "explicit_constraints": [],
+        }
+        out = _merge(
+            first,
+            {
+                "answers": [_answer("g1", "Monthly")],
+                "clarified_topics": [],
+                "explicit_constraints": [],
+            },
+        )
         assert len(out["answers"]) == 1
         assert out["answers"][0]["answer"] == "Monthly"
 
     def test_an_unanswered_gap_does_not_inflate_the_count(self):
-        out = _merge({}, {"answers": [_answer("g1"), _answer("g2", None, False)],
-                          "clarified_topics": [], "explicit_constraints": []})
+        out = _merge(
+            {},
+            {
+                "answers": [_answer("g1"), _answer("g2", None, False)],
+                "clarified_topics": [],
+                "explicit_constraints": [],
+            },
+        )
         assert out["answered_count"] == 1
 
     def test_order_follows_the_order_the_user_was_asked(self):
-        first = {"answers": [_answer("g5"), _answer("g1")], "clarified_topics": [],
-                 "explicit_constraints": []}
-        out = _merge(first, {"answers": [_answer("g3"), _answer("g5", "changed")],
-                             "clarified_topics": [], "explicit_constraints": []})
+        first = {
+            "answers": [_answer("g5"), _answer("g1")],
+            "clarified_topics": [],
+            "explicit_constraints": [],
+        }
+        out = _merge(
+            first,
+            {
+                "answers": [_answer("g3"), _answer("g5", "changed")],
+                "clarified_topics": [],
+                "explicit_constraints": [],
+            },
+        )
         assert [a["id"] for a in out["answers"]] == ["g5", "g1", "g3"]
 
     def test_topics_and_constraints_are_unioned_without_repeats(self):
-        first = {"answers": [], "clarified_topics": ["billing"], "explicit_constraints": ["a"]}
-        out = _merge(first, {"answers": [], "clarified_topics": ["billing", "forms"],
-                             "explicit_constraints": ["b"]})
+        first = {
+            "answers": [],
+            "clarified_topics": ["billing"],
+            "explicit_constraints": ["a"],
+        }
+        out = _merge(
+            first,
+            {
+                "answers": [],
+                "clarified_topics": ["billing", "forms"],
+                "explicit_constraints": ["b"],
+            },
+        )
         assert out["clarified_topics"] == ["billing", "forms"]
         assert out["explicit_constraints"] == ["a", "b"]
 
     def test_a_corrupt_prior_file_does_not_lose_this_round(self):
         # The caller degrades an unreadable file to {}; nothing may be dropped.
-        out = _merge({}, {"answers": [_answer("g1")], "clarified_topics": [],
-                          "explicit_constraints": []})
+        out = _merge(
+            {},
+            {
+                "answers": [_answer("g1")],
+                "clarified_topics": [],
+                "explicit_constraints": [],
+            },
+        )
         assert [a["id"] for a in out["answers"]] == ["g1"]
 
     def test_a_non_dict_entry_is_skipped_not_raised(self):
-        first = {"answers": [_answer("g1"), "junk", None], "clarified_topics": [],
-                 "explicit_constraints": []}
-        out = _merge(first, {"answers": [], "clarified_topics": [], "explicit_constraints": []})
+        first = {
+            "answers": [_answer("g1"), "junk", None],
+            "clarified_topics": [],
+            "explicit_constraints": [],
+        }
+        out = _merge(
+            first, {"answers": [], "clarified_topics": [], "explicit_constraints": []}
+        )
         assert [a["id"] for a in out["answers"]] == ["g1"]
 
 
@@ -278,7 +382,9 @@ class _Store:
         self.responses: dict[str, list] = {}
         self.force: dict[str, bool] = {}
 
-    async def set_questionnaire_responses(self, run_id, responses, skip_clarification=False):
+    async def set_questionnaire_responses(
+        self, run_id, responses, skip_clarification=False
+    ):
         self.responses[run_id] = responses
         self.force[run_id] = bool(skip_clarification)
 
@@ -297,7 +403,9 @@ class _Store:
 async def test_a_cleared_slot_makes_the_next_round_wait():
     """The guard's premise: 'a submission is stored' must mean THIS round's."""
     store = _Store()
-    await store.set_questionnaire_responses("run-1", [{"question_id": "g1", "answer": "A"}])
+    await store.set_questionnaire_responses(
+        "run-1", [{"question_id": "g1", "answer": "A"}]
+    )
     assert await store.get_questionnaire_responses("run-1") is not None
 
     await store.clear_questionnaire_responses("run-1")
@@ -319,14 +427,18 @@ async def test_clearing_also_drops_a_stale_skip_flag():
 @pytest.mark.asyncio
 async def test_clearing_an_untouched_run_is_a_no_op():
     store = _Store()
-    await store.clear_questionnaire_responses("never-asked")   # must not raise
+    await store.clear_questionnaire_responses("never-asked")  # must not raise
     assert await store.get_questionnaire_responses("never-asked") is None
 
 
 def test_the_engine_clears_before_every_round_not_only_the_first():
     """The clear sits in _derive_clarify, which runs once per ask_user call."""
     src = Path(__file__).resolve().parents[2] / "agents/execution_engine/engine.py"
-    body = src.read_text().split("async def _derive_clarify")[1].split("\n    @staticmethod")[0]
+    body = (
+        src.read_text(encoding="utf-8")
+        .split("async def _derive_clarify")[1]
+        .split("\n    @staticmethod")[0]
+    )
     assert "clear_questionnaire_responses" in body
     # It must come BEFORE the round is created, or the round reads the stale slot.
     assert body.index("clear_questionnaire_responses") < body.index("ClarifyEngine()")
@@ -334,4 +446,5 @@ def test_the_engine_clears_before_every_round_not_only_the_first():
 
 def test_the_store_exposes_the_clear():
     from agents.artifact_store.store import ArtifactStore
+
     assert hasattr(ArtifactStore, "clear_questionnaire_responses")

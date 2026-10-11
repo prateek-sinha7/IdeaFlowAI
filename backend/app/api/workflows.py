@@ -465,7 +465,9 @@ def get_workflow(
     # Ordered by the PLAN, not by dict insertion: the reused-agent completion
     # above appends after the discovered ones, so ppt_v2's four steps would
     # otherwise read qa, code-gen, analyst, composer — the run order inverted.
-    step_specs = [spec_by_id[st.agent_id] for st in compiled.steps if st.agent_id in spec_by_id]
+    step_specs = [
+        spec_by_id[st.agent_id] for st in compiled.steps if st.agent_id in spec_by_id
+    ]
 
     # Load manifest for authored metadata (name, display_name, description)
     try:
@@ -494,7 +496,10 @@ def get_workflow(
                 # label lives on the compiled step as `display_name` (the same field
                 # the engine overlays onto the runtime AgentSpec), so prefer it, and
                 # fall back to the AGENT.md spec for ordinary declared agents.
-                name=(getattr(step, "display_name", "") or (spec.name if spec else step.agent_id)),
+                name=(
+                    getattr(step, "display_name", "")
+                    or (spec.name if spec else step.agent_id)
+                ),
                 role=spec.role if spec else "",
                 # Read top-to-bottom: `compiled.steps` IS the execution sequence, so
                 # a step's position in it is its order. Previously this returned the

@@ -262,8 +262,10 @@ def test_create_workspace_stores_has_git_and_drives_scope_selection(runs_root):
     assert git_ws.has_git is True
     assert _select_isolation_scope(git_ws) == "worktree"
 
+    # has_git now DEFAULTS to True (sandbox git versioning: every run sandbox is
+    # a git checkout), so the non-git path is requested explicitly.
     plain_ws = LocalSandboxRuntime().create_workspace(
-        owner_id="owner-1", workspace_id="ws-run-2", exec=False
+        owner_id="owner-1", workspace_id="ws-run-2", has_git=False, exec=False
     )
     assert plain_ws.has_git is False
     assert _select_isolation_scope(plain_ws) == "sub_sandbox"
@@ -358,7 +360,13 @@ async def test_run_fanout_commits_completed_worktree_worker():
         ws = await _orig_alloc(scope, step, worker_index=worker_index)
         ws._worktree_branch = f"fanout/{step}/{worker_index}"
         ws._sandbox = SimpleNamespace(root=None)
-        ws.commit_all = lambda msg, _i=worker_index: committed.append((_i, msg))
+        # The worker commit now routes through the ONE security-gated primitive
+        # (engine.commit_in_sandbox, Task 4.3), which needs a git checkout
+        # (has_git), stages via ``_ws()._git`` (clean diff here), then calls
+        # ``commit_all(message, paths=[], force_add=None)``.
+        ws.has_git = True
+        ws._ws = lambda: SimpleNamespace(_git=lambda *a, **k: "")
+        ws.commit_all = lambda msg, _i=worker_index, **kw: committed.append((_i, msg))
         return ws
 
     runner.allocate_isolated_workspace = _alloc  # type: ignore[assignment]

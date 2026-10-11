@@ -57,7 +57,11 @@ def env():
     session = Session()
 
     user = User(
-        id="u1", email="ide@example.com", cognito_sub="sub-1", tier="pro", status="active"
+        id="u1",
+        email="ide@example.com",
+        cognito_sub="sub-1",
+        tier="pro",
+        status="active",
     )
     session.add(user)
     session.commit()
@@ -119,9 +123,7 @@ class TestBothSurfacesAgree:
     def test_an_expired_key_is_rejected_by_both(self, env):
         """The actual drift. Before Phase 2 this was (401, 200): the MCP bearer
         transport never called ``is_expired()``."""
-        key = _mint(
-            env, expires_at=datetime.now(timezone.utc) - timedelta(days=1)
-        )
+        key = _mint(env, expires_at=datetime.now(timezone.utc) - timedelta(days=1))
 
         assert _both(env, key) == (401, 401)
 
@@ -161,9 +163,7 @@ class TestUniformErrors:
         """Same body for unknown, revoked and expired, per surface. Splitting them
         would hand an attacker a probe for which key strings were ever real."""
         client = env["client"]
-        expired = _mint(
-            env, expires_at=datetime.now(timezone.utc) - timedelta(days=1)
-        )
+        expired = _mint(env, expires_at=datetime.now(timezone.utc) - timedelta(days=1))
         revoked = _mint(env, revoked_at=datetime.now(timezone.utc))
 
         bodies = {
@@ -173,8 +173,9 @@ class TestUniformErrors:
         assert len(bodies) == 1
 
         bodies = {
-            client.get("/via-bearer", headers={"Authorization": f"Bearer {k}"})
-            .json()["detail"]
+            client.get("/via-bearer", headers={"Authorization": f"Bearer {k}"}).json()[
+                "detail"
+            ]
             for k in (expired, revoked, "flowin_never-existed")
         }
         assert len(bodies) == 1

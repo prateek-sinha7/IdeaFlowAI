@@ -31,7 +31,11 @@ from pptx.util import Inches, Pt  # noqa: E402
 
 _SCRIPTS = (
     Path(__file__).resolve().parents[3]
-    / "skills" / "opendesign" / "skills" / "pptx-html-fidelity-audit" / "scripts"
+    / "skills"
+    / "opendesign"
+    / "skills"
+    / "pptx-html-fidelity-audit"
+    / "scripts"
 )
 sys.path.insert(0, str(_SCRIPTS))
 
@@ -42,7 +46,7 @@ def _deck(canvas=(13.333, 7.5)):
     prs = Presentation()
     prs.slide_width = Inches(canvas[0])
     prs.slide_height = Inches(canvas[1])
-    prs.slides.add_slide(prs.slide_layouts[6])   # blank
+    prs.slides.add_slide(prs.slide_layouts[6])  # blank
     return prs
 
 
@@ -52,10 +56,23 @@ def _save(prs, tmp_path, name="deck.pptx") -> Path:
     return path
 
 
-def _add_text(prs, text, *, left=0.5, top=0.5, width=6.0, height=1.0,
-              size=18, font="Arial", bold=False, line_spacing=None):
+def _add_text(
+    prs,
+    text,
+    *,
+    left=0.5,
+    top=0.5,
+    width=6.0,
+    height=1.0,
+    size=18,
+    font="Arial",
+    bold=False,
+    line_spacing=None,
+):
     slide = prs.slides[0]
-    box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+    box = slide.shapes.add_textbox(
+        Inches(left), Inches(top), Inches(width), Inches(height)
+    )
     tf = box.text_frame
     tf.word_wrap = True
     # python-pptx's add_textbox defaults to SHAPE_TO_FIT_TEXT. Say NONE
@@ -98,7 +115,7 @@ class TestCanvas:
         assert not [v for v in violations if "canvas" in v]
 
     def test_a_canvas_that_is_not_16_9_is_a_violation(self, tmp_path):
-        prs = _deck(canvas=(10.0, 7.5))       # 4:3
+        prs = _deck(canvas=(10.0, 7.5))  # 4:3
         path = _save(prs, tmp_path)
         violations, _ = _verify(path)
         assert any("not 16:9" in v for v in violations)
@@ -122,7 +139,9 @@ class TestTextFit:
         _add_text(
             prs,
             "Generic platforms were not designed for your regulatory environment",
-            width=7.0, height=1.0, size=44,
+            width=7.0,
+            height=1.0,
+            size=44,
         )
         violations, _ = _verify(_save(prs, tmp_path))
         assert any("text needs" in v and "tall" in v for v in violations)
@@ -159,8 +178,14 @@ class TestTextFit:
         stand-in is not metric-exact), so the check runs on the deck that needs it
         most."""
         prs = _deck()
-        _add_text(prs, "Overflowing " * 20, width=4.0, height=0.4, size=40,
-                  font="No Such Font At All ZZZ")
+        _add_text(
+            prs,
+            "Overflowing " * 20,
+            width=4.0,
+            height=0.4,
+            size=40,
+            font="No Such Font At All ZZZ",
+        )
         violations, notes = _verify(_save(prs, tmp_path))
         assert not [n for n in notes if "UNVERIFIED" in n]
         assert any("text needs" in v for v in violations)
@@ -180,8 +205,14 @@ class TestFontSafety:
         unless it's one render_pptx can embed (see test below); "Poppins" is
         deliberately NOT in the opendesign template font library."""
         prs = _deck()
-        _add_text(prs, "Bespoke Employee Community", width=7.0, height=1.5,
-                  size=24, font="Poppins")
+        _add_text(
+            prs,
+            "Bespoke Employee Community",
+            width=7.0,
+            height=1.5,
+            size=24,
+            font="Poppins",
+        )
         violations, _ = _verify(_save(prs, tmp_path))
         assert any("Poppins" in v and "PowerPoint ships with" in v for v in violations)
 
@@ -190,17 +221,40 @@ class TestFontSafety:
         (skills/opendesign/fonts/) — the recipient never needs it installed,
         so this is not the same failure mode as test_a_web_font_is_a_violation."""
         prs = _deck()
-        _add_text(prs, "Bespoke Employee Community", width=7.0, height=1.5,
-                  size=24, font="DM Sans")
+        _add_text(
+            prs,
+            "Bespoke Employee Community",
+            width=7.0,
+            height=1.5,
+            size=24,
+            font="DM Sans",
+        )
         violations, _ = _verify(_save(prs, tmp_path))
         assert not [v for v in violations if "PowerPoint ships with" in v]
 
     def test_office_fonts_are_not_flagged(self, tmp_path):
         prs = _deck()
-        for i, fam in enumerate(["Arial", "Calibri", "Georgia", "Times New Roman",
-                                 "Verdana", "Trebuchet MS", "Courier New"]):
-            _add_text(prs, "Fine", left=0.5, top=0.4 + i * 0.6, width=3.0,
-                      height=0.5, size=12, font=fam)
+        for i, fam in enumerate(
+            [
+                "Arial",
+                "Calibri",
+                "Georgia",
+                "Times New Roman",
+                "Verdana",
+                "Trebuchet MS",
+                "Courier New",
+            ]
+        ):
+            _add_text(
+                prs,
+                "Fine",
+                left=0.5,
+                top=0.4 + i * 0.6,
+                width=3.0,
+                height=0.5,
+                size=12,
+                font=fam,
+            )
         violations, _ = _verify(_save(prs, tmp_path))
         assert not [v for v in violations if "PowerPoint ships with" in v]
 
@@ -209,8 +263,16 @@ class TestFontSafety:
         validator gets skimmed instead of read."""
         prs = _deck()
         for i in range(6):
-            _add_text(prs, f"Row {i}", left=0.5, top=0.4 + i * 0.7, width=3.0,
-                      height=0.5, size=12, font="Poppins")
+            _add_text(
+                prs,
+                f"Row {i}",
+                left=0.5,
+                top=0.4 + i * 0.7,
+                width=3.0,
+                height=0.5,
+                size=12,
+                font="Poppins",
+            )
         violations, _ = _verify(_save(prs, tmp_path))
         font_lines = [v for v in violations if "PowerPoint ships with" in v]
         assert len(font_lines) == 1
@@ -221,8 +283,14 @@ class TestFontSafety:
         container. The bundled metric clones are what make the check work on any
         machine rather than degrading to UNVERIFIED for most of the deck."""
         prs = _deck()
-        _add_text(prs, "Regulatory environment and compliance posture " * 4,
-                  width=5.0, height=0.5, size=32, font="Calibri")
+        _add_text(
+            prs,
+            "Regulatory environment and compliance posture " * 4,
+            width=5.0,
+            height=0.5,
+            size=32,
+            font="Calibri",
+        )
         violations, notes = _verify(_save(prs, tmp_path))
         assert not [n for n in notes if "UNVERIFIED" in n]
         assert any("text needs" in v for v in violations)
@@ -241,7 +309,11 @@ class TestLineSpacing:
         _add_text(
             prs,
             "Generic platforms were not designed for your regulatory environment",
-            width=7.0, height=4.0, size=48, font="Georgia", bold=True,
+            width=7.0,
+            height=4.0,
+            size=48,
+            font="Georgia",
+            bold=True,
             line_spacing=28,
         )
         violations, _ = _verify(_save(prs, tmp_path))
@@ -249,8 +321,14 @@ class TestLineSpacing:
 
     def test_normal_spacing_is_not_a_violation(self, tmp_path):
         prs = _deck()
-        _add_text(prs, "Two lines of perfectly ordinary body copy here",
-                  width=3.0, height=3.0, size=18, line_spacing=24)
+        _add_text(
+            prs,
+            "Two lines of perfectly ordinary body copy here",
+            width=3.0,
+            height=3.0,
+            size=18,
+            line_spacing=24,
+        )
         violations, _ = _verify(_save(prs, tmp_path))
         assert not [v for v in violations if "print through" in v]
 
@@ -264,7 +342,9 @@ class TestLineSpacing:
         exactly one, so each was excused, and each printed over the next."""
         prs = _deck(canvas=(10.0, 5.625))
         slide = prs.slides[0]
-        box = slide.shapes.add_textbox(Inches(0.5), Inches(1.1), Inches(4.5), Inches(2.4))
+        box = slide.shapes.add_textbox(
+            Inches(0.5), Inches(1.1), Inches(4.5), Inches(2.4)
+        )
         tf = box.text_frame
         tf.word_wrap = True
         tf.auto_size = MSO_AUTO_SIZE.NONE
@@ -321,20 +401,39 @@ class TestBoundsAndOverlap:
 
 
 class TestGate:
-    def test_render_pptx_refuses_to_say_ok_for_a_broken_deck(self, tmp_path, monkeypatch):
+    def test_render_pptx_refuses_to_say_ok_for_a_broken_deck(
+        self, tmp_path, monkeypatch
+    ):
         """The correction for how this failed: a verdict the agent has to fetch is
         a verdict it can dismiss, and one did. Verification lives inside the build
         so there is nothing to overrule."""
         from app.agents.tools import pptx_tools
 
         prs = _deck()
-        _add_text(prs, "Generic platforms were not designed for your environment",
-                  width=7.0, height=0.8, size=44)
+        _add_text(
+            prs,
+            "Generic platforms were not designed for your environment",
+            width=7.0,
+            height=0.8,
+            size=44,
+        )
         broken = _save(prs, tmp_path, "built.pptx").read_bytes()
 
         class _Sandbox:
             def path_for(self, name):
                 return tmp_path / name
+
+            # The RunSandbox surface pptx_tools reads (path_for / verify_dir /
+            # browser_dir). verify_dir (Requirement 24 AC 2): per-run evidence dir
+            # `.verify/{current_run_id}/` that render_pptx writes its report into.
+            @property
+            def verify_dir(self):
+                return tmp_path / ".verify" / "test-run"
+
+            # RunSandbox.browser_dir: `.browser/{current_run_id}/` (slide renders).
+            @property
+            def browser_dir(self):
+                return tmp_path / ".browser" / "test-run"
 
         monkeypatch.setattr(pptx_tools, "_SANDBOX", _Sandbox())
         monkeypatch.setattr(
@@ -358,6 +457,18 @@ class TestGate:
         class _Sandbox:
             def path_for(self, name):
                 return tmp_path / name
+
+            # The RunSandbox surface pptx_tools reads (path_for / verify_dir /
+            # browser_dir). verify_dir (Requirement 24 AC 2): per-run evidence dir
+            # `.verify/{current_run_id}/` that render_pptx writes its report into.
+            @property
+            def verify_dir(self):
+                return tmp_path / ".verify" / "test-run"
+
+            # RunSandbox.browser_dir: `.browser/{current_run_id}/` (slide renders).
+            @property
+            def browser_dir(self):
+                return tmp_path / ".browser" / "test-run"
 
         monkeypatch.setattr(pptx_tools, "_SANDBOX", _Sandbox())
         monkeypatch.setattr(

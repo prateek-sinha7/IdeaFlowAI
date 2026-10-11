@@ -193,16 +193,26 @@ def test_staged_skill_carries_its_referenced_sibling_files(tmp_path):
     catalog_entry = next(
         e for e in skills_catalog.list_global_skills() if e.id == "systematic-debugging"
     )
-    assert "root-cause-tracing.md" in catalog_entry.content  # sanity: body really references it
+    assert (
+        "root-cause-tracing.md" in catalog_entry.content
+    )  # sanity: body really references it
 
     sb = _sandbox(tmp_path)
     result = stage_skills(
         sb,
-        [{"id": catalog_entry.id, "name": catalog_entry.name, "content": catalog_entry.content}],
+        [
+            {
+                "id": catalog_entry.id,
+                "name": catalog_entry.name,
+                "content": catalog_entry.content,
+            }
+        ],
     )
 
     assert result.staged == ["systematic-debugging"]
-    referenced_sibling = sb.root / "skills" / "systematic-debugging" / "root-cause-tracing.md"
+    referenced_sibling = (
+        sb.root / "skills" / "systematic-debugging" / "root-cause-tracing.md"
+    )
     assert referenced_sibling.exists(), (
         "SKILL.md tells the agent to read root-cause-tracing.md 'in this directory' "
         "but stage_skills never staged it there"

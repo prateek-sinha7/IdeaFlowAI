@@ -19,6 +19,10 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+# LocalWorkspace.commit_all returns a typed CommitResult (Requirement 10 AC 7),
+# not a bare SHA string; the doubles below must honour that contract.
+from app.agents.runtime.local import CommitResult
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,7 +53,11 @@ def test_commit_all_returns_empty_when_has_git_false(tmp_path: Path) -> None:
     sb = _make_sandbox(tmp_path, has_git=False)
 
     # Patch _ws to ensure it is never called.
-    with patch.object(sb, "_ws", side_effect=AssertionError("_ws must not be called when has_git=False")):
+    with patch.object(
+        sb,
+        "_ws",
+        side_effect=AssertionError("_ws must not be called when has_git=False"),
+    ):
         result = sb.commit_all("step: some-agent")
 
     assert result == "", "has_git=False must return '' immediately"
@@ -69,7 +77,7 @@ def test_commit_all_delegates_to_workspace_and_returns_sha(tmp_path: Path) -> No
     sb = _make_sandbox(tmp_path, has_git=True)
 
     fake_ws = MagicMock()
-    fake_ws.commit_all.return_value = "abc1234"
+    fake_ws.commit_all.return_value = CommitResult(sha="abc1234")
 
     with patch.object(sb, "_ws", return_value=fake_ws):
         with patch.object(type(sb), "_ws") as _ws_prop:
@@ -77,7 +85,9 @@ def test_commit_all_delegates_to_workspace_and_returns_sha(tmp_path: Path) -> No
             sb._workspace = fake_ws
             result = sb.commit_all("step: writer-agent")
 
-    fake_ws.commit_all.assert_called_once_with("step: writer-agent")
+    fake_ws.commit_all.assert_called_once_with(
+        "step: writer-agent", paths=None, force_add=None
+    )
     assert result == "abc1234", "must return the SHA from LocalWorkspace.commit_all"
 
 
@@ -101,14 +111,18 @@ def test_commit_all_warns_not_a_git_repo_when_git_dir_missing(
     assert not (sb.root / ".git").is_dir(), "pre-condition: .git/ must not exist"
 
     fake_ws = MagicMock()
-    fake_ws.commit_all.return_value = ""  # nothing committed
+    fake_ws.commit_all.return_value = CommitResult(
+        no_change=True, sha=""
+    )  # nothing committed
     sb._workspace = fake_ws
 
     with caplog.at_level(logging.WARNING, logger="app.agents.sandbox"):
         result = sb.commit_all("step: some-agent")
 
     assert result == ""
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
     assert any("not a git repo" in m for m in warning_messages), (
         "Expected a 'not a git repo' warning when .git/ is absent; "
         f"got warnings: {warning_messages}"
@@ -140,14 +154,18 @@ def test_commit_all_warns_nothing_to_commit_when_git_dir_present(
     (sb.root / ".git").mkdir()
 
     fake_ws = MagicMock()
-    fake_ws.commit_all.return_value = ""  # nothing to stage
+    fake_ws.commit_all.return_value = CommitResult(
+        no_change=True, sha=""
+    )  # nothing to stage
     sb._workspace = fake_ws
 
     with caplog.at_level(logging.WARNING, logger="app.agents.sandbox"):
         result = sb.commit_all("step: no-write-agent")
 
     assert result == ""
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
     assert any("nothing to commit" in m for m in warning_messages), (
         "Expected a 'nothing to commit' warning when .git/ is present but commit is no-op; "
         f"got warnings: {warning_messages}"
@@ -173,17 +191,18 @@ def test_commit_all_no_warning_on_successful_commit(tmp_path: Path, caplog) -> N
     sb = _make_sandbox(tmp_path, has_git=True)
 
     fake_ws = MagicMock()
-    fake_ws.commit_all.return_value = "deadbeef"
+    fake_ws.commit_all.return_value = CommitResult(sha="deadbeef")
     sb._workspace = fake_ws
 
     with caplog.at_level(logging.WARNING, logger="app.agents.sandbox"):
         result = sb.commit_all("step: normal-agent")
 
     assert result == "deadbeef"
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
     assert not warning_messages, (
-        "A successful commit must not emit any warnings; "
-        f"got: {warning_messages}"
+        "A successful commit must not emit any warnings; " f"got: {warning_messages}"
     )
 
 
@@ -197,8 +216,10 @@ def test_commit_all_forwards_message_verbatim(tmp_path: Path) -> None:
     sb = _make_sandbox(tmp_path, has_git=True)
 
     fake_ws = MagicMock()
-    fake_ws.commit_all.return_value = "sha999"
+    fake_ws.commit_all.return_value = CommitResult(sha="sha999")
     sb._workspace = fake_ws
 
     sb.commit_all("step: my-special-agent [pass 2]")
-    fake_ws.commit_all.assert_called_once_with("step: my-special-agent [pass 2]")
+    fake_ws.commit_all.assert_called_once_with(
+        "step: my-special-agent [pass 2]", paths=None, force_add=None
+    )

@@ -31,6 +31,7 @@ def _clean_registry():
     known = set(registry_mod._KNOWN)
     impls = dict(registry_mod._IMPLS)
     trust = dict(registry_mod._TRUST)
+    saved_trust = dict(registry_mod._SAVED_TRUST)
     discovered = registry_mod._DISCOVERED
     try:
         yield
@@ -41,6 +42,8 @@ def _clean_registry():
         registry_mod._IMPLS.update(impls)
         registry_mod._TRUST.clear()
         registry_mod._TRUST.update(trust)
+        registry_mod._SAVED_TRUST.clear()
+        registry_mod._SAVED_TRUST.update(saved_trust)
         registry_mod._DISCOVERED = discovered
 
 
@@ -99,14 +102,42 @@ def test_user_trust_rejects_non_user_allowed_reference(_clean_registry) -> None:
     assert "strategy" in msg and "priv_strategy" in msg
 
 
-def test_db_trust_allows_any_registered_reference(_clean_registry) -> None:
+def test_db_trust_rejects_a_not_user_allowed_reference(_clean_registry) -> None:
+    """ADR-0054 (narrowing ADR-0039): a saved row may NOT reference a
+    ``user_allowed=False`` capability that did not opt in."""
+
     @register("strategy", "priv_strategy")
     class _PrivStrategy:
         name = "priv_strategy"
 
     manifest = _single_step_manifest("priv_strategy")
 
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert "priv_strategy" in str(exc.value)
+
+
+def test_db_trust_allows_a_saved_workflow_opt_in(_clean_registry) -> None:
+    """ADR-0054: ``saved_workflow_allowed=True`` opens it to db trust only."""
+
+    @register("strategy", "optin_strategy", saved_workflow_allowed=True)
+    class _OptInStrategy:
+        name = "optin_strategy"
+
+    manifest = _single_step_manifest("optin_strategy")
     WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    # ...and the opt-in does NOT leak to a user (inline) manifest.
+    with pytest.raises(CompilerError):
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+
+
+@pytest.mark.parametrize("gate", ["security", "approval"])
+def test_db_trust_rejects_the_privileged_gates(gate) -> None:
+    """ADR-0054: the real security/approval gates stay engineer-only."""
+    manifest = _grant_step_manifest(strategy="single_shot", gates=[gate])
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert gate in str(exc.value)
 
 
 def test_user_trust_allows_user_allowed_reference(_clean_registry) -> None:
@@ -202,14 +233,41 @@ def test_user_trust_exec_grant_raises_compiler_error(_clean_registry) -> None:
     assert "exec" in msg and "exec-agent" in msg
 
 
-def test_db_trust_exec_grant_survives_the_ceiling(_clean_registry) -> None:
+@pytest.mark.parametrize(
+    "tools", [{"exec": True}, {"network": True}, {"secrets": ["DEPLOY_KEY"]}]
+)
+def test_db_trust_host_reaching_grant_raises_compiler_error(
+    _clean_registry, tools
+) -> None:
+    """ADR-0054: exec/network/secrets are refused for a saved row (ADR-0039 had
+    let exec through, which gave any Composer user a Python interpreter)."""
+    _register_user_allowed_exec_palette()
     manifest = _grant_step_manifest(
-        tools={"exec": True}, gates=["security", "approval"]
+        strategy="ua_strategy", tools=tools, gates=["ua_security", "ua_approval"]
     )
-    compiled = WorkflowCompiler().compile(
-        manifest, CapabilityRegistry(), trust="db"
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert next(iter(tools)) in str(exc.value)
+
+
+def test_db_trust_keeps_spawn_subagents(_clean_registry) -> None:
+    """ADR-0054: spawn_subagents is the budget half of trust — a saved row keeps it."""
+    _register_user_allowed_exec_palette()
+    manifest = _grant_step_manifest(
+        strategy="ua_strategy", tools={"spawn_subagents": True}
     )
-    assert compiled.steps[0].tools.exec is True
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert compiled.steps[0].tools.spawn_subagents is True
+    assert compiled.steps[0].tools.exec is False
+
+
+@pytest.mark.parametrize("trust", ["file", "builtin", "db", "user"])
+def test_compiled_step_carries_its_manifest_trust(_clean_registry, trust) -> None:
+    """ADR-0054: Step.trust is stamped so the runtime security gate can act."""
+    _register_user_allowed_exec_palette()
+    manifest = _grant_step_manifest(strategy="ua_strategy")
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust=trust)
+    assert compiled.steps[0].trust == trust
 
 
 def test_user_trust_network_grant_raises_compiler_error(_clean_registry) -> None:
@@ -361,10 +419,31 @@ def test_user_trust_raising_max_subagents_is_a_compiler_error(_clean_registry) -
     assert "max_subagents" in str(exc.value)
 
 
-def test_db_trust_may_raise_max_depth(_clean_registry) -> None:
+def test_db_trust_may_raise_limits_up_to_the_saved_ceiling(_clean_registry) -> None:
+    """ADR-0039's purpose, kept by ADR-0054: a saved wave_scheduler build may
+    raise max_subagents to what the largest built-in uses (200)."""
     _register_user_allowed_strategy()
-    manifest = _limits_manifest({"max_depth": 4}, strategy="ua_limits_strategy")
-    WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    manifest = _limits_manifest(
+        {"max_subagents": 200, "wall_clock_seconds": 10800},
+        strategy="ua_limits_strategy",
+    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert compiled.limits.max_subagents == 200
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [{"max_subagents": 201}, {"max_depth": 4}, {"wall_clock_seconds": 10801}],
+)
+def test_db_trust_above_the_saved_ceiling_is_a_compiler_error(
+    _clean_registry, limits
+) -> None:
+    """ADR-0054: the hard saved ceiling bounds a db row until ADR-0038 lands."""
+    _register_user_allowed_strategy()
+    manifest = _limits_manifest(limits, strategy="ua_limits_strategy")
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert next(iter(limits)) in str(exc.value)
 
 
 def test_user_trust_lowering_a_limits_cap_is_allowed(_clean_registry) -> None:

@@ -37,7 +37,9 @@ def _event_stream_error(code: str, message: str = "synthetic") -> EventStreamErr
     """A real ``botocore.exceptions.EventStreamError`` (not a duck-typed stand-in) —
     the classifier's ``isinstance(exc, EventStreamError)`` branch only exists for
     this exact exception type, so the test has to use the real class to exercise it."""
-    return EventStreamError({"Error": {"Code": code, "Message": message}}, "ConverseStream")
+    return EventStreamError(
+        {"Error": {"Code": code, "Message": message}}, "ConverseStream"
+    )
 
 
 class _FakeClientError(Exception):
@@ -95,7 +97,10 @@ def test_previously_transient_codes_stay_transient(code: str, status: int) -> No
 @pytest.mark.parametrize("status", [429, 500, 503, 529])
 def test_transient_http_status_alone_stays_transient(status: int) -> None:
     """No recognized code, only a transient HTTP status — the step-3 fallback."""
-    assert _is_transient_throttle(_FakeClientError("SomeUnmappedException", status=status)) is True
+    assert (
+        _is_transient_throttle(_FakeClientError("SomeUnmappedException", status=status))
+        is True
+    )
 
 
 def test_anthropic_ratelimit_message_stays_transient() -> None:
@@ -188,7 +193,9 @@ class _RaiseThenSucceedModel(BaseChatModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def __init__(self, exc: BaseException, fail_count: int, final_text: str, **kwargs: Any) -> None:
+    def __init__(
+        self, exc: BaseException, fail_count: int, final_text: str, **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         object.__setattr__(self, "_exc", exc)
         object.__setattr__(self, "_fail_count", fail_count)
@@ -215,7 +222,11 @@ class _RaiseThenSucceedModel(BaseChatModel):
         yield ChatGenerationChunk(
             message=AIMessageChunk(
                 content=self._final_text,
-                usage_metadata={"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+                usage_metadata={
+                    "input_tokens": 3,
+                    "output_tokens": 2,
+                    "total_tokens": 5,
+                },
             )
         )
 
@@ -231,7 +242,9 @@ class _RaiseThenSucceedModel(BaseChatModel):
         object.__setattr__(self, "_calls", self._calls + 1)
         if self._calls <= self._fail_count:
             raise self._exc
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=self._final_text))])
+        return ChatResult(
+            generations=[ChatGeneration(message=AIMessage(content=self._final_text))]
+        )
 
 
 def _make_runner(model: BaseChatModel, thread: str) -> DeepAgentRunner:
@@ -245,7 +258,9 @@ def _make_runner(model: BaseChatModel, thread: str) -> DeepAgentRunner:
 
 
 @pytest.mark.asyncio
-async def test_runner_retries_transient_failure_and_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_runner_retries_transient_failure_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sleeps: list[float] = []
 
     async def _fake_sleep(delay: float) -> None:
@@ -263,7 +278,9 @@ async def test_runner_retries_transient_failure_and_succeeds(monkeypatch: pytest
     events = [ev async for ev in runner.astream_events("hi")]
 
     done = [e for e in events if e.get("type") == "done"]
-    assert done, f"expected a terminal done event, got: {[e.get('type') for e in events]}"
+    assert (
+        done
+    ), f"expected a terminal done event, got: {[e.get('type') for e in events]}"
     assert "hello there" in done[-1]["output"]
     assert not [e for e in events if e.get("type") == "error"]
     # Exactly one retry: the model was called twice (fail once, succeed once).
@@ -274,7 +291,9 @@ async def test_runner_retries_transient_failure_and_succeeds(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
-async def test_runner_does_not_retry_permanent_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_runner_does_not_retry_permanent_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sleeps: list[float] = []
 
     async def _fake_sleep(delay: float) -> None:
@@ -289,7 +308,9 @@ async def test_runner_does_not_retry_permanent_failure(monkeypatch: pytest.Monke
     events = [ev async for ev in runner.astream_events("hi")]
 
     errors = [e for e in events if e.get("type") == "error"]
-    assert errors, f"expected a swallowed error event, got: {[e.get('type') for e in events]}"
+    assert (
+        errors
+    ), f"expected a swallowed error event, got: {[e.get('type') for e in events]}"
     assert not [e for e in events if e.get("type") == "done"]
     # No retry at all: the model was called exactly once, no sleep happened.
     assert model._calls == 1
@@ -297,7 +318,9 @@ async def test_runner_does_not_retry_permanent_failure(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_runner_exhausts_retries_then_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_runner_exhausts_retries_then_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A SUSTAINED transient throttle (every attempt fails) exhausts the bounded
     retry budget and re-raises — preserving today's behavior so the engine's own
     model-fallback chain still gets its turn."""

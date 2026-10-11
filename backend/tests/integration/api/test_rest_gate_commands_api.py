@@ -287,9 +287,9 @@ def test_reject_persists_reject_action_not_approve(env):
     assert resp.status_code == 200, resp.text
     rec = _recorded(env, gate_key)
     assert rec["approved"] is False
-    assert rec["action"] == "reject", (
-        f"durable audit row says action={rec['action']!r} for a rejection"
-    )
+    assert (
+        rec["action"] == "reject"
+    ), f"durable audit row says action={rec['action']!r} for a rejection"
 
 
 def test_redo_carries_instructions(env):
@@ -335,7 +335,9 @@ def test_update_specs_carries_analysis_report_in_instructions(env):
 # ────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("terminal_status", ["cancelled", "failed", "degraded", "diverted"])
+@pytest.mark.parametrize(
+    "terminal_status", ["cancelled", "failed", "degraded", "diverted"]
+)
 def test_gate_on_terminal_run_returns_pipeline_not_running(env, terminal_status):
     """KAN-100: any gate action on a terminal run is fenced with
     ``pipeline_not_running`` (recoverable:false) — a Redo cannot resume a

@@ -47,6 +47,7 @@ logger = logging.getLogger("agents.execution_engine.finalization")
 # FinalizationRecord dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FinalizationRecord:
     """Complete projection of a run's terminal finalization state.
@@ -72,8 +73,8 @@ class FinalizationRecord:
     workspace_id: str
 
     # Outcome
-    published_status: str | None = None   # the durable DB status after convergence
-    candidate_status: str | None = None   # the candidate outcome at payload build time
+    published_status: str | None = None  # the durable DB status after convergence
+    candidate_status: str | None = None  # the candidate outcome at payload build time
 
     # Chainability — derived invariant enforced at persist time:
     #   published_status != candidate_status  →  payload_chainable = False
@@ -86,9 +87,11 @@ class FinalizationRecord:
 
     # Git versioning state
     commit_sha: str | None = None
-    internal_ref: str | None = None   # refs/ideaflow/runs/{run_id} — never exposed to API
+    internal_ref: str | None = (
+        None  # refs/ideaflow/runs/{run_id} — never exposed to API
+    )
     git_tag: str | None = None
-    tag_state: str | None = None      # "created" | "rolled_back"
+    tag_state: str | None = None  # "created" | "rolled_back"
 
     # Chain-context installation (owned by mark_chain_context_installed — PRESERVED here)
     chain_context_installed: bool | None = None
@@ -103,6 +106,7 @@ class FinalizationRecord:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _enforce_chainability_invariant(record: FinalizationRecord) -> FinalizationRecord:
     """Return a copy of *record* with the derived chainability invariant applied.
@@ -150,7 +154,13 @@ def _is_complete_row(row: object) -> bool:
     """
     return all(
         getattr(row, f, None) is not None
-        for f in ("run_id", "published_status", "candidate_status", "payload_chainable", "commit_sha")
+        for f in (
+            "run_id",
+            "published_status",
+            "candidate_status",
+            "payload_chainable",
+            "commit_sha",
+        )
     )
 
 
@@ -177,6 +187,7 @@ def _row_to_record(row: object) -> FinalizationRecord:
 # ---------------------------------------------------------------------------
 # Core persist
 # ---------------------------------------------------------------------------
+
 
 def persist_finalization_record(db: "Session", record: FinalizationRecord) -> None:
     """Upsert ``run_finalizations`` and mirror chainability onto ``WorkflowRun``.
@@ -242,9 +253,7 @@ def persist_finalization_record(db: "Session", record: FinalizationRecord) -> No
 
     # ── Mirror chainability onto WorkflowRun (same transaction) ──────────
     wr: WorkflowRun | None = (
-        db.query(WorkflowRun)
-        .filter(WorkflowRun.id == effective.run_id)
-        .first()
+        db.query(WorkflowRun).filter(WorkflowRun.id == effective.run_id).first()
     )
     if wr is not None:
         wr.payload_chainable = effective.payload_chainable
@@ -268,6 +277,7 @@ def persist_finalization_record(db: "Session", record: FinalizationRecord) -> No
 # ---------------------------------------------------------------------------
 # Safe (best-effort) persist
 # ---------------------------------------------------------------------------
+
 
 def persist_finalization_record_safe(
     db: "Session",
@@ -332,6 +342,7 @@ def persist_finalization_record_safe(
 # Read
 # ---------------------------------------------------------------------------
 
+
 def read_finalization_record(
     db: "Session",
     run_id: str,
@@ -353,9 +364,7 @@ def read_finalization_record(
     from app.models.run_finalization import RunFinalization  # noqa: PLC0415
 
     row: RunFinalization | None = (
-        db.query(RunFinalization)
-        .filter(RunFinalization.run_id == run_id)
-        .first()
+        db.query(RunFinalization).filter(RunFinalization.run_id == run_id).first()
     )
 
     if row is None:

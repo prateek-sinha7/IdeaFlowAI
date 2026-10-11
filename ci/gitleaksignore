@@ -8,17 +8,23 @@
 # NOT the 4-part `commit:file:rule-id:start-line` form that `gitleaks -v`
 # prints. Both are accepted (detect.go `AddFinding` checks the 3-part
 # globalFingerprint first, then the commit-scoped one), but the 4-part form is
-# unusable for this repo's two scan contexts:
+# unusable here:
 #
-#   * `fast-checks` scans FULL history (fetch-depth: 0), so a finding is
-#     reported under its ORIGINAL commit SHA.
-#   * `security-scan-secrets` uses a shallow checkout, and on a pull_request
-#     GitHub checks out an ephemeral `refs/pull/N/merge` commit. The same
-#     finding is therefore reported under a DIFFERENT, per-run synthetic SHA
-#     ("1 commits scanned"), which no committed fingerprint can ever match.
+#   * The scan runs in the `security` matrix leg `secrets`, with
+#     `fetch-depth: 0`, so it scans FULL history and a finding is reported under
+#     its ORIGINAL commit SHA.
+#   * On a pull_request, GitHub checks out an ephemeral `refs/pull/N/merge`
+#     commit. Any shallow scan therefore reports the same finding under a
+#     DIFFERENT, per-run synthetic SHA ("1 commits scanned"), which no committed
+#     fingerprint can ever match.
 #
-# Commit-pinned entries silently covered only the first case and let the same
-# findings fail the second job. Global fingerprints match in both.
+# This used to describe TWO scan contexts, `fast-checks` and
+# `security-scan-secrets`. Neither job exists: single-owner consolidation merged
+# them into the one `security` matrix leg above, which is why there is a single
+# `security[secrets]` signal. The fingerprint-format constraint is unchanged —
+# commit-pinned entries are still wrong, because the ephemeral merge-commit SHA
+# makes them unmatchable on the pull-request path. Global fingerprints work in
+# both cases.
 #
 # To regenerate: run the scan, take each `Fingerprint:` line, and DROP the
 # leading `<commit>:` segment.
@@ -39,7 +45,7 @@
 #   - generic-api-key on infra/terraform/velocityai-alb/README.md:14 — false
 #     positive. Matches the prose "Secrets: none created or read by this
 #     layer." The internal-ALB layer has since been DELETED, but this entry
-#     MUST STAY: `fast-checks` scans full history (fetch-depth: 0), so the
+#     MUST STAY: the `security` matrix leg `secrets` scans full history (fetch-depth: 0), so the
 #     finding is still reported from the commits that predate the removal.
 #     Same reason the two entries below survive their deleted files.
 #   - generic-api-key on infra/terraform/foundation/README.md:13 — false
@@ -58,7 +64,39 @@
 #
 # Rotate-then-allowlist, never allowlist-first: both real (non-false-positive)
 # findings above were independently confirmed dead before being listed here.
+#
+# --- Batch triaged from run 35964176737 (4 findings, all reported from commit
+# --- 9efb704d, the "Temp/merge (#10)" squash onto dev). Three were false
+# --- positives and are NOT listed here: they were suppressed structurally in
+# --- ci/gitleaks.toml instead, per the line-drift warning above. Scanning
+# --- locally with those three line-pinned proved the warning empirically — the
+# --- SAME logical false positives came straight back from OTHER commits at
+# --- different line numbers (model_factory.py at 458 rather than 497,
+# --- test_pages_outside_routes.py at 29 rather than 31), plus two more
+# --- occurrences of an identical doc string in two separate card trees. A
+# --- full-history scan reports a finding once per commit that touches the blob,
+# --- so a `file:rule:line` pin can only ever suppress ONE of those commits.
+# --- See ci/gitleaks.toml for the regex and path entries that replaced them.
+#
+#   - jwt on evidence/qa-ps-049/02-validate-attempt1-artifacts-call1.txt:11 —
+#     REAL. A signed session JWT captured verbatim into a QA evidence dump as
+#     part of a recorded `authorization: Bearer` request header, against
+#     http://localhost:3000/. Confirmed DEAD before being listed here, per the
+#     rule above: the decoded `exp` claim is 2026-09-23T16:10:19Z against an
+#     `iat` of 2026-09-22T16:10:19Z — a 24-hour token that expired before this
+#     scan ran. The live file has also been redacted to
+#     `<REDACTED-EXPIRED-SESSION-JWT>`, so the value is gone going forward; this
+#     entry is required only because the secrets leg scans FULL history
+#     (fetch-depth: 0) and the finding is still reported from commit 9efb704d.
+#     (Value deliberately not quoted here — naming it would re-trigger this very
+#     rule on this very file, exactly as the aws-access-token note above warns.)
+#
+#     PROCESS NOTE, not a suppression: the underlying defect is that QA evidence
+#     capture writes request headers verbatim. Redacting one file does not stop
+#     the next capture from committing a live token. Sanitising `authorization`
+#     at capture time is the actual fix and is not done here.
 infra/terraform/velocityai-alb/README.md:generic-api-key:14
 infra/terraform/foundation/README.md:generic-api-key:13
 backend/evals/minimal/OPUS-AUTOMATIC/FINDINGS.md:aws-access-token:167
 .vscode/settings.json:jwt:5
+evidence/qa-ps-049/02-validate-attempt1-artifacts-call1.txt:jwt:11

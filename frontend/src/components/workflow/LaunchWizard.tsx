@@ -277,7 +277,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     useSpeechRecognition();
 
   const [chainFrom, setChainFrom] = useState<string | null>(null);
-  const [chainContextBlock, setChainContextBlock] = useState<string | null>(null);
+  const [chainContextBlock] = useState<string | null>(null);
   // SGV2 11.7: published status of the chain source run when it is non-success
   // (e.g. "failed", "cancelled", "degraded"). Null means completed / no source.
   const [chainSourceStatus, setChainSourceStatus] = useState<string | null>(null);

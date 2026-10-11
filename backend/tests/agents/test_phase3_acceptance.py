@@ -33,6 +33,7 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _uuid4() -> str:
     return str(uuid.uuid4())
 
@@ -82,6 +83,7 @@ def _make_run_row(
 #    Requirement 1 AC2, Requirement 43 AC1
 # ===========================================================================
 
+
 class TestSandboxIdentity:
     """A revision sandbox is keyed on the chain root, not on its own run_id.
 
@@ -103,13 +105,11 @@ class TestSandboxIdentity:
         sb_a = RunSandbox("user-1", root_id, runs_root=str(tmp_path))
         sb_b = RunSandbox("user-1", root_id, runs_root=str(tmp_path))
 
-        assert sb_a.root == sb_b.root, (
-            "Two RunSandbox instances keyed on the same run_id must share one directory"
-        )
+        assert (
+            sb_a.root == sb_b.root
+        ), "Two RunSandbox instances keyed on the same run_id must share one directory"
 
-    def test_revision_sandbox_key_equals_parent_root_key(
-        self, tmp_path: Path
-    ) -> None:
+    def test_revision_sandbox_key_equals_parent_root_key(self, tmp_path: Path) -> None:
         """A revision sandbox keyed on the chain root == the parent's own sandbox.
 
         Simulates what engine._execute_impl does: it resolves a chain root of
@@ -119,7 +119,6 @@ class TestSandboxIdentity:
         from app.agents.sandbox import RunSandbox
 
         parent_run_id = _uuid4()
-        revision_run_id = _uuid4()
 
         # Parent sandbox (keyed on itself — it IS the root)
         parent_sb = RunSandbox("user-1", parent_run_id, runs_root=str(tmp_path))
@@ -133,13 +132,13 @@ class TestSandboxIdentity:
         revision_sb = RunSandbox("user-1", parent_run_id, runs_root=str(tmp_path))
 
         # Both must address the same directory
-        assert revision_sb.root == parent_sb.root, (
-            "Revision sandbox must address the same root directory as its parent"
-        )
+        assert (
+            revision_sb.root == parent_sb.root
+        ), "Revision sandbox must address the same root directory as its parent"
         # The parent's file is visible from the revision sandbox
-        assert (revision_sb.root / "prototype.html").exists(), (
-            "prototype.html written by the parent must be visible in the revision sandbox"
-        )
+        assert (
+            revision_sb.root / "prototype.html"
+        ).exists(), "prototype.html written by the parent must be visible in the revision sandbox"
 
     def test_files_written_by_parent_are_visible_in_revision(
         self, tmp_path: Path
@@ -166,9 +165,9 @@ class TestSandboxIdentity:
         revision_sb = RunSandbox("user-1", root_id, runs_root=str(tmp_path))
 
         assert (revision_sb.root / "spec.md").exists(), "spec.md must be present"
-        assert (revision_sb.root / "prototype.html").exists(), (
-            "prototype.html must be present without copying"
-        )
+        assert (
+            revision_sb.root / "prototype.html"
+        ).exists(), "prototype.html must be present without copying"
         assert (revision_sb.root / "tasks.md").exists(), "tasks.md must be present"
 
     def test_run_files_list_sandbox_addresses_chain_root(self, tmp_path: Path) -> None:
@@ -180,7 +179,6 @@ class TestSandboxIdentity:
         from app.agents.sandbox import RunSandbox
 
         parent_id = _uuid4()
-        revision_id = _uuid4()
 
         # Provision the shared sandbox under the parent key
         parent_sb = RunSandbox("user-1", parent_id, runs_root=str(tmp_path))
@@ -215,6 +213,7 @@ class TestSandboxIdentity:
 #    Requirement 2 AC1, AC2, AC3
 # ===========================================================================
 
+
 class TestTTLSweepChainProtection:
     """sweep_expired must protect the shared directory when ANY run in the family is live.
 
@@ -241,6 +240,7 @@ class TestTTLSweepChainProtection:
         # Set mtime far in the past
         past = time.time() - (48 * 3600 + 1)  # 48 h + 1 s ago
         import os
+
         os.utime(run_dir, (past, past))
 
         count = sweep_expired(ttl_hours=24, runs_root=str(tmp_path))
@@ -265,6 +265,7 @@ class TestTTLSweepChainProtection:
         # Set mtime far in the past (parent is long terminal)
         past = time.time() - (72 * 3600 + 1)  # 72 h ago
         import os
+
         os.utime(run_dir, (past, past))
 
         # The revision is still live — its chain root is in the protected set.
@@ -296,6 +297,7 @@ class TestTTLSweepChainProtection:
 
         past = time.time() - 86401
         import os
+
         os.utime(run_dir, (past, past))
 
         # Passing the exact seg protects it
@@ -335,6 +337,7 @@ class TestTTLSweepChainProtection:
 
         past = time.time() - 86401
         import os
+
         for seg in (family_a_root, family_b_root):
             d = tmp_path / "user-1" / seg
             os.utime(d, (past, past))
@@ -348,12 +351,12 @@ class TestTTLSweepChainProtection:
         )
 
         assert count == 1, "Only the unprotected family-B directory must be swept"
-        assert (tmp_path / "user-1" / family_a_root).exists(), (
-            "Protected family-A directory must survive"
-        )
-        assert not (tmp_path / "user-1" / family_b_root).exists(), (
-            "Unprotected expired family-B directory must be swept"
-        )
+        assert (
+            tmp_path / "user-1" / family_a_root
+        ).exists(), "Protected family-A directory must survive"
+        assert not (
+            tmp_path / "user-1" / family_b_root
+        ).exists(), "Unprotected expired family-B directory must be swept"
 
     def test_parent_terminal_child_live_protected(self, tmp_path: Path) -> None:
         """Parent terminal + child live → shared directory NOT swept.
@@ -373,6 +376,7 @@ class TestTTLSweepChainProtection:
         # Parent completed 3 days ago
         past = time.time() - (3 * 24 * 3600 + 1)
         import os
+
         os.utime(shared_dir, (past, past))
 
         # Child revision is still running — main.py includes the chain root
@@ -395,6 +399,7 @@ class TestTTLSweepChainProtection:
 # 3. Concurrency guard — second create_revision against active parent is rejected
 #    Requirement 3 AC1, AC2
 # ===========================================================================
+
 
 class TestRevisionConcurrencyGuard:
     """_has_active_chain_revision returns True when a non-terminal revision exists.
@@ -595,17 +600,21 @@ class TestRevisionConcurrencyGuard:
 
             with pytest.raises(HTTPException) as exc_info:
                 from app.api.run_commands import _mint_revision_row
+
                 _mint_revision_row(
                     db,
                     user=user,
+                    # The caller's EFFECTIVE tier (Cognito-only auth migration,
+                    # Decision 3) — the same tier this user carries.
+                    caller_tier="pro",
                     parent_run_id=_uuid4(),
                     target_artifact_type="prototype_output",
                     instruction="improve the design",
                 )
 
-        assert exc_info.value.status_code == 409, (
-            "A concurrent revision must be rejected with HTTP 409 (Requirement 3 AC1)"
-        )
+        assert (
+            exc_info.value.status_code == 409
+        ), "A concurrent revision must be rejected with HTTP 409 (Requirement 3 AC1)"
         assert "already in progress" in str(exc_info.value.detail).lower(), (
             "The 409 response must carry the documented message "
             "'a revision is already in progress'"
@@ -625,13 +634,13 @@ class TestRevisionConcurrencyGuard:
 
         # get_pipeline_agents is imported inside _mint_revision_row from agents.registry.
         # can_run_pipeline is a top-level import from app.core.entitlements.
-        with patch(
-            "app.api.run_commands._has_active_chain_revision",
-            side_effect=call_results,
-        ), patch(
-            "agents.registry.get_pipeline_agents", return_value=["agent1"]
-        ), patch(
-            "app.core.entitlements.can_run_pipeline", return_value=(True, "ok")
+        with (
+            patch(
+                "app.api.run_commands._has_active_chain_revision",
+                side_effect=call_results,
+            ),
+            patch("agents.registry.get_pipeline_agents", return_value=["agent1"]),
+            patch("app.core.entitlements.can_run_pipeline", return_value=(True, "ok")),
         ):
             db = MagicMock()
             # Same .first() stub backs both resolve_revision_root's (id,
@@ -650,6 +659,9 @@ class TestRevisionConcurrencyGuard:
             _mint_revision_row(
                 db,
                 user=user,
+                # The caller's EFFECTIVE tier (Cognito-only auth migration,
+                # Decision 3) — the same tier this user carries.
+                caller_tier="pro",
                 parent_run_id=_uuid4(),
                 target_artifact_type="prototype_output",
                 instruction="first revision",
@@ -660,6 +672,7 @@ class TestRevisionConcurrencyGuard:
                 _mint_revision_row(
                     db,
                     user=user,
+                    caller_tier="pro",
                     parent_run_id=_uuid4(),
                     target_artifact_type="prototype_output",
                     instruction="second revision — concurrent",
@@ -671,6 +684,7 @@ class TestRevisionConcurrencyGuard:
 # ===========================================================================
 # 4. Per-run path scoping — Requirement 24
 # ===========================================================================
+
 
 class TestPerRunPathScoping:
     """run_log_path, verify_dir, and browser_dir use run_id not a flat name.
@@ -687,12 +701,12 @@ class TestPerRunPathScoping:
         run_id = "my-test-run-" + _uuid4()[:8]
         sb = RunSandbox("user-1", run_id, runs_root=str(tmp_path))
 
-        assert sb.run_log_path == sb.root / ".logs" / f"{run_id}.jsonl", (
-            "run_log_path must be .logs/{run_id}.jsonl (Requirement 24 AC1)"
-        )
-        assert "run-logs.jsonl" not in str(sb.run_log_path), (
-            "The old flat .logs/run-logs.jsonl must never be used"
-        )
+        assert (
+            sb.run_log_path == sb.root / ".logs" / f"{run_id}.jsonl"
+        ), "run_log_path must be .logs/{run_id}.jsonl (Requirement 24 AC1)"
+        assert "run-logs.jsonl" not in str(
+            sb.run_log_path
+        ), "The old flat .logs/run-logs.jsonl must never be used"
 
     def test_verify_dir_uses_run_id(self, tmp_path: Path) -> None:
         """verify_dir returns .verify/{run_id}/ — not a flat .verify/."""
@@ -701,9 +715,9 @@ class TestPerRunPathScoping:
         run_id = "verify-test-" + _uuid4()[:8]
         sb = RunSandbox("user-1", run_id, runs_root=str(tmp_path))
 
-        assert sb.verify_dir == sb.root / ".verify" / run_id, (
-            "verify_dir must be .verify/{run_id}/ (Requirement 24 AC2)"
-        )
+        assert (
+            sb.verify_dir == sb.root / ".verify" / run_id
+        ), "verify_dir must be .verify/{run_id}/ (Requirement 24 AC2)"
 
     def test_browser_dir_uses_run_id(self, tmp_path: Path) -> None:
         """browser_dir returns .browser/{run_id}/ — not a flat .browser/."""
@@ -712,9 +726,9 @@ class TestPerRunPathScoping:
         run_id = "browser-test-" + _uuid4()[:8]
         sb = RunSandbox("user-1", run_id, runs_root=str(tmp_path))
 
-        assert sb.browser_dir == sb.root / ".browser" / run_id, (
-            "browser_dir must be .browser/{run_id}/ (Requirement 24 AC3)"
-        )
+        assert (
+            sb.browser_dir == sb.root / ".browser" / run_id
+        ), "browser_dir must be .browser/{run_id}/ (Requirement 24 AC3)"
 
     def test_two_revisions_use_different_log_paths(self, tmp_path: Path) -> None:
         """Two revisions sharing one sandbox have separate log paths.
@@ -728,26 +742,28 @@ class TestPerRunPathScoping:
         rev_a_id = "rev-a-" + _uuid4()[:8]
         rev_b_id = "rev-b-" + _uuid4()[:8]
 
-        # Both sandboxes point at the same chain-root directory
-        sb_a = RunSandbox("user-1", chain_root, runs_root=str(tmp_path))
-        sb_b = RunSandbox("user-1", chain_root, runs_root=str(tmp_path))
-        # (In production, the engine assigns run_id differently from the root key.
-        #  Here we simulate separate log paths by constructing separate RunSandboxes
-        #  with distinct run_ids that happen to be inside the same root.)
+        # Both revisions are keyed on the same chain root (one shared directory)
+        # and carry their own logical run id — the same construction the engine
+        # uses (sandbox_root_id=chain root, current_run_id=the revision's run id).
+        sb_rev_a = RunSandbox(
+            "user-1", chain_root, current_run_id=rev_a_id, runs_root=str(tmp_path)
+        )
+        sb_rev_b = RunSandbox(
+            "user-1", chain_root, current_run_id=rev_b_id, runs_root=str(tmp_path)
+        )
 
-        # Use separate sandbox instances for each revision's log path
-        sb_rev_a = RunSandbox("user-1", rev_a_id, runs_root=str(tmp_path))
-        sb_rev_b = RunSandbox("user-1", rev_b_id, runs_root=str(tmp_path))
-
-        assert sb_rev_a.run_log_path != sb_rev_b.run_log_path, (
-            "Two revisions must write to different log files (Requirement 24 AC1)"
-        )
-        assert sb_rev_a.verify_dir != sb_rev_b.verify_dir, (
-            "Two revisions must use different validator evidence directories"
-        )
-        assert sb_rev_a.browser_dir != sb_rev_b.browser_dir, (
-            "Two revisions must use different browser artifact directories"
-        )
+        assert (
+            sb_rev_a.root == sb_rev_b.root
+        ), "Both revisions must share the chain-root sandbox directory"
+        assert (
+            sb_rev_a.run_log_path != sb_rev_b.run_log_path
+        ), "Two revisions must write to different log files (Requirement 24 AC1)"
+        assert (
+            sb_rev_a.verify_dir != sb_rev_b.verify_dir
+        ), "Two revisions must use different validator evidence directories"
+        assert (
+            sb_rev_a.browser_dir != sb_rev_b.browser_dir
+        ), "Two revisions must use different browser artifact directories"
 
     def test_log_path_parent_dir_is_logs(self, tmp_path: Path) -> None:
         """The run log file lives under .logs/ (not at the sandbox root)."""
@@ -756,12 +772,12 @@ class TestPerRunPathScoping:
         run_id = _uuid4()
         sb = RunSandbox("user-1", run_id, runs_root=str(tmp_path))
 
-        assert sb.run_log_path.parent.name == ".logs", (
-            "run_log_path must be inside the .logs/ subdirectory"
-        )
-        assert sb.run_log_path.suffix == ".jsonl", (
-            "run_log_path must use .jsonl extension"
-        )
+        assert (
+            sb.run_log_path.parent.name == ".logs"
+        ), "run_log_path must be inside the .logs/ subdirectory"
+        assert (
+            sb.run_log_path.suffix == ".jsonl"
+        ), "run_log_path must use .jsonl extension"
 
 
 # ===========================================================================
@@ -769,6 +785,7 @@ class TestPerRunPathScoping:
 #    Design doc: "Three revision characterization goldens need deliberate re-baselining
 #    once the sandbox holds accumulated files — expected and blessed."
 # ===========================================================================
+
 
 class TestCharacterizationRebaselineDocumentation:
     """Documents which characterization goldens must be re-baselined and why.
@@ -882,6 +899,7 @@ class TestCharacterizationRebaselineDocumentation:
 #    Requirement 1 AC3
 # ===========================================================================
 
+
 class TestRevisionOverwritesInPlace:
     """End-to-end sandbox write pattern: parent writes a file; revision overwrites it.
 
@@ -918,9 +936,9 @@ class TestRevisionOverwritesInPlace:
 
         # Read back — must show v2, not v1
         content = (parent_sb.root / "prototype.html").read_text(encoding="utf-8")
-        assert "v2 - revised" in content, (
-            "After revision, prototype.html must contain the revision's content"
-        )
+        assert (
+            "v2 - revised" in content
+        ), "After revision, prototype.html must contain the revision's content"
         assert "v1" not in content, (
             "The parent's stale v1 content must be overwritten — "
             "this is tracked in git history under the prior commit"

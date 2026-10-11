@@ -31,12 +31,16 @@ def test_write_valid_json_succeeds(backend, tmp_path):
     assert result.error is None
     assert result.path == "/data.json"
     assert (tmp_path / "data.json").exists()
-    assert json.loads((tmp_path / "data.json").read_text()) == {"tasks": [{"id": "t1", "title": "Task 1"}]}
+    assert json.loads((tmp_path / "data.json").read_text()) == {
+        "tasks": [{"id": "t1", "title": "Task 1"}]
+    }
 
 
 def test_write_invalid_json_fails_and_file_not_created(backend, tmp_path):
     """Write invalid JSON returns error and does not create the file."""
-    invalid_content = '{"tasks": [{"id": "t1", "title": "Task 1"}'  # Missing closing brackets
+    invalid_content = (
+        '{"tasks": [{"id": "t1", "title": "Task 1"}'  # Missing closing brackets
+    )
 
     result = backend.write("/build/tasks.json", invalid_content)
 
@@ -71,7 +75,7 @@ def test_edit_that_corrupts_json_is_rejected_and_rolled_back(backend, tmp_path):
     (tmp_path / "state.json").write_text(initial)
 
     # Try to edit in a way that breaks JSON (remove a closing brace from the outer object)
-    result = backend.edit("/state.json", '}}', '}')
+    result = backend.edit("/state.json", "}}", "}")
 
     assert result.error is not None
     assert "would not be valid JSON after this edit" in result.error

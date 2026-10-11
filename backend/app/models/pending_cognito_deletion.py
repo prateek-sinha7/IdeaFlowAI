@@ -39,6 +39,4 @@ class PendingCognitoDeletion(Base):
         nullable=False,
     )
 
-    __table_args__ = (
-        Index("ix_pending_cognito_deletions_cognito_sub", "cognito_sub"),
-    )
+    __table_args__ = (Index("ix_pending_cognito_deletions_cognito_sub", "cognito_sub"),)

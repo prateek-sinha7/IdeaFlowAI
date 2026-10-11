@@ -18,6 +18,7 @@ import pytest
 import json
 import re
 import yaml
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Tuple
 from dataclasses import fields
@@ -607,6 +608,27 @@ class TestPinDriftDetection:
             set(scanners.keys()) == required_scanners
         ), f"Must have all scanners: {required_scanners}"
 
+    def test_postgres_service_image_matches_ci_when_backend_postgres_runs(self):
+        """postgres_service_image must equal the image ci.yml and the lock use."""
+        recorded = get_authority().postgres_service_image
+        workflow = yaml.safe_load(_read(".github/workflows/ci.yml"))
+        ci_images = {
+            job["services"]["postgres"]["image"]
+            for job in workflow["jobs"].values()
+            if "postgres" in (job.get("services") or {})
+        }
+        assert ci_images == {recorded}, (
+            f"pin drift: pin_authority.postgres_service_image={recorded!r} but "
+            f"ci.yml services.postgres.image is {sorted(ci_images)}"
+        )
+        locked = json.loads(_read("ci/toolchain-lock.json"))["runtime_pins"][
+            "postgresql"
+        ]["image"]
+        assert locked == recorded, (
+            f"pin drift: pin_authority.postgres_service_image={recorded!r} but "
+            f"ci/toolchain-lock.json records {locked!r}"
+        )
+
     # ---- Python tools installed from backend/requirements-dev.txt ----------
 
     @pytest.mark.parametrize(
@@ -722,6 +744,7 @@ class TestPinDriftDetection:
         [
             ("actionlint", "actionlint_version"),
             ("gitleaks", "gitleaks_version"),
+            ("shellcheck", "shellcheck_version"),
         ],
     )
     def test_checksummed_tool_matches_ci_workflow(self, tool, authority_field):
@@ -822,19 +845,21 @@ class TestPinDriftDetection:
             recorded
         ), f"pin_authority.checkov_version={recorded!r} must be an exact version"
 
-    def test_trivy_matches_all_three_workflows(self):
+    def test_trivy_matches_both_workflows(self):
         """
-        trivy's version lives in workflow-level `env:` in THREE files, because
-        `env:` cannot be shared across workflow files. All three copies plus the
-        pin authority must agree — this is the check that catches a two-of-three
-        bump, which the duplication makes easy to do.
+        trivy's version lives in workflow-level `env:` in TWO files, because
+        `env:` cannot be shared across workflow files. Both copies plus the pin
+        authority must agree — this is the check that catches a one-of-two bump,
+        which the duplication makes easy to do.
+
+        There were three copies until `.github/workflows/_docker.yml` was
+        deleted; it had no caller.
         """
         sites = {
             path: _workflow_env_version(_read(path), "TRIVY_VERSION")
             for path in (
                 ".github/workflows/ci.yml",
                 ".github/workflows/deploy.yml",
-                ".github/workflows/_docker.yml",
             )
         }
         for path, versions in sites.items():
@@ -848,17 +873,94 @@ class TestPinDriftDetection:
             + ", ".join(f"{p}={sorted(set(v))}" for p, v in sites.items())
         )
 
-    def test_grype_matches_docker_workflow(self):
-        """grype's version lives in _docker.yml's workflow-level env."""
-        installed = _workflow_env_version(
-            _read(".github/workflows/_docker.yml"), "GRYPE_VERSION"
+    def test_bare_version_vars_match_their_v_prefixed_counterparts(self):
+        """
+        Every `<TOOL>_VERSION_BARE` must equal `<TOOL>_VERSION` without the `v`.
+
+        These release URLs are not self-consistent: the GitHub release TAG carries
+        a leading `v` while the archive FILENAME inside it does not. ci.yml
+        therefore declares both forms. Before it did, the filenames were literals
+        (`actionlint_1.7.12_linux_amd64.tar.gz`), so bumping the version variable
+        alone produced a URL pointing at the new tag's directory with the old
+        filename — a 404 whose error names the download, not the drift.
+
+        This is the check that keeps the pair honest.
+        """
+        content = _read(".github/workflows/ci.yml")
+        bare_vars = re.findall(
+            r"^\s*([A-Z0-9_]+)_VERSION_BARE:\s*[\"']([^\"']+)[\"']",
+            content,
+            flags=re.MULTILINE,
         )
-        assert installed, "No GRYPE_VERSION in .github/workflows/_docker.yml"
+        assert bare_vars, "ci.yml declares no *_VERSION_BARE variables"
+
+        for tool, bare in bare_vars:
+            # Not _workflow_env_version(): its regex requires the value to start
+            # with a digit, and the whole point here is that the paired variable
+            # may carry a leading `v`.
+            prefixed = re.findall(
+                rf"^\s*{re.escape(tool)}_VERSION:\s*[\"\']([^\"\']+)[\"\']",
+                content,
+                flags=re.MULTILINE,
+            )
+            assert prefixed, f"{tool}_VERSION_BARE exists but {tool}_VERSION does not"
+            assert len(set(prefixed)) == 1, (
+                f"{tool}_VERSION is declared more than once with different values: "
+                f"{sorted(set(prefixed))}"
+            )
+            expected = prefixed[0].lstrip("v")
+            assert bare == expected, (
+                f"pin drift: ci.yml has {tool}_VERSION={prefixed[0]!r} but "
+                f"{tool}_VERSION_BARE={bare!r} (expected {expected!r}). The bare "
+                f"form is substituted into the release archive filename, so a "
+                f"mismatch is a 404 at install time."
+            )
+
+    def test_no_tool_version_literal_remains_in_a_download_url(self):
+        """
+        No install URL may embed a version literal.
+
+        A literal in the URL means the version variable is not actually the single
+        declaration site: the drift tests above would pass while the workflow
+        downloaded a different version (or 404'd). Anything that looks like a
+        dotted version inside a releases/download URL must come from an
+        expression.
+        """
+        content = _read(".github/workflows/ci.yml")
+        offenders = []
+        for line in content.splitlines():
+            if "releases/download/" not in line:
+                continue
+            # Strip every ${{ ... }} expression, then look for what is left.
+            without_expressions = re.sub(r"\$\{\{[^}]*\}\}", "", line)
+            if re.search(r"\d+\.\d+\.\d+", without_expressions):
+                offenders.append(line.strip())
+        assert offenders == [], (
+            "download URLs in ci.yml still embed a version literal outside an "
+            "expression; use the *_VERSION / *_VERSION_BARE env vars:\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_grype_matches_ci_workflow(self):
+        """
+        grype's version lives in ci.yml's workflow-level env.
+
+        It used to be read from `_docker.yml`, which declared its own copy AND
+        installed grype by unverified `curl` with no checksum — a P7 violation
+        that survived only because nothing called that workflow. ci.yml is now
+        the single declaration site, and it installs grype through
+        ./.github/actions/install-checksummed-tool.
+        """
         recorded = get_authority().grype_version
-        assert set(installed) == {recorded}, (
-            f"pin drift: pin_authority.grype_version={recorded!r} but "
-            f"_docker.yml declares GRYPE_VERSION {sorted(set(installed))}"
-        )
+        # deploy.yml now installs grype too, for the post-push digest scan, so
+        # both declaration sites must match the authority.
+        for path in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
+            installed = _workflow_env_version(_read(path), "GRYPE_VERSION")
+            assert installed, f"No GRYPE_VERSION in {path}"
+            assert set(installed) == {recorded}, (
+                f"pin drift: pin_authority.grype_version={recorded!r} but "
+                f"{path} declares GRYPE_VERSION {sorted(set(installed))}"
+            )
 
     # ---- Python runtime: the version CI installs vs the version declared ---
 
@@ -898,24 +1000,554 @@ class TestPinDriftDetection:
             f"pin_authority.python_requires_minimum implies {expected!r}"
         )
 
-    def test_sonar_python_version_matches_pin_authority(self):
-        """
-        sonar-project.properties must analyse the same Python the project pins.
 
-        This said 3.12 against a 3.13 codebase, which silently mis-analyses:
-        3.13-only syntax is reported as an issue and 3.13 deprecations are missed.
-        """
-        properties = _read("sonar-project.properties")
-        found = re.findall(
-            r"^sonar\.python\.version=(.+)$", properties, flags=re.MULTILINE
+class TestToolchainLockAttestation:
+    """
+    Every checksummed download must be attested against its publisher (F-31).
+
+    `ci/toolchain-lock.json` carried `"verified": false` on all four entries plus
+    a note saying the hashes "were inherited and have NOT been re-verified". That
+    was honest, and it mattered: on verification, GRYPE'S HASH WAS WRONG. The file
+    recorded de8f5eb8...b5b89 while anchore publishes 2a087c9c...e3aec for
+    grype_0.75.0_linux_amd64.tar.gz.
+
+    The consequence was not a subtle weakening. `install-checksummed-tool` runs
+    `sha256sum -c`, so the "Install Grype" step failed outright, which failed BOTH
+    `container-scan` matrix legs before either scanner ran — leaving all four
+    container-scan[*] signals with no verdict and the aggregate unable to go
+    green. An unverified checksum is not a documentation gap; it is a broken job
+    waiting to be noticed.
+
+    These tests make "unverified" un-shippable, so the next version bump has to
+    repeat the verification rather than inherit another unchecked value.
+    """
+
+    @staticmethod
+    def _lock() -> dict:
+        """Parse ci/toolchain-lock.json."""
+        return json.loads(_read("ci/toolchain-lock.json"))
+
+    def test_every_checksummed_download_is_verified(self):
+        """No entry may ship with `verified: false` or no `verified` key at all."""
+        unverified = sorted(
+            name
+            for name, entry in self._lock()["checksummed_download"].items()
+            if entry.get("verified") is not True
         )
-        assert found, "sonar.python.version not declared in sonar-project.properties"
-        recorded = get_authority().sonar_python_version
-        assert set(found) == {recorded}, (
-            f"pin drift: sonar-project.properties sets sonar.python.version="
-            f"{sorted(set(found))} but pin_authority.sonar_python_version is {recorded!r}"
+        assert not unverified, (
+            f"these tools have unattested checksums: {unverified}. Fetch the "
+            f"release's own checksums file, match the exact archive filename in "
+            f"`url`, then set verified:true. Do not inherit a hash — grype's was "
+            f"wrong and silently failed every container scan."
+        )
+
+    def test_verification_date_is_recorded(self):
+        """
+        A verification with no date cannot be audited or aged.
+
+        Checked as a parseable ISO date rather than merely present, so
+        "soon"/"TBD" does not satisfy it.
+        """
+        lock = self._lock()
+        assert "verified_on" in lock, "ci/toolchain-lock.json must record verified_on"
+        date.fromisoformat(str(lock["verified_on"]))
+
+    @pytest.mark.parametrize(
+        "tool", ["actionlint", "gitleaks", "trivy", "grype", "shellcheck"]
+    )
+    def test_checksum_is_a_real_sha256(self, tool):
+        """
+        64 lowercase hex characters, nothing else.
+
+        Schema v1 of this file held a 60-character value containing non-hex
+        letters for tflint, which could never have matched any artifact. This is
+        the cheap shape check that would have caught it.
+        """
+        digest = self._lock()["checksummed_download"][tool]["sha256"]
+        assert re.fullmatch(
+            r"[0-9a-f]{64}", digest
+        ), f"{tool} sha256 is not 64 lowercase hex characters: {digest!r}"
+
+    @pytest.mark.parametrize(
+        ("tool", "url_filename"),
+        [
+            ("actionlint", "actionlint_1.7.12_linux_amd64.tar.gz"),
+            ("gitleaks", "gitleaks_8.30.1_linux_x64.tar.gz"),
+            ("trivy", "trivy_0.69.3_Linux-64bit.tar.gz"),
+            ("grype", "grype_0.119.0_linux_amd64.tar.gz"),
+            ("shellcheck", "shellcheck-v0.11.0.linux.x86_64.tar.gz"),
+        ],
+    )
+    def test_url_points_at_the_archive_the_checksum_describes(self, tool, url_filename):
+        """
+        The `url` must end in the filename whose hash was verified.
+
+        A checksum is only meaningful paired with an exact artifact. ci.yml builds
+        these URLs from two separate variables (`v`-prefixed tag, bare version in
+        the filename), and getting the pair wrong produces a 404 rather than a
+        checksum mismatch — an error that names the download instead of the drift.
+        """
+        entry = self._lock()["checksummed_download"][tool]
+        assert entry["url"].endswith(url_filename), (
+            f"{tool} url {entry['url']!r} does not end in {url_filename!r}, so the "
+            f"recorded sha256 does not describe what would be downloaded"
+        )
+
+    def test_grype_checksum_is_the_published_value(self):
+        """
+        Pin the specific value that was wrong, so the regression cannot recur.
+
+        Named explicitly rather than derived: this is the one hash in the file
+        that was demonstrably incorrect, and a future careless edit that restores
+        it should fail with a message that says exactly that.
+        """
+        # F-37: grype moved 0.75.0 -> 0.119.0 because 0.75.0's schema-v5
+        # vulnerability DB is no longer rebuilt upstream. `published` is the
+        # value in grype_0.119.0_checksums.txt (and the release-asset digest).
+        published = "3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b"
+        known_bad = "de8f5eb8e2b3bfe65e906945e5a80a5db92aa8c76fc2e7aba3c95a0b4e3b5b89"
+
+        recorded = self._lock()["checksummed_download"]["grype"]["sha256"]
+        assert recorded != known_bad, (
+            "grype's sha256 has been reverted to the known-bad value "
+            f"{known_bad}. anchore publishes {published} for "
+            "grype_0.119.0_linux_amd64.tar.gz; a bad value fails `sha256sum -c` "
+            "and takes both container-scan legs down with it."
+        )
+        assert (
+            recorded == published
+        ), f"grype sha256 is {recorded}, expected the published {published}"
+
+        # ci.yml and deploy.yml (post-push scan) each carry their own copy
+        # (workflow `env:` cannot read a file), so all must agree or the lock
+        # file documents something a workflow does not do.
+        for path in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
+            assert f'GRYPE_SHA256: "{published}"' in _read(
+                path
+            ), f"{path}'s GRYPE_SHA256 does not match the verified published value"
+
+
+# ============================================================================
+# Node runtime and pinned-action authority (F-07, F-08)
+# ============================================================================
+
+# Every ci/toolchain-lock.json `pinned_action` key -> the pin_authority field it
+# records. ci.yml passes the version to the action through an input with the
+# same name as the field (`tflint_version:`, `terraform_version:`). A new
+# pinned_action entry that is not mapped here fails its own parametrized case.
+_PINNED_ACTION_AUTHORITY = {
+    "tflint": "tflint_version",
+    "terraform": "terraform_version",
+}
+
+
+def _pinned_action_keys() -> List[str]:
+    """Return every `pinned_action` key in ci/toolchain-lock.json, sorted."""
+    return sorted(json.loads(_read("ci/toolchain-lock.json"))["pinned_action"])
+
+
+def _setup_node_step() -> dict:
+    """Return the actions/setup-node step of the setup-frontend composite."""
+    action = yaml.safe_load(_read(".github/actions/setup-frontend/action.yml"))
+    steps = [
+        step
+        for step in action["runs"]["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-node@")
+    ]
+    assert len(steps) == 1, (
+        f"setup-frontend must install Node with exactly one actions/setup-node "
+        f"step, found {len(steps)}"
+    )
+    return steps[0]
+
+
+def _ci_steps_using(action_repo: str) -> List[dict]:
+    """Return every ci.yml step whose `uses:` is `<action_repo>@<ref>`."""
+    workflow = yaml.safe_load(_read(".github/workflows/ci.yml")) or {}
+    found: List[dict] = []
+    for job in (workflow.get("jobs") or {}).values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and str(step.get("uses", "")).startswith(
+                f"{action_repo}@"
+            ):
+                found.append(step)
+    return found
+
+
+class TestNodeAndPinnedActionAuthority:
+    """
+    Node and first-party-action pins must all come from pin_authority.py.
+
+    F-07: setup-frontend declared `node-version: "24"` but the setup-node step
+    used `node-version-file: frontend/package.json`, which resolves the engines
+    range to the newest 24.x, so CI never installed the authority's exact
+    version, and frontend/Dockerfile still built on node:20. F-08: the tflint
+    version had several drifting copies and nothing asserted the
+    ci/toolchain-lock.json `pinned_action` or `runtime_pins.node` records.
+    """
+
+    def test_setup_frontend_default_matches_authority_when_node_pinned(self):
+        """The composite's `node-version` default is the exact authority version."""
+        action = yaml.safe_load(_read(".github/actions/setup-frontend/action.yml"))
+        default = str(action["inputs"]["node-version"]["default"])
+        assert default == get_node_runtime(), (
+            f"pin drift: setup-frontend defaults node-version to {default!r} but "
+            f"pin_authority.node_runtime_version is {get_node_runtime()!r}"
+        )
+
+    def test_setup_frontend_installs_input_version_when_setup_node_runs(self):
+        """setup-node installs the input, not a range resolved from package.json."""
+        with_block = _setup_node_step().get("with") or {}
+        assert "node-version-file" not in with_block, (
+            "setup-node must not use node-version-file: it resolves the "
+            "package.json engines RANGE to the newest matching release, so the "
+            "pinned node-version input is ignored"
+        )
+        assert (
+            str(with_block.get("node-version", "")).replace(" ", "")
+            == "${{inputs.node-version}}"
+        ), (
+            "setup-node must install `${{ inputs.node-version }}`, got "
+            f"{with_block.get('node-version')!r}"
+        )
+
+    def test_package_json_engines_bound_authority_when_declared(self):
+        """frontend/package.json engines.node is exactly the authority's range."""
+        auth = get_authority()
+        engines = json.loads(_read("frontend/package.json")).get("engines", {})
+        expected = f">={auth.node_engines_minimum} <{auth.node_engines_maximum}"
+        assert engines.get("node") == expected, (
+            f"pin drift: frontend/package.json engines.node="
+            f"{engines.get('node')!r} but pin_authority implies {expected!r}"
+        )
+
+    def test_frontend_dockerfile_bases_match_authority_when_built(self):
+        """All three frontend stages build on the digest-pinned authority image."""
+        auth = get_authority()
+        from_lines = re.findall(
+            r"^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$",
+            _read("frontend/Dockerfile"),
+            flags=re.MULTILINE | re.IGNORECASE,
+        )
+        stages = {stage for _, stage in from_lines}
+        assert stages == {"deps", "builder", "runner"}, (
+            f"frontend/Dockerfile stages are {sorted(stages)}, expected "
+            f"deps, builder and runner"
+        )
+
+        images = {image for image, _ in from_lines}
+        assert images == {auth.frontend_base_image}, (
+            f"pin drift: frontend/Dockerfile FROM lines use {sorted(images)} but "
+            f"pin_authority.frontend_base_image is {auth.frontend_base_image!r}"
+        )
+
+        reference, _, digest = auth.frontend_base_image.partition("@")
+        assert re.fullmatch(
+            r"sha256:[0-9a-f]{64}", digest
+        ), f"frontend_base_image must be @sha256:-pinned, got {digest!r}"
+        tag = reference.partition(":")[2]
+        assert tag == f"{auth.node_runtime_version}-bookworm-slim", (
+            f"frontend base tag {tag!r} does not name node_runtime_version "
+            f"{auth.node_runtime_version!r}"
+        )
+
+    def test_toolchain_lock_node_major_matches_authority_when_recorded(self):
+        """runtime_pins.node records the authority's Node major."""
+        lock = json.loads(_read("ci/toolchain-lock.json"))
+        recorded = str(lock["runtime_pins"]["node"]["version"])
+        expected = get_node_runtime().split(".")[0]
+        assert recorded == expected, (
+            f"pin drift: ci/toolchain-lock.json runtime_pins.node.version="
+            f"{recorded!r} but pin_authority.node_runtime_version major is "
+            f"{expected!r}"
+        )
+
+    @pytest.mark.parametrize("tool", _pinned_action_keys())
+    def test_pinned_action_entry_matches_authority_when_recorded(self, tool):
+        """Lock entry, ci.yml action SHA and ci.yml version input all agree."""
+        assert tool in _PINNED_ACTION_AUTHORITY, (
+            f"ci/toolchain-lock.json pinned_action.{tool} has no pin_authority "
+            f"field mapped in _PINNED_ACTION_AUTHORITY; add the field and map it"
+        )
+        authority_field = _PINNED_ACTION_AUTHORITY[tool]
+        recorded = getattr(get_authority(), authority_field)
+        entry = json.loads(_read("ci/toolchain-lock.json"))["pinned_action"][tool]
+
+        assert str(entry["version"]).lstrip("v") == recorded, (
+            f"pin drift: ci/toolchain-lock.json pinned_action.{tool}.version="
+            f"{entry['version']!r} but pin_authority.{authority_field}={recorded!r}"
+        )
+
+        steps = _ci_steps_using(entry["action"])
+        assert steps, f"ci.yml has no step using {entry['action']}@<sha>"
+        shas = {str(step["uses"]).partition("@")[2] for step in steps}
+        assert shas == {entry["action_sha"]}, (
+            f"ci.yml pins {entry['action']} at {sorted(shas)} but "
+            f"ci/toolchain-lock.json records action_sha {entry['action_sha']!r}"
+        )
+
+        installed = {
+            str((step.get("with") or {}).get(authority_field, "")).lstrip("v")
+            for step in steps
+        }
+        assert installed == {recorded}, (
+            f"pin drift: ci.yml passes {authority_field} {sorted(installed)} to "
+            f"{entry['action']} but pin_authority.{authority_field}={recorded!r}"
         )
 
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_setup_uv_version_matches_authority_when_setup_backend_installs_uv():
+    """setup-backend must pin uv exactly, to pin_authority.uv_version.
+
+    Without a `version:` input, astral-sh/setup-uv looked for uv.toml /
+    pyproject.toml at the repo root, found neither (the project is in backend/),
+    and installed "latest" — CI run 36718805906 logged "Falling back to latest".
+    """
+    content = _read(".github/actions/setup-backend/action.yml")
+
+    assert re.search(
+        r"astral-sh/setup-uv@[0-9a-f]{40}\b", content
+    ), "astral-sh/setup-uv must be pinned to a full 40-character commit SHA"
+    installed = re.findall(r"^\s+version:\s*\"?([0-9][^\"\s]*)\"?\s*$", content, re.M)
+    assert installed, "setup-uv must receive an explicit `version:` input"
+    assert set(installed) == {get_authority().uv_version}, (
+        f"pin drift: pin_authority.uv_version={get_authority().uv_version!r} "
+        f"but setup-backend requests uv {sorted(set(installed))}"
+    )
+
+
+def test_setup_backend_sync_is_locked_when_installing_dependencies():
+    """`uv sync` must use --locked (fails on lock/pyproject drift), not --frozen."""
+    content = _read(".github/actions/setup-backend/action.yml")
+    sync_lines = [
+        ln.strip() for ln in content.splitlines() if ln.strip().startswith("uv sync")
+    ]
+
+    assert sync_lines, "setup-backend must run `uv sync`"
+    assert all(
+        "--locked" in ln and "--frozen" not in ln for ln in sync_lines
+    ), f"every `uv sync` in setup-backend must use --locked: {sync_lines}"
+
+
+# ============================================================================
+# Runner image, ShellCheck pin and external action pin set (Phase 3: F-22, F-23)
+# ============================================================================
+
+_PIN_USES = re.compile(
+    r"^\s*(?:-\s*)?uses:\s*"
+    r"(?P<path>[A-Za-z0-9][A-Za-z0-9_.\-]*/[A-Za-z0-9_.\-/]+)"
+    r"@(?P<sha>[0-9a-f]{40})\s*#\s*(?P<version>\S+)",
+    re.MULTILINE,
+)
+
+
+def _workflow_and_composite_files() -> List[Path]:
+    """Every workflow and composite action file that may carry a `uses:` pin."""
+    root = REPO_ROOT / ".github"
+    return sorted(root.glob("workflows/*.yml")) + sorted(
+        root.glob("actions/*/action.yml")
+    )
+
+
+def _observed_action_pins() -> Dict[str, Dict[Tuple[str, str], List[str]]]:
+    """
+    Map each external action path to {(sha, version): [files that use it]}.
+
+    Raw-text regex, so the trailing `# vX.Y.Z` comment is visible. Local
+    `./.github/actions/...` references carry no `@` and never match.
+    """
+    observed: Dict[str, Dict[Tuple[str, str], List[str]]] = {}
+    for path in _workflow_and_composite_files():
+        text = path.read_text(encoding="utf-8")
+        for match in _PIN_USES.finditer(text):
+            key = (match.group("sha"), match.group("version"))
+            observed.setdefault(match.group("path"), {}).setdefault(key, []).append(
+                path.name
+            )
+    return observed
+
+
+def _diff_pin_sets(
+    observed: Dict[str, Tuple[str, str]], declared: Dict[str, Tuple[str, str]]
+) -> Dict[str, List[str]]:
+    """Added, removed and changed action pins between workflows and the lock."""
+    return {
+        "added_in_workflows": sorted(set(observed) - set(declared)),
+        "removed_from_workflows": sorted(set(declared) - set(observed)),
+        "changed": sorted(
+            name
+            for name in set(observed) & set(declared)
+            if observed[name] != declared[name]
+        ),
+    }
+
+
+class TestRunnerAndShellcheckPins:
+    """The runner label and the ShellCheck binary are pinned and recorded (F-22)."""
+
+    @staticmethod
+    def _lock() -> dict:
+        return json.loads(_read("ci/toolchain-lock.json"))
+
+    def test_runner_image_is_exact_label_when_authority_declared(self):
+        """`ubuntu-latest` floats; the authority must name an exact image."""
+        label = get_authority().runner_image
+        assert re.fullmatch(
+            r"ubuntu-\d{2}\.\d{2}", label
+        ), f"runner_image {label!r} is not an exact ubuntu-NN.NN label"
+
+    def test_toolchain_lock_runner_matches_authority_when_recorded(self):
+        """runtime_pins.runner_image records the authority's label."""
+        recorded = self._lock()["runtime_pins"]["runner_image"]["label"]
+        assert recorded == get_authority().runner_image
+
+    def test_toolchain_lock_runner_lists_preinstalled_dependencies_when_composites_rely_on_them(
+        self,
+    ):
+        """jq, the AWS CLI and gh come from the runner image; the lock says so."""
+        description = self._lock()["runtime_pins"]["runner_image"]["description"]
+        for needle in ("jq", "AWS CLI", "gh"):
+            assert needle in description, (
+                f"runner_image.description must name the preinstalled {needle!r} "
+                f"dependency so a runner bump is reviewed against it"
+            )
+
+    def test_shellcheck_lock_entry_records_method_and_date_when_no_checksums_file(
+        self,
+    ):
+        """
+        koalaman/shellcheck publishes no checksums file, so the method is recorded.
+
+        The sha256 is the GitHub release-asset digest cross-checked against a
+        locally recomputed hash. That is weaker than a publisher checksums file
+        and the entry must say so instead of claiming otherwise.
+        """
+        entry = self._lock()["checksummed_download"]["shellcheck"]
+        date.fromisoformat(str(entry["verified_on"]))
+        assert "digest" in entry["verification_source"]
+        assert "no checksums file" in entry["verification_source"]
+        assert entry["version"] == f"v{get_authority().shellcheck_version}"
+
+    def test_shellcheck_lock_matches_ci_workflow_when_pinned(self):
+        """Lock entry, ci.yml env and the install step's archive member agree."""
+        entry = self._lock()["checksummed_download"]["shellcheck"]
+        workflow = yaml.safe_load(_read(".github/workflows/ci.yml"))
+        env = {str(k): str(v) for k, v in workflow["env"].items()}
+        assert env["SHELLCHECK_VERSION"] == entry["version"]
+        assert env["SHELLCHECK_SHA256"] == entry["sha256"]
+
+        steps = [
+            step
+            for step in workflow["jobs"]["repo-static"]["steps"]
+            if "install-checksummed-tool" in str(step.get("uses", ""))
+            and step.get("with", {}).get("name") == "shellcheck"
+        ]
+        assert len(steps) == 1, "repo-static must install ShellCheck exactly once"
+        member = str(steps[0]["with"]["archive-member"]).replace(
+            "${{ env.SHELLCHECK_VERSION }}", env["SHELLCHECK_VERSION"]
+        )
+        assert member == entry["archive_member"]
+
+    def test_ci_shellcheck_script_asserts_pinned_version_when_run_in_ci(self):
+        """The script fails on a version mismatch and when CI forgot to pin."""
+        script = _read(".github/scripts/ci-shellcheck.sh")
+        assert "SHELLCHECK_EXPECTED_VERSION" in script
+        assert "GITHUB_ACTIONS" in script
+        assert "shellcheck --version" in script
+
+        workflow = yaml.safe_load(_read(".github/workflows/ci.yml"))
+        run_steps = [
+            step
+            for step in workflow["jobs"]["repo-static"]["steps"]
+            if "run_checks.py" in str(step.get("run", ""))
+        ]
+        assert len(run_steps) == 1
+        assert (
+            run_steps[0]["env"]["SHELLCHECK_EXPECTED_VERSION"]
+            == "${{ env.SHELLCHECK_VERSION }}"
+        )
+
+    def test_ssm_run_header_records_runner_dependencies_when_composite_uses_jq_and_aws(
+        self,
+    ):
+        """The composite documents what it takes from the runner image."""
+        text = _read(".github/actions/ssm-run/action.yml")
+        header = text.split("\nname:", 1)[0]
+        for needle in ("jq", "aws", "ubuntu-24.04", "runner_image"):
+            assert needle in header, f"ssm-run header must mention {needle!r}"
+        lock_description = self._lock()["runtime_pins"]["runner_image"]["description"]
+        assert "ssm-run" in lock_description
+
+
+class TestExternalActionPinSet:
+    """
+    Workflow `uses:` must match the action pin set recorded in the lock (F-23).
+
+    The lock's `external_actions.pins` was verified against each upstream repo
+    with `git ls-remote --tags` at implementation time. These tests use no
+    network: they only keep the workflows and the record in step, so a
+    Dependabot bump fails here until the lock is updated in the same PR.
+    """
+
+    @staticmethod
+    def _declared() -> Dict[str, Tuple[str, str]]:
+        pins = json.loads(_read("ci/toolchain-lock.json"))["external_actions"]["pins"]
+        return {name: (p["sha"], p["version"]) for name, p in pins.items()}
+
+    def test_workflow_uses_match_declared_set_when_actions_are_pinned(self):
+        """Observed `uses:` pins equal the declared set, both ways."""
+        observed = {
+            name: next(iter(variants))
+            for name, variants in _observed_action_pins().items()
+        }
+        diff = _diff_pin_sets(observed, self._declared())
+        assert not any(diff.values()), (
+            "workflow action pins drifted from ci/toolchain-lock.json "
+            f"external_actions.pins: {diff}. Verify the new tag with "
+            "`git ls-remote --tags`, then update the lock in the same change."
+        )
+
+    def test_each_action_has_one_sha_everywhere_when_used_in_many_files(self):
+        """One action, one (sha, version), whichever file uses it."""
+        split = {
+            name: {f"{sha[:12]} {ver}": files for (sha, ver), files in variants.items()}
+            for name, variants in _observed_action_pins().items()
+            if len(variants) > 1
+        }
+        assert not split, f"actions pinned at more than one revision: {split}"
+
+    def test_declared_pins_are_full_shas_with_semver_versions_when_recorded(self):
+        """Every record is a 40-hex SHA with a vX.Y.Z version."""
+        block = json.loads(_read("ci/toolchain-lock.json"))["external_actions"]
+        date.fromisoformat(str(block["verified_on"]))
+        assert block["pins"], "external_actions.pins must not be empty"
+        for name, (sha, version) in self._declared().items():
+            assert re.fullmatch(r"[0-9a-f]{40}", sha), f"{name}: bad sha {sha!r}"
+            assert re.fullmatch(r"v\d+\.\d+\.\d+", version), f"{name}: {version!r}"
+
+    def test_artifact_actions_share_a_major_in_the_lock_when_recorded(self):
+        """upload-artifact and download-artifact must be one compatible major."""
+        declared = self._declared()
+        up = declared["actions/upload-artifact"][1]
+        down = declared["actions/download-artifact"][1]
+        assert up.split(".")[0] == down.split(".")[0], (
+            f"artifact actions are on different majors ({up} vs {down}); "
+            "mixed majors use incompatible artifact backends"
+        )
+
+    def test_pin_diff_reports_each_kind_of_drift_when_sets_differ(self):
+        """Self-test for the comparison helper."""
+        observed = {"a/x": ("1" * 40, "v1.0.0"), "b/y": ("2" * 40, "v2.0.0")}
+        declared = {"a/x": ("3" * 40, "v1.0.1"), "c/z": ("4" * 40, "v3.0.0")}
+        assert _diff_pin_sets(observed, declared) == {
+            "added_in_workflows": ["b/y"],
+            "removed_from_workflows": ["c/z"],
+            "changed": ["a/x"],
+        }
+        assert not any(_diff_pin_sets(observed, observed).values())

@@ -65,7 +65,12 @@ async def test_named_worker_keeps_its_own_declared_tool_sets():
 
     await _drain(
         kernel.run_worker(
-            parent, ctx=None, worker_index=0, thread_id="t", agent_id="reader-2", input="",
+            parent,
+            ctx=None,
+            worker_index=0,
+            thread_id="t",
+            agent_id="reader-2",
+            input="",
         )
     )
 
@@ -100,7 +105,12 @@ async def test_named_worker_with_no_declared_tool_sets_gets_none():
 
     await _drain(
         kernel.run_worker(
-            parent, ctx=None, worker_index=0, thread_id="t", agent_id="reader-plain", input="",
+            parent,
+            ctx=None,
+            worker_index=0,
+            thread_id="t",
+            agent_id="reader-plain",
+            input="",
         )
     )
 

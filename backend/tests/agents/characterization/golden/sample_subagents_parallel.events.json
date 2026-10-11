@@ -4,6 +4,8 @@
       "agent": "custom-agent:apple",
       "depth": 0,
       "isolation": "shared_read",
+      "task_author_id": null,
+      "task_id": null,
       "worker": 0
     },
     "type": "subagent_spawned"
@@ -13,6 +15,8 @@
       "agent": "custom-agent:apple",
       "row_id": null,
       "status": "complete",
+      "task_author_id": null,
+      "task_id": null,
       "worker": 0
     },
     "type": "subagent_result"
@@ -22,6 +26,8 @@
       "agent": "custom-agent:ball",
       "depth": 0,
       "isolation": "shared_read",
+      "task_author_id": null,
+      "task_id": null,
       "worker": 1
     },
     "type": "subagent_spawned"
@@ -31,6 +37,8 @@
       "agent": "custom-agent:ball",
       "row_id": null,
       "status": "complete",
+      "task_author_id": null,
+      "task_id": null,
       "worker": 1
     },
     "type": "subagent_result"
@@ -40,6 +48,8 @@
       "agent": "custom-agent:cat",
       "depth": 0,
       "isolation": "shared_read",
+      "task_author_id": null,
+      "task_id": null,
       "worker": 2
     },
     "type": "subagent_spawned"
@@ -49,6 +59,8 @@
       "agent": "custom-agent:cat",
       "row_id": null,
       "status": "complete",
+      "task_author_id": null,
+      "task_id": null,
       "worker": 2
     },
     "type": "subagent_result"
@@ -102,14 +114,20 @@
         }
       ],
       "estimated_tokens": 530,
-      "skills_load_errors": []
+      "skills_load_errors": [],
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 0
     },
     "type": "agent_skills"
   },
   {
     "data": {
       "agent_id": "custom-agent:apple",
-      "chunk": "<normalized>"
+      "chunk": "<normalized>",
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 0
     },
     "type": "agent_chunk"
   },
@@ -117,7 +135,10 @@
     "data": {
       "agent_id": "custom-agent:apple",
       "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===",
-      "tool_calls": []
+      "task_author_id": null,
+      "task_id": null,
+      "tool_calls": [],
+      "worker_index": 0
     },
     "type": "agent_input"
   },
@@ -130,15 +151,21 @@
       "name": "Apple Writer",
       "output_length": 34,
       "output_tokens": "<normalized>",
+      "task_author_id": null,
+      "task_id": null,
       "total": 4,
-      "total_tokens": "<normalized>"
+      "total_tokens": "<normalized>",
+      "worker_index": 0
     },
     "type": "agent_complete"
   },
   {
     "data": {
       "agent_id": "custom-agent:apple",
-      "filename": "apple-build-me-a-thing-for-managing-tasks.md"
+      "filename": "apple-build-me-a-thing-for-managing-tasks.md",
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 0
     },
     "type": "artifact_fallback"
   },
@@ -149,7 +176,10 @@
       "index": 0,
       "name": "Apple Writer",
       "role": "A user-defined workflow agent",
-      "total": 4
+      "task_author_id": null,
+      "task_id": null,
+      "total": 4,
+      "worker_index": 0
     },
     "type": "agent_start"
   },
@@ -165,14 +195,20 @@
         }
       ],
       "estimated_tokens": 530,
-      "skills_load_errors": []
+      "skills_load_errors": [],
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 1
     },
     "type": "agent_skills"
   },
   {
     "data": {
       "agent_id": "custom-agent:ball",
-      "chunk": "<normalized>"
+      "chunk": "<normalized>",
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 1
     },
     "type": "agent_chunk"
   },
@@ -180,7 +216,10 @@
     "data": {
       "agent_id": "custom-agent:ball",
       "context_message": "",
-      "tool_calls": []
+      "task_author_id": null,
+      "task_id": null,
+      "tool_calls": [],
+      "worker_index": 1
     },
     "type": "agent_input"
   },
@@ -193,15 +232,21 @@
       "name": "Ball Writer",
       "output_length": 33,
       "output_tokens": "<normalized>",
+      "task_author_id": null,
+      "task_id": null,
       "total": 4,
-      "total_tokens": "<normalized>"
+      "total_tokens": "<normalized>",
+      "worker_index": 1
     },
     "type": "agent_complete"
   },
   {
     "data": {
       "agent_id": "custom-agent:ball",
-      "filename": "ball-build-me-a-thing-for-managing-tasks.md"
+      "filename": "ball-build-me-a-thing-for-managing-tasks.md",
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 1
     },
     "type": "artifact_fallback"
   },
@@ -212,7 +257,10 @@
       "index": 1,
       "name": "Ball Writer",
       "role": "A user-defined workflow agent",
-      "total": 4
+      "task_author_id": null,
+      "task_id": null,
+      "total": 4,
+      "worker_index": 1
     },
     "type": "agent_start"
   },
@@ -228,14 +276,20 @@
         }
       ],
       "estimated_tokens": 530,
-      "skills_load_errors": []
+      "skills_load_errors": [],
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 2
     },
     "type": "agent_skills"
   },
   {
     "data": {
       "agent_id": "custom-agent:cat",
-      "chunk": "<normalized>"
+      "chunk": "<normalized>",
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 2
     },
     "type": "agent_chunk"
   },
@@ -243,7 +297,10 @@
     "data": {
       "agent_id": "custom-agent:cat",
       "context_message": "",
-      "tool_calls": []
+      "task_author_id": null,
+      "task_id": null,
+      "tool_calls": [],
+      "worker_index": 2
     },
     "type": "agent_input"
   },
@@ -256,15 +313,21 @@
       "name": "Cat Writer",
       "output_length": 32,
       "output_tokens": "<normalized>",
+      "task_author_id": null,
+      "task_id": null,
       "total": 4,
-      "total_tokens": "<normalized>"
+      "total_tokens": "<normalized>",
+      "worker_index": 2
     },
     "type": "agent_complete"
   },
   {
     "data": {
       "agent_id": "custom-agent:cat",
-      "filename": "cat-build-me-a-thing-for-managing-tasks.md"
+      "filename": "cat-build-me-a-thing-for-managing-tasks.md",
+      "task_author_id": null,
+      "task_id": null,
+      "worker_index": 2
     },
     "type": "artifact_fallback"
   },
@@ -275,7 +338,10 @@
       "index": 2,
       "name": "Cat Writer",
       "role": "A user-defined workflow agent",
-      "total": 4
+      "task_author_id": null,
+      "task_id": null,
+      "total": 4,
+      "worker_index": 2
     },
     "type": "agent_start"
   },

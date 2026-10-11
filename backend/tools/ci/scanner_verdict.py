@@ -104,6 +104,8 @@ def map_severity(scanner_name: str, raw_severity: str) -> SeverityLevel:
         return SeverityLevel.LOW
     if normalized in ("info", "i", "information"):
         return SeverityLevel.INFO
+    if normalized in ("negligible",):  # Grype v0.119.0+ uses "negligible"
+        return SeverityLevel.INFO
 
     # Scanner-specific mappings
     if scanner_name.lower() in ("trivy", "grype"):

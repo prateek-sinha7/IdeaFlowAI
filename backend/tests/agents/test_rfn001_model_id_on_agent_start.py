@@ -72,12 +72,12 @@ def test_engine_resolves_model_before_agent_start_yield() -> None:
     resolve_pos = src.find("_start_model_id = self._resolve_model(")
     start_yield_pos = src.find('"type": "agent_start"')
 
-    assert resolve_pos != -1, (
-        "RFN-001: _start_model_id assignment via _resolve_model not found in engine.py"
-    )
-    assert start_yield_pos != -1, (
-        "RFN-001: agent_start event yield not found in engine.py"
-    )
+    assert (
+        resolve_pos != -1
+    ), "RFN-001: _start_model_id assignment via _resolve_model not found in engine.py"
+    assert (
+        start_yield_pos != -1
+    ), "RFN-001: agent_start event yield not found in engine.py"
     assert resolve_pos < start_yield_pos, (
         "RFN-001: _resolve_model must be called BEFORE the agent_start yield "
         f"(resolve at char {resolve_pos}, agent_start at char {start_yield_pos})"

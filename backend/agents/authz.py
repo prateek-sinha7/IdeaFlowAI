@@ -1248,8 +1248,11 @@ class ScopedStore:
         """
         from app.models.run_provenance_audit import RunProvenanceAudit
 
-        session, owned = self._acquire()
-        try:
+        # Bounded like every other ScopedStore write (A16). This method still called
+        # the pre-A16 ``self._acquire()`` helper after the 9efb704d merge removed it,
+        # so every call raised AttributeError, the best-effort callers swallowed it,
+        # and no provenance audit row was ever written.
+        def _body(session: Any) -> str:
             row = RunProvenanceAudit(
                 run_id=run_id,
                 owner_id=self._owner_id,
@@ -1263,9 +1266,8 @@ class ScopedStore:
             session.add(row)
             session.commit()
             return row.id
-        finally:
-            if owned:
-                session.close()
+
+        return await self._run_bounded("write_provenance_audit", _body, run_id=run_id)
 
     # ------------------------------------------------------------------
     # Phase-10 exec audit table — owner/workspace-scoped writes (EXEC-01)
@@ -1530,23 +1532,25 @@ class ScopedStore:
         """
         from app.models.wave_run import WaveRun
 
-        session, owned = self._acquire()
-        try:
+        # Bounded like every other ScopedStore write (A16) — see the note in
+        # ``write_provenance_audit``: the removed ``_acquire()`` made this a
+        # silent no-op on every call.
+        def _body(session: Any) -> None:
             query = session.query(WaveRun).filter(
                 WaveRun.run_id == run_id, WaveRun.step == step_id
             )
             query = self._scope_owner_ws(query, WaveRun)
             row = query.order_by(WaveRun.created_at.desc()).first()
             if row is None:
-                return
+                return None
             row.merge_state = merge_state
             row.merge_applied = merge_applied
             row.merge_conflicts = merge_conflicts
             row.merge_strategy = merge_strategy
             session.commit()
-        finally:
-            if owned:
-                session.close()
+            return None
+
+        await self._run_bounded("update_wave_run_merge_state", _body, run_id=run_id)
 
     async def read_wave_runs(self, run_id: str) -> list[Any]:
         """Return the run's owner+workspace-scoped ``wave_runs`` rows (wave_index asc).

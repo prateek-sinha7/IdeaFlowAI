@@ -93,7 +93,11 @@ async def test_bad_fixture_flags_missing_field_labels(tmp_path):
     assert issues, "expected the stripped fragment to be flagged"
     messages = " | ".join(i.message for i in issues)
     assert "screens/6.html" in messages
-    for label in ("Bundle with Home Policy", "Paperless Billing", "Good Student Discount"):
+    for label in (
+        "Bundle with Home Policy",
+        "Paperless Billing",
+        "Good Student Discount",
+    ):
         assert label in messages, messages
     assert all(i.severity == "P0" for i in issues)
     assert all(i.validator == "fragment_field_coverage" for i in issues)
@@ -113,7 +117,9 @@ async def test_sidecar_file_is_flagged(tmp_path):
     """a786cc27 pass 3: a worker wrote screens/2_fixed.html instead of screens/2.html."""
     root = tmp_path / "sandbox"
     root.mkdir()
-    (root / "journeys.md").write_text("## SCREEN 2: BEACON\n\nno fields here\n", encoding="utf-8")
+    (root / "journeys.md").write_text(
+        "## SCREEN 2: BEACON\n\nno fields here\n", encoding="utf-8"
+    )
     import shutil
 
     shutil.copytree(_FIXTURES / "screens_sidecar", root / "screens")

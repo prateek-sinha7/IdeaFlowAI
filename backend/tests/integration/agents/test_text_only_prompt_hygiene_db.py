@@ -77,14 +77,11 @@ async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_out
 
     monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile)
 
-    # ISS-638 (row 3): drive the FULL user_stories roster (6 agents) so ADR-0008's
-    # _roster_is_partial fill-in doesn't expand a [:2] slice to all 6 and break
-    # the polluted_agent_id pinning. All 6 are tool-less (user_stories has no
-    # filesystem-write agents), so the precondition below still holds.
+    # The engine dispatches the COMPILED manifest roster (not a caller-sliced
+    # agents list), so the run's final_output comes from the manifest's last step.
+    # Pollute THAT agent so the authoritative-output assertions target it.
     specs = get_pipeline_agents("user_stories")
     assert all(s.tools == [] for s in specs), "precondition: tool-less agents"
-    # ADR-0008: passing agents=[] lets the engine build from compiled manifest steps.
-    # The last agent in the full pipeline becomes final_output, so pollute that one.
     polluted_agent_id = specs[-1].id  # last agent → its output IS final_output
 
     _orig_create_runner = factory_mod.create_runner
@@ -110,7 +107,7 @@ async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_out
 
     events: list[dict] = []
     async for ev in engine.execute(
-        agents=[],
+        agents=list(specs),
         user_message="Build a backlog.",
         pipeline_run_id=f"wr01-{uuid.uuid4().hex[:8]}",
         pipeline_type="user_stories",

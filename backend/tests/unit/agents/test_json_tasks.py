@@ -172,7 +172,9 @@ def test_target_absent_falls_back_to_fallback_target_then_reply_fence():
     assert [t.id for t in out2] == ["y"]
 
     # no sandbox at all (caller never had one) -> same fallback to the reply text.
-    out3 = JsonTasksParser().parse_preferring_target(fenced_reply, target="repair-tasks.md")
+    out3 = JsonTasksParser().parse_preferring_target(
+        fenced_reply, target="repair-tasks.md"
+    )
     assert [t.id for t in out3] == ["y"]
 
 

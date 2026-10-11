@@ -37,7 +37,11 @@ from __future__ import annotations
 
 import logging
 
-from agents.capabilities.model_catalog import ModelCatalog, ModelEntry, normalize_model_id
+from agents.capabilities.model_catalog import (
+    ModelCatalog,
+    ModelEntry,
+    normalize_model_id,
+)
 from agents.workflows.plan import ModelPolicy
 
 logger = logging.getLogger(__name__)
@@ -409,7 +413,9 @@ _TRANSIENT_ERROR_CODES: frozenset[str] = frozenset(
         "ModelErrorException",
     }
 )
-_TRANSIENT_ERROR_CODES_CF: frozenset[str] = frozenset(c.casefold() for c in _TRANSIENT_ERROR_CODES)
+_TRANSIENT_ERROR_CODES_CF: frozenset[str] = frozenset(
+    c.casefold() for c in _TRANSIENT_ERROR_CODES
+)
 
 # Permanent (genuinely OUR fault) error codes — checked FIRST and also
 # case-insensitively; a match returns False immediately, before the
@@ -456,7 +462,9 @@ _PERMANENT_ERROR_CODES: frozenset[str] = frozenset(
         "ResourceNotFoundException",
     }
 )
-_PERMANENT_ERROR_CODES_CF: frozenset[str] = frozenset(c.casefold() for c in _PERMANENT_ERROR_CODES)
+_PERMANENT_ERROR_CODES_CF: frozenset[str] = frozenset(
+    c.casefold() for c in _PERMANENT_ERROR_CODES
+)
 
 # Models that have ALREADY streamed successfully in this process. A permanent code
 # means "genuinely our fault" — true for an ARN that never resolved, false for one
@@ -480,6 +488,7 @@ def mark_model_proven(model_id: str) -> None:
     if model_id:
         _PROVEN_MODELS.add(model_id)
 
+
 # Transient HTTP statuses: 429 throttle, 503 ServiceUnavailable, 500 InternalServer,
 # 529 Anthropic overloaded.
 _TRANSIENT_STATUS: frozenset[int] = frozenset({429, 500, 503, 529})
@@ -495,8 +504,8 @@ _TRANSIENT_SUBSTRINGS: tuple[str, ...] = (
     "overloaded",  # anthropic 529 overloaded_error
     "modeltimeout",
     "servicequotaexceeded",
-    "internal server",    # EventStreamError message text / generic wrapping
-    "internalserver",     # the lower-camel event-stream code, stringified
+    "internal server",  # EventStreamError message text / generic wrapping
+    "internalserver",  # the lower-camel event-stream code, stringified
 )
 
 
@@ -617,6 +626,7 @@ def selectable_models() -> list[ModelEntry]:
     # degrade-quietly contract: no config, no preference, just catalog order.
     try:
         from app.core.config import settings as _settings  # noqa: PLC0415
+
         region = _settings.AWS_REGION or ""
     except Exception:  # noqa: BLE001
         region = ""
@@ -627,6 +637,10 @@ def selectable_models() -> list[ModelEntry]:
         incumbent = chosen.get(key)
         if incumbent is None:
             chosen[key] = entry
-        elif region_prefix and entry.id.startswith(region_prefix) and not incumbent.id.startswith(region_prefix):
+        elif (
+            region_prefix
+            and entry.id.startswith(region_prefix)
+            and not incumbent.id.startswith(region_prefix)
+        ):
             chosen[key] = entry  # same slot, better prefix
     return sorted(chosen.values(), key=lambda e: e.label)

@@ -17,7 +17,7 @@
  * happy path, driving the page into the exact branch the bug lives in.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 
 const { pushMock, mockSearchParams } = vi.hoisted(() => ({

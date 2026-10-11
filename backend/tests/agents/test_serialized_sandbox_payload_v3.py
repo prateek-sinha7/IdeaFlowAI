@@ -51,6 +51,7 @@ from tests.agents.test_finalizer_v2 import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_bundle_ectx(
     run_id: str,
     sandbox: FakeSandbox,
@@ -105,6 +106,7 @@ def _finalize(run_id: str, ectx: types.SimpleNamespace) -> Any:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestSerializedSandboxPayload:
     """``serialized_sandbox`` materializes its bundle under the nominal name."""
 
@@ -156,9 +158,9 @@ class TestSerializedSandboxPayload:
             f"expected completed, got {record.published_status!r} "
             f"(degraded_reason={getattr(record, 'degraded_reason', None)!r})"
         )
-        assert "v2" in sandbox.list_tags(), (
-            f"no v2 tag minted; tags={sandbox.list_tags()}"
-        )
+        assert (
+            "v2" in sandbox.list_tags()
+        ), f"no v2 tag minted; tags={sandbox.list_tags()}"
 
     def test_empty_sandbox_still_degrades_untagged(self, tmp_path: Path) -> None:
         """Zero deliverable files → the resolver does not claim → no tag (Req 4 AC 4)."""
@@ -173,6 +175,6 @@ class TestSerializedSandboxPayload:
 
         assert record is not None
         assert record.published_status == "degraded"
-        assert sandbox.list_tags() == [], (
-            f"unexpected tag for an empty sandbox: {sandbox.list_tags()}"
-        )
+        assert (
+            sandbox.list_tags() == []
+        ), f"unexpected tag for an empty sandbox: {sandbox.list_tags()}"

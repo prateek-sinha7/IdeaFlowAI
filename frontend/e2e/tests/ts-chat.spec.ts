@@ -28,6 +28,9 @@ test.describe("TS-CHAT — run chat lane (mounted live, mocked)", () => {
     await dashboard.goto();
     mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
     await mockSse.ready(); // Wait for SSE stream attachment before assertions
+    // 015-frontend-routing: the tracked run moves to its own route, which remounts
+    // the page — settle on it before interacting so typed input is not discarded.
+    await dashboard.awaitRunRoute();
     await expect(dashboard.page.getByTestId("run-chat-lane")).toBeVisible();
   });
 
@@ -118,6 +121,8 @@ test.describe("TS-CHAT — run chat lane (mounted live, mocked)", () => {
     // run has activity; seed a running agent so the tab leaves its empty "Pipeline
     // trace" state (a real clarify always pauses an active planner + brief).
     mockSse.agentStart(AGENTS.user_stories[0].id);
+    // Let the stream attach so the clarify frame is delivered live, not lost.
+    await mockSse.ready();
 
     // A mid-run clarify gate. Phase 42-02 (§C) moved the clarify quick-actions OUT
     // of the lane (its composer is now a plain phase-hint input) and INTO the Steps
@@ -126,7 +131,7 @@ test.describe("TS-CHAT — run chat lane (mounted live, mocked)", () => {
     mockSse.questionnaireReady([
       { id: "q1", text: "Which platform?", options: ["Web", "Mobile"] },
     ]);
-    await dashboard.thinkingTab().click();
+    await dashboard.openSteps();
     const clarify = page.getByTestId("chat-clarify-actions");
     await expect(clarify).toBeVisible();
 

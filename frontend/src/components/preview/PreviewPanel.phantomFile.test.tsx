@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
-import type { WorkflowRun } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ISS-323 — the App Builder IDE preview's `parseAppBuilderFilesForIDE` regex

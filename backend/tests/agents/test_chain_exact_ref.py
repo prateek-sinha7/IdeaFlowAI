@@ -16,6 +16,7 @@ Coverage matrix
 8.  Five terminal statuses — each either delivers a payload or an explicit refusal.
 9.  Non-degradable refusals: function raises before returning → no run row minted.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -40,16 +41,19 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 def _import_run_commands():
     from app.api import run_commands  # noqa: PLC0415
+
     return run_commands
 
 
 def _import_finalization():
     from agents.execution_engine import finalization  # noqa: PLC0415
+
     return finalization
 
 
 def _import_sandbox():
     from app.agents import sandbox  # noqa: PLC0415
+
     return sandbox
 
 
@@ -274,8 +278,10 @@ class TestReasonCodes:
 
         # read_finalization_record is called inside admit_chain_launch; patch at
         # the canonical finalization module so the deferred import finds the mock.
-        with patch(_FINALIZATION_PATCH, return_value=None), \
-             pytest.raises(HTTPException) as exc_info:
+        with (
+            patch(_FINALIZATION_PATCH, return_value=None),
+            pytest.raises(HTTPException) as exc_info,
+        ):
             rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -308,8 +314,10 @@ class TestReasonCodes:
             candidate_status="completed",
         )
 
-        with patch(_FINALIZATION_PATCH, return_value=record), \
-             pytest.raises(HTTPException) as exc_info:
+        with (
+            patch(_FINALIZATION_PATCH, return_value=record),
+            pytest.raises(HTTPException) as exc_info,
+        ):
             rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -354,7 +362,9 @@ class TestReasonCodes:
 
         source_id = str(uuid.uuid4())
         user_id = str(uuid.uuid4())
-        source_row = _make_source_row(status="completed", run_id=source_id, user_id=user_id)
+        source_row = _make_source_row(
+            status="completed", run_id=source_id, user_id=user_id
+        )
         db = _db_with_row(source_row)
         compiled = _make_compiled()
         user = _make_user(uid=user_id)
@@ -376,10 +386,15 @@ class TestReasonCodes:
 
         def _mock_ws():
             ws = MagicMock()
+
             def _git(*args):
                 return subprocess.check_output(
-                    ["git"] + list(args), cwd=str(repo), text=True, stderr=subprocess.DEVNULL
+                    ["git"] + list(args),
+                    cwd=str(repo),
+                    text=True,
+                    stderr=subprocess.DEVNULL,
                 )
+
             ws._git = _git
             ws.list_tags = lambda: []
             ws.list_prefix = lambda p: []
@@ -390,9 +405,11 @@ class TestReasonCodes:
         def _fake_open(sid, uid):
             return src
 
-        with patch(_OPEN_SANDBOX_PATCH, side_effect=_fake_open), \
-             patch(_FINALIZATION_PATCH, return_value=None), \
-             pytest.raises(HTTPException) as exc_info:
+        with (
+            patch(_OPEN_SANDBOX_PATCH, side_effect=_fake_open),
+            patch(_FINALIZATION_PATCH, return_value=None),
+            pytest.raises(HTTPException) as exc_info,
+        ):
             rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -405,9 +422,10 @@ class TestReasonCodes:
         # Legacy payload doesn't exist → source_payload_missing.
         assert exc_info.value.status_code == 422
         code = exc_info.value.detail["code"]
-        assert code in ("source_not_finalized", "source_payload_missing"), (
-            f"Expected source_not_finalized or source_payload_missing, got {code!r}"
-        )
+        assert code in (
+            "source_not_finalized",
+            "source_payload_missing",
+        ), f"Expected source_not_finalized or source_payload_missing, got {code!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -436,7 +454,9 @@ class TestDepartureN2:
 
         source_id = str(uuid.uuid4())
         user_id = str(uuid.uuid4())
-        source_row = _make_source_row(status="completed", run_id=source_id, user_id=user_id)
+        source_row = _make_source_row(
+            status="completed", run_id=source_id, user_id=user_id
+        )
         record = _make_finalization_record(run_id=source_id, payload_chainable=True)
 
         db = _db_with_row(source_row)
@@ -449,10 +469,12 @@ class TestDepartureN2:
         def _fake_select(s, row, rec, *, declared_output_basename):
             raise rc.ChainRefused("source_provenance_conflict")
 
-        with patch(_OPEN_SANDBOX_PATCH, return_value=src), \
-             patch(_FINALIZATION_PATCH, return_value=record), \
-             patch(_SELECT_PAYLOAD_PATCH, side_effect=_fake_select), \
-             pytest.raises(HTTPException) as exc_info:
+        with (
+            patch(_OPEN_SANDBOX_PATCH, return_value=src),
+            patch(_FINALIZATION_PATCH, return_value=record),
+            patch(_SELECT_PAYLOAD_PATCH, side_effect=_fake_select),
+            pytest.raises(HTTPException) as exc_info,
+        ):
             rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -494,7 +516,9 @@ class TestDepartureN2:
             ".chain/output.html",
         ]
         # summary.md has wrong run_id — must trigger source_provenance_conflict
-        bad_summary = f"schema_version: 2\nrun_id: {wrong_id}\noutput_filename: output.html\n"
+        bad_summary = (
+            f"schema_version: 2\nrun_id: {wrong_id}\noutput_filename: output.html\n"
+        )
         src.read_file_at_ref.return_value = bad_summary.encode()
 
         with pytest.raises(rc.ChainRefused) as exc_info:
@@ -575,10 +599,15 @@ class TestLegacyDetection:
 
         def _mock_ws():
             ws = MagicMock()
+
             def _git(*args):
                 return subprocess.check_output(
-                    ["git"] + list(args), cwd=str(repo), text=True, stderr=subprocess.DEVNULL
+                    ["git"] + list(args),
+                    cwd=str(repo),
+                    text=True,
+                    stderr=subprocess.DEVNULL,
                 )
+
             ws._git = _git
             ws.list_tags = lambda: []
             return ws
@@ -592,7 +621,8 @@ class TestLegacyDetection:
         # Confirm the repo still has no internal ref after the is_legacy_source check.
         all_refs = subprocess.check_output(
             ["git", "for-each-ref", "--format=%(refname)"],
-            cwd=str(repo), text=True,
+            cwd=str(repo),
+            text=True,
         )
         assert f"refs/ideaflow/runs/{source_id}" not in all_refs
 
@@ -626,7 +656,9 @@ class TestDepartureN3:
 
         source_id = str(uuid.uuid4())
         user_id = str(uuid.uuid4())
-        source_row = _make_source_row(status="completed", run_id=source_id, user_id=user_id)
+        source_row = _make_source_row(
+            status="completed", run_id=source_id, user_id=user_id
+        )
         record = _make_finalization_record(run_id=source_id, payload_chainable=True)
 
         db = _db_with_row(source_row)
@@ -637,10 +669,12 @@ class TestDepartureN3:
         def _fail_missing(*a, **kw):
             raise rc.ChainRefused("source_payload_missing")
 
-        with patch(_OPEN_SANDBOX_PATCH, return_value=src), \
-             patch(_FINALIZATION_PATCH, return_value=record), \
-             patch(_SELECT_PAYLOAD_PATCH, side_effect=_fail_missing), \
-             pytest.raises(HTTPException) as exc_info:
+        with (
+            patch(_OPEN_SANDBOX_PATCH, return_value=src),
+            patch(_FINALIZATION_PATCH, return_value=record),
+            patch(_SELECT_PAYLOAD_PATCH, side_effect=_fail_missing),
+            pytest.raises(HTTPException) as exc_info,
+        ):
             rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -651,9 +685,9 @@ class TestDepartureN3:
 
         # B5: degrade path is blocked — always refuse with 422.
         assert exc_info.value.status_code == 422
-        assert exc_info.value.detail["code"] == "source_payload_missing", (
-            "B5: source_payload_missing must refuse even with chain_policy=degrade"
-        )
+        assert (
+            exc_info.value.detail["code"] == "source_payload_missing"
+        ), "B5: source_payload_missing must refuse even with chain_policy=degrade"
 
     def test_refuse_policy_payload_missing_raises_422(self) -> None:
         """chain_policy=refuse (default) + source_payload_missing → hard 422."""
@@ -662,7 +696,9 @@ class TestDepartureN3:
 
         source_id = str(uuid.uuid4())
         user_id = str(uuid.uuid4())
-        source_row = _make_source_row(status="completed", run_id=source_id, user_id=user_id)
+        source_row = _make_source_row(
+            status="completed", run_id=source_id, user_id=user_id
+        )
         record = _make_finalization_record(run_id=source_id, payload_chainable=True)
 
         db = _db_with_row(source_row)
@@ -673,10 +709,12 @@ class TestDepartureN3:
         def _fail_missing(*a, **kw):
             raise rc.ChainRefused("source_payload_missing")
 
-        with patch(_OPEN_SANDBOX_PATCH, return_value=src), \
-             patch(_FINALIZATION_PATCH, return_value=record), \
-             patch(_SELECT_PAYLOAD_PATCH, side_effect=_fail_missing), \
-             pytest.raises(HTTPException) as exc_info:
+        with (
+            patch(_OPEN_SANDBOX_PATCH, return_value=src),
+            patch(_FINALIZATION_PATCH, return_value=record),
+            patch(_SELECT_PAYLOAD_PATCH, side_effect=_fail_missing),
+            pytest.raises(HTTPException) as exc_info,
+        ):
             rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -725,11 +763,16 @@ class TestLegacyFixtures:
 
         def _mock_ws():
             ws = MagicMock()
+
             def _git(*args):
                 git_subprocess_called.append(args)
                 return subprocess.check_output(
-                    ["git"] + list(args), cwd=str(repo), text=True, stderr=subprocess.DEVNULL
+                    ["git"] + list(args),
+                    cwd=str(repo),
+                    text=True,
+                    stderr=subprocess.DEVNULL,
                 )
+
             ws._git = _git
             ws.list_tags = lambda: []  # no tags visible
             return ws
@@ -752,9 +795,9 @@ class TestLegacyFixtures:
 
         assert exc_info.value.reason == "source_provenance_conflict"
         # No git subprocess was needed — tag list check is pure Python.
-        assert len(git_subprocess_called) == 0, (
-            "A stored tag absent from list_tags() must be refused before any git subprocess"
-        )
+        assert (
+            len(git_subprocess_called) == 0
+        ), "A stored tag absent from list_tags() must be refused before any git subprocess"
 
 
 # ---------------------------------------------------------------------------
@@ -806,9 +849,11 @@ class TestTerminalStatuses:
         caught_exception: HTTPException | None = None
         result = None
 
-        with patch(_OPEN_SANDBOX_PATCH, return_value=src), \
-             patch(_FINALIZATION_PATCH, return_value=record), \
-             patch(_SELECT_PAYLOAD_PATCH, side_effect=_fake_select):
+        with (
+            patch(_OPEN_SANDBOX_PATCH, return_value=src),
+            patch(_FINALIZATION_PATCH, return_value=record),
+            patch(_SELECT_PAYLOAD_PATCH, side_effect=_fake_select),
+        ):
             try:
                 result = rc.admit_chain_launch(
                     db=db,
@@ -825,9 +870,9 @@ class TestTerminalStatuses:
             assert result.active is True
             assert result.selection is selection
         else:
-            assert caught_exception is not None, (
-                f"Terminal status '{status}' must produce an explicit refusal, not silent empty"
-            )
+            assert (
+                caught_exception is not None
+            ), f"Terminal status '{status}' must produce an explicit refusal, not silent empty"
             assert caught_exception.status_code == 422
             code = caught_exception.detail.get("code", "")
             assert code in (
@@ -854,12 +899,20 @@ class TestNoRunRowOnRefusal:
     REFUSAL_SETUPS = [
         ("source_running", {"status": "running", "payload_chainable": True}),
         ("source_non_chainable", {"status": "degraded", "payload_chainable": False}),
-        ("source_provenance_conflict", {"status": "completed", "payload_chainable": True,
-                                        "provenance_conflict": True}),
+        (
+            "source_provenance_conflict",
+            {
+                "status": "completed",
+                "payload_chainable": True,
+                "provenance_conflict": True,
+            },
+        ),
     ]
 
     @pytest.mark.parametrize("reason,setup", REFUSAL_SETUPS)
-    def test_non_degradable_refusal_raises_before_mint(self, reason: str, setup: dict) -> None:
+    def test_non_degradable_refusal_raises_before_mint(
+        self, reason: str, setup: dict
+    ) -> None:
         rc = _import_run_commands()
         from fastapi import HTTPException  # noqa: PLC0415
 
@@ -886,10 +939,12 @@ class TestNoRunRowOnRefusal:
                 raise rc.ChainRefused("source_provenance_conflict")
             return rc.V2Selection(ref="v1", basename="out.html")
 
-        with patch(_OPEN_SANDBOX_PATCH, return_value=src), \
-             patch(_FINALIZATION_PATCH, return_value=record), \
-             patch(_SELECT_PAYLOAD_PATCH, side_effect=_fake_select), \
-             pytest.raises(HTTPException) as exc_info:
+        with (
+            patch(_OPEN_SANDBOX_PATCH, return_value=src),
+            patch(_FINALIZATION_PATCH, return_value=record),
+            patch(_SELECT_PAYLOAD_PATCH, side_effect=_fake_select),
+            pytest.raises(HTTPException) as exc_info,
+        ):
             rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -931,16 +986,20 @@ class TestRealBuiltinManifests:
 
         source_id = str(uuid.uuid4())
         user_id = str(uuid.uuid4())
-        source_row = _make_source_row(status="completed", run_id=source_id, user_id=user_id)
+        source_row = _make_source_row(
+            status="completed", run_id=source_id, user_id=user_id
+        )
         record = _make_finalization_record(run_id=source_id, payload_chainable=True)
         db = _db_with_row(source_row)
         user = _make_user(uid=user_id)
         src = _mock_src_sandbox()
         selection = rc.V2Selection(ref="v1", basename="prototype.html")
 
-        with patch(_OPEN_SANDBOX_PATCH, return_value=src), \
-             patch(_FINALIZATION_PATCH, return_value=record), \
-             patch(_SELECT_PAYLOAD_PATCH, return_value=selection):
+        with (
+            patch(_OPEN_SANDBOX_PATCH, return_value=src),
+            patch(_FINALIZATION_PATCH, return_value=record),
+            patch(_SELECT_PAYLOAD_PATCH, return_value=selection),
+        ):
             result = rc.admit_chain_launch(
                 db=db,
                 compiled=compiled,
@@ -1080,8 +1139,7 @@ class TestB5SourcePayloadMissingAlwaysRefuses:
             "— the degrade path is blocked by owner decision (2026-09-14)"
         )
         assert exc_info.value.detail["code"] == "source_payload_missing", (
-            f"Expected code='source_payload_missing', "
-            f"got {exc_info.value.detail!r}"
+            f"Expected code='source_payload_missing', " f"got {exc_info.value.detail!r}"
         )
 
     def test_source_payload_missing_with_refuse_policy_still_refuses(self) -> None:

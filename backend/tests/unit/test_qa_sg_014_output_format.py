@@ -32,9 +32,9 @@ def test_streamed_text_resolver_converts_content_to_declared_html_format():
         deliverable=types.SimpleNamespace(name="output.html"),
     )
     out = StreamedTextResolver().resolve(ctx)
-    assert "<html" in out.lower() or out.strip().startswith("<!DOCTYPE"), (
-        f"declared output.html but resolved raw markdown verbatim: {out[:120]!r}"
-    )
+    assert "<html" in out.lower() or out.strip().startswith(
+        "<!DOCTYPE"
+    ), f"declared output.html but resolved raw markdown verbatim: {out[:120]!r}"
 
 
 @pytest.mark.issue("ISS-776")
@@ -60,6 +60,6 @@ def test_single_file_resolver_never_labels_raw_fallback_text_as_html():
     mimetype = SingleFileResolver.default_mimetype("output.html")
 
     if mimetype == "text/html":
-        assert "<html" in resolved.lower() or resolved.strip().startswith("<!DOCTYPE"), (
-            f"reported {mimetype} but resolved bytes are raw markdown: {resolved[:120]!r}"
-        )
+        assert (
+            "<html" in resolved.lower() or resolved.strip().startswith("<!DOCTYPE")
+        ), f"reported {mimetype} but resolved bytes are raw markdown: {resolved[:120]!r}"

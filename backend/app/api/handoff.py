@@ -282,7 +282,7 @@ async def start_handoff(
         iat=payload.get("iat"),
         groups=payload.get("groups", []),
     )
-    
+
     sess = db.query(HandoffSession).filter(HandoffSession.token == token).first()
     if sess is None or sess.issuer_user_id != user.id:
         raise HTTPException(status_code=404, detail="Handoff not found")
@@ -310,7 +310,9 @@ async def start_handoff(
     if settings.HOST_CAPACITY_GATE_ENABLED:
         from app.services.capacity_state import should_block_new_work
 
-        _capacity_decision = should_block_new_work(is_admin=effective_is_admin(user, principal))
+        _capacity_decision = should_block_new_work(
+            is_admin=effective_is_admin(user, principal)
+        )
         if _capacity_decision is not None:
             _retry_after = settings.HOST_CAPACITY_RETRY_AFTER_SECONDS
             raise HTTPException(

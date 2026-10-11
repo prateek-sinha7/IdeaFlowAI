@@ -36,7 +36,9 @@ def _scripts_for_decision(decision: str):
         # unparseable input, and ISS-170's fall-through ran say-hello on every
         # run regardless of the scripted decision.
         if agent_id == _DECISION_STEP:
-            return [_ScriptedTurn(texts=[f'{{"decision": "{decision}"}}'], usage=(5, 3))]
+            return [
+                _ScriptedTurn(texts=[f'{{"decision": "{decision}"}}'], usage=(5, 3))
+            ]
         return [_ScriptedTurn(texts=[f"{agent_id} default output."], usage=(5, 3))]
 
     return _inner
@@ -73,18 +75,20 @@ async def test_english_decision_runs_say_hello_not_say_hola():
     events, ectx = await _drive_with_captured_ectx("english")
 
     types = [e.get("type") for e in events]
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
 
     print("EVENT TYPES:", types)
     print("AGENT_START agent_ids:", started)
 
     # ── R-06/R-09 mutual exclusivity (forward branch) ─────────────────────
-    assert "custom-agent:say-hello" in started, (
-        f"english decision did not run say_hello. started={started}"
-    )
-    assert "custom-agent:say-hola" not in started, (
-        f"english decision ALSO ran say_hola — mutual exclusivity violated. started={started}"
-    )
+    assert (
+        "custom-agent:say-hello" in started
+    ), f"english decision did not run say_hello. started={started}"
+    assert (
+        "custom-agent:say-hola" not in started
+    ), f"english decision ALSO ran say_hola — mutual exclusivity violated. started={started}"
 
     # ── AC-04: the SKIPPED branch's step_visit_counts stays at 0 ──────────
     assert ectx is not None, "ExecutionContext was not captured"
@@ -99,18 +103,20 @@ async def test_spanish_decision_runs_say_hola_not_say_hello():
     events, ectx = await _drive_with_captured_ectx("spanish")
 
     types = [e.get("type") for e in events]
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
 
     print("EVENT TYPES:", types)
     print("AGENT_START agent_ids:", started)
 
     # ── R-06/R-09 mutual exclusivity (forward branch) ─────────────────────
-    assert "custom-agent:say-hola" in started, (
-        f"spanish decision did not run say_hola. started={started}"
-    )
-    assert "custom-agent:say-hello" not in started, (
-        f"spanish decision ALSO ran say_hello — mutual exclusivity violated. started={started}"
-    )
+    assert (
+        "custom-agent:say-hola" in started
+    ), f"spanish decision did not run say_hola. started={started}"
+    assert (
+        "custom-agent:say-hello" not in started
+    ), f"spanish decision ALSO ran say_hello — mutual exclusivity violated. started={started}"
 
     # ── AC-04: the SKIPPED branch's step_visit_counts stays at 0 ──────────
     assert ectx is not None, "ExecutionContext was not captured"
@@ -168,20 +174,22 @@ async def test_unparseable_decision_ends_the_run_instead_of_falling_through():
     events = await _drive_with_raw_pick(_UNPARSEABLE_PICK)
 
     types = [e.get("type") for e in events]
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
 
     print("EVENT TYPES:", types)
     print("AGENT_START agent_ids:", started)
 
-    assert "gate_blocked" in types, (
-        f"the conditional gate did not block on an unparseable decision: {types}"
-    )
-    assert "pipeline_failed" in types, (
-        f"a conditional gate with nowhere to route must fail the run: {types}"
-    )
-    assert "pipeline_complete" not in types, (
-        f"the run reported success after a conditional block: {types}"
-    )
+    assert (
+        "gate_blocked" in types
+    ), f"the conditional gate did not block on an unparseable decision: {types}"
+    assert (
+        "pipeline_failed" in types
+    ), f"a conditional gate with nowhere to route must fail the run: {types}"
+    assert (
+        "pipeline_complete" not in types
+    ), f"the run reported success after a conditional block: {types}"
     for _branch in (
         "custom-agent:say-hello",
         "custom-agent:say-hola",

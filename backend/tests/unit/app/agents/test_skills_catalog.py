@@ -19,7 +19,9 @@ def _cold_catalog_cache():
     skills_catalog.clear_cache()
 
 
-def test_resolve_global_skill_dir_returns_checkout_default_when_setting_empty(monkeypatch):
+def test_resolve_global_skill_dir_returns_checkout_default_when_setting_empty(
+    monkeypatch,
+):
     # Arrange
     monkeypatch.setattr(settings, "GLOBAL_SKILLS_ROOT", "")
 
@@ -98,7 +100,9 @@ def test_list_global_skills_serves_configured_root_when_checkout_default_absent(
     baked = tmp_path / "builtin-skills" / "global"
     write_catalog_skill(baked, "alpha", siblings={"reference.md": "sibling"})
     write_catalog_skill(baked, "beta")
-    monkeypatch.setattr(skills_catalog, "_CHECKOUT_GLOBAL_SKILL_DIR", tmp_path / "absent")
+    monkeypatch.setattr(
+        skills_catalog, "_CHECKOUT_GLOBAL_SKILL_DIR", tmp_path / "absent"
+    )
     monkeypatch.setattr(settings, "GLOBAL_SKILLS_ROOT", str(baked))
     monkeypatch.setattr(
         skills_catalog, "_GLOBAL_SKILL_DIR", skills_catalog._resolve_global_skill_dir()

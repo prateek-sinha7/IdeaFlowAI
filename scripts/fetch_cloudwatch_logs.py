@@ -165,7 +165,9 @@ def run_insights_query(
         status = result["status"]
         if status in ("Complete", "Failed", "Cancelled", "Timeout"):
             if status != "Complete":
-                raise RuntimeError(f"CloudWatch Logs Insights query ended with status={status}")
+                raise RuntimeError(
+                    f"CloudWatch Logs Insights query ended with status={status}"
+                )
             return result["results"]
         if time.monotonic() > deadline:
             raise TimeoutError(
@@ -218,12 +220,19 @@ def main() -> int:
 
     start_label = datetime.fromtimestamp(start_epoch, tz=timezone.utc).isoformat()
     end_label = datetime.fromtimestamp(end_epoch, tz=timezone.utc).isoformat()
-    print(f"Querying log group '{args.log_group}' in {args.region} "
-          f"from {start_label} to {end_label}...")
+    print(
+        f"Querying log group '{args.log_group}' in {args.region} "
+        f"from {start_label} to {end_label}..."
+    )
 
     try:
         raw_results = run_insights_query(
-            logs_client, args.log_group, start_epoch, end_epoch, query_string, args.limit
+            logs_client,
+            args.log_group,
+            start_epoch,
+            end_epoch,
+            query_string,
+            args.limit,
         )
     except (ClientError, BotoCoreError) as exc:
         print(f"error: AWS request failed: {exc}", file=sys.stderr)

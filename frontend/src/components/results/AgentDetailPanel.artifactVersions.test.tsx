@@ -9,12 +9,15 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import type { CapabilitiesPalette } from "@/lib/api";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 
 const getRunArtifacts = vi.fn();
+const getCapabilities = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   getRunArtifacts: (...args: unknown[]) => getRunArtifacts(...args),
+  getCapabilities: (...args: unknown[]) => getCapabilities(...args),
   getToken: () => "test-token",
 }));
 
@@ -65,6 +68,11 @@ beforeEach(() => {
       workflow_id: "r1",
       artifacts: opts?.includeContent ? NODES : NODES.map(({ content: _c, ...n }) => n),
     }),
+  );
+  getCapabilities.mockReset();
+  getCapabilities.mockImplementation(
+    (): Promise<CapabilitiesPalette> =>
+      Promise.resolve({ capabilities: [], model_catalog: [] }),
   );
 });
 

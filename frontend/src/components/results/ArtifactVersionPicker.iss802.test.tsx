@@ -10,7 +10,7 @@
  * jsdom (same technique as AuditTab.iss800.test.tsx / SandboxTab.iss830.test.tsx).
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, screen, waitFor } from "@testing-library/react";
+import { render, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
 
 const getRunArtifacts = vi.fn();

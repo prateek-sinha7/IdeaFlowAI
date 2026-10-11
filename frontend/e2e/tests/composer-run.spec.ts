@@ -21,9 +21,10 @@ import type { DashboardPage } from "../fixtures/dashboard";
 /** Open the full-page Composer (mainView='composer') from Home. The Simple
  *  Summary rail is the reliable "composer mounted" signal. */
 async function openComposer(dashboard: DashboardPage) {
-  await dashboard.goto();
-  await dashboard.page.getByRole("button", { name: "Create workflow" }).click();
-  await expect(dashboard.page.getByTestId("composer-summary-rail")).toBeVisible();
+  // FIX-181 retired Home's "Create workflow" button; the composer is reached via
+  // the "Compose a custom workflow" card.
+  // It opens on Canvas; these flows start in the Simple view.
+  await dashboard.openComposer({ view: "simple" });
 }
 
 /** Add one agent from the library (defaults to the Custom category for the custom
@@ -47,8 +48,10 @@ test.describe("Composer Run-once — launch through the existing seam", () => {
     await addOneAgent(dashboard);
     await addOneAgent(dashboard);
 
-    // Launch through the Simple Summary rail's Run-once.
-    await page.getByRole("button", { name: "Run once now" }).click();
+    // Run-once now lives in the shared ComposerPage header (SummaryRail is
+    // read-only) and requires a brief of >= 3 chars before it launches.
+    await page.getByRole("textbox", { name: "Brief description" }).fill("Compose a launch plan");
+    await page.getByRole("button", { name: "Run once", exact: true }).click();
 
     // The composed run crosses the EXISTING onStartPipeline → startPipeline seam:
     // the outbound run_pipeline frame carries the composed base_pipeline_type +
@@ -79,8 +82,8 @@ test.describe("Composer Run-once — launch through the existing seam", () => {
     await page.getByRole("button", { name: "Canvas" }).click();
     await expect(page.getByTestId("canvas-view")).toBeVisible();
 
-    // Launch through the Canvas docked Run-once (distinct from the Simple rail's
-    // "Run once now" — match exactly).
+    // The Canvas Brief node feeds the same briefText the header Run-once reads.
+    await page.getByRole("textbox", { name: "Brief description" }).fill("Compose a launch plan");
     await page.getByRole("button", { name: "Run once", exact: true }).click();
 
     const frame = await mockSse.waitForCommand("run_pipeline");

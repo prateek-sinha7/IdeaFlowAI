@@ -60,7 +60,7 @@ handed to the pipeline.
 ### D. Set shared shell variables (used by every command below)
 
 ```bash
-git clone <repo-url> && cd flowin          # or your checkout path
+git clone <repo-url> && cd velocityai      # or your checkout path
 export ACCT=<account-id>                    # 12-digit AWS account id
 export REGION=eu-central-1
 export LOCK=velocityai-tfstate-locks
@@ -281,9 +281,12 @@ Two workflows in `.github/workflows/`:
 Runs on every PR, push to `main`/`dev`/`staging`, and `v*` tags. Also callable
 as a reusable workflow (used by `deploy.yml` as its gate). Three parallel jobs:
 
-- **backend** — ruff, pyright, import-linter, vulture, pytest, pip-audit (warn-only)
-- **frontend** — eslint, vitest, build, npm audit (warn-only)
-- **security-scan** — gitleaks, checkov, trivy config, tflint
+- **backend** — ruff, pyright, import-linter, vulture, pytest
+- **frontend** — eslint, vitest, build
+- **security** (matrix: `secrets`/`iac`) — gitleaks, checkov, trivy config, tflint, terraform fmt/validate
+- **container-scan** (matrix: `backend`/`frontend`) — Trivy + Grype on each locally built image, plus Trivy on `frontend/package-lock.json` (replaced pip-audit / npm audit); exceptions only via `backend/tools/ci/scan_accepts.py`
+
+(See `.github/CI_STATUS.md` for the authoritative job list.)
 
 ### `deploy.yml` — build, scan, deploy
 

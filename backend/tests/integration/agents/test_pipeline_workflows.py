@@ -62,6 +62,23 @@ def _llm_configured() -> bool:
 
 requires_api_key = pytest.mark.requires_api_key
 
+# Parametrize ONLY the pipelines each check can apply to. These used to be generated
+# for every pipeline and then ``pytest.skip``ped at runtime ("has no agents" / "has <2
+# agents") — composed/example manifests whose steps are not registry agents. A skip
+# can never become a pass, so those nodes asserted nothing, and the CI offline gate
+# (tools.ci.inventory_cli verify-execution) fails on every skip in the mandatory
+# partition. Same predicate as the old runtime guard, applied at collection time, so
+# every case that ran assertions before still does.
+_STRUCTURAL_CANDIDATES = [
+    pt
+    for pt in sorted(PIPELINE_AGENTS)
+    if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE
+]
+_WITH_AGENTS = [pt for pt in _STRUCTURAL_CANDIDATES if _resolve_agents(pt)]
+_WITH_TWO_OR_MORE_AGENTS = [
+    pt for pt in _STRUCTURAL_CANDIDATES if len(_resolve_agents(pt)) >= 2
+]
+
 
 # ---------------------------------------------------------------------------
 # Tier 1 — Structural regression (no credentials)
@@ -71,18 +88,9 @@ requires_api_key = pytest.mark.requires_api_key
 class TestStructuralRegression:
     """SC-004: structural regression across all pipeline types."""
 
-    @pytest.mark.parametrize(
-        "pipeline_type",
-        [
-            pt
-            for pt in sorted(PIPELINE_AGENTS)
-            if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE
-        ],
-    )
+    @pytest.mark.parametrize("pipeline_type", _WITH_AGENTS)
     def test_pipeline_resolves_to_satisfiable_dag(self, pipeline_type):
         agents = _resolve_agents(pipeline_type)
-        if not agents:
-            pytest.skip(f"{pipeline_type} has no agents")
         result = WorkflowResolver().validate(agents)
         assert result.satisfiable, f"{pipeline_type} unsatisfiable: {result.errors}"
 
@@ -92,14 +100,7 @@ class TestStructuralRegression:
         result = WorkflowResolver().validate(agents)
         assert result.satisfiable, f"ppt unsatisfiable: {result.errors}"
 
-    @pytest.mark.parametrize(
-        "pipeline_type",
-        [
-            pt
-            for pt in sorted(PIPELINE_AGENTS)
-            if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE
-        ],
-    )
+    @pytest.mark.parametrize("pipeline_type", _WITH_TWO_OR_MORE_AGENTS)
     def test_topological_order_is_dependency_valid(self, pipeline_type):
         """The resolved execution order must be a valid topological sort:
         every agent appears AFTER all agents it consumes from.
@@ -110,8 +111,6 @@ class TestStructuralRegression:
         a dependency it consumes. Linear pipelines preserve declared order
         as a natural consequence."""
         agents = _resolve_agents(pipeline_type)
-        if not agents or len(agents) < 2:
-            pytest.skip(f"{pipeline_type} has <2 agents")
         result = WorkflowResolver().validate(agents)
         assert result.satisfiable
 
@@ -128,14 +127,7 @@ class TestStructuralRegression:
                     f"{dep_id} (positions {position[agent_id]} < {position[dep_id]})"
                 )
 
-    @pytest.mark.parametrize(
-        "pipeline_type",
-        [
-            pt
-            for pt in sorted(PIPELINE_AGENTS)
-            if pt not in _EMPTY_SCAN | _STRUCTURALLY_INCOMPLETE
-        ],
-    )
+    @pytest.mark.parametrize("pipeline_type", _WITH_AGENTS)
     def test_every_consumes_is_satisfied_upstream(self, pipeline_type):
         """Every non-root agent must have AT LEAST ONE ``consumes`` entry
         satisfied by an upstream producer.
@@ -152,8 +144,6 @@ class TestStructuralRegression:
         is a real structural break (an orphaned agent with no data source).
         """
         agents = _resolve_agents(pipeline_type)
-        if not agents:
-            pytest.skip(f"{pipeline_type} has no agents")
         produced_so_far: set[str] = set()
         for agent in agents:
             declared = [

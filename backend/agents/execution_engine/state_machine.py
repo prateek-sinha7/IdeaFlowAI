@@ -49,7 +49,9 @@ VALID_STATES: frozenset[str] = frozenset(
 )
 
 # Terminal states — no transitions out
-TERMINAL_STATES: frozenset[str] = frozenset({"completed", "failed", "cancelled", "diverted"})
+TERMINAL_STATES: frozenset[str] = frozenset(
+    {"completed", "failed", "cancelled", "diverted"}
+)
 
 
 class StateMachineError(Exception):

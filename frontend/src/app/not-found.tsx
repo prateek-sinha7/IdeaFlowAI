@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { ArrowLeft } from "lucide-react";
@@ -16,9 +17,11 @@ export default function NotFoundPage() {
       >
         {/* Hexaware logo + VelocityAI wordmark */}
         <div className="flex items-center gap-2.5">
-          <img
+          <Image
             src="/hexaware-logo.png"
             alt="Hexaware"
+            width={40}
+            height={40}
             className="h-10 w-10 rounded-[8px] flex-shrink-0"
           />
           <span className="text-base font-semibold tracking-tight text-white font-sans">

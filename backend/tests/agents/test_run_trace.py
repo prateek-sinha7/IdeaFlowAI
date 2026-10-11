@@ -71,11 +71,16 @@ def test_a_tool_call_names_the_file_without_quoting_it(tmp_path):
     deck = "<!DOCTYPE html>" + ("<section>slide</section>" * 2000)
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({
-        "type": "tool_call",
-        "data": {"agent_id": "composer", "tool": "write_file",
-                 "args": {"file_path": "presentation.html", "content": deck}},
-    })
+    trace.observe(
+        {
+            "type": "tool_call",
+            "data": {
+                "agent_id": "composer",
+                "tool": "write_file",
+                "args": {"file_path": "presentation.html", "content": deck},
+            },
+        }
+    )
     trace.flush()
 
     (line,) = _lines(log_path)
@@ -93,11 +98,16 @@ def test_a_short_tool_payload_is_kept_verbatim(tmp_path):
     away the only line that explains the failure."""
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({
-        "type": "tool_result",
-        "data": {"agent_id": "qa", "tool": "read_file",
-                 "result": "Error: File '/presentation.html' not found"},
-    })
+    trace.observe(
+        {
+            "type": "tool_result",
+            "data": {
+                "agent_id": "qa",
+                "tool": "read_file",
+                "result": "Error: File '/presentation.html' not found",
+            },
+        }
+    )
     trace.flush()
 
     (line,) = _lines(log_path)
@@ -109,10 +119,12 @@ def test_an_elided_payload_keeps_its_head_so_a_failure_still_reads(tmp_path):
     body = "Error: permission denied\n" + ("stack frame\n" * 5000)
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({
-        "type": "tool_result",
-        "data": {"agent_id": "a1", "tool": "read_file", "result": body},
-    })
+    trace.observe(
+        {
+            "type": "tool_result",
+            "data": {"agent_id": "a1", "tool": "read_file", "result": body},
+        }
+    )
     trace.flush()
 
     (line,) = _lines(log_path)
@@ -124,7 +136,9 @@ def test_streaming_deltas_are_coalesced_into_one_line(tmp_path):
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
     for piece in ["Hello", " ", "world"]:
-        trace.observe({"type": "agent_chunk", "data": {"agent_id": "a1", "chunk": piece}})
+        trace.observe(
+            {"type": "agent_chunk", "data": {"agent_id": "a1", "chunk": piece}}
+        )
     trace.flush()
 
     (line,) = _lines(log_path)
@@ -139,15 +153,24 @@ def test_thinking_is_combined_across_the_whole_step_and_written_once(tmp_path):
     step and lands as ONE line when the agent finishes."""
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "First, "}})
+    trace.observe(
+        {"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "First, "}}
+    )
     trace.observe({"type": "tool_call", "data": {"agent_id": "a1", "tool": "ls"}})
-    trace.observe({"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "then this."}})
-    trace.observe({"type": "tool_call", "data": {"agent_id": "a1", "tool": "read_file"}})
+    trace.observe(
+        {"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "then this."}}
+    )
+    trace.observe(
+        {"type": "tool_call", "data": {"agent_id": "a1", "tool": "read_file"}}
+    )
     trace.observe({"type": "agent_complete", "data": {"agent_id": "a1"}})
 
     events = _lines(log_path)
     assert [e["event"] for e in events] == [
-        "tool_call", "tool_call", "agent_thinking", "agent_complete",
+        "tool_call",
+        "tool_call",
+        "agent_thinking",
+        "agent_complete",
     ]
     thinking = events[2]
     assert thinking["thinking"] == "First, then this."
@@ -159,16 +182,23 @@ def test_thinking_lands_before_the_line_that_ends_the_step(tmp_path):
     trailing after it."""
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "why"}})
+    trace.observe(
+        {"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "why"}}
+    )
     trace.observe({"type": "agent_complete", "data": {"agent_id": "a1"}})
 
-    assert [e["event"] for e in _lines(log_path)] == ["agent_thinking", "agent_complete"]
+    assert [e["event"] for e in _lines(log_path)] == [
+        "agent_thinking",
+        "agent_complete",
+    ]
 
 
 def test_a_failed_step_still_leaves_its_reasoning(tmp_path):
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "stuck"}})
+    trace.observe(
+        {"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "stuck"}}
+    )
     trace.observe({"type": "agent_error", "data": {"agent_id": "a1", "error": "boom"}})
 
     events = _lines(log_path)
@@ -180,13 +210,20 @@ def test_thinking_of_two_agents_never_merges(tmp_path):
     """Two agents can be mid-step at once (a fan-out); each keeps its own."""
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "one"}})
-    trace.observe({"type": "agent_thinking", "data": {"agent_id": "a2", "thinking": "two"}})
+    trace.observe(
+        {"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "one"}}
+    )
+    trace.observe(
+        {"type": "agent_thinking", "data": {"agent_id": "a2", "thinking": "two"}}
+    )
     trace.observe({"type": "agent_complete", "data": {"agent_id": "a2"}})
     trace.observe({"type": "agent_complete", "data": {"agent_id": "a1"}})
 
-    thinking = [(e["agent_id"], e["thinking"]) for e in _lines(log_path)
-                if e["event"] == "agent_thinking"]
+    thinking = [
+        (e["agent_id"], e["thinking"])
+        for e in _lines(log_path)
+        if e["event"] == "agent_thinking"
+    ]
     assert thinking == [("a2", "two"), ("a1", "one")]
 
 
@@ -195,7 +232,9 @@ def test_reasoning_survives_a_run_that_never_finished_its_step(tmp_path):
     what stops its reasoning being lost."""
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "half"}})
+    trace.observe(
+        {"type": "agent_thinking", "data": {"agent_id": "a1", "thinking": "half"}}
+    )
     trace.flush()
 
     (line,) = _lines(log_path)
@@ -211,7 +250,10 @@ def test_deltas_from_different_agents_do_not_merge(tmp_path):
     trace.flush()
 
     events = _lines(log_path)
-    assert [(e["agent_id"], e["text"]) for e in events] == [("a1", "one"), ("a2", "two")]
+    assert [(e["agent_id"], e["text"]) for e in events] == [
+        ("a1", "one"),
+        ("a2", "two"),
+    ]
 
 
 def test_a_tool_call_mid_stream_lands_after_the_text_before_it(tmp_path):
@@ -219,13 +261,19 @@ def test_a_tool_call_mid_stream_lands_after_the_text_before_it(tmp_path):
     text that preceded it would misrepresent what the agent did."""
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({"type": "agent_chunk", "data": {"agent_id": "a1", "chunk": "before"}})
-    trace.observe({"type": "tool_call", "data": {"agent_id": "a1", "tool": "read_file"}})
+    trace.observe(
+        {"type": "agent_chunk", "data": {"agent_id": "a1", "chunk": "before"}}
+    )
+    trace.observe(
+        {"type": "tool_call", "data": {"agent_id": "a1", "tool": "read_file"}}
+    )
     trace.observe({"type": "agent_chunk", "data": {"agent_id": "a1", "chunk": "after"}})
     trace.flush()
 
     assert [e["event"] for e in _lines(log_path)] == [
-        "agent_output", "tool_call", "agent_output",
+        "agent_output",
+        "tool_call",
+        "agent_output",
     ]
 
 
@@ -249,10 +297,12 @@ def test_a_pathological_output_is_still_bounded_and_says_so(tmp_path):
 
     log_path = _make_log_path(tmp_path)
     trace = RunTrace(log_path)
-    trace.observe({
-        "type": "agent_chunk",
-        "data": {"agent_id": "a1", "chunk": "x" * (_MAX_FIELD_CHARS + 50)},
-    })
+    trace.observe(
+        {
+            "type": "agent_chunk",
+            "data": {"agent_id": "a1", "chunk": "x" * (_MAX_FIELD_CHARS + 50)},
+        }
+    )
     trace.flush()
 
     (line,) = _lines(log_path)
@@ -263,12 +313,12 @@ def test_tracing_never_breaks_a_run(tmp_path):
     """A malformed event, or an unwritable path, must not raise into the stream."""
     log_path = _make_log_path(tmp_path)
     RunTrace(log_path).observe({"type": "x", "data": "not-a-dict"})
-    RunTrace(None).observe({"type": "x", "data": {"a": 1}})   # no sandbox at all
+    RunTrace(None).observe({"type": "x", "data": {"a": 1}})  # no sandbox at all
     assert [e["event"] for e in _lines(log_path)] == ["x"]
 
 
 def test_a_run_driven_by_the_resume_driver_is_traced_too(tmp_path, monkeypatch):
-    """"By construction" has to hold on BOTH drivers, not only ``execute()``.
+    """ "By construction" has to hold on BOTH drivers, not only ``execute()``.
 
     REGRESSION THIS PINS (live, L6 run ``3da5d506-…``): ``_drive_resumed_stream``
     is a twin of ``execute()``'s stamping loop and built no ``RunTrace``. Any run
@@ -317,9 +367,7 @@ def test_a_run_driven_by_the_resume_driver_is_traced_too(tmp_path, monkeypatch):
         )
     )
 
-    log_path = _sandbox_mod.RunSandbox(
-        "u1", run_id, current_run_id=run_id
-    ).run_log_path
+    log_path = _sandbox_mod.RunSandbox("u1", run_id, current_run_id=run_id).run_log_path
     written = _lines(log_path)
     # agent_chunk is coalesced and flushed as agent_output by the driver's finally.
     assert [e["event"] for e in written] == ["agent_input", "tool_call", "agent_output"]

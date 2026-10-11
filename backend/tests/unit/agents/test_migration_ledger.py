@@ -206,14 +206,23 @@ def _checked_grep_rows(ledger_text: str | None = None) -> list[tuple[str, str | 
     return out
 
 
-@pytest.mark.parametrize("item,pattern", _checked_grep_rows() or [("__none__", None)])
-def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> None:
+# CHECK-row gates (pattern None) are enforced out-of-band, so they are filtered
+# out HERE, when the parameters are built — not skipped at run time. A run-time
+# skip is a failure in CI's offline partition (verify-execution), and these
+# rows are "does not apply", not "could not run".
+_GREP_ROWS: list[tuple[str, str]] = [
+    (item, pattern) for item, pattern in _checked_grep_rows() if pattern is not None
+]
+
+
+def test_ledger_has_at_least_one_enforced_grep_row() -> None:
+    """Guard the filter above: an empty parameter set would silently test nothing."""
+    assert _GREP_ROWS, "no ☑ grep rows parsed from the migration ledger"
+
+
+@pytest.mark.parametrize("item,pattern", _GREP_ROWS)
+def test_deleted_pattern_absent_from_backend(item: str, pattern: str) -> None:
     """Each ``☑`` grep row's banned pattern must return 0 matches in ``backend/``."""
-    if pattern is None:
-        pytest.skip(
-            "no ☑ grep rows yet — green/empty in Phase 1 (D-10), "
-            "or a CHECK-row gate handled out-of-band"
-        )
     scope = _scope_for(item)
     # `evals/` is excluded deliberately: it is a standalone offline eval
     # harness, not the pipeline runtime this ledger polices. F1's pattern

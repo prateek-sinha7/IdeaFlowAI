@@ -34,8 +34,14 @@ const PROTOTYPE_HTML = `<!DOCTYPE html><html><head><title>Proto</title></head><b
 const XSS_HTML = `<!DOCTYPE html><html><head><title>Evil</title></head><body><h1>Evil</h1><script>try{parent.__xss=1;window.parent.__xss=1;top.__xss=1;}catch(e){}</script></body></html>`;
 
 test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", () => {
-  test.beforeEach(async ({ dashboard }) => {
+  // The typed-deck/prototype cases (TS-P-05*) are served by the mock's lazy attach
+  // instead of a user_stories launch: since 015-frontend-routing a launch persists
+  // its run TYPE (sessionStorage run_type:{id}) across the /runs/{id}/stream
+  // remount, so launching user_stories and announcing ppt is a state the real
+  // backend never produces. The generic channel (custom + mimetype) is unaffected.
+  test.beforeEach(async ({ dashboard }, testInfo) => {
     await dashboard.goto();
+    if (/TS-P-05[ac]/.test(testInfo.title)) return;
     // user_stories seeds default agents → Run enables once an idea is typed.
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Custom deliverable run" });
   });
@@ -51,6 +57,9 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
   ) {
     const agents = AGENTS.user_stories;
     mockSse.start(agents, { pipelineType });
+    // Lazy-attach cases: let the stream attach before the run plays out, else
+    // the durable replay delivers start→complete in one burst (never "live").
+    await mockSse.ready();
     for (const a of agents) await runAgent(mockSse, a.id);
     mockSse.complete({ pipelineType, ...complete });
   }
@@ -113,7 +122,9 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
   });
 
   test("TS-P-05a od_ppt deck → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockSse }) => {
-    await runThenComplete(mockSse, "od_ppt", { finalOutput: SAMPLE_DECK });
+    // od_ppt was folded into `ppt` — the single HTML-deck pipeline
+    // (backend/agents/workflows has no od_* manifest; PPTPreview isOdPpt = true).
+    await runThenComplete(mockSse, "ppt", { finalOutput: SAMPLE_DECK });
 
     const deck = dashboard.deckIframe();
     await expect(deck).toBeVisible();
@@ -123,18 +134,21 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
   });
 
   test("TS-P-05b plain ppt deck → iframe sandbox = allow-scripts (NO same-origin)", async ({ dashboard, mockSse }) => {
-    await runThenComplete(mockSse, "ppt", { finalOutput: SAMPLE_DECK });
+    // The non-od ppt branch was retired (PPTPreview isOdPpt = true); the "untrusted deck gets scripts only"
+    // invariant is now exercised via the generic HTML deliverable channel.
+    await runThenComplete(mockSse, "custom", { finalOutput: SAMPLE_DECK, deliverableMimetype: "text/html", deliverableFilename: "deck.html" });
 
-    const deck = dashboard.deckIframe();
+    const deck = dashboard.genericIframe();
     await expect(deck).toBeVisible();
     const sandbox = await deck.getAttribute("sandbox");
-    // Plain "ppt" (non-od) does NOT get same-origin.
+    // A non-trusted HTML deck (generic channel) does NOT get same-origin.
     expect(sandbox).toBe("allow-scripts");
     expect(sandbox || "").not.toContain("allow-same-origin");
   });
 
   test("TS-P-05c prototype → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockSse }) => {
-    await runThenComplete(mockSse, "od_prototype", { finalOutput: PROTOTYPE_HTML });
+    // od_prototype was folded into `prototype` (no od_* manifest remains).
+    await runThenComplete(mockSse, "prototype", { finalOutput: PROTOTYPE_HTML });
 
     const proto = dashboard.prototypeIframe();
     await expect(proto).toBeVisible();

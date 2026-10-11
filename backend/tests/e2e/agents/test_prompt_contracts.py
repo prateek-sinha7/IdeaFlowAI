@@ -96,7 +96,11 @@ def test_sdlc_governance_anti_fabrication_contract(agent_id: str) -> None:
 
     # Shared contract lines (byte-identical anti-tool-XML sentence across the
     # family).
-    assert "You have NO tools" in body
+    # Sandbox-read migration (9efb704d) replaced "You have NO tools" with a
+    # read_file instruction; the anti-fabrication guard is the explicit ban on
+    # emitting tool-call syntax as text.
+    assert "Never emit tool-call syntax as text" in body
+    assert "read_file" in body
     assert "Begin your response DIRECTLY with" in body
 
     # Pitfall 7: forbidden tokens named exactly ONCE, tersely — repeating

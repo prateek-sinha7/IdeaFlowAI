@@ -45,11 +45,11 @@ test.describe("TS-T — WorkflowHistory", () => {
     await dashboard.goto();
     await openHistory(page);
 
-    // Each seeded run renders a row by title.
-    await expect(page.getByText("Refunds backlog")).toBeVisible();
-    await expect(page.getByText("Pitch deck draft")).toBeVisible();
-    await expect(page.getByText("Broken prototype")).toBeVisible();
-    await expect(page.getByText("Live app build")).toBeVisible();
+    // Each seeded run renders a History row by title (scoped by the row button label so the Home recents card, still unmounting, cannot match).
+    await expect(page.getByRole("button", { name: /^Open Refunds backlog,/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Open Pitch deck draft,/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Open Broken prototype,/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Open Live app build,/ })).toBeVisible();
 
     // Status badge labels (WorkflowHistory list view): Done / Cancelled / Failed / Running.
     // Scope each badge to its row so the assertion is row-accurate.
@@ -126,7 +126,7 @@ test.describe("TS-T — WorkflowHistory", () => {
     // internal RunDetailPage (Preview/Files/Thinking). Its reopen deliverable now
     // renders in the run screen's PreviewPanel — parity with the Home-recents path
     // covered by ts-live-state (b).
-    await page.getByText("Refunds backlog").click();
+    await page.getByRole("button", { name: /^Open Refunds backlog,/ }).click();
 
     // The shared run screen mounts (NOT the internal detail).
     await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
@@ -156,7 +156,7 @@ test.describe("TS-T — WorkflowHistory", () => {
     await dashboard.goto();
     await openHistory(page);
 
-    await page.getByText("Custom deliverable").click();
+    await page.getByRole("button", { name: /^Open Custom deliverable,/ }).click();
 
     // The shared run screen mounts (BUG-002 routing) — NOT the internal detail.
     await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
@@ -178,7 +178,7 @@ test.describe("TS-T — WorkflowHistory", () => {
     ]);
     await dashboard.goto();
     await openHistory(page);
-    await page.getByText("Custom deliverable").click();
+    await page.getByRole("button", { name: /^Open Custom deliverable,/ }).click();
     await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
     await dashboard.previewTab().click();
     const iframe = page.locator('iframe[title="Deliverable Preview"]');
@@ -207,7 +207,9 @@ test.describe("TS-T — WorkflowHistory", () => {
       makeRun({
         id: "r-ppt",
         title: "Pitch deck reopen",
-        type: "od_ppt",
+        // od_ppt was folded into `ppt`, the single HTML-deck pipeline (no od_*
+        // manifest remains in backend/agents/workflows) — the real persisted type.
+        type: "ppt",
         status: "completed",
         output: "<!DOCTYPE html><html><body><h1>DECK-SLIDE-1</h1></body></html>",
         deliverable_mimetype: "text/html",
@@ -216,7 +218,7 @@ test.describe("TS-T — WorkflowHistory", () => {
 
     await dashboard.goto();
     await openHistory(page);
-    await page.getByText("Pitch deck reopen").click();
+    await page.getByRole("button", { name: /^Open Pitch deck reopen,/ }).click();
 
     // The shared run screen mounts (BUG-002 routing).
     await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
@@ -233,7 +235,7 @@ test.describe("TS-T — WorkflowHistory", () => {
       makeRun({
         id: "r-proto",
         title: "Prototype reopen",
-        type: "od_prototype",
+        type: "prototype", // od_prototype folded into `prototype` (see above)
         status: "completed",
         output: "<!DOCTYPE html><html><body><h1>PROTO-VIEW</h1></body></html>",
         deliverable_mimetype: "text/html",
@@ -241,7 +243,7 @@ test.describe("TS-T — WorkflowHistory", () => {
     ]);
     await dashboard.goto();
     await openHistory(page);
-    await page.getByText("Prototype reopen").click();
+    await page.getByRole("button", { name: /^Open Prototype reopen,/ }).click();
     await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
     await dashboard.previewTab().click();
     await expect(page.locator('iframe[title="Prototype Preview"]')).toBeVisible();

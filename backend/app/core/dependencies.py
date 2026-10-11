@@ -27,6 +27,7 @@ from app.models.database import get_db
 from app.models.revoked_token import cleanup_expired_revocations
 from app.models.user import User
 
+
 class _BearerScheme(HTTPBearer):
     """``HTTPBearer`` that answers a MISSING/non-bearer Authorization header with 401.
 

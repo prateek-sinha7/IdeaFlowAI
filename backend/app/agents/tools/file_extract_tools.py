@@ -126,6 +126,7 @@ def _pagination_note(converted_by: str | None) -> str:
         f"the converter's pagination, which the authoring application may not share."
     )
 
+
 # Fragment merge gap (points) — images this close vertically with overlapping x ranges
 # are merged into one picture (FR-005a).
 _FRAGMENT_MERGE_GAP = 2.0
@@ -233,7 +234,7 @@ def _list_uploads() -> tuple[list[str], str]:
         uploads_path = _SANDBOX.path_for(_UPLOADS_PREFIX)
     except ValueError:
         # path_for rejects the path (should never happen with a constant prefix)
-        return [], f"uploads directory not accessible"
+        return [], "uploads directory not accessible"
 
     if not uploads_path.is_dir():
         return [], ""  # No uploads directory — empty list, no error.
@@ -295,7 +296,7 @@ def _list_all_uploads() -> tuple[list[tuple[str, bool]], str]:
         uploads_path = _SANDBOX.path_for(_UPLOADS_PREFIX)
     except ValueError:
         # path_for rejects the path (should never happen with a constant prefix)
-        return [], f"uploads directory not accessible"
+        return [], "uploads directory not accessible"
 
     if not uploads_path.is_dir():
         return [], ""  # No uploads directory — empty list, no error.
@@ -347,9 +348,8 @@ def file_info(path: str = "") -> str:
             elif fmt in _PAGED_FORMATS:
                 status = "✓ extract_text materialises it into .extract/"
             else:
-                status = (
-                    "✗ unsupported — these tools read "
-                    + ", ".join("." + f for f in sorted(_SUPPORTED_FORMATS))
+                status = "✗ unsupported — these tools read " + ", ".join(
+                    "." + f for f in sorted(_SUPPORTED_FORMATS)
                 )
             lines.append(f"  • {filename} — {status}")
 
@@ -441,18 +441,22 @@ def file_info(path: str = "") -> str:
 
                 # Determine text layer verdict
                 has_text = char_count >= _TEXT_LAYER_THRESHOLD
-                text_verdict = "text layer present" if has_text else "minimal/no text layer"
+                text_verdict = (
+                    "text layer present" if has_text else "minimal/no text layer"
+                )
 
                 # Count images
                 image_count = len(page.images) if page.images else 0
                 total_images += image_count
 
-                page_summaries.append({
-                    "page": page_num,
-                    "chars": char_count,
-                    "text_verdict": text_verdict,
-                    "images": image_count,
-                })
+                page_summaries.append(
+                    {
+                        "page": page_num,
+                        "chars": char_count,
+                        "text_verdict": text_verdict,
+                        "images": image_count,
+                    }
+                )
 
         # Estimate token cost: 1 token ~= 4 characters
         estimated_tokens = total_chars // 4
@@ -471,7 +475,7 @@ def file_info(path: str = "") -> str:
             lines.append("")
 
         # Per-page summary with character counts and threshold
-        lines.append(f"Per-page text analysis:\n")
+        lines.append("Per-page text analysis:\n")
         for summary in page_summaries:
             lines.append(
                 f"  Page {summary['page']:2d}: {summary['chars']:4d} chars [threshold: {_TEXT_LAYER_THRESHOLD}] {summary['text_verdict']}, "
@@ -480,7 +484,7 @@ def file_info(path: str = "") -> str:
 
         # Totals
         lines.append("")
-        lines.append(f"Totals:")
+        lines.append("Totals:")
         lines.append(f"  Total characters: {total_chars:,}")
         lines.append(f"  Total images: {total_images:,}")
         lines.append(f"  Estimated tokens to read: ~{estimated_tokens:,}")
@@ -614,13 +618,17 @@ def _materialize_page(page: Any, render: Any, out_dir: Path) -> dict:
         raw_count += payload["parts"]
         idx += 1
         name = f"image-{idx}.png"
-        box = _crop_box_for_image(payload, page.width, page.height, render.width, render.height)
+        box = _crop_box_for_image(
+            payload, page.width, page.height, render.width, render.height
+        )
         crop = render.crop(box)
         crop.save(out_dir / name)
 
         parts = payload["parts"]
         noun = "source object" if parts == 1 else "source objects"
-        md_parts.append(f"\n@[[{name}]]  <!-- {crop.width}x{crop.height}, {parts} {noun} -->\n")
+        md_parts.append(
+            f"\n@[[{name}]]  <!-- {crop.width}x{crop.height}, {parts} {noun} -->\n"
+        )
         image_names.append(name)
 
     text_md = "\n".join(md_parts)
@@ -656,9 +664,9 @@ _PIXELS_PER_IMAGE_TOKEN = 750
 # run measured an agent that read NOTHING still spending 12,856 tokens on its
 # system prompt, tool schemas, task block and tool-call history. Sharding to the
 # raw safe budget overruns by exactly that much.
-_SHARD_SAFE_BUDGET = 120_000      # Haiku 4.5: 60% of a 200K window
-_SHARD_RESERVE_TOKENS = 15_000    # measured agent overhead, rounded up
-_SHARD_PAGE_CAP = 100             # API cap on pages/images per request <1M context
+_SHARD_SAFE_BUDGET = 120_000  # Haiku 4.5: 60% of a 200K window
+_SHARD_RESERVE_TOKENS = 15_000  # measured agent overhead, rounded up
+_SHARD_PAGE_CAP = 100  # API cap on pages/images per request <1M context
 
 #: Safe budget (60% of context) per reading model. Haiku is the default because
 #: it is the cheapest per page and the only model on both Bedrock paths; the rest
@@ -702,7 +710,9 @@ def _build_shards(
 
     Returns [] for a document with no complete pages (nothing to shard).
     """
-    safe_budget = _SHARD_SAFE_BUDGETS.get(model, _SHARD_SAFE_BUDGETS[_SHARD_DEFAULT_MODEL])
+    safe_budget = _SHARD_SAFE_BUDGETS.get(
+        model, _SHARD_SAFE_BUDGETS[_SHARD_DEFAULT_MODEL]
+    )
     usable = safe_budget - reserve
     shards: list[dict] = []
     current: list[int] = []
@@ -712,20 +722,24 @@ def _build_shards(
         if not current:
             return
         shard_id = f"{slug}-s{len(shards) + 1:02d}"
-        shards.append({
-            "id": shard_id,
-            "slug": slug,
-            "format": source_format,
-            "pages": list(current),
-            "page_range": f"{current[0]}-{current[-1]}" if len(current) > 1 else str(current[0]),
-            "est_tokens": current_tokens,
-            "source": f"{_doc_rel(source_format, slug)}/pages/",
-            "out": f"shards/{shard_id}/",
-            # True when ONE page alone exceeds the budget — the shard is emitted
-            # anyway (dropping the page would lose content silently) but an agent
-            # reading it should expect to be squeezed.
-            "over_budget": current_tokens > usable,
-        })
+        shards.append(
+            {
+                "id": shard_id,
+                "slug": slug,
+                "format": source_format,
+                "pages": list(current),
+                "page_range": f"{current[0]}-{current[-1]}"
+                if len(current) > 1
+                else str(current[0]),
+                "est_tokens": current_tokens,
+                "source": f"{_doc_rel(source_format, slug)}/pages/",
+                "out": f"shards/{shard_id}/",
+                # True when ONE page alone exceeds the budget — the shard is emitted
+                # anyway (dropping the page would lose content silently) but an agent
+                # reading it should expect to be squeezed.
+                "over_budget": current_tokens > usable,
+            }
+        )
 
     for n in pages:
         cost = page_tokens.get(n, 0)
@@ -738,6 +752,7 @@ def _build_shards(
         current_tokens += cost
     flush()
     return shards
+
 
 # ---------------------------------------------------------------------------
 # T17 — parallel materialisation (FR-013, FR-013a, FR-013b, FR-014).
@@ -753,7 +768,9 @@ def _build_shards(
 # ---------------------------------------------------------------------------
 
 _PARALLEL_WORKER_COUNT = 4
-_PARALLEL_PAGE_THRESHOLD = 30  # process spawn is a fixed cost a small doc never earns back
+_PARALLEL_PAGE_THRESHOLD = (
+    30  # process spawn is a fixed cost a small doc never earns back
+)
 
 
 def _split_into_ranges(page_numbers: list[int], worker_count: int) -> list[list[int]]:
@@ -761,10 +778,15 @@ def _split_into_ranges(page_numbers: list[int], worker_count: int) -> list[list[
     if not page_numbers:
         return []
     chunk_size = -(-len(page_numbers) // worker_count)  # ceil division
-    return [page_numbers[i : i + chunk_size] for i in range(0, len(page_numbers), chunk_size)]
+    return [
+        page_numbers[i : i + chunk_size]
+        for i in range(0, len(page_numbers), chunk_size)
+    ]
 
 
-def _materialize_page_range(pdf_bytes: bytes, page_numbers: list[int], pages_dir: str) -> dict[int, dict]:
+def _materialize_page_range(
+    pdf_bytes: bytes, page_numbers: list[int], pages_dir: str
+) -> dict[int, dict]:
     """Materialise one contiguous page range in its own process.
 
     Opens both `pdfplumber` and `pypdfium2` documents ONCE for the whole range
@@ -800,7 +822,9 @@ def _materialize_page_range(pdf_bytes: bytes, page_numbers: list[int], pages_dir
     return receipts
 
 
-def _materialize_parallel_sync(pdf_bytes: bytes, page_numbers: list[int], pages_dir: Path) -> dict[int, dict]:
+def _materialize_parallel_sync(
+    pdf_bytes: bytes, page_numbers: list[int], pages_dir: Path
+) -> dict[int, dict]:
     """Blocking: fan `page_numbers` out across `_PARALLEL_WORKER_COUNT` processes.
 
     FR-014 — off the event loop. These tools are plain sync callables (the same
@@ -991,7 +1015,9 @@ async def extract_text(path: str, pages: str = "", file_type: str = "") -> str:
     # and _PDFIUM_LOCK keeps those threads OUT of pdfium concurrently: pdfium
     # is not thread-safe, and five parallel readers rendering at once crashed
     # the server with SIGBUS inside FPDF_RenderPageBitmap (observed live).
-    return await asyncio.to_thread(_locked_call, _extract_text_sync, path, pages, file_type)
+    return await asyncio.to_thread(
+        _locked_call, _extract_text_sync, path, pages, file_type
+    )
 
 
 #: Serialises every in-process pdfium/pdfplumber materialisation. pdfium is NOT
@@ -1219,8 +1245,12 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
         if entry.isdigit() and (pages_dir / entry).is_dir()
     )
 
-    total_chars = sum(manifest_pages.get(str(n), {}).get("chars", 0) for n in complete_pages)
-    total_raw = sum(manifest_pages.get(str(n), {}).get("raw_images", 0) for n in complete_pages)
+    total_chars = sum(
+        manifest_pages.get(str(n), {}).get("chars", 0) for n in complete_pages
+    )
+    total_raw = sum(
+        manifest_pages.get(str(n), {}).get("raw_images", 0) for n in complete_pages
+    )
     total_merged = sum(
         manifest_pages.get(str(n), {}).get("merged_images", 0) for n in complete_pages
     )
@@ -1241,7 +1271,9 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
                 continue
         page_tokens[n] = tok
 
-    created_at = (manifest or {}).get("created_at") or datetime.now(timezone.utc).isoformat()
+    created_at = (manifest or {}).get("created_at") or datetime.now(
+        timezone.utc
+    ).isoformat()
     new_manifest = {
         "source": filename,
         "source_sha256": source_sha256,
@@ -1251,7 +1283,11 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
         "page_count": page_count,
         "scale": _RENDER_SCALE,
         "created_at": created_at,
-        "pages": {str(n): manifest_pages[str(n)] for n in complete_pages if str(n) in manifest_pages},
+        "pages": {
+            str(n): manifest_pages[str(n)]
+            for n in complete_pages
+            if str(n) in manifest_pages
+        },
         # SHARDING.md: how this document divides across reading agents. Computed
         # here so the planner reads a number instead of deriving one — the same
         # arithmetic done by a model is the same arithmetic done wrong sometimes.
@@ -1282,7 +1318,9 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
         # directory to be relative to here. Left page-relative, every page's
         # "image-1.png" would name a different file and none would resolve.
         text = _DOC_REF_RE.sub(rf"@[[pages/{n:02d}/\1]]", text)
-        doc_parts.append(f"\n\n<!-- ================= PAGE {n} ================= -->\n\n" + text)
+        doc_parts.append(
+            f"\n\n<!-- ================= PAGE {n} ================= -->\n\n" + text
+        )
     _write_if_changed(document_path, "".join(doc_parts))
 
     # Estimated cost of reading the whole document (text + every image) — the sum
@@ -1294,7 +1332,9 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
         f"({page_count} page(s) total)\n"
     ]
     if to_build:
-        lines.append(f"Processed: {len(to_build)} page(s) — {', '.join(map(str, to_build))}")
+        lines.append(
+            f"Processed: {len(to_build)} page(s) — {', '.join(map(str, to_build))}"
+        )
         lines.append(f"  images this run: {run_raw} raw -> {run_merged} after merge")
     else:
         lines.append("Processed: 0 pages (nothing new to materialise)")
@@ -1304,20 +1344,24 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
         f"Document totals: {len(complete_pages)}/{page_count} page(s) complete, "
         f"{total_chars:,} characters, {total_raw} raw images -> {total_merged} after merge"
     )
-    lines.append(f"Estimated tokens to read document.md + all images: ~{estimated_tokens:,}")
+    lines.append(
+        f"Estimated tokens to read document.md + all images: ~{estimated_tokens:,}"
+    )
     _shards = new_manifest["shards"]
     if _shards:
         lines.append(
             f"Shards: {len(_shards)} — "
-            + ", ".join(f"{sh['id']} pages {sh['page_range']} (~{sh['est_tokens']:,} tok)"
-                        for sh in _shards)
+            + ", ".join(
+                f"{sh['id']} pages {sh['page_range']} (~{sh['est_tokens']:,} tok)"
+                for sh in _shards
+            )
         )
     lines.append("")
     lines.append(f"Read it with: read_file {_doc_rel(source_format, slug)}/document.md")
     if page_count > _LARGE_DOCUMENT_PAGES:
         # Advisory only — the document WAS materialised in full.
         lines.append(
-            f'This document is {page_count} pages (~{estimated_tokens:,} tokens to read whole). '
+            f"This document is {page_count} pages (~{estimated_tokens:,} tokens to read whole). "
             f'extract_text(path, pages="1-20") materialises a slice instead, and file_find '
             f"locates a term without reading anything."
         )
@@ -1410,10 +1454,14 @@ def file_find(query: str, path: str = "", limit: int = _FIND_DEFAULT_LIMIT) -> s
             continue
 
         try:
-            page_dirs = sorted([
-                d for d in os.listdir(pages_path)
-                if (pages_path / d).is_dir() and d.isdigit()
-            ], key=int)
+            page_dirs = sorted(
+                [
+                    d
+                    for d in os.listdir(pages_path)
+                    if (pages_path / d).is_dir() and d.isdigit()
+                ],
+                key=int,
+            )
         except (OSError, IOError):
             continue
 
@@ -1449,12 +1497,14 @@ def file_find(query: str, path: str = "", limit: int = _FIND_DEFAULT_LIMIT) -> s
                 # Replace newlines with spaces in context for readability
                 context = " ".join(context.split())
 
-                hits.append({
-                    "document": f"{source_format}/{slug}",
-                    "page": int(page_dir_name),
-                    "context": context,
-                    "query": query,
-                })
+                hits.append(
+                    {
+                        "document": f"{source_format}/{slug}",
+                        "page": int(page_dir_name),
+                        "context": context,
+                        "query": query,
+                    }
+                )
 
                 if len(hits) >= limit:
                     break
@@ -1551,6 +1601,7 @@ def _file_page_image_sync(path: str, page: int) -> str:
     page_dir = doc_dir / "pages" / f"{page:02d}"
 
     import io
+
     try:
         import pdfplumber
         import pypdfium2 as pdfium

@@ -131,7 +131,10 @@ class TestProvisionFromTokenSub:
         monkeypatch.setattr(
             cognito,
             "admin_get_user",
-            lambda _u: {"Enabled": True, "UserAttributes": [{"Name": "sub", "Value": "s"}]},
+            lambda _u: {
+                "Enabled": True,
+                "UserAttributes": [{"Name": "sub", "Value": "s"}],
+            },
         )
 
         assert provision_from_token_sub(session, sub="s", groups=[]) is None
@@ -384,7 +387,9 @@ class TestProjectionRefresh:
             user, [group_for_tier("enterprise"), ADMIN_GROUP], 1_700_000_100, session
         )
 
-        refresh_projection_if_stale(user, [group_for_tier("basic")], 1_600_000_000, session)
+        refresh_projection_if_stale(
+            user, [group_for_tier("basic")], 1_600_000_000, session
+        )
 
         assert user.tier == "enterprise"
         assert user.is_admin is True

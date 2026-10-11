@@ -82,7 +82,12 @@ BODY_ONLY_ORDER: tuple[str, ...] = ("prompt_body",)
 
 # governance — preserves the three blocks that define governed-agent behaviour while
 # dropping the Seam-2 injection boilerplate (Requirement 29 AC2).
-GOVERNANCE_ORDER: tuple[str, ...] = ("guardrails", "hooks", "constitution", "prompt_body")
+GOVERNANCE_ORDER: tuple[str, ...] = (
+    "guardrails",
+    "hooks",
+    "constitution",
+    "prompt_body",
+)
 
 # The block join separator — the inline path used ``"\n\n".join(blocks)``.
 _JOIN = "\n\n"

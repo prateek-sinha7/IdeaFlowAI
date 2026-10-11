@@ -182,10 +182,15 @@ async def test_prototype_feature_revision_revision_analysis_in_step1_context() -
         )
 
     run_id = (specify_inputs[0].get("data") or {}).get("pipeline_run_id")
-    assert run_id, "agent_input event carried no pipeline_run_id — cannot locate the sandbox"
+    assert (
+        run_id
+    ), "agent_input event carried no pipeline_run_id — cannot locate the sandbox"
     solution_plan_path = (
-        pathlib.Path(_RUNS_ROOT) / "harness-user" / run_id
-        / ".agents" / "01-prototype-revision-analyzer.md"
+        pathlib.Path(_RUNS_ROOT)
+        / "harness-user"
+        / run_id
+        / ".agents"
+        / "01-prototype-revision-analyzer.md"
     )
     assert solution_plan_path.is_file(), (
         "prototype_feature_revision: the analyzer's solution plan was not written to "

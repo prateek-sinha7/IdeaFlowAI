@@ -5,9 +5,12 @@
  *   compose a custom workflow → Save (POST /api/user-workflows)
  *     → it appears in the catalog "Your workflows" section (GET)
  *     → Rename it (PATCH) — the label updates
- *     → launch the saved row → it pre-loads its agents and reaches IdeaInputPage
+ *     → launch the saved row → it pre-loads its agents into the full-page Composer
  *       (the load-bearing 21-03 launch preload: initialAgentIds seeds pipelineAgents
  *       so Run is reachable for a `custom` workflow that otherwise seeds NO agents).
+ *
+ * Since 41-04 (e1490fad) every `custom` entry (My Workflows "New workflow",
+ * launching a saved custom row) opens the full-page ComposerPage, not IdeaInputPage.
  *
  * MOCK PRECEDENCE (do NOT edit fixtures/): the fixtures' `installMockApi`
  * registers a single catch-all `page.route("**\/api\/**", …)` (which returns an
@@ -63,6 +66,16 @@ async function mockUserWorkflows(page: Page) {
     // /api/user-workflows/{id} for PATCH/DELETE
     const idMatch = url.match(/\/api\/user-workflows\/([^/?]+)/);
 
+    // GET /api/user-workflows/{id} — the single row. Launching a saved row pushes
+    // /workflows/{id}/run, whose page.tsx effect fetches the row by id to pick the
+    // surface (composer vs input); answering it with the LIST sent that effect a
+    // row-less payload and bounced the launch to the default brief screen.
+    if (method === "GET" && idMatch) {
+      const row = rows.find((r) => r.id === idMatch[1]);
+      return row
+        ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(row) })
+        : route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not found" }) });
+    }
     if (method === "GET") {
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rows) });
     }
@@ -117,47 +130,34 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
   test.use({ tier: "enterprise" });
 
   test("TS-Z2-01 compose custom → Save persists a POST", async ({ dashboard, page }) => {
-    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope
-    // Owner: frontend
-    test.skip(true, "pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope; Owner: frontend");
     await dashboard.goto({ tier: "enterprise" });
     const { posts } = await mockUserWorkflows(page); // AFTER goto → wins over the catch-all
 
-    // Phase-39: the "+ Create workflow" entry lives on the HOME view (the
-    // HomeLaunchGrid header, SAVE-FROM-BOTH), which `dashboard.goto()` already
-    // lands on — no separate catalog nav.
     await expect(page.getByRole("heading", { name: "What would you like to build today?" })).toBeVisible();
 
-    // "+ Create workflow" → onSelectFeature("custom") → the custom composer
-    // (IdeaInputPage). `custom` seeds ZERO agents, so Save is disabled until one
-    // is added (the same gate as Run).
-    await page.getByRole("button", { name: /Create workflow/i }).click();
-    await expect(dashboard.ideaTextarea()).toBeVisible();
+    // RE-ANCHORED. FIX-181 (9665f489) removed Home's "+ Create workflow" button;
+    // the dedicated create entry is now My Workflows' "New workflow" (ec1ea70f),
+    // wired to the SAME handleSelectFeature("custom"). Since 41-04 (e1490fad)
+    // that opens the full-page Composer (not IdeaInputPage) on an EMPTY canvas.
+    await openSavedWorkflows(page);
+    await expect(page.getByRole("heading", { name: "My Workflows" })).toBeVisible();
+    await page.getByRole("button", { name: "New workflow" }).click();
+    await expect(dashboard.composerEyebrow()).toBeVisible();
+    await expect(dashboard.composerSummary()).toContainText("0 agents");
 
-    // Add an agent: Advanced → "+ Add agent" → AgentLibrary "+ Add".
-    await dashboard.openAdvanced();
-    await page.getByRole("button", { name: /\+ Add agent/i }).first().click();
+    // Add an agent: the canvas "Add agent at end" → AgentLibrary "+ Add" (the
+    // library closes on +Add).
+    await page.getByRole("button", { name: "Add agent at end" }).click();
     await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
     await page.getByRole("button", { name: /^\+ Add$/ }).first().click();
-    // The library closes on +Add — wait for that before closing the popup so the
-    // Cancel click can't race the library's own Cancel button.
     await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
+    await expect(dashboard.composerSummary()).toContainText("1 agents");
 
-    // Close the popup back to the composer. Phase-39 replaced the footer's plain
-    // "Save changes" close with "Save workflow" (which opens the save modal), so
-    // the popup's real close path is now "Cancel" — the added agent already lives
-    // in the composer's parent state, so cancelling the popup does not discard it.
-    // With the library closed, the popup footer's is the only "Cancel" on-page.
-    await page.getByRole("button", { name: /^Cancel$/ }).click();
-    await expect(page.getByRole("heading", { name: "Workflow configuration" })).toHaveCount(0);
-
-    // Now the composer's own "Save workflow" (IdeaInputPage toolbar — the only one
-    // left once the popup is closed) opens NameWorkflowModal → name → Save (POST),
-    // and surfaces the "Saved" confirmation.
-    await page.getByRole("button", { name: /Save workflow/i }).click();
-    await expect(page.getByRole("heading", { name: "Save workflow" })).toBeVisible();
-    await page.getByPlaceholder(/Competitive research/i).fill("My saved workflow");
-    await page.getByRole("button", { name: /^Save$/ }).click();
+    // The Composer names the workflow INLINE (its header "Workflow name" field —
+    // the NameWorkflowModal step is retired here), then its single header
+    // "Save workflow" persists (POST) and flips to the "Saved" confirmation.
+    await dashboard.composerNameInput().fill("My saved workflow");
+    await page.getByRole("button", { name: "Save workflow" }).click();
 
     // The composer shows the "Saved" confirmation and the POST fired with the
     // composer triple (base_pipeline_type custom + a non-empty agent_ids).
@@ -168,10 +168,7 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
     expect((posts[0].agent_ids as string[]).length).toBeGreaterThan(0);
   });
 
-  test("TS-Z2-02 saved row appears in 'Your workflows', renames, and launches pre-loaded", async ({ dashboard, page }) => {
-    // @skip: pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope
-    // Owner: frontend
-    test.skip(true, "pre-existing feat/ui-2 baseline red (8c2f0b9d) — Phase 42 (RUNUI-09) not in scope; Owner: frontend");
+  test("TS-Z2-02 saved row appears in 'Your workflows', renames, and launches pre-loaded", async ({ dashboard, mockSse, page }) => {
     await dashboard.goto({ tier: "enterprise" });
     const { rows } = await mockUserWorkflows(page);
 
@@ -216,20 +213,32 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
     //    The launch preload (21-03) seeds pipelineAgents from agent_ids, so Run is
     //    reachable for this custom row (which would otherwise seed NO agents →
     //    "Add agents first"). Re-scope the card locator by the RENAMED name. ──
+    // RE-ANCHORED: since 41-04 (e1490fad) a saved `custom` row launches into the
+    // full-page Composer PRE-LOADED (handleLaunchSaved → mainView "composer",
+    // /workflows/{id}/run), not IdeaInputPage — there is no "Advanced … N agents"
+    // affordance or "Run workflow" button there.
     const renamedRowEl = page.locator(".group", { has: page.getByText("Renamed workflow", { exact: true }) });
     await renamedRowEl.getByRole("button", { name: /Run workflow/ }).click();
-    await expect(dashboard.ideaTextarea()).toBeVisible();
+    await page.waitForURL(/\/workflows\/saved-1\/run$/);
+    await expect(dashboard.composerEyebrow()).toBeVisible();
 
-    // Pre-loaded proof (the load-bearing 21-03 change): the seeded agents are
-    // reflected in the "Advanced … N agents" affordance (non-zero), AND once a
-    // brief is typed the Run button reads "Run workflow" and is ENABLED. Without
-    // the launch preload a `custom` workflow seeds ZERO agents → Run would read
-    // "Add agents first" and stay disabled.
-    await expect(page.getByRole("button", { name: /Advanced/ })).toBeVisible();
-    await expect(page.getByText(/2 agents/)).toBeVisible();
-    await dashboard.fillIdea("Research the AI coding-assistant market and produce a SWOT.");
-    const runBtn = page.getByRole("button", { name: /Run workflow/ });
-    await expect(runBtn).toBeVisible(); // NOT "Add agents first" → the seed loaded
+    // Pre-loaded proof (the load-bearing 21-03 change): the saved agents seed the
+    // composer — the header summary counts 2 agents, both render by name, and
+    // with a brief typed "Run once" launches exactly those agents. Without the
+    // launch preload a `custom` workflow seeds ZERO agents → Run once is blocked
+    // ("Add at least one agent first") and nothing launches.
+    await expect(dashboard.composerSummary()).toContainText("2 agents");
+    // Each seeded agent renders as its own canvas node (per-node controls are
+    // labelled with the agent's full name; the node title drops the " Agent" suffix).
+    await expect(page.getByRole("button", { name: "Rename Market Research Agent", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Rename Strategy Analysis Agent", exact: true })).toBeVisible();
+    await dashboard.composerBrief().fill("Research the AI coding-assistant market and produce a SWOT.");
+    const runBtn = dashboard.composerRunOnce();
     await expect(runBtn).toBeEnabled();
+    await expect(runBtn).not.toHaveAttribute("title", "Add at least one agent first"); // the seed loaded
+    await runBtn.click();
+    const frame = await mockSse.waitForCommand("run_pipeline");
+    expect(frame.pipeline_type).toBe("custom");
+    expect(frame.agent_ids).toEqual(["market-research-agent", "swot-analyst"]);
   });
 });

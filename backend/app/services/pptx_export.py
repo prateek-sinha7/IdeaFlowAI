@@ -214,8 +214,8 @@ _PATH_REDACT_PATTERNS = [
     # Absolute paths under known infra prefixes.
     re.compile(r"/app/[^\s:'\"`)]+"),
     re.compile(r"/opt/[^\s:'\"`)]+"),
-    # nosec B108 — this is a REDACTION pattern, not a temp path being used.
-    # The literal "/tmp/" here exists so that container paths leaking through
+    # Bandit B108 is suppressed below: this is a REDACTION pattern, not a temp
+    # path being used. The literal "/tmp/" here exists so that container paths leaking through
     # Node's stderr get scrubbed before reaching an HTTP response. Bandit's
     # hardcoded_tmp_directory check is a substring match and cannot tell a
     # regex that hides /tmp paths from code that writes to one.
@@ -405,7 +405,8 @@ def _build_clean_env(temp_dir: str) -> dict:
         # Resolving a path adds no secrets: the env stays otherwise scrubbed, and
         # `_NODE_DIR` is computed once at import rather than per call.
         "PATH": _node_path_dirs(),
-        # nosec B108 — deliberate sandbox hardening, not an insecure temp file.
+        # Bandit B108 is suppressed below: deliberate sandbox hardening, not an
+        # insecure temp file.
         # Nothing is created at this path. HOME is pinned away from the real
         # home directory so the untrusted Node process cannot read or write
         # dotfiles (.npmrc, credentials, caches); actual scratch writes go to

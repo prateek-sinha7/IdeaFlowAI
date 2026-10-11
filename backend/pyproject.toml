@@ -138,6 +138,26 @@ dev = [
     "testcontainers==4.9.0",
     "langchain-ollama==1.1.0",
 ]
+# Minimal install for CI jobs that only run tools/ci/run_checks.py or a
+# `python -m tools.ci.<gate>` gate (setup-backend `dev-deps: "ci-tools"`), so
+# they stop syncing the full prod+dev graph. Each pin duplicates a version that
+# is already locked, so this group changes no resolution:
+#   - defusedxml: ci_gate.py and the report parsers read coverage/JUnit XML
+#     through it (bandit B314; see the dev-group note above). Must equal the dev
+#     pin.
+#   - requests: tools/ci/__init__.py eagerly imports offline_guards, which
+#     imports requests.
+#   - pyyaml: tools/ci/__init__.py eagerly imports scope_guard, which imports
+#     yaml.
+# run_checks.py itself is stdlib-only (it runs in script mode). Not installed by
+# a bare `uv sync`: uv's default-groups stays `dev`. No requirements*.txt mirror
+# exists for this group. tests/unit/tools/ci/test_setup_backend_contracts.py
+# asserts these pins, their uv.lock versions and the gates' import closure.
+ci-tools = [
+    "defusedxml==0.7.1",
+    "pyyaml==6.0.3",
+    "requests==2.34.2",
+]
 
 [tool.uv]
 # This project is a source tree run in place (`uv run` from backend/), not a
@@ -267,6 +287,11 @@ extend-exclude = [
     "__pycache__",
     "build",
     "dist",
+    # Repo-root tools/ and scripts/ are linted with this config (see
+    # ci/backend-static-checks.json). tools/loadtest/ is a gitignored local
+    # harness that no CI checkout contains, so excluding it keeps local runs
+    # identical to CI.
+    "../tools/loadtest",
 ]
 
 [tool.ruff.lint]

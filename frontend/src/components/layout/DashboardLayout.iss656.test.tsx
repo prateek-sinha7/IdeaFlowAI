@@ -33,6 +33,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { cleanup } from "@testing-library/react";
+import React from "react";
 import type { PipelineRunState } from "@/types/index";
 
 const push = vi.fn();
@@ -54,10 +55,8 @@ vi.mock("motion/react", () => ({
     {},
     {
       get: (_target, prop: string) =>
-        ({ children }: { children?: React.ReactNode }) => {
-          const React = require("react");
-          return React.createElement(prop, {}, children);
-        },
+        ({ children }: { children?: React.ReactNode }) =>
+          React.createElement(prop, {}, children),
     },
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,

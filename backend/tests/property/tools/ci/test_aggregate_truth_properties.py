@@ -490,10 +490,9 @@ class TestComputeAggregateRequiredSignals:
         critical_signals = {
             "backend-evidence",
             "frontend-evidence",
-            "sonar-quality-gate",
+            "container-scan[backend]/trivy",
             "security[secrets]",
-            "security[backend-deps]",
-            "security[frontend-deps]",
+            "container-scan[frontend]/trivy-lockfile",
         }
 
         for signal in critical_signals:
@@ -682,6 +681,9 @@ def test_all_signal_states_tested():
         SignalState.TIMED_OUT,
         SignalState.MISSING,
         SignalState.UNAVAILABLE,
+        # F-15. Covered by test_any_non_success_fails_property, which samples
+        # every non-success state with the default allow_filtered=False.
+        SignalState.FILTERED,
     }
 
     assert tested_states == set(SignalState)

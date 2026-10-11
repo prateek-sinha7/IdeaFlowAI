@@ -71,6 +71,7 @@ def env(monkeypatch):
     # tests/unit/test_rest_run_launch.py / test_conditional_trigger_budget_t33.py).
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
     import app.api.run_commands as rc_module
+
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
     # state_machine._persist and authz.ScopedStore both do a FRESH
     # `from app.models.database import SessionLocal` INSIDE the method body on
@@ -79,6 +80,7 @@ def env(monkeypatch):
     monkeypatch.setattr(db_module, "SessionLocal", TestingSession)
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _sm._RUNS_ROOT
 
     yield {"Session": TestingSession, "rc": rc_module}
@@ -119,7 +121,7 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
 
     OWNER = "v4-owner"
     session = Session()
-    session.add(User(id=OWNER, email="v4@example.com", password_hash="x"))
+    session.add(User(id=OWNER, email="v4@example.com", cognito_sub=f"sub-{OWNER}"))
     session.commit()
     session.close()
 
@@ -164,14 +166,18 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
     types = [e.get("type") for e in first_run_events]
     print("FIRST RUN EVENT TYPES:", types)
 
-    diverted_events = [e for e in first_run_events if e.get("type") == "pipeline_diverted"]
+    diverted_events = [
+        e for e in first_run_events if e.get("type") == "pipeline_diverted"
+    ]
     assert len(diverted_events) == 1, (
         f"AC-11: expected exactly one pipeline_diverted event before the stream "
         f"closed, got {len(diverted_events)}. All types: {types}"
     )
     payload = diverted_events[0]["data"]
     assert set(payload.keys()) >= {
-        "pipeline_run_id", "diverted_to_run_id", "diverted_to_workflow",
+        "pipeline_run_id",
+        "diverted_to_run_id",
+        "diverted_to_workflow",
     }, f"AC-11 payload shape wrong: {payload}"
     assert payload["pipeline_run_id"] == first_run_id
     assert payload["diverted_to_workflow"] == "ex_A3_b_spanish", (
@@ -223,7 +229,9 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
         await second_task
 
     verify2 = Session()
-    second_row = verify2.query(WorkflowRun).filter(WorkflowRun.id == second_run_id).first()
+    second_row = (
+        verify2.query(WorkflowRun).filter(WorkflowRun.id == second_run_id).first()
+    )
     assert second_row is not None, "AC-05: no second WorkflowRun was minted at all"
     assert second_row.parent_run_id == first_run_id
     assert second_row.type == "ex_A3_b_spanish"

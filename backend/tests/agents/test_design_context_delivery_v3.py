@@ -48,7 +48,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from agents.factory import AgentContext, create_runner
 from agents.loader import load_agent_spec
 from app.agents.sandbox import RunSandbox
-from app.api.launch_context import write_od_context_to_sandbox
+from app.services.od_context_sandbox import write_od_context_to_sandbox
 
 # ---------------------------------------------------------------------------
 # Sandbox fixture (modeled on test_commit_primitive.py::_make_sandbox)
@@ -61,7 +61,9 @@ def _run_id() -> str:
 
 def _make_sandbox(tmp_path: Path, *, run_id: str | None = None) -> RunSandbox:
     """A RunSandbox on real disk, no git (this suite never commits)."""
-    sb = RunSandbox("test-user", run_id or _run_id(), runs_root=str(tmp_path), has_git=False)
+    sb = RunSandbox(
+        "test-user", run_id or _run_id(), runs_root=str(tmp_path), has_git=False
+    )
     sb.ensure()
     return sb
 
@@ -126,7 +128,11 @@ class _ScriptedFakeChatModel(BaseChatModel):
         return turn
 
     def _stream(
-        self, messages: list, stop: list[str] | None = None, run_manager: Any = None, **kwargs: Any
+        self,
+        messages: list,
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
         self.recorded_messages.append(list(messages))
         turn = self._next_turn()
@@ -138,20 +144,38 @@ class _ScriptedFakeChatModel(BaseChatModel):
             usage = None
             if i == last_i:
                 for tc_idx, (name, json_args, call_id) in enumerate(turn.tool_calls):
-                    tcc.append(tool_call_chunk(name=name, args=json_args, id=call_id, index=tc_idx))
+                    tcc.append(
+                        tool_call_chunk(
+                            name=name, args=json_args, id=call_id, index=tc_idx
+                        )
+                    )
                 if turn.usage is not None:
                     t_in, t_out = turn.usage
-                    usage = {"input_tokens": t_in, "output_tokens": t_out, "total_tokens": t_in + t_out}
+                    usage = {
+                        "input_tokens": t_in,
+                        "output_tokens": t_out,
+                        "total_tokens": t_in + t_out,
+                    }
                 extra["chunk_position"] = "last"
             yield ChatGenerationChunk(
-                message=AIMessageChunk(content=piece, tool_call_chunks=tcc, usage_metadata=usage, **extra)
+                message=AIMessageChunk(
+                    content=piece, tool_call_chunks=tcc, usage_metadata=usage, **extra
+                )
             )
 
     def _generate(
-        self, messages: list, stop: list[str] | None = None, run_manager: Any = None, **kwargs: Any
+        self,
+        messages: list,
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
     ) -> ChatResult:
-        chunks = list(self._stream(messages, stop=stop, run_manager=run_manager, **kwargs))
-        text = "".join(c.message.content for c in chunks if isinstance(c.message.content, str))
+        chunks = list(
+            self._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        )
+        text = "".join(
+            c.message.content for c in chunks if isinstance(c.message.content, str)
+        )
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
 
 
@@ -174,7 +198,10 @@ def test_context_design_holds_template_ds_and_craft_files(tmp_path):
 
     write_od_context_to_sandbox(sb, od_context, explicit_selection=True)
 
-    assert json.loads(sb.read(".context/selections.json"))["template_id"] == "web-prototype"
+    assert (
+        json.loads(sb.read(".context/selections.json"))["template_id"]
+        == "web-prototype"
+    )
     assert sb.read(".context/design/design-system.md") == od_context["ds_body"]
     assert sb.read(".context/design/craft.md") == od_context["craft_block"]
     assert sb.read(".context/design/template/SKILL.md") == od_context["template_body"]
@@ -189,7 +216,9 @@ def test_context_design_holds_template_ds_and_craft_files(tmp_path):
 @pytest.mark.asyncio
 async def test_migrated_body_only_agent_reads_design_context(tmp_path):
     spec = load_agent_spec("prototype-specify")
-    assert spec.prompt_policy == "body_only", "fixture assumption: the real observed agent"
+    assert (
+        spec.prompt_policy == "body_only"
+    ), "fixture assumption: the real observed agent"
 
     sb = _make_sandbox(tmp_path)
     od_context = _od_context_with_template()
@@ -211,12 +240,16 @@ async def test_migrated_body_only_agent_reads_design_context(tmp_path):
             _ScriptedTurn(texts=["<spec>ok</spec>"], usage=(2, 0)),
         ]
     )
-    ctx = AgentContext(user_request="build it", model=fake, user_id="u-ctx", run_id=sb.run_id)
+    ctx = AgentContext(
+        user_request="build it", model=fake, user_id="u-ctx", run_id=sb.run_id
+    )
 
     runner = create_runner("prototype-specify", ctx, run_sandbox=sb)
     events = await _collect_events(runner, "go")
 
-    results = [e for e in events if e["type"] == "tool_result" and e["tool"] == _READ_FILE_TOOL]
+    results = [
+        e for e in events if e["type"] == "tool_result" and e["tool"] == _READ_FILE_TOOL
+    ]
     assert len(results) == 1
     # The native read_file tool returns `cat -n`-numbered lines, not the raw
     # bytes back verbatim -- assert the written content is actually IN there.
@@ -240,9 +273,13 @@ async def test_staged_skill_is_discoverable_by_the_declaring_body_only_agent(tmp
     # Seed the template SKILL.md the velocity-design skill's {{INJECT_FROM:...}}
     # marker points at, so staging resolves real content (not the empty-fallback
     # comment) -- the full production chain, not just the discoverability half.
-    write_od_context_to_sandbox(sb, _od_context_with_template(), explicit_selection=True)
+    write_od_context_to_sandbox(
+        sb, _od_context_with_template(), explicit_selection=True
+    )
 
-    fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["<spec>ok</spec>"], usage=(3, 1))])
+    fake = _ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["<spec>ok</spec>"], usage=(3, 1))]
+    )
     ctx = AgentContext(
         user_request="build it",
         model=fake,

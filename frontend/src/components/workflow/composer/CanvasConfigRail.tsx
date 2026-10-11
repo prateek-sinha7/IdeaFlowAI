@@ -251,6 +251,28 @@ export function CanvasConfigRail({
   const { workflows: workflowOptions, fetchFailed: workflowFetchFailed } =
     useWorkflowPickerOptions(needsWorkflowOptions);
 
+  // Loop-cap text draft (R-07 / DEFECT D): the user can type freely (empty or
+  // invalid text) without the field snapping back; only valid integers >= 1
+  // are persisted to the route, so the engine's default 5 otherwise applies.
+  //
+  // Hoisted above the `!agent` early return (rules-of-hooks) and DERIVED
+  // rather than mirrored by an effect: the draft is tagged with the agent and
+  // persisted value it was typed against, and is discarded the moment either
+  // changes (another node selected, or the route updated elsewhere) — the same
+  // "reset on source change" the old sync effect did, without an extra render.
+  const persistedLoopCap = agent?.route?.loop_max_iterations ?? 5;
+  const [loopCapDraft, setLoopCapDraft] = useState<{
+    agentId: string;
+    source: number;
+    text: string;
+  } | null>(null);
+  const loopCapInput =
+    loopCapDraft &&
+    loopCapDraft.agentId === agent?.id &&
+    loopCapDraft.source === persistedLoopCap
+      ? loopCapDraft.text
+      : persistedLoopCap.toString();
+
   if (!agent) {
     return (
       <div className="flex flex-1 flex-col">
@@ -397,14 +419,6 @@ export function CanvasConfigRail({
     return !!id && orderOf(id) !== -1 && orderOf(id) <= orderOf(agent.id);
   };
 
-  // Track the loop cap input separately so the user can freely edit without
-  // the field snapping back (R-07 / DEFECT D). Only persist valid integers >= 1;
-  // empty/invalid input does not update the route (so the engine's default 5 applies).
-  // Synced from route when route changes, to maintain the single source of truth.
-  const [loopCapInput, setLoopCapInput] = useState<string>("");
-  useEffect(() => {
-    setLoopCapInput((route?.loop_max_iterations ?? 5).toString());
-  }, [route?.loop_max_iterations]);
   const loopCount = Object.values(route?.outcomes ?? {}).filter(
     (o) => o.trigger === "step" && isLoopTarget(o.target),
   ).length;
@@ -1192,7 +1206,11 @@ Higher effort costs more and takes longer.`}</InfoHint>
                       value={loopCapInput}
                       onChange={(e) => {
                         const newValue = e.target.value;
-                        setLoopCapInput(newValue);
+                        setLoopCapDraft({
+                          agentId: agent.id,
+                          source: persistedLoopCap,
+                          text: newValue,
+                        });
                         // Only update route for valid integers >= 1. Empty/invalid
                         // input stays local; route is only updated for confirmed values.
                         const parsed = parseInt(newValue, 10);

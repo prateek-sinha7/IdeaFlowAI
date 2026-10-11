@@ -148,7 +148,6 @@ def _register_and_login(
 
     resp = client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, f"Login failed: {resp.text}"
-    token_data = resp.json()
 
     # The login endpoint returns a token without tier groups (admin_initiate_auth
     # doesn't know the tier yet). We need to mint a new token WITH the groups so

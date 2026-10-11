@@ -30,7 +30,13 @@ from app.agents.deep_agent_runner import _ImagePayloadGuardMiddleware
 def _image_msg(path: str, tool_call_id: str) -> ToolMessage:
     """A ToolMessage shaped like deepagents' binary ``read_file`` result."""
     return ToolMessage(
-        content=[{"type": "image", "base64": "iVBORw0KGgo" + "A" * 512, "mime_type": "image/png"}],
+        content=[
+            {
+                "type": "image",
+                "base64": "iVBORw0KGgo" + "A" * 512,
+                "mime_type": "image/png",
+            }
+        ],
         tool_call_id=tool_call_id,
         name="read_file",
         additional_kwargs={"read_file_path": path, "read_file_media_type": "image/png"},
@@ -76,7 +82,9 @@ def test_keeps_only_the_most_recent_images():
     for i in range(9):
         msgs.append(AIMessage(content=f"checking page {i}"))
         msgs.append(_image_msg(f"/.browser/shot{i}.png", f"call{i}"))
-    msgs.append(AIMessage(content="noted"))  # an AI turn after them: the model has SEEN these
+    msgs.append(
+        AIMessage(content="noted")
+    )  # an AI turn after them: the model has SEEN these
 
     pruned = _run(msgs, keep=2)
 
@@ -86,7 +94,9 @@ def test_keeps_only_the_most_recent_images():
 
 def test_the_retained_images_are_the_newest():
     msgs = [_image_msg(f"/.browser/shot{i}.png", f"call{i}") for i in range(5)]
-    msgs.append(AIMessage(content="noted"))  # an AI turn after them: the model has SEEN these
+    msgs.append(
+        AIMessage(content="noted")
+    )  # an AI turn after them: the model has SEEN these
     pruned = _run(msgs, keep=2)
 
     kept = [
@@ -100,10 +110,14 @@ def test_the_retained_images_are_the_newest():
 def test_dropped_images_leave_a_named_placeholder():
     """The agent must be able to tell WHICH file went."""
     msgs = [_image_msg(f"/.browser/shot{i}.png", f"call{i}") for i in range(4)]
-    msgs.append(AIMessage(content="noted"))  # an AI turn after them: the model has SEEN these
+    msgs.append(
+        AIMessage(content="noted")
+    )  # an AI turn after them: the model has SEEN these
     pruned = _run(msgs, keep=1)
 
-    dropped = [m for m in pruned if isinstance(m, ToolMessage) and isinstance(m.content, str)]
+    dropped = [
+        m for m in pruned if isinstance(m, ToolMessage) and isinstance(m.content, str)
+    ]
     assert len(dropped) == 3
     assert "/.browser/shot0.png" in dropped[0].content
 
@@ -117,12 +131,18 @@ def test_the_placeholder_never_invites_a_re_read():
     until the provider rejected the request. Anything that reads as an invitation
     to fetch the file again reopens that loop.
     """
-    msgs = [_image_msg(f"/.extract/pages/0{i}/image-2.png", f"call{i}") for i in range(4)]
-    msgs.append(AIMessage(content="noted"))  # an AI turn after them: the model has SEEN these
+    msgs = [
+        _image_msg(f"/.extract/pages/0{i}/image-2.png", f"call{i}") for i in range(4)
+    ]
+    msgs.append(
+        AIMessage(content="noted")
+    )  # an AI turn after them: the model has SEEN these
     pruned = _run(msgs, keep=2)
 
     for placeholder in (
-        m.content for m in pruned if isinstance(m, ToolMessage) and isinstance(m.content, str)
+        m.content
+        for m in pruned
+        if isinstance(m, ToolMessage) and isinstance(m.content, str)
     ):
         assert "re-read" not in placeholder
         assert "read it again" not in placeholder.replace("Do NOT read it again", "")
@@ -138,8 +158,12 @@ def test_repeat_reads_of_one_path_cost_one_image():
     msgs = []
     for _ in range(41):
         for page in ("04", "05", "06"):
-            msgs.append(_image_msg(f"/.extract/pages/{page}/image-2.png", f"c{len(msgs)}"))
-    msgs.append(AIMessage(content="noted"))  # an AI turn after them: the model has SEEN these
+            msgs.append(
+                _image_msg(f"/.extract/pages/{page}/image-2.png", f"c{len(msgs)}")
+            )
+    msgs.append(
+        AIMessage(content="noted")
+    )  # an AI turn after them: the model has SEEN these
 
     pruned = _run(msgs, keep=2)
 
@@ -148,7 +172,9 @@ def test_repeat_reads_of_one_path_cost_one_image():
     assert _image_count(pruned) == 2
 
     kept = [
-        m.additional_kwargs["read_file_path"] for m in pruned if isinstance(m.content, list)
+        m.additional_kwargs["read_file_path"]
+        for m in pruned
+        if isinstance(m.content, list)
     ]
     assert len(set(kept)) == len(kept), "a retained path must never appear twice"
 
@@ -160,20 +186,31 @@ def test_duplicate_older_read_is_dropped_even_within_budget():
         _image_msg("/b.png", "c2"),
         _image_msg("/a.png", "c3"),  # newer copy of a.png
     ]
-    msgs.append(AIMessage(content="noted"))  # an AI turn after them: the model has SEEN these
+    msgs.append(
+        AIMessage(content="noted")
+    )  # an AI turn after them: the model has SEEN these
     pruned = _run(msgs, keep=2)
 
     kept = [
-        m.additional_kwargs["read_file_path"] for m in pruned if isinstance(m.content, list)
+        m.additional_kwargs["read_file_path"]
+        for m in pruned
+        if isinstance(m.content, list)
     ]
     assert sorted(kept) == ["/a.png", "/b.png"], "the duplicate must not evict b.png"
-    assert "duplicate read" in next(m.content for m in pruned if isinstance(m.content, str))
+    assert "duplicate read" in next(
+        m.content for m in pruned if isinstance(m.content, str)
+    )
 
 
 def test_identity_fields_survive_the_rewrite():
     """A replaced ToolMessage must still answer its tool call, or the turn breaks."""
-    msgs = [_image_msg("/.browser/a.png", "call-a"), _image_msg("/.browser/b.png", "call-b")]
-    msgs.append(AIMessage(content="noted"))  # an AI turn after them: the model has SEEN these
+    msgs = [
+        _image_msg("/.browser/a.png", "call-a"),
+        _image_msg("/.browser/b.png", "call-b"),
+    ]
+    msgs.append(
+        AIMessage(content="noted")
+    )  # an AI turn after them: the model has SEEN these
     pruned = _run(msgs, keep=1)
 
     replaced = next(m for m in pruned if isinstance(m.content, str))
@@ -183,12 +220,17 @@ def test_identity_fields_survive_the_rewrite():
 
 def test_conversation_without_images_is_untouched():
     """DORMANT for the overwhelming majority of agents — no override at all."""
-    msgs = [HumanMessage(content="hi"), ToolMessage(content="plain text", tool_call_id="c1", name="grep")]
+    msgs = [
+        HumanMessage(content="hi"),
+        ToolMessage(content="plain text", tool_call_id="c1", name="grep"),
+    ]
     guard = _ImagePayloadGuardMiddleware(keep=2)
     req = _Request(msgs)
 
     guard.wrap_model_call(req, lambda r: None)
-    assert req.overridden_with is None, "no media blocks ⇒ the request must pass through"
+    assert (
+        req.overridden_with is None
+    ), "no media blocks ⇒ the request must pass through"
 
 
 def test_fewer_images_than_the_cap_are_all_kept():
@@ -209,8 +251,12 @@ def test_payload_size_fault_is_named():
 
 
 def test_throttle_and_auth_and_timeout_are_named():
-    assert "rate-limited" in _sanitize_agent_error("ThrottlingException: rate limit exceeded")
-    assert "credential" in _sanitize_agent_error("UnrecognizedClientException: unauthorized")
+    assert "rate-limited" in _sanitize_agent_error(
+        "ThrottlingException: rate limit exceeded"
+    )
+    assert "credential" in _sanitize_agent_error(
+        "UnrecognizedClientException: unauthorized"
+    )
     assert "did not respond" in _sanitize_agent_error("Read timeout on endpoint URL")
 
 
@@ -233,7 +279,9 @@ def test_access_denied_and_authentication_failed_are_named():
 
 def test_unrecognised_fault_keeps_the_generic_message():
     """Additive by construction — anything unmatched behaves exactly as before."""
-    assert _sanitize_agent_error("something entirely new") == _GENERIC_AGENT_ERROR_MESSAGE
+    assert (
+        _sanitize_agent_error("something entirely new") == _GENERIC_AGENT_ERROR_MESSAGE
+    )
     assert _sanitize_agent_error("") == _GENERIC_AGENT_ERROR_MESSAGE
 
 
@@ -271,7 +319,9 @@ def test_an_unseen_batch_is_never_evicted():
     pruned = _run(msgs, keep=2)
 
     assert _image_count(pruned) == 10
-    assert not any(isinstance(m.content, str) and "already viewed" in m.content for m in pruned)
+    assert not any(
+        isinstance(m.content, str) and "already viewed" in m.content for m in pruned
+    )
 
 
 def test_seen_images_stay_bounded_when_a_new_batch_arrives():
@@ -287,14 +337,21 @@ def test_seen_images_stay_bounded_when_a_new_batch_arrives():
 
     pruned = _run(msgs, keep=2)
 
-    kept = [m.additional_kwargs["read_file_path"] for m in pruned if isinstance(m.content, list)]
+    kept = [
+        m.additional_kwargs["read_file_path"]
+        for m in pruned
+        if isinstance(m.content, list)
+    ]
     assert kept == ["/old2.png", "/old3.png", "/new0.png", "/new1.png", "/new2.png"]
 
 
 def test_unseen_duplicate_of_an_older_path_still_drops_the_older_copy():
     msgs = [
-        _ai_calling(["/a.png"], "x"), _image_msg("/a.png", "x0"), AIMessage(content="seen a"),
-        _ai_calling(["/a.png"], "y"), _image_msg("/a.png", "y0"),
+        _ai_calling(["/a.png"], "x"),
+        _image_msg("/a.png", "x0"),
+        AIMessage(content="seen a"),
+        _ai_calling(["/a.png"], "y"),
+        _image_msg("/a.png", "y0"),
     ]
     pruned = _run(msgs, keep=2)
     assert _image_count(pruned) == 1

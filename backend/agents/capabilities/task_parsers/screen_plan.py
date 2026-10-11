@@ -16,6 +16,7 @@ scheduler runs the whole plan as one wave.
 Pure stdlib; imports only ``agents.workflows.plan`` (typed data) and the sibling
 ``screen_inventory`` module (import-linter).
 """
+
 from __future__ import annotations
 
 import json
@@ -56,7 +57,11 @@ def _req_lines(spec: str, screen: Screen) -> list[str]:
             continue
         rid = m.group(1)
         screens_field = re.search(r"screens:\s*([^|]*)", line)
-        named = {s.strip() for s in screens_field.group(1).split(",")} if screens_field else set()
+        named = (
+            {s.strip() for s in screens_field.group(1).split(",")}
+            if screens_field
+            else set()
+        )
         if rid in wanted or screen.id in named:
             out.append(line.strip())
     return out
@@ -64,37 +69,59 @@ def _req_lines(spec: str, screen: Screen) -> list[str]:
 
 def render_body(screen: Screen, inv: Inventory, spec: str) -> str:
     attrs = [attribute_string(t) for t in screen.transitions]
-    transitions = "\n".join(
-        f"- {t.label}: write `{attribute_string(t)}` on that control"
-        + ("  (this moves to another screen)" if t.attr in ("data-goto", "data-submit")
-           else "  (opens a dialog)" if t.attr == "data-opens"
-           else "  (closes this dialog)" if t.attr == "data-closes"
-           else "  (switches a tab panel inside this screen)")
-        for t in screen.transitions
-    ) or "- none. No control on this screen moves the user anywhere."
+    transitions = (
+        "\n".join(
+            f"- {t.label}: write `{attribute_string(t)}` on that control"
+            + (
+                "  (this moves to another screen)"
+                if t.attr in ("data-goto", "data-submit")
+                else "  (opens a dialog)"
+                if t.attr == "data-opens"
+                else "  (closes this dialog)"
+                if t.attr == "data-closes"
+                else "  (switches a tab panel inside this screen)"
+            )
+            for t in screen.transitions
+        )
+        or "- none. No control on this screen moves the user anywhere."
+    )
     section = _spec_section(spec, screen.id)
-    spec_block = section or f"(spec.md has no `### {screen.id}` section; build from the summary: {screen.summary or screen.title})"
+    spec_block = (
+        section
+        or f"(spec.md has no `### {screen.id}` section; build from the summary: {screen.summary or screen.title})"
+    )
     n_fields = len(spec_fields(section))
     reqs = "\n".join(_req_lines(spec, screen)) or "(none listed)"
     kind_rules = (
         "- This screen is a DIALOG. The shell draws the frame, the title bar and the close button around your section. "
         "Write only the dialog's content: no page-header, no close button of your own, no scrim.\n"
-        if screen.is_dialog else
-        f'- Start the section with `<header class="page-header"><h1 class="page-title">{screen.title}</h1></header>`.\n'
+        if screen.is_dialog
+        else f'- Start the section with `<header class="page-header"><h1 class="page-title">{screen.title}</h1></header>`.\n'
     )
     classes = ", ".join(COMPONENT_CLASSES)
     done = "\n".join(
-        [f"- `parts/{screen.id}.html` exists and its only root element is `<section class=\"screen\" id=\"{screen.id}\">`",
-         "- every field, action, table column and state listed in the SPEC below is present, with the real values the spec shows",
-         *[f"- the exact string `{a}` appears on exactly one control" for a in attrs],
-         "- no `<script>`, `<style>`, `<link>`, `<html>`, `<head>` or `<body>` anywhere in the file",
-         "- every `<label for=...>` matches an `id` in this file; no id is used twice in this file",
-         "- every `data-show`/`data-hide` value is the id of an element with class `state` in this file, and every state the SPEC describes has one",
-         "- every element with class `state` is named by a `data-show` on a control in this file; a state nothing reveals is a defect",
-         "- no element carries two of data-goto / data-submit / data-opens / data-closes / data-tab; a tab link never carries data-goto",
-         *([f"- at least {n_fields} form controls (`class=\"form-control\"`) are present: the SPEC lists {n_fields} fields, and code counts them"] if n_fields else []),
-         "- every control marked `[not evidenced]` in the SPEC is rendered disabled; every icon-only control has visible content and an aria-label",
-         "- the reply is ONE line: the path written, then anything in the SPEC you could not build"]
+        [
+            f'- `parts/{screen.id}.html` exists and its only root element is `<section class="screen" id="{screen.id}">`',
+            "- every field, action, table column and state listed in the SPEC below is present, with the real values the spec shows",
+            *[
+                f"- the exact string `{a}` appears on exactly one control"
+                for a in attrs
+            ],
+            "- no `<script>`, `<style>`, `<link>`, `<html>`, `<head>` or `<body>` anywhere in the file",
+            "- every `<label for=...>` matches an `id` in this file; no id is used twice in this file",
+            "- every `data-show`/`data-hide` value is the id of an element with class `state` in this file, and every state the SPEC describes has one",
+            "- every element with class `state` is named by a `data-show` on a control in this file; a state nothing reveals is a defect",
+            "- no element carries two of data-goto / data-submit / data-opens / data-closes / data-tab; a tab link never carries data-goto",
+            *(
+                [
+                    f'- at least {n_fields} form controls (`class="form-control"`) are present: the SPEC lists {n_fields} fields, and code counts them'
+                ]
+                if n_fields
+                else []
+            ),
+            "- every control marked `[not evidenced]` in the SPEC is rendered disabled; every icon-only control has visible content and an aria-label",
+            "- the reply is ONE line: the path written, then anything in the SPEC you could not build",
+        ]
     )
     return f"""CURRENT TASK: screen-{screen.id}
 
@@ -139,15 +166,17 @@ def build_tasks(inv: Inventory, spec: str = "") -> list[Task]:
     tasks: list[Task] = []
     for screen in inv.screens:
         attrs = [attribute_string(t) for t in screen.transitions]
-        tasks.append(Task(
-            id=f"screen-{screen.id}",
-            title=f"Build {screen.title} ({screen.kind})",
-            body=render_body(screen, inv, spec),
-            targets=[f"parts/{screen.id}.html"],
-            depends_on=[],
-            conflict_keys=[f"parts/{screen.id}.html"],
-            done_when=[f'section.screen#{screen.id}', *attrs],
-        ))
+        tasks.append(
+            Task(
+                id=f"screen-{screen.id}",
+                title=f"Build {screen.title} ({screen.kind})",
+                body=render_body(screen, inv, spec),
+                targets=[f"parts/{screen.id}.html"],
+                depends_on=[],
+                conflict_keys=[f"parts/{screen.id}.html"],
+                done_when=[f"section.screen#{screen.id}", *attrs],
+            )
+        )
     return tasks
 
 
@@ -201,7 +230,8 @@ class ScreenPlanParser:
                 text = reply_text
             else:
                 raise ValueError(
-                    "screen_plan: no inventory to plan from — " + "; ".join(errors or ["no sandbox and an empty reply"])
+                    "screen_plan: no inventory to plan from — "
+                    + "; ".join(errors or ["no sandbox and an empty reply"])
                 )
         try:
             inv = parse_inventory(text)
@@ -221,15 +251,27 @@ class ScreenPlanParser:
             if added and sandbox is not None and text is not None:
                 try:
                     data = json.loads(text)
-                    by = {s["id"]: s for s in data.get("screens", []) if isinstance(s, dict)}
+                    by = {
+                        s["id"]: s
+                        for s in data.get("screens", [])
+                        if isinstance(s, dict)
+                    }
                     for scr in inv.screens:
                         if scr.id not in by:
                             continue
                         # keep any extra keys the Architect put on an existing transition
-                        orig = {(t.get("label"), t.get("attr"), t.get("to")): t
-                                for t in by[scr.id].get("transitions") or [] if isinstance(t, dict)}
+                        orig = {
+                            (t.get("label"), t.get("attr"), t.get("to")): t
+                            for t in by[scr.id].get("transitions") or []
+                            if isinstance(t, dict)
+                        }
                         by[scr.id]["transitions"] = [
-                            {**orig.get((t.label, t.attr, t.to), {}), "label": t.label, "attr": t.attr, "to": t.to}
+                            {
+                                **orig.get((t.label, t.attr, t.to), {}),
+                                "label": t.label,
+                                "attr": t.attr,
+                                "to": t.to,
+                            }
                             for t in scr.transitions
                         ]
                     data.setdefault("notes", [])

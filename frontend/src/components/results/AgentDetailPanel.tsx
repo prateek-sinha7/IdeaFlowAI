@@ -1020,7 +1020,6 @@ function WaveWorkersBlock({ workers, waves, onOpenWorker }: { workers: WaveWorke
   const waveOrder = [...byWave.keys()].sort(
     (a, b) => (a ?? Number.MAX_SAFE_INTEGER) - (b ?? Number.MAX_SAFE_INTEGER),
   );
-  const done = sorted.filter(w => w.status === "done").length;
   const unresolved = sorted.filter(w => w.status === "failed" || w.status === "stranded").length;
   // Two different questions, two different counters. The HEADER answers "how far
   // through the build" and so counts WAVES; each wave row answers "how far

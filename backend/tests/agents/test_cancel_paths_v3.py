@@ -82,9 +82,12 @@ def _run_git(*args: str, cwd: Path, check: bool = True) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=Flowin Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
+            "-c",
+            "user.name=Flowin Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
             *args,
         ],
         cwd=str(cwd),
@@ -102,18 +105,20 @@ def _git_init(repo: Path) -> None:
     _run_git("config", "user.email", "test@test.test", cwd=repo)
     _run_git("config", "user.name", "Test Bot", cwd=repo)
     # Seed .gitignore with reserved paths
-    reserved = "\n".join([
-        ".uploads/",
-        ".logs/",
-        ".verify/",
-        ".browser/",
-        ".agents/",
-        ".chain/",
-        ".context/",
-        "skills/",
-        "conversation_history/",
-        ".chain-legacy/",
-    ])
+    reserved = "\n".join(
+        [
+            ".uploads/",
+            ".logs/",
+            ".verify/",
+            ".browser/",
+            ".agents/",
+            ".chain/",
+            ".context/",
+            "skills/",
+            "conversation_history/",
+            ".chain-legacy/",
+        ]
+    )
     (repo / ".gitignore").write_text(reserved + "\n", encoding="utf-8")
     _run_git("add", ".gitignore", cwd=repo)
     _run_git("commit", "-m", "chore: init", cwd=repo)
@@ -235,8 +240,12 @@ class FakeSandbox:
             existing_sha = None
         if existing_sha is not None:
             if existing_sha == head_sha:
-                return RefResult(state="idempotent", name=ref_name, sha=head_sha, existing=None)
-            return RefResult(state="conflict", name=ref_name, sha=head_sha, existing=existing_sha)
+                return RefResult(
+                    state="idempotent", name=ref_name, sha=head_sha, existing=None
+                )
+            return RefResult(
+                state="conflict", name=ref_name, sha=head_sha, existing=existing_sha
+            )
         _run_git("update-ref", "--create-reflog", ref_name, head_sha, cwd=self.root)
         return RefResult(state="created", name=ref_name, sha=head_sha, existing=None)
 
@@ -271,7 +280,9 @@ class FakeSandbox:
         shutil.move(str(src), str(dst))
 
 
-def _make_sandbox(tmp_path: Path, *, run_id: str | None = None) -> tuple[FakeSandbox, str]:
+def _make_sandbox(
+    tmp_path: Path, *, run_id: str | None = None
+) -> tuple[FakeSandbox, str]:
     """Create and provision a sandbox with a real git repo under tmp_path."""
     rid = run_id or _make_run_id()
     sandbox_root = tmp_path / "runs" / rid
@@ -366,7 +377,9 @@ async def test_ac28_cancel_retains_branches(tmp_path: Path) -> None:
     # the real repo.
     base_ws = LocalWorkspace.__new__(LocalWorkspace)
     base_ws._root = sandbox.root
-    worker_ws = types.SimpleNamespace(_worktree_branch=branch, _worktree_path=worktree_path)
+    worker_ws = types.SimpleNamespace(
+        _worktree_branch=branch, _worktree_path=worktree_path
+    )
 
     release = asyncio.Event()
     teardown_delete_branch: list[bool] = []
@@ -382,7 +395,9 @@ async def test_ac28_cancel_retains_branches(tmp_path: Path) -> None:
         async def allocate_isolated_workspace(self, scope, step, *, worker_index):
             return worker_ws
 
-        async def teardown_isolated_workspace(self, base_workspace, ws, *, delete_branch=True):
+        async def teardown_isolated_workspace(
+            self, base_workspace, ws, *, delete_branch=True
+        ):
             # The real fanout.py finally-block call this test proves happens
             # with delete_branch=False on cancel.
             teardown_delete_branch.append(delete_branch)
@@ -394,14 +409,28 @@ async def test_ac28_cancel_retains_branches(tmp_path: Path) -> None:
         async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
             return None
 
-        async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
+        async def run_worker(
+            self,
+            step,
+            ctx,
+            *,
+            worker_index,
+            thread_id,
+            agent_id,
+            input,
+            workspace=None,
+            **kw,
+        ):
             await release.wait()  # blocks until cancelled mid-flight
             yield {"type": "agent_chunk", "data": {}}
 
     runner = _CancelFanoutRunner()
     cancel_event = asyncio.Event()
     ctx = types.SimpleNamespace(
-        runner=runner, depth=0, budget=BudgetManager(), cancel_event=cancel_event,
+        runner=runner,
+        depth=0,
+        budget=BudgetManager(),
+        cancel_event=cancel_event,
     )
     fanout_spec = types.SimpleNamespace(
         mode="parallel", max_parallel=None, agent="self", count=None, workers=[]
@@ -587,7 +616,9 @@ async def test_fr042_cancel_commits_forward_never_resets(tmp_path: Path) -> None
     head_before = sandbox.head_commit()
 
     # Dirty the working tree — leftover in-flight work at cancel time.
-    (sandbox.root / "abandoned_work.md").write_text("partial output\n", encoding="utf-8")
+    (sandbox.root / "abandoned_work.md").write_text(
+        "partial output\n", encoding="utf-8"
+    )
     assert sandbox.is_dirty() is True
 
     (sandbox.root / ".logs").mkdir(exist_ok=True)
@@ -624,12 +655,14 @@ async def test_fr042_cancel_commits_forward_never_resets(tmp_path: Path) -> None
     ):
         await eng.finalize_terminal_run(run_id, ectx, candidate_status="cancelled")
 
-    assert calls, "commit_in_sandbox was never called — the WIP reconcile path did not run"
+    assert (
+        calls
+    ), "commit_in_sandbox was never called — the WIP reconcile path did not run"
     wip_message, wip_before, wip_after = calls[0]
 
-    assert wip_message == "wip: cancelled at step builder", (
-        f"expected the real engine WIP message, got {wip_message!r}. FR-042 violation."
-    )
+    assert (
+        wip_message == "wip: cancelled at step builder"
+    ), f"expected the real engine WIP message, got {wip_message!r}. FR-042 violation."
     assert wip_before == head_before, (
         "the WIP commit must be created directly on top of the pre-cancel HEAD "
         f"(no reset happened before it): expected parent {head_before!r}, "

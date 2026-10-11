@@ -78,6 +78,7 @@ def api(db_session):
         state["user"],
         principal_for(state["user"], groups=state["groups"]),
     )
+
     def override_db():
         yield db_session
 
@@ -131,5 +132,3 @@ class TestProjectionCannotGrant:
         resp = client.post("/api/user-workflows", json=_custom_workflow_body())
 
         assert resp.status_code == 403
-
-

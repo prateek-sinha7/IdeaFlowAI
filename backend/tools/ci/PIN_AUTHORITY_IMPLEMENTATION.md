@@ -14,7 +14,6 @@ A centralized, immutable dataclass that pins:
 - Runtime version: `3.13.0` (exact SemVer, maintained LTS)
 - `requires-python` range: `>=3.13.0, <3.14.0`
 - Ruff target: `py313` (automatically derived from runtime major.minor)
-- SonarCloud Python metadata: `3.13`
 
 #### Node.js Runtime
 - Runtime version: `24.11.0` (exact SemVer, Node 24 LTS)

@@ -1,0 +1,78 @@
+# =============================================================================
+# Release notes
+# =============================================================================
+# Pushing a `v*` tag creates a GitHub Release whose notes GitHub generates from
+# the pull requests and commits between the PREVIOUS tag and this one. GitHub
+# chooses "previous tag" itself; this workflow deliberately passes no
+# --notes-start-tag, so there is no hand-rolled tag arithmetic to get wrong.
+#
+# Independent of the Deploy workflow. A `v*` tag ALSO triggers Deploy (prod); the
+# two run side by side. This workflow neither waits for, depends on, nor reports
+# the deploy, and it adds nothing to the Deploy trigger surface. Who may create a
+# `v*` tag is governed by the tag ruleset in .github/rulesets/tags.json.
+#
+# What this workflow does not do: it runs no repository code (so there is no
+# checkout and no third-party action to pin), builds nothing, publishes no
+# artifact, and attaches no supply-chain documents. `gh` is preinstalled on the
+# GitHub-hosted runner image (ci/toolchain-lock.json runtime_pins.runner_image).
+#
+# Trigger surface is tag pushes only: no workflow_dispatch, no pull_request.
+# `permissions: contents: read` at workflow level; the single job widens to
+# `contents: write`, which creating a release requires, and nothing else.
+#
+# Re-running is safe: if the release already exists the job exits successfully
+# without editing it.
+# =============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Create release with generated notes
+        env:
+          # The token and the tag arrive through `env:`, never by interpolation
+          # into the script body, so a crafted tag name cannot become shell.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Refuse anything that is not vMAJOR.MINOR.PATCH with an optional
+          # pre-release suffix. The value is not echoed back. Keep this grammar
+          # identical to the prod tag check in the Deploy workflow's `resolve`
+          # job: `+build` is excluded because `+` is not a legal ECR tag
+          # character, so Deploy would reject it.
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag does not look like vMAJOR.MINOR.PATCH[-prerelease]; no release created."
+            exit 1
+          fi
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "A release for this tag already exists; nothing to do."
+            exit 0
+          fi
+
+          flags=(--verify-tag --generate-notes --title "$TAG_NAME")
+          if [[ "$TAG_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+
+          gh release create "$TAG_NAME" "${flags[@]}"

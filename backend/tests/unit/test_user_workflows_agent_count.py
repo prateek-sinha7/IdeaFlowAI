@@ -74,8 +74,12 @@ _STALE_AGENTS_COLUMN = (
 
 def test_manifest_row_counts_its_steps_not_the_stale_column():
     """The reported bug: "4 agents" on a 12-step workflow."""
-    out = _project(_row(agents=_STALE_AGENTS_COLUMN,
-                        manifest_json={"steps": _PDF_TO_PROTOTYPE_STEPS}))
+    out = _project(
+        _row(
+            agents=_STALE_AGENTS_COLUMN,
+            manifest_json={"steps": _PDF_TO_PROTOTYPE_STEPS},
+        )
+    )
 
     assert len(out.agent_ids) == 12, "the card would show the stale column's 4"
     assert "oa2v5f-g5exi0" not in out.agent_ids, "a stale id leaked through"
@@ -83,8 +87,12 @@ def test_manifest_row_counts_its_steps_not_the_stale_column():
 
 def test_ids_match_the_engine_step_ids():
     """`{agent}:{instance_id}` — the exact form the manifest's depends_on uses."""
-    out = _project(_row(agents=_STALE_AGENTS_COLUMN,
-                        manifest_json={"steps": _PDF_TO_PROTOTYPE_STEPS}))
+    out = _project(
+        _row(
+            agents=_STALE_AGENTS_COLUMN,
+            manifest_json={"steps": _PDF_TO_PROTOTYPE_STEPS},
+        )
+    )
 
     assert out.agent_ids[0] == "custom-agent:oa2v5f-rk5oy0"
     assert out.agent_ids[5] == "prototype-specify", "a built-in step has no instance"
@@ -109,8 +117,12 @@ def test_agent_ids_backed_row_is_unchanged():
 
 def test_a_selections_map_is_not_mistaken_for_a_manifest():
     """``manifest_json`` is overloaded — a selections map has no "steps" key."""
-    out = _project(_row(agents='["domain-analyst"]',
-                        manifest_json={"domain-analyst": {"depth": "deep"}}))
+    out = _project(
+        _row(
+            agents='["domain-analyst"]',
+            manifest_json={"domain-analyst": {"depth": "deep"}},
+        )
+    )
     assert out.agent_ids == ["domain-analyst"]
     assert out.selections == {"domain-analyst": {"depth": "deep"}}
     assert out.manifest is None
@@ -118,13 +130,19 @@ def test_a_selections_map_is_not_mistaken_for_a_manifest():
 
 def test_malformed_steps_are_skipped_not_fatal():
     """A step with no agent, or a non-dict, must not break the listing."""
-    out = _project(_row(manifest_json={"steps": [
-        _step("custom-agent", "aaa"),
-        {"name": "no agent here"},
-        "not a dict",
-        None,
-        _step("prototype-build"),
-    ]}))
+    out = _project(
+        _row(
+            manifest_json={
+                "steps": [
+                    _step("custom-agent", "aaa"),
+                    {"name": "no agent here"},
+                    "not a dict",
+                    None,
+                    _step("prototype-build"),
+                ]
+            }
+        )
+    )
     assert out.agent_ids == ["custom-agent:aaa", "prototype-build"]
 
 

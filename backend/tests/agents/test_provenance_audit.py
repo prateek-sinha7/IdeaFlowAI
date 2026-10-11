@@ -65,7 +65,9 @@ def _make_db():
     return session, engine
 
 
-def _make_store(session, owner_id: str = "alice", workspace_id: str = "ws-1") -> ScopedStore:
+def _make_store(
+    session, owner_id: str = "alice", workspace_id: str = "ws-1"
+) -> ScopedStore:
     return ScopedStore(owner_id=owner_id, workspace_id=workspace_id, session=session)
 
 
@@ -126,8 +128,12 @@ def _make_event(
     }
 
 
-def _query_audit_rows(session, *, owner_id: str, run_id: str | None = None) -> list[RunProvenanceAudit]:
-    q = session.query(RunProvenanceAudit).filter(RunProvenanceAudit.owner_id == owner_id)
+def _query_audit_rows(
+    session, *, owner_id: str, run_id: str | None = None
+) -> list[RunProvenanceAudit]:
+    q = session.query(RunProvenanceAudit).filter(
+        RunProvenanceAudit.owner_id == owner_id
+    )
     if run_id is not None:
         q = q.filter(RunProvenanceAudit.run_id == run_id)
     return q.all()
@@ -320,7 +326,9 @@ async def test_restore_writes_row_and_lookup_idempotent_restore() -> None:
         )
 
         # Idempotency lookup returns the typed projection
-        result = lookup_idempotent_restore(session, owner_id="carol", idempotency_key=key)
+        result = lookup_idempotent_restore(
+            session, owner_id="carol", idempotency_key=key
+        )
         assert result is not None
         assert result["commit_id"] == "feed1234"
         assert result["tag_name"] == "v2"
@@ -417,7 +425,9 @@ async def test_audit_row_has_only_typed_columns_no_raw_content() -> None:
         # The row must NOT carry any of the prohibited extra keys.
         row_dict = {c.name: getattr(row, c.name) for c in row.__table__.columns}
         for prohibited in ("raw_output", "diff", "prompt"):
-            assert prohibited not in row_dict, f"Prohibited field {prohibited!r} leaked onto row"
+            assert (
+                prohibited not in row_dict
+            ), f"Prohibited field {prohibited!r} leaked onto row"
         # detail_json column exists but was not set by the observer path
         # (write_provenance_audit never accepts it as a kwarg)
         assert row_dict.get("detail_json") is None

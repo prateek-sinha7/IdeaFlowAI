@@ -1,5 +1,10 @@
 # Flowin
 
+[![CI](https://github.com/Hexaware-HnI/velocityai/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Hexaware-HnI/velocityai/actions/workflows/ci.yml)
+[![Deploy (staging)](https://github.com/Hexaware-HnI/velocityai/actions/workflows/deploy.yml/badge.svg?branch=staging)](https://github.com/Hexaware-HnI/velocityai/actions/workflows/deploy.yml)
+
+CI/CD status, pins and runbook: [.github/CI_STATUS.md](.github/CI_STATUS.md).
+
 Flowin is a manifest-driven workflow runtime with a FastAPI backend and a Next.js frontend. Cognito is the only authentication authority; pipeline run events use REST commands and per-run Server-Sent Events (SSE).
 
 ## Native local setup (Windows)

@@ -45,7 +45,10 @@ def test_prototype_plan_agent_is_configured_plan_only():
     # from "You are in PLANNING mode ONLY" to "OUTPUT MODE — READ THIS FIRST",
     # but the plan-only contract itself is unchanged):
     assert "output mode" in body
-    assert "no need to browse" in body
+    # Sandbox-read migration replaced "no need to browse" with a bounded read
+    # instruction: read ONLY the files in the Sandbox Reading Guide, write nothing.
+    assert "sandbox reading guide above — nothing else" in body
+    assert "do **not** write" in body
     # It must instruct the ## Task N: output format the parser reads:
     assert "## task" in body
     # …and explicitly forbid emitting an <artifact>/HTML build:

@@ -1,7 +1,10 @@
 """The user's request is persisted to .context/user-prompt.md for any agent to read."""
 
+from agents.execution_engine.user_prompt import (
+    USER_PROMPT_PATH,
+    write_user_prompt_to_sandbox,
+)
 from app.agents.sandbox import AGENT_READABLE_RESERVED, RESERVED_PATHS
-from app.api.launch_context import USER_PROMPT_PATH, write_user_prompt_to_sandbox
 
 
 class _FakeSandbox:
@@ -48,7 +51,7 @@ def test_path_is_reserved_and_agent_readable():
 
 
 def test_strip_inline_attachments_keeps_brief_and_names():
-    from app.api.launch_context import strip_inline_attachments
+    from agents.execution_engine.user_prompt import strip_inline_attachments
 
     msg = (
         "Please create prototype"
@@ -62,6 +65,6 @@ def test_strip_inline_attachments_keeps_brief_and_names():
 
 
 def test_strip_inline_attachments_noop_without_blocks():
-    from app.api.launch_context import strip_inline_attachments
+    from agents.execution_engine.user_prompt import strip_inline_attachments
 
     assert strip_inline_attachments("just a brief") == "just a brief"

@@ -76,6 +76,26 @@ describe("useWorkflow — image payload merge (Wave 2)", () => {
     expect(payload.message).toBe("brief");
   });
 
+  it("startPipeline_omits_display_title_when_context_carries_the_client_only_hint", () => {
+    // FIX-130/KAN-116 pass `_display_title` in extraParams for the page's own
+    // title; it must never reach the wire (TS-H-01 byte-identical contract).
+    const sendCommand = makeSendCommand();
+    mockConnection(sendCommand);
+    const { result } = renderHook(() => useWorkflow());
+
+    act(() => {
+      void result.current.startPipeline("user_stories", "brief", ["a"], undefined, {
+        _display_title: "My run",
+        source_workflow_run_id: "parent-1",
+      });
+    });
+
+    const payload = lastPayload(sendCommand);
+    expect("_display_title" in payload).toBe(false);
+    // Every other context key still merges through unchanged.
+    expect(payload.source_workflow_run_id).toBe("parent-1");
+  });
+
   it("sends no images key when no context is supplied (INV-3)", () => {
     const sendCommand = makeSendCommand();
     mockConnection(sendCommand);

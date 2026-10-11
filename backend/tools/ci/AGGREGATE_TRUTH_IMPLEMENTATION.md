@@ -50,9 +50,8 @@ Computes the set of mandatory signals required for aggregate gate from the signa
 - Security checks (gitleaks, pip_audit, npm_audit)
 - IaC checks (terraform_fmt, terraform_validate, tflint, checkov, trivy_config)
 - Container scans (container_scan_backend, container_scan_frontend)
-- Sonar analysis and quality gate (sonar_analysis, sonar_quality_gate)
 
-**Total: 28 mandatory signals**
+**Total: derived from the registry (`ci_gate aggregate` prints the count)**
 
 ##### `aggregate_truth(results: dict[str, SignalResult], current_sha: str, registry: dict[str, Signal] | None = None) -> bool`
 
@@ -161,7 +160,6 @@ All non-success states (FAILURE, CANCELLED, SKIPPED, TIMED_OUT, MISSING, UNAVAIL
 - Complete successful evaluation scenarios
 - Backend test failure scenarios
 - Frontend coverage failure scenarios
-- Sonar quality gate failure scenarios
 - Security scan High/Critical findings
 - Container image scan failures
 - Stale SHA scenarios
@@ -241,7 +239,7 @@ else:
     # Block merge
 ```
 
-### Signal List (28 Total)
+### Signal List (historical snapshot; signal_registry.py is the authority)
 
 **Repository/Static (3)**
 - actionlint
@@ -285,10 +283,6 @@ else:
 - container_scan_backend
 - container_scan_frontend
 
-**Sonar (2)**
-- sonar_analysis
-- sonar_quality_gate
-
 ### Files Created
 
 1. `backend/tools/ci/aggregate_truth.py` - Core implementation (400+ lines)
@@ -299,7 +293,7 @@ else:
 
 - **2.7**: Implements truth table equivalence where aggregate success iff all signals succeed for same SHA
 - **2.14**: Enforces fail-closed aggregate logic with missing/non-success signals failing gate
-- **2.16**: Validates all mandatory signals including Sonar quality gate
+- **2.16**: Validates every mandatory signal in the registry's `aggregate_members` set
 - **3.3**: Integrates with signal registry for consistent signal validation
 - **3.4**: Uses immutable SignalResult with complete validation
 - **3.5**: Core aggregate gate logic that determines merge readiness

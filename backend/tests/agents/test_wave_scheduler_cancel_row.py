@@ -37,7 +37,9 @@ class _CancelMidWaveRunner:
     async def update_wave_run(self, row_id, *, status):
         self.updated.append((row_id, status))
 
-    async def run_fanout(self, requests, ctx, *, step=None):
+    # Same keyword surface as KernelServices.run_fanout (event_queue is the
+    # additive per-worker side channel the wave scheduler now passes).
+    async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
         raise asyncio.CancelledError()
         yield  # pragma: no cover — makes this an async generator
 
@@ -51,7 +53,9 @@ class _CancelCtx:
 class _CancelStep:
     def __init__(self, agent_id):
         self.agent_id = agent_id
-        self.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
+        self.task_source = type(
+            "TS", (), {"source_step": "plan", "parser": "json_tasks"}
+        )()
 
 
 @pytest.mark.issue("ISS-098")
@@ -76,9 +80,10 @@ async def test_cancelled_error_mid_wave_marks_row_terminal():
         async for _ in strat.run(step, ctx):
             pass
 
-    assert runner.updated, (
-        "wave_runs row was never flipped off 'running' after a mid-wave CancelledError"
-    )
-    assert runner.updated[-1][1] in ("failed", "cancelled"), (
-        f"wave_runs row left at non-terminal status: {runner.updated}"
-    )
+    assert (
+        runner.updated
+    ), "wave_runs row was never flipped off 'running' after a mid-wave CancelledError"
+    assert runner.updated[-1][1] in (
+        "failed",
+        "cancelled",
+    ), f"wave_runs row left at non-terminal status: {runner.updated}"

@@ -9,7 +9,9 @@ Two subcommands:
 
   verify-execution   Compare a partition from that inventory against what a test
                      run actually executed, and fail on an omitted node, a node
-                     executed twice, or a skip inside a mandatory partition.
+                     executed twice, or a skip inside a mandatory partition
+                     (the one exemption: an xfail(strict=True) carrying an
+                     ``issue`` marker — a tracked known bug that still runs).
 
 Both fail closed. A collection error, an ambiguous marker combination, an
 unowned test-like file, or a missing mandatory suite is a failure, not a warning:
@@ -34,11 +36,26 @@ from .execution_recorder import LIVE_MARKERS, POSTGRES_MARKERS
 #: These encode invariants the project must never stop checking (INV-3, the
 #: name-free kernel, and the retired-transport ratchet), so "collection found
 #: nothing here" has to be an error rather than an empty partition.
+#:
+#: Every path below is a SUBSTRING of a pytest node id, so it must track the
+#: real tree. All four drifted when the suites were migrated into the canonical
+#: tests/<suite>/ layout, and three of them started failing the gate outright:
+#: test_banned_patterns.py and test_sse_cutover_banned_patterns.py moved to
+#: tests/unit/agents/, and test_workflow_contracts.py to tests/unit/tools/ci/.
+#:
+#: The characterization entry was the dangerous one, because it did NOT fail. It
+#: still matched a single straggler, tests/agents/test_characterization_sample_
+#: subagents_parallel.py, while the six actual INV-3 golden suites had moved to
+#: tests/contract/agents/. The guard was green while guarding almost nothing —
+#: the same "matching on names that cannot occur" failure this repo calls out
+#: elsewhere. It now points at the goldens themselves.
 REQUIRED_SUITE_MARKERS: dict[str, str] = {
-    "characterization goldens (INV-3)": "tests/agents/test_characterization_",
-    "name-free kernel banned patterns": "tests/agents/test_banned_patterns.py",
-    "retired transport banned patterns": "tests/agents/test_sse_cutover_banned_patterns.py",
-    "workflow contract tests": "tests/ci/test_workflow_contracts.py",
+    "characterization goldens (INV-3)": "tests/contract/agents/test_characterization_",
+    "name-free kernel banned patterns": "tests/unit/agents/test_banned_patterns.py",
+    "retired transport banned patterns": (
+        "tests/unit/agents/test_sse_cutover_banned_patterns.py"
+    ),
+    "workflow contract tests": "tests/unit/tools/ci/test_workflow_contracts.py",
 }
 
 #: Extensions pytest will never collect. A test-like file with one of these
@@ -197,6 +214,11 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _is_tracked_known_bug(node: dict[str, Any]) -> bool:
+    """True iff a skipped node is an xfail(strict=True) carrying an issue marker."""
+    return bool(node.get("xfailed") and node.get("strict_xfail") and node.get("issues"))
+
+
 def cmd_verify_execution(args: argparse.Namespace) -> int:
     """Compare an inventory partition against what actually executed."""
     inventory = json.loads(Path(args.inventory).read_text(encoding="utf-8"))
@@ -216,6 +238,7 @@ def cmd_verify_execution(args: argparse.Namespace) -> int:
     }
 
     problems: list[str] = []
+    known_bugs: list[str] = []
 
     for nodeid in sorted(expected - set(observed)):
         problems.append(f"inventoried node never executed: {nodeid}")
@@ -235,7 +258,16 @@ def cmd_verify_execution(args: argparse.Namespace) -> int:
         if outcomes.get("failed"):
             problems.append(f"node failed: {nodeid}")
         if outcomes.get("skipped"):
-            # A skip inside a mandatory partition is an accepted-red baseline.
+            if _is_tracked_known_bug(node):
+                # A strict xfail tied to an issue card still RUNS every time and
+                # turns red (XPASS strict → failed) the moment the bug is fixed —
+                # the `issue` marker's "paired with xfail until the fix lands"
+                # contract. It is visible, not an accepted-red baseline.
+                known_bugs.append(f"{nodeid} ({', '.join(node['issues'])})")
+                continue
+            # Anything else — a plain skip, a non-strict xfail, an imperative
+            # pytest.xfail(), or a strict xfail with no issue card — is an
+            # accepted-red baseline inside a mandatory partition.
             reason = node.get("skip_reason") or "no reason recorded"
             problems.append(
                 f"node skipped inside the mandatory {args.partition} partition: "
@@ -244,8 +276,10 @@ def cmd_verify_execution(args: argparse.Namespace) -> int:
 
     print(
         f"{args.partition}: expected {len(expected)}, observed {len(observed)}, "
-        f"{len(problems)} problem(s)"
+        f"{len(problems)} problem(s), {len(known_bugs)} tracked known bug(s)"
     )
+    for known in known_bugs:
+        print(f"::notice::known bug (strict xfail, issue-linked): {known}")
 
     if problems:
         for problem in problems[:200]:

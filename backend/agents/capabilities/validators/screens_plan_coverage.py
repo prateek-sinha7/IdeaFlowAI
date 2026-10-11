@@ -37,12 +37,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agents.capabilities.base import Validator  # port
 from agents.capabilities.registry import register
 from agents.capabilities.screen_inventory import InventoryError, parse_inventory
 from agents.capabilities.validators.severity import map_severity  # single source
 
-_SCREEN_HEADING_RE = re.compile(r"^###\s+(?P<id>[a-z0-9][a-z0-9-]*)\s+—\s", re.MULTILINE)
+_SCREEN_HEADING_RE = re.compile(
+    r"^###\s+(?P<id>[a-z0-9][a-z0-9-]*)\s+—\s", re.MULTILINE
+)
 _MAX_LISTED = 20
 
 

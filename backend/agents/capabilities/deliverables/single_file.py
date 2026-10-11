@@ -60,7 +60,7 @@ def _highest_glob_match(files: list[dict], glob_pattern: str) -> str | None:
         path = entry["path"]
         if not (path.startswith(prefix) and path.endswith(suffix)):
             continue
-        middle = path[len(prefix): len(path) - len(suffix)]
+        middle = path[len(prefix) : len(path) - len(suffix)]
         if not middle.isdigit():
             continue
         version = int(middle)

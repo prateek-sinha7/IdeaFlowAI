@@ -214,7 +214,8 @@ function buildSvgV3(ir) {
     if (c.rectW && c.rectH) {
       try { node.resize(Math.max(1, c.rectW), Math.max(1, c.rectH)); } catch {}
     }
-    if (parent && parent.computed) positionNode(node, c, parent.computed);
+    // No positioning here: buildSvgV3 takes no parent, and buildFrameV3 already
+    // places every child from its own computed rect after appendChild.
     return node;
   } catch {
     // SVG parse failed — fallback rectangle
@@ -274,7 +275,7 @@ async function buildTextNodeV3(ir, parent) {
   return t;
 }
 
-async function buildTextLeafV3(ir, parent) {
+async function buildTextLeafV3(ir, _parent) {
   const text = joinText(ir).trim();
   if (!text) return null;
   const c = ir.computed || {};
@@ -315,7 +316,7 @@ async function buildTextLeafV3(ir, parent) {
 
 // ─── Container frame (v3) ────────────────────────────────────────────────────
 
-async function buildFrameV3(ir, parent) {
+async function buildFrameV3(ir, _parent) {
   const c = ir.computed || {};
   const frame = figma.createFrame();
   frame.name = ir.tag || "Frame";
@@ -423,9 +424,9 @@ function buildFallbackRect(ir, label) {
 
 // ─── Helpers: text ───────────────────────────────────────────────────────────
 
-const TEXT_TAGS = new Set(["h1","h2","h3","h4","h5","h6","p","span","label","a","strong","em","b","i","li","td","th","dt","dd","small","caption","figcaption"]);
+// Only INLINE_TAGS is consulted (by isTextLeaf). The tag/style lists that used to
+// sit beside it were unreferenced, so they are not carried here.
 const INLINE_TAGS = new Set(["span","strong","em","a","b","i","small","sup","sub","mark","u","code"]);
-const CONTAINER_STYLE_PROPS = ["backgroundColor","backgroundImage","borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth","borderTopLeftRadius"];
 
 function hasContainerStyling(ir) {
   const c = ir.computed;
@@ -667,12 +668,6 @@ async function fetchImageBytes(src) {
     const buf = await res.arrayBuffer();
     return new Uint8Array(buf);
   } catch { return null; }
-}
-
-function positionNode(node, computed, parentComputed) {
-  if (!computed || !parentComputed) return;
-  node.x = Math.round((computed.rectX || 0) - (parentComputed.rectX || 0));
-  node.y = Math.round((computed.rectY || 0) - (parentComputed.rectY || 0));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

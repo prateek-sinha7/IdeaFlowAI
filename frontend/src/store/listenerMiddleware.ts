@@ -4,6 +4,7 @@ import { fetchAgentLibrary, agentsCleared } from "@/store/slices/agentsSlice";
 import { fetchSkills, skillsCleared } from "@/store/slices/skillsSlice";
 import { fetchHooks, hooksCleared } from "@/store/slices/hooksSlice";
 import { fetchWorkflows, globalCleared } from "@/store/slices/globalSlice";
+import { resetLiveNotificationsCache } from "@/hooks/useNotifications";
 import type { RootState, AppDispatch } from "@/store/index";
 
 export const listenerMiddleware = createListenerMiddleware();
@@ -73,5 +74,8 @@ listenerMiddleware.startListening({
   actionCreator: signedOut,
   effect: (_action, listenerApi) => {
     clearPreloads(listenerApi.dispatch as AppDispatch);
+    // useNotifications keeps live (running/gate) entries in module memory across
+    // in-app remounts; they must not survive into the next account.
+    resetLiveNotificationsCache();
   },
 });

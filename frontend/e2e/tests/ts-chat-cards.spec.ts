@@ -25,6 +25,9 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
     await dashboard.goto();
     mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
     await mockSse.ready(); // Wait for SSE stream attachment before assertions
+    // 015-frontend-routing: settle on the run's own route (its push remounts the
+    // run screen) before interacting, so picked files are not discarded.
+    await dashboard.awaitRunRoute();
     await expect(dashboard.page.getByTestId("run-chat-lane")).toBeVisible();
   });
 
@@ -44,7 +47,8 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
     // Phase 39 re-anchor: the redesigned tabs are role="tab" with an
     // aria-selected active-state (was a role="button" + text-gray-900 class).
     const previewTab = page.getByRole("tab", { name: /Preview/ });
-    const filesTab = page.getByRole("tab", { name: /Files/ });
+    // The retired "Files" tab is now "Workspace" (PreviewPanel TAB_CONFIG).
+    const filesTab = dashboard.workspaceTab();
     await filesTab.click();
     await expect(filesTab).toHaveAttribute("aria-selected", "true");
 

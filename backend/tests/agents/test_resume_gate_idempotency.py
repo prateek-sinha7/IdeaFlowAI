@@ -102,8 +102,13 @@ async def _build_cancel_after_later_gate_fixture(session):
     ws = "ws-a3"
     session.add(
         WorkflowRun(
-            id=run_id, user_id=owner, owner_id=owner, workspace_id=ws,
-            status="waiting_for_user", type="pdf_to_prototype", input="brief",
+            id=run_id,
+            user_id=owner,
+            owner_id=owner,
+            workspace_id=ws,
+            status="waiting_for_user",
+            type="pdf_to_prototype",
+            input="brief",
         )
     )
     session.commit()
@@ -122,11 +127,17 @@ async def _build_cancel_after_later_gate_fixture(session):
     # for shell follows (matching the real evidence — its own run had not yet
     # persisted when the run was interrupted).
     await store.append_event(
-        run_id, seq=_next_seq(), event_id="rg-shell", type="review_gate_ready",
+        run_id,
+        seq=_next_seq(),
+        event_id="rg-shell",
+        type="review_gate_ready",
         payload_json={"gate_key": f"{run_id}:shell:0"},
     )
     await store.append_event(
-        run_id, seq=_next_seq(), event_id="ra-shell", type="review_gate_approved",
+        run_id,
+        seq=_next_seq(),
+        event_id="ra-shell",
+        type="review_gate_approved",
         payload_json={"agent_id": "shell"},
     )
 
@@ -135,26 +146,43 @@ async def _build_cancel_after_later_gate_fixture(session):
         content = f"<output of {agent_id}>"
         await store.write_ref(
             ArtifactRef(
-                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
-                kind="summary", producer_step=agent_id, producer_agent=agent_id,
-                task_id=None, content=content, content_hash=_pb_hash(content),
-                location=f"artifact_refs/{agent_id}", version=1,
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner,
+                workspace_id=ws,
+                kind="summary",
+                producer_step=agent_id,
+                producer_agent=agent_id,
+                task_id=None,
+                content=content,
+                content_hash=_pb_hash(content),
+                location=f"artifact_refs/{agent_id}",
+                version=1,
             )
         )
         await store.append_event(
-            run_id, seq=_next_seq(), event_id=f"ac-{agent_id}", type="agent_complete",
+            run_id,
+            seq=_next_seq(),
+            event_id=f"ac-{agent_id}",
+            type="agent_complete",
             payload_json={"agent_id": agent_id},
         )
 
     # (3) tail's post-step gate opens — still unresolved.
     await store.append_event(
-        run_id, seq=_next_seq(), event_id="rg-tail", type="review_gate_ready",
+        run_id,
+        seq=_next_seq(),
+        event_id="rg-tail",
+        type="review_gate_ready",
         payload_json={"gate_key": f"{run_id}:tail:0"},
     )
 
     # (4) the run is interrupted while tail's gate is open, then resumed.
     await store.append_event(
-        run_id, seq=_next_seq(), event_id="pc", type="pipeline_cancelled",
+        run_id,
+        seq=_next_seq(),
+        event_id="pc",
+        type="pipeline_cancelled",
         payload_json={},
     )
     session.commit()
@@ -203,7 +231,12 @@ async def test_resume_reentry_skips_already_approved_before_human_gate():
     ``review_gate_approved`` must not re-open the gate — only the step's own
     agent (the strategy, not exercised here) re-runs."""
     from agents.execution_engine.engine import ExecutionEngine
-    from tests.unit.agents.test_gates import _Ctx, _GatedStep, _RecordingRunner, _collect_gates
+    from tests.unit.agents.test_gates import (
+        _Ctx,
+        _GatedStep,
+        _RecordingRunner,
+        _collect_gates,
+    )
 
     engine = ExecutionEngine()
     runner = _RecordingRunner(
@@ -233,7 +266,12 @@ async def test_before_human_gate_still_fires_without_resume_approved_keys():
     live run, or a resume whose gate genuinely never resolved), the SAME
     before-human gate fires exactly as before — byte-identical."""
     from agents.execution_engine.engine import ExecutionEngine
-    from tests.unit.agents.test_gates import _Ctx, _GatedStep, _RecordingRunner, _collect_gates
+    from tests.unit.agents.test_gates import (
+        _Ctx,
+        _GatedStep,
+        _RecordingRunner,
+        _collect_gates,
+    )
 
     engine = ExecutionEngine()
     runner = _RecordingRunner(

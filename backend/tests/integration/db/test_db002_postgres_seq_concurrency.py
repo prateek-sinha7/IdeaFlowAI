@@ -193,6 +193,8 @@ def test_concurrent_seq_allocation_survives_under_real_postgres_locking(postgres
     from sqlalchemy.orm import sessionmaker
 
     from agents.authz import ScopedStore
+    from app.models.user import User
+    from app.models.workflow import WorkflowRun
 
     _migrate_to_head(postgres_url)
 
@@ -203,9 +205,37 @@ def test_concurrent_seq_allocation_survives_under_real_postgres_locking(postgres
     owner_id = "db002-owner"
     workspace_id = "db002-ws"
 
-    # Seed the owning workflow_runs row (run_events has no FK requiring it in
-    # this schema, but seeding keeps the shape realistic) — best-effort, the
-    # seq allocator itself does not require it.
+    # Seed the owning workflow_runs row (and the users row it references).
+    # ``run_events.run_id`` is a real FK to ``workflow_runs.id`` and PostgreSQL
+    # enforces it (SQLite does not, which is why the SQLite-backed sibling tests
+    # never needed this). Without the parent row every insert is rejected with an
+    # FK ``IntegrityError``, which ``append_event_next_seq`` cannot tell apart
+    # from a seq collision — it retries, exhausts, and raises ``RuntimeError``.
+    seed = SessionLocal()
+    try:
+        seed.add(
+            User(
+                id=owner_id,
+                email=f"{owner_id}@example.com",
+                cognito_sub=f"sub-{owner_id}",
+            )
+        )
+        seed.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=owner_id,
+                title="db002",
+                type="prototype",
+                status="running",
+                input="db002 concurrent seq allocation",
+                owner_id=owner_id,
+                workspace_id=workspace_id,
+            )
+        )
+        seed.commit()
+    finally:
+        seed.close()
+
     async def _one_writer(idx: int) -> None:
         session = SessionLocal()
         try:

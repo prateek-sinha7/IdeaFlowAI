@@ -13,6 +13,7 @@ AgentContext carries all runtime context needed to compose the system prompt:
 from __future__ import annotations
 
 import logging
+import re as _re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -174,8 +175,6 @@ def _resolve_step_skills(ids: list[str]) -> list[dict]:
         resolved.append({"id": entry.id, "name": entry.name, "content": entry.content})
     return resolved
 
-
-import re as _re
 
 _INJECT_FROM_RE = _re.compile(r"\{\{INJECT_FROM:([^}]+)\}\}")
 _INJECT_FALLBACK = "<!-- -->"

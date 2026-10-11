@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, notFound } from "next/navigation";
 import { buildLoginRedirect } from "@/lib/authRedirect";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry } from "@/lib/api";
+import { getToken, getChat, logout, deleteChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getRunFamily, ApiError, handleSessionExpiry } from "@/lib/api";
 import { useAppDispatch } from "@/store/hooks";
 import { signedIn, userLoaded, signedOut } from "@/store/slices/authSlice";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
@@ -36,7 +36,6 @@ import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents
 // DashboardLayout already uses for notification titles (INV-12 — no dual impl).
 import { parseRunInput } from "@/lib/runInput";
 import { useRunStateStore } from "@/hooks/useRunStateStore";
-import type { PerRunState } from "@/hooks/useRunStateStore";
 // T8 (015-frontend-routing, FR-011): the single-saved-workflow fetch —
 // api.ts has no GET-by-id wrapper for /api/user-workflows/{id}, but this
 // RTK-adjacent module already does (userWorkflowsApi.get), so no new API
@@ -382,7 +381,19 @@ function wizardModeFor(parsed: ParsedView): LaunchMode | undefined {
  * else knows which workflow the URL meant.
  */
 function initialWorkflowTypeFor(parsed: ParsedView): string | undefined {
-  return parsed.screen === "create-workflow" ? parsed.pipelineType : undefined;
+  if (parsed.screen === "create-workflow") return parsed.pipelineType;
+  // The two hand-named create routes carry their type in the path itself; the
+  // click path's in-memory selection does not survive the URL remount, so
+  // without these `/create/app` fell back to the "user_stories" default (TS-B-04).
+  if (parsed.screen === "create-app") return "app_builder";
+  if (parsed.screen === "create-user-stories") return "user_stories";
+  // `/workflows/new` is always the blank `custom` composer. The click path's
+  // DashboardLayout state does NOT survive here: the URL push remounts this page
+  // (catch-all segment change), so without this the remounted composer fell
+  // back to the "user_stories" default and its Agent Library opened on the
+  // wrong catalogue (no custom agents).
+  if (parsed.screen === "workflow-new") return "custom";
+  return undefined;
 }
 
 /**
@@ -405,9 +416,10 @@ function workflowRunIdFor(parsed: ParsedView): string | undefined {
  * Manages WebSocket connection, workflow runs, and streaming content.
  * Workflow-first: the primary experience is running agent pipelines.
  */
-export default function DashboardPage({
-  params,
-}: { params?: Promise<{ view?: string[] }> } = {}) {
+// No `params` prop: the catch-all segments are derived from usePathname()
+// below (see the T6 comment). Declaring an optional/defaulted `params` made the
+// signature fail Next's generated PageProps constraint and was unused anyway.
+export default function DashboardPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
   // T6 (015-frontend-routing, FR-001/FR-003): the catch-all's segments,
@@ -495,7 +507,7 @@ export default function DashboardPage({
     typeof window !== "undefined" &&
     !!(sessionStorage.getItem("prototype.pending") || sessionStorage.getItem("ppt.pending"))
   );
-  const [token, setToken] = useState<string | null>(null);
+  const [_token, setToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // `/workflows/{type}/canvas` — seed the composer straight from the manifest. The
@@ -618,7 +630,7 @@ export default function DashboardPage({
   // Structural fallback — NEVER keyed on a workflow name (SC-001). Cleared on
   // every new run / reopen alongside the other content state.
   const [genericDeliverable, setGenericDeliverable] = useState<GenericDeliverable | undefined>(undefined);
-  const [currentMode, setCurrentMode] = useState<ChatMode>("default");
+  const [currentMode] = useState<ChatMode>("default");
   const [chatTitleUpdate, setChatTitleUpdate] = useState<{ chat_session_id: string; title: string } | null>(null);
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
   const processStepsRef = useRef<ProcessStep[]>([]);
@@ -655,7 +667,7 @@ export default function DashboardPage({
   // Phase 12 (§22 / RESUME-03) — wave/subagent tree state assembled from the
   // additive wave_*/subagent_* lifecycle events, fed (via the `waves` passthrough)
   // to AgentDetailPanel's inline construction/wave tree.
-  const [waveGroups, setWaveGroups] = useState<WaveGroup[]>([]);
+  const [_waveGroups, setWaveGroups] = useState<WaveGroup[]>([]);
   // Per-run dedup substrate for the durable reconnect replay (RESUME-03 FE half):
   // every applied event_id is recorded so a replayed event is applied at most
   // once, and the max-seen seq is tracked so the reconnect can send after_seq.
@@ -749,42 +761,6 @@ export default function DashboardPage({
     return runStateMapRef.current.get(runId)!;
   };
 
-  /** Update the per-run state map and optionally project to React state.
-   *  Call with project=true only when runId === trackedRunIdRef.current. */
-  const updateRunQuestionnaire = (
-    runId: string,
-    data: PerRunViewState["questionnaireData"],
-  ) => {
-    const entry = getRunViewState(runId);
-    entry.questionnaireData = data;
-    // Project to React state only when this is the currently viewed run
-    if (runId === trackedRunIdRef.current || trackedRunIdRef.current === null) {
-      setQuestionnaireData(data);
-      if (data !== null && runId) setActivePipelineRunId(runId);
-    }
-  };
-
-  const updateRunReviewGate = (
-    runId: string,
-    data: PerRunViewState["reviewGateData"],
-  ) => {
-    const entry = getRunViewState(runId);
-    entry.reviewGateData = data;
-    if (runId === trackedRunIdRef.current || trackedRunIdRef.current === null) {
-      setReviewGateData(data);
-    }
-  };
-
-  /** Load a run's persisted state into React state (called on run switch). */
-  const projectRunStateToUI = (runId: string) => {
-    const entry = runStateMapRef.current.get(runId);
-    setQuestionnaireData(entry?.questionnaireData ?? null);
-    setReviewGateData(entry?.reviewGateData ?? null);
-    if (entry?.activePipelineRunId) {
-      setActivePipelineRunId(entry.activePipelineRunId);
-    }
-  };
-
   // KAN-125 FIX — track the MOST-RECENTLY-LAUNCHED run id to gate the pipelineState
   // reducer. Unlike trackedRunIdRef (which gets overwritten by contentSourceRunId
   // from completed runs), this ref is ONLY updated when a new run is launched
@@ -847,7 +823,7 @@ export default function DashboardPage({
   // OUTSIDE the recents window. Set on reopen; cleared on a fresh (non-revision)
   // launch. Gated on !isPipelineRunning downstream so live launch->watch is byte-identical.
   const [contentSourceRunType, setContentSourceRunType] = useState<WorkflowType | null>(null);
-  const [questionnaireData, setQuestionnaireData] = useState<{
+  const [_questionnaireData, setQuestionnaireData] = useState<{
     questions: {
       id: string; question: string; options: string[]; answerType?: string;
       recommendedAnswer?: string; recommendedReasoning?: string;
@@ -862,7 +838,7 @@ export default function DashboardPage({
   // in DashboardLayout can still find the run id after pipeline_cancelled fires.
   const [lastCancelledRunId, setLastCancelledRunId] = useState<string | null>(null);
   // Review gate state — set when review_gate_ready fires
-  const [reviewGateData, setReviewGateData] = useState<{
+  const [_reviewGateData, setReviewGateData] = useState<{
     gateKey: string;
     agentId: string;
     agentName: string;
@@ -1336,6 +1312,8 @@ export default function DashboardPage({
       // wave_skipped/wave_repair — a zero-task wave and a repaired
       // dropped-task wave; see useWorkflow.ts's cases for detail.
       "wave_skipped", "wave_repair",
+      // Task 9.2 (SGV2) engine notices — same trap; see useRunStateStore.
+      "chain_context_unavailable", "run_finalization_failed",
       // Note: review_gate_ready and review_gate_approved are NOT here —
       // they go through the switch statement below to update reviewGateData state.
     ];
@@ -1459,6 +1437,10 @@ export default function DashboardPage({
           // never fired). Without this, the old questionnaire panel can flash or
           // persist into the next run's preview area.
           setQuestionnaireData(null);
+          // FIX-201 follow-up (BUG-005 positive control): the lane reads
+          // questionnaireData from the per-run STORE, so the clear must reach it
+          // too — else this run's build start left its clarify lane mounted.
+          if (incomingRunId) runStore.update(incomingRunId, { questionnaireData: null });
           setActivePipelineRunId(null);
           // KAN-120: clear the lastCancelledRunId so the resumed run's pipeline_start
           // removes the "Cancelled" state from history and the chat lane.
@@ -2248,7 +2230,7 @@ export default function DashboardPage({
   const effectiveReconnect = runConnection.reattach;
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit, reconcileTerminalStatus } = useWorkflow();
+  const { pipelineState, startPipeline, resetPipeline, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit, reconcileTerminalStatus } = useWorkflow();
   // KAN-98: store pending gate edits so review_gate_approved can apply them to
   // the live agent state (planAgent.output etc.) for the Thinking tab display.
   const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);
@@ -2273,7 +2255,6 @@ export default function DashboardPage({
   // the existing useWorkflow / waveGroups path which is already gated by
   // isForeignFrame + isForActiveRun guards. The store covers the fields that were
   // not properly guarded: questionnaireData, reviewGateData, content, submittedBrief.
-  const viewedRun = runStore.viewed;
 
   // FIX-201: stable ref to runStore.handleFrame so the zero-deps handleWebSocketMessage
   // useCallback can call it without closing over a stale runStore object.
@@ -2868,7 +2849,6 @@ export default function DashboardPage({
       router.push(routes.runStream(runId));
     },
     // runConnection and router are stable. All others are refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [runConnection, router],
   );
 
@@ -4298,9 +4278,11 @@ export default function DashboardPage({
         // activelyBuildingRunIdRef with the earlier-clicked run's ID.
         launchCounterRef.current += 1;
         const thisLaunchSeq = launchCounterRef.current;
-        void Promise.resolve(
+        // Resolves to whether the launch was accepted (a run id came back) so the
+        // launching screen can recover from a rejection (TS-Z3-02).
+        return Promise.resolve(
           startPipeline(type, message, agentIds, attachedHooks, extraParams),
-        ).then((launchedRunId) => {
+        ).then((launchedRunId): boolean => {
           if (launchedRunId) {
             runConnection.attachRun(launchedRunId);
             // KAN-125 — register this run as locally-launched so isForeignFrame
@@ -4348,6 +4330,19 @@ export default function DashboardPage({
               // FIX-201: switch the store viewport to the new run so it starts
               // receiving agent/pipeline frames as the viewed run.
               runStoreSwitchViewToRef.current(launchedRunId);
+              // The UI reads runStore.viewed (not useWorkflow's optimistic
+              // isRunning:true set by startPipeline), so project the same
+              // optimistic "running" state onto the new run's store entry —
+              // the lane shows its Running status pre-pipeline_start instead of
+              // an idle lane. Never overrides a frame that already landed.
+              runStore.updatePipelineState(launchedRunId, (prev) =>
+                prev.isRunning || prev.totalDuration != null || prev.failed || prev.cancelled
+                  ? prev
+                  // pipelineRunId feeds DashboardLayout's T9/T25 launch funnel,
+                  // which pushes routes.runStream(id) — the launch lands on its
+                  // run URL now, not only once pipeline_start arrives.
+                  : { ...prev, isRunning: true, pipeline_type: prev.pipeline_type || type, pipelineRunId: prev.pipelineRunId ?? launchedRunId },
+              );
             }
             // FIX-201 (KAN-168): clear the launch-pending sentinel so the
             // isForActiveRun guard resumes normal per-run filtering.
@@ -4362,11 +4357,13 @@ export default function DashboardPage({
                 .then(({ runs }) => setRecentRuns(runs))
                 .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
             }
+            return true;
           }
           // Always clear launchPendingRef regardless of whether we got a run id
           // (failure case — launch failed or returned no id).
-          else { launchPendingRef.current = false; }
-        }).catch((err: unknown) => {
+          launchPendingRef.current = false;
+          return false;
+        }).catch((err: unknown): boolean => {
           // specs/014: sendCommand's launch branch (runId=null) now THROWS
           // ApiError on a non-2xx POST /api/runs (previously silently returned
           // null and left the UI stuck on "launching..."). A 503
@@ -4379,6 +4376,7 @@ export default function DashboardPage({
           if (process.env.NODE_ENV !== "production") {
             console.error("Pipeline launch failed:", err);
           }
+          return false;
         });
       }}
       onResetPipeline={resetPipeline}

@@ -1,9 +1,15 @@
 {
   "name": "release-tag-protection",
-  "description": "Release tag protection (v*): prevent deletion and retagging of release versions. Creation restricted to release-managers team.",
+  "description": "Release tag protection (v*): prevent deletion and retagging of release versions, and restrict who may cut one. F-02: the `creation` rule means ONLY bypass actors can create a matching ref, so with an empty bypass_actors list nobody could create a v* tag at all — and a v* tag is deploy.yml's only non-break-glass route to production, so the release path was closed. The bypass actor is OrganizationAdmin because the `release-managers` team named in the previous version of this description DOES NOT EXIST in the Hexaware-HnI organization (orgs/Hexaware-HnI/teams is empty; the slug 404s), so a Team actor could not be resolved and the intent was never expressed. When that team is created, add {\"actor_type\": \"Team\", \"actor_id\": <team id>, \"bypass_mode\": \"always\"} here and decide explicitly whether OrganizationAdmin should remain. The `creation` rule takes NO parameters: the previous version nested a required_status_checks block under it, which is not in the rule's schema — GitHub dropped it on apply, so the live ruleset never carried it and the file misrepresented what was enforced. Status checks on a tag ref belong in a separate required_status_checks rule if they are wanted at all; today prod release integrity is enforced in deploy.yml's `resolve` job instead (v* ref check plus git merge-base ancestry against origin/main). backend/tests/unit/tools/ci/test_ruleset_workflow_contract.py enforces the reachability and self-consistency of this file.",
   "target": "tag",
   "enforcement": "active",
-  "bypass_actors": [],
+  "bypass_actors": [
+    {
+      "actor_id": 1,
+      "actor_type": "OrganizationAdmin",
+      "bypass_mode": "always"
+    }
+  ],
   "conditions": {
     "ref_name": {
       "include": [
@@ -20,15 +26,7 @@
       "type": "non_fast_forward"
     },
     {
-      "type": "creation",
-      "parameters": {
-        "required_status_checks": [
-          {
-            "context": "ci-required",
-            "integration_id": null
-          }
-        ]
-      }
+      "type": "creation"
     }
   ]
 }

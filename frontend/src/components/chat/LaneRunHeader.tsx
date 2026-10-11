@@ -120,12 +120,14 @@ function laneStatus(
         return { label: "Diverted", tone: "neutral", variant: "token" };
       if (pipelineState?.cancelled)
         return { label: "Cancelled", tone: "neutral", variant: "token" };
-      // One failed agent means the run failed. `degraded` stays a distinct persisted
-      // status — it records WHICH agents failed and the deliverable is still openable —
-      // but it is not a softer word to a reader, so it shares the failed token rather
-      // than an amber "Issues" of its own.
-      if (pipelineState?.failed || pipelineState?.degraded)
+      if (pipelineState?.failed)
         return { label: "Failed", tone: "failed", variant: "token" };
+      // Req 20 (Task 11.5) distinctness: `degraded` is its own terminal status —
+      // some agents failed but the deliverable is still openable — so it gets its
+      // own "Degraded" label and amber tone. It must never collapse into Failed,
+      // Done/Completed, or the older generic "Issues" wording.
+      if (pipelineState?.degraded)
+        return { label: "Degraded", tone: "amber", variant: "token" };
       return { label: "Ended", tone: "neutral", variant: "token" };
     case "idle":
     default:

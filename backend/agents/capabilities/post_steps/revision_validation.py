@@ -41,6 +41,9 @@ _DEFAULT_ARTIFACT_NAME = "prototype.html"
 @register(
     "post_step",
     "revision_validation",
+    # ADR-0054: a saved (Composer) copy of a built-in may reference this; it
+    # stays in the run's own owner-scoped sandbox and reaches no host resource.
+    saved_workflow_allowed=True,
     description="After a revision step, run the validation fix-loop over the revised deliverable.",
 )
 class RevisionValidationPostStep:

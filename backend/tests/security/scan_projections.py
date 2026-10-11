@@ -6,29 +6,31 @@ import re
 import sys
 
 # Scan app directory for projection reads
-projection_pattern = r'\b(is_admin|tier)\b'
-exclude_dirs = {'models', 'schemas', 'tests', '__pycache__'}
-exclude_files = {'provisioning.py'}
+projection_pattern = r"\b(is_admin|tier)\b"
+exclude_dirs = {"models", "schemas", "tests", "__pycache__"}
+exclude_files = {"provisioning.py"}
 
 hits = []
 
-for root, dirs, files in os.walk('app'):
+for root, dirs, files in os.walk("app"):
     # Remove excluded directories
     dirs[:] = [d for d in dirs if d not in exclude_dirs]
-    
+
     for file in files:
-        if not file.endswith('.py') or file in exclude_files:
+        if not file.endswith(".py") or file in exclude_files:
             continue
-        
-        if 'provisioning' in root:
+
+        if "provisioning" in root:
             continue
-        
+
         filepath = os.path.join(root, file)
-        
+
         try:
-            with open(filepath, 'r', errors='ignore') as f:
+            with open(filepath, "r", errors="ignore") as f:
                 for line_num, line in enumerate(f, 1):
-                    if not line.strip().startswith('#') and re.search(projection_pattern, line):
+                    if not line.strip().startswith("#") and re.search(
+                        projection_pattern, line
+                    ):
                         hits.append((filepath, line_num, line.rstrip()))
         except Exception as e:
             print(f"Error reading {filepath}: {e}", file=sys.stderr)

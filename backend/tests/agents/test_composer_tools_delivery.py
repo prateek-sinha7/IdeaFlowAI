@@ -55,9 +55,9 @@ def test_write_files_toggle_on_reaches_the_running_step(custom_plan):
     asserting the overlay should flip it.
     """
     agent_id = custom_plan.steps[0].agent_id
-    assert custom_plan.steps[0].tools.write_files is False, (
-        "fixture assumption: base step defaults write_files off"
-    )
+    assert (
+        custom_plan.steps[0].tools.write_files is False
+    ), "fixture assumption: base step defaults write_files off"
 
     plan, _ = ExecutionEngine._apply_selections(
         custom_plan,
@@ -76,9 +76,9 @@ def test_read_files_toggle_off_reaches_the_running_step(custom_plan):
     before asserting the overlay should flip it off.
     """
     agent_id = custom_plan.steps[0].agent_id
-    assert custom_plan.steps[0].tools.read_files is True, (
-        "fixture assumption: base step defaults read_files on"
-    )
+    assert (
+        custom_plan.steps[0].tools.read_files is True
+    ), "fixture assumption: base step defaults read_files on"
 
     plan, _ = ExecutionEngine._apply_selections(
         custom_plan,

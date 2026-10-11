@@ -242,6 +242,12 @@ _KNOWN: set[tuple[str, str]] = {
 # ---------------------------------------------------------------------------
 _IMPLS: dict[tuple[str, str], object] = {}
 _TRUST: dict[tuple[str, str], bool] = {}
+# ``saved_workflow_allowed`` per ``(kind, name)`` (ADR-0054). A SECOND, narrower
+# opt-in than ``user_allowed``: a capability that is NOT user-grantable on the
+# palette but that a saved (``db``-trust) copy of a built-in workflow must still
+# be able to reference. Default False — a new privileged capability is refused
+# for saved workflows unless someone opts it in explicitly.
+_SAVED_TRUST: dict[tuple[str, str], bool] = {}
 # Per-capability display metadata (D-08). Sibling to ``_TRUST``: a SINGLE source
 # of truth for the palette's ``description`` + ``config_schema``, recorded by the
 # ``@register`` decorator at impl-module import (inside ``discover()``). The API
@@ -261,6 +267,7 @@ def register(
     name: str,
     *,
     user_allowed: bool = False,
+    saved_workflow_allowed: bool = False,
     description: str = "",
     config_schema: dict | None = None,
 ) -> Callable[[type[_T]], type[_T]]:
@@ -288,6 +295,7 @@ def register(
         _KNOWN.add((kind, name))
         _IMPLS[(kind, name)] = cls()
         _TRUST[(kind, name)] = user_allowed
+        _SAVED_TRUST[(kind, name)] = saved_workflow_allowed
         _META[(kind, name)] = {
             "description": description,
             "config_schema": config_schema or {},
@@ -478,6 +486,17 @@ class CapabilityRegistry:
         if not _DISCOVERED:
             discover()
         return _TRUST.get((kind, name), False)
+
+    def is_saved_workflow_allowed(self, kind: str, name: str) -> bool:
+        """Return ``True`` iff a saved (``db``-trust) workflow may reference it (ADR-0054).
+
+        Anything user-grantable is also saved-grantable; beyond that only a
+        capability registered ``saved_workflow_allowed=True``. Unknown / unflagged
+        defaults to ``False`` (fail closed).
+        """
+        if self.is_user_allowed(kind, name):
+            return True
+        return _SAVED_TRUST.get((kind, name), False)
 
     def describe(self, kind: str, name: str) -> dict:
         """Return the capability's display metadata ``{description, config_schema}`` (D-08).

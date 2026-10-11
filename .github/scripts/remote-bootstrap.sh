@@ -36,7 +36,7 @@
 # (nothing uploaded it to S3 — that upload is `aws_s3_object.bootstrap_script`
 # in `infra/terraform/app/main.tf`, an apply this box never had). This script
 # is the CI/CD replacement for BOTH gaps at once: `.github/workflows/provision.yml`
-# uploads the four config objects (S3, from the runner) BEFORE sending this
+# uploads the six config objects (S3, from the runner) BEFORE sending this
 # payload, and this script fills in the rest of user_data.sh.tpl's job, then
 # runs `bootstrap-ec2.sh` itself (synchronously — no first-boot deadlock here,
 # because this is not cloud-init).
@@ -67,6 +67,14 @@
 #      instead of ~4 minutes into bootstrap-ec2.sh §6. Skippable via
 #      SKIP_DB_PASSWORD_CHECK=1 for a box whose Postgres data dir already
 #      exists (recovery mode never reads this parameter).
+#
+#      Gate C cannot always run where it is written: on a bare box the aws CLI
+#      does not exist until §2 installs it, so the check is DEFERRED to §2a.
+#      That deferral interacts with DRY_RUN, which exits before §2a — so a dry
+#      run on a box without the CLI cannot complete Gate C and FAILS rather than
+#      reporting "all gates passed". It previously reported success, which is the
+#      one outcome a dry run must never get wrong: its entire purpose is to tell
+#      an operator whether the real run will work.
 #
 # THREE-WAY OUTCOME on the bootstrap-ec2.sh run itself (its own §20 writes the
 # completion sentinel BEFORE exiting non-zero on a degraded subsystem, so exit
@@ -179,6 +187,28 @@ else
 fi
 
 if [ "$DRY_RUN" = "1" ]; then
+    # A dry run must not claim "all gates passed" when one of them never ran.
+    # Gate C is deferred to §2a when the aws CLI is absent, but §2a is past the
+    # dry-run exit — so on a bare box (exactly the box a dry run is most useful
+    # for) the script previously printed "all gates passed" having never verified
+    # DATABASE_PASSWORD. An operator would then start a real provision believing
+    # the prerequisite was confirmed, and hit the failure ~4 minutes into
+    # bootstrap-ec2.sh §6 instead.
+    #
+    # Installing the CLI to resolve it is not an option: that is a write, and a
+    # dry run promises none. So this is a hard failure with the one instruction
+    # that fixes it.
+    if [ "$DB_PASSWORD_CHECK_DEFERRED" = "1" ]; then
+        echo "[provision] FATAL: DRY_RUN cannot verify ${PARAM_PREFIX}/DATABASE_PASSWORD on this host." >&2
+        echo "[provision]        The aws CLI is not installed yet, and installing it would be a write — which DRY_RUN must not perform." >&2
+        echo "[provision]        Gate C therefore did NOT run, so this is not a clean dry run." >&2
+        echo "[provision]        Options:" >&2
+        echo "[provision]          - verify the parameter yourself from anywhere with credentials:" >&2
+        echo "[provision]              aws ssm get-parameter --name ${PARAM_PREFIX}/DATABASE_PASSWORD --query 'Parameter.Name' --region ${REGION}" >&2
+        echo "[provision]          - or re-run with SKIP_DB_PASSWORD_CHECK=1 if this box's Postgres data dir already exists (recovery mode never reads it)" >&2
+        echo "[provision]          - or run the real provision (dry_run=false), where §2a runs the check after installing the CLI" >&2
+        exit 1
+    fi
     echo "[provision] DRY_RUN=1 — all gates passed; stopping before any write."
     exit 0
 fi
@@ -207,40 +237,39 @@ mv "$TMP_ENV" "$BOOTSTRAP_ENV"
 echo "[provision] wrote ${BOOTSTRAP_ENV}"
 
 # ── 2. AWS CLI v2 assurance (mirrors bootstrap-ec2.sh §2b / user_data.sh.tpl) ─
-
-# Force apt over HTTPS before the first fetch. This host egresses on 443 only
-# (single SG rule, tcp/443 to 0.0.0.0/0) and routes via a Transit Gateway, not
-# a NAT/internet gateway. Ubuntu ships its apt sources as http:// (port 80), so
-# every archive fetch times out and the install below dies with exit 100 —
-# while SSM, S3 and KMS keep working, which makes it look unrelated to
-# networking. archive.ubuntu.com, security.ubuntu.com and the regional
-# <region>.ec2.archive.ubuntu.com mirrors all serve TLS, so the in-region
-# mirror is preserved. apt has had native HTTPS support since 1.5 and
-# ca-certificates ships on the Canonical AMI, so this needs no package to be
-# installed first — which matters, because installing one is what's blocked.
 #
-# This duplicates bootstrap-ec2.sh §2a on purpose: this script runs FIRST and
-# must survive its own apt call, and bootstrap-ec2.sh also runs standalone via
-# velocityai-firstboot.service. Both are idempotent, so whichever runs first
-# leaves nothing for the other to rewrite.
-UBUNTU_APT_HOST_RE='http://([A-Za-z0-9.-]*\.)?(archive|security)\.ubuntu\.com'
-apt_rewritten=0
-for apt_src in /etc/apt/sources.list \
-               /etc/apt/sources.list.d/*.sources \
-               /etc/apt/sources.list.d/*.list; do
-    [ -f "$apt_src" ] || continue
-    grep -Eq "$UBUNTU_APT_HOST_RE" "$apt_src" || continue
-    [ -f "${apt_src}.pre-https.bak" ] || cp -a "$apt_src" "${apt_src}.pre-https.bak"
-    sed -E -i "s#${UBUNTU_APT_HOST_RE}#https://\1\2.ubuntu.com#g" "$apt_src"
-    echo "[provision] apt sources: rewrote http -> https in ${apt_src}"
-    apt_rewritten=1
-done
-if [ "$apt_rewritten" -eq 0 ]; then
-    echo "[provision] apt sources: already https (nothing to rewrite)"
+# apt_force_https, apt_wait_lock and install_awscli_v2 come from
+# infra/scripts/lib/host-common.sh, which provision.yml INLINES into this payload
+# immediately above this script (see "Build SSM provision payload"). It cannot be
+# fetched from disk here: this script is the first thing to run on a hand-created
+# box and no file exists on it yet, which is the whole reason the payload is
+# assembled rather than referenced.
+#
+# The three helpers, and the AWSCLI_VERSION pin, previously existed as a second
+# verbatim copy in this file. R-05/R-06 removed the duplication; the rationale for
+# each (443-only egress, the unmatched-glob abort, the bounded lock wait) now lives
+# once, in the library.
+if ! command -v apt_force_https >/dev/null 2>&1; then
+    echo "[provision] FATAL: host-common.sh was not inlined into this payload." >&2
+    echo "[provision]        provision.yml must cat infra/scripts/lib/host-common.sh" >&2
+    echo "[provision]        after the prelude and before this script." >&2
+    exit 1
 fi
 
-echo "[provision] waiting for apt lock"
-while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 2; done
+# SC2034 disabled with cause: this variable is READ, just not anywhere ShellCheck
+# can see. `infra/scripts/lib/host-common.sh` defaults it
+# (`: "${HOST_COMMON_LOG_PREFIX:=[host]}"`) and both `_hc_log` and `_hc_err` echo
+# it on every line they emit. provision.yml INLINES that library into this
+# payload (see the note at the top of this block), so there is no source
+# directive for ShellCheck to follow and it concludes the assignment is dead.
+# Exporting instead would also silence SC2034 but would leak the value into every
+# child process for no reason. Do not delete the assignment: the library would
+# fall back to "[host]" and provisioning output would stop being attributable.
+# shellcheck disable=SC2034
+HOST_COMMON_LOG_PREFIX="[provision]"
+
+apt_force_https
+apt_wait_lock
 
 # `apt-get update` exits 0 even when every index fetch fails (it warns and
 # reuses stale lists), so a failure here would otherwise surface as an opaque
@@ -249,25 +278,11 @@ apt-get update -y
 if ! apt-get install -y --no-install-recommends curl unzip ca-certificates jq; then
     echo "[provision] FATAL: apt could not install the provisioning prerequisites." >&2
     echo "[provision]        Sources are HTTPS, so this is not the port-80 egress issue." >&2
-    echo "[provision]        Verify outbound 443 on this instance's security group and the" >&2
-    echo "[provision]        upstream Transit Gateway path to the Ubuntu archive." >&2
+    echo "[provision]        Check the security group's outbound 443 and the Transit Gateway path." >&2
     exit 1
 fi
 
-AWSCLI_VERSION="2.17.42"
-if ! command -v aws >/dev/null 2>&1 \
-        || [ "$(aws --version 2>&1 | awk -F'[/ ]' '{print $2}')" != "${AWSCLI_VERSION}" ]; then
-    echo "[provision] installing aws-cli v2 (${AWSCLI_VERSION})"
-    AWSCLI_TMP="$(mktemp -d)"
-    trap 'rm -rf "$AWSCLI_TMP"' EXIT
-    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip" \
-        -o "${AWSCLI_TMP}/awscliv2.zip"
-    unzip -q "${AWSCLI_TMP}/awscliv2.zip" -d "${AWSCLI_TMP}"
-    "${AWSCLI_TMP}/aws/install" --update --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
-    rm -rf "$AWSCLI_TMP"
-    trap - EXIT
-fi
-echo "[provision] aws cli version: $(aws --version)"
+install_awscli_v2
 
 # ── 2a. Deferred Gate C ───────────────────────────────────────────────────────
 # Runs only when Gate C above could not: the aws CLI did not exist yet. Still
@@ -299,6 +314,10 @@ for i in $(seq 1 30); do
          /opt/velocityai/bootstrap-ec2.sh --region "${REGION}"; then
         break
     fi
+    # Last failed attempt is fatal: without it the loop falls through and runs
+    # whatever stale bootstrap-ec2.sh an earlier run left on disk (REL-21).
+    # POSIX test only: this wrapper is written from a quoted heredoc.
+    [ "$i" -lt 30 ] || { echo "[firstboot] FATAL: could not fetch bootstrap-ec2.sh after 30 attempts" >&2; exit 1; }
     echo "[firstboot] bootstrap-ec2.sh not available yet (attempt $i) — retrying"
     sleep 10
 done

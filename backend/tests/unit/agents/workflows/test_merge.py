@@ -268,38 +268,38 @@ class _GitRunner:
         return {"conflicts": list(conflicts), "snippet": ", ".join(conflicts)}
 
 
-def test_git_3way_disjoint_branches_merge_clean() -> None:
+async def test_git_3way_disjoint_branches_merge_clean() -> None:
     runner = _GitRunner()
     strat = Git3WayMerge()
     frags = [
         SimpleNamespace(runner=runner, branch="fanout/s/0", base_commit="abc"),
         SimpleNamespace(runner=runner, branch="fanout/s/1", base_commit="abc"),
     ]
-    result = strat.merge(base=None, fragments=frags)
+    result = await strat.merge(base=None, fragments=frags)
     assert result.clean
     assert result.applied == ["fanout/s/0", "fanout/s/1"]
     # git reached ONLY through the runner handle — both branches merged via the handle.
     assert runner.calls == [("fanout/s/0", "abc"), ("fanout/s/1", "abc")]
 
 
-def test_git_3way_conflicting_branch_reports_conflict() -> None:
+async def test_git_3way_conflicting_branch_reports_conflict() -> None:
     runner = _GitRunner(conflicts_for={"fanout/s/1": ["index.html"]})
     strat = Git3WayMerge()
     frags = [
         SimpleNamespace(runner=runner, branch="fanout/s/0", base_commit="abc"),
         SimpleNamespace(runner=runner, branch="fanout/s/1", base_commit="abc"),
     ]
-    result = strat.merge(base=None, fragments=frags)
+    result = await strat.merge(base=None, fragments=frags)
     assert not result.clean
     assert result.applied == ["fanout/s/0"]
     assert result.conflicts[0]["path"] == "index.html"
 
 
-def test_git_3way_no_handle_skips_without_fabricating_a_conflict() -> None:
+async def test_git_3way_no_handle_skips_without_fabricating_a_conflict() -> None:
     # An offline fragment with no runner handle must not invent a conflict.
     strat = Git3WayMerge()
     frags = [SimpleNamespace(runner=None, branch="fanout/s/0", base_commit="")]
-    result = strat.merge(base=None, fragments=frags)
+    result = await strat.merge(base=None, fragments=frags)
     assert result.clean
     assert result.applied == []
 
@@ -315,8 +315,7 @@ class _FakeBase:
         return "sha-" + message[:8]
 
 
-def test_git_3way_commits_between_fragments(
-) -> None:
+async def test_git_3way_commits_between_fragments() -> None:
     """After each clean merge, commit_all must be called on base (FR-034 fix).
 
     Without the inter-fragment commit, MERGE_HEAD remains set and the second
@@ -329,14 +328,14 @@ def test_git_3way_commits_between_fragments(
         SimpleNamespace(runner=runner, branch="fanout/build/0", base_commit="abc"),
         SimpleNamespace(runner=runner, branch="fanout/build/1", base_commit="abc"),
     ]
-    result = strat.merge(base=base, fragments=frags)
+    result = await strat.merge(base=base, fragments=frags)
     assert result.clean
     assert result.applied == ["fanout/build/0", "fanout/build/1"]
     # One commit must fire after each successful merge — two fragments → two commits.
     assert base.committed == ["merge: fanout/build/0", "merge: fanout/build/1"]
 
 
-def test_git_3way_no_commit_after_conflicting_fragment() -> None:
+async def test_git_3way_no_commit_after_conflicting_fragment() -> None:
     """A fragment that conflicts must NOT trigger a commit_all call.
 
     The conflict path aborts the merge, leaving the tree clean — committing
@@ -349,14 +348,14 @@ def test_git_3way_no_commit_after_conflicting_fragment() -> None:
         SimpleNamespace(runner=runner, branch="fanout/build/0", base_commit="abc"),
         SimpleNamespace(runner=runner, branch="fanout/build/1", base_commit="abc"),
     ]
-    result = strat.merge(base=base, fragments=frags)
+    result = await strat.merge(base=base, fragments=frags)
     assert not result.clean
     assert result.applied == ["fanout/build/1"]
     # Commit only for fragment 1 (clean); fragment 0 conflicted — no commit for it.
     assert base.committed == ["merge: fanout/build/1"]
 
 
-def test_git_3way_commit_failure_is_tolerated() -> None:
+async def test_git_3way_commit_failure_is_tolerated() -> None:
     """A commit_all that raises must never abort the merge loop (best-effort).
 
     The calling layer detects the inconsistency when the next merge is refused
@@ -376,11 +375,11 @@ def test_git_3way_commit_failure_is_tolerated() -> None:
         SimpleNamespace(runner=runner, branch="fanout/s/1", base_commit="abc"),
     ]
     # Must not raise even though commit_all raises for every fragment.
-    result = strat.merge(base=base, fragments=frags)
+    result = await strat.merge(base=base, fragments=frags)
     assert result.applied == ["fanout/s/0", "fanout/s/1"]
 
 
-def test_git_3way_no_base_commit_all_when_base_is_none() -> None:
+async def test_git_3way_no_base_commit_all_when_base_is_none() -> None:
     """Existing tests pass base=None; the fix must not break them (offline path)."""
     runner = _GitRunner()
     strat = Git3WayMerge()
@@ -388,7 +387,7 @@ def test_git_3way_no_base_commit_all_when_base_is_none() -> None:
         SimpleNamespace(runner=runner, branch="fanout/s/0", base_commit="abc"),
     ]
     # Must not raise AttributeError on None.base.commit_all
-    result = strat.merge(base=None, fragments=frags)
+    result = await strat.merge(base=None, fragments=frags)
     assert result.clean
     assert result.applied == ["fanout/s/0"]
 

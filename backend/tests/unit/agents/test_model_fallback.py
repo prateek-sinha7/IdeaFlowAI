@@ -72,6 +72,7 @@ async def _drive_one_agent(
     from agents.model_policy import ModelResolver
     from agents.capabilities.model_catalog import ModelCatalog
     from agents.loader import load_agent_spec
+    from app.agents.sandbox import RunSandbox
     from app.core.config import settings as _settings
 
     # Force RUNS_ROOT to the harness temp dir at RUNTIME (settings may have been
@@ -143,7 +144,11 @@ async def _drive_one_agent(
             0,
             [spec],
             "Build me a thing.",
-            None,  # sandbox: text-only agent never touches it (prototype-only read)
+            # A real RunSandbox, as production always passes: since task 5.2
+            # (24f11270) _run_agent roots the agent's sandbox at ``sandbox.run_id``,
+            # so ``None`` fails before any runner is built. Construction is pure
+            # (path resolution only) — nothing is created on disk until ensure().
+            RunSandbox("anon", "fallback-test-run", runs_root=_RUNS_ROOT),
             "fallback-test-run",
             "user_stories",
             engine._default_planning_context("Build me a thing."),

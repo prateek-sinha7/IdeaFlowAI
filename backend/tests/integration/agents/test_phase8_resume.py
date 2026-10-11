@@ -312,6 +312,11 @@ def test_child_entry_point_exists() -> None:
 class TestCrossProcessResumeAfterKill:
     """Postgres checkpointer survives a process kill → fresh process resumes."""
 
+    # requires_postgres: runs in the backend-postgres CI job (Docker is available
+    # on that runner, same pattern as test_db002), not the offline partition where
+    # the docker-less skip counted as a failure. The InMemory contrast test below
+    # needs no Postgres and stays offline.
+    @pytest.mark.requires_postgres
     @pytest.mark.parametrize(
         "kill",
         [

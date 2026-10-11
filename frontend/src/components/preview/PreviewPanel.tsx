@@ -842,7 +842,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // B22 fix: if a version-menu selection staged an intendedSandboxRef, restore it
   // instead of clearing — handleSelectVersion changes activeRunId as a side effect
   // and the plain setSandboxSelectedRef(null) would wipe the tag.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (intendedSandboxRef.current !== null) {
       setSandboxSelectedRef(intendedSandboxRef.current);
@@ -1117,9 +1116,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // that still carries content keeps its Preview tab (content wins), and a
   // cancelled run keeps its Preview affordance (§8 decision 4 — history untouched).
   const terminalFailureNoDeliverable = showFailureAffordance && !isCancelledTerminal;
-  // Cancelled-terminal is the ONLY remaining consumer of the in-Preview
-  // DegradedRunAffordance mount on the run screen (failed/degraded drop the tab).
-  const showCancelledAffordance = showFailureAffordance && isCancelledTerminal;
   // Drop the Preview tab for a terminal-failed run; every other state keeps the
   // full four-tab set (Preview · Steps · Files · Audit).
   // The run whose DISK the Workspace tab browses — deliberately NOT activeRunId.
@@ -1749,7 +1745,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 // run is `/runs/{id}/preview/full`, whose deep link (reopenTabFor,
                 // now a real case) forces activeTab="preview" even though
                 // visibleTabs dropped the tab. Gating on showFailureAffordance
-                // rather than showCancelledAffordance is what makes that forced
+                // rather than on the cancelled-only case is what makes that forced
                 // Preview state its own honest "no deliverable was produced"
                 // instead of the generic per-state default silently substituting
                 // the Audit trail — the failed counterpart to the cancelled copy

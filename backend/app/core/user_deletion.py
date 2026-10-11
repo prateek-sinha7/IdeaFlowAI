@@ -87,7 +87,8 @@ def delete_user_dependents(db: Session, user_id: str) -> dict[str, int]:
             counts[table] = n
 
     run_ids = [
-        row[0] for row in db.query(WorkflowRun.id).filter(WorkflowRun.user_id == user_id)
+        row[0]
+        for row in db.query(WorkflowRun.id).filter(WorkflowRun.user_id == user_id)
     ]
 
     if run_ids:

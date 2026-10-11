@@ -74,6 +74,23 @@ _ENTITLED_WITHOUT_MANIFEST = {
 }
 
 
+# The nodes below used to be generated for EVERY manifest and then ``pytest.skip``ped
+# when the check could not apply (not launchable / beta / no revision pipeline). Such a
+# skip can never turn into a pass, so those nodes asserted nothing — and the CI offline
+# gate (tools.ci.inventory_cli verify-execution) fails on every skip in the mandatory
+# partition. The SAME predicates now select the cases at collection time: clearing
+# ``is_beta`` or adding a ``<pipeline>_revision`` manifest still pulls that pipeline in
+# and fails the test exactly as before.
+def _is_catalog_offered(pipeline_id: str) -> bool:
+    """Launchable and not beta — what the frontend catalog actually offers."""
+    manifest = _manifest(pipeline_id)
+    return bool(manifest.get("user_launchable")) and not manifest.get("is_beta")
+
+
+def _has_revision_pipeline(pipeline_id: str) -> bool:
+    return f"{pipeline_id}_revision" in _manifest_ids()
+
+
 class TestFrontendBackendParity:
     def test_same_tiers(self) -> None:
         assert set(_frontend_tier_pipelines()) == set(TIER_PIPELINES)
@@ -104,9 +121,7 @@ class TestEntitlementsMatchDisk:
 
     @pytest.mark.parametrize(
         "pipeline",
-        sorted(
-            p for p in _manifest_ids() if (_WORKFLOWS / p / "workflow.yaml").is_file()
-        ),
+        sorted(p for p in _manifest_ids() if _is_catalog_offered(p)),
     )
     def test_user_launchable_manifest_is_entitled_somewhere(
         self, pipeline: str
@@ -124,11 +139,6 @@ class TestEntitlementsMatchDisk:
         ``is_beta`` on either without adding a tier entry should fail this test,
         which is exactly what it does.
         """
-        manifest = _manifest(pipeline)
-        if not manifest.get("user_launchable"):
-            pytest.skip(f"{pipeline} is not user_launchable")
-        if manifest.get("is_beta"):
-            pytest.skip(f"{pipeline} is beta — the catalog hides it regardless")
         granted_by = [t for t, ps in TIER_PIPELINES.items() if pipeline in ps]
         assert granted_by, f"{pipeline!r} is user_launchable but entitled to no tier"
 
@@ -139,12 +149,14 @@ class TestRevisionCoverage:
 
     @pytest.mark.parametrize(
         "pipeline",
-        sorted(p for p in _manifest_ids() if not p.endswith("_revision")),
+        sorted(
+            p
+            for p in _manifest_ids()
+            if not p.endswith("_revision") and _has_revision_pipeline(p)
+        ),
     )
     def test_revision_is_entitled_wherever_the_base_is(self, pipeline: str) -> None:
         revision = f"{pipeline}_revision"
-        if revision not in _manifest_ids():
-            pytest.skip(f"{pipeline} has no revision pipeline")
         for tier, granted in TIER_PIPELINES.items():
             if pipeline in granted:
                 assert revision in granted, (

@@ -1,0 +1,114 @@
+# Composite action: resolve the AWS region, validate the target EC2 instance id,
+# then assume an IAM role over GitHub OIDC.
+#
+# F-25: deploy.yml (build, deploy), provision.yml (provision) and
+# cognito-reconcile.yml (reconcile, retry-cognito-deletions) each carried their
+# own copy of the same three things: a workflow-level `AWS_REGION_DEFAULT`
+# fallback, a `vars.AWS_REGION || env.AWS_REGION_DEFAULT` expression repeated at
+# every region site, and (in some of them, not all) an EC2 instance-id shape
+# check. deploy.yml's `deploy` job and cognito-reconcile.yml's
+# `retry-cognito-deletions` job never checked the shape at all. They now live
+# here, once.
+#
+# ORDER IS THE CONTROL: the `resolve` step validates the inputs BEFORE the
+# credentials step runs, so a missing or malformed instance id fails the job
+# without ever minting an AWS session.
+#
+# Callers read the resolved values from this action's outputs
+# (`steps.<id>.outputs.region` / `steps.<id>.outputs.instance-id`) instead of
+# re-deriving them, so every region and instance-id site in a job agrees with
+# the one that was validated.
+#
+# NO SECRETS: the role ARN arrives as an Environment *variable*. The OIDC trust
+# policy (infra/terraform/bootstrap/github_oidc.tf) is what makes it safe to
+# publish: it names exactly one `repo:<owner>/<repo>:environment:<env>` subject.
+name: AWS deploy auth (region + instance id + OIDC)
+description: Resolves the AWS region, validates an optional EC2 instance id, then assumes an IAM role via GitHub OIDC.
+
+inputs:
+  role-to-assume:
+    description: IAM role ARN to assume over OIDC. Pass an Environment variable (e.g. vars.AWS_DEPLOY_ROLE_ARN), never a secret.
+    required: true
+  region:
+    description: AWS region from the Environment (pass vars.AWS_REGION). Empty falls back to default-region.
+    required: false
+    default: ""
+  default-region:
+    # Fallback only — every environment sets its own `AWS_REGION` variable, and
+    # that wins. eu-central-1 is the project region: it is what the retired
+    # buildspec pinned, what docker-compose.prod.yml defaults its awslogs driver
+    # to, and what every IAM/ECR/SSM ARN in docs/GITHUB_CICD_SETUP.md is written
+    # against. (Moved here from deploy.yml's workflow-level AWS_REGION_DEFAULT,
+    # which provision.yml and cognito-reconcile.yml duplicated.)
+    description: Region used when `region` is empty.
+    required: false
+    default: "eu-central-1"
+  instance-id:
+    description: EC2 instance id the job will command (pass vars.EC2_INSTANCE_ID). Validated against ^i-[0-9a-f]{8,17}$ when non-empty.
+    required: false
+    default: ""
+  require-instance-id:
+    description: '"true" fails the job when instance-id is empty; "false" (default) allows a job that commands no instance (e.g. deploy.yml build).'
+    required: false
+    default: "false"
+
+outputs:
+  region:
+    description: The resolved AWS region (region, else default-region).
+    value: ${{ steps.resolve.outputs.region }}
+  instance-id:
+    description: The validated EC2 instance id (empty when none was given and none is required).
+    value: ${{ steps.resolve.outputs.instance-id }}
+
+runs:
+  using: composite
+  steps:
+    # Inputs reach the script through `env:` only, never by `${{ }}`
+    # interpolation into the script body.
+    - name: Resolve region and validate instance id
+      id: resolve
+      shell: bash
+      env:
+        REGION_INPUT: ${{ inputs.region }}
+        DEFAULT_REGION: ${{ inputs.default-region }}
+        INSTANCE_ID: ${{ inputs.instance-id }}
+        REQUIRE_INSTANCE_ID: ${{ inputs.require-instance-id }}
+      run: |
+        set -euo pipefail
+
+        region="${REGION_INPUT:-$DEFAULT_REGION}"
+        if [[ -z "$region" ]]; then
+          echo "::error::No AWS region: both the region input (vars.AWS_REGION) and default-region are empty."
+          exit 1
+        fi
+
+        case "$REQUIRE_INSTANCE_ID" in
+          true|false) ;;
+          *)
+            echo "::error::require-instance-id must be \"true\" or \"false\", got '${REQUIRE_INSTANCE_ID}'."
+            exit 1
+            ;;
+        esac
+
+        if [[ -n "$INSTANCE_ID" ]]; then
+          if [[ ! "$INSTANCE_ID" =~ ^i-[0-9a-f]{8,17}$ ]]; then
+            echo "::error::EC2_INSTANCE_ID '${INSTANCE_ID}' does not look like an EC2 instance ID."
+            exit 1
+          fi
+        elif [[ "$REQUIRE_INSTANCE_ID" == "true" ]]; then
+          echo "::error::EC2_INSTANCE_ID is not set on this job's GitHub Environment"
+          exit 1
+        fi
+
+        echo "region=${region}" >> "$GITHUB_OUTPUT"
+        echo "instance-id=${INSTANCE_ID}" >> "$GITHUB_OUTPUT"
+        echo "AWS region: ${region}"
+
+    # FIX-NODE20-01: v4.0.2 declared `using: node20`, which GitHub is phasing
+    # out. v6.2.3 is the latest tagged release and declares `using: node24`
+    # (verified against its action.yml).
+    - name: Configure AWS credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ steps.resolve.outputs.region }}

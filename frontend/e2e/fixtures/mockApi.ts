@@ -460,10 +460,26 @@ const DEFAULT_AGENT_LIBRARY = {
     { id: "market-research-agent", name: "Market Research Agent", role: "Competitive & Industry Analysis", description: "Analyzes your market and competitors.", pipeline_type: "custom", order: 1, icon: "\u{1F4C8}", estimated_duration: 6, has_skill: true, gate: null },
     { id: "swot-analyst", name: "Strategy Analysis Agent", role: "SWOT & Strategic Positioning", description: "Identifies strengths and weaknesses.", pipeline_type: "custom", order: 2, icon: "\u{1F3AF}", estimated_duration: 5, has_skill: true, gate: null },
     { id: "roadmap-planner", name: "Roadmap Planning Agent", role: "Phased Delivery Strategy", description: "Builds a phased product roadmap.", pipeline_type: "custom", order: 3, icon: "\u{1F5D3}", estimated_duration: 6, has_skill: true, gate: null },
-    { id: "domain-analyst", name: "Domain Analyst", role: "Requirements Analysis", description: "Analyzes the problem domain.", pipeline_type: "user_stories", order: 1, icon: "\u{1F9E0}", estimated_duration: 5, has_skill: true, gate: null },
+    // The six user_stories agents, mirroring their AGENT.md frontmatter
+    // (backend/agents/**/<id>/AGENT.md). Since the mock serves a real library,
+    // IdeaInputPage builds the user_stories roster from these rows — a partial
+    // list here shrank the brief screen to a 1-agent workflow (TS-D/TS-G).
+    { id: "domain-analyst", name: "Domain Discovery Agent", role: "Market & Persona Research", description: "Researches the market and personas.", pipeline_type: "user_stories", order: 1, icon: "\u{1F9E0}", estimated_duration: 5, has_skill: true, gate: null },
+    { id: "epic-architect", name: "Backlog Architecture Agent", role: "Epic & Story Composition", description: "Composes epics and stories.", pipeline_type: "user_stories", order: 2, icon: "\u{1F3D7}", estimated_duration: 10, has_skill: true, gate: null },
+    { id: "story-estimator", name: "Estimation Agent", role: "Effort & Dependency Mapping", description: "Estimates effort and maps dependencies.", pipeline_type: "user_stories", order: 3, icon: "\u{1F4CF}", estimated_duration: 5, has_skill: true, gate: null },
+    { id: "nfr-specialist", name: "Quality Requirements Agent", role: "Performance, Security & Compliance", description: "Captures non-functional requirements.", pipeline_type: "user_stories", order: 4, icon: "\u{1F6E1}", estimated_duration: 5, has_skill: true, gate: null },
+    { id: "backlog-reviewer", name: "Quality Review Agent", role: "Backlog Validation & Gap Analysis", description: "Validates the backlog for gaps.", pipeline_type: "user_stories", order: 5, icon: "\u{1F50D}", estimated_duration: 4, has_skill: true, gate: null },
+    { id: "backlog-compiler", name: "Delivery Compilation Agent", role: "Final Backlog Synthesis", description: "Compiles the final backlog.", pipeline_type: "user_stories", order: 6, icon: "\u{1F4E6}", estimated_duration: 6, has_skill: true, gate: null },
+    // A real subset of app_builder's agents (AGENT.md frontmatter): enough
+    // OPTIONAL agents (relative to user_stories) for the composer add/cap/reorder
+    // cases (TS-D) — the custom category alone holds only three.
+    { id: "material-analyzer", name: "Architecture Agent", role: "Solution & System Design", description: "Designs the solution architecture.", pipeline_type: "app_builder", order: 1, icon: "\u{1F3DB}", estimated_duration: 6, has_skill: true, gate: null },
+    { id: "app-api-design", name: "API Contract Agent", role: "REST/GraphQL Contracts & OpenAPI", description: "Designs the API contracts.", pipeline_type: "app_builder", order: 6, icon: "\u{1F50C}", estimated_duration: 8, has_skill: true, gate: null },
+    { id: "app-infra-generator", name: "Infrastructure Agent", role: "Deployment & Platform", description: "Generates the infrastructure.", pipeline_type: "app_builder", order: 10, icon: "\u{2601}", estimated_duration: 8, has_skill: true, gate: null },
+    { id: "app-devops", name: "DevOps Agent", role: "Build, Deploy, Operate & Quality Gates", description: "Sets up build and deploy.", pipeline_type: "app_builder", order: 14, icon: "\u{1F6E0}", estimated_duration: 9, has_skill: true, gate: null },
     { id: "custom-agent", name: "Custom Agent", role: "Blank agent", description: "A blank agent you define with your own prompt.", pipeline_type: "custom", order: 99, icon: "\u{1F9E9}", estimated_duration: 60, has_skill: false, gate: null },
   ],
-  total_count: 5,
+  total_count: 14,
   pipelines: {},
 };
 
@@ -474,25 +490,84 @@ const DEFAULT_SKILLS_LIBRARY = {
     { id: "emoji", name: "emoji", display_name: "Emoji", description: "Adds an emoji heading.", category: "workflow", content: "# Emoji", isBeta: false, compatible_agents: [], tags: [] },
     { id: "joke", name: "joke", display_name: "Joke", description: "Adds a one-line joke.", category: "workflow", content: "# Joke", isBeta: false, compatible_agents: [], tags: [] },
     { id: "html-page", name: "html-page", display_name: "HTML Page", description: "Emits a single HTML page.", category: "engineering", content: "# HTML", isBeta: false, compatible_agents: [], tags: [] },
+    // Four real global skills (backend/skills/global/<id>/SKILL.md frontmatter):
+    // they lift the compatible set past AgentSkillsPicker's 6-skill threshold, so
+    // the picker's search box and category pills render (TS-F).
+    { id: "coding-standards", name: "coding-standards", display_name: "Coding Standards & Best Practices", description: "Baseline cross-project coding conventions.", category: "planning", content: "# Coding standards", isBeta: false, compatible_agents: [], tags: [] },
+    { id: "tdd-workflow", name: "tdd-workflow", display_name: "Test-Driven Development Workflow", description: "Enforces test-driven development.", category: "testing", content: "# TDD", isBeta: false, compatible_agents: [], tags: [] },
+    { id: "security-review", name: "security-review", display_name: "Security Review Skill", description: "Security checklist and patterns.", category: "security", content: "# Security review", isBeta: false, compatible_agents: [], tags: [] },
+    { id: "systematic-debugging", name: "systematic-debugging", display_name: "Systematic Debugging", description: "Root-cause debugging before proposing fixes.", category: "debugging", content: "# Debugging", isBeta: false, compatible_agents: [], tags: [] },
   ],
-  total_count: 3,
+  total_count: 7,
+  // Same derivation as backend/app/api/skills.py: "All" + sorted distinct
+  // categories, label = category.replace("_", " ").title().
   categories: [
     { id: "all", label: "All" },
-    { id: "workflow", label: "Workflow" },
+    { id: "debugging", label: "Debugging" },
     { id: "engineering", label: "Engineering" },
+    { id: "planning", label: "Planning" },
+    { id: "security", label: "Security" },
+    { id: "testing", label: "Testing" },
+    { id: "workflow", label: "Workflow" },
   ],
 };
 
-/** GET /api/hooks/library. */
+/** GET /api/hooks/library — mirrors the real folder scan of
+ *  backend/hooks/global/<id>/HOOK.md (frontmatter name/event/trigger) and the
+ *  endpoint's derived `events` list (backend/app/api/hooks.py: "All" + one entry
+ *  per distinct event, sorted, label = event.replace("_", " ")). */
+const hook = (id: string, name: string, event: string, trigger: string, description: string) => ({
+  id, name, display_name: name, description, content: `# ${name}`, event, trigger, compatible_agents: [], tags: [],
+});
 const DEFAULT_HOOKS_LIBRARY = {
   hooks: [
-    { id: "lint-on-write", name: "lint-on-write", display_name: "Lint on write", description: "Lints each written file.", event: "post_tool_use", trigger: "write_file", compatible_agents: [], tags: [] },
+    hook("post-design-quality", "Design Quality Check X", "PostToolUse", "After Edit / Write on frontend files", "Warns when frontend edits drift toward generic template-looking UI."),
+    hook("post-quality-gate", "Quality Gate", "PostToolUse", "After Edit / Write / MultiEdit", "Runs lint, typecheck, and test suite after every file edit."),
+    hook("pre-config-protection", "Config Protection", "PreToolUse", "Before Write / Edit / MultiEdit on config files", "Blocks modifications to linter and formatter config files."),
+    hook("pre-gateguard", "GateGuard: Fact Force", "PreToolUse", "Before first Edit / Write / MultiEdit on each file", "Demands investigation before the first edit of each file."),
+    hook("session-start", "Session Context Loader", "SessionStart", "Every new agent session", "Loads previous session state on new session start."),
+    hook("stop-console-log", "Console.log Check", "Stop", "End of each agent response", "Warns about console.log statements left in modified files."),
+    hook("stop-format-typecheck", "Format + Typecheck on Stop", "Stop", "End of each agent response", "Batch formats and typechecks all edited JS/TS files."),
+    hook("stop-session-end", "Session State Persistence", "Stop", "End of each agent response", "Persists session state after each response."),
   ],
-  total_count: 1,
+  total_count: 8,
   events: [
     { id: "all", label: "All" },
-    { id: "post_tool_use", label: "Post tool use" },
+    { id: "PostToolUse", label: "PostToolUse", icon: "CheckCircle" },
+    { id: "PreToolUse", label: "PreToolUse", icon: "AlertCircle" },
+    { id: "SessionStart", label: "SessionStart", icon: "Play" },
+    { id: "Stop", label: "Stop", icon: "Octagon" },
   ],
+};
+
+/** GET /api/workflows/{id} compiled projections, for workflows whose agents
+ *  are NOT in DEFAULT_AGENT_LIBRARY (IdeaInputPage then builds the roster from
+ *  `steps`). Mirrors backend/agents/workflows/<id>/workflow.yaml step order and
+ *  each agent's AGENT.md name/role. */
+const step = (agent_id: string, name: string, role: string, order: number) => ({
+  agent_id, name, role, order, strategy: null, gates: [], validators: [], compaction: null,
+  task_source: null, declared_gate: null, skills: [],
+});
+const WORKFLOW_DETAILS: Record<string, unknown> = {
+  mulesoft_to_springboot: {
+    id: "mulesoft_to_springboot",
+    has_override: false,
+    steps: [
+      step("mulesoft-inventory", "Mulesoft Asset Inventory Agent", "Mule App Discovery & Cataloguing", 1),
+      step("mulesoft-user-stories", "Migration User Stories Agent", "Requirements & Acceptance Criteria", 2),
+      step("mulesoft-decomposition", "Bounded Context Decomposition Agent", "Domain Modelling & Service Boundaries", 3),
+      step("mulesoft-security-architecture", "Security Architecture Agent", "Threat Modelling & Security Controls", 4),
+      step("mulesoft-springboot-scaffold", "Spring Boot Scaffold Agent", "Java Microservice Project Scaffolding", 5),
+      step("mulesoft-feature-coding", "Coding Agent", "Business Logic & Feature Code", 6),
+      step("mulesoft-dataweave-translator", "DataWeave to Java Mapping Agent", "Transformation Logic Migration", 7),
+      step("mulesoft-aws-infra", "AWS Landing Zone Agent", "Target Infrastructure on AWS", 8),
+      step("mulesoft-code-compliance", "Code Compliance Agent", "Static Analysis, Linting & Licensing", 9),
+      step("mulesoft-test-implementation", "Test Implementation Agent", "Unit, Integration & Contract Test Code", 10),
+      step("mulesoft-test-compliance", "Test Compliance Agent", "Test Strategy & Coverage Gates", 11),
+      step("mulesoft-validation", "Migration Validation Agent", "Parallel-Run & Cutover Gates", 12),
+      step("mulesoft-sdlc-governance", "SDLC Governance & Handover Agent", "SDLC Governance & Handover", 13),
+    ],
+  },
 };
 
 export class MockApi {
@@ -638,6 +713,13 @@ export class MockApi {
 
     // --- workflows catalog (home launch grid) — fixes `rows.filter` crash ---
     if (path.endsWith("/api/workflows")) return json(this.workflows);
+    // --- compiled workflow detail (GET /api/workflows/{id}) — only for the
+    //     workflows listed in WORKFLOW_DETAILS; every other id keeps the
+    //     catch-all below, so their rosters still come from the agent library.
+    const wfDetailMatch = path.match(/\/api\/workflows\/([^/]+)$/);
+    if (wfDetailMatch && WORKFLOW_DETAILS[decodeURIComponent(wfDetailMatch[1])]) {
+      return json(WORKFLOW_DETAILS[decodeURIComponent(wfDetailMatch[1])]);
+    }
 
     // --- Configure data registries (Phase 41 / HARN-01 · D-CFG-STUBS) — the
     //     Templates / Design-System / PPT accordions + overlays bind these. Stubbed

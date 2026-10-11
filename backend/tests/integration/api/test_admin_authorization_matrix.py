@@ -176,6 +176,14 @@ def admin_api_client(monkeypatch, tmp_path):
     fake_auth.configure_settings()
     pool = _FakePool(fake_auth)
 
+    # Pin the admin-MFA gate to its production default instead of inheriting it.
+    # CI has no backend/.env, so ADMIN_MFA_REQUIRED is True there; a developer's
+    # .env commonly turns it off. Left unpinned, this suite exercised two
+    # different code paths (it passed locally and 403'd on every admin call in
+    # CI). The admin session below proves MFA the same way login_challenge
+    # does -- see `_stamp_mfa_proven` -- so the matrix runs against the real gate.
+    monkeypatch.setattr(settings, "ADMIN_MFA_REQUIRED", True)
+
     def _fake_admin_initiate_auth(email: str, password: str):
         # Mint a token carrying the pool's CURRENT group membership for this
         # email, so require_admin's cognito:groups-derived check reflects
@@ -200,7 +208,9 @@ def admin_api_client(monkeypatch, tmp_path):
     monkeypatch.setattr(cognito, "admin_create_user", _fake_admin_create_user)
     monkeypatch.setattr(cognito, "admin_set_user_password", lambda *a, **k: None)
     monkeypatch.setattr(
-        cognito, "admin_add_user_to_group", lambda email, group: pool.add_group(email, group)
+        cognito,
+        "admin_add_user_to_group",
+        lambda email, group: pool.add_group(email, group),
     )
     monkeypatch.setattr(
         cognito,
@@ -211,7 +221,9 @@ def admin_api_client(monkeypatch, tmp_path):
         cognito, "admin_list_groups_for_user", lambda email: pool.list_groups(email)
     )
     monkeypatch.setattr(cognito, "admin_user_global_sign_out", lambda *a, **k: None)
-    monkeypatch.setattr(cognito, "admin_delete_user", lambda email: pool.delete_user(email))
+    monkeypatch.setattr(
+        cognito, "admin_delete_user", lambda email: pool.delete_user(email)
+    )
     monkeypatch.setattr(
         cognito, "admin_disable_user", lambda email: pool.disable_user(email)
     )
@@ -257,7 +269,34 @@ def admin_user(admin_api_client):
     )
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
+    _stamp_mfa_proven(admin_api_client, admin_id, token)
     return admin_id, token
+
+
+def _stamp_mfa_proven(client, user_id: str, token: str) -> None:
+    """Record that ``token``'s session answered an MFA challenge.
+
+    This is the exact write ``app/api/auth.py::login_challenge`` makes after a
+    real SOFTWARE_TOKEN_MFA / EMAIL_OTP answer: ``mfa_verified_at`` set to the
+    token's own ``iat``, which is what ``core.identity.enforce_admin_mfa``
+    compares against. The challenge ceremony itself is owned by
+    ``tests/unit/api/test_totp_enrollment.py`` and ``test_email_mfa.py``; this
+    suite only needs an admin whose session satisfies the gate.
+    """
+    from datetime import datetime, timezone
+
+    from jose import jwt as jose_jwt
+
+    from app.models.user import User
+
+    issued_at = jose_jwt.get_unverified_claims(token)["iat"]
+    session = client.SessionLocal()
+    try:
+        user = session.get(User, user_id)
+        user.mfa_verified_at = datetime.fromtimestamp(issued_at, tz=timezone.utc)
+        session.commit()
+    finally:
+        session.close()
 
 
 @pytest.fixture()

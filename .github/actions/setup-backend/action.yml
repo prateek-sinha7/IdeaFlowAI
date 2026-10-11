@@ -1,9 +1,14 @@
 name: Setup backend
-description: Install Python and uv, then `uv sync --frozen` from the committed backend/uv.lock (dev or prod deps)
+description: Install Python and a pinned uv, then `uv sync --locked` from the committed backend/uv.lock (dev, ci-tools or prod deps)
 
 inputs:
   dev-deps:
-    description: Include dev dependencies (ruff, pyright, pytest, etc.)
+    description: >-
+      Dependency mode, exactly one of three values.
+      "true" = the dev group (ruff, pyright, pytest, coverage, etc.).
+      "ci-tools" = ONLY the ci-tools group, for jobs that only run
+      tools/ci/run_checks.py or `python -m tools.ci.*` gates.
+      "false" = production dependencies only. Anything else fails the step.
     required: false
     default: "true"
   python-version:
@@ -22,9 +27,11 @@ inputs:
     # mismatch at install time — nothing failed, CI was just testing a different
     # Python than production ran. That is a silent wrong answer, not an error.
     #
-    # `uv run --no-sync` (used by ~20 steps in ci.yml) DOES resolve the project
-    # and honours `requires-python`, which is where a 3.12 venv would eventually
-    # surface as a hard failure.
+    # `uv run --frozen` — what every backend step in ci.yml actually uses — DOES
+    # resolve the project and honours `requires-python`, which is where a 3.12
+    # venv would eventually surface as a hard failure. (This said `--no-sync`;
+    # that is a different flag with a different failure mode: it skips the
+    # dependency install rather than asserting the lock is current.)
     default: "3.13"
 runs:
   using: composite
@@ -40,43 +47,77 @@ runs:
     # backend/uv.lock's digest (plus pyproject.toml, in case the lock and the
     # manifest ever disagree) so the key changes exactly when the resolved
     # dependency graph changes. `cache-suffix` folds in OS, architecture, the
-    # pinned Python version, and dev/prod group selection ("trust class" — a
-    # prod-only install and a dev+test install are different graphs and must
-    # not collide), matching Task 3.16's "OS/architecture/runtime/lock
+    # pinned Python version, and dev/ci-tools/prod group selection ("trust
+    # class" — a prod-only install, a ci-tools-only install and a dev+test
+    # install are different graphs and must not collide), matching Task 3.16's "OS/architecture/runtime/lock
     # digest/trust class" cache-key requirement. setup-uv's restored store
     # holds already-hash-verified artifacts, so warming it is a download-time
     # optimization, not a second source of dependency truth: `uv sync
-    # --frozen` below still refuses to install anything the lock does not
+    # --locked` below still refuses to install anything the lock does not
     # already pin.
+    #
+    # `version` is pinned exactly and must equal tools/ci/pin_authority.py
+    # `uv_version` (enforced by tests/unit/tools/ci/test_toolchain_pins.py).
+    # Without it setup-uv searches the REPO root for uv.toml/pyproject.toml, finds
+    # neither (the project is in backend/), and silently installs "latest".
     - name: Setup uv
       uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       with:
+        version: "0.12.21"
         enable-cache: true
         cache-dependency-glob: |
           backend/uv.lock
           backend/pyproject.toml
-        cache-suffix: ${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-${{ inputs.dev-deps == 'true' && 'dev' || 'prod' }}
+        cache-suffix: ${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-${{ inputs.dev-deps == 'true' && 'dev' || (inputs.dev-deps == 'ci-tools' && 'ci-tools' || 'prod') }}
 
     # `.venv` is DELIBERATELY never cached (Task 3.16): a cached venv can
     # silently retain packages a lock/manifest edit was supposed to remove,
     # which is exactly how this project's tooling last drifted (see the `dev`
-    # dependency-group history below). `uv sync --frozen` is fast enough
+    # dependency-group history below). `uv sync --locked` is fast enough
     # against the warmed download store above that a venv cache buys nothing
     # but a correctness risk.
     #
     # `uv.lock` is the sole installation authority — it is a committed,
     # complete resolution of every direct dependency declared in
     # pyproject.toml's `[project.dependencies]` (prod) and
-    # `[dependency-groups].dev` (test/static/security tooling). `--frozen`
+    # `[dependency-groups].dev` (test/static/security tooling). `--locked`
     # makes this authoritative: it fails closed if the lock and
     # pyproject.toml have drifted, rather than silently re-resolving.
-    - name: Install dependencies (uv sync --frozen)
+    #
+    # `--locked`, NOT `--frozen`: `--frozen` installs from uv.lock WITHOUT
+    # checking it against pyproject.toml, so a pyproject edit with a stale lock
+    # would install the old graph and pass. `--locked` asserts the lock is
+    # current and errors otherwise. (Later `uv run --frozen` steps are correct:
+    # by then this step has already proven the lock current, and `--frozen`
+    # stops `uv run` from re-syncing.)
+    #
+    # The input reaches bash through `env`, never `${{ }}` inside `run:` — an
+    # expression pasted into a script is a script-injection surface.
+    - name: Install dependencies (uv sync --locked)
       shell: bash
       working-directory: backend
+      env:
+        DEV_DEPS: ${{ inputs.dev-deps }}
       run: |
         set -euo pipefail
-        if [[ "${{ inputs.dev-deps }}" == "true" ]]; then
-          uv sync --frozen --group dev
-        else
-          uv sync --frozen --no-dev
-        fi
+        case "$DEV_DEPS" in
+          true)
+            uv sync --locked --group dev
+            ;;
+          ci-tools)
+            uv sync --locked --only-group ci-tools
+            # Later steps call `uv run --frozen ...`. `--frozen` only skips the
+            # lock check; uv run would still sync the DEFAULT groups (the full
+            # prod+dev graph) on first use and undo this minimal install.
+            # UV_NO_SYNC=1 makes every later `uv run` in the job use the venv
+            # exactly as installed here.
+            echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
+            ;;
+          false)
+            uv sync --locked --no-dev
+            ;;
+          *)
+            echo "::error::setup-backend: unknown dev-deps value '$DEV_DEPS' (expected true, ci-tools or false)"
+            exit 1
+            ;;
+        esac

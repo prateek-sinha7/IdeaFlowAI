@@ -26,7 +26,7 @@ PROSE_THEN_HTML = (
     "let me read the composer file completely to find the artifact: The "
     "composer output shows that no HTML deck was generated...\n"
     "<!DOCTYPE html>\n<html><head><title>Deck</title></head>"
-    "<body><section class=\"slide\">slide 1</section></body></html>"
+    '<body><section class="slide">slide 1</section></body></html>'
 )
 
 
@@ -57,7 +57,9 @@ def test_single_file_forward_build_fallback_strips_prose_before_html():
 
     ctx = types.SimpleNamespace(
         runner=types.SimpleNamespace(sandbox=_EmptySandbox()),
-        deliverable=types.SimpleNamespace(name="prototype.html", publish_from_glob=None),
+        deliverable=types.SimpleNamespace(
+            name="prototype.html", publish_from_glob=None
+        ),
         last_streamed=PROSE_THEN_HTML,
         revision_original_html="",
     )

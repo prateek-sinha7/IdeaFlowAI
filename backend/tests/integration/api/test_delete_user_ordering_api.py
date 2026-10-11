@@ -44,12 +44,19 @@ def pool(monkeypatch) -> FakeCognitoPool:
 
 def _admin(session, pool) -> User:
     admin = User(
-        id="admin-1", email="admin@example.com", cognito_sub="sub-admin",
-        tier="enterprise", is_admin=True,
+        id="admin-1",
+        email="admin@example.com",
+        cognito_sub="sub-admin",
+        tier="enterprise",
+        is_admin=True,
     )
     session.add(admin)
     session.commit()
-    pool.add(sub="sub-admin", email="admin@example.com", groups={ADMIN_GROUP, group_for_tier("enterprise")})
+    pool.add(
+        sub="sub-admin",
+        email="admin@example.com",
+        groups={ADMIN_GROUP, group_for_tier("enterprise")},
+    )
     return admin
 
 
@@ -80,8 +87,12 @@ class TestDeleteOrdering:
         session.add(WorkflowMemory(id="m1", user_id=target.id, key="k", value="v"))
         session.add(
             WorkflowRun(
-                id="r1", user_id=target.id, type="prototype", status="completed",
-                input="x", workspace_id="ws-1",
+                id="r1",
+                user_id=target.id,
+                type="prototype",
+                status="completed",
+                input="x",
+                workspace_id="ws-1",
             )
         )
         session.commit()
@@ -224,4 +235,3 @@ class TestDeleteReturnCodes:
 
         # Verify no pending row
         assert session.query(PendingCognitoDeletion).count() == 0
-

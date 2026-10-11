@@ -87,9 +87,8 @@ the sole publisher of `ci-required` for the exact current pull-request SHA.
 flowchart LR
   pr["Pull-request source\nuntrusted"] --> evaluator["ci.yml\nread-only evaluator"]
   evaluator --> evidence["immutable evidence + coverage artifacts"]
-  evidence --> finalizer["ci-authoritative.yml\ntrusted default-branch finalizer"]
-  finalizer --> sonar["secret-bearing Sonar analysis"]
-  sonar --> status["sole ci-required publisher"]
+  evidence --> finalizer["ci-authoritative.yml\ntrusted default-branch attestation"]
+  finalizer --> status["sole ci-required publisher"]
   status --> rules["branch rulesets"]
   rules --> deploy["deploy.yml\nOIDC + SSM guarded release"]
   deploy --> host["host configuration + migration/deploy gates"]
@@ -99,10 +98,13 @@ flowchart LR
   required signals, validates evidence shape, and rejects missing/stale/non-success signals. Its
   relocation from `agents/ci` prevents CI policy from looking like runtime agent behavior.
 - `ci.yml` is the unprivileged evaluator. It runs pinned checks and produces evidence for one
-  exact SHA without exposing Sonar or write-scoped credentials to pull-request code.
+  exact SHA. It holds no secret of any kind and no write-scoped credential, and it
+  owns every mandatory signal on every event type, so its manifest is the complete
+  verdict.
 - `ci-authoritative.yml` runs from trusted default-branch content on `workflow_run`. It reattests
   the source run and current head, treats fork checkout as scanner input rather than executable
-  configuration, owns the Sonar secret boundary, and alone writes `ci-required`.
+  configuration, performs no analysis of its own, and alone writes `ci-required` —
+  a fork-triggered `pull_request` token is read-only and cannot write a status.
 - Composite actions and scripts provide checked tool installation, artifact/evidence validation,
   security scans, and cancellation-safe SSM invocation. Rulesets consume the required status;
   deployment uses a separately scoped OIDC identity and environment controls.

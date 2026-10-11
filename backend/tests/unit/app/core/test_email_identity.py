@@ -93,7 +93,13 @@ class TestCanonicalizeEmail:
             ),
             lambda: CreateUserRequest(email=MIXED_CASE_EMAIL),
         ],
-        ids=["login", "login-challenge", "forgot-password", "confirm-forgot-password", "invite"],
+        ids=[
+            "login",
+            "login-challenge",
+            "forgot-password",
+            "confirm-forgot-password",
+            "invite",
+        ],
     )
     def test_email_requests_return_the_same_canonical_alias_when_input_has_case_variants(
         self, request_factory
@@ -186,7 +192,9 @@ class TestAuthEmailIdentity:
 
         # Assert
         assert captured == [CANONICAL_EMAIL]
-        assert response == {"message": "If that account exists, a reset code has been sent."}
+        assert response == {
+            "message": "If that account exists, a reset code has been sent."
+        }
 
 
 class TestInvitationEmailIdentity:
@@ -216,7 +224,9 @@ class TestInvitationEmailIdentity:
         monkeypatch.setattr(
             cognito_admin.cognito, "admin_add_user_to_group", add_user_to_group
         )
-        monkeypatch.setattr(cognito_admin.auth_events, "emit", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            cognito_admin.auth_events, "emit", lambda *_args, **_kwargs: None
+        )
 
         # Act
         created = cognito_admin.invite_user(

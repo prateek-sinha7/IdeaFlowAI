@@ -194,7 +194,7 @@ def resolve_self_instance_id() -> str | None:
                 method="PUT",
                 headers={"X-aws-ec2-metadata-token-ttl-seconds": "21600"},
             )
-            # nosec B310 — the URL is a hardcoded literal (the well-known AWS
+            # Bandit B310 is suppressed below: the URL is a hardcoded literal (the well-known AWS
             # IMDS link-local address), never user input, so the "unexpected
             # scheme" concern the blacklist rule guards against does not apply.
             with urllib.request.urlopen(token_req, timeout=1) as resp:  # nosec B310
@@ -204,7 +204,7 @@ def resolve_self_instance_id() -> str | None:
                 "http://169.254.169.254/latest/meta-data/instance-id",
                 headers={"X-aws-ec2-metadata-token": token},
             )
-            # nosec B310 — same rationale as above: a hardcoded IMDS literal URL.
+            # Bandit B310 is suppressed below for the same reason: a hardcoded IMDS literal URL.
             with urllib.request.urlopen(id_req, timeout=1) as resp:  # nosec B310
                 value = resp.read().decode("utf-8").strip() or None
         except Exception as exc:  # noqa: BLE001 — never raise; not on EC2 is normal

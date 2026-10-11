@@ -62,7 +62,7 @@ from tests.agents.live_harness import (
 # ---------------------------------------------------------------------------
 _WORLD_MARKERS = (
     "=== ORIGINAL USER REQUEST",
-    "## Uploaded Files",       # rendered heading (Rev 3: was "uploaded_files_context")
+    "## Uploaded Files",  # rendered heading (Rev 3: was "uploaded_files_context")
     "ACTIVE DESIGN SYSTEM",
     "ACTIVE TEMPLATE",
     "TEMPLATE EXAMPLE",
@@ -88,9 +88,12 @@ def _git(*args: str, cwd: Path) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=E2E Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
+            "-c",
+            "user.name=E2E Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
             *args,
         ],
         cwd=str(cwd),
@@ -117,6 +120,7 @@ def _sandbox_root(run_id: str) -> Path:
 # Shared assertion helpers
 # ---------------------------------------------------------------------------
 
+
 def _assert_c_msg(result: CaptureResult) -> None:
     """C-msg: no world-block marker in non-first agent's context_message;
     agent 1 carries the brief."""
@@ -124,16 +128,16 @@ def _assert_c_msg(result: CaptureResult) -> None:
     assert agent_inputs, "No agent_input events captured"
     first_agent_id = agent_inputs[0]["data"]["agent_id"]
     first_msg = agent_inputs[0]["data"].get("context_message", "")
-    assert "=== ORIGINAL USER REQUEST ===" in first_msg, (
-        f"Agent 1 ({first_agent_id}) missing the brief in context_message"
-    )
+    assert (
+        "=== ORIGINAL USER REQUEST ===" in first_msg
+    ), f"Agent 1 ({first_agent_id}) missing the brief in context_message"
     for ev in agent_inputs[1:]:
         agent_id = ev["data"]["agent_id"]
         msg = ev["data"].get("context_message", "")
         for marker in _WORLD_MARKERS:
-            assert marker not in msg, (
-                f"Agent {agent_id} (non-first) leaked world-block {marker!r}"
-            )
+            assert (
+                marker not in msg
+            ), f"Agent {agent_id} (non-first) leaked world-block {marker!r}"
 
 
 def _assert_pipeline_complete_fields(
@@ -149,21 +153,19 @@ def _assert_pipeline_complete_fields(
     data = pc[0]["data"]
 
     published = data.get("published_status") or data.get("status")
-    assert published == expect_status, (
-        f"published_status: expected {expect_status!r}, got {published!r}"
-    )
+    assert (
+        published == expect_status
+    ), f"published_status: expected {expect_status!r}, got {published!r}"
 
     if expect_tag is not None:
         tag = data.get("git_tag")
-        assert tag == expect_tag, (
-            f"git_tag: expected {expect_tag!r}, got {tag!r}"
-        )
+        assert tag == expect_tag, f"git_tag: expected {expect_tag!r}, got {tag!r}"
 
     if expect_revision_index is not None:
         idx = data.get("revision_index")
-        assert idx == expect_revision_index, (
-            f"revision_index: expected {expect_revision_index!r}, got {idx!r}"
-        )
+        assert (
+            idx == expect_revision_index
+        ), f"revision_index: expected {expect_revision_index!r}, got {idx!r}"
 
     return data
 
@@ -172,9 +174,9 @@ def _assert_c_commits(sandbox: Path, *, min_commits: int = 2) -> None:
     """C-commits: git log has ≥ min_commits entries."""
     log = _git("log", "--oneline", cwd=sandbox)
     commits = [l for l in log.splitlines() if l.strip()]
-    assert len(commits) >= min_commits, (
-        f"Expected ≥ {min_commits} commits, got {len(commits)}: {commits}"
-    )
+    assert (
+        len(commits) >= min_commits
+    ), f"Expected ≥ {min_commits} commits, got {len(commits)}: {commits}"
 
 
 def _assert_c_agents(sandbox: Path, *, min_agents: int = 1) -> None:
@@ -187,9 +189,7 @@ def _assert_c_agents(sandbox: Path, *, min_agents: int = 1) -> None:
             f"{[p.name for p in on_disk]}"
         )
     tracked = _git("ls-files", ".agents", cwd=sandbox)
-    assert tracked == "", (
-        f".agents/ must be untracked; git ls-files shows: {tracked!r}"
-    )
+    assert tracked == "", f".agents/ must be untracked; git ls-files shows: {tracked!r}"
 
 
 def _assert_two_agent_outputs_on_disk(sandbox: Path) -> None:
@@ -225,14 +225,15 @@ def _assert_c_chain_at_tag(sandbox: Path, tag: str, output_name: str) -> None:
     listing = _git("ls-tree", "-r", "--name-only", f"{tag}:.chain/", cwd=sandbox)
     files = {f.strip() for f in listing.splitlines() if f.strip()}
     expected = {"summary.md", "logs.jsonl", output_name}
-    assert files == expected, (
-        f"C-chain at {tag}:.chain/: expected {sorted(expected)!r}, got {sorted(files)!r}"
-    )
+    assert (
+        files == expected
+    ), f"C-chain at {tag}:.chain/: expected {sorted(expected)!r}, got {sorted(files)!r}"
 
 
 # ---------------------------------------------------------------------------
 # (a) + (b): user_stories end-to-end — C-msg, C-commits, C-agents, tag check
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_user_stories_e2e_c_msg_commits_agents_and_tag() -> None:
@@ -295,11 +296,12 @@ async def test_user_stories_e2e_c_msg_commits_agents_and_tag() -> None:
 # (c) Revision → revision_index == 2, second tag
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_revision_increments_ordinal_to_2() -> None:
     """(c) A revision via parent_run_id:
-      - pipeline_complete.revision_index == 2
-      - git_tag == "v2" in the pipeline_complete event
+    - pipeline_complete.revision_index == 2
+    - git_tag == "v2" in the pipeline_complete event
     """
     # Root run
     root = await drive_engine_pipeline(
@@ -340,9 +342,9 @@ async def test_revision_increments_ordinal_to_2() -> None:
     rev_data = rev_pc[0]["data"]
     rev_index = rev_data.get("revision_index")
     if rev_index is not None:
-        assert rev_index == 2, (
-            f"revision_index must be 2 (the second family member), got {rev_index!r}"
-        )
+        assert (
+            rev_index == 2
+        ), f"revision_index must be 2 (the second family member), got {rev_index!r}"
 
     # C-msg: revision agents must not carry world-block markers.
     _assert_c_msg(revision)
@@ -360,6 +362,7 @@ async def test_revision_increments_ordinal_to_2() -> None:
 # (d) Chained run: agent 1 gets bare brief, no injected payload
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_chained_run_agent_1_gets_bare_brief_only() -> None:
     """(d) I1(d): A chained / revision run.
@@ -368,8 +371,9 @@ async def test_chained_run_agent_1_gets_bare_brief_only() -> None:
       - agent 1's context_message is the bare brief; no world-block marker
         appears — including the '## Uploaded Files' heading (all non-first
         agents are checked via _assert_c_msg)
-      - .context/summary.md AND .context/logs.jsonl are BOTH present in the
-        family sandbox (the chain payload written at sandbox open, Req 23 AC 6)
+      - .chain/summary.md AND .chain/logs.jsonl are BOTH present in the
+        source's family sandbox (the chain payload build_flat_payload writes,
+        FR-016), and .context/user-prompt.md holds the persisted request
 
     Named limitation: the spec's I1(d) requires .context/hello.html because
     it describes a gaps-hello-chain run whose deliverable is hello.html.  This
@@ -408,9 +412,9 @@ async def test_chained_run_agent_1_gets_bare_brief_only() -> None:
 
     first_msg = agent_inputs[0]["data"].get("context_message", "")
     # Agent 1 must carry the brief
-    assert "Add acceptance criteria to every story." in first_msg, (
-        "Agent 1 must receive the revision brief in its context_message"
-    )
+    assert (
+        "Add acceptance criteria to every story." in first_msg
+    ), "Agent 1 must receive the revision brief in its context_message"
 
     # ── Task #6: C-msg check for ALL markers including '## Uploaded Files' ──
     # _assert_c_msg covers every marker in _WORLD_MARKERS (which now correctly
@@ -426,45 +430,56 @@ async def test_chained_run_agent_1_gets_bare_brief_only() -> None:
         m for m in _WORLD_MARKERS if m != "=== ORIGINAL USER REQUEST"
     )
     for marker in _AGENT1_WORLD_MARKERS:
-        assert marker not in first_msg, (
-            f"Agent 1's message must not contain injected marker {marker!r}"
-        )
+        assert (
+            marker not in first_msg
+        ), f"Agent 1's message must not contain injected marker {marker!r}"
 
-    # ── Task #4: assert BOTH .context/summary.md AND .context/logs.jsonl ────
+    # ── Task #4: assert BOTH summary.md AND logs.jsonl in the chain payload ──
     # The spec (I1(d)) requires both files to be present — they are the first
-    # two canonical payload files (Req 23 AC 6 / build_flat_payload).
-    # Previously the check was "summary.md OR logs.jsonl" which is too weak;
-    # both must exist after the source run finalises.
+    # two canonical payload files (build_flat_payload / FR-016). Previously the
+    # check was "summary.md OR logs.jsonl" which is too weak; both must exist
+    # after the source run finalises.
     #
-    # Guard with is_dir(): the offline harness may degrade before the finalizer
-    # writes .context/ when the run never opened a sandbox (e.g. harness error).
-    # In that case we skip rather than fail — the absence of the sandbox itself
-    # is a separate assertion failure that would already have failed above.
+    # The source run's own payload lives in `.chain/` — that is where
+    # build_flat_payload writes it (and what test (c) asserts at the tag).
+    # `.context/` only receives a payload when a CHAINED run's chain_context
+    # provider installs its parent's; the source run has no parent. The old
+    # check looked in `.context/` behind an `is_dir()` guard, which was vacuous
+    # until every run began writing `.context/user-prompt.md` (aa8673cc).
     family_sandbox = _sandbox_root(source.run_id)
-    if family_sandbox.is_dir():
-        context_dir = family_sandbox / ".context"
-        if context_dir.is_dir():
-            summary = context_dir / "summary.md"
-            logs = context_dir / "logs.jsonl"
-            # Hard assertion: both must be present (not "at least one").
-            # build_flat_payload writes both unconditionally for every terminal
-            # status — even a degraded offline run writes summary.md and
-            # logs.jsonl so the chain payload is always complete (FR-016, V2-Q2).
-            assert summary.is_file(), (
-                f".context/summary.md must be present after the source run finalised "
-                f"(chain payload, Req 23 AC 6 / FR-016).  "
-                f".context/ contents: {sorted(p.name for p in context_dir.iterdir())}"
-            )
-            assert logs.is_file(), (
-                f".context/logs.jsonl must be present after the source run finalised "
-                f"(chain payload, Req 23 AC 6 / FR-016).  "
-                f".context/ contents: {sorted(p.name for p in context_dir.iterdir())}"
-            )
+    assert family_sandbox.is_dir(), f"source sandbox missing: {family_sandbox}"
+    chain_dir = family_sandbox / ".chain"
+    assert chain_dir.is_dir(), (
+        f".chain/ must exist after the source run finalised (FR-016). "
+        f"sandbox contents: {sorted(p.name for p in family_sandbox.iterdir())}"
+    )
+    summary = chain_dir / "summary.md"
+    logs = chain_dir / "logs.jsonl"
+    # Hard assertion: both must be present (not "at least one").
+    # build_flat_payload writes both unconditionally for every terminal
+    # status — even a degraded offline run writes summary.md and
+    # logs.jsonl so the chain payload is always complete (FR-016, V2-Q2).
+    assert summary.is_file(), (
+        f".chain/summary.md must be present after the source run finalised "
+        f"(chain payload, FR-016).  "
+        f".chain/ contents: {sorted(p.name for p in chain_dir.iterdir())}"
+    )
+    assert logs.is_file(), (
+        f".chain/logs.jsonl must be present after the source run finalised "
+        f"(chain payload, FR-016).  "
+        f".chain/ contents: {sorted(p.name for p in chain_dir.iterdir())}"
+    )
+    # `.context/` now carries the persisted request for every run.
+    assert (family_sandbox / ".context" / "user-prompt.md").is_file(), (
+        ".context/user-prompt.md must be present after the source run "
+        "(write_user_prompt_to_sandbox, Req 13 AC 4)"
+    )
 
 
 # ---------------------------------------------------------------------------
 # (e) Cancel: no tag, clean working tree
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_cancel_leaves_no_tag_and_clean_tree() -> None:
@@ -503,9 +518,7 @@ async def test_cancel_leaves_no_tag_and_clean_tree() -> None:
     sandbox = _sandbox_root(run_id)
     if sandbox.is_dir():
         status = _git("status", "--porcelain", cwd=sandbox)
-        assert status == "", (
-            f"Working tree must be clean after cancel, got: {status!r}"
-        )
+        assert status == "", f"Working tree must be clean after cancel, got: {status!r}"
         # No tag on git
         tags = _git("tag", cwd=sandbox)
         assert tags == "", f"No git tag must exist after cancel; found: {tags!r}"
@@ -519,7 +532,11 @@ async def test_cancel_leaves_no_tag_and_clean_tree() -> None:
         if commit_lines:
             # The wip commit may be absent if cancel fired before the first git init
             # or before the first step commit; skip rather than fail in that case.
-            wip_commits = [l for l in commit_lines if "wip:" in l.lower() or "cancelled" in l.lower()]
+            wip_commits = [
+                l
+                for l in commit_lines
+                if "wip:" in l.lower() or "cancelled" in l.lower()
+            ]
             # If any commits exist AND the run was deep enough to cancel at a step,
             # there MUST be a wip commit. If only the init commit exists, the run
             # was cancelled before step 1 completed — acceptable offline.
@@ -533,6 +550,7 @@ async def test_cancel_leaves_no_tag_and_clean_tree() -> None:
 # ---------------------------------------------------------------------------
 # C-commits structural check (one-commit-per-step)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_one_commit_per_step_structure() -> None:
@@ -566,6 +584,7 @@ async def test_one_commit_per_step_structure() -> None:
 # ---------------------------------------------------------------------------
 # post_run hook dispatch
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_post_run_hook_dispatched_once_per_terminal_run() -> None:
@@ -614,9 +633,9 @@ async def test_post_run_hook_dispatched_once_per_terminal_run() -> None:
 
     # _fire_hooks must have been called at least for the step lifecycle events
     # (before_step / after_step / pre_commit / post_commit).
-    assert len(hook_calls) > 0, (
-        "_fire_hooks was never called — the spy is not wired to the engine instance"
-    )
+    assert (
+        len(hook_calls) > 0
+    ), "_fire_hooks was never called — the spy is not wired to the engine instance"
 
     # Hard assertion: post_run MUST fire exactly once (FR-061).
     # If this fails with count=0, the finalizer's `_engine_post_run` lookup did
@@ -636,10 +655,7 @@ async def test_post_run_hook_dispatched_once_per_terminal_run() -> None:
 
 _LIVE_OLLAMA_SKIP = (
     None
-    if (
-        os.getenv("RUN_LIVE_OLLAMA") == "1"
-        and os.getenv("USE_LOCAL_OLLAMA") == "1"
-    )
+    if (os.getenv("RUN_LIVE_OLLAMA") == "1" and os.getenv("USE_LOCAL_OLLAMA") == "1")
     else "RUN_LIVE_OLLAMA=1 + USE_LOCAL_OLLAMA=1 required for live Ollama variant"
 )
 requires_live_ollama = pytest.mark.skipif(
@@ -648,6 +664,9 @@ requires_live_ollama = pytest.mark.skipif(
 )
 
 
+# `live` makes CI's offline partition deselect it; the skipif still covers a
+# bare local run without Ollama.
+@pytest.mark.live
 @requires_live_ollama
 @pytest.mark.asyncio
 async def test_user_stories_live_ollama_no_world_blocks_and_tag() -> None:
@@ -693,6 +712,7 @@ async def test_user_stories_live_ollama_no_world_blocks_and_tag() -> None:
 #   - at least two git commits in the sandbox (C-commits)
 # ---------------------------------------------------------------------------
 
+
 def _seed_uploads(sandbox_root: Path, filename: str, text: str) -> None:
     """Write a minimal .uploads/ fixture into *sandbox_root*.
 
@@ -734,6 +754,7 @@ def _seed_uploads(sandbox_root: Path, filename: str, text: str) -> None:
 # guarded, unused server code.  This test exercises the route directly to
 # verify the git contract — which is the spec's own evidence standard.
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="function")
 def _restore_env(tmp_path):
@@ -796,23 +817,32 @@ def _restore_env(tmp_path):
     db = Session()
     user_id = str(_uuid.uuid4())
     run_id = str(_uuid.uuid4())
-    db.add(User(id=user_id, email=f"restore-test-{_uuid.uuid4().hex[:8]}@example.com", password_hash="x"))
-    db.add(WorkflowRun(
-        id=run_id,
-        user_id=user_id,
-        owner_id=user_id,
-        workspace_id="ws-restore",
-        title="restore test run",
-        type="user_stories",
-        status="completed",
-        input="brief",
-        agent_count=1,
-        session_id=user_id,
-    ))
+    db.add(
+        User(
+            id=user_id,
+            email=f"restore-test-{_uuid.uuid4().hex[:8]}@example.com",
+            cognito_sub=f"sub-{user_id}",
+        )
+    )
+    db.add(
+        WorkflowRun(
+            id=run_id,
+            user_id=user_id,
+            owner_id=user_id,
+            workspace_id="ws-restore",
+            title="restore test run",
+            type="user_stories",
+            status="completed",
+            input="brief",
+            agent_count=1,
+            session_id=user_id,
+        )
+    )
     db.commit()
     db.close()
 
     from app.agents.sandbox import RunSandbox
+
     sb = RunSandbox(user_id, run_id, runs_root=str(runs_root))
     sb.ensure()
 
@@ -836,6 +866,7 @@ def _restore_env(tmp_path):
 
 class _FakeUser:
     """Minimal user object for the dependency override."""
+
     def __init__(self, id: str) -> None:
         self.id = id
 
@@ -887,7 +918,9 @@ def test_restore_forward_commit_head_unchanged_both_tags_intact(
     pre_restore_log = _git("log", "--oneline", cwd=sb.root).splitlines()
     # git_init_sandbox() creates an initial "chore: initialise sandbox" commit,
     # then v1 and v2 each add one more — 3 commits total before the restore.
-    assert len(pre_restore_log) == 3, f"Expected 3 commits before restore (init+v1+v2), got: {pre_restore_log}"
+    assert (
+        len(pre_restore_log) == 3
+    ), f"Expected 3 commits before restore (init+v1+v2), got: {pre_restore_log}"
 
     # ── Call the restore route ────────────────────────────────────────────────
     idempotency_key = str(uuid.uuid4())
@@ -904,9 +937,10 @@ def test_restore_forward_commit_head_unchanged_both_tags_intact(
         "If 409: active family member guard fired unexpectedly."
     )
     data = resp.json()
-    assert data["outcome"] in ("committed", "no_change"), (
-        f"Restore outcome must be 'committed' or 'no_change', got {data['outcome']!r}"
-    )
+    assert data["outcome"] in (
+        "committed",
+        "no_change",
+    ), f"Restore outcome must be 'committed' or 'no_change', got {data['outcome']!r}"
 
     # ── Assert git-level guarantees ───────────────────────────────────────────
     post_restore_head = _git("rev-parse", "HEAD", cwd=sb.root)
@@ -920,41 +954,41 @@ def test_restore_forward_commit_head_unchanged_both_tags_intact(
             f"Before: {pre_restore_log}. After: {post_restore_log}"
         )
         # HEAD moved forward (it is the new restore commit, not v2)
-        assert post_restore_head != pre_restore_head, (
-            "HEAD must advance to the forward restore commit"
-        )
-        assert post_restore_head != v1_sha, (
-            "HEAD must be the NEW forward commit, not v1 itself (restore never rewinds)"
-        )
+        assert (
+            post_restore_head != pre_restore_head
+        ), "HEAD must advance to the forward restore commit"
+        assert (
+            post_restore_head != v1_sha
+        ), "HEAD must be the NEW forward commit, not v1 itself (restore never rewinds)"
         # The restore commit SHA matches the route response
         if data.get("commit_id"):
-            assert data["commit_id"] == post_restore_head, (
-                "route response commit_id must equal the new HEAD"
-            )
+            assert (
+                data["commit_id"] == post_restore_head
+            ), "route response commit_id must equal the new HEAD"
         # Working tree reflects v1 content
         content_after = (sb.root / "output.txt").read_text(encoding="utf-8")
-        assert content_after == "version one", (
-            f"After restore to v1, output.txt must read 'version one', got {content_after!r}"
-        )
+        assert (
+            content_after == "version one"
+        ), f"After restore to v1, output.txt must read 'version one', got {content_after!r}"
     else:
         # no_change: HEAD already equalled v1's tree (only possible if v2 == v1 content)
-        assert len(post_restore_log) == len(pre_restore_log), (
-            "no_change restore must not add commits"
-        )
+        assert len(post_restore_log) == len(
+            pre_restore_log
+        ), "no_change restore must not add commits"
 
     # Both tags must survive the restore — tags are immutable by the forward-commit design
     assert "v1" in tags_after, "v1 tag must still exist after restore"
     assert "v2" in tags_after, "v2 tag must still exist after restore"
     # v1 still points at the original v1 commit
     v1_tag_sha = _git("rev-parse", "v1^{commit}", cwd=sb.root)
-    assert v1_tag_sha == v1_sha, (
-        f"v1 tag must still point at its original commit {v1_sha!r}, got {v1_tag_sha!r}"
-    )
+    assert (
+        v1_tag_sha == v1_sha
+    ), f"v1 tag must still point at its original commit {v1_sha!r}, got {v1_tag_sha!r}"
     # v2 still points at the original v2 commit
     v2_tag_sha = _git("rev-parse", "v2^{commit}", cwd=sb.root)
-    assert v2_tag_sha == v2_sha, (
-        f"v2 tag must still point at its original commit {v2_sha!r}, got {v2_tag_sha!r}"
-    )
+    assert (
+        v2_tag_sha == v2_sha
+    ), f"v2 tag must still point at its original commit {v2_sha!r}, got {v2_tag_sha!r}"
 
 
 @pytest.mark.asyncio
@@ -1009,15 +1043,15 @@ async def test_uploaded_files_path_agent2_no_world_block() -> None:
     )
 
     # Verify the files were written before the revision drive
-    assert (parent_sandbox / ".uploads" / "note.txt").is_file(), (
-        ".uploads/note.txt must exist before driving prototype_revision"
-    )
-    assert (parent_sandbox / ".uploads" / "note.txt.txt").is_file(), (
-        ".uploads/note.txt.txt sidecar must exist"
-    )
-    assert (parent_sandbox / ".uploads" / "manifest.json").is_file(), (
-        ".uploads/manifest.json must exist"
-    )
+    assert (
+        parent_sandbox / ".uploads" / "note.txt"
+    ).is_file(), ".uploads/note.txt must exist before driving prototype_revision"
+    assert (
+        parent_sandbox / ".uploads" / "note.txt.txt"
+    ).is_file(), ".uploads/note.txt.txt sidecar must exist"
+    assert (
+        parent_sandbox / ".uploads" / "manifest.json"
+    ).is_file(), ".uploads/manifest.json must exist"
 
     # ── Step C: drive prototype_revision with parent_run_id ───────────────────
     revision_run_id = _run_id()
@@ -1044,9 +1078,10 @@ async def test_uploaded_files_path_agent2_no_world_block() -> None:
 
     # Agent 1 carries the brief
     first_msg = agent_inputs[0]["data"].get("context_message", "")
-    assert "Add a Clear All button" in first_msg or "=== ORIGINAL USER REQUEST" in first_msg, (
-        f"Agent 1 ({first_agent_id}) must carry the revision brief"
-    )
+    assert (
+        "Add a Clear All button" in first_msg
+        or "=== ORIGINAL USER REQUEST" in first_msg
+    ), f"Agent 1 ({first_agent_id}) must carry the revision brief"
 
     # Agents ≥2 must have no world-block markers
     for ev in agent_inputs[1:]:

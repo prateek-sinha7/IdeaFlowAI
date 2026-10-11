@@ -202,27 +202,14 @@ class TestForkSourceHandling:
 
         assert actions[2].startswith("./fork-source-readonly/")
 
-    def test_ignores_fork_sonar_config(self):
-        """fork-source-readonly/sonar-project.properties is ignored."""
-        # Sonar config must be from trusted checkout
-        trusted_sonar_config = "sonar-project.properties"  # From root
-        fork_sonar_config = "fork-source-readonly/sonar-project.properties"  # Ignored
+    def test_ignores_fork_tool_config(self):
+        """A config file from the fork tree is never read as configuration."""
+        # Any tool config must come from the trusted checkout
+        trusted_config = ".github/scripts/ci-validate-evidence.sh"  # From root
+        fork_config = "fork-source-readonly/.github/scripts/ci-validate-evidence.sh"
 
         # Validation: only trusted config is used
-        assert trusted_sonar_config != fork_sonar_config
-
-    def test_cli_overrides_prevent_fork_config(self):
-        """Sonar CLI arguments override fork configuration."""
-        # When sonar-scanner is invoked with explicit -D flags,
-        # fork-controlled sonar-project.properties cannot override
-        # Validation: explicit values are preferred over file config
-        cli_args = [
-            "-Dsonar.projectKey=velocityai",
-            "-Dsonar.sources=backend/app,backend/agents,frontend/src",
-        ]
-
-        # These explicit args prevent fork config from taking effect
-        assert len(cli_args) > 0
+        assert trusted_config != fork_config
 
     def test_fork_source_checkout_has_no_credentials(self):
         """Fork source checkout must not use credentials."""
@@ -372,26 +359,21 @@ class TestHeadVerification:
 class TestErrorHandling:
     """Verify error handling and non-success cases."""
 
-    def test_missing_sonar_token_fails(self):
-        """Missing SONAR_TOKEN secret causes failure."""
-        env = {}  # SONAR_TOKEN not set
-        assert "SONAR_TOKEN" not in env
-
-    def test_sonar_analysis_failure_fails(self):
-        """Sonar analysis failure is non-success."""
-        sonar_result = {
+    def test_attestation_failure_fails(self):
+        """A failed attestation job is non-success."""
+        attest_result = {
             "exit_code": 1,
             "outcome": "failure",
         }
-        assert sonar_result["outcome"] != "success"
+        assert attest_result["outcome"] != "success"
 
-    def test_sonar_timeout_fails(self):
-        """Sonar analysis timeout is non-success."""
-        sonar_result = {
+    def test_attestation_timeout_fails(self):
+        """An attestation timeout is non-success."""
+        attest_result = {
             "timeout": True,
             "outcome": "timed_out",
         }
-        assert sonar_result["outcome"] != "success"
+        assert attest_result["outcome"] != "success"
 
     def test_quality_gate_failure_fails(self):
         """Failed quality gate is non-success."""

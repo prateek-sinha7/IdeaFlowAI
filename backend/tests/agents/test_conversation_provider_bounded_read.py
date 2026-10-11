@@ -72,4 +72,7 @@ def test_provider_uses_bounded_read_not_whole_run_log() -> None:
     provider = ConversationProvider()
     blocks = asyncio.run(provider.load(_ctx(store)))
     assert set(blocks) == {"conversation_context"}
-    assert "user: build me a dark-theme analytics dashboard" in blocks["conversation_context"]
+    assert (
+        "user: build me a dark-theme analytics dashboard"
+        in blocks["conversation_context"]
+    )

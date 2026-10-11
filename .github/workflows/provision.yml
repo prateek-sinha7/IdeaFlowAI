@@ -2,7 +2,7 @@
 # VelocityAI Provision — CI/CD replacement for Terraform's user_data.sh.tpl.
 # =============================================================================
 # Takes a HAND-CREATED (non-Terraform) EC2 instance from bare to fully
-# provisioned: uploads the five config artifacts to S3 (the half Terraform's
+# provisioned: uploads the six config artifacts to S3 (the half Terraform's
 # app layer normally does via aws_s3_object.*), then runs
 # .github/scripts/remote-bootstrap.sh over SSM RunCommand, which writes
 # /etc/velocityai/bootstrap.env, installs velocityai-firstboot.service (so a
@@ -67,24 +67,34 @@ on:
 # environment's box can never race `docker compose` / `bootstrap-ec2.sh`
 # against each other. Provisioning is rare enough that queuing behind an
 # in-flight deploy (or vice versa) is the right default over cancelling either.
+#
+# cancel-in-progress: FALSE, unconditionally. It was
+# `${{ inputs.environment != 'prod' }}`, which contradicted the paragraph above
+# on every non-prod environment: because the group is SHARED with deploy.yml, a
+# dev provision run would cancel an IN-FLIGHT dev deploy — the exact race the
+# shared group name exists to prevent — and leave that box half-deployed.
+#
+# The "cancel non-prod queues" intent it was written for does not apply anyway:
+# GitHub holds at most one pending run per group and a newer pending run already
+# supersedes the older one, so there is no queue to drain. And provisioning is
+# even less interruptible than a deploy: it partitions and mounts the data
+# volume, creates the Postgres cluster, and issues a TLS certificate.
 concurrency:
   group: deploy-${{ inputs.environment }}
-  cancel-in-progress: ${{ inputs.environment != 'prod' }}  # Phase 9: Cancel non-prod queues, timeout prod
+  cancel-in-progress: false
 
 # Least-privilege default: only the one job that needs AWS declares
 # `id-token: write` (see the job-level `permissions:` below).
 permissions:
   contents: read
 
-env:
-  # Fallback only — every environment sets its own `AWS_REGION` variable,
-  # mirroring deploy.yml's identical fallback for the identical reason.
-  AWS_REGION_DEFAULT: eu-central-1
+# F-25: the AWS region fallback lives in .github/actions/aws-deploy-auth; every
+# region site reads that action's `steps.aws.outputs.region`.
 
 jobs:
   provision:
     name: Provision (${{ inputs.environment }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     environment: ${{ inputs.environment }}
     permissions:
@@ -103,10 +113,13 @@ jobs:
             infra/scripts/bootstrap-ec2.sh
             infra/scripts/reconcile-host-config.sh
             infra/scripts/velocityai-load-secrets.sh
+            infra/scripts/lib/host-common.sh
             docker-compose.yml
             docker-compose.prod.yml
             .github/scripts/remote-bootstrap.sh
+            .github/scripts/upload-host-config.sh
             .github/actions/ssm-run/
+            .github/actions/aws-deploy-auth/
           sparse-checkout-cone-mode: false
           persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
@@ -116,18 +129,25 @@ jobs:
       # environment's backup bucket's config/* prefix — a dev run cannot
       # write into stage's or prod's bucket, whatever variable value is
       # pasted into EC2_INSTANCE_ID or BACKUP_BUCKET.
+      #
+      # F-25: the aws-deploy-auth composite validates EC2_INSTANCE_ID (set,
+      # and shaped like an instance id) before it mints the session; that
+      # check moved here from the preflight below.
       - name: Configure AWS credentials (OIDC — per-env deploy role)
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        id: aws
+        uses: ./.github/actions/aws-deploy-auth
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          region: ${{ vars.AWS_REGION }}
+          instance-id: ${{ vars.EC2_INSTANCE_ID }}
+          require-instance-id: "true"
 
       # ── Preflight: assert every required variable, validate shapes, no side effects ──
       - name: Preflight — validate configuration
         id: preflight
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
-          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
+          INSTANCE_ID: ${{ steps.aws.outputs.instance-id }}
           ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
           BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
           KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
@@ -139,30 +159,47 @@ jobs:
         run: |
           set -euo pipefail
 
-          : "${INSTANCE_ID:?EC2_INSTANCE_ID is not set for the '${DEPLOY_ENV}' environment}"
+          # EC2_INSTANCE_ID presence and shape are validated by the
+          # aws-deploy-auth step above; INSTANCE_ID is its output, echoed below.
           : "${ECR_REGISTRY:?ECR_REGISTRY is not set for the '${DEPLOY_ENV}' environment}"
           : "${BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET is not set for the '${DEPLOY_ENV}' environment}"
           : "${KMS_KEY_ID:?VELOCITYAI_KMS_KEY_ID is not set for the '${DEPLOY_ENV}' environment}"
           : "${FQDN:?VELOCITYAI_FQDN is not set for the '${DEPLOY_ENV}' environment}"
           : "${ACME_EMAIL:?VELOCITYAI_ACME_EMAIL is not set for the '${DEPLOY_ENV}' environment}"
 
-          if [[ ! "$INSTANCE_ID" =~ ^i-[0-9a-f]{8,17}$ ]]; then
-            echo "::error::EC2_INSTANCE_ID '${INSTANCE_ID}' does not look like an EC2 instance ID."
-            exit 1
-          fi
-
           if [[ ! "$BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
             echo "::error::VELOCITYAI_BACKUP_BUCKET '${BACKUP_BUCKET}' is not a valid S3 bucket name."
             exit 1
           fi
 
-          if [[ ! "$KMS_KEY_ID" =~ ^arn:aws[a-zA-Z-]*:kms:.+:key/ ]]; then
-            echo "::error::VELOCITYAI_KMS_KEY_ID '${KMS_KEY_ID}' does not look like a KMS key ARN (expected arn:aws:kms:<region>:<account>:key/<id>)."
+          # Anchored at both ends: the old pattern only checked the start, so any
+          # suffix (quotes, `$(...)`, newlines) passed (SEC-10).
+          if [[ ! "$KMS_KEY_ID" =~ ^arn:aws[a-zA-Z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/(mrk-)?[0-9a-f-]+$ ]]; then
+            echo "::error::VELOCITYAI_KMS_KEY_ID does not look like a KMS key ARN (expected arn:aws:kms:<region>:<account>:key/<id>; value not shown)."
             exit 1
           fi
 
           RESOLVED_PREFIX="${PARAM_PREFIX:-/velocityai/${DEPLOY_ENV}}"
           RESOLVED_DEVICE="${DATA_DEVICE:-/dev/nvme1n1}"
+
+          # These values are written into single-quoted shell assignments in the
+          # SSM payload and into an unquoted heredoc (bootstrap.env), both
+          # executed as root on the host. A repository variable is an admin
+          # setting, not trusted code, so allow-list the shape of each one here
+          # and fail before anything is uploaded or sent (SEC-10). The value is
+          # never echoed: it may be exactly the injection being rejected.
+          require_format() {
+            local name="$1" value="$2" pattern="$3"
+            if [[ ! "$value" =~ $pattern ]]; then
+              echo "::error::${name} has an unexpected format; refusing to embed it in the host payload (value not shown)."
+              exit 1
+            fi
+          }
+          require_format VELOCITYAI_FQDN "$FQDN" '^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
+          require_format VELOCITYAI_ACME_EMAIL "$ACME_EMAIL" '^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,63}$'
+          require_format ECR_REGISTRY "$ECR_REGISTRY" '^[0-9]{12}\.dkr\.ecr(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$'
+          require_format VELOCITYAI_PARAM_PREFIX "$RESOLVED_PREFIX" '^/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$'
+          require_format VELOCITYAI_DATA_DEVICE "$RESOLVED_DEVICE" '^/dev/[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$'
 
           echo "prefix=${RESOLVED_PREFIX}" >> "$GITHUB_OUTPUT"
           echo "device=${RESOLVED_DEVICE}" >> "$GITHUB_OUTPUT"
@@ -179,7 +216,7 @@ jobs:
           echo "  force         : ${{ inputs.force }}"
           echo "  dry_run       : ${{ inputs.dry_run }}"
 
-      # ── Upload the five config artifacts to s3://<bucket>/config/ ─────────
+      # ── Upload the six config artifacts to s3://<bucket>/config/ ──────────
       # Replaces the Terraform app layer's aws_s3_object.bootstrap_script /
       # .reconcile_script / .compose_yaml / .compose_prod_yaml for a box that
       # never had that apply run against it. `config/deploy.env` is
@@ -188,56 +225,26 @@ jobs:
       - name: Upload config artifacts to S3
         id: upload
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
           BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
           KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
         run: |
           set -euo pipefail
 
-          # Detect the bucket's own default encryption rather than assuming
-          # SSE-KMS is enforced (it may not be, on a hand-created bucket).
-          # A bucket with no default-encryption rule at all, or one this role
-          # cannot read (GetEncryptionConfiguration is not required by the new
-          # IAM grant), degrades to a plain upload — S3 always encrypts at
-          # rest with at least SSE-S3 regardless of what this step passes.
-          ENCRYPTION_JSON="$(aws s3api get-bucket-encryption \
-            --bucket "$BACKUP_BUCKET" --region "$AWS_REGION" 2>/dev/null || echo '')"
-
-          SSE_ARGS=()
-          if [[ -n "$ENCRYPTION_JSON" ]]; then
-            SSE_ALGO="$(echo "$ENCRYPTION_JSON" | jq -r '.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm // empty')"
-            if [[ "$SSE_ALGO" == "aws:kms" ]]; then
-              SSE_ARGS=(--sse aws:kms --sse-kms-key-id "$KMS_KEY_ID")
-              echo "Bucket '${BACKUP_BUCKET}' enforces SSE-KMS — uploading with --sse aws:kms."
-            else
-              echo "Bucket '${BACKUP_BUCKET}' default encryption is '${SSE_ALGO:-unset}' — uploading without an explicit --sse flag (bucket default applies)."
-            fi
-          else
-            echo "::notice::Could not read default encryption for '${BACKUP_BUCKET}' (none configured, or this role lacks s3:GetEncryptionConfiguration) — uploading without an explicit --sse flag. S3 still encrypts at rest with at least SSE-S3."
-          fi
-
-          upload_one() {
-            local src="$1" key="$2" content_type="$3"
-            aws s3 cp "$src" "s3://${BACKUP_BUCKET}/config/${key}" \
-              --region "$AWS_REGION" \
-              --content-type "$content_type" \
-              "${SSE_ARGS[@]}"
-          }
-
-          upload_one infra/scripts/bootstrap-ec2.sh          bootstrap-ec2.sh          text/x-shellscript
-          upload_one infra/scripts/reconcile-host-config.sh  reconcile-host-config.sh  text/x-shellscript
-          upload_one infra/scripts/velocityai-load-secrets.sh velocityai-load-secrets.sh text/x-shellscript
-          upload_one docker-compose.yml                      docker-compose.yml        text/yaml
-          upload_one docker-compose.prod.yml                 docker-compose.prod.yml   text/yaml
-
-          echo "Verifying all five objects landed..."
-          for key in bootstrap-ec2.sh reconcile-host-config.sh velocityai-load-secrets.sh docker-compose.yml docker-compose.prod.yml; do
-            if ! aws s3api head-object --bucket "$BACKUP_BUCKET" --key "config/${key}" --region "$AWS_REGION" >/dev/null; then
-              echo "::error::config/${key} is missing from s3://${BACKUP_BUCKET}/ immediately after upload."
-              exit 1
-            fi
-            echo "  verified: config/${key}"
-          done
+          # SSE detection, upload and head-object verification all live in
+          # .github/scripts/upload-host-config.sh, because deploy.yml now has to
+          # do the same thing after every redeploy (four of these five objects
+          # are also fetched at BOOT time by bootstrap-ec2.sh, so S3 must track
+          # the deployed commit rather than the last provision). Two copies of
+          # that logic would drift; see the script's header for the full note.
+          bash .github/scripts/upload-host-config.sh \
+            "$BACKUP_BUCKET" "$KMS_KEY_ID" "$AWS_REGION" \
+            infra/scripts/bootstrap-ec2.sh \
+            infra/scripts/reconcile-host-config.sh \
+            infra/scripts/velocityai-load-secrets.sh \
+            infra/scripts/lib/host-common.sh \
+            docker-compose.yml \
+            docker-compose.prod.yml
 
           # The integrity control the box actually enforces (remote-bootstrap.sh
           # compares this against the object it downloads) is a hash of the
@@ -258,7 +265,7 @@ jobs:
         id: build-payload
         env:
           DEPLOY_ENV: ${{ inputs.environment }}
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
           ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
           BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
           KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
@@ -300,6 +307,18 @@ jobs:
             echo "FORCE='${FORCE}'"
             echo "DRY_RUN='${DRY_RUN}'"
             echo "SKIP_DB_PASSWORD_CHECK='${SKIP_DB_PASSWORD_CHECK}'"
+            # Shared host helpers, INLINED — not fetched (R-05/R-06). This payload
+            # is the first thing that runs on a hand-created box, so nothing is on
+            # its disk yet: remote-bootstrap.sh needs apt_force_https before it can
+            # install anything, which rules out downloading the library first.
+            # It is also uploaded to s3://<bucket>/config/host-common.sh above, for
+            # bootstrap-ec2.sh §1b, which DOES run with the CLI available.
+            #
+            # Order matters: after the prelude so the assignments win, before
+            # remote-bootstrap.sh so its functions are defined when that script
+            # calls them. remote-bootstrap.sh asserts this with a
+            # `command -v apt_force_https` check rather than failing obscurely.
+            cat infra/scripts/lib/host-common.sh
             cat .github/scripts/remote-bootstrap.sh
           } > remote.sh
 
@@ -314,8 +333,8 @@ jobs:
         uses: ./.github/actions/ssm-run
         with:
           script-path: ${{ steps.build-payload.outputs.path }}
-          instance-id: ${{ vars.EC2_INSTANCE_ID }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          instance-id: ${{ steps.aws.outputs.instance-id }}
+          aws-region: ${{ steps.aws.outputs.region }}
           comment: "velocityai provision ${{ inputs.environment }} (force=${{ steps.build-payload.outputs.force }} dry_run=${{ steps.build-payload.outputs.dry_run }})"
           execution-timeout-seconds: "1800"
           poll-timeout-minutes: "35"

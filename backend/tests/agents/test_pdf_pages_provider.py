@@ -332,7 +332,9 @@ def test_pdf_pages_provider_handles_missing_image_files(temp_sandbox):
 # ─── Post-implementation audit regression (spec 019) ──────────────────────
 
 
-def _add_second_document(pdf_dir, slug: str, colour_size: int, fmt: str = "pdf") -> None:
+def _add_second_document(
+    pdf_dir, slug: str, colour_size: int, fmt: str = "pdf"
+) -> None:
     """Materialise a second document beside the first, at .extract/{fmt}/{slug}/."""
     pages_dir = pdf_dir / fmt / slug / "pages" / "01"
     pages_dir.mkdir(parents=True, exist_ok=True)
@@ -351,7 +353,9 @@ def _add_second_document(pdf_dir, slug: str, colour_size: int, fmt: str = "pdf")
             }
         )
     )
-    (pages_dir / "image-1.png").write_bytes(_create_test_image(colour_size, colour_size))
+    (pages_dir / "image-1.png").write_bytes(
+        _create_test_image(colour_size, colour_size)
+    )
 
 
 def test_pdf_pages_provider_is_deterministic_across_calls(
@@ -388,14 +392,18 @@ def test_pdf_pages_provider_attaches_every_document(pdf_pages_directory, temp_sa
     assert len(asyncio.run(PdfPagesProvider().load(ctx))) == baseline + 1
 
 
-def test_pdf_pages_provider_crosses_format_directories(pdf_pages_directory, temp_sandbox):
+def test_pdf_pages_provider_crosses_format_directories(
+    pdf_pages_directory, temp_sandbox
+):
     """.extract/ is two levels deep; a one-level walk finds format dirs, no manifests."""
     from agents.capabilities.input_providers.pdf_pages import PdfPagesProvider
 
     _add_second_document(pdf_pages_directory, "sheet", 64, fmt="xlsx")
     ctx = SimpleNamespace(runner=_MockRunner(temp_sandbox))
 
-    assert asyncio.run(PdfPagesProvider().load(ctx)), "nothing found under .extract/{format}/"
+    assert asyncio.run(
+        PdfPagesProvider().load(ctx)
+    ), "nothing found under .extract/{format}/"
 
 
 def test_one_unreadable_document_does_not_blank_the_others(

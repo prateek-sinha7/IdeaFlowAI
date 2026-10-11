@@ -154,7 +154,9 @@ def test_collecting_proposal_tools_chain_drops_id_not_in_allowed_set() -> None:
     assert collector == [valid]
 
 
-def test_collecting_proposal_tools_chain_drops_everything_with_no_hints_offered() -> None:
+def test_collecting_proposal_tools_chain_drops_everything_with_no_hints_offered() -> (
+    None
+):
     """Same as above, the exact L3 shape: zero allowed ids (nothing was offered)."""
     collector: list = []
     tools = concierge_mod._collecting_proposal_tools(collector)
@@ -413,7 +415,9 @@ def test_converse_surfaces_a_swallowed_stream_error_instead_of_empty_text() -> N
     )
 
     impl = ConciergeCapability()
-    out = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "what happened?"))
+    out = asyncio.new_event_loop().run_until_complete(
+        impl.converse(ctx, "what happened?")
+    )
     assert out, "a swallowed stream error must not return an empty answer"
     assert "Authentication failed" in out
 
@@ -571,7 +575,9 @@ def _chaining_model(target_id: str) -> ScriptedFakeChatModel:
         [
             _ScriptedTurn(
                 texts=["Chaining. "],
-                tool_calls=[("propose_chain", json.dumps({"target_id": target_id}), "c_1")],
+                tool_calls=[
+                    ("propose_chain", json.dumps({"target_id": target_id}), "c_1")
+                ],
                 usage=(10, 5),
             ),
             _ScriptedTurn(texts=["Done."], usage=(8, 4)),
@@ -579,7 +585,9 @@ def _chaining_model(target_id: str) -> ScriptedFakeChatModel:
     )
 
 
-def test_converse_drops_a_chain_target_the_model_invented_with_no_hints_on_offer() -> None:
+def test_converse_drops_a_chain_target_the_model_invented_with_no_hints_on_offer() -> (
+    None
+):
     """L3-fix1, end-to-end through converse: ctx carries no chain_hints (this run has
     none to offer, exactly the L3 scenario) — the model calling propose_chain with an
     invented id surfaces NO proposal, so the app layer never sees a bogus target_id."""

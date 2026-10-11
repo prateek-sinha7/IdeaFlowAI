@@ -19,6 +19,7 @@ This file provides two backend-side proofs:
    ownership + finalization checks when it does.  This confirms the backend
    handles ``user_workflow_id + source_workflow_run_id`` without any changes.
 """
+
 from __future__ import annotations
 
 import sys
@@ -147,7 +148,7 @@ class TestAdmitChainLaunchWithSavedWorkflow:
         result = admit_chain_launch(
             db=MagicMock(),
             compiled=compiled,
-            source_run_id=None,       # ← no source supplied
+            source_run_id=None,  # ← no source supplied
             current_user=MagicMock(id="user-1"),
             pipeline_type="user_stories",
         )
@@ -207,9 +208,9 @@ class TestAdmitChainLaunchWithSavedWorkflow:
         except FileNotFoundError:
             pytest.skip("user_stories workflow.yaml not found on this machine")
 
-        assert compiled.deliverable.chains_from is True, (
-            "user_stories must declare chains_from=True for this test to be meaningful"
-        )
+        assert (
+            compiled.deliverable.chains_from is True
+        ), "user_stories must declare chains_from=True for this test to be meaningful"
 
         from app.api.run_commands import admit_chain_launch
 
@@ -220,7 +221,7 @@ class TestAdmitChainLaunchWithSavedWorkflow:
         with pytest.raises(HTTPException) as exc_info:
             admit_chain_launch(
                 db=db,
-                compiled=compiled,         # ← same object USER_WORKFLOW_MANIFEST sets
+                compiled=compiled,  # ← same object USER_WORKFLOW_MANIFEST sets
                 source_run_id="any-source",
                 current_user=MagicMock(id="user-x"),
                 pipeline_type="user_stories",

@@ -7,7 +7,7 @@
 #     .github/actions/setup-backend/action.yml).
 #   - The production Dockerfile derives its install list at build time with
 #     `uv export --frozen --no-dev` from the same uv.lock.
-# backend/tests/ci/test_dependency_lock_contracts.py asserts this file's pins
+# backend/tests/unit/tools/ci/test_dependency_lock_contracts.py asserts this file's pins
 # stay identical to [project.dependencies] in pyproject.toml, so it cannot
 # silently drift into a second, disagreeing source of truth — but it is not
 # read by CI or the Docker build.

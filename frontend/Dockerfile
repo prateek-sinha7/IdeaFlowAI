@@ -17,7 +17,7 @@
 # ----------------------------------------------------------------------------
 # Stage 1: deps — install npm dependencies (deterministic via npm ci)
 # ----------------------------------------------------------------------------
-FROM node:20-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS deps
+FROM node:24.11.0-bookworm-slim@sha256:76d0ed0ed93bed4f4376211e9d8fddac4d8b3fbdb54cc45955696001a3c91152 AS deps
 
 WORKDIR /app
 
@@ -32,7 +32,7 @@ RUN npm ci
 # ----------------------------------------------------------------------------
 # Stage 2: builder — produce the standalone Next.js bundle
 # ----------------------------------------------------------------------------
-FROM node:20-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS builder
+FROM node:24.11.0-bookworm-slim@sha256:76d0ed0ed93bed4f4376211e9d8fddac4d8b3fbdb54cc45955696001a3c91152 AS builder
 
 WORKDIR /app
 
@@ -58,7 +58,7 @@ RUN npm run build
 # ----------------------------------------------------------------------------
 # Stage 3: runner — minimal runtime image
 # ----------------------------------------------------------------------------
-FROM node:20-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS runner
+FROM node:24.11.0-bookworm-slim@sha256:76d0ed0ed93bed4f4376211e9d8fddac4d8b3fbdb54cc45955696001a3c91152 AS runner
 
 WORKDIR /app
 

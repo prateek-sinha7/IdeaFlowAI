@@ -20,8 +20,9 @@ from agents.capabilities.model_catalog import ModelCatalog
 from agents.model_policy import selectable_models
 from app.api.api_key_auth import default_api_key_expiry, mint_api_key
 from app.core.crypto import decrypt_pat, encrypt_pat
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_principal, get_current_user
 from app.core.entitlements import can_use_model
+from app.core.identity import Principal, effective_tier
 from app.core.http_client import default_ssl_context
 from app.models.database import get_db
 from app.models.handoff import UserApiKey, UserGithubCredential
@@ -329,7 +330,9 @@ def revoke_api_key(
 
 @router.get("/preferences", response_model=UserPreferencesResponse)
 def get_preferences(
-    user: User = Depends(get_current_user),
+    # Cognito groups are the tier authority (Decision 3): the principal is
+    # needed so the `allowed` flags come from effective_tier, not users.tier.
+    auth: tuple[User, Principal] = Depends(get_current_principal),
 ) -> UserPreferencesResponse:
     """Return the user's current preferences and the list of available models.
 
@@ -337,9 +340,10 @@ def get_preferences(
     render a lock / disabled state before the user clicks Save, rather than
     surfacing the tier gate only as a 403 banner after the fact.
     """
+    user, principal = auth
+    tier = effective_tier(user, principal)
     models = [
-        {**m, "allowed": can_use_model(user.tier, m["id"])[0]}
-        for m in AVAILABLE_MODELS
+        {**m, "allowed": can_use_model(tier, m["id"])[0]} for m in AVAILABLE_MODELS
     ]
     return UserPreferencesResponse(
         preferred_model=user.preferred_model,
@@ -350,13 +354,15 @@ def get_preferences(
 @router.put("/preferences", response_model=UserPreferencesResponse)
 def update_preferences(
     payload: UserPreferencesUpdateRequest,
-    user: User = Depends(get_current_user),
+    auth: tuple[User, Principal] = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ) -> UserPreferencesResponse:
     """Update the user's preferred AI model.
 
     Pass ``preferred_model: null`` to reset to the system default.
     """
+    user, principal = auth
+    tier = effective_tier(user, principal)
     model_id = payload.preferred_model
 
     if model_id is not None and model_id not in _VALID_MODEL_IDS:
@@ -371,7 +377,7 @@ def update_preferences(
     # can_run_pipeline's 403 at launch. This is the write path every reader of
     # user.preferred_model (run_commands.py's 8 sites) sits behind.
     if model_id is not None:
-        allowed, reason = can_use_model(user.tier, model_id)
+        allowed, reason = can_use_model(tier, model_id)
         if not allowed:
             raise HTTPException(status_code=403, detail=reason)
 
@@ -385,8 +391,7 @@ def update_preferences(
     # between our commit() and refresh(), and reading user.preferred_model
     # here would make this 200 body report the OTHER request's model.
     models = [
-        {**m, "allowed": can_use_model(user.tier, m["id"])[0]}
-        for m in AVAILABLE_MODELS
+        {**m, "allowed": can_use_model(tier, m["id"])[0]} for m in AVAILABLE_MODELS
     ]
     return UserPreferencesResponse(
         preferred_model=model_id,

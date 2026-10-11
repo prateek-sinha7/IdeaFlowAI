@@ -162,9 +162,7 @@ def test_admin_api_imports_no_raw_provider_sdk():
         (_APP_DIR / "api" / "admin.py").read_text(encoding="utf-8", errors="strict")
     )
     imported = _imported_modules(tree)
-    leaked = sorted(
-        m for m in imported if m.split(".")[0] in {"boto3", "botocore"}
-    )
+    leaked = sorted(m for m in imported if m.split(".")[0] in {"boto3", "botocore"})
 
     assert not leaked, (
         "app/api/admin.py imports the raw AWS SDK: "
@@ -203,9 +201,7 @@ def test_every_mutating_cognito_admin_function_emits_an_audit_event():
             for sub in ast.walk(node)
         )
 
-    missing = sorted(
-        name for name in _MUTATING_PUBLIC_FUNCTIONS if not emits.get(name)
-    )
+    missing = sorted(name for name in _MUTATING_PUBLIC_FUNCTIONS if not emits.get(name))
     assert not missing, (
         "These state-mutating public functions emit no audit event: "
         + ", ".join(missing)

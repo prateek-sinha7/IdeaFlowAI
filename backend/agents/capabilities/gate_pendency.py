@@ -90,6 +90,7 @@ def strip_premature_stops(events: list) -> list:
     passes its row list through UNFILTERED — this helper is opt-in at the
     resume-offset call sites only.
     """
+
     def _type(r: Any) -> str:
         return getattr(r, "type", None) if not isinstance(r, dict) else r.get("type")
 
@@ -170,6 +171,7 @@ def derive_approved_gate_keys(events: list) -> frozenset:
     human action regardless of what happened to the run afterward, so no filtering is
     needed here (unlike ``derive_open_gate``, callers pass the row list unfiltered).
     """
+
     def _type(r: Any) -> str:
         return getattr(r, "type", None) if not isinstance(r, dict) else r.get("type")
 

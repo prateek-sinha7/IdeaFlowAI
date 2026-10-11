@@ -81,7 +81,9 @@ async def stream_wave_fanout(
         # the invariant this loop preserves (kept faithful on purpose).
         while next_fanout is not None or next_queued is not None:
             pending_futs = {t for t in (next_fanout, next_queued) if t is not None}
-            done, _ = await asyncio.wait(pending_futs, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                pending_futs, return_when=asyncio.FIRST_COMPLETED
+            )
 
             if next_fanout is not None and next_fanout in done:
                 try:

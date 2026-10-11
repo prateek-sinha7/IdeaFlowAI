@@ -4,15 +4,17 @@
 # Location: ci/gitleaks.toml (moved from the repo root). Passed explicitly via
 # `--config ci/gitleaks.toml`; gitleaks only auto-discovers `.gitleaks.toml` at
 # the --source root, so the flag is REQUIRED now that this file lives in ci/.
-# Consumed by .github/workflows/ci.yml (`fast-checks` + `security-scan-secrets`
-# jobs) — previously by the retired infra/buildspec.yml pre_build phase, same
-# invocation.
+# Consumed by .github/workflows/ci.yml, the `security` matrix leg `secrets` — a
+# single site. This once named `fast-checks` + `security-scan-secrets`; neither
+# job exists after single-owner consolidation. Previously consumed by the retired
+# infra/buildspec.yml pre_build phase, same invocation.
 # Extends gitleaks' built-in rule set (so all default detectors stay active on
 # real, shipping code) and adds a PATH allowlist for directories that
 # legitimately contain EXAMPLE / TEST / PLACEHOLDER secret-shaped strings.
 #
-# Rationale: the CI gate runs `gitleaks detect --no-git --redact --no-banner -v
-# --source .` over the entire working tree. Without this allowlist it flags
+# Rationale: the CI gate (.github/scripts/ci-gitleaks.sh) runs `gitleaks detect
+# --redact --no-banner --source .` over the full git HISTORY, not just the
+# working tree (there is no `--no-git`). Without this allowlist it flags
 # fixtures and docs that are intentionally fake (e.g. the AWS documentation
 # example keys, RSA test blocks, `ghp_0123...` fixtures, `CHANGE_ME` env
 # placeholders). Those are not real credentials, so they are scoped out by
@@ -35,9 +37,22 @@ paths = [
   # Test fixtures (deliberately fake secrets used to exercise detection logic).
   '''backend/tests/.*''',
   '''frontend/e2e/.*''',
+  # The root-level Playwright/e2e framework and its suites. Same class and same
+  # justification as `backend/tests/.*` above — non-shipping test code whose
+  # fixtures are deliberately fake. Added after run 35964176737 reported
+  # `github-pat` on a constant literally named FAKE_PAT ("...NotARealTokenAnd
+  # NeverWas...") and `generic-api-key` on a run-id UUID used as a route param.
+  '''(^|/)tests/.*''',
   # Documentation and planning artifacts (illustrative examples only).
   '''docs/.*''',
   '''\.planning/.*''',
+  # Generated knowledge-store and search-index cards. Same class as `docs/` and
+  # `.planning/` above: prose artifacts, never a credential store. Added after
+  # `generic-api-key` fired on the literal path string `mcp/integrations` inside
+  # a phase card — and it fired from TWO trees for the same text, which is the
+  # signature of generated/duplicated documentation rather than a real secret.
+  '''\.knowledge/.*''',
+  '''\.searchable/.*''',
   # Committed local AI-tooling skills — example tokens in their docs.
   '''skills/.*''',
   # Env templates: placeholders only (CHANGE_ME / GENERATE-... / dev-secret-...).
@@ -94,6 +109,25 @@ regexes = [
   # full "verify_exp=not allow_expired" string never matches and silently
   # fails to suppress anything. Match the actual extracted secret instead.
   '''verify_exp=not''',
+  # --- Triaged from run 35964176737. Each entry is the EXACT extracted secret
+  # --- as reported by `gitleaks detect` without --redact, for the same reason
+  # --- the verify_exp note above gives: guessing the capture boundary silently
+  # --- suppresses nothing.
+  #
+  # A Python keyword argument, not a credential. The `generic-api-key` rule
+  # anchors on the substring "token" inside `max_tokens` and then captures the
+  # next assignment-shaped token on the line, which here is an identifier passed
+  # to a function:
+  #   reasoning_fields(model_id, effort, max_tokens,
+  #                    disable_thinking=disable_thinking)
+  # This lives in backend/app (SHIPPING source), so a path allowlist is
+  # forbidden by this file's own header — a regex is the only correct tool.
+  '''disable_thinking=disable_thinking''',
+  # A Vitest fixture token in IntegrationsCard.copyFeedback.test.tsx, sitting
+  # beside `token_prefix: "vai_abc"` in the same object literal. The component
+  # under test only copies the string to the clipboard. Colocated under
+  # frontend/src, which is shipping source, so again: regex, not path.
+  '''vai_abc123secret''',
 ]
 
 # NOTE: gitleaks' [allowlist] table has no `fingerprints` key (only `paths`,

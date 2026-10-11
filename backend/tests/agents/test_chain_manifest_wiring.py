@@ -11,6 +11,7 @@ someone removes chain_context from a chainable workflow.
 
 FIX-515 / BUG-125 (B23).
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -92,13 +93,19 @@ class TestChainableManifestsDeclareChainContextProvider:
 
         providers = list(compiled.context_providers or [])
         if "opendesign" not in providers:
-            pytest.skip(
-                f"{pipeline_type} does not declare opendesign — "
-                "ordering constraint does not apply"
+            # No ordering constraint applies, but this is still a chainable
+            # workflow: assert the invariant this class guards instead of
+            # skipping (a skip fails the mandatory offline partition in CI).
+            assert "chain_context" in providers, (
+                f"{pipeline_type} declares neither opendesign nor chain_context — "
+                "a chainable workflow must list chain_context in context_providers"
             )
+            return
 
         od_idx = providers.index("opendesign")
-        cc_idx = providers.index("chain_context") if "chain_context" in providers else -1
+        cc_idx = (
+            providers.index("chain_context") if "chain_context" in providers else -1
+        )
         assert cc_idx > od_idx, (
             f"{pipeline_type}: chain_context (index {cc_idx}) must come AFTER "
             f"opendesign (index {od_idx}) in context_providers — "

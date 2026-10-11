@@ -5,7 +5,7 @@ import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle, ChevronLeft,
 import { getRole, hasToolOverride, type StepSelection } from "../AgentsPopup";
 import type { AgentDef, WorkflowType } from "@/types/index";
 import type { CapabilityModelEntry } from "@/lib/api";
-import { userWorkflowsApi, type UserWorkflowSummary } from "@/store/api/userWorkflows";
+import { userWorkflowsApi } from "@/store/api/userWorkflows";
 import { getWorkflowDefinitions, getToken } from "@/lib/api";
 import { WorkflowPickerModal } from "./WorkflowPickerModal";
 

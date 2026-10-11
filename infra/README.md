@@ -177,7 +177,7 @@ see the CI/CD section below.
 
 Two workflows in `.github/workflows/`:
 
-- **`ci.yml`** — lint/test/security-scan quality gate (ruff, pyright,
+- **`ci.yml`** — lint/test/security quality gate (ruff, pyright,
   import-linter, vulture, pytest; eslint, vitest, build; gitleaks, checkov,
   trivy config, tflint). No AWS access.
 - **`deploy.yml`** — triggered by a push to `dev`/`staging` or a `v*` tag (or
@@ -288,7 +288,16 @@ are a separate, breaking-change effort:
 - the `/flowin-handoff` feature name and its agents/routes;
 - the API-key prefix `flowin_` and the `X-Flowin-API-Key` header;
 - the installer-generated client CLI env vars (`FLOWIN_API_URL`, `FLOWIN_API_KEY`, …);
-- a stale `/opt/flowin/backend` comment in `backend/alembic/env.py`.
+- a stale `/opt/flowin/backend` comment in `backend/alembic/env.py`;
+- the Cognito **group names** (`flowin-admins`, `flowin-tier-*`) in
+  `terraform/modules/cognito/variables.tf`. These live in infra but are NOT
+  cosmetic: `backend/app/core/entitlements.py` (`ADMIN_GROUP`,
+  `_TIER_GROUP_PRECEDENCE`) matches them by exact name, and every existing user's
+  tier/admin status is a membership of a group with that name in the live pool.
+  Renaming them requires a coordinated backend change plus a group-recreation and
+  re-membership migration per environment — otherwise every user silently drops
+  to the default tier. User-facing Cognito email copy has been rebranded; the
+  group names deliberately have not.
 
 The infra↔app contract is via generic env vars (`DATABASE_URL`, `SECRET_KEY`,
 `CORS_ORIGINS`) written to `/etc/velocityai/app.env`, so the infra rebrand does

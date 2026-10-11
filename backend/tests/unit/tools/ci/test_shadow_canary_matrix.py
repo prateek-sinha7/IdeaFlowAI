@@ -1,37 +1,38 @@
 """
 Shadow/canary and fault-injection matrix for CI pipeline remediation.
 
-This test module implements all 15 canary scenarios for Task 3.24:
+This test module implements all 12 canary scenarios for Task 3.24:
 1. Cache determinism (same SHA, empty and warm caches)
 2. New SHA evaluation
 3. Fork PR canary
 4. PR head supersession
 5. Trusted reusable invocation
-6. Sonar quality gate failure
-7. Sonar timeout
-8. Sonar outage (503)
-9. Artifact corruption injection
-10. Failed producer injection
-11. Unavailable PostgreSQL
-12. High/Critical dependency finding
-13. High/Critical container finding
-14. Stale SHA detection
-15. Clean positive canary
+6. Artifact corruption injection
+7. Failed producer injection
+8. Unavailable PostgreSQL
+9. High/Critical dependency finding
+10. High/Critical container finding
+11. Stale SHA detection
+12. Clean positive canary
 
 Validates Requirements: 2.5, 2.6, 2.7, 2.8, 2.11, 2.12, 2.14, 2.15, 2.16, 3.11, 3.14, 3.15
 """
 
 import pytest
 import json
+import yaml
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Any
 
+from tools.ci.aggregate_truth import compute_aggregate_required_signals
 from tools.ci.ci_gate import main as ci_gate_main
 from tools.ci.scanner_parsers import (
     parse_grype_json,
     parse_pip_audit_json,
     parse_trivy_json,
 )
+from tools.ci.signal_registry import SIGNAL_REGISTRY
 
 from .conftest_canary import (
     EvaluationResult,
@@ -39,6 +40,15 @@ from .conftest_canary import (
     ProducerEvidence,
     ArtifactManifest,
 )
+
+_WORKFLOWS_DIR = Path(__file__).resolve().parents[5] / ".github" / "workflows"
+
+
+def _load_workflow(name: str) -> Dict[str, Any]:
+    """Parse a workflow file from .github/workflows as plain data."""
+    path = _WORKFLOWS_DIR / name
+    assert path.is_file(), f"workflow not found: {path}"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 class TestCacheDeterminism:
@@ -143,17 +153,15 @@ class TestNewShaEvaluation:
             "backend-offline",
             "backend-postgres",
             "backend-evidence",
+            "frontend-build",
             "frontend-static",
             "frontend-vitest",
             "frontend-e2e",
             "frontend-evidence",
             "security[secrets]",
-            "security[backend-deps]",
-            "security[frontend-deps]",
             "security[iac]",
             "container-scan[backend]",
             "container-scan[frontend]",
-            "sonar-pr",
         ]
 
         for signal in required_signals:
@@ -187,7 +195,6 @@ class TestForkPrCanary:
         # Simulate fork PR environment
         fork_env = {
             "GITHUB_TOKEN": "ghu_fork_readonly_only",  # No write, no secrets
-            "SONAR_TOKEN": None,  # Never present in fork
             "AWS_ACCESS_KEY_ID": None,
             "AWS_SECRET_ACCESS_KEY": None,
             "GITHUB_OIDC_TOKEN": None,
@@ -195,7 +202,6 @@ class TestForkPrCanary:
 
         # Verify no sensitive credentials
         sensitive_keys = [
-            "SONAR_TOKEN",
             "AWS_ACCESS_KEY_ID",
             "AWS_SECRET_ACCESS_KEY",
             "GITHUB_OIDC_TOKEN",
@@ -270,115 +276,72 @@ class TestTrustedReusableInvocation:
     Scenario 5: Trusted Reusable Invocation
 
     Trigger workflow via workflow_dispatch with explicit intent/SHA/environment.
-    Verify sonar-inline executes (not sonar-pr).
-    Verify explicit Sonar token mapping (not secrets: inherit).
+    Verify the reusable invocation is handed no secrets at all.
     Verify only trusted code from default branch executes.
     Verify ci-required-shadow published on exact intended SHA.
     """
 
-    def test_reusable_invocation_uses_sonar_inline(
+    def test_reusable_invocation_evaluates_every_signal_inline(
         self,
         evaluation_builder,
     ):
-        """Test that reusable invocation uses sonar-inline, not sonar-pr."""
+        """
+        A reusable invocation owns every mandatory signal itself.
+
+        There is no signal whose owner lives in another workflow, so the verdict
+        set produced by a workflow_call run is the complete one. This is what
+        allows the aggregate to be authoritative on every event type.
+        """
         test_sha = "cccccccccccccccccccccccccccccccccccccccc"
 
         result = (
             evaluation_builder.with_sha(test_sha).with_run_id(666666).build_success()
         )
 
-        # sonar-inline must be present (not sonar-pr which is PR-only)
-        assert (
-            "sonar-inline" not in result.signal_verdicts
-        )  # Inline doesn't report as signal
-        # But sonar must still succeed
-        assert result.sonar_analysis_outcome == "success"
-
-    def test_reusable_invocation_explicit_sonar_mapping(self):
-        """Test that explicit Sonar token mapping (not secrets: inherit)."""
-        # Simulated workflow_call inputs
-        workflow_inputs = {
-            "intent": "reusable:scheduled-scan",
-            "sha": "cccccccccccccccccccccccccccccccccccccccc",
-            "sonar_token_mapping": "explicit",  # Not 'secrets: inherit'
+        owners = {
+            SIGNAL_REGISTRY[name].owner_job
+            for name in compute_aggregate_required_signals()
         }
+        # The harness reports matrix jobs per leg (`security[secrets]`), while the
+        # registry records the owner job (`security`), so match on prefix.
+        reported = set(result.signal_verdicts)
+        missing = sorted(
+            owner
+            for owner in owners
+            if not any(key.split("[")[0] == owner for key in reported)
+        )
+        assert missing == [], (
+            f"owner jobs with no reported verdict on the reusable path: {missing}. "
+            f"Every mandatory signal must be owned inside ci.yml."
+        )
+        assert result.is_success()
 
-        # Verify explicit mapping used
-        assert workflow_inputs["sonar_token_mapping"] == "explicit"
+    def test_reusable_invocation_receives_no_secrets(self):
+        """
+        ci.yml declares no `workflow_call.secrets`, so nothing can be mapped in.
 
+        The previous shape declared one secret input and deploy.yml mapped it
+        through the `gate` call. That made "is the gate AWS-blind?" a question
+        about the mapping list. With no secret inputs at all it is a question
+        about the parser: a caller that tries to pass anything is rejected.
+        """
+        ci = _load_workflow("ci.yml")
+        workflow_call = (ci.get(True) or ci.get("on") or {}).get("workflow_call") or {}
+        assert "secrets" not in workflow_call, (
+            "ci.yml declares workflow_call.secrets. The evaluator must hold no "
+            "credential of any kind; remove the block rather than narrowing it."
+        )
 
-class TestSonarGateFail:
-    """Scenario 6: Sonar Quality Gate Failure Injection"""
-
-    def test_sonar_gate_failure_blocks_ci_required(
-        self,
-        evaluation_builder,
-        sonar_fault_injector,
-        mock_sonar_api,
-    ):
-        """Test that failed Sonar gate fails ci-required-shadow."""
-        sonar_fault_injector.inject_gate_failure(mock_sonar_api)
-
-        result = evaluation_builder.build_success()
-        result.sonar_quality_gate_outcome = "failure"
-        result.signal_verdicts["sonar-pr"] = "failure"
-        result.ci_evidence_outcome = "failure"
-        result.ci_required_shadow_outcome = "failure"
-
-        # Verify gate failure makes aggregate fail
-        assert result.ci_evidence_outcome == "failure"
-        assert result.ci_required_shadow_outcome == "failure"
-        assert not result.is_success()
-
-
-class TestSonarTimeout:
-    """Scenario 7: Sonar Quality Gate Timeout Injection"""
-
-    def test_sonar_timeout_within_300s(
-        self,
-        evaluation_builder,
-        sonar_fault_injector,
-        mock_sonar_api,
-    ):
-        """Test that Sonar timeout doesn't hang."""
-        sonar_fault_injector.inject_timeout(mock_sonar_api)
-
-        result = evaluation_builder.build_success()
-        result.sonar_quality_gate_outcome = "timed_out"
-        result.signal_verdicts["sonar-pr"] = "timed_out"
-        result.ci_evidence_outcome = "failure"
-        result.ci_required_shadow_outcome = "failure"
-
-        # Timeout is captured as failure, not hang
-        assert result.sonar_quality_gate_outcome == "timed_out"
-        assert not result.is_success()
-
-
-class TestSonarOutage:
-    """Scenario 8: Sonar Service Outage Injection"""
-
-    def test_sonar_503_outage_fails(
-        self,
-        evaluation_builder,
-        sonar_fault_injector,
-        mock_sonar_api,
-    ):
-        """Test that Sonar 503 outage fails gracefully."""
-        sonar_fault_injector.inject_outage(mock_sonar_api)
-
-        result = evaluation_builder.build_success()
-        result.sonar_analysis_outcome = "unavailable"
-        result.signal_verdicts["sonar-pr"] = "unavailable"
-        result.ci_evidence_outcome = "failure"
-        result.ci_required_shadow_outcome = "failure"
-
-        # Outage is reported as unavailable
-        assert result.sonar_analysis_outcome == "unavailable"
-        assert not result.is_success()
+        deploy = _load_workflow("deploy.yml")
+        gate = (deploy.get("jobs") or {}).get("gate") or {}
+        assert "secrets" not in gate, (
+            "deploy.yml's gate job passes secrets to ci.yml. ci.yml accepts none, "
+            "so this is both unnecessary and a startup failure."
+        )
 
 
 class TestArtifactCorruption:
-    """Scenario 9: Missing/Corrupt Artifact Injection"""
+    """Scenario 6: Missing/Corrupt Artifact Injection"""
 
     def test_traversal_path_rejected(
         self,
@@ -693,8 +656,6 @@ class TestCleanPositiveCanary:
     - Frontend coverage ≥80% (all 4 metrics)
     - Zero High/Critical findings (all scanners)
     - All mandatory signals success
-    - Sonar analysis success
-    - Quality gate passed
     """
 
     def test_clean_positive_canary_all_green(
@@ -724,10 +685,6 @@ class TestCleanPositiveCanary:
         # Verify zero findings
         assert result.high_critical_software_findings == 0
 
-        # Verify Sonar success
-        assert result.sonar_analysis_outcome == "success"
-        assert result.sonar_quality_gate_outcome == "success"
-
         # Verify aggregate results
         assert result.ci_evidence_outcome == "success"
         assert result.ci_required_shadow_outcome == "success"
@@ -747,9 +704,9 @@ class TestCleanPositiveCanary:
             assert evidence.evaluation_sha == exact_sha
 
 
-# Property-based tests validating all 15 scenarios
+# Property-based tests validating all 12 scenarios
 class TestShadowCanaryProperties:
-    """Property-based validation of all 15 canary scenarios."""
+    """Property-based validation of all 12 canary scenarios."""
 
     def test_property_all_canaries_deterministic(
         self,
@@ -804,17 +761,15 @@ class TestShadowCanaryProperties:
             "backend-offline",
             "backend-postgres",
             "backend-evidence",
+            "frontend-build",
             "frontend-static",
             "frontend-vitest",
             "frontend-e2e",
             "frontend-evidence",
             "security[secrets]",
-            "security[backend-deps]",
-            "security[frontend-deps]",
             "security[iac]",
             "container-scan[backend]",
             "container-scan[frontend]",
-            "sonar-pr",
         ]
 
         for signal_name in mandatory_signals:
@@ -889,24 +844,22 @@ class TestShadowCanaryProperties:
             assert evidence.evaluation_sha == test_sha
 
 
-# Integration tests for all 15 scenarios
+# Integration tests for all 12 scenarios
 class TestShadowCanaryIntegration:
-    """Integration-level validation of all 15 scenarios."""
+    """Integration-level validation of all 12 scenarios."""
 
-    def test_integration_all_15_scenarios(
+    def test_integration_all_12_scenarios(
         self,
         evaluation_builder,
         cache_determinism_validator,
-        sonar_fault_injector,
         artifact_fault_injector,
         producer_fault_injector,
         database_fault_injector,
         dependency_fault_injector,
         stale_sha_injector,
-        mock_sonar_api,
     ):
         """
-        Integration test validating all 15 scenarios complete successfully.
+        Integration test validating all 12 scenarios complete successfully.
 
         This test constructs each scenario and verifies expected outcomes.
         """
@@ -939,74 +892,60 @@ class TestShadowCanaryIntegration:
         )
         scenarios.append(("PR Head Supersession", stale_cannot_satisfy_current))
 
-        # Scenario 5: Trusted reusable invocation
+        # Scenario 5: Trusted reusable invocation. Every mandatory signal's owner
+        # job reports a verdict on this path; nothing is owned elsewhere.
         sha5 = "5555555555555555555555555555555555555555"
         r5 = evaluation_builder.with_sha(sha5).build_success()
-        scenarios.append(("Trusted Reusable", r5.sonar_analysis_outcome == "success"))
+        owners = {
+            SIGNAL_REGISTRY[name].owner_job
+            for name in compute_aggregate_required_signals()
+        }
+        legs = {key.split("[")[0] for key in r5.signal_verdicts}
+        scenarios.append(("Trusted Reusable", owners <= legs and r5.is_success()))
 
-        # Scenario 6: Sonar gate failure
-        r6 = evaluation_builder.build_success()
-        r6.sonar_quality_gate_outcome = "failure"
-        r6.ci_evidence_outcome = "failure"
-        scenarios.append(("Sonar Gate Failure", r6.ci_evidence_outcome == "failure"))
-
-        # Scenario 7: Sonar timeout
-        r7 = evaluation_builder.build_success()
-        r7.sonar_quality_gate_outcome = "timed_out"
-        r7.ci_evidence_outcome = "failure"
-        scenarios.append(
-            ("Sonar Timeout", r7.sonar_quality_gate_outcome == "timed_out")
-        )
-
-        # Scenario 8: Sonar outage
-        r8 = evaluation_builder.build_success()
-        r8.sonar_analysis_outcome = "unavailable"
-        r8.ci_evidence_outcome = "failure"
-        scenarios.append(("Sonar Outage", r8.sonar_analysis_outcome == "unavailable"))
-
-        # Scenario 9: Artifact corruption
+        # Scenario 6: Artifact corruption
         bad_artifact = artifact_fault_injector.inject_traversal_path()
         scenarios.append(("Artifact Corruption", ".." in bad_artifact.path))
 
-        # Scenario 10: Failed producer
-        r10 = evaluation_builder.build_success()
-        r10 = producer_fault_injector.inject_failed_producer(r10, "backend-offline")
+        # Scenario 7: Failed producer
+        r7 = evaluation_builder.build_success()
+        r7 = producer_fault_injector.inject_failed_producer(r7, "backend-offline")
         scenarios.append(
-            ("Failed Producer", r10.signal_verdicts["backend-offline"] == "failure")
+            ("Failed Producer", r7.signal_verdicts["backend-offline"] == "failure")
         )
 
-        # Scenario 11: Unavailable PostgreSQL
-        r11 = evaluation_builder.build_success()
-        r11 = database_fault_injector.inject_postgres_unavailable(r11)
+        # Scenario 8: Unavailable PostgreSQL
+        r8 = evaluation_builder.build_success()
+        r8 = database_fault_injector.inject_postgres_unavailable(r8)
         scenarios.append(
             (
                 "Unavailable PostgreSQL",
-                r11.signal_verdicts["backend-postgres"] == "failure",
+                r8.signal_verdicts["backend-postgres"] == "failure",
             )
         )
 
-        # Scenario 12: High/Critical dependency finding
-        finding12 = dependency_fault_injector.inject_high_severity_finding()
-        scenarios.append(("High/Critical Dependency", finding12["severity"] == "HIGH"))
+        # Scenario 9: High/Critical dependency finding
+        finding9 = dependency_fault_injector.inject_high_severity_finding()
+        scenarios.append(("High/Critical Dependency", finding9["severity"] == "HIGH"))
 
-        # Scenario 13: High/Critical container finding
-        finding13 = dependency_fault_injector.inject_critical_severity_finding()
+        # Scenario 10: High/Critical container finding
+        finding10 = dependency_fault_injector.inject_critical_severity_finding()
         scenarios.append(
-            ("High/Critical Container", finding13["severity"] == "CRITICAL")
+            ("High/Critical Container", finding10["severity"] == "CRITICAL")
         )
 
-        # Scenario 14: Stale SHA detection
-        sha14_correct = "cccccccccccccccccccccccccccccccccccccccc"
-        sha14_wrong = "dddddddddddddddddddddddddddddddddddddddd"
-        scenarios.append(("Stale SHA Detection", sha14_correct != sha14_wrong))
+        # Scenario 11: Stale SHA detection
+        sha11_correct = "cccccccccccccccccccccccccccccccccccccccc"
+        sha11_wrong = "dddddddddddddddddddddddddddddddddddddddd"
+        scenarios.append(("Stale SHA Detection", sha11_correct != sha11_wrong))
 
-        # Scenario 15: Clean positive canary
-        sha15 = "ffffffffffffffffffffffffffffffffffffffff"
-        r15 = evaluation_builder.with_sha(sha15).build_success()
-        scenarios.append(("Clean Positive Canary", r15.is_success()))
+        # Scenario 12: Clean positive canary
+        sha12 = "ffffffffffffffffffffffffffffffffffffffff"
+        r12 = evaluation_builder.with_sha(sha12).build_success()
+        scenarios.append(("Clean Positive Canary", r12.is_success()))
 
-        # All 15 scenarios must complete successfully
+        # All 12 scenarios must complete successfully
         for scenario_name, result in scenarios:
             assert result, f"Scenario failed: {scenario_name}"
 
-        assert len(scenarios) == 15, f"Expected 15 scenarios, got {len(scenarios)}"
+        assert len(scenarios) == 12, f"Expected 12 scenarios, got {len(scenarios)}"

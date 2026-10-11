@@ -132,12 +132,6 @@ vi.mock("@/components/catalog/NameWorkflowModal", () => ({
 
 import { LaunchWizard } from "./LaunchWizard";
 
-const golden = (name: string) => {
-  const s = DRAFT_SCENARIOS.find((x) => x.name === name);
-  if (!s) throw new Error(`missing scenario ${name}`);
-  return s.expected;
-};
-
 /**
  * The golden draft as the WIZARD writes it today.
  *
@@ -207,7 +201,6 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(await screen.findByTestId("pick-ds"));
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    const g = golden("prototype · base (template + ds + brief)");
     expect(sessionStorage.getItem("prototype.draft")).toBe(
       goldenAsWizardWrites("prototype · base (template + ds + brief)"),
     );
@@ -240,7 +233,6 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(await screen.findByTestId("pick-ds"));
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    const g = golden("ppt · base (ds required)");
     const gJson = goldenAsWizardWrites("ppt · base (ds required)");
     expect(sessionStorage.getItem("ppt.draft")).toBe(gJson);
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
@@ -271,7 +263,6 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByTestId("pick-deck-custom"));
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    const g = golden("ppt · custom template (customTemplateBody + designSystemId null)");
     const gJson = goldenAsWizardWrites("ppt · custom template (customTemplateBody + designSystemId null)");
     expect(sessionStorage.getItem("ppt.draft")).toBe(gJson);
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
@@ -436,16 +427,27 @@ describe("LaunchWizard — ported behaviors", () => {
     const user = userEvent.setup();
     sessionStorage.setItem("chain.from", "user_stories");
     sessionStorage.setItem("chain.source_run_id", "run-42");
+    // Build input for the chaining path. DashboardLayout's chain handlers always
+    // write chain.brief (FIX-217) — it is the only input the wizard reads while
+    // chaining, since chainContextBlock has no writer. Without it the ISS-155
+    // hasBuildInput guard keeps Continue disabled and no draft is written.
+    sessionStorage.setItem("chain.brief", "chained topic");
     renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Brief editor hidden when chaining — the topic comes from the prior run.
     await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
     // A prototype still needs a design system; pick one, then click Continue.
     await user.click(await screen.findByTestId("pick-ds"));
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const continueBtn = screen.getByRole("button", { name: "Continue" });
+    expect(continueBtn).toBeEnabled();
+    await user.click(continueBtn);
 
-    const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
-    // v2: context block is no longer injected — brief is the user-typed brief (empty here).
-    expect(draft.brief).toBe("");
+    const draftJson = sessionStorage.getItem("prototype.draft");
+    expect(draftJson).not.toBeNull();
+    const draft = JSON.parse(draftJson!);
+    // v2: no context block is injected — the brief is exactly the chained topic,
+    // with no legacy "=== CONTEXT FROM PREVIOUS PIPELINE ===" block prepended.
+    expect(draft.brief).toBe("chained topic");
+    expect(draft.brief).not.toContain("=== CONTEXT FROM PREVIOUS PIPELINE ===");
     expect(draft.sourceRunId).toBe("run-42"); // pulled from chain.source_run_id
     expect(sessionStorage.getItem("prototype.pending")).toBe("true");
   });
@@ -480,13 +482,19 @@ describe("LaunchWizard — BUG-014: chain.source_run_id must not leak into a fre
     const user = userEvent.setup();
     sessionStorage.setItem("chain.from", "user_stories");
     sessionStorage.setItem("chain.source_run_id", "run-42");
+    // Chaining build input, as DashboardLayout writes it (FIX-217); see WR-07 above.
+    sessionStorage.setItem("chain.brief", "chained topic");
     renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Brief editor hidden when chaining — the topic comes from the prior run.
     await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
     await user.click(await screen.findByTestId("pick-ds"));
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const continueBtn = screen.getByRole("button", { name: "Continue" });
+    expect(continueBtn).toBeEnabled();
+    await user.click(continueBtn);
 
-    const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
+    const draftJson = sessionStorage.getItem("prototype.draft");
+    expect(draftJson).not.toBeNull();
+    const draft = JSON.parse(draftJson!);
     // Revision-family linkage preserved: a genuine chain still carries the source id.
     expect(draft.sourceRunId).toBe("run-42");
     // Consume-once: the key is cleared afterward so it can't leak into the next launch.
@@ -547,8 +555,9 @@ describe("LaunchWizard — SGV2 11.7: non-success chain-source warning (real CHA
 
     // canContinue's first check is `if (chainSourceStatus && !warningAcknowledged) return false`,
     // so Continue is disabled purely on the unacknowledged warning — independent
-    // of the pre-existing hasBuildInput/ISS-155 gate that WR-07 and "genuine
-    // chain" above already document as broken for the chaining path.
+    // of the hasBuildInput/ISS-155 gate (this test seeds no chain.brief, so that
+    // gate would also hold Continue disabled; WR-07 and "genuine chain" above
+    // seed chain.brief to satisfy it).
     await user.click(await screen.findByTestId("pick-ds"));
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 

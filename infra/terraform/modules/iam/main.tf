@@ -43,22 +43,92 @@ resource "aws_iam_role" "instance" {
 
 # --- Inline policies, rendered from templates -------------------------------
 
+# --- Bedrock invoke scope ---------------------------------------------------
+#
+# The role may invoke EVERY model the application can select, not just the
+# default one: `model_catalog.py` lets a run pick any catalogued model, and a
+# model that is not in this grant fails at runtime with AccessDeniedException.
+# The allow-list is expressed as inference-profile IDs only — the underlying
+# foundation-model IDs are DERIVED by stripping the CRIS geography prefix, so
+# there is no second hand-maintained list to drift.
+#
+# Why both resource shapes are needed for one call: the SDK passes the profile
+# ID as `modelId`, and Bedrock authorizes the profile ARN *and* the foundation
+# model in each destination region the profile can route to. Granting only one
+# of the two yields a 403 that names the other.
+locals {
+  # Profiles the role may name as `modelId`. The scalar var is the app's active
+  # profile (SSM `llm/inference_profile_id`); the list is everything else the
+  # catalog can select.
+  bedrock_profile_ids = distinct(compact(concat(
+    [var.bedrock_inference_profile_id],
+    var.bedrock_allowed_inference_profile_ids,
+  )))
+
+  # `eu.anthropic.claude-opus-4-5-…` -> `anthropic.claude-opus-4-5-…`,
+  # `global.openai.gpt-6-sol`        -> `openai.gpt-6-sol`.
+  # Foundation-model ARNs never carry the geography prefix; inference-profile
+  # ARNs always do.
+  bedrock_foundation_model_ids = distinct(compact(concat(
+    [var.bedrock_model_id],
+    [
+      for profile_id in local.bedrock_profile_ids :
+      replace(profile_id, "/^(eu|us|apac|global)\\./", "")
+    ],
+  )))
+
+  # Region segment is `*`, not `${var.region}`: a cross-region profile routes to
+  # destination regions the caller never names, and authorization happens
+  # against the foundation model in THOSE regions. The previous region-pinned
+  # duplicate of this ARN was a strict subset of the wildcard form and is
+  # dropped. Blast radius stays bounded by the `aws:RequestedRegion` condition
+  # (the regions the principal may CALL) plus the exact model-ID list.
+  bedrock_foundation_model_arns = [
+    for model_id in local.bedrock_foundation_model_ids :
+    "arn:${data.aws_partition.current.partition}:bedrock:*::foundation-model/${model_id}"
+  ]
+
+  bedrock_inference_profile_arns = [
+    for profile_id in local.bedrock_profile_ids :
+    "arn:${data.aws_partition.current.partition}:bedrock:*:${var.account_id}:inference-profile/${profile_id}"
+  ]
+
+  # OpenAI (GPT) models on the bedrock-runtime endpoint additionally authorize
+  # against the account's default project — `bedrock:InvokeModel` must be
+  # allowed on `project/default` in the calling region or the request is denied
+  # even when the profile and foundation model are both granted. Only added when
+  # an `openai.` model is actually in scope, so a Claude-only deployment keeps
+  # the exact grant it has today.
+  #   https://docs.aws.amazon.com/bedrock/latest/userguide/projects.html
+  bedrock_openai_in_scope = length([
+    for profile_id in local.bedrock_profile_ids :
+    profile_id if can(regex("(^|\\.)openai\\.", profile_id))
+  ]) > 0
+
+  bedrock_project_arns = (
+    local.bedrock_openai_in_scope
+    ? ["arn:${data.aws_partition.current.partition}:bedrock:${var.region}:${var.account_id}:project/default"]
+    : []
+  )
+}
+
 resource "aws_iam_role_policy" "bedrock_invoke" {
   name = "${var.name_prefix}-bedrock-invoke"
   role = aws_iam_role.instance.id
 
-  # The bedrock-invoke.json policy includes an `aws:RequestedRegion` condition
-  # pinning invocation to the EU regions the cross-region inference profile
-  # fans to. The list is hardcoded in the JSON (eu-central-1, eu-north-1,
-  # eu-south-1, eu-south-2, eu-west-1, eu-west-2, eu-west-3 — 7 regions).
-  # If AWS adds another EU region to the EU profile, update the JSON. See:
+  # The `aws:RequestedRegion` condition pins invocation to the regions the role
+  # may call Bedrock FROM (default: the 7 EU regions — see
+  # `bedrock_allowed_request_regions`). It does NOT bound where a cross-region
+  # profile may route to; that is a property of the profile itself. See:
   #   https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html
   policy = templatefile("${path.module}/${var.policies_dir}/bedrock-invoke.json", {
-    partition            = data.aws_partition.current.partition
-    region               = var.region
-    account_id           = var.account_id
-    model_id             = var.bedrock_model_id
-    inference_profile_id = var.bedrock_inference_profile_id
+    invoke_resources = jsonencode(concat(
+      local.bedrock_foundation_model_arns,
+      local.bedrock_inference_profile_arns,
+      local.bedrock_project_arns,
+    ))
+    inference_profile_arns  = jsonencode(local.bedrock_inference_profile_arns)
+    allowed_request_regions = jsonencode(var.bedrock_allowed_request_regions)
   })
 }
 

@@ -1,22 +1,19 @@
 """
 Fault injection fixtures and helpers for shadow/canary evaluation testing.
 
-This module provides fixtures for testing all 15 canary scenarios:
+This module provides fixtures for testing all 12 canary scenarios:
 1. Cache determinism (same SHA, empty and warm caches)
 2. New SHA evaluation
 3. Fork PR canary
 4. PR head supersession
 5. Trusted reusable invocation
-6. Sonar quality gate failure
-7. Sonar timeout
-8. Sonar outage (503)
-9. Artifact corruption injection
-10. Failed producer injection
-11. Unavailable PostgreSQL
-12. High/Critical dependency finding
-13. High/Critical container finding
-14. Stale SHA detection
-15. Clean positive canary
+6. Artifact corruption injection
+7. Failed producer injection
+8. Unavailable PostgreSQL
+9. High/Critical dependency finding
+10. High/Critical container finding
+11. Stale SHA detection
+12. Clean positive canary
 
 All fixtures normalize results and provide fault injection helpers.
 """
@@ -119,10 +116,6 @@ class EvaluationResult:
     # Findings
     high_critical_software_findings: int
 
-    # Sonar
-    sonar_analysis_outcome: Optional[str]
-    sonar_quality_gate_outcome: Optional[str]
-
     # Test execution
     backend_offline_test_count: Optional[int]
     backend_postgres_test_count: Optional[int]
@@ -172,8 +165,6 @@ class EvaluationResult:
             and self.frontend_coverage_lines is not None
             and self.frontend_coverage_lines >= 80.0
             and self.high_critical_software_findings == 0
-            and self.sonar_analysis_outcome == "success"
-            and self.sonar_quality_gate_outcome == "success"
         )
 
 
@@ -201,22 +192,6 @@ def mock_github_api():
     api.list_pr_commits = MagicMock(return_value=[])
 
     return api
-
-
-@pytest.fixture
-def mock_sonar_api():
-    """Provide a mock SonarCloud/SonarQube API context."""
-    api = MagicMock()
-
-    # Analysis operations
-    api.trigger_analysis = MagicMock(return_value={"taskId": "task123"})
-    api.get_analysis_status = MagicMock(return_value={"status": "SUCCESS"})
-
-    # Quality gate operations
-    api.wait_for_quality_gate = MagicMock(
-        return_value={"status": "OK", "conditions": []}
-    )
-    api.get_quality_gate = MagicMock(return_value={"projectStatus": {"status": "OK"}})
 
     # Metrics
     api.get_coverage = MagicMock(return_value={"coverage": 85.0})
@@ -344,17 +319,15 @@ def evaluation_builder(mock_artifact_store):
                     "backend-offline": "success",
                     "backend-postgres": "success",
                     "backend-evidence": "success",
+                    "frontend-build": "success",
                     "frontend-static": "success",
                     "frontend-vitest": "success",
                     "frontend-e2e": "success",
                     "frontend-evidence": "success",
                     "security[secrets]": "success",
-                    "security[backend-deps]": "success",
-                    "security[frontend-deps]": "success",
                     "security[iac]": "success",
                     "container-scan[backend]": "success",
                     "container-scan[frontend]": "success",
-                    "sonar-pr": "success",
                 },
                 backend_coverage_overall=85.5,
                 frontend_coverage_statements=82.3,
@@ -362,8 +335,6 @@ def evaluation_builder(mock_artifact_store):
                 frontend_coverage_functions=83.4,
                 frontend_coverage_lines=84.2,
                 high_critical_software_findings=0,
-                sonar_analysis_outcome="success",
-                sonar_quality_gate_outcome="success",
                 backend_offline_test_count=1500,
                 backend_postgres_test_count=200,
                 frontend_vitest_test_count=850,
@@ -377,59 +348,16 @@ def evaluation_builder(mock_artifact_store):
             result.ci_evidence_outcome = "failure"
             result.ci_required_shadow_outcome = "failure"
             # Update verdicts based on reason
-            if "sonar" in reason.lower():
-                result.sonar_quality_gate_outcome = "failure"
-                result.signal_verdicts["sonar-pr"] = "failure"
+            if "container" in reason.lower():
+                result.signal_verdicts["container-scan[backend]"] = "failure"
             if "coverage" in reason.lower():
                 result.backend_coverage_overall = 75.0
             if "findings" in reason.lower():
                 result.high_critical_software_findings = 2
-                result.signal_verdicts["security[backend-deps]"] = "failure"
+                result.signal_verdicts["container-scan[frontend]"] = "failure"
             return result
 
     return EvaluationBuilder()
-
-
-@pytest.fixture
-def sonar_fault_injector():
-    """Provide Sonar API fault injection helpers."""
-
-    class SonarFaultInjector:
-        def inject_gate_failure(self, mock_sonar_api):
-            """Inject quality gate failure."""
-            mock_sonar_api.wait_for_quality_gate.return_value = {
-                "status": "ERROR",
-                "conditions": [
-                    {
-                        "status": "ERROR",
-                        "metricKey": "coverage",
-                        "comparator": "LT",
-                        "errorThreshold": "80",
-                        "actualValue": "75.0",
-                    }
-                ],
-            }
-
-        def inject_timeout(self, mock_sonar_api):
-            """Inject Sonar timeout."""
-            mock_sonar_api.wait_for_quality_gate.side_effect = TimeoutError(
-                "Sonar quality gate timeout after 300s"
-            )
-
-        def inject_outage(self, mock_sonar_api):
-            """Inject Sonar service unavailability (503)."""
-            mock_sonar_api.trigger_analysis.side_effect = ConnectionError(
-                "HTTP 503: Service Unavailable"
-            )
-            mock_sonar_api.wait_for_quality_gate.side_effect = ConnectionError(
-                "HTTP 503: Service Unavailable"
-            )
-
-        def inject_missing_analysis(self, mock_sonar_api):
-            """Inject missing analysis result."""
-            mock_sonar_api.get_quality_gate.return_value = None
-
-    return SonarFaultInjector()
 
 
 @pytest.fixture
@@ -603,7 +531,7 @@ def stale_sha_injector():
             expected_sha: str,
         ) -> EvaluationResult:
             """Create SHA mismatch between result and evidence."""
-            result.signal_verdicts["sonar-pr"] = "failure"
+            result.signal_verdicts["backend-evidence"] = "failure"
             result.ci_evidence_outcome = "failure"
             result.ci_required_shadow_outcome = "failure"
             return result

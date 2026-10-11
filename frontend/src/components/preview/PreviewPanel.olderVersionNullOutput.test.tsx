@@ -20,6 +20,9 @@ vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
   getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
+  // RunHeader's VersionMenu fetches git tags via a dynamic import; without this
+  // export the rejection surfaces as an unhandled error that fails the run.
+  getRunSandboxRefs: async () => [],
 }));
 
 const STRIPPED_MOTION_PROPS = new Set([

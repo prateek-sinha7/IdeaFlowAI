@@ -265,6 +265,7 @@ class TestRevisionDisposal:
         monkeypatch.setattr(rc, "_get_db", lambda: _FakeDb())
         monkeypatch.setattr(rc, "_mint_revision_row", _fake_mint)
         monkeypatch.setattr(rc, "_drive_revision_to_queue", _fake_drive)
+
         # A ``prototype_output`` target routes through the tiered classifier, which is a
         # one-word Bedrock call. Stub it: the tier→pipeline mapping is that function's
         # own contract, while THIS test is about mint+drive routing. "small" is the tier
@@ -398,4 +399,3 @@ class TestConfirmChipHold:
         assert res["held"] is True
         assert store.appended[0]["type"] == "concierge_proposal"
         assert minted["n"] == 0  # NOT executed until confirmed
-

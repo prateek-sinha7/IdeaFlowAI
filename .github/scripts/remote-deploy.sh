@@ -59,13 +59,28 @@
 # velocityai-app.service runs `docker compose -f docker-compose.yml -f
 # docker-compose.prod.yml`, and the prod override interpolates
 # ${VELOCITYAI_CW_LOG_GROUP} for the awslogs driver with
-# `awslogs-create-group: "false"` (i.e. fail-closed on an empty group). That
-# variable is written into /etc/velocityai/app.env by bootstrap-ec2.sh §11 but
-# is NOT in velocityai-load-secrets' preserve list — the loader keeps only
-# ^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)= — so it is stripped on every loader run,
-# including the ExecStartPre inside a `systemctl restart`. Restarting the unit
-# would therefore hand compose an empty log group. Running compose here lets us
-# export the four interpolation inputs explicitly and deterministically.
+# `awslogs-create-group: "false"` (i.e. fail-closed on an empty group).
+#
+# CORRECTION: this paragraph used to claim the loader keeps only
+# ^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)= and therefore strips
+# VELOCITYAI_CW_LOG_GROUP on every run, so that `systemctl restart` would hand
+# compose an empty log group. That is wrong — the loader's preserve pattern is
+# five keys and has always included VELOCITYAI_ENVIRONMENT and
+# VELOCITYAI_CW_LOG_GROUP (infra/scripts/velocityai-load-secrets.sh). The stated
+# reason for running compose directly did not hold.
+#
+# The REAL reasons to invoke compose here, which do hold:
+#   * This script must control the ORDER of pull -> pre-migration gate -> up ->
+#     health gate -> rollback. `systemctl restart` collapses all of that into one
+#     unit start with the pull in ExecStartPre, leaving nowhere to run the gate
+#     between pulling and starting, and nothing to roll back to.
+#   * A failed `systemctl restart` gives this script a unit exit code, not the
+#     compose output it needs to attribute a failure to a specific service.
+#   * velocityai-app.service declares Restart=on-failure/RestartSec=30s, so a
+#     failing start becomes a crash loop that masks the failure instead of
+#     surfacing it once, promptly, to the deploy.
+# Compose is therefore invoked directly, with the interpolation inputs exported
+# explicitly so the environment does not depend on loader timing either way.
 # The unit itself is left untouched (bootstrap already `enable`d it, and both
 # services carry `restart: unless-stopped`, so reboot recovery is unaffected).
 # =============================================================================
@@ -126,13 +141,43 @@ FRONTEND_IMAGE_REF="${REGISTRY}/velocityai/frontend@${FRONTEND_DIGEST}"
 
 echo "[deploy] start $(date -u --iso-8601=seconds) env=${DEPLOY_ENV} tag=${IMAGE_TAG}"
 
-# ── 1. Wait out first-boot self-provisioning ────────────────────────────────
-# On a freshly created instance the host install (Docker, Postgres, nginx, the
-# systemd units, the first app start) runs asynchronously from user-data via
-# velocityai-firstboot.service. If Docker is not on the box yet, wait for that
-# to write its completion sentinel rather than racing it. On an already
-# provisioned host Docker is present and this whole block is skipped, so
-# steady-state deploys pay nothing for it.
+# ── 1. Precondition: this box must have been provisioned at all ─────────────
+# CHECKED FIRST, BEFORE THE FIRST-BOOT WAIT BELOW — the order matters.
+#
+# bootstrap.env is written by Terraform's compute module user_data (or by
+# .github/scripts/remote-bootstrap.sh on a hand-created box) and is the only
+# place the host's own identity (region, env tag, FQDN, param prefix) lives. Its
+# absence means this box was never provisioned, so there is nothing a container
+# redeploy can usefully do.
+#
+# This check used to sit AFTER the 15-minute first-boot wait. On a box that was
+# never provisioned, Docker is also absent, so the wait ran to its full timeout
+# polling for a sentinel that nothing was going to write — 15 minutes of SSM
+# execution budget spent before reaching the test that could have answered in
+# milliseconds. Worse, the timeout reported "timed out waiting for first-boot
+# bootstrap" and pointed at velocityai-firstboot.service, which on such a box is
+# not even installed; the actual problem was never diagnosed.
+#
+# Reordered: fail fast on the cheap, unambiguous condition, and only then wait
+# for work that is genuinely in flight.
+if [ ! -f "$BOOTSTRAP_ENV" ]; then
+    echo "[deploy] FATAL: ${BOOTSTRAP_ENV} is missing — this instance is not bootstrapped." >&2
+    echo "[deploy]        A container redeploy cannot provision a host. Run the 'Provision'" >&2
+    echo "[deploy]        workflow for this environment (or, on a Terraform-managed box, apply" >&2
+    echo "[deploy]        the app layer and let velocityai-firstboot.service run), then deploy." >&2
+    exit 1
+fi
+
+# ── 2. Wait out first-boot self-provisioning ────────────────────────────────
+# bootstrap.env exists, so this box HAS been provisioned or is being provisioned
+# right now. On a freshly created instance the host install (Docker, Postgres,
+# nginx, the systemd units, the first app start) runs asynchronously from
+# user-data via velocityai-firstboot.service. If Docker is not on the box yet,
+# wait for that to write its completion sentinel rather than racing it — and
+# because §1 already confirmed bootstrap.env, the unit really is expected to be
+# running, so waiting is the right thing rather than a guess.
+# On an already provisioned host Docker is present and this whole block is
+# skipped, so steady-state deploys pay nothing for it.
 if ! command -v docker >/dev/null 2>&1; then
     echo "[deploy] docker not present — waiting for velocityai-firstboot bootstrap to finish"
     for i in $(seq 1 90); do
@@ -149,16 +194,10 @@ if ! command -v docker >/dev/null 2>&1; then
     done
 fi
 
-# ── 2. Preconditions ────────────────────────────────────────────────────────
-# bootstrap.env is written by Terraform's compute module user_data and is the
-# only place the host's own identity (region, env tag, FQDN, param prefix)
-# lives. Its absence means this box was never provisioned, so there is nothing
-# a container redeploy can usefully do.
-if [ ! -f "$BOOTSTRAP_ENV" ]; then
-    echo "[deploy] FATAL: ${BOOTSTRAP_ENV} is missing — this instance is not bootstrapped." >&2
-    echo "[deploy]        Apply the Terraform app layer and let velocityai-firstboot.service run." >&2
-    exit 1
-fi
+# ── 2a. Host identity ───────────────────────────────────────────────────────
+# Sourced after the wait, not before it: on a box mid-provision, bootstrap.env is
+# present but the rest of the host is not yet, and sourcing early would only make
+# the mismatch gate below race the very bootstrap that writes the file.
 # shellcheck source=/dev/null
 . "$BOOTSTRAP_ENV"
 
@@ -294,20 +333,26 @@ fi
 echo "[deploy] refreshing ${APP_ENV} from SSM"
 /usr/local/bin/velocityai-load-secrets
 
-# ── 7. Re-assert the managed lines (AFTER the loader) ───────────────────────
-# velocityai-load-secrets rewrites app.env from scratch and preserves only
-# ^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=, so anything else in bootstrap-ec2.sh
-# §11's managed block is dropped. We rewrite exactly that block, in the same
-# shape and order §11 wrote it, and nothing else:
+# ── 7. Re-assert the image pins (AFTER the loader) ──────────────────────────
+# Only the two *_IMAGE lines. This step used to also rewrite
+# VELOCITYAI_ENVIRONMENT and VELOCITYAI_CW_LOG_GROUP, on the stated grounds that
+# "velocityai-load-secrets preserves only ^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=".
+# That is not what the loader does. Its actual preserve pattern
+# (infra/scripts/velocityai-load-secrets.sh) is
+#   ^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV|VELOCITYAI_ENVIRONMENT|VELOCITYAI_CW_LOG_GROUP)=
+# — FIVE keys, and it has been five in both the canonical loader and the copy
+# bootstrap installs. So the two VELOCITYAI_* lines were already surviving the
+# loader, and re-writing them here achieved nothing except to make this script a
+# second author of values §11 owns. Worse, it wrote them from $HOST_ENV, so the
+# two sites could disagree about the log group after an environment retag.
+#
 #   BACKEND_IMAGE / FRONTEND_IMAGE  the DIGEST-pinned reference for the image
-#       this deploy resolved (repo@sha256:...). Written here rather than by
-#       `sed -i 's|^KEY=.*|...|'` because sed exits 0 having changed nothing
-#       when the pattern is absent — a silent no-op that restarts the box on
-#       the PREVIOUS image while reporting success.
-#   VELOCITYAI_ENVIRONMENT / VELOCITYAI_CW_LOG_GROUP  required by
-#       docker-compose.prod.yml's awslogs driver (see the header note). The
-#       loader drops these, so a deploy that did not restore them would ship
-#       containers with an empty log group and `awslogs-create-group: "false"`.
+#       this deploy resolved (repo@sha256:...). These genuinely must be written
+#       here — they are the one thing this deploy knows that §11 does not.
+#       Written by rewriting the file rather than by `sed -i 's|^KEY=.*|...|'`
+#       because sed exits 0 having changed nothing when the pattern is absent —
+#       a silent no-op that restarts the box on the PREVIOUS image while
+#       reporting success.
 #
 # This is also where the ROLLBACK TARGET is captured, before the pins are
 # overwritten: whatever images are currently pinned are, by definition, the
@@ -325,14 +370,14 @@ TMP_ENV="$(mktemp "${ETC_DIR}/app.env.XXXXXX")"
 chmod 0640 "$TMP_ENV"
 chown root:velocityai "$TMP_ENV" 2>/dev/null || true
 if [ -f "$APP_ENV" ]; then
-    grep -vE '^(BACKEND_IMAGE|FRONTEND_IMAGE|VELOCITYAI_ENVIRONMENT|VELOCITYAI_CW_LOG_GROUP)=' \
-        "$APP_ENV" >> "$TMP_ENV" || true
+    # Strip ONLY the two keys this step re-writes. Everything else — including
+    # VELOCITYAI_ENVIRONMENT and VELOCITYAI_CW_LOG_GROUP, which §11 owns and the
+    # loader preserves — is carried through untouched.
+    grep -vE '^(BACKEND_IMAGE|FRONTEND_IMAGE)=' "$APP_ENV" >> "$TMP_ENV" || true
 fi
 {
     echo "BACKEND_IMAGE=${BACKEND_IMAGE_REF}"
     echo "FRONTEND_IMAGE=${FRONTEND_IMAGE_REF}"
-    echo "VELOCITYAI_ENVIRONMENT=${HOST_ENV}"
-    echo "VELOCITYAI_CW_LOG_GROUP=/velocityai/${HOST_ENV}/app"
 } >> "$TMP_ENV"
 mv "$TMP_ENV" "$APP_ENV"
 chmod 0640 "$APP_ENV"
@@ -466,7 +511,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 # broken stack still serving, so a red pipeline and an outage arrived together
 # and recovery was a manual SSH/SSM race. Restoring the previous digests is
 # safe precisely because they are digests: the exact bytes that were healthy
-# moments ago, still present in the local Docker cache, no registry round-trip
+# moments ago, still present in the local Docker cache (within THIS run only —
+# §12 prunes the superseded image after a healthy deploy, so a later manual
+# rollback needs a digest-exact ECR pull), no registry round-trip
 # and no tag re-resolution.
 #
 # NOT ROLLED BACK: database migrations. `alembic upgrade head` runs in-container

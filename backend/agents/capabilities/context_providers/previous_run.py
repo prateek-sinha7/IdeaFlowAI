@@ -24,13 +24,14 @@ forward build carrying a stray ``parent_run_id`` can no longer trigger an
 unintended cross-run seed.
 
 CRITICAL ownership gate (V4 / INV-8 / L16 — Highest-Risk Behavior 4):
-``ScopedStore.assert_owns`` is called on the parent run BEFORE seeding ANY parent
-context. An owner may only seed from a parent run it OWNS; a cross-owner
-``PermissionError`` PROPAGATES out of ``load`` and is NEVER swallowed (the L16
-ratchet, ``test_parent_run_ownership.py``). Any OTHER error during seeding (a
-TTL-swept parent dir, an unreadable file) degrades gracefully — a missing parent
-must never break a revision (CTX-05 parity) — but the ownership denial is the one
-error that always wins.
+``ScopedStore.assert_owns`` is called on the parent run BEFORE reading or seeding ANY
+parent context — including the existing-artifact helper's Concierge fallback, which
+reads the parent run's deliverable and is therefore gated on ``parent_authorized``. An
+owner may only seed from a parent run it OWNS; a cross-owner ``PermissionError``
+PROPAGATES out of ``load`` and is NEVER swallowed (the L16 ratchet,
+``test_parent_run_ownership.py``). Any OTHER error during seeding (a TTL-swept parent
+dir, an unreadable file) degrades gracefully — a missing parent must never break a
+revision (CTX-05 parity) — but the ownership denial is the one error that always wins.
 
 Import purity (import-linter): the store is reached via ``ctx.scoped_store`` (the
 object-typed field) and the parent files via the ``ctx.runner`` handle — no
@@ -76,6 +77,7 @@ _RESERVED_PREFIXES: frozenset[str] = frozenset(
         "skills/",
         "conversation_history/",
         ".chain-legacy/",
+        ".extract/",
         # bare names (no trailing slash) — also blocked
         ".uploads",
         ".logs",
@@ -87,6 +89,7 @@ _RESERVED_PREFIXES: frozenset[str] = frozenset(
         "skills",
         "conversation_history",
         ".chain-legacy",
+        ".extract",
     }
 )
 
@@ -234,6 +237,9 @@ def _slim_revision_message(user_message: str, artifact_name: str) -> str:
 @register(
     "context_provider",
     "previous_run",
+    # ADR-0054: a saved (Composer) copy of a built-in may reference this; it
+    # stays in the run's own owner-scoped sandbox and reaches no host resource.
+    saved_workflow_allowed=True,
     description="Seed the run with a prior run's outputs (e.g. revision over a parent run).",
 )
 class PreviousRunProvider:

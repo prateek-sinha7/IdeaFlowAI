@@ -91,9 +91,9 @@ class TestReservedPathsRegistry:
     def test_agent_readable_reserved_is_subset_of_reserved_paths(self) -> None:
         from app.agents.sandbox import AGENT_READABLE_RESERVED, RESERVED_PATHS
 
-        assert AGENT_READABLE_RESERVED.issubset(RESERVED_PATHS), (
-            "AGENT_READABLE_RESERVED must be a subset of RESERVED_PATHS"
-        )
+        assert AGENT_READABLE_RESERVED.issubset(
+            RESERVED_PATHS
+        ), "AGENT_READABLE_RESERVED must be a subset of RESERVED_PATHS"
 
     def test_context_slash_is_agent_readable(self) -> None:
         from app.agents.sandbox import AGENT_READABLE_RESERVED
@@ -190,17 +190,17 @@ class TestGitMetadataPathsEnforcement:
         runs = pytest.importorskip("app.api.runs", reason="fastapi not installed")
         from app.agents.sandbox import GIT_METADATA_PATHS
 
-        assert GIT_METADATA_PATHS.issubset(runs._SHARE_EXCLUDED), (
-            "_SHARE_EXCLUDED in runs.py must include all GIT_METADATA_PATHS entries"
-        )
+        assert GIT_METADATA_PATHS.issubset(
+            runs._SHARE_EXCLUDED
+        ), "_SHARE_EXCLUDED in runs.py must include all GIT_METADATA_PATHS entries"
 
     def test_share_excluded_set_includes_reserved_paths(self) -> None:
         runs = pytest.importorskip("app.api.runs", reason="fastapi not installed")
         from app.agents.sandbox import RESERVED_PATHS
 
-        assert RESERVED_PATHS.issubset(runs._SHARE_EXCLUDED), (
-            "_SHARE_EXCLUDED in runs.py must include all RESERVED_PATHS entries"
-        )
+        assert RESERVED_PATHS.issubset(
+            runs._SHARE_EXCLUDED
+        ), "_SHARE_EXCLUDED in runs.py must include all RESERVED_PATHS entries"
 
 
 # ---------------------------------------------------------------------------
@@ -227,9 +227,9 @@ class TestGitignorePathsDerivedFromRegistry:
     def test_gitignore_paths_contains_chain_legacy(self) -> None:
         from app.agents.runtime.local import LocalWorkspace
 
-        assert ".chain-legacy/" in LocalWorkspace._GITIGNORE_PATHS, (
-            ".chain-legacy/ (the v2 addition) must be in _GITIGNORE_PATHS"
-        )
+        assert (
+            ".chain-legacy/" in LocalWorkspace._GITIGNORE_PATHS
+        ), ".chain-legacy/ (the v2 addition) must be in _GITIGNORE_PATHS"
 
     def test_gitignore_paths_contains_conversation_history(self) -> None:
         """conversation_history/ was absent from the old literal list — the registry
@@ -250,19 +250,23 @@ class TestPreviousRunReservedPrefixesDerivedFromRegistry:
 
     def test_reserved_prefixes_covers_all_slash_entries(self) -> None:
         """Every slash-form entry in RESERVED_PATHS must appear in _RESERVED_PREFIXES."""
-        from agents.capabilities.context_providers.previous_run import _RESERVED_PREFIXES
+        from agents.capabilities.context_providers.previous_run import (
+            _RESERVED_PREFIXES,
+        )
         from app.agents.sandbox import RESERVED_PATHS
 
         slash_entries = {e for e in RESERVED_PATHS if e.endswith("/")}
         missing = slash_entries - _RESERVED_PREFIXES
-        assert not missing, (
-            f"_RESERVED_PREFIXES missing slash entries from RESERVED_PATHS: {missing}"
-        )
+        assert (
+            not missing
+        ), f"_RESERVED_PREFIXES missing slash entries from RESERVED_PATHS: {missing}"
 
     def test_reserved_prefixes_covers_all_bare_forms(self) -> None:
         """For every slash-form entry in RESERVED_PATHS, the corresponding bare
         name must be in _RESERVED_PREFIXES (e.g. '.chain/' → '.chain')."""
-        from agents.capabilities.context_providers.previous_run import _RESERVED_PREFIXES
+        from agents.capabilities.context_providers.previous_run import (
+            _RESERVED_PREFIXES,
+        )
         from app.agents.sandbox import RESERVED_PATHS
 
         slash_entries = {e for e in RESERVED_PATHS if e.endswith("/")}
@@ -277,7 +281,9 @@ class TestPreviousRunReservedPrefixesDerivedFromRegistry:
         from agents.capabilities.context_providers.previous_run import _is_reserved
 
         for entry in (".uploads/", ".logs/", ".chain/", "skills/", ".chain-legacy/"):
-            assert _is_reserved(entry), f"_is_reserved should block slash form {entry!r}"
+            assert _is_reserved(
+                entry
+            ), f"_is_reserved should block slash form {entry!r}"
 
     def test_is_reserved_blocks_bare_form(self) -> None:
         from agents.capabilities.context_providers.previous_run import _is_reserved
@@ -297,57 +303,59 @@ class TestPreviousRunReservedPrefixesDerivedFromRegistry:
             ".chain-legacy/old-run/summary.md",
         ]
         for path in nested:
-            assert _is_reserved(path), (
-                f"_is_reserved should block nested reserved path {path!r}"
-            )
+            assert _is_reserved(
+                path
+            ), f"_is_reserved should block nested reserved path {path!r}"
 
     def test_is_reserved_blocks_dot_slash_prefix_bypass(self) -> None:
         """./.chain/x must be blocked (path-traversal bypass form)."""
         from agents.capabilities.context_providers.previous_run import _is_reserved
 
-        assert _is_reserved("./.chain/secrets.txt"), (
-            "_is_reserved must block ./.chain/ bypass form"
-        )
-        assert _is_reserved("./skills/"), (
-            "_is_reserved must block ./skills/ bypass form"
-        )
+        assert _is_reserved(
+            "./.chain/secrets.txt"
+        ), "_is_reserved must block ./.chain/ bypass form"
+        assert _is_reserved(
+            "./skills/"
+        ), "_is_reserved must block ./skills/ bypass form"
 
     def test_is_reserved_blocks_leading_dotdot_slash_bypass(self) -> None:
         """../.chain/x must be blocked after normalization (path-traversal bypass)."""
         from agents.capabilities.context_providers.previous_run import _is_reserved
 
         # Leading ../ must be normalized and the result checked
-        assert _is_reserved("../.chain/secrets.txt"), (
-            "_is_reserved must block ../.chain/ bypass form after normalization"
-        )
-        assert _is_reserved("../skills/writing.md"), (
-            "_is_reserved must block ../skills/ bypass form after normalization"
-        )
-        assert _is_reserved("../../.chain/"), (
-            "_is_reserved must block nested ../ bypasses"
-        )
+        assert _is_reserved(
+            "../.chain/secrets.txt"
+        ), "_is_reserved must block ../.chain/ bypass form after normalization"
+        assert _is_reserved(
+            "../skills/writing.md"
+        ), "_is_reserved must block ../skills/ bypass form after normalization"
+        assert _is_reserved(
+            "../../.chain/"
+        ), "_is_reserved must block nested ../ bypasses"
 
     def test_is_reserved_does_not_block_regular_files(self) -> None:
         from agents.capabilities.context_providers.previous_run import _is_reserved
 
         safe = ["prototype.html", "spec.md", "design.md", "tasks.md", "output.md"]
         for path in safe:
-            assert not _is_reserved(path), (
-                f"_is_reserved should NOT block safe path {path!r}"
-            )
+            assert not _is_reserved(
+                path
+            ), f"_is_reserved should NOT block safe path {path!r}"
 
     def test_declared_seed_files_drops_reserved_entries(self) -> None:
         """_declared_seed_files must filter out reserved entries from from_run."""
-        from agents.capabilities.context_providers.previous_run import _declared_seed_files
+        from agents.capabilities.context_providers.previous_run import (
+            _declared_seed_files,
+        )
 
         ctx = MagicMock()
         ctx.seed_files = {
             "from_run": [
-                "spec.md",            # safe — must be kept
+                "spec.md",  # safe — must be kept
                 ".chain/logs.jsonl",  # reserved — must be dropped
-                ".uploads/",          # reserved — must be dropped
-                "skills/foo.md",      # reserved — must be dropped
-                "design.md",          # safe — must be kept
+                ".uploads/",  # reserved — must be dropped
+                "skills/foo.md",  # reserved — must be dropped
+                "design.md",  # safe — must be kept
             ]
         }
         result = _declared_seed_files(ctx)
@@ -381,9 +389,7 @@ class TestPreviousRunReservedPrefixesDerivedFromRegistry:
         )
 
         ctx = MagicMock()
-        ctx.seed_files = {
-            "from_run": [".chain/", ".uploads/", "skills/"]
-        }
+        ctx.seed_files = {"from_run": [".chain/", ".uploads/", "skills/"]}
         result = _declared_seed_files(ctx)
         # Must be empty — NOT the default triple
         assert result == (), (
@@ -436,9 +442,9 @@ class TestCompilerReservedPathsCoverageOfRegistry:
         slash_entries = {e for e in RESERVED_PATHS if e.endswith("/")}
         expected_bare = {e.rstrip("/") for e in slash_entries}
         missing_bare = expected_bare - _COMPILER_RESERVED_PATHS
-        assert not missing_bare, (
-            f"_COMPILER_RESERVED_PATHS is missing bare forms: {missing_bare}"
-        )
+        assert (
+            not missing_bare
+        ), f"_COMPILER_RESERVED_PATHS is missing bare forms: {missing_bare}"
 
     def test_compiler_reserved_paths_contains_chain_legacy_both_forms(self) -> None:
         from agents.workflows.compiler import _COMPILER_RESERVED_PATHS
@@ -613,9 +619,7 @@ class TestReservedPathGuardMiddleware:
 
     def test_write_allowed_for_nested_normal_file(self) -> None:
         mw = _make_guard_middleware()
-        req = _make_tool_request(
-            "write_file", "file_path", "src/components/Button.tsx"
-        )
+        req = _make_tool_request("write_file", "file_path", "src/components/Button.tsx")
         assert mw._refusal(req) is None
 
     # -- Read guard tests --
@@ -667,9 +671,9 @@ class TestReservedPathGuardMiddleware:
         """Granting READ must not grant WRITE — `.agents/` stays engine-written."""
         mw = _make_guard_middleware()
         req = _make_tool_request(tool, path_key, path)
-        assert mw._refusal(req) is not None, (
-            f"Middleware must still REFUSE write tool {tool!r} on {path!r}"
-        )
+        assert (
+            mw._refusal(req) is not None
+        ), f"Middleware must still REFUSE write tool {tool!r} on {path!r}"
 
     @pytest.mark.parametrize(
         "tool,path_key,path",
@@ -702,9 +706,9 @@ class TestReservedPathGuardMiddleware:
         req = _make_tool_request(
             "read_file", "path", ".context/design/design-system.md"
         )
-        assert mw._refusal(req) is None, (
-            "Reads under .context/ must be allowed (AGENT_READABLE_RESERVED)"
-        )
+        assert (
+            mw._refusal(req) is None
+        ), "Reads under .context/ must be allowed (AGENT_READABLE_RESERVED)"
 
     def test_read_allowed_for_context_root(self) -> None:
         mw = _make_guard_middleware()
@@ -715,9 +719,9 @@ class TestReservedPathGuardMiddleware:
         """Requirement 18 AC 8: an agent tool cannot read .chain/."""
         mw = _make_guard_middleware()
         req = _make_tool_request("read_file", "path", ".chain/summary.md")
-        assert mw._refusal(req) is not None, (
-            "Agents must not read .chain/ — only authorized Workspace surfaces may"
-        )
+        assert (
+            mw._refusal(req) is not None
+        ), "Agents must not read .chain/ — only authorized Workspace surfaces may"
 
     def test_read_allowed_for_regular_file(self) -> None:
         mw = _make_guard_middleware()
@@ -732,9 +736,7 @@ class TestReservedPathGuardMiddleware:
 
     def test_normalisation_dot_slash_prefix_still_blocked(self) -> None:
         mw = _make_guard_middleware()
-        req = _make_tool_request(
-            "write_file", "file_path", "./.uploads/test.txt"
-        )
+        req = _make_tool_request("write_file", "file_path", "./.uploads/test.txt")
         assert mw._refusal(req) is not None
 
     @pytest.mark.parametrize(
@@ -760,9 +762,9 @@ class TestReservedPathGuardMiddleware:
         """
         mw = _make_guard_middleware()
         req = _make_tool_request(tool, path_key, path)
-        assert mw._refusal(req) is not None, (
-            f"Embedded ../ bypass must be blocked: {path!r}"
-        )
+        assert (
+            mw._refusal(req) is not None
+        ), f"Embedded ../ bypass must be blocked: {path!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -826,28 +828,28 @@ class TestReservedPathGuardLogicWithoutDependencies:
             if entry.endswith("/"):
                 # Test both the prefix itself and a nested file
                 assert self._is_reserved(entry), f"should block {entry!r}"
-                assert self._is_reserved(entry + "test.txt"), (
-                    f"should block nested path under {entry!r}"
-                )
+                assert self._is_reserved(
+                    entry + "test.txt"
+                ), f"should block nested path under {entry!r}"
 
     def test_chain_blocked_but_not_agent_readable(self) -> None:
         """Requirement 18 AC 8: .chain/ is reserved AND not agent-readable."""
         assert self._is_reserved(".chain/summary.md")
-        assert not self._is_agent_readable(".chain/summary.md"), (
-            ".chain/ must not be readable by agents"
-        )
+        assert not self._is_agent_readable(
+            ".chain/summary.md"
+        ), ".chain/ must not be readable by agents"
 
     def test_context_readable_by_agents(self) -> None:
         assert self._is_reserved(".context/selections.json")
-        assert self._is_agent_readable(".context/selections.json"), (
-            ".context/ must be readable by agents (AGENT_READABLE_RESERVED)"
-        )
+        assert self._is_agent_readable(
+            ".context/selections.json"
+        ), ".context/ must be readable by agents (AGENT_READABLE_RESERVED)"
 
     def test_regular_files_not_reserved(self) -> None:
         for path in ["prototype.html", "spec.md", "output.md"]:
-            assert not self._is_reserved(path), (
-                f"regular path {path!r} should not be reserved"
-            )
+            assert not self._is_reserved(
+                path
+            ), f"regular path {path!r} should not be reserved"
 
     def test_embedded_dotdot_bypass_is_blocked(self) -> None:
         """B17: embedded ../ must collapse to a reserved prefix before the check.
@@ -865,9 +867,9 @@ class TestReservedPathGuardLogicWithoutDependencies:
             "docs/../skills/injected.md",
         ]
         for path in bypass_attempts:
-            assert self._is_reserved(path), (
-                f"Embedded ../ bypass must be detected as reserved: {path!r}"
-            )
+            assert self._is_reserved(
+                path
+            ), f"Embedded ../ bypass must be detected as reserved: {path!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -900,9 +902,9 @@ class TestIsDeliverableRelpathExcludesRegistry:
             ".git/refs/heads/main",
         ]
         for path in git_paths:
-            assert not is_deliverable_relpath(path), (
-                f"is_deliverable_relpath should exclude git path {path!r}"
-            )
+            assert not is_deliverable_relpath(
+                path
+            ), f"is_deliverable_relpath should exclude git path {path!r}"
 
     def test_excludes_gitignore(self) -> None:
         from app.agents.sandbox import is_deliverable_relpath
@@ -918,9 +920,9 @@ class TestIsDeliverableRelpathExcludesRegistry:
             ".context/design/design-system.md",
             ".context/selections.json",
         ]:
-            assert not is_deliverable_relpath(path), (
-                f"is_deliverable_relpath should exclude {path!r}"
-            )
+            assert not is_deliverable_relpath(
+                path
+            ), f"is_deliverable_relpath should exclude {path!r}"
 
     def test_excludes_chain_legacy(self) -> None:
         from app.agents.sandbox import is_deliverable_relpath
@@ -938,9 +940,9 @@ class TestIsDeliverableRelpathExcludesRegistry:
             "output.md",
         ]
         for path in safe:
-            assert is_deliverable_relpath(path), (
-                f"is_deliverable_relpath should allow safe file {path!r}"
-            )
+            assert is_deliverable_relpath(
+                path
+            ), f"is_deliverable_relpath should allow safe file {path!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -951,26 +953,29 @@ class TestIsDeliverableRelpathExcludesRegistry:
 class TestListFilesExcludesRegistry:
     """RunSandbox.list_files must exclude the right reserved subset.
 
-    Visible in listing (kept):     .chain/, .context/, .agents/
+    Visible in listing (kept):     .chain/, .context/, .agents/, .verify/
     Not visible in listing (dropped): all other RESERVED_PATHS entries +
                                       GIT_METADATA_PATHS
+
+    ``.verify/`` is visible for spec 017 viewable media: the Workspace tab
+    (frontend SandboxTab) renders render_pptx's PNG/PDF evidence from it.
     """
 
-    _VISIBLE_IN_LISTING: frozenset[str] = frozenset({".chain/", ".context/", ".agents/"})
+    _VISIBLE_IN_LISTING: frozenset[str] = frozenset(
+        {".chain/", ".context/", ".agents/", ".verify/"}
+    )
 
     def test_listing_excluded_prefixes_excludes_hidden_reserved_entries(
         self,
     ) -> None:
         from app.agents.sandbox import RESERVED_PATHS, _LISTING_EXCLUDED_PREFIXES
 
-        hidden = {
-            e for e in RESERVED_PATHS if e not in self._VISIBLE_IN_LISTING
-        }
+        hidden = {e for e in RESERVED_PATHS if e not in self._VISIBLE_IN_LISTING}
         for entry in hidden:
             if entry.endswith("/"):
-                assert entry in _LISTING_EXCLUDED_PREFIXES, (
-                    f"_LISTING_EXCLUDED_PREFIXES should exclude {entry!r}"
-                )
+                assert (
+                    entry in _LISTING_EXCLUDED_PREFIXES
+                ), f"_LISTING_EXCLUDED_PREFIXES should exclude {entry!r}"
 
     def test_listing_excluded_prefixes_does_not_exclude_visible_entries(
         self,
@@ -993,9 +998,7 @@ class TestListFilesExcludesRegistry:
 
         assert ".git/" in _LISTING_EXCLUDED_PREFIXES
 
-    def test_list_files_excludes_uploads_and_logs(
-        self, tmp_path: Path
-    ) -> None:
+    def test_list_files_excludes_uploads_and_logs(self, tmp_path: Path) -> None:
         """Functional: .uploads/ and .logs/ must not appear in list_files()."""
         from app.agents.sandbox import RunSandbox
 
@@ -1014,15 +1017,15 @@ class TestListFilesExcludesRegistry:
         paths = {f["path"] for f in files}
 
         assert "prototype.html" in paths, "list_files must include regular files"
-        assert not any(p.startswith(".uploads/") for p in paths), (
-            ".uploads/ must be excluded from list_files"
-        )
-        assert not any(p.startswith(".logs/") for p in paths), (
-            ".logs/ must be excluded from list_files"
-        )
-        assert not any(p.startswith("skills/") for p in paths), (
-            "skills/ must be excluded from list_files"
-        )
+        assert not any(
+            p.startswith(".uploads/") for p in paths
+        ), ".uploads/ must be excluded from list_files"
+        assert not any(
+            p.startswith(".logs/") for p in paths
+        ), ".logs/ must be excluded from list_files"
+        assert not any(
+            p.startswith("skills/") for p in paths
+        ), "skills/ must be excluded from list_files"
 
     def test_list_files_excludes_chain_legacy(self, tmp_path: Path) -> None:
         from app.agents.sandbox import RunSandbox
@@ -1039,9 +1042,9 @@ class TestListFilesExcludesRegistry:
         files, _ = sb.list_files()
         paths = {f["path"] for f in files}
 
-        assert not any(p.startswith(".chain-legacy/") for p in paths), (
-            ".chain-legacy/ must be excluded from list_files"
-        )
+        assert not any(
+            p.startswith(".chain-legacy/") for p in paths
+        ), ".chain-legacy/ must be excluded from list_files"
 
     def test_list_files_keeps_chain_context_agents_visible(
         self, tmp_path: Path
@@ -1065,9 +1068,9 @@ class TestListFilesExcludesRegistry:
         paths = {f["path"] for f in files}
 
         assert ".chain/summary.md" in paths, ".chain/ must be visible in list_files"
-        assert ".context/selections.json" in paths, (
-            ".context/ must be visible in list_files"
-        )
+        assert (
+            ".context/selections.json" in paths
+        ), ".context/ must be visible in list_files"
         assert ".agents/01-build.md" in paths, ".agents/ must be visible in list_files"
 
 
@@ -1114,9 +1117,9 @@ class TestReadSandboxFileRefusesRegistry:
 
         refused_path = ".uploads/manifest.json"
         is_refused = any(refused_path.startswith(p) for p in _SANDBOX_READ_REFUSED)
-        assert is_refused, (
-            f"Path '{refused_path}' should be refused by _SANDBOX_READ_REFUSED"
-        )
+        assert (
+            is_refused
+        ), f"Path '{refused_path}' should be refused by _SANDBOX_READ_REFUSED"
 
     def test_read_sandbox_file_guard_blocks_logs_nested_path(self) -> None:
         from app.api.run_files import _SANDBOX_READ_REFUSED
@@ -1168,21 +1171,19 @@ class TestReadSandboxFileGuardSourceVerification:
             )
         else:
             # If the pattern doesn't match, check RESERVED_PATHS appears near the definition
-            assert "RESERVED_PATHS" in src, (
-                "run_files.py should reference RESERVED_PATHS for _SANDBOX_READ_REFUSED"
-            )
+            assert (
+                "RESERVED_PATHS" in src
+            ), "run_files.py should reference RESERVED_PATHS for _SANDBOX_READ_REFUSED"
 
     def test_sandbox_read_refused_contains_required_entries_in_source(self) -> None:
         """The source must express refusal of .uploads/, .logs/, .chain-legacy/."""
         src = self._source()
         # Either via RESERVED_PATHS (which contains them) or literal
         # The key assertion: RESERVED_PATHS import must exist
-        assert "from app.agents.sandbox import" in src, (
-            "run_files.py must import from app.agents.sandbox (RESERVED_PATHS)"
-        )
-        assert "RESERVED_PATHS" in src, (
-            "run_files.py must reference RESERVED_PATHS"
-        )
+        assert (
+            "from app.agents.sandbox import" in src
+        ), "run_files.py must import from app.agents.sandbox (RESERVED_PATHS)"
+        assert "RESERVED_PATHS" in src, "run_files.py must reference RESERVED_PATHS"
 
 
 # ---------------------------------------------------------------------------
@@ -1265,11 +1266,13 @@ class TestAssertShareOutputClean:
     def test_multiple_files_clean_does_not_raise(self) -> None:
         from app.api.runs import _assert_share_output_clean
 
-        output = "\n\n".join([
-            self._make_output("index.html", "<html/>"),
-            self._make_output("styles.css", "body{}"),
-            self._make_output("script.js", "console.log()"),
-        ])
+        output = "\n\n".join(
+            [
+                self._make_output("index.html", "<html/>"),
+                self._make_output("styles.css", "body{}"),
+                self._make_output("script.js", "console.log()"),
+            ]
+        )
         _assert_share_output_clean(output, "run-multi")
 
 
@@ -1324,9 +1327,9 @@ class TestShareOutputCleanLogicWithoutDependencies:
         for entry in RESERVED_PATHS:
             if entry.endswith("/"):
                 path = entry + "test.txt"
-                assert not self._check_output_clean(self._make_output(path)), (
-                    f"Entry {entry!r} should be caught by the share guard"
-                )
+                assert not self._check_output_clean(
+                    self._make_output(path)
+                ), f"Entry {entry!r} should be caught by the share guard"
 
 
 # ---------------------------------------------------------------------------
@@ -1346,8 +1349,13 @@ class TestCompilerReservedSeedFilesGuard:
         return CapabilityRegistry()
 
     def _minimal_manifest_dict(self, from_run_entries: list[str]) -> dict:
+        # ``planner`` and ``clarify`` are MAN-01 required keys
+        # (``manifest._REQUIRED_KEYS``); without them ``build_manifest_from_dict``
+        # raises ManifestValidationError before the compiler guard is reached.
         return {
             "id": "test-reserved-seed",
+            "planner": "run",
+            "clarify": {"mode": "skip"},
             "steps": [
                 {
                     "agent": "prototype-build",
@@ -1386,13 +1394,7 @@ class TestCompilerReservedSeedFilesGuard:
         registry = self._build_registry()
         raw = self._minimal_manifest_dict([reserved_entry])
 
-        try:
-            manifest = build_manifest_from_dict(raw, "test-source")
-        except Exception:
-            pytest.skip(
-                "Manifest build failed — test environment not fully wired"
-            )
-            return
+        manifest = build_manifest_from_dict(raw, "test-source")
 
         compiler = WorkflowCompiler()
         with pytest.raises(CompilerError):
@@ -1406,21 +1408,15 @@ class TestCompilerReservedSeedFilesGuard:
         registry = self._build_registry()
         raw = self._minimal_manifest_dict([".chain/logs.jsonl"])
 
-        try:
-            manifest = build_manifest_from_dict(raw, "test-source")
-        except Exception:
-            pytest.skip(
-                "Manifest build failed — test environment not fully wired"
-            )
-            return
+        manifest = build_manifest_from_dict(raw, "test-source")
 
         compiler = WorkflowCompiler()
         with pytest.raises(CompilerError) as exc_info:
             compiler.compile(manifest, registry)
 
-        assert ".chain/logs.jsonl" in str(exc_info.value), (
-            "CompilerError must name the offending reserved entry (Req 18 AC 11)"
-        )
+        assert ".chain/logs.jsonl" in str(
+            exc_info.value
+        ), "CompilerError must name the offending reserved entry (Req 18 AC 11)"
 
     def test_compiler_accepts_non_reserved_seed_files(self) -> None:
         """A manifest with non-reserved from_run entries must compile without error."""
@@ -1430,13 +1426,7 @@ class TestCompilerReservedSeedFilesGuard:
         registry = self._build_registry()
         raw = self._minimal_manifest_dict(["spec.md", "design.md", "tasks.md"])
 
-        try:
-            manifest = build_manifest_from_dict(raw, "test-source")
-        except Exception:
-            pytest.skip(
-                "Manifest build failed — test environment not fully wired"
-            )
-            return
+        manifest = build_manifest_from_dict(raw, "test-source")
 
         compiler = WorkflowCompiler()
         try:
@@ -1445,9 +1435,9 @@ class TestCompilerReservedSeedFilesGuard:
         except CompilerError as e:
             # A CompilerError for something other than the seed files is fine
             err_str = str(e).lower()
-            assert "seed_files" not in err_str and "reserved" not in err_str, (
-                f"Unexpected CompilerError about seed files on safe manifest: {e}"
-            )
+            assert (
+                "seed_files" not in err_str and "reserved" not in err_str
+            ), f"Unexpected CompilerError about seed files on safe manifest: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -1487,9 +1477,9 @@ class TestWriteToSandboxEndToEnd:
 
             # The file must not have been created on disk
             target = sandbox_root / reserved_path.lstrip("/")
-            assert not target.exists(), (
-                f"Reserved path '{reserved_path}' was written to disk despite ValueError"
-            )
+            assert (
+                not target.exists()
+            ), f"Reserved path '{reserved_path}' was written to disk despite ValueError"
 
     def test_normal_file_is_written_to_disk(self, tmp_path: Path) -> None:
         ks = self._make_real_kernel_services(tmp_path)

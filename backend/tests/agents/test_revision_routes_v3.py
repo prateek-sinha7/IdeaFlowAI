@@ -10,6 +10,7 @@ Covers verification debt (phase V) for sandbox file routes:
 
 All tests use TestClient to drive the actual HTTP routes (not re-implementation inline).
 """
+
 from __future__ import annotations
 
 import json
@@ -87,7 +88,7 @@ def _seed_user(env, tag: str) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"test-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -104,20 +105,22 @@ def _seed_run(env, *, user_id, owner_id, parent_run_id=None, status="completed")
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id,
-            user_id=user_id,
-            owner_id=owner_id,
-            parent_run_id=parent_run_id,
-            workspace_id="ws-1",
-            title="test run",
-            type="custom",
-            status=status,
-            input="{}",
-            agent_count=1,
-            session_id=user_id,
-            created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                owner_id=owner_id,
+                parent_run_id=parent_run_id,
+                workspace_id="ws-1",
+                title="test run",
+                type="custom",
+                status=status,
+                input="{}",
+                agent_count=1,
+                session_id=user_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return run_id
     finally:
@@ -126,12 +129,19 @@ def _seed_run(env, *, user_id, owner_id, parent_run_id=None, status="completed")
 
 def _owned_run(env, user: _FakeUser, parent_run_id=None, status="completed") -> str:
     """Create a run owned by the user."""
-    return _seed_run(env, user_id=user.id, owner_id=user.id, parent_run_id=parent_run_id, status=status)
+    return _seed_run(
+        env,
+        user_id=user.id,
+        owner_id=user.id,
+        parent_run_id=parent_run_id,
+        status=status,
+    )
 
 
 def _sandbox(env, user_id, run_id):
     """Get a RunSandbox for the given user and run."""
     from app.agents.sandbox import RunSandbox
+
     return RunSandbox(user_id, run_id, runs_root=env["runs_root"])
 
 
@@ -189,8 +199,7 @@ class TestRevisionRoutesReturnRootFiles:
 
         # Read via the revision run id — should get the root's file
         resp = env["client"].get(
-            f"/api/runs/{revision_id}/sandbox/file",
-            params={"path": "data.txt"}
+            f"/api/runs/{revision_id}/sandbox/file", params={"path": "data.txt"}
         )
         assert resp.status_code == 200
         assert resp.text == "root data"
@@ -239,7 +248,10 @@ class TestRevisionRoutesReturnRootFiles:
 
         # The file physically landed under the ROOT sandbox's .uploads/ prefix.
         root_sb = _sandbox(env, user.id, root_id)
-        assert root_sb.path_for(".uploads/notes.txt").read_bytes() == b"revision upload content"
+        assert (
+            root_sb.path_for(".uploads/notes.txt").read_bytes()
+            == b"revision upload content"
+        )
 
         # A sandbox keyed by the revision's own run id was never written to.
         revision_sb = _sandbox(env, user.id, revision_id)
@@ -265,16 +277,14 @@ class TestChainFilesAreReadable:
         chain_dir = sb.root / ".chain"
         chain_dir.mkdir(exist_ok=True)
         (chain_dir / "summary.md").write_text(
-            "# Chain Summary\n\nThis is the summary.",
-            encoding="utf-8"
+            "# Chain Summary\n\nThis is the summary.", encoding="utf-8"
         )
 
         env["state"]["user"] = user
 
         # Read the file via the route
         resp = env["client"].get(
-            f"/api/runs/{run_id}/sandbox/file",
-            params={"path": ".chain/summary.md"}
+            f"/api/runs/{run_id}/sandbox/file", params={"path": ".chain/summary.md"}
         )
         assert resp.status_code == 200
         assert "Chain Summary" in resp.text
@@ -296,8 +306,7 @@ class TestChainFilesAreReadable:
 
         # Read the file via the route
         resp = env["client"].get(
-            f"/api/runs/{run_id}/sandbox/file",
-            params={"path": ".chain/logs.jsonl"}
+            f"/api/runs/{run_id}/sandbox/file", params={"path": ".chain/logs.jsonl"}
         )
         assert resp.status_code == 200
         assert '"event"' in resp.text
@@ -328,10 +337,7 @@ class TestRefParameterOnRoutes:
         env["state"]["user"] = user
 
         # Call with ref parameter
-        resp = env["client"].get(
-            f"/api/runs/{run_id}/sandbox",
-            params={"ref": "v1"}
-        )
+        resp = env["client"].get(f"/api/runs/{run_id}/sandbox", params={"ref": "v1"})
         assert resp.status_code == 200
         data = resp.json()
         assert "files" in data
@@ -356,8 +362,7 @@ class TestRefParameterOnRoutes:
 
         # Call with ref parameter
         resp = env["client"].get(
-            f"/api/runs/{run_id}/sandbox/file",
-            params={"path": "file.txt", "ref": "v1"}
+            f"/api/runs/{run_id}/sandbox/file", params={"path": "file.txt", "ref": "v1"}
         )
         assert resp.status_code == 200
         assert "head content" in resp.text
@@ -391,8 +396,7 @@ class TestRefParameterOnRoutes:
 
         # Call with ref parameter
         resp = env["client"].get(
-            f"/api/runs/{run_id}/sandbox/zip",
-            params={"ref": "v1"}
+            f"/api/runs/{run_id}/sandbox/zip", params={"ref": "v1"}
         )
         assert resp.status_code == 200
         assert resp.content.startswith(b"PK")
@@ -442,7 +446,7 @@ class TestRefParameterOnRoutes:
         # Call with an invalid ref containing shell metacharacters
         resp = env["client"].get(
             f"/api/runs/{run_id}/sandbox/file",
-            params={"path": "file.txt", "ref": "v1; rm -rf /"}
+            params={"path": "file.txt", "ref": "v1; rm -rf /"},
         )
         # Should be rejected (400 or 422)
         assert resp.status_code in (400, 422)
@@ -476,7 +480,7 @@ class TestRevisionWithTagsAndRef:
         # Revision queries the root at tag v1
         resp = env["client"].get(
             f"/api/runs/{revision_id}/sandbox/file",
-            params={"path": "file.txt", "ref": "v1"}
+            params={"path": "file.txt", "ref": "v1"},
         )
         assert resp.status_code == 200
         assert "tagged content" in resp.text

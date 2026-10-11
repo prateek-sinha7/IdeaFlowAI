@@ -77,18 +77,21 @@ def _run(coro: Any) -> Any:
     moment two agents in one run shared a session).
     """
     from app.agents.playwright_session import run_sync
+
     return run_sync(coro)
 
 
 def _get_session(run_id: str) -> Any:
     """Lazily get or create the PlaywrightSession for this run."""
     from app.agents.playwright_session import get_session
+
     return get_session(run_id)
 
 
 def _get_run_id() -> str | None:
     """Extract the run_id from the current context (injected by the runner)."""
     from app.agents.playwright_session import run_id_from_sandbox
+
     return run_id_from_sandbox(_SANDBOX_VAR.get())
 
 
@@ -268,7 +271,9 @@ def playwright_type(ref: str, text: str) -> str:
 
 
 @tool
-def playwright_take_screenshot(filename: str = "screenshot.png", ref: str | None = None) -> str:
+def playwright_take_screenshot(
+    filename: str = "screenshot.png", ref: str | None = None
+) -> str:
     """Capture a screenshot of the page or a single element.
 
     Writes to the run workspace under ``.browser/`` so it appears in the run's
@@ -304,7 +309,7 @@ def playwright_take_screenshot(filename: str = "screenshot.png", ref: str | None
         # Traversal check: the resolved path must still live inside the sandbox.
         safe_path.resolve().relative_to(_sb.root.resolve())
     except (ValueError, OSError):
-        return f"filename escapes sandbox — choose a different name."
+        return "filename escapes sandbox — choose a different name."
 
     # Ensure the directory exists
     try:
@@ -425,7 +430,7 @@ def playwright_wait_for(text: str = "", duration_ms: int = 0) -> str:
                     )
                 )
                 return f"found text: {text}"
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 return f"text not found within 10 seconds: {text}"
         elif duration_ms > 0:
             # Wait for a duration

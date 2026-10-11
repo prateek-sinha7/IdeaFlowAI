@@ -78,7 +78,7 @@ PRODUCTION_IMAGES = {
     "frontend": ProductionImage(
         name="frontend",
         dockerfile_path=_REPO_ROOT / "frontend" / "Dockerfile",
-        base_image="node:20-bookworm-slim",
+        base_image="node:24.11.0-bookworm-slim",
         build_context="frontend",
         build_args={"NEXT_PUBLIC_API_URL": "", "NEXT_PUBLIC_WS_URL": ""},
         required_scanners={"trivy", "grype"},
@@ -614,9 +614,11 @@ class TestBaseImagePinAuthority:
         # Python 3.13 is maintained
         assert "3.13" in PRODUCTION_IMAGES["backend-python"].base_image
 
-        # Node 20 is LTS
+        # The backend pptx stage stays on Node 20 deliberately (ABI match with
+        # the runtime's copied node binary); the frontend runs the Node 24 LTS
+        # runtime authority (F-07).
         assert "20" in PRODUCTION_IMAGES["backend-pptx-builder"].base_image
-        assert "20" in PRODUCTION_IMAGES["frontend"].base_image
+        assert "24" in PRODUCTION_IMAGES["frontend"].base_image
 
     def test_all_images_use_slim_variants(self):
         """Production images should use slim variants to minimize attack surface."""

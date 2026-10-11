@@ -136,9 +136,7 @@ def _run(users_ddl: str, *, stamped: list[str]):
 
 class TestOnACurrentSchema:
     def test_every_check_passes(self):
-        report, recorded = _run(
-            CURRENT, stamped=[verifier.EXPECTED_ALEMBIC_HEAD]
-        )
+        report, recorded = _run(CURRENT, stamped=[verifier.EXPECTED_ALEMBIC_HEAD])
 
         assert not report.failed, recorded
         assert set(recorded) >= {"C1", "C2", "C2b", "C2c", "C3", "C6"}
@@ -204,9 +202,7 @@ class TestC6TierGroupRoundTrip:
     def test_it_passes_against_the_real_catalog(self):
         """Guards the live entitlement table, not a fixture: every tier in
         TIER_PIPELINES must have a Cognito group that resolves back to it."""
-        _report, recorded = _run(
-            CURRENT, stamped=[verifier.EXPECTED_ALEMBIC_HEAD]
-        )
+        _report, recorded = _run(CURRENT, stamped=[verifier.EXPECTED_ALEMBIC_HEAD])
 
         assert recorded["C6"] == verifier._PASS
 
@@ -217,9 +213,7 @@ class TestC6TierGroupRoundTrip:
 
         monkeypatch.setitem(entitlements.TIER_PIPELINES, "ungrouped-tier", set())
 
-        _report, recorded = _run(
-            CURRENT, stamped=[verifier.EXPECTED_ALEMBIC_HEAD]
-        )
+        _report, recorded = _run(CURRENT, stamped=[verifier.EXPECTED_ALEMBIC_HEAD])
 
         assert recorded["C6"] == verifier._FAIL
 
@@ -236,8 +230,7 @@ class TestExpectedHeadIsCurrent:
         """
         versions = Path(__file__).resolve().parents[3] / "alembic" / "versions"
         revisions = sorted(
-            p.name.split("_", 1)[0]
-            for p in versions.glob("[0-9][0-9][0-9][0-9]_*.py")
+            p.name.split("_", 1)[0] for p in versions.glob("[0-9][0-9][0-9][0-9]_*.py")
         )
 
         assert revisions, "no migrations found — wrong path?"

@@ -1,75 +1,88 @@
 /**
  * TS-D — Agent composer (AgentsPopup + AgentLibrary). Opened from the
  * IdeaInputPage "Advanced" affordance. Drives the workflow-configuration modal:
- * tabs, role pills/locks, optional-agent removal, the add-agent cap, the Agent
+ * tabs, role locks, optional-agent removal, the add-agent cap, the Agent
  * Library, and the per-agent capabilities modal.
  *
+ * Since 24332e0c the popup's Agents tab embeds the Composer's CanvasView (one
+ * node card per agent) instead of the old flow-card grid, so:
+ *   • roles: a Core (locked) node shows a "Core" pill; Core AND Required nodes
+ *     both render their "Remove <name>" button DISABLED; only optional nodes are
+ *     removable (the separate "Required" pill is gone);
+ *   • the add cell "+ Add agent (N left)" became the canvas "Add agent at end" /
+ *     "Insert agent before step N" buttons, disabled once the optional cap
+ *     (IdeaInputPage maxOptional = 5) is reached;
+ *   • drag-reorder of grid cards became the node's "Move <name> earlier/later";
+ *   • Agent Library category labels come from the catalog (short_name ||
+ *     display_name), e.g. app_builder → "Build an end-to-end application".
+ *
  * Seeded via `user_stories` (CreationHub row "Generate product requirements"):
- * its 6 default agents are domain-analyst (Core/locked) → epic-architect …
- * backlog-reviewer (Required) → backlog-compiler (Core/locked). NONE are
- * optional out of the box, so optional-agent cases add one from the library
- * first (an agent from another category is "optional" relative to user_stories).
+ * its 6 default agents are domain-analyst (Core) → epic-architect …
+ * backlog-reviewer (Required) → backlog-compiler (Core). NONE are optional out
+ * of the box, so optional-agent cases add one from another library category.
  */
 import { test, expect } from "../fixtures/test";
 import type { Locator, Page } from "@playwright/test";
+import type { DashboardPage } from "../fixtures/dashboard";
+
+const USER_STORIES_AGENTS = [
+  "Domain Discovery Agent",
+  "Backlog Architecture Agent",
+  "Estimation Agent",
+  "Quality Requirements Agent",
+  "Quality Review Agent",
+  "Delivery Compilation Agent",
+];
+
+/** Optional (non-user_stories) agents in the mock library, by category label. */
+const APP_BUILDER = "Build an end-to-end application";
+const APP_BUILDER_AGENTS = ["Architecture Agent", "API Contract Agent", "Infrastructure Agent", "DevOps Agent"];
+const CUSTOM_AGENTS = ["Market Research Agent", "Strategy Analysis Agent", "Roadmap Planning Agent"];
 
 /** Select user_stories + type a brief so the IdeaInputPage seeds agents, then
  *  open the composer. Stays on the input view (no Run) — the popup lives there. */
-async function openComposer(dashboard: import("../fixtures/dashboard").DashboardPage) {
+async function openComposer(dashboard: DashboardPage) {
   await dashboard.goto();
   await dashboard.selectWorkflow("Generate product requirements");
   await dashboard.fillIdea("Generate epics and stories for a refunds workflow");
   await dashboard.openAdvanced();
 }
 
-/** The open AgentsPopup panel — scoped by its heading so we never collide with
- *  the IdeaInputPage "Advanced" trigger or other page chrome. */
-function popup(dashboard: import("../fixtures/dashboard").DashboardPage): Locator {
-  return dashboard.page
-    .locator("div")
-    .filter({ has: dashboard.page.getByRole("heading", { name: "Workflow configuration" }) })
-    .last();
-}
-
 /** The Agents tab button, e.g. "Agents (6)". Reads the live count off its label. */
-function agentsTab(dashboard: import("../fixtures/dashboard").DashboardPage): Locator {
+function agentsTab(dashboard: DashboardPage): Locator {
   return dashboard.page.getByRole("button", { name: /^Agents \(\d+\)$/ });
 }
 
-async function agentsTabCount(dashboard: import("../fixtures/dashboard").DashboardPage): Promise<number> {
+async function agentsTabCount(dashboard: DashboardPage): Promise<number> {
   const label = await agentsTab(dashboard).textContent();
   const m = label?.match(/\((\d+)\)/);
   return m ? Number(m[1]) : NaN;
 }
 
-/** Add `n` optional agents to the flow from the App Builder library category.
- *  App Builder agents are "optional" relative to user_stories ⇒ draggable +
- *  removable. The library closes after each add, so we reopen each time. */
-async function addOptionalAgents(
-  dashboard: import("../fixtures/dashboard").DashboardPage, n: number,
-) {
-  const page = dashboard.page;
-  for (let i = 0; i < n; i++) {
-    await page.getByRole("button", { name: "Browse agent library →" }).click();
-    await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
-    await page.getByRole("button", { name: "App Builder", exact: true }).click();
-    await page.locator('[title="Add agent"]').first().click();
-    await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
-  }
+function removeButton(page: Page, agentName: string): Locator {
+  // The node card is itself role="button" and absorbs its descendants' names;
+  // the aria-label attribute selector is unambiguous.
+  return page.locator(`button[aria-label="Remove ${agentName}"]`);
 }
 
-/** Names (in flow-grid DOM order) of the OPTIONAL agent cards — i.e. the
- *  draggable cards that carry a "Remove agent" button. Read from the DOM so we
- *  observe the post-reorder order exactly as React renders it. */
-async function optionalCardNames(page: Page): Promise<string[]> {
+/** Open the Agent Library, switch to `category`, and "+ Add" the named agent.
+ *  The library closes after each add. */
+async function addFromLibrary(page: Page, category: string, agentName: string) {
+  await page.getByRole("button", { name: "Browse agent library →" }).click();
+  await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
+  await page.getByRole("button", { name: category, exact: true }).click();
+  await page.locator('[data-testid^="library-card-"]', { hasText: agentName }).locator('[title="Add agent"]').click();
+  await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
+  await expect(removeButton(page, agentName)).toBeEnabled();
+}
+
+/** Root-level agent names in pipeline (DOM) order, read off each node's
+ *  "Remove <name>" label. */
+async function rootOrder(page: Page): Promise<string[]> {
   return page.evaluate(() =>
-    Array.from(document.querySelectorAll('[draggable="true"]'))
-      .filter((card) => card.querySelector('[title="Remove agent"]'))
-      .map((card) => {
-        const nameEl = Array.from(card.querySelectorAll("p"))
-          .find((p) => p.className.includes("text-gray-900"));
-        return (nameEl?.textContent ?? "").trim();
-      }),
+    Array.from(document.querySelectorAll('[data-testid^="canvas-node-wrap-"]'))
+      .map((wrap) => wrap.querySelector('button[aria-label^="Remove "]')?.getAttribute("aria-label") ?? "")
+      .map((label) => label.replace(/^Remove /, "")),
   );
 }
 
@@ -77,178 +90,173 @@ test.describe("TS-D — agent composer", () => {
   test("TS-D-01 open via Advanced, tabs present, close via Cancel and Save changes", async ({ dashboard }) => {
     await openComposer(dashboard);
 
-    // Eyebrow + title (openAdvanced already asserted the title; pin the eyebrow
-    // to the modal so it isn't the IdeaInputPage trigger's "Advanced" span).
-    await expect(popup(dashboard).getByText("Advanced", { exact: true })).toBeVisible();
-    await expect(dashboard.page.getByRole("heading", { name: "Workflow configuration" })).toBeVisible();
+    // The folded title carries the "Advanced" eyebrow and the workflow label.
+    await expect(dashboard.advancedHeading()).toHaveText(/Advanced Workflow Configuration — Generate product requirements/);
 
-    // Both tabs exist. The Phase-39 popup relabelled the second tab from
-    // "Skills & Hooks" to "Workflow" (Puzzle icon; it now hosts Skills, Hooks &
-    // Capabilities per the AgentsPopup :1913-1926 tab).
-    await expect(agentsTab(dashboard)).toBeVisible();
-    await expect(dashboard.page.getByRole("button", { name: "Workflow", exact: true })).toBeVisible();
+    // Both header tabs exist (scoped to the tab strip — the embedded canvas rail
+    // has its own "Workflow" toggle).
+    await expect(agentsTab(dashboard)).toHaveText(/Agents\s*\(6\)/);
+    await expect(dashboard.advancedTab("Workflow")).toBeVisible();
 
     // Close via Cancel → modal gone.
     await dashboard.page.getByRole("button", { name: "Cancel" }).click();
-    await expect(dashboard.page.getByRole("heading", { name: "Workflow configuration" })).toHaveCount(0);
+    await expect(dashboard.advancedHeading()).toHaveCount(0);
 
-    // Reopen — the Phase-39 footer replaced the old plain "Save changes" close
-    // button with a "Save workflow" action (it opens the save-to-catalogue modal,
-    // AgentsPopup :2088-2093, rather than just closing). Assert that footer action
-    // is present, then close the popup via Cancel (the real close path).
+    // Reopen — the footer carries a "Save workflow" action (opens the
+    // save-to-catalogue flow rather than just closing). The popup footer's is the
+    // only title-less one (the IdeaInputPage toolbar's carries a `title` tooltip).
     await dashboard.openAdvanced();
-    // The popup footer's "Save workflow" is the only title-less one (the
-    // IdeaInputPage toolbar's carries a `title` tooltip), so this disambiguates
-    // from the toolbar button behind the modal.
     await expect(
       dashboard.page.locator("button:not([title])", { hasText: /^Save workflow$/ }),
     ).toBeVisible();
     await dashboard.page.getByRole("button", { name: "Cancel" }).click();
-    await expect(dashboard.page.getByRole("heading", { name: "Workflow configuration" })).toHaveCount(0);
+    await expect(dashboard.advancedHeading()).toHaveCount(0);
   });
 
-  test("TS-D-02 roles & locks: Core/Required pills, optional shows a remove button", async ({ dashboard }) => {
+  test("TS-D-02 roles & locks: Core pills, Core/Required locked, optional is removable", async ({ dashboard }) => {
+    const page = dashboard.page;
     await openComposer(dashboard);
 
-    // The default user_stories lineup has both locked (Core) and required cards.
-    await expect(dashboard.page.getByText("Core", { exact: true }).first()).toBeVisible();
-    await expect(dashboard.page.getByText("Required", { exact: true }).first()).toBeVisible();
+    // The two Core (locked) agents carry the pill; the header legend explains it.
+    await expect(page.getByText("Core = locked")).toBeVisible();
+    for (const core of ["Domain Discovery Agent", "Delivery Compilation Agent"]) {
+      await expect(page.locator('[data-testid^="canvas-node-"]', { has: removeButton(page, core) }).getByText("Core", { exact: true })).toBeVisible();
+    }
+    // Required agents carry no Core pill …
+    await expect(page.locator('[data-testid^="canvas-node-"]', { has: removeButton(page, "Estimation Agent") }).getByText("Core", { exact: true })).toHaveCount(0);
+    // … but no default agent (Core or Required) can be removed.
+    for (const name of USER_STORIES_AGENTS) await expect(removeButton(page, name)).toBeDisabled();
 
-    // No optional agents in the default seed ⇒ no remove button yet.
-    await expect(dashboard.page.locator('[title="Remove agent"]')).toHaveCount(0);
-
-    // Add one optional agent (from another category) → it gains a remove button.
-    await dashboard.page.getByRole("button", { name: "Browse agent library →" }).click();
-    await expect(dashboard.page.getByRole("heading", { name: "Add agent" })).toBeVisible();
-    await dashboard.page.getByRole("button", { name: ".NET → Azure" }).click();
-    await dashboard.page.locator('[title="Add agent"]').first().click();
-
-    // Library closed; we're back in the popup with an optional card.
-    await expect(dashboard.page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
-    await expect(dashboard.page.locator('[title="Remove agent"]').first()).toBeVisible();
+    // Add one optional agent (another category) → its Remove is enabled.
+    await addFromLibrary(page, "Custom", CUSTOM_AGENTS[0]);
+    await expect(removeButton(page, CUSTOM_AGENTS[0])).toBeEnabled();
   });
 
   test("TS-D-03 remove optional agent decrements the Agents (N) tab count", async ({ dashboard }) => {
+    const page = dashboard.page;
     await openComposer(dashboard);
 
-    // Add an optional agent so there is something removable.
-    await dashboard.page.getByRole("button", { name: "Browse agent library →" }).click();
-    await dashboard.page.getByRole("button", { name: ".NET → Azure" }).click();
-    await dashboard.page.locator('[title="Add agent"]').first().click();
-    await expect(dashboard.page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
-
+    await addFromLibrary(page, "Custom", CUSTOM_AGENTS[0]);
     const before = await agentsTabCount(dashboard);
-    expect(before).toBeGreaterThan(6); // 6 defaults + the one we added
+    expect(before).toBe(7); // 6 defaults + the one we added
 
-    // Remove the optional agent → count drops by one. (Raw textContent has no
-    // space before the count span — "Agents(6)" — so match without a space.)
-    await dashboard.page.locator('[title="Remove agent"]').first().click();
+    await removeButton(page, CUSTOM_AGENTS[0]).click();
+    await expect(removeButton(page, CUSTOM_AGENTS[0])).toHaveCount(0);
+    // Raw textContent has no space before the count span ("Agents(6)").
     await expect(agentsTab(dashboard)).toHaveText(new RegExp(`Agents\\s*\\(${before - 1}\\)`));
   });
 
-  test("TS-D-05 add cell shows the cap and opens the Agent Library", async ({ dashboard }) => {
+  test("TS-D-05 add cell opens the Agent Library and is capped at 5 optional agents", async ({ dashboard }) => {
+    const page = dashboard.page;
     await openComposer(dashboard);
 
-    // Default user_stories has 0 optional of 5 ⇒ "+ Add agent (5 left)".
-    const addCell = dashboard.page.getByRole("button", { name: /^\+ Add agent \(\d+ left\)$/ });
-    await expect(addCell).toBeVisible();
-    await expect(addCell).toHaveText("+ Add agent (5 left)");
+    const addAtEnd = page.getByRole("button", { name: "Add agent at end" });
+    await expect(addAtEnd).toBeEnabled();
 
     // Clicking it opens the AgentLibrary.
-    await addCell.click();
-    await expect(dashboard.page.getByRole("heading", { name: "Add agent" })).toBeVisible();
-    await expect(dashboard.page.getByPlaceholder("Search agents...")).toBeVisible();
+    await addAtEnd.click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
+    await expect(page.getByPlaceholder("Search agents...")).toBeVisible();
+    // Add the 1st optional agent through the library this cell opened.
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    await page.locator('[data-testid^="library-card-"]', { hasText: CUSTOM_AGENTS[0] }).locator('[title="Add agent"]').click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
+    await expect(removeButton(page, CUSTOM_AGENTS[0])).toBeEnabled();
+
+    // Fill the optional cap (maxOptional = 5 for a built-in): after the 5th add
+    // every add affordance is disabled.
+    const optional = [...CUSTOM_AGENTS.map((n) => ["Custom", n]), [APP_BUILDER, APP_BUILDER_AGENTS[0]], [APP_BUILDER, APP_BUILDER_AGENTS[1]]];
+    for (const [category, name] of optional.slice(1, 4)) await addFromLibrary(page, category, name);
+    await expect(addAtEnd).toBeEnabled();
+    await addFromLibrary(page, optional[4][0], optional[4][1]);
+    await expect(agentsTab(dashboard)).toHaveText(/Agents\s*\(11\)/);
+    await expect(addAtEnd).toBeDisabled();
+    await expect(page.getByRole("button", { name: /^Insert agent before step \d+$/ }).first()).toBeDisabled();
   });
 
   test("TS-D-06 Agent Library category nav, and +Add adds the agent and closes the library", async ({ dashboard }) => {
+    const page = dashboard.page;
     await openComposer(dashboard);
 
-    await dashboard.page.getByRole("button", { name: "Browse agent library →" }).click();
-    await expect(dashboard.page.getByRole("heading", { name: "Add agent" })).toBeVisible();
+    await page.getByRole("button", { name: "Browse agent library →" }).click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
 
-    // Category nav — every expected pipeline label is present.
+    // Category nav — one entry per pipeline, labelled from the catalog
+    // (short_name || display_name; ".NET → Azure" has no catalog row here).
     for (const cat of [
-      "All", "User Stories", "Presentation", "Prototype",
-      "App Builder", "Mulesoft → Spring Boot", ".NET → Azure", "Custom",
+      "All", "Generate product requirements", "Pitch an idea", "Build an interactive prototype",
+      APP_BUILDER, "Platform workflows", ".NET → Azure", "Custom",
     ]) {
-      await expect(dashboard.page.getByRole("button", { name: cat, exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: cat, exact: true })).toBeVisible();
     }
 
     const countBefore = await agentsTabCount(dashboard);
 
     // A card's "+ Add" (title="Add agent") adds the agent AND closes the library.
-    await dashboard.page.getByRole("button", { name: "App Builder", exact: true }).click();
-    await dashboard.page.locator('[title="Add agent"]').first().click();
+    await page.getByRole("button", { name: APP_BUILDER, exact: true }).click();
+    await page.locator('[title="Add agent"]').first().click();
 
-    await expect(dashboard.page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
     await expect(agentsTab(dashboard)).toHaveText(new RegExp(`Agents\\s*\\(${countBefore + 1}\\)`));
   });
 
   test("TS-D-08 capabilities modal shows the three sections", async ({ dashboard }) => {
-    test.skip(true, "pre-existing feat/ui-2 red at 8c2f0b9d — not Phase 42 (RUNUI-09 baseline); Owner: frontend");
     await openComposer(dashboard);
 
-    // Open the capabilities inspector from a card's Info button. Phase-39/SHELL-04
-    // renamed the trigger title to "View capabilities & configure" and turned the
-    // former single-panel modal into a 4-tab inspector (Overview / Skills / Hooks /
-    // Config), so the three sections no longer render together — each lives on its
-    // own role="tab" panel. The first card is domain-analyst (Domain Discovery
-    // Agent), which has both a suggested skill AND a suggested hook.
-    await dashboard.page.locator('[title="View capabilities & configure"]').first().click();
+    // RE-ANCHORED. The per-agent capabilities inspector (AgentCapabilitiesModal,
+    // a 4-tab Overview / Skills / Hooks / Config dialog since SHELL-04) is
+    // unchanged in role, but its entry point and copy moved:
+    //   • 24332e0c replaced the popup's flow-card grid (and its
+    //     "View capabilities & configure" Info button) with the embedded canvas;
+    //     inside this popup the inspector is now opened from the Agent Library
+    //     card's Info button ("View capabilities", AgentLibrary.tsx).
+    //   • 08eb3833 (41-07) retitled Overview's "What this agent does" → "What it does".
+    //   • 24332e0c replaced the Skills tab's "Suggested Skills" list with the
+    //     shared per-agent AgentSkillsPicker ("Skills" + one row per compatible skill).
+    // The mock skills/hooks libraries (fixtures/mockApi.ts) declare
+    // `compatible_agents: []` (= compatible with every agent), so every agent's
+    // Skills and Hooks tabs are populated.
+    const page = dashboard.page;
+    await page.getByRole("button", { name: "Browse agent library →" }).click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
+    // The library opens on this workflow's own category, whose agents are all
+    // already on the canvas (so hidden) — switch to "All" to reach a card.
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    await page.getByRole("button", { name: "View capabilities", exact: true }).first().click();
 
-    // Overview (default) — the "what this agent does" summary.
-    await expect(dashboard.page.getByText("What this agent does")).toBeVisible();
-    // Skills tab — Suggested Skills.
-    await dashboard.page.getByRole("tab", { name: "Skills" }).click();
-    await expect(dashboard.page.getByText("Suggested Skills")).toBeVisible();
+    const inspector = page.getByRole("dialog", { name: / details$/ });
+    await expect(inspector).toBeVisible();
+    // Overview (default) — the "what it does" summary.
+    await expect(inspector.getByText("What it does", { exact: true })).toBeVisible();
+    // Skills tab — the agent's compatible skills, each attachable.
+    await inspector.getByRole("tab", { name: "Skills" }).click();
+    const skillsPanel = inspector.getByTestId(/^agent-skills-picker-/);
+    await expect(skillsPanel).toBeVisible();
+    await expect(skillsPanel.getByRole("button", { name: /^Add .+/ }).first()).toBeVisible();
     // Hooks tab — Suggested Hooks.
-    await dashboard.page.getByRole("tab", { name: "Hooks" }).click();
-    await expect(dashboard.page.getByText("Suggested Hooks")).toBeVisible();
+    await inspector.getByRole("tab", { name: "Hooks" }).click();
+    await expect(inspector.getByText("Suggested Hooks", { exact: true })).toBeVisible();
   });
 
-  // TS-D-04 (drag-reorder): the cards use native HTML5 DnD (onDragStart sets the
-  // dragged index in React state, onDrop splices the array and calls onReorder).
-  // Playwright's `dragTo` uses mouse events and does NOT fire the native
-  // dragstart/dragover/drop sequence these handlers listen on — so we dispatch
-  // the DOM DnD events directly with ONE shared DataTransfer (a real drag carries
-  // a single DataTransfer across the whole gesture). handleReorderAgents just
-  // does setPipelineAgents(reordered) with no re-sort, so the new order renders
-  // verbatim and we assert the two optional cards swapped places.
-  test("TS-D-04 drag-reorder of an unlocked agent card", async ({ dashboard }) => {
+  // TS-D-04 (reorder): the canvas replaced the draggable card grid with each
+  // node's "Move <name> earlier / later" controls (handleTreeChange →
+  // onReorder). Moving the second optional agent earlier swaps the pair.
+  test("TS-D-04 reorder of an unlocked agent", async ({ dashboard }) => {
     const page = dashboard.page;
     await openComposer(dashboard);
 
-    // Two optional (draggable, removable) agents — user_stories' 6 defaults are
-    // all Core/Required (not reorderable), so add two from another category.
-    await addOptionalAgents(dashboard, 2);
+    const [first, second] = [APP_BUILDER_AGENTS[0], APP_BUILDER_AGENTS[1]];
+    await addFromLibrary(page, APP_BUILDER, first);
+    await addFromLibrary(page, APP_BUILDER, second);
 
-    // They land adjacent in the grid (inserted just before the locked compiler),
-    // both draggable. Capture their current order.
-    const before = await optionalCardNames(page);
-    expect(before).toHaveLength(2);
-    expect(before[0]).not.toBe(before[1]);
+    const optionalOrder = async () => (await rootOrder(page)).filter((n) => n === first || n === second);
+    await expect.poll(optionalOrder).toEqual([first, second]);
+    const before = await rootOrder(page);
 
-    // Locate each optional card (draggable card carrying a "Remove agent" button)
-    // by its unique agent name.
-    const cardByName = (name: string): Locator =>
-      page.locator('[draggable="true"]')
-        .filter({ has: page.locator('[title="Remove agent"]') })
-        .filter({ hasText: name });
-    const source = cardByName(before[1]); // drag the 2nd optional…
-    const target = cardByName(before[0]); // …onto the 1st
-    await expect(source).toHaveCount(1);
-    await expect(target).toHaveCount(1);
+    await page.locator(`button[aria-label="Move ${second} earlier"]`).click();
 
-    // Native HTML5 drag-and-drop with a shared DataTransfer across the gesture.
-    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
-    await source.dispatchEvent("dragstart", { dataTransfer });
-    await target.dispatchEvent("dragover", { dataTransfer });
-    await target.dispatchEvent("drop", { dataTransfer });
-    await source.dispatchEvent("dragend", { dataTransfer });
-
-    // onDrop spliced the dragged card out and re-inserted it at the target index
-    // ⇒ the two optional cards swapped order (same set, no add/drop). Assert the
-    // exact resulting order, and that nothing was added or lost.
-    await expect.poll(() => optionalCardNames(page)).toEqual([before[1], before[0]]);
+    // Same set, the two optional agents swapped; nothing added or lost.
+    await expect.poll(optionalOrder).toEqual([second, first]);
+    expect((await rootOrder(page)).slice().sort()).toEqual(before.slice().sort());
   });
 });

@@ -26,16 +26,26 @@
 #
 # Trigger matrix — ref -> environment -> image tag:
 #
-#   | Ref (merge target)   | Environment | Image tag        |
-#   |----------------------|-------------|------------------|
-#   | refs/heads/dev       | dev         | dev-<commit>     |
-#   | refs/heads/staging   | stage       | stage-<commit>   |
-#   | refs/tags/v*         | prod        | <the tag itself> |
+#   | Ref (merge target)   | Environment | Image tag                  |
+#   |----------------------|-------------|----------------------------|
+#   | refs/heads/dev       | dev         | dev-<commit>               |
+#   | refs/heads/staging   | stage       | stage-<commit>             |
+#   | refs/tags/v*         | prod        | <the tag itself>           |
+#   | any branch, prod     | prod        | prod-<branch>-<commit>     |
+#   | (break-glass only)   |             | (`/` in the branch -> `-`) |
 #
 #   `<commit>` is the first 12 chars of the commit SHA, so every merge to
 #   dev/staging produces a distinct, traceable tag. A prod release is addressed
 #   by its own release tag (e.g. v1.4.0) — never a commit tag — so what shipped
 #   is named the same way in ECR, in git, and in the deploy log.
+#
+#   The break-glass row is reachable only via workflow_dispatch with
+#   allow_untagged_prod=true. Its tag MUST include the commit: it used to be the
+#   bare branch name, and because these ECR repositories are IMMUTABLE the tag
+#   `main` could only be pushed once — so the second and every later emergency
+#   deploy found `:main` already present, adopted that first run's digest, and
+#   skipped the build entirely. It shipped stale bytes precisely when knowing
+#   what you are shipping matters most.
 #
 #   Prod additionally requires (a) required-reviewer approval on the `prod`
 #   GitHub Environment, and (b) that the tagged commit is an ancestor of
@@ -122,17 +132,8 @@ permissions:
   contents: read
 
 env:
-  # Fallback only — every environment sets its own `AWS_REGION` variable, and
-  # that wins (`vars.AWS_REGION || env.AWS_REGION_DEFAULT`). eu-central-1 is the
-  # project region: it is what the retired buildspec pinned, what
-  # docker-compose.prod.yml defaults its awslogs driver to, and what every
-  # IAM/ECR/SSM ARN in docs/GITHUB_CICD_SETUP.md is written against.
-  #
-  # Deliberately NOT named AWS_REGION: several steps below need a step-level
-  # `env: AWS_REGION: ...`, and GitHub does not resolve an `env.<KEY>` lookup
-  # that collides with a key being defined in the same env block. A distinct
-  # name makes the fallback unambiguous instead of silently empty.
-  AWS_REGION_DEFAULT: eu-central-1
+  # F-25: the AWS region fallback lives in .github/actions/aws-deploy-auth; every
+  # region site reads that action's `steps.aws.outputs.region`.
 
   # The branch a prod release must descend from. The `resolve` job refuses a
   # prod deploy whose commit is not contained in this branch, so a v* tag cut
@@ -140,7 +141,7 @@ env:
   PROD_SOURCE_BRANCH: main
 
   # F-08: the ECR repository names, previously inlined verbatim at 6 sites in
-  # this file (probe, build+push tags x2, image scans x2, deploy-record
+  # this file (probe, build+push tags x2, post-push image scans x2, deploy-record
   # params x2). One rename now touches one line instead of six, and a typo in
   # any one of the six copies can no longer silently point a step at the
   # wrong repository.
@@ -149,11 +150,18 @@ env:
 
   # F-08: trivy version/checksum for the image-scan steps in `build` below.
   # MUST stay identical to ci.yml's env.TRIVY_VERSION / env.TRIVY_SHA256 (the
-  # Terraform-config scan in security-scan) — workflow-level `env:` cannot be
-  # shared across separate workflow FILES, so this is a second, deliberately
-  # parallel copy. Bump both together.
+  # Terraform-config scan in the `security` matrix leg `iac`, and the image scans
+  # in `container-scan`) — workflow-level `env:` cannot be shared across separate
+  # workflow FILES, so this is a second, deliberately parallel copy of TWO. Bump
+  # both together; tests/unit/tools/ci/test_toolchain_pins.py enforces it.
   TRIVY_VERSION: "0.69.3"
   TRIVY_SHA256: "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
+  # Grype, for the same post-push scan: the pushed digests are now checked by
+  # BOTH engines through .github/scripts/ci-image-scan.sh, exactly as ci.yml's
+  # container-scan checks the locally built image. Same parallel-copy rule as
+  # trivy above; test_toolchain_pins.py asserts both files agree.
+  GRYPE_VERSION: "0.119.0"
+  GRYPE_SHA256: "3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -163,12 +171,11 @@ jobs:
   # the shared registry; a few minutes of pipeline latency is the correct price
   # for "nothing unreviewed ever reaches ECR".
   #
-  # Secrets are mapped EXPLICITLY rather than with `secrets: inherit`. A local
-  # reusable-workflow call inherits nothing by default, so some mapping is
-  # required — but `inherit` forwards every secret this workflow can see,
-  # including the AWS/OIDC material the gate must never hold. ci.yml declares
-  # SONAR_TOKEN as its only secret input, so that is the only thing passed.
-  # This keeps the gate AWS-blind by construction instead of by convention: no
+  # NO `secrets:` BLOCK, and none is possible. ci.yml declares no
+  # `workflow_call.secrets` inputs at all, so there is nothing to map: passing
+  # any secret here would be rejected by the workflow parser. The gate is
+  # therefore AWS-blind by construction rather than by convention — not even
+  # `secrets: inherit` could hand it the AWS/OIDC material, and no
   # `environment:` is declared here either, so this job never mints an OIDC
   # token and the production reviewer gate stays on build/deploy alone.
   #
@@ -180,29 +187,45 @@ jobs:
   # The gate's time budget belongs to the called workflow: every job in ci.yml
   # declares its own `timeout-minutes` (10-30), so nothing here is unbounded.
   # ---------------------------------------------------------------------------
-  # DEV FAST PATH (temporary): the gate is SKIPPED for the `dev` environment
-  # only. stage and prod remain fully gated — `if:` below is the only control,
-  # and it names `dev` explicitly rather than excluding prod, so a new
-  # environment is gated by default.
+  # THE GATE RUNS FOR EVERY ENVIRONMENT, INCLUDING dev (F-03).
   #
-  # Why: ci.yml currently reports red on four mandatory gates that are
-  # pre-existing product/dependency debt (frontend coverage, two dependency
-  # audits, e2e skips — see .github/CI_STATUS.md), and `ci-required` cannot
-  # publish from this call path anyway because a reusable workflow cannot hold
-  # more token permission than its caller and this file grants only
-  # `contents: read`. Both block every dev deploy for reasons unrelated to the
-  # commit being deployed.
+  # It used to be SKIPPED for `dev` via `if: environment != 'dev'`. The stated
+  # reason was that four mandatory signals reported red on pre-existing product
+  # and dependency debt (frontend coverage, two dependency audits, e2e skips —
+  # see .github/CI_STATUS.md) and blocked every dev deploy for reasons unrelated
+  # to the commit being shipped. That reason was real; the remedy was not
+  # proportionate. Skipping the gate discarded EVERY mandatory signal to avoid
+  # 4 — so every dev deploy went out with no lint, no tests, no coverage gate, no
+  # secret scan, no dependency audit and no container scan. Combined with ci.yml
+  # having no `push` trigger for `dev` at the time, a dev deploy was evaluated by
+  # nothing whatsoever.
   #
-  # REVERT: delete the `needs:`/`if:` pair below and the matching `if:` on
-  # `build` and `deploy`. Nothing else changed; ci.yml is untouched.
+  # The replacement is a per-signal downgrade. `advisory_signals` names exactly
+  # the signals that are still red on debt — now two (frontend-evidence,
+  # frontend-e2e). The two dependency-audit signals were retired when pip-audit
+  # and npm audit were folded into the Trivy/Grype container scans, whose only
+  # exceptions are the dated entries in backend/tools/ci/scan_accepts.py. Each
+  # advisory signal still RUNS, still REPORTS, and its real state is still
+  # recorded in the evidence manifest — it just does not block THIS deploy. The
+  # other signals block dev exactly as they block stage and prod.
   #
-  # `needs: resolve` is required for the `if:` to read the resolved environment.
-  # Both keys are legal on a reusable-workflow-call job (unlike
-  # `timeout-minutes` — see the note below).
+  # The mechanism cannot be widened from here. The allowlist and a hard expiry
+  # date per entry live in backend/tools/ci/signal_registry.py, the gate rejects
+  # any id that is not on the allowlist or is past its date, only a measured
+  # `failure` is excusable (never a skipped/cancelled/missing verdict), and a
+  # downgraded run does not publish the `ci-required` merge status. See
+  # backend/tests/unit/tools/ci/test_ci_gate.py.
+  #
+  # WHEN THE DEBT IS PAID: delete the `advisory_signals` line below. Nothing else
+  # needs to change, and the expiry dates in the registry will force the
+  # conversation if it is forgotten.
+  #
+  # `needs: resolve` is required for the `if:` on the `with:` expression to read
+  # the resolved environment. Both keys are legal on a reusable-workflow-call job
+  # (unlike `timeout-minutes` — see the note above).
   gate:
     name: CI gate
     needs: resolve
-    if: ${{ needs.resolve.outputs.environment != 'dev' }}
     # STARTUP-FAILURE FIX: a called reusable workflow cannot request MORE token
     # permission than the calling job grants, and GitHub enforces this while
     # BUILDING the graph — before any `if:` is evaluated and before any job is
@@ -216,21 +239,41 @@ jobs:
     # Granted on THIS JOB only, not workflow-level, so `resolve`/`build`/
     # `deploy` keep their existing envelopes. The gate stays AWS-blind: no
     # `id-token: write` here, so it still cannot mint a token for STS.
+    #
+    # `pull-requests: read` for the same reason (F-15): ci.yml's `changes` job
+    # requests it for dorny/paths-filter. The filter step itself only runs on
+    # pull_request, so a deploy always evaluates every signal, but the
+    # permission check happens at graph construction regardless — without this
+    # grant every deploy would die as `startup_failure` again.
+    # backend/tests/unit/tools/ci/test_ci_graph_contracts.py asserts this job
+    # grants every permission any ci.yml job requests.
     permissions:
       contents: read
+      pull-requests: read
       statuses: write
     uses: ./.github/workflows/ci.yml
     with:
       intent_id: deploy-${{ github.run_id }}
-    secrets:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # dev ONLY. The conditional is written as an allowlist of one rather than
+      # as `!= 'prod'` so that a NEW environment is strictly gated by default —
+      # the same reasoning the old skip condition used, kept deliberately.
+      # stage and prod receive an empty string, which makes these signals
+      # blocking for them. backend/tests/unit/tools/ci/test_workflow_contracts.py
+      # asserts this expression names no environment other than dev.
+      #
+      # COMMA-separated and on ONE line on purpose. A YAML plain scalar folds a
+      # line break into a SPACE, so writing these ids across several lines
+      # would hand the gate one unsplittable token and fail the aggregate with a
+      # confusing "not a registered signal". The gate accepts commas or newlines;
+      # commas are the form that survives YAML folding.
+      advisory_signals: ${{ needs.resolve.outputs.environment == 'dev' && 'frontend-evidence,frontend-e2e' || '' }}
 
   # ---------------------------------------------------------------------------
   # Resolve which environment and image tag to use based on the trigger event.
   # ---------------------------------------------------------------------------
   resolve:
     name: Resolve environment + tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       environment: ${{ steps.resolve.outputs.environment }}
@@ -275,7 +318,31 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             ENV="$DISPATCH_ENV"
             case "$ENV" in
-              prod)  TAG="${GITHUB_REF_NAME}" ;;
+              prod)
+                # A dispatched prod deploy from a v* tag uses the tag itself —
+                # that is the normal, documented path.
+                #
+                # BREAK-GLASS from a branch is different, and the naive
+                # `TAG="${GITHUB_REF_NAME}"` was unsafe. ECR repos here are
+                # IMMUTABLE, so the tag `main` can only ever be pushed once.
+                # The FIRST break-glass run from main pushed `:main`; every
+                # LATER one found `:main` already in the registry, and the probe
+                # below adopted that old digest and skipped the build entirely.
+                # So the second and every subsequent emergency deploy silently
+                # shipped the bytes from the first one — exactly when being sure
+                # what you are shipping matters most.
+                #
+                # Making the tag commit-unique fixes it. `/` is not legal in an
+                # ECR tag, so a branch like `hotfix/db` becomes `hotfix-db`.
+                # The `prod-` prefix keeps the tag out of the dev-/stage- name
+                # space and under the ECR lifecycle's reserved prod- prefix, so a
+                # branch named `dev-x` can never mint a dev-* tag (REL-12).
+                if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+                  TAG="${GITHUB_REF_NAME}"
+                else
+                  TAG="prod-$(printf '%s' "${GITHUB_REF_NAME}" | tr '/' '-')-${SHA_SHORT}"
+                fi
+                ;;
               stage) TAG="stage-${SHA_SHORT}" ;;
               dev)   TAG="dev-${SHA_SHORT}" ;;
               *)
@@ -299,17 +366,33 @@ jobs:
           fi
 
           # ── Prod tag enforcement ──────────────────────────────────────
-          # Prod MUST deploy from a v* tag. A mutable branch-name tag (e.g.
-          # :main) would be unversioned, never expired by the ECR lifecycle,
-          # and indistinguishable from a dev commit in the break-glass path.
-          # The allow_untagged_prod dispatch input is the documented escape
-          # hatch for emergencies where cutting a tag is impossible.
-          if [[ "$ENV" == "prod" && ! "$TAG" =~ ^v ]]; then
+          # Prod MUST deploy from a v* TAG REF. The allow_untagged_prod dispatch
+          # input is the documented escape hatch for emergencies where cutting a
+          # tag is impossible.
+          #
+          # This tests $GITHUB_REF, not $TAG. Testing the resolved tag name for
+          # `^v` was a bypass: a branch whose name merely starts with "v"
+          # (`vnext`, `v2-rewrite`) produced a tag that passed the check, so a
+          # prod deploy from an untagged branch proceeded WITHOUT the break-glass
+          # flag and without the warning that flag prints. What the gate is
+          # actually asserting is "this release is addressed by a release tag",
+          # which is a property of the ref, not of a string derived from it.
+          if [[ "$ENV" == "prod" && "$GITHUB_REF" != refs/tags/v* ]]; then
             if [[ "$ALLOW_UNTAGGED_PROD" != "true" ]]; then
               echo "::error::Prod deploys require a v* tag (got '$TAG'). If this is an emergency, re-run with allow_untagged_prod=true."
               exit 1
             fi
             echo "::warning::BREAK-GLASS: deploying prod from non-v* ref '$TAG' (allow_untagged_prod=true)."
+          fi
+
+          # A tag ref that deploys to prod must be a release tag, not merely
+          # `v*`: `vfoo` or `v1.2` would map to prod here yet never get a
+          # release. Same grammar as release.yml (no `+build` suffix: `+` is not
+          # a legal ECR tag character) (REL-04).
+          if [[ "$GITHUB_REF" == refs/tags/* ]] \
+              && [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag is not vMAJOR.MINOR.PATCH[-prerelease]; refusing to deploy it to prod."
+            exit 1
           fi
 
           # ECR tags allow [A-Za-z0-9._-] only, and the SSM payload embeds this
@@ -335,7 +418,9 @@ jobs:
           # this check would be bypassable on its own by editing the workflow
           # on the branch being deployed.
           if [[ "$ENV" == "prod" ]]; then
-            if [[ "$ALLOW_UNTAGGED_PROD" == "true" ]]; then
+            # Break-glass skips ancestry for branch refs only. A tag ref always
+            # gets the check: a tag can be cut on any commit (REL-04).
+            if [[ "$ALLOW_UNTAGGED_PROD" == "true" && "$GITHUB_REF" != refs/tags/* ]]; then
               echo "::warning::BREAK-GLASS: skipping the ${PROD_SOURCE_BRANCH} ancestry check for '${GITHUB_REF_NAME}'. The prod Environment's reviewer approval is the only remaining gate."
             else
               git fetch --no-tags --quiet origin "+refs/heads/${PROD_SOURCE_BRANCH}:refs/remotes/origin/${PROD_SOURCE_BRANCH}" || {
@@ -343,7 +428,7 @@ jobs:
                 exit 1
               }
               if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${PROD_SOURCE_BRANCH}"; then
-                echo "::error::Refusing prod deploy: commit ${GITHUB_SHA} is not an ancestor of origin/${PROD_SOURCE_BRANCH}. Merge the release to ${PROD_SOURCE_BRANCH} and re-tag, or re-run with allow_untagged_prod=true (break-glass, reviewer-gated)."
+                echo "::error::Refusing prod deploy: commit ${GITHUB_SHA} is not an ancestor of origin/${PROD_SOURCE_BRANCH}. Merge the release to ${PROD_SOURCE_BRANCH} and re-tag. For an emergency, dispatch from a branch ref with allow_untagged_prod=true (break-glass, reviewer-gated); tag refs are always checked."
                 exit 1
               fi
               echo "Prod ancestry verified: ${GITHUB_SHA} is contained in origin/${PROD_SOURCE_BRANCH}."
@@ -361,25 +446,31 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build + Push
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # `gate` is a REQUIRED dependency, not a parallel bystander: without it, a
     # commit that fails lint/tests/secret scanning would still publish images
-    # to the shared registry (and move the <env>-latest alias) before the
+    # to the shared registry before the
     # gate reported red. tests/ci/test_workflow_contracts.py::
     # test_build_depends_on_gate enforces this in CI — do not remove `gate`
     # from `needs` without updating that test's contract at the same time.
     needs: [gate, resolve]
-    # A skipped `gate` would otherwise skip this job too, so the dev fast path
-    # needs an explicit condition here. Deliberately NOT a bare `!failure()`:
-    # that treats "gate skipped" and "gate succeeded" as equally acceptable for
-    # EVERY environment, so any future edit that skips the gate on stage/prod
-    # would silently open the path to ECR. This form demands either a gate that
-    # actually SUCCEEDED, or the one environment where skipping is sanctioned.
+    # F-03: the gate now runs for EVERY environment, so this condition no longer
+    # needs — and must not have — an escape hatch for a skipped gate.
     #
-    # Fail-closed on a broken `resolve`: its outputs are empty, `gate` skips
-    # (it needs resolve), so both clauses are false and this job does not run.
-    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.resolve.outputs.environment == 'dev') }}
-    timeout-minutes: 60
+    # It previously read `needs.gate.result == 'success' || environment == 'dev'`,
+    # whose second clause meant "dev may reach ECR with no evaluation at all".
+    # With the gate always running, `needs.gate.result == 'success'` is the only
+    # acceptable condition for every environment, and a red gate on dev now stops
+    # the build exactly as it does on prod.
+    #
+    # `!cancelled()` is kept so a cancelled run does not report a confusing
+    # failure here, and it still fails closed on a broken `resolve`: if `resolve`
+    # fails, `gate` (which needs it) is skipped, `needs.gate.result` is 'skipped',
+    # and this job does not run.
+    if: ${{ !cancelled() && needs.gate.result == 'success' }}
+    # 90, was 60: the post-push scan now runs BOTH engines against BOTH pushed
+    # digests (each engine pulls the image itself), on top of the two builds.
+    timeout-minutes: 90
     environment: ${{ needs.resolve.outputs.environment }}
     # Only this job and `deploy` mint an AWS OIDC token (see the workflow-level
     # `permissions:` note).
@@ -402,18 +493,16 @@ jobs:
       # permissions, so a compromised build step cannot write an environment's
       # config or reach a host — that authority lives only in the per-env
       # deploy roles assumed by the `deploy` job.
+      #
+      # F-25: region resolution + OIDC live in the aws-deploy-auth composite
+      # (FIX-NODE20-01's configure-aws-credentials v6.2.3 pin moved there). No
+      # instance id: this job commands no host.
       - name: Configure AWS credentials (OIDC — build role)
-        # FIX-NODE20-01: v4.0.2 declares `using: node20`. GitHub is phasing
-        # out Node 20 action runtimes (FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 is
-        # already opt-in today and Node 20 becomes unsupported on GitHub's
-        # own timeline); running an unsupported runtime silently or via
-        # ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION is not an acceptable long-
-        # term fix. Upgraded to the latest tagged release (v6.2.3), which
-        # declares `using: node24` (verified against its action.yml).
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        id: aws
+        uses: ./.github/actions/aws-deploy-auth
         with:
           role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Login to ECR
         id: ecr-login
@@ -431,24 +520,52 @@ jobs:
       - name: Probe ECR for an existing image for this tag
         id: probe
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
           IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
         run: |
           set -euo pipefail
 
           probe_repo() {
             local repo="$1" out="$2"
-            local digest
-            # `|| true` on the query itself: a missing tag is the NORMAL case
-            # (first build of this commit) and must not fail the step, while a
-            # genuine permission/network error still surfaces as an empty
-            # digest and simply results in a build+push attempt below.
-            digest="$(aws ecr describe-images \
+            local digest err_file rc=0
+            # A missing tag is the NORMAL case (first build of this commit) and
+            # must not fail the step. Everything else must.
+            #
+            # This previously used `2>/dev/null || true` and treated an empty
+            # result as "not present", which conflated three very different
+            # outcomes: the tag is absent, the role is not authorized, and the
+            # registry/network is unreachable. The last two were silently
+            # reported as absence — and the consequence is not merely a wasted
+            # build: on an IMMUTABLE repository a build+push against a tag that
+            # DOES already exist fails with ImagePushNotAllowedException, so a
+            # transient describe-images error turned a clean re-run into a hard
+            # push failure with a misleading error.
+            err_file="$(mktemp)"
+            if ! digest="$(aws ecr describe-images \
               --repository-name "$repo" \
               --image-ids "imageTag=${IMAGE_TAG}" \
               --region "$AWS_REGION" \
               --query 'imageDetails[0].imageDigest' \
-              --output text 2>/dev/null || true)"
+              --output text 2>"$err_file")"; then
+              rc=1
+            fi
+            if [[ "$rc" -ne 0 ]]; then
+              if grep -q 'ImageNotFoundException\|RepositoryNotFoundException' "$err_file"; then
+                # Genuine absence. RepositoryNotFoundException is included
+                # because a brand-new environment may not have the repository
+                # yet; the push below creates nothing, so it will fail loudly
+                # and legibly if that is the real problem.
+                digest=""
+              else
+                cat "$err_file" >&2
+                echo "::error::Could not determine whether ${repo}:${IMAGE_TAG} already exists in ECR."
+                echo "::error::This is NOT the same as the tag being absent, so the build must not proceed: on an IMMUTABLE repository, pushing a tag that already exists fails with ImagePushNotAllowedException."
+                echo "::error::Check the build role's ecr:DescribeImages grant and that the repository '${repo}' exists in ${AWS_REGION}."
+                rm -f "$err_file"
+                exit 1
+              fi
+            fi
+            rm -f "$err_file"
             if [[ -n "$digest" && "$digest" != "None" ]]; then
               echo "  ${repo}:${IMAGE_TAG} already present -> ${digest}"
               echo "${out}_digest=${digest}" >> "$GITHUB_OUTPUT"
@@ -481,7 +598,8 @@ jobs:
       #   always failed and was swallowed by a trailing `|| true`. Both the flag
       #   and the cosign steps are gone rather than left as decoration. The
       #   dependency-vulnerability signal this repo actually enforces is the
-      #   blocking Trivy/Grype scan of the pushed digest, below and in ci.yml's
+      #   Trivy/Grype scan of the pushed digest (TEMPORARILY advisory, see the TODO
+      #   at the scan steps below), below and in ci.yml's
       #   container-scan job.
       - name: Build + push backend
         id: build-backend
@@ -510,8 +628,13 @@ jobs:
           # see remote-deploy.sh §7) or the previous release tag, both exact.
           tags: |
             ${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}:${{ needs.resolve.outputs.image_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Per-component scope. Without one, both images write the SAME default
+          # GHA cache scope with mode=max, so each build evicts the other's layers
+          # and every deploy is effectively a cold build. `deploy-` keeps these
+          # separate from ci.yml's `ci-<component>` scopes, so layers produced by
+          # an untrusted PR evaluation are never consumed by a deployment build.
+          cache-from: type=gha,scope=deploy-backend
+          cache-to: type=gha,mode=max,scope=deploy-backend
 
       - name: Build + push frontend
         id: build-frontend
@@ -527,8 +650,9 @@ jobs:
           # same image promotes dev -> stage -> prod unchanged.
           tags: |
             ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}:${{ needs.resolve.outputs.image_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # See the backend step: per-component, deploy-only cache scope.
+          cache-from: type=gha,scope=deploy-frontend
+          cache-to: type=gha,mode=max,scope=deploy-frontend
 
       # ── Resolve the digests this run will deploy ──────────────────────
       # Either the freshly built digest (build-push-action's `digest` output)
@@ -566,51 +690,73 @@ jobs:
           resolve_digest "backend" "$BACKEND_BUILT" "$BACKEND_PROBED"
           resolve_digest "frontend" "$FRONTEND_BUILT" "$FRONTEND_PROBED"
 
-      # ── Image vulnerability scan (WARN-ONLY — TEMPORARY) ──────────────
-      # !! THIS IS A DELIBERATELY WEAKENED SECURITY GATE. !!
+      # ── Image vulnerability scan (ADVISORY on HIGH,CRITICAL - TEMPORARY) ──────────
+      # TODO(security): TEMPORARY - vulnerability scans are WARN-ONLY (advisory) as of 2026-10-11.
+      # In future this must be changed back to BLOCKING, and the outstanding High/Critical
+      # vulnerabilities must be fixed (see backend/tools/ci/scan_accepts.py and scan reports).
+      # As of 2026-10-11 these steps are warn-only again by an explicit owner decision.
+      # A finding is reported (warnings + step summary + scan-results/*-verdict.json)
+      # but no longer stops `deploy` or the writing of the `deploy/*` recovery
+      # parameter, in every environment including prod. The container-scan[*]
+      # signals are deliberately NOT in advisory_signals; they are warn-only at the
+      # source (SCAN_GATE_MODE: warn in ci.yml container-scan and below).
       #
-      # These two steps still scan BY DIGEST and still print the full
-      # HIGH/CRITICAL table, but they no longer fail the build: a finding now
-      # produces a `::warning::` annotation and the job continues. That means a
-      # HIGH or CRITICAL vulnerability CAN currently reach ECR *and* be deployed
-      # to the target environment. Nothing else in the pipeline stops it.
+      # F-04: this gate was WARN-ONLY. Both steps still scanned and still
+      # printed the table, but converted a finding into a `::warning::` and let
+      # the job continue — so a HIGH or CRITICAL vulnerability could reach ECR
+      # *and* be deployed, in every environment, with nothing else stopping it.
+      # It is blocking again, unconditionally: dev, stage and prod alike.
       #
-      # Why: the backend image has pre-existing findings that block every
-      # deploy for reasons unrelated to the commit being shipped, several with
-      # no fix available upstream:
-      #   Debian    zlib1g   CVE-2023-45853  CRITICAL  (will_not_fix)
-      #   node-pkg  image-size 1.2.1  CVE-2025-71329 / CVE-2025-71330  (no fix)
-      #   python    ecdsa 0.19.2  CVE-2024-23342  (no fix — Minerva)
-      #   python    msgpack 1.1.2  GHSA-6v7p-g79w-8964  (fixed in 1.2.1)
-      #   python    setuptools 70.3.0  CVE-2025-47273  (fixed in 78.1.1)
+      # WHERE THIS SITS IN THE LAYERING. It is the SECOND image scan of the same
+      # commit, and deliberately so:
+      #   1. ci.yml's `container-scan` job builds both images from source and
+      #      scans each with BOTH Trivy and Grype (plus a Trivy scan of
+      #      frontend/package-lock.json). That job is part of the `gate` this
+      #      workflow depends on, and since F-03 the gate runs for every
+      #      environment — so nothing reaches `build` unless those signals were
+      #      already green for this exact revision.
+      #   2. THESE steps scan the bytes that were actually PUSHED, addressed by
+      #      immutable digest. They confirm that what landed in the registry is
+      #      what CI certified, and they are the only scans that can see the
+      #      pushed artifact at all.
+      # Both currently only warn on findings. A finding here after a green container-scan means the
+      # pushed image and the locally built one differ, which is worth failing a
+      # deploy over on its own.
       #
-      # Two of those are straightforwardly fixable by bumping the pin
-      # (msgpack -> 1.2.1, setuptools -> 78.1.1); the rest need a base-image
-      # swap or upstream movement. This gate should go back to blocking as soon
-      # as the fixable ones are bumped and the unfixable ones have an explicit,
-      # reviewed decision.
+      # ONE SCRIPT, ONE POLICY. These steps run .github/scripts/ci-image-scan.sh
+      # with IMAGE_SOURCE=registry — the same script, the same two engines and
+      # the same gate as ci.yml. It previously ran a bare
+      # `trivy image --exit-code 1`, which could never agree with CI once CI
+      # applied reviewed exceptions: every accepted finding would pass the gate
+      # and then block here. No --ignore-unfixed and no --ignorefile anywhere;
+      # the only exceptions are the dated, per-package entries in
+      # backend/tools/ci/scan_accepts.py, which fail the build when they expire
+      # or stop matching anything.
       #
-      # REVERT (restores the previous zero-finding policy): in BOTH scan steps
-      # below, drop the `set +e` / `TRIVY_RC` / warning wrapper and restore the
-      # single line
-      #     trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
-      # and change the two step names back to "(blocking on HIGH,CRITICAL)".
+      # KNOWN BACKLOG and where each item went (see scan_accepts.py for the
+      # reviewed justification of every accepted entry):
+      #   Debian    zlib1g     CVE-2023-45853 — accepted until 2026-12-31
+      #     (MiniZip is not built into zlib1g; no bookworm fix). Ends with a
+      #     base-image move to a zlib >= 1.3.1 release.
+      #   node-pkg  image-size CVE-2025-71329 / CVE-2025-71330 — accepted until
+      #     2026-12-31 (no fix published; pptxgenjs runs sandboxed). Ends when
+      #     the client-side .pptx export and pptxgenjs are removed.
+      #   python    ecdsa      CVE-2024-23342 — accepted until 2026-12-31 (only
+      #     RS256 is used; the EC signing path is unreachable). Ends with the
+      #     PyJWT migration.
+      #   python    setuptools CVE-2025-47273 — NOT accepted: it has a fix, so
+      #     backend/Dockerfile upgrades the system interpreter's setuptools.
       #
-      # NOT using `--ignore-unfixed` or a CVE ignorefile to achieve this: those
-      # would silently hide findings from the OUTPUT as well. Warn-only keeps
-      # every finding visible in the log and in the run's annotations, so the
-      # backlog stays measurable instead of disappearing.
+      # SUPPLY-CHAIN NOTE. The gate needs the backend environment
+      # (`setup-backend`), so this privileged job installs the ci-tools group
+      # (defusedxml, pyyaml, requests) from the committed, hash-pinned uv.lock.
+      # `uv sync --locked` refuses anything the lock does not pin, and CI's
+      # container-scan runs the same gate on the same group; the trade was made
+      # so deploy and CI cannot disagree about the policy.
       #
-      # The previous (blocking) rationale, kept for the revert:
-      #   Zero-finding policy (bugfix 2.8): every resolved HIGH/CRITICAL finding
-      #   blocks regardless of fix availability, prior count, or suppression
-      #   text. A genuinely unfixable finding must be remediated (base image
-      #   swap, package removal/pin) before this image can deploy.
-      #
-      # F-08: version/checksum come from env.TRIVY_VERSION / env.TRIVY_SHA256
-      # at the top of this file — see the note there for why this is a
-      # deliberate, separately-maintained copy of ci.yml's identical values
-      # rather than a shared one (workflow-level `env:` cannot cross files).
+      # F-08: versions/checksums come from env.TRIVY_* / env.GRYPE_* at the top
+      # of this file — see the note there for why they are deliberate,
+      # separately-maintained copies of ci.yml's identical values.
       - name: Install trivy
         uses: ./.github/actions/install-checksummed-tool
         with:
@@ -621,44 +767,88 @@ jobs:
           archive-format: tar.gz
           binary-name: trivy
 
-      # WARN-ONLY: `--exit-code 1` is still passed so trivy reports findings via
-      # its exit status, but the status is captured and converted into a warning
-      # instead of failing the step. `set +e` around the call (not `|| true`) so
-      # the real exit code is preserved and can be distinguished from 0.
-      - name: Scan backend image (WARN-ONLY on HIGH,CRITICAL)
-        env:
-          IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}
-        run: |
-          set +e
-          trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
-          TRIVY_RC=$?
-          set -e
-          if [ "$TRIVY_RC" -ne 0 ]; then
-            echo "::warning title=Backend image has HIGH/CRITICAL vulnerabilities::Findings present in the backend image (see the table above). This gate is TEMPORARILY warn-only, so the deploy is proceeding anyway. Fix the pinnable ones (msgpack, setuptools) and restore the blocking gate in .github/workflows/deploy.yml."
-          else
-            echo "No HIGH/CRITICAL findings in the backend image."
-          fi
+      - name: Install grype
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: grype
+          version: "v${{ env.GRYPE_VERSION }}"
+          url: https://github.com/anchore/grype/releases/download/v${{ env.GRYPE_VERSION }}/grype_${{ env.GRYPE_VERSION }}_linux_amd64.tar.gz
+          sha256: ${{ env.GRYPE_SHA256 }}
+          archive-format: tar.gz
+          binary-name: grype
 
-      - name: Scan frontend image (WARN-ONLY on HIGH,CRITICAL)
-        env:
-          IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}
+      # ci-tools: ci-image-scan.sh only runs `python -m tools.ci.scan_accepts`
+      # and `python -m tools.ci.ci_gate`, so this privileged job installs just
+      # the ci-tools group from the lock, not the full prod+dev graph.
+      - name: Setup backend (ci-tools only, for the exceptions list and the scanner gate)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "ci-tools"
+
+      # Disk headroom for two remote image exports plus both vulnerability DBs.
+      # Same reasoning as ci.yml's container-scan (F-36): the builder cache is
+      # dead weight once the images are pushed, and the preinstalled toolchains
+      # removed here are never used by this job. The rest of the tool cache is
+      # kept because setup-backend resolved its Python from it.
+      - name: Reclaim runner disk before scanning
         run: |
-          set +e
-          trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
-          TRIVY_RC=$?
-          set -e
-          if [ "$TRIVY_RC" -ne 0 ]; then
-            echo "::warning title=Frontend image has HIGH/CRITICAL vulnerabilities::Findings present in the frontend image (see the table above). This gate is TEMPORARILY warn-only, so the deploy is proceeding anyway. Restore the blocking gate in .github/workflows/deploy.yml once remediated."
-          else
-            echo "No HIGH/CRITICAL findings in the frontend image."
-          fi
+          set -euo pipefail
+          docker builder prune --all --force
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      # Advisory (TEMPORARY), with NO wrapper (continue-on-error and `|| true` stay
+      # forbidden): SCAN_GATE_MODE=warn makes the gate exit 0 on findings and on
+      # missing/empty/unparseable reports, so `deploy` and the `deploy/*` recovery
+      # parameter are not blocked. The script still fails (and stops
+      # `deploy`) on misconfiguration: an IMAGE_REF not pinned by digest, or an
+      # invalid COMPONENT/IMAGE_SOURCE/SCAN_GATE_MODE.
+      # TODO(security): TEMPORARY - vulnerability scans are WARN-ONLY (advisory) as of 2026-10-11.
+      # In future this must be changed back to BLOCKING, and the outstanding High/Critical
+      # vulnerabilities must be fixed (see backend/tools/ci/scan_accepts.py and scan reports).
+      - name: Scan the pushed backend digest (Trivy + Grype, advisory - TEMPORARY)
+        env:
+          # TODO(security): TEMPORARY - vulnerability scans are WARN-ONLY (advisory) as of 2026-10-11.
+          # In future this must be changed back to BLOCKING, and the outstanding High/Critical
+          # vulnerabilities must be fixed (see backend/tools/ci/scan_accepts.py and scan reports).
+          SCAN_GATE_MODE: warn
+          IMAGE_REF: ${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}
+          COMPONENT: backend
+          IMAGE_SOURCE: registry
+          PRODUCER_PREFIX: deploy-image-scan
+        run: bash .github/scripts/ci-image-scan.sh scan-results
+
+      # `!cancelled()` so the frontend verdict is still recorded when the backend
+      # scan is red. The job still fails if the backend step failed on misconfiguration.
+      - name: Scan the pushed frontend digest (Trivy + Grype, advisory - TEMPORARY)
+        if: ${{ !cancelled() }}
+        env:
+          # TODO(security): TEMPORARY - vulnerability scans are WARN-ONLY (advisory) as of 2026-10-11.
+          # In future this must be changed back to BLOCKING, and the outstanding High/Critical
+          # vulnerabilities must be fixed (see backend/tools/ci/scan_accepts.py and scan reports).
+          SCAN_GATE_MODE: warn
+          IMAGE_REF: ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}
+          COMPONENT: frontend
+          IMAGE_SOURCE: registry
+          PRODUCER_PREFIX: deploy-image-scan
+        run: bash .github/scripts/ci-image-scan.sh scan-results
+
+      - name: Upload scan evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deploy-${{ github.run_id }}-image-scan-evidence
+          path: scan-results/
+          retention-days: 30
+          if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
   # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy (${{ needs.resolve.outputs.environment }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # `gate` is required here too, even though `build` already needs it
     # transitively: GitHub Actions does not enforce transitive `needs`, only
     # what is declared. Listing `gate` explicitly means a future edit that
@@ -666,10 +856,11 @@ jobs:
     # path to `deploy`. tests/ci/test_workflow_contracts.py::
     # test_deploy_depends_on_gate enforces this in CI.
     needs: [resolve, gate, build]
-    # Same shape as `build`'s condition above, plus an explicit demand that
-    # `build` SUCCEEDED — a skipped build produces no digests, and this job
+    # Same shape as `build`'s condition above (see the F-03 note there for why
+    # the `environment == 'dev'` escape hatch is gone), plus an explicit demand
+    # that `build` SUCCEEDED — a skipped build produces no digests, and this job
     # would go on to assemble an SSM payload out of empty strings.
-    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.gate.result == 'success' || needs.resolve.outputs.environment == 'dev') }}
+    if: ${{ !cancelled() && needs.gate.result == 'success' && needs.build.result == 'success' }}
     timeout-minutes: 50
     environment: ${{ needs.resolve.outputs.environment }}
     # See the workflow-level `permissions:` note — the AWS token is minted per
@@ -680,12 +871,30 @@ jobs:
     # Only one deploy per environment at a time — prevents two runs racing
     # `docker compose up` on the same box. Single source of truth for the
     # environment name is the `resolve` job (see the note in the header).
-    # cancel-in-progress: true auto-cancels older queued runs when a new one is
-    # triggered, preventing the deadlock where multiple runs stack up in the
-    # concurrency queue unable to execute.
+    #
+    # cancel-in-progress: FALSE. It was `true`, justified by "preventing the
+    # deadlock where multiple runs stack up in the concurrency queue unable to
+    # execute". That deadlock does not exist: GitHub holds at most ONE pending
+    # run per concurrency group, and a newer pending run supersedes the older
+    # pending one rather than joining a growing queue. So queuing cannot stack
+    # up and cannot deadlock.
+    #
+    # What `true` DID do is cancel a RUNNING deploy. This job's work is not
+    # interruptible: "Redeploy via SSM RunCommand" is a single call that pulls
+    # images, rewrites /etc/velocityai/app.env, runs `docker compose up`,
+    # reconciles nginx and the CloudWatch agent, and runs a health gate with
+    # rollback. Cancelling the runner mid-flight does NOT cancel the SSM command
+    # — the box keeps going, unobserved — and if it does stop partway the host is
+    # left half-applied with no rollback, because the rollback lives at the end
+    # of the very script that was interrupted. It also skips "Record deployed
+    # digests", so a rebuilt host would recover onto the PREVIOUS release while
+    # the new one is partly live.
+    #
+    # Queuing is therefore the only safe policy. provision.yml shares this group
+    # name for the same reason.
     concurrency:
       group: deploy-${{ needs.resolve.outputs.environment }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     steps:
       # Only the four files the SSM payload carries, plus the local composite
       # action this job invokes. Cone mode is off because the set mixes
@@ -701,12 +910,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
+            infra/scripts/bootstrap-ec2.sh
             docker-compose.yml
             docker-compose.prod.yml
             infra/scripts/reconcile-host-config.sh
             infra/scripts/velocityai-load-secrets.sh
+            infra/scripts/lib/host-common.sh
             .github/scripts/remote-deploy.sh
+            .github/scripts/upload-host-config.sh
             .github/actions/ssm-run/
+            .github/actions/aws-deploy-auth/
           sparse-checkout-cone-mode: false
           persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
@@ -722,12 +935,40 @@ jobs:
       #     instead of quietly deploying with someone else's authority.
       # It holds no ECR permissions: the box pulls images with its instance
       # role (remote-deploy.sh §8).
+      #
+      # F-25: the aws-deploy-auth composite also validates EC2_INSTANCE_ID
+      # (set, and shaped like an instance id) BEFORE it mints the session. This
+      # job previously only checked that it was set.
       - name: Configure AWS credentials (OIDC — per-env deploy role)
-        # FIX-NODE20-01: see the identical note on the build job's step above.
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        id: aws
+        uses: ./.github/actions/aws-deploy-auth
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          region: ${{ vars.AWS_REGION }}
+          instance-id: ${{ vars.EC2_INSTANCE_ID }}
+          require-instance-id: "true"
+
+      # B-15: fail the job at its FIRST step when the Environment is
+      # mis-configured, rather than ~600 lines later at "Build SSM deploy
+      # payload" (ECR_REGISTRY) or after the deploy has
+      # already landed at "Refresh host config in S3"
+      # (VELOCITYAI_BACKUP_BUCKET / VELOCITYAI_KMS_KEY_ID). The late
+      # backup-bucket check was the worst of these: by the time it fired, the
+      # release was live but the S3 config a rebuilt host boots from was stale.
+      # Nothing here touches the host or AWS state, so an early exit is free.
+      - name: Preflight — required environment variables
+        env:
+          DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          VELOCITYAI_BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
+          VELOCITYAI_KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
+        run: |
+          set -euo pipefail
+          # EC2_INSTANCE_ID is validated by the aws-deploy-auth step above.
+          : "${ECR_REGISTRY:?ECR_REGISTRY is not set on the '${DEPLOY_ENV}' GitHub Environment}"
+          : "${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET is not set on the '${DEPLOY_ENV}' GitHub Environment (see docs/GITHUB_CICD_SETUP.md)}"
+          : "${VELOCITYAI_KMS_KEY_ID:?VELOCITYAI_KMS_KEY_ID is not set on the '${DEPLOY_ENV}' GitHub Environment (see docs/GITHUB_CICD_SETUP.md)}"
+          echo "Preflight OK for '${DEPLOY_ENV}'."
 
       # ── Push config from GitHub variables/secrets to SSM ──────────────
       # Only parameters with non-empty values are pushed. The on-host
@@ -736,8 +977,17 @@ jobs:
       # to the box's FQDN).
       - name: Push config to SSM Parameter Store
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
-          SSM_PREFIX: /velocityai/${{ needs.resolve.outputs.environment }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
+          # The prefix is NOT hard-coded. provision.yml and the bootstrap.env it
+          # writes both honour VELOCITYAI_PARAM_PREFIX, and the on-host loader
+          # reads whatever prefix bootstrap.env recorded — so if that variable is
+          # set for an environment and this step ignored it, the deploy would
+          # write config the host never reads. The default reproduces the
+          # previous literal exactly.
+          #
+          # If set, the variable MUST be identical for provision and deploy on
+          # the same environment. See docs/GITHUB_CICD_SETUP.md.
+          SSM_PREFIX: ${{ vars.VELOCITYAI_PARAM_PREFIX || format('/velocityai/{0}', needs.resolve.outputs.environment) }}
           DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
           # Secrets
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
@@ -833,6 +1083,67 @@ jobs:
         run: |
           set -euo pipefail
 
+          # ── WHAT THIS STEP WRITES ─────────────────────────────────────
+          # Copy the right row when adding a key. The POLICY column is the part
+          # that is easy to get wrong, and getting it wrong is silent: see the
+          # FIX-SSM-01 note below put_param for what each one means.
+          #
+          #   KEY                              TYPE          POLICY
+          #   ------------------------------   ------------  -----------------
+          #   SECRET_KEY                       SecureString  required
+          #   LANGSMITH_API_KEY                SecureString  delete-if-empty
+          #   CORS_ORIGINS                     String        delete-if-empty
+          #   PUBLIC_BASE_URL                  String        delete-if-empty
+          #   ACCESS_TOKEN_EXPIRE_HOURS        String        delete-if-empty
+          #   HANDOFF_MAX_TRANSCRIPT_BYTES     String        delete-if-empty
+          #   LANGSMITH_TRACING                String        delete-if-empty
+          #   LANGSMITH_PROJECT                String        delete-if-empty
+          #   COGNITO_USER_POOL_ID             String        preserve-if-empty
+          #   COGNITO_CLIENT_ID                String        preserve-if-empty
+          #   COGNITO_CLIENT_SECRET            SecureString  preserve-if-empty
+          #   COGNITO_REGION                   String        preserve-if-empty
+          #   ADMIN_MFA_REQUIRED               String        preserve-if-empty
+          #   AUTH_EMAIL_MFA_ENABLED           String        preserve-if-empty
+          #   HOST_CAPACITY_METRIC_NAMESPACE   String        delete-if-empty
+          #   HOST_CAPACITY_INSTANCE_IDS       String        delete-if-empty
+          #   llm/region                       String        required
+          #   llm/model_id                     String        delete-if-empty
+          #   llm/inference_profile_id         String        delete-if-empty
+          #   llm/coding_model_id              String        delete-if-empty
+          #
+          # Choosing a POLICY:
+          #   required          the app cannot start without it — an empty GitHub
+          #                     value must FAIL the deploy, never wipe a live one
+          #   delete-if-empty   GitHub is the sole owner; clearing it in GitHub
+          #                     must clear it in SSM so the host's documented
+          #                     fallback applies instead of a stale value
+          #   preserve-if-empty ANOTHER writer also owns this key (today: the
+          #                     Cognito/auth block, also published by Terraform's
+          #                     foundation layer). "GitHub has no value" means
+          #                     "GitHub does not manage this", NOT "delete it"
+          #
+          # NOT written here, deliberately: DATABASE_PASSWORD (generated on the
+          # box, D-5), the app-level ENV (host-anchored to production, D-6), and
+          # everything under deploy/ (written by the digest-recording step below).
+          #
+          # ── Validate the resolved parameter prefix ────────────────────
+          # SSM_PREFIX comes from a GitHub variable, so its shape is checked
+          # before it is concatenated into ~30 parameter names. A malformed or
+          # empty value would otherwise silently write the whole config tree to
+          # the wrong place (or to a name the API rejects one key at a time).
+          # SSM parameter names allow alphanumerics, '_', '.', '-' and '/', and
+          # the prefix must be absolute and must not end in a slash (put_param
+          # appends "/${key}" itself).
+          if [[ ! "$SSM_PREFIX" =~ ^/[A-Za-z0-9_./-]+$ ]]; then
+            echo "::error::Resolved SSM prefix '${SSM_PREFIX}' is not a valid absolute SSM parameter path."
+            echo "::error::Check the VELOCITYAI_PARAM_PREFIX variable on the '${DEPLOY_ENV}' GitHub Environment; it must look like /velocityai/${DEPLOY_ENV}."
+            exit 1
+          fi
+          if [[ "$SSM_PREFIX" == */ ]]; then
+            echo "::error::Resolved SSM prefix '${SSM_PREFIX}' must not end with a slash."
+            exit 1
+          fi
+
           # ── Resolve the project CMK alias ─────────────────────────────
           # The instance role's kms-decrypt policy grants Decrypt ONLY on this
           # key, with a PARAMETER_ARN encryption-context condition, so omitting
@@ -921,11 +1232,12 @@ jobs:
                 exit 1
               fi
               if [[ "$policy" == "preserve-if-empty" ]]; then
-                # No AWS call at all — deliberately. The deploy role holds only
-                # ssm:PutParameter (github_oidc.tf sid=SSMPutParameters), so it
-                # cannot read the parameter to report whether one exists, and it
-                # must not try: an unmanaged key is simply not this pipeline's
-                # business on this run.
+                # No AWS call at all — deliberately, and NOT because the role
+                # lacks the permission (it holds ssm:GetParameter, see
+                # github_oidc.tf sid=SSMManageParameters). An unmanaged key is
+                # simply not this pipeline's business on this run: we do not
+                # need to know whether the other owner has written one, because
+                # either way the action is the same — nothing.
                 echo "  skipped: ${key} (not set in GitHub — left to its other owner, e.g. terraform)"
                 PARAMS_SKIPPED+=1
                 return
@@ -933,13 +1245,59 @@ jobs:
               # delete-if-empty: remove any existing parameter so the host's
               # own fallback/default takes effect, rather than leaving a
               # stale value from a previous deploy in place.
-              if aws ssm get-parameter --name "${SSM_PREFIX}/${key}" --region "$AWS_REGION" >/dev/null 2>&1; then
-                aws ssm delete-parameter --name "${SSM_PREFIX}/${key}" --region "$AWS_REGION" >/dev/null
+              #
+              # The existence probe MUST distinguish "there is no such
+              # parameter" from "the call failed". It previously used
+              # `2>/dev/null` and treated every non-zero exit as absence, so an
+              # AccessDenied — which is exactly what happened before the role
+              # was granted Get and Delete — was reported as "no existing
+              # parameter". The clear never happened, the log said "unchanged",
+              # and the stale value stayed live on the host. Only
+              # ParameterNotFound means absent; anything else is surfaced and
+              # fails the deploy.
+              #
+              # NO `--with-decryption`, deliberately. This is an existence check
+              # only. For a SecureString the call returns ciphertext and makes
+              # no KMS request, so the deploy role needs no kms:Decrypt grant —
+              # and must not have one, since it has no reason to read back the
+              # secrets it writes.
+              local probe_err probe_rc=0
+              probe_err="$(mktemp)"
+              if ! aws ssm get-parameter \
+                --name "${SSM_PREFIX}/${key}" \
+                --region "$AWS_REGION" \
+                --no-cli-pager >/dev/null 2>"$probe_err"; then
+                probe_rc=1
+              fi
+              if [[ "$probe_rc" -eq 0 ]]; then
+                rm -f "$probe_err"
+                local del_err
+                del_err="$(mktemp)"
+                if ! aws ssm delete-parameter \
+                  --name "${SSM_PREFIX}/${key}" \
+                  --region "$AWS_REGION" \
+                  --no-cli-pager >/dev/null 2>"$del_err"; then
+                  cat "$del_err" >&2
+                  echo "::error::Failed to delete '${key}' after it was cleared in GitHub."
+                  echo "::error::The parameter exists, so the stale value is still live on the host. Confirm ssm:DeleteParameter is granted to the '${DEPLOY_ENV}' deploy role (infra/terraform/bootstrap/github_oidc.tf, sid=SSMManageParameters)."
+                  rm -f "$del_err"
+                  exit 1
+                fi
+                rm -f "$del_err"
                 echo "  deleted: ${key} (cleared in GitHub — host default/fallback now applies)"
                 PARAMS_DELETED+=1
-              else
+              elif grep -q 'ParameterNotFound' "$probe_err"; then
+                rm -f "$probe_err"
                 echo "  unchanged: ${key} (empty, no existing parameter)"
                 PARAMS_UNCHANGED+=1
+              else
+                cat "$probe_err" >&2
+                echo "::error::Could not determine whether '${key}' exists in SSM, so it cannot be cleared safely."
+                if grep -q 'AccessDenied' "$probe_err"; then
+                  echo "::error::This is an authorization failure, NOT an absent parameter. Confirm ssm:GetParameter and ssm:DeleteParameter are granted to the '${DEPLOY_ENV}' deploy role (infra/terraform/bootstrap/github_oidc.tf, sid=SSMManageParameters) and that terraform apply has run."
+                fi
+                rm -f "$probe_err"
+                exit 1
               fi
               return
             fi
@@ -980,7 +1338,7 @@ jobs:
                 echo "::error::SSM rejected the KMS key '${KMS_ALIAS}' while writing '${key}'."
                 echo "::error::The alias must exist in ${AWS_REGION} in this account. Copy it from the KMS console (e.g. velocityai-dev-euc1) into the KMS_KEY_ALIAS variable on the '${DEPLOY_ENV}' GitHub Environment."
               elif grep -q 'AccessDenied' "$err_file"; then
-                echo "::error::The deploy role was denied writing '${key}'. If this is a SecureString, confirm the '${KMS_ALIAS}' key ARN is included in github_cicd_kms_key_arns for the '${DEPLOY_ENV}' role (infra/terraform/bootstrap/github_oidc.tf)."
+                echo "::error::The deploy role was denied writing '${key}'. Confirm ssm:PutParameter on parameter/velocityai/${DEPLOY_ENV}/* (github_oidc.tf sid=SSMManageParameters). If this is a SecureString, also confirm the '${KMS_ALIAS}' key ARN is included in github_cicd_kms_key_arns for the '${DEPLOY_ENV}' role (infra/terraform/bootstrap/github_oidc.tf)."
               fi
               rm -f "$err_file"
               exit 1
@@ -1123,8 +1481,9 @@ jobs:
       # latency to every deploy) and is intentionally not implemented here.
       - name: Validate Bedrock inference profile matches deploy region
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
           BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
+          DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
         run: |
           set -euo pipefail
 
@@ -1152,7 +1511,8 @@ jobs:
 
           if [[ "$BEDROCK_INFERENCE_PROFILE_ID" != "$EXPECTED_PREFIX"* ]]; then
             echo "::error::BEDROCK_INFERENCE_PROFILE_ID ('${BEDROCK_INFERENCE_PROFILE_ID}') does not match the deploy region's Bedrock geography."
-            echo "::error::Deploy region '${AWS_REGION}' expects a profile prefixed '${EXPECTED_PREFIX}' (e.g. '${EXPECTED_PREFIX}anthropic.claude-...'). Update the '${{ vars.AWS_REGION && 'AWS_REGION' || 'AWS_REGION_DEFAULT' }}' GitHub environment variable BEDROCK_INFERENCE_PROFILE_ID to the matching '${EXPECTED_PREFIX}*' profile."
+            echo "::error::Deploy region '${AWS_REGION}' expects a profile prefixed '${EXPECTED_PREFIX}' (e.g. '${EXPECTED_PREFIX}anthropic.claude-...')."
+            echo "::error::Set BEDROCK_INFERENCE_PROFILE_ID on the '${DEPLOY_ENV}' GitHub Environment to a profile prefixed '${EXPECTED_PREFIX}'."
             echo "::error::A mismatched profile passes the HTTP health gate (it never calls Bedrock) and only fails on the first real user request."
             exit 1
           fi
@@ -1168,8 +1528,8 @@ jobs:
       - name: Build SSM deploy payload
         id: build-payload
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
-          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
+          INSTANCE_ID: ${{ steps.aws.outputs.instance-id }}
           ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
           IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
           DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
@@ -1182,6 +1542,14 @@ jobs:
 
           : "${INSTANCE_ID:?EC2_INSTANCE_ID is not set for the '${DEPLOY_ENV}' environment}"
           : "${ECR_REGISTRY:?ECR_REGISTRY is not set for the '${DEPLOY_ENV}' environment}"
+
+          # ECR_REGISTRY lands in a single-quoted assignment (REGISTRY='...') that
+          # the box executes as root. Same allow-list as provision.yml's
+          # preflight; the value is not echoed (SEC-10).
+          if [[ ! "$ECR_REGISTRY" =~ ^[0-9]{12}\.dkr\.ecr(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$ ]]; then
+            echo "::error::ECR_REGISTRY has an unexpected format; refusing to embed it in the host payload (value not shown)."
+            exit 1
+          fi
 
           # Re-validate the digests on the way into the payload. The prelude
           # below is literal shell, so a malformed value would otherwise become
@@ -1214,7 +1582,10 @@ jobs:
             echo "COMPOSE_PROD_GZ='${COMPOSE_PROD_GZ}'"
             echo "RECONCILE_GZ='${RECONCILE_GZ}'"
             echo "SECRETS_LOADER_GZ='${SECRETS_LOADER_GZ}'"
-            cat .github/scripts/remote-deploy.sh
+            # Comment-only lines are ~26 KB of remote-deploy.sh and pushed this
+            # payload past ssm-run's 57,344-byte guard. bash never reads them, and
+            # the script has no heredocs, so the executed code is unchanged.
+            sed -E '/^[[:space:]]*#/d' .github/scripts/remote-deploy.sh
           } > remote.sh
 
           echo "path=remote.sh" >> "$GITHUB_OUTPUT"
@@ -1243,11 +1614,70 @@ jobs:
         uses: ./.github/actions/ssm-run
         with:
           script-path: ${{ steps.build-payload.outputs.path }}
-          instance-id: ${{ vars.EC2_INSTANCE_ID }}
-          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          instance-id: ${{ steps.aws.outputs.instance-id }}
+          aws-region: ${{ steps.aws.outputs.region }}
           comment: "velocityai deploy ${{ needs.resolve.outputs.environment }} ${{ needs.resolve.outputs.image_tag }}"
           execution-timeout-seconds: "1800"
           poll-timeout-minutes: "35"
+
+      # ── Make a REBUILT host boot on this commit's config, not the last provision's ──
+      # Four of the files this deploy just applied are ALSO fetched from
+      # s3://<bucket>/config/ by bootstrap-ec2.sh at boot time (and a fifth,
+      # bootstrap-ec2.sh itself, by the first-boot unit of a rebuilt host):
+      #
+      #   docker-compose.yml, docker-compose.prod.yml,
+      #   reconcile-host-config.sh, velocityai-load-secrets.sh
+      #
+      # deploy.yml ships them inline in the SSM payload, so the RUNNING host is
+      # always current. But only provision.yml ever wrote that S3 prefix, and
+      # provisioning happens once per instance. So a replaced or rebuilt box came
+      # up on whatever the last PROVISION uploaded — potentially many deploys
+      # stale. The concrete failure: velocityai-load-secrets.sh carries the
+      # allowlist of SSM keys copied into the container environment, so an old
+      # copy silently drops config keys the current app reads, and the box looks
+      # healthy while misconfigured. Same class of problem for an old compose
+      # file or an old nginx/CloudWatch reconcile.
+      #
+      # Runs only after the SSM step exited 0, i.e. the on-box health gate passed
+      # (a rollback exits non-zero there). S3 therefore only ever advances to a
+      # configuration that provably served traffic — never to one that was rolled
+      # back. bootstrap-ec2.sh is in the list: the sha256 provision.yml checks is
+      # computed and verified inside one provision run and never persisted, and
+      # leaving it out made config/ a mixed-commit set after every deploy.
+      #
+      # No IAM change: sid ConfigObjectUpload on the per-env deploy role already
+      # grants s3:PutObject + s3:GetObject on <bucket>/config/*.
+      - name: Refresh host config artifacts in S3
+        env:
+          AWS_REGION: ${{ steps.aws.outputs.region }}
+          BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
+          KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
+          DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
+        run: |
+          set -euo pipefail
+
+          # Both variables are REQUIRED. A deploy that cannot refresh these has
+          # left S3 pointing at older config than the host is now running, and
+          # the only symptom would appear later, on a rebuild, as a box quietly
+          # running a configuration nobody deployed. Failing here is loud and
+          # immediate; the app itself is already up and serving at this point, so
+          # this failure does not take traffic down.
+          if [[ -z "${BACKUP_BUCKET}" || -z "${KMS_KEY_ID}" ]]; then
+            echo "::error::VELOCITYAI_BACKUP_BUCKET and VELOCITYAI_KMS_KEY_ID must both be set on the '${DEPLOY_ENV}' GitHub Environment."
+            echo "::error::They are what lets a rebuilt host boot on the configuration this deploy just applied. See docs/GITHUB_CICD_SETUP.md."
+            exit 1
+          fi
+
+          bash .github/scripts/upload-host-config.sh \
+            "$BACKUP_BUCKET" "$KMS_KEY_ID" "$AWS_REGION" \
+            infra/scripts/bootstrap-ec2.sh \
+            docker-compose.yml \
+            docker-compose.prod.yml \
+            infra/scripts/reconcile-host-config.sh \
+            infra/scripts/velocityai-load-secrets.sh \
+            infra/scripts/lib/host-common.sh
+
+          echo "A rebuilt ${DEPLOY_ENV} host will now boot on this commit's host configuration."
 
       # ── Record the deployed digests as the environment's recovery point ──
       # Reached only when the step above exited 0, i.e. the on-box script
@@ -1268,15 +1698,20 @@ jobs:
       # a rebuilt host adopt a version that had just failed and been rolled
       # back. Plain String, not SecureString: an image reference is not a
       # secret, and String needs no kms:Encrypt grant. The per-environment
-      # deploy role's existing ssm:PutParameter on
+      # deploy role's ssm:PutParameter on
       # arn:aws:ssm:<region>:<acct>:parameter/velocityai/<ENV>/* already covers
-      # this path, so no IAM change is required. The host loader
+      # this path (github_oidc.tf sid=SSMManageParameters, which also grants
+      # Get and Delete for the config step above), so no IAM change is required
+      # for these three writes. The host loader
       # (velocityai-load-secrets) skips the deploy/ sub-prefix explicitly, so
       # these never leak into the container environment.
       - name: Record deployed digests for host self-recovery
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
-          SSM_PREFIX: /velocityai/${{ needs.resolve.outputs.environment }}
+          AWS_REGION: ${{ steps.aws.outputs.region }}
+          # Same resolution as "Push config to SSM Parameter Store" above — these
+          # two MUST agree, because bootstrap-ec2.sh §10b reads deploy/* from the
+          # prefix recorded in the host's own bootstrap.env.
+          SSM_PREFIX: ${{ vars.VELOCITYAI_PARAM_PREFIX || format('/velocityai/{0}', needs.resolve.outputs.environment) }}
           ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
           BACKEND_ECR_REPO: ${{ env.BACKEND_ECR_REPO }}
           FRONTEND_ECR_REPO: ${{ env.FRONTEND_ECR_REPO }}
@@ -1285,6 +1720,20 @@ jobs:
           FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
         run: |
           set -euo pipefail
+
+          # Same shape check as the config-push step. A bad prefix here is worse
+          # than a bad prefix there: a rebuilt host reads deploy/* to decide
+          # which images to run, so writing them to the wrong path silently
+          # removes the self-recovery path this step exists to provide.
+          if [[ ! "$SSM_PREFIX" =~ ^/[A-Za-z0-9_./-]+$ ]]; then
+            echo "::error::Resolved SSM prefix '${SSM_PREFIX}' is not a valid absolute SSM parameter path."
+            echo "::error::Check the VELOCITYAI_PARAM_PREFIX variable on this GitHub Environment; it must match the value provision.yml used."
+            exit 1
+          fi
+          if [[ "$SSM_PREFIX" == */ ]]; then
+            echo "::error::Resolved SSM prefix '${SSM_PREFIX}' must not end with a slash."
+            exit 1
+          fi
 
           put_deploy_param() {
             local key="$1" value="$2"

@@ -219,9 +219,8 @@ This domain governs how repository changes become evidence, how that evidence be
 flowchart LR
   pr["Pull-request source\nuntrusted"] --> evaluator["ci.yml\nread-only evaluator"]
   evaluator --> evidence["immutable evidence + coverage artifacts"]
-  evidence --> finalizer["ci-authoritative.yml\ntrusted default-branch finalizer"]
-  finalizer --> sonar["secret-bearing Sonar analysis"]
-  sonar --> status["sole ci-required publisher"]
+  evidence --> finalizer["ci-authoritative.yml\ntrusted default-branch attestation"]
+  finalizer --> status["sole ci-required publisher"]
   status --> rules["branch rulesets"]
   rules --> deploy["deploy.yml\nOIDC + SSM guarded release"]
   deploy --> host["host configuration + migration/deploy gates"]

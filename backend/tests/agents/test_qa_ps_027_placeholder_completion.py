@@ -143,7 +143,11 @@ def _prototype_placeholder_scripts(agent_id: str) -> list[_ScriptedTurn]:
                     (
                         "report_task_complete",
                         json.dumps(
-                            {"task_number": 1, "task_title": "Shell", "summary": "blocked"}
+                            {
+                                "task_number": 1,
+                                "task_title": "Shell",
+                                "summary": "blocked",
+                            }
                         ),
                         "c_rtc",
                     ),
@@ -161,7 +165,9 @@ def _prototype_placeholder_scripts(agent_id: str) -> list[_ScriptedTurn]:
 
 @pytest.mark.asyncio
 @pytest.mark.issue("ISS-761")
-async def test_native_prototype_pipeline_placeholder_output_not_marked_completed() -> None:
+async def test_native_prototype_pipeline_placeholder_output_not_marked_completed() -> (
+    None
+):
     """A native `prototype` run whose build agent never writes prototype.html
     (only streams placeholder text, then reports the task complete) must not
     publish 'completed' — the SAME content-blind gate ISS-721 found in

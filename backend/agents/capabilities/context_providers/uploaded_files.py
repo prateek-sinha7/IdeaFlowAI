@@ -58,6 +58,9 @@ _MANIFEST_REL = f"{_UPLOADS_PREFIX}manifest.json"
 @register(
     "context_provider",
     "uploaded_files",
+    # ADR-0054: a saved (Composer) copy of a built-in may reference this; it
+    # reads only the run's OWN .uploads/ sidecars (no cross-run / host access).
+    saved_workflow_allowed=True,
     description="Surface the run's uploaded document text as sticky agent context.",
 )
 class UploadedFilesProvider:

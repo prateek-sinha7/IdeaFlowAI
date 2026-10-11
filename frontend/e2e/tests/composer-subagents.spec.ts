@@ -26,9 +26,9 @@ import type { DashboardPage } from "../fixtures/dashboard";
 import type { Page } from "@playwright/test";
 
 async function openComposer(dashboard: DashboardPage) {
-  await dashboard.goto();
-  await dashboard.page.getByRole("button", { name: /Compose a custom workflow/ }).first().click();
-  await expect(dashboard.page.getByRole("button", { name: "Canvas" })).toBeVisible();
+  // The composer opens on Canvas (ComposerPage default); these walks start from
+  // the Simple view's top-level "Add agent" library trigger.
+  await dashboard.openComposer({ view: "simple" });
 }
 
 /** Open the library from the top-level "Add agent" affordance and click "+ Add"
@@ -56,6 +56,34 @@ async function addSubAgentViaCanvas(page: Page, parentName: string, childId: str
   await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
 }
 
+/** The canvas now lays the tree out as free-positioned node cards (one
+ *  `canvas-node-wrap-*` per node, children included) joined by edges; the old
+ *  per-parent `canvas-children-*` column is gone. A drawn parent→child edge is
+ *  the only edge with a grab path (`canvas-edge-grab`, root-chain edges have
+ *  none), so exactly one grab path ⇔ exactly one nested child. */
+async function expectNestedUnderParent(page: Page, childId: string) {
+  await expect(page.getByTestId(`canvas-node-${childId}`)).toBeVisible();
+  await expect(page.locator('[data-testid^="canvas-node-wrap-"]')).toHaveCount(2);
+  await expect(page.getByTestId("canvas-edge-grab")).toHaveCount(1);
+}
+
+/** The Canvas node id of the only root agent. Custom-agent instances get a
+ *  random `generateInstanceId()` id (no longer a sequential `agent-1`). */
+async function soleNodeId(page: Page): Promise<string> {
+  const wrap = page.locator('[data-testid^="canvas-node-wrap-"]');
+  await expect(wrap).toHaveCount(1);
+  const testId = await wrap.getAttribute("data-testid");
+  return (testId ?? "").replace("canvas-node-wrap-", "");
+}
+
+/** Save inline from the ComposerPage header: the "Save to catalogue" dialog is
+ *  gone — Save reads the header "Workflow name" field and confirms with "Saved". */
+async function saveWorkflow(page: Page, name: string) {
+  await page.getByRole("textbox", { name: "Workflow name" }).fill(name);
+  await page.getByRole("button", { name: /^Save workflow$/ }).click();
+  await expect(page.getByRole("button", { name: /Saved/ })).toBeVisible();
+}
+
 /** Track pageerror + console.error for the duration of a test; call at the end
  *  to assert none fired. */
 function trackErrors(page: Page) {
@@ -76,10 +104,8 @@ test.describe("Composer sub-agents", () => {
 
     await addSubAgentViaCanvas(page, "Market Research Agent", "swot-analyst");
 
-    // Nested under its parent's own children column — not a new root node.
-    await expect(page.getByTestId("canvas-children-market-research-agent")).toBeVisible();
-    await expect(page.getByTestId("canvas-node-swot-analyst")).toBeVisible();
-    await expect(page.locator('[data-testid^="canvas-node-wrap-"]')).toHaveCount(1);
+    // Nested under its parent (a parent→child edge) — not a new root node.
+    await expectNestedUnderParent(page, "swot-analyst");
   });
 
   test("SUB-02 Simple view renders the sub-agent read-only and indented under its parent row", async ({ dashboard }) => {
@@ -101,14 +127,10 @@ test.describe("Composer sub-agents", () => {
     await addFromLibrary(page, "market-research-agent");
     await page.getByRole("button", { name: "Canvas" }).click();
     await addSubAgentViaCanvas(page, "Market Research Agent", "swot-analyst");
-    await expect(page.getByTestId("canvas-children-market-research-agent")).toBeVisible();
+    await expectNestedUnderParent(page, "swot-analyst");
 
     // Save to catalogue.
-    await page.getByRole("button", { name: /^Save workflow$/ }).click();
-    await expect(page.getByRole("heading", { name: "Save workflow" })).toBeVisible();
-    await page.getByPlaceholder(/Competitive research/i).fill("Sub-agent round trip");
-    await page.getByRole("button", { name: /^Save$/ }).click();
-    await expect(page.getByRole("heading", { name: "Save workflow" })).toHaveCount(0);
+    await saveWorkflow(page, "Sub-agent round trip");
 
     // Reopen from My Workflows (edit-from-My-Workflows re-enters the composer).
     // `getByText` is ambiguous here: the composer's own <h1> title (already
@@ -121,15 +143,14 @@ test.describe("Composer sub-agents", () => {
     await expect(page.locator("p", { hasText: /^Sub-agent round trip$/ })).toBeVisible();
     await page.getByRole("button", { name: /Run workflow/ }).click();
 
-    // Simple view (the composer's default view) must still show the sub-agent —
-    // this is the case that used to silently drop it.
+    // The Simple view must still show the sub-agent — this is the case that used
+    // to silently drop it. (The composer reopens on Canvas, its default view.)
+    await page.getByRole("button", { name: "Simple", exact: true }).click();
     await expect(page.getByTestId("subagent-row-swot-analyst")).toBeVisible();
 
     // Canvas confirms it's still a genuine nested node, not a flattened root.
     await page.getByRole("button", { name: "Canvas" }).click();
-    await expect(page.getByTestId("canvas-children-market-research-agent")).toBeVisible();
-    await expect(page.getByTestId("canvas-node-swot-analyst")).toBeVisible();
-    await expect(page.locator('[data-testid^="canvas-node-wrap-"]')).toHaveCount(1);
+    await expectNestedUnderParent(page, "swot-analyst");
 
     expect(errors).toEqual([]);
   });
@@ -144,16 +165,23 @@ test.describe("Composer sweep — add, rename, prompt, skill, sub-agent, remove,
     // Add + rename a custom agent (Canvas — the inline pencil rename).
     await addFromLibrary(page, "custom-agent");
     await page.getByRole("button", { name: "Canvas" }).click();
-    await page.getByTestId("canvas-rename-agent-1").click();
+    const id = await soleNodeId(page);
+    await page.getByTestId(`canvas-rename-${id}`).click();
     await page.getByLabel("Rename New agent").fill("Renamed Agent");
     await page.getByLabel("Confirm rename").click();
-    await expect(page.getByTestId("canvas-node-agent-1")).toContainText("Renamed Agent");
+
 
     // Custom prompt (only a custom-agent instance gets the editable textarea).
+    // The config rail reads "Click a node to configure" until a node is selected.
+    await page.getByTestId(`canvas-node-${id}`).click();
     await page.getByLabel("Custom agent prompt").fill("Summarize the brief in one paragraph.");
 
-    // Attach a skill via the shared AgentSkillsPicker.
-    await page.getByTestId("agent-skills-picker-agent-1").getByRole("checkbox", { name: "emoji" }).check();
+    // Attach a skill via the shared AgentSkillsPicker (the rail's "Skills" tab).
+    await page.getByRole("tab", { name: "Skills" }).click();
+    // The picker is now an Add/Remove toggle list (no checkboxes).
+    const picker = page.getByTestId(`agent-skills-picker-${id}`);
+    await picker.getByRole("button", { name: "Add Emoji" }).click();
+    await expect(picker.getByRole("button", { name: "Remove Emoji" })).toBeVisible();
 
     // Add a sub-agent under it.
     await addSubAgentViaCanvas(page, "Renamed Agent", "roadmap-planner");
@@ -162,7 +190,7 @@ test.describe("Composer sweep — add, rename, prompt, skill, sub-agent, remove,
     // Toggle to Simple and back — the tree + skill must round-trip through the
     // shared `pipelineAgents` state, not a view-local copy.
     await page.getByRole("button", { name: "Simple" }).click();
-    await expect(page.getByTestId("agent-row-agent-1")).toBeVisible();
+    await expect(page.getByTestId(`agent-row-${id}`)).toBeVisible();
     await expect(page.getByTestId("subagent-row-roadmap-planner")).toBeVisible();
     await page.getByRole("button", { name: "Canvas" }).click();
     await expect(page.getByTestId("canvas-node-roadmap-planner")).toBeVisible();
@@ -172,13 +200,10 @@ test.describe("Composer sweep — add, rename, prompt, skill, sub-agent, remove,
     // ambiguous — the aria-label attribute selector isn't.
     await page.locator('button[aria-label="Remove Roadmap Planning Agent"]').click();
     await expect(page.getByTestId("canvas-node-roadmap-planner")).toHaveCount(0);
-    await expect(page.getByTestId("canvas-children-agent-1")).toHaveCount(0);
+    await expect(page.getByTestId("canvas-edge-grab")).toHaveCount(0);
 
     // Save.
-    await page.getByRole("button", { name: /^Save workflow$/ }).click();
-    await page.getByPlaceholder(/Competitive research/i).fill("Sweep workflow");
-    await page.getByRole("button", { name: /^Save$/ }).click();
-    await expect(page.getByRole("heading", { name: "Save workflow" })).toHaveCount(0);
+    await saveWorkflow(page, "Sweep workflow");
 
     // Reload from My Workflows and verify the rename, prompt, and skill —
     // everything that forced full-manifest persistence — survived.
@@ -187,18 +212,21 @@ test.describe("Composer sweep — add, rename, prompt, skill, sub-agent, remove,
     await expect(page.locator("p", { hasText: /^Sweep workflow$/ })).toBeVisible();
     await page.getByRole("button", { name: /Run workflow/ }).click();
 
-    await expect(page.getByTestId("agent-row-agent-1")).toContainText("Renamed Agent");
+    // The composer reopens on Canvas (its default view); rows live in Simple.
+    await page.getByRole("button", { name: "Simple", exact: true }).click();
+    await expect(page.getByTestId(`agent-row-${id}`)).toContainText("Renamed Agent");
     // The removed sub-agent must STAY gone (no resurrection from a stale manifest).
     await expect(page.getByTestId("subagent-row-roadmap-planner")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Canvas" }).click();
-    await page.getByTestId("canvas-node-agent-1").click();
+    await page.getByTestId(`canvas-node-${id}`).click();
     await expect(page.getByLabel("Custom agent prompt")).toHaveValue(
       "Summarize the brief in one paragraph.",
     );
+    await page.getByRole("tab", { name: "Skills" }).click();
     await expect(
-      page.getByTestId("agent-skills-picker-agent-1").getByRole("checkbox", { name: "emoji" }),
-    ).toBeChecked();
+      page.getByTestId(`agent-skills-picker-${id}`).getByRole("button", { name: "Remove Emoji" }),
+    ).toBeVisible();
 
     expect(errors).toEqual([]);
   });

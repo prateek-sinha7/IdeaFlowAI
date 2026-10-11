@@ -63,5 +63,3 @@ async def test_run_event_sink_reraises_non_db_persist_failure():
     sink.arm(_BoomStore(), "run-1")  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="unexpected non-DB failure"):
         await sink.persist(1, str(uuid.uuid4()), "agent_complete", {"k": "v"})
-
-

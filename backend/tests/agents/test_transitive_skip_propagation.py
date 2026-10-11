@@ -47,16 +47,20 @@ async def _drive_ok():
 async def test_downstream_step_is_skipped_when_its_only_upstream_is_skipped():
     events = await _drive_ok()
 
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
-    skipped = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_skipped"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
+    skipped = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_skipped"
+    ]
 
     print("AGENT_START:", started)
     print("AGENT_SKIPPED:", skipped)
 
     # Direct skip (pre-existing mechanism) — the gate's own sibling outcome.
-    assert "custom-agent:planner" in skipped, (
-        f"the gate's direct skip target was not reported skipped: skipped={skipped}"
-    )
+    assert (
+        "custom-agent:planner" in skipped
+    ), f"the gate's direct skip target was not reported skipped: skipped={skipped}"
     assert "custom-agent:planner" not in started
 
     # ── The bug: transitive skip down the depends_on chain ────────────────

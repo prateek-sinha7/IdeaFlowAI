@@ -15,10 +15,9 @@ import { test, expect } from "../fixtures/test";
 import type { DashboardPage } from "../fixtures/dashboard";
 
 async function openComposer(dashboard: DashboardPage) {
-  await dashboard.goto();
-  await dashboard.page.getByRole("button", { name: /Compose a custom workflow/ }).first().click();
-  // The Simple/Canvas segmented toggle is the composer-mounted signal.
-  await expect(dashboard.page.getByRole("button", { name: "Canvas" })).toBeVisible();
+  // The composer opens on Canvas (ComposerPage default); the row counts below
+  // read the Simple view's agent rows.
+  await dashboard.openComposer({ view: "simple" });
 }
 
 /** Open the library, click Add on the named card, wait for the library to close. */
@@ -81,7 +80,9 @@ test.describe("custom-agent template is reusable N times", () => {
     await addFromLibrary(dashboard, "custom-agent");
     await addFromLibrary(dashboard, "custom-agent");
 
-    await page.getByRole("button", { name: "Run once now" }).click();
+    // Run-once moved to the ComposerPage header and needs a >= 3-char brief.
+    await page.getByRole("textbox", { name: "Brief description" }).fill("Two custom steps");
+    await page.getByRole("button", { name: "Run once", exact: true }).click();
 
     const frame = await mockSse.waitForCommand("run_pipeline");
     const ids = frame.agent_ids as string[];

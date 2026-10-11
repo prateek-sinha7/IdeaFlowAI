@@ -37,6 +37,7 @@ running at all.
     python3 tools/knowledge/build_architecture.py --only MOD-backend-agents
     python3 tools/knowledge/build_architecture.py --stale-prose # which prose is out of date
 """
+
 from __future__ import annotations
 
 import argparse
@@ -118,7 +119,12 @@ AUTO_MARKER = "<!-- AUTO-GENERATED BELOW THIS LINE"
 AUTO_END = "<!-- /AUTO-GENERATED -->"
 
 PY_EXCLUDE = {
-    ".venv", "venv", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    ".mypy_cache",
+    ".pytest_cache",
     # "tests": backend/tests/ -- the test suite, not runtime code; belongs
     # nowhere in a MODULE_ROOTS-derived architecture map.
     # "runs": backend/runs/<run_id>/... -- the per-run SANDBOX (RunSandbox)
@@ -127,10 +133,15 @@ PY_EXCLUDE = {
     # expense-app/backend/tests/...). That is product OUTPUT, not VELOCITY's
     # own source -- scanning it pollutes the module map with whatever a user
     # happened to have an agent build.
-    "tests", "runs",
+    "tests",
+    "runs",
 }
 FE_EXCLUDE = {
-    "node_modules", ".next", "dist", "build", "coverage",
+    "node_modules",
+    ".next",
+    "dist",
+    "build",
+    "coverage",
     # frontend/src/test/ -- FE test suite, same reasoning as backend "tests"
     # above. Deliberately just "test" (exact component match), not a prefix:
     # frontend/src/app/test-preview/ is a real product route and stays in.
@@ -148,6 +159,7 @@ DEFAULT_HAND_AUTHORED = (
 # --------------------------------------------------------------------------
 # disk walk -- authoritative for WHICH files exist
 # --------------------------------------------------------------------------
+
 
 def scan_source_files() -> list[str]:
     """Every source file on disk, repo-relative, sorted. Authoritative."""
@@ -280,12 +292,14 @@ def module_signature(mfiles, imports, imported_by, external) -> str:
 
 
 def file_signature(rel, deps, rdeps, external) -> str:
-    return _digest([
-        rel + "|" + ",".join(file_symbols(rel)),
-        "deps:" + ",".join(sorted(deps)),
-        "rdeps:" + ",".join(sorted(rdeps)),
-        "ext:" + ",".join(sorted(external)),
-    ])
+    return _digest(
+        [
+            rel + "|" + ",".join(file_symbols(rel)),
+            "deps:" + ",".join(sorted(deps)),
+            "rdeps:" + ",".join(sorted(rdeps)),
+            "ext:" + ",".join(sorted(external)),
+        ]
+    )
 
 
 FM_FIELD = re.compile(
@@ -350,6 +364,7 @@ def stale_prose_report() -> int:
 # extractors -- authoritative for EDGES only
 # --------------------------------------------------------------------------
 
+
 class ExtractorError(RuntimeError):
     pass
 
@@ -358,7 +373,8 @@ def _backend_packages() -> list[str]:
     """Top-level importable packages under backend/ (dirs with __init__.py)."""
     backend = REPO_ROOT / "backend"
     return sorted(
-        p.name for p in backend.iterdir()
+        p.name
+        for p in backend.iterdir()
         if p.is_dir() and (p / "__init__.py").is_file() and p.name not in PY_EXCLUDE
     )
 
@@ -418,10 +434,18 @@ def extract_backend_edges(known: set[str]) -> tuple[dict[str, set], dict[str, se
     data: dict = {}
     for pkg in packages:
         cmd = [
-            python_with_pydeps(), "-m", "pydeps", pkg,
-            "--no-output", "--show-deps", "--max-bacon=0", "--no-config",
+            python_with_pydeps(),
+            "-m",
+            "pydeps",
+            pkg,
+            "--no-output",
+            "--show-deps",
+            "--max-bacon=0",
+            "--no-config",
         ]
-        proc = subprocess.run(cmd, cwd=REPO_ROOT / "backend", capture_output=True, text=True)
+        proc = subprocess.run(
+            cmd, cwd=REPO_ROOT / "backend", capture_output=True, text=True
+        )
         if proc.returncode != 0 or not proc.stdout.strip():
             raise ExtractorError(
                 f"pydeps failed on package {pkg!r} (exit {proc.returncode}). "
@@ -430,11 +454,15 @@ def extract_backend_edges(known: set[str]) -> tuple[dict[str, set], dict[str, se
         try:
             chunk = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
-            raise ExtractorError(f"pydeps produced unparseable JSON for {pkg!r}: {exc}") from exc
+            raise ExtractorError(
+                f"pydeps produced unparseable JSON for {pkg!r}: {exc}"
+            ) from exc
         for name, entry in chunk.items():
             if not isinstance(entry, dict):
                 continue
-            cur = data.setdefault(name, {"imports": set(), "imported_by": set(), "path": None})
+            cur = data.setdefault(
+                name, {"imports": set(), "imported_by": set(), "path": None}
+            )
             cur["imports"].update(entry.get("imports") or [])
             cur["imported_by"].update(entry.get("imported_by") or [])
             if entry.get("path") and not cur["path"]:
@@ -475,7 +503,7 @@ def extract_backend_edges(known: set[str]) -> tuple[dict[str, set], dict[str, se
         if rel is None:
             continue  # outside the repo (stdlib / site-packages)
         name_to_file[name] = rel
-        stem = rel[len("backend/"):] if rel.startswith("backend/") else rel
+        stem = rel[len("backend/") :] if rel.startswith("backend/") else rel
         if stem.endswith("/__init__.py"):
             stem = stem[: -len("/__init__.py")]
         elif stem.endswith(".py"):
@@ -518,7 +546,15 @@ def extract_frontend_edges(known: set[str]) -> tuple[dict[str, set], dict[str, s
     # Windows exposes npx as a .cmd shim, which CreateProcess does not resolve
     # when the executable is passed as a bare name.
     npx_command = "npx.cmd" if os.name == "nt" else "npx"
-    cmd = [npx_command, "--no-install", "depcruise", "src", "--output-type", "json", "--no-config"]
+    cmd = [
+        npx_command,
+        "--no-install",
+        "depcruise",
+        "src",
+        "--output-type",
+        "json",
+        "--no-config",
+    ]
     if (fe / "tsconfig.json").is_file():
         cmd += ["--ts-config", "tsconfig.json"]
     proc = subprocess.run(cmd, cwd=fe, capture_output=True, text=True)
@@ -529,7 +565,9 @@ def extract_frontend_edges(known: set[str]) -> tuple[dict[str, set], dict[str, s
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        raise ExtractorError(f"dependency-cruiser produced unparseable JSON: {exc}") from exc
+        raise ExtractorError(
+            f"dependency-cruiser produced unparseable JSON: {exc}"
+        ) from exc
 
     imports: dict[str, set] = defaultdict(set)
     external: dict[str, set] = defaultdict(set)
@@ -550,13 +588,18 @@ def extract_frontend_edges(known: set[str]) -> tuple[dict[str, set], dict[str, s
             spec = dep.get("module") or ""
             if dep.get("coreModule") or (spec and not spec.startswith(".")):
                 # scoped packages keep their @scope/name form
-                pkg = "/".join(spec.split("/")[:2]) if spec.startswith("@") else spec.split("/")[0]
+                pkg = (
+                    "/".join(spec.split("/")[:2])
+                    if spec.startswith("@")
+                    else spec.split("/")[0]
+                )
                 if pkg:
                     external[src].add(pkg)
     return imports, external
 
 
 # --------------------------------------------------------------------------
+
 
 class PreserveError(RuntimeError):
     """Raised when rewriting a card would destroy content we cannot regenerate."""
@@ -592,14 +635,21 @@ def _card_index() -> dict[str, str]:
     """id -> filename, for every card in the store."""
     out = {}
     for c in sorted((REPO_ROOT / ".knowledge" / "cards").glob("*.md")):
-        m = re.search(r"^id:\s*(.+?)\s*$", c.read_text(encoding="utf-8", errors="replace"), re.M)
+        m = re.search(
+            r"^id:\s*(.+?)\s*$", c.read_text(encoding="utf-8", errors="replace"), re.M
+        )
         if m:
             out[m.group(1).strip().strip("'\"")] = c.name
     return out
 
 
-def linkify_prose(prose: str, own_files: list[str], all_files: set[str],
-                  module_ids: set[str], cards: dict[str, str]) -> str:
+def linkify_prose(
+    prose: str,
+    own_files: list[str],
+    all_files: set[str],
+    module_ids: set[str],
+    cards: dict[str, str],
+) -> str:
     """Wrap file / module / card references in prose with markdown links.
 
     Ambiguity is left alone on purpose: `base.py` matches five files under
@@ -636,8 +686,9 @@ def linkify_prose(prose: str, own_files: list[str], all_files: set[str],
         if "/" in tok:
             if tok in all_files:
                 return tok
-            hits = {f for f in own_files if f.endswith("/" + tok)} or \
-                   {f for f in all_files if f.endswith("/" + tok)}
+            hits = {f for f in own_files if f.endswith("/" + tok)} or {
+                f for f in all_files if f.endswith("/" + tok)
+            }
             return hits.pop() if len(hits) == 1 else None
         hits = own_base.get(tok) or by_base.get(tok) or set()
         return next(iter(hits)) if len(hits) == 1 else None
@@ -645,7 +696,9 @@ def linkify_prose(prose: str, own_files: list[str], all_files: set[str],
     ids_pat = None
     if module_ids or cards:
         names = sorted(list(module_ids) + list(cards), key=len, reverse=True)
-        ids_pat = re.compile(r"(?<![\w/\[-])(" + "|".join(re.escape(n) for n in names) + r")(?![\w-])")
+        ids_pat = re.compile(
+            r"(?<![\w/\[-])(" + "|".join(re.escape(n) for n in names) + r")(?![\w-])"
+        )
 
     def link_id(m):
         name = m.group(1)
@@ -659,7 +712,7 @@ def linkify_prose(prose: str, own_files: list[str], all_files: set[str],
             in_fence = not in_fence
             out.append(line)
             continue
-        if in_fence:                      # mermaid labels are not references
+        if in_fence:  # mermaid labels are not references
             out.append(line)
             continue
         segs = SPLIT_SPANS.split(line)
@@ -670,10 +723,14 @@ def linkify_prose(prose: str, own_files: list[str], all_files: set[str],
                 m = FILE_LINK.match(s)
                 if m and m.group(2) not in all_files:
                     segs[i] = m.group(1)  # dead file link -> unwrap to plain text
-                continue                  # otherwise already linked, leave alone
+                continue  # otherwise already linked, leave alone
             if s.startswith("`"):
                 inner = s[1:-1]
-                tgt = resolve_file(inner) if CODESPAN_FILE.match(inner) else resolve_symbol(inner)
+                tgt = (
+                    resolve_file(inner)
+                    if CODESPAN_FILE.match(inner)
+                    else resolve_symbol(inner)
+                )
                 if tgt:
                     # Plain text as the link label, NOT the code span. A link
                     # whose text is a code span -- [`engine.py`](...) -- is
@@ -684,9 +741,11 @@ def linkify_prose(prose: str, own_files: list[str], all_files: set[str],
                     # everywhere, so match it.
                     segs[i] = f"[{inner}](../../{tgt})"
                 continue
+
             def sub_file(m):
                 tgt = resolve_file(m.group(1))
                 return f"[{m.group(1)}](../../{tgt})" if tgt else m.group(1)
+
             s2 = FILE_TOKEN.sub(sub_file, s)
             if ids_pat is not None:
                 s2 = ids_pat.sub(link_id, s2)
@@ -699,9 +758,7 @@ def linkify_prose(prose: str, own_files: list[str], all_files: set[str],
 # MOD-*.md (`last_synced: 2026-01-01`) and JSON in modules.json
 # (`  "generated_at": "2026-01-01",`). Handling only the first left modules.json
 # rewriting itself on every commit while all 36 cards stayed clean.
-VOLATILE_FM = re.compile(
-    r"^\s*(?:\"?(?:last_synced|generated_at)\"?)\s*:.*$", re.M
-)
+VOLATILE_FM = re.compile(r"^\s*(?:\"?(?:last_synced|generated_at)\"?)\s*:.*$", re.M)
 
 
 def write_if_changed(path: Path, content: str) -> bool:
@@ -792,7 +849,7 @@ def read_hand_authored(out_path: Path) -> str:
     end = body.find(AUTO_END)
     if end != -1:
         # Current layout: frontmatter, generated block, END marker, prose.
-        prose = body[end + len(AUTO_END):]
+        prose = body[end + len(AUTO_END) :]
         return prose.strip("\n")
 
     idx = body.find(AUTO_MARKER)
@@ -815,8 +872,7 @@ def _rel(from_path: Path, to_path: Path) -> str:
     return os.path.relpath(to_path, from_path.parent).replace(os.sep, "/")
 
 
-def write_file_cards(files, file_imports, file_external, file_to_module,
-                     check=False):
+def write_file_cards(files, file_imports, file_external, file_to_module, check=False):
     """One card per source file, mirroring the repo tree under architecture/files/.
 
     The module cards answer "what is this subsystem for". They cannot answer
@@ -851,36 +907,41 @@ def write_file_cards(files, file_imports, file_external, file_to_module,
         ext = sorted(file_external.get(f, set()))
         mod_id = module_slug(file_to_module[f])
 
-        fm = yaml.safe_dump({
-            "id": f"FILE-{f}",
-            "type": "architecture-file",
-            "kind": "state",
-            "title": f"{f.rsplit('/', 1)[-1]} — file",
-            "file": f,
-            "module": mod_id,
-            "language": language_for(f),
-            "depends_on_count": len(deps),
-            "depended_on_by_count": len(rdeps),
-            "code_signature": file_signature(f, deps, rdeps, ext),
-            **({"prose_signature": prior_prose_sig} if prior_prose_sig else {}),
-            # `last_synced` deliberately ABSENT here, unlike on the module and
-            # domain cards.
-            #
-            # They said "the tree looked like this at commit X", which
-            # `code_signature` now answers better and per-file: a commit SHA
-            # moves whenever anything in the repo moves, a content hash moves
-            # when THIS file does. The name was also misleading -- it recorded
-            # the commit at which the content last CHANGED, not when it was
-            # last verified, so all 789 sat on one old SHA while HEAD moved on.
-            #
-            # The real cost was structural. Because they change on every commit
-            # and the content does not, `write_if_changed` has to strip them
-            # before comparing (VOLATILE_FM) or all 789 cards churn on every
-            # single commit. That made one regex the only thing standing
-            # between this tier and an 800-file diff per commit -- an invisible
-            # tripwire for anyone adding a generator or renaming a field.
-            # Dropping the fields retires the tripwire for this tier entirely.
-        }, sort_keys=False, default_flow_style=False, allow_unicode=True)
+        fm = yaml.safe_dump(
+            {
+                "id": f"FILE-{f}",
+                "type": "architecture-file",
+                "kind": "state",
+                "title": f"{f.rsplit('/', 1)[-1]} — file",
+                "file": f,
+                "module": mod_id,
+                "language": language_for(f),
+                "depends_on_count": len(deps),
+                "depended_on_by_count": len(rdeps),
+                "code_signature": file_signature(f, deps, rdeps, ext),
+                **({"prose_signature": prior_prose_sig} if prior_prose_sig else {}),
+                # `last_synced` deliberately ABSENT here, unlike on the module and
+                # domain cards.
+                #
+                # They said "the tree looked like this at commit X", which
+                # `code_signature` now answers better and per-file: a commit SHA
+                # moves whenever anything in the repo moves, a content hash moves
+                # when THIS file does. The name was also misleading -- it recorded
+                # the commit at which the content last CHANGED, not when it was
+                # last verified, so all 789 sat on one old SHA while HEAD moved on.
+                #
+                # The real cost was structural. Because they change on every commit
+                # and the content does not, `write_if_changed` has to strip them
+                # before comparing (VOLATILE_FM) or all 789 cards churn on every
+                # single commit. That made one regex the only thing standing
+                # between this tier and an 800-file diff per commit -- an invisible
+                # tripwire for anyone adding a generator or renaming a field.
+                # Dropping the fields retires the tripwire for this tier entirely.
+            },
+            sort_keys=False,
+            default_flow_style=False,
+            allow_unicode=True,
+        )
 
         lines = [
             "<!-- AUTO-GENERATED BELOW THIS LINE — regenerated by tools/knowledge/build_architecture.py -->",
@@ -891,9 +952,13 @@ def write_file_cards(files, file_imports, file_external, file_to_module,
             "",
             f"### Depends on ({len(deps)})",
         ]
-        lines += [f"- [{d}]({_rel(card, out_root / (d + '.md'))})" for d in deps] or ["- (none)"]
+        lines += [f"- [{d}]({_rel(card, out_root / (d + '.md'))})" for d in deps] or [
+            "- (none)"
+        ]
         lines += ["", f"### Depended on by ({len(rdeps)})"]
-        lines += [f"- [{d}]({_rel(card, out_root / (d + '.md'))})" for d in rdeps] or ["- (none)"]
+        lines += [f"- [{d}]({_rel(card, out_root / (d + '.md'))})" for d in rdeps] or [
+            "- (none)"
+        ]
         lines += ["", "### External"]
         lines += [", ".join(ext) if ext else "(none)"]
         lines += [AUTO_END, ""]
@@ -930,8 +995,10 @@ def write_file_cards(files, file_imports, file_external, file_to_module,
         for d in sorted(out_root.rglob("*"), reverse=True):
             if d.is_dir() and not any(d.iterdir()):
                 d.rmdir()
-    print(f"File cards: {written} written, {removed} removed for deleted sources"
-          + (f", {kept} skipped" if kept else ""))
+    print(
+        f"File cards: {written} written, {removed} removed for deleted sources"
+        + (f", {kept} skipped" if kept else "")
+    )
     return written, removed
 
 
@@ -992,8 +1059,9 @@ def _basename_index(files: list[str]) -> dict[str, list[str]]:
     return idx
 
 
-def resolve_trace_file(name: str, index: dict[str, list[str]],
-                       prefer: set[str]) -> str | None:
+def resolve_trace_file(
+    name: str, index: dict[str, list[str]], prefer: set[str]
+) -> str | None:
     """Map a bare `engine.py` in prose onto one real repo path.
 
     Prose cites files by basename, which is ambiguous across a 789-file tree.
@@ -1024,8 +1092,9 @@ def resolve_trace_file(name: str, index: dict[str, list[str]],
 files_seen_exact: set[str] = set()
 
 
-def domain_watch_set(card: Path, members: list[str], index,
-                     prefer: set[str] | None = None) -> tuple[list[str], list[str]]:
+def domain_watch_set(
+    card: Path, members: list[str], index, prefer: set[str] | None = None
+) -> tuple[list[str], list[str]]:
     """(files this card is answerable for, prose references that did not resolve).
 
     Members plus every file the prose names. An unresolvable reference is
@@ -1075,8 +1144,9 @@ def _match_members(patterns, files: list[str]) -> tuple[list[str], list[str]]:
     return sorted(matched), empty
 
 
-def write_domain_cards(files, file_imports, file_external, file_to_module,
-                       today, check=False):
+def write_domain_cards(
+    files, file_imports, file_external, file_to_module, today, check=False
+):
     """Regenerate the generated block of every DOMAIN-*.md that exists.
 
     Never CREATES a domain card -- a domain is a judgement about what the
@@ -1107,7 +1177,9 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
         try:
             fm = yaml.safe_load(m.group(1)) or {}
         except yaml.YAMLError as exc:
-            problems.append(f"{card.name}: invalid YAML ({exc.__class__.__name__}) -- skipped")
+            problems.append(
+                f"{card.name}: invalid YAML ({exc.__class__.__name__}) -- skipped"
+            )
             continue
         patterns = fm.get("members") or []
         if not isinstance(patterns, list) or not patterns:
@@ -1124,8 +1196,10 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
             # files that no longer exist; falling through with `members = []`
             # produces an honest "0 files" block instead, and the dead-link
             # sweep below still runs on its prose either way.
-            problems.append(f"{card.name}: resolved to ZERO files -- "
-                            f"regenerating as an empty domain")
+            problems.append(
+                f"{card.name}: resolved to ZERO files -- "
+                f"regenerating as an empty domain"
+            )
         covered |= set(members)
 
         try:
@@ -1138,14 +1212,21 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
         external = sorted({e for f in members for e in file_external.get(f, set())})
         # Files OUTSIDE the domain that import INTO it, and vice versa -- the
         # domain's real seam with the rest of the system.
-        inbound = sorted({
-            src for src, deps in file_imports.items()
-            if src not in members and deps & set(members) and src in file_set
-        })
-        outbound = sorted({
-            d for f in members for d in file_imports.get(f, set())
-            if d not in members and d in file_set
-        })
+        inbound = sorted(
+            {
+                src
+                for src, deps in file_imports.items()
+                if src not in members and deps & set(members) and src in file_set
+            }
+        )
+        outbound = sorted(
+            {
+                d
+                for f in members
+                for d in file_imports.get(f, set())
+                if d not in members and d in file_set
+            }
+        )
 
         # What this domain's prose can name without guessing: what it owns,
         # plus its own import seam. `artifact_store/store.py` is a stranger
@@ -1158,10 +1239,13 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
         # Members PLUS every file the prose names -- the set this card is
         # answerable for, and the set a changed-file intersection tests
         # against. Recorded on the card so `--affected` needs no re-derivation.
-        watch, unresolved = domain_watch_set(card, members, basename_idx,
-                                             prefer=set(link_scope))
+        watch, unresolved = domain_watch_set(
+            card, members, basename_idx, prefer=set(link_scope)
+        )
         for ref in unresolved:
-            problems.append(f"{card.name}: prose names a file that does not resolve: {ref}")
+            problems.append(
+                f"{card.name}: prose names a file that does not resolve: {ref}"
+            )
 
         signature = _digest(
             [f + "|" + ",".join(file_symbols(f)) for f in watch]
@@ -1189,7 +1273,11 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
             # actually change?" without paying for a 40s rebuild first.
             "symbols_signature": symbols_digest(watch),
             **({"prose_signature": prior_prose_sig} if prior_prose_sig else {}),
-            **({"prose_symbols_signature": prior_prose_syms} if prior_prose_syms else {}),
+            **(
+                {"prose_symbols_signature": prior_prose_syms}
+                if prior_prose_syms
+                else {}
+            ),
             # `last_synced` (a date) stays -- it answers "when was this analysis
             # written", which a reader of hand-authored prose actually asks.
             # `sync_commit` is gone: it recorded the commit at which the CONTENT
@@ -1198,9 +1286,13 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
             # real question, per card, without a repo-wide SHA in the way.
             "last_synced": today,
         }
-        head = "---\n" + yaml.safe_dump(
-            fm_out, default_flow_style=False, sort_keys=False, allow_unicode=True
-        ) + "---\n\n"
+        head = (
+            "---\n"
+            + yaml.safe_dump(
+                fm_out, default_flow_style=False, sort_keys=False, allow_unicode=True
+            )
+            + "---\n\n"
+        )
 
         by_mod: dict[str, list[str]] = defaultdict(list)
         for f in members:
@@ -1227,21 +1319,26 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
         lines += [AUTO_END, ""]
 
         all_module_ids = {module_slug(r) for r in set(file_to_module.values())}
-        prose = linkify_prose(prose, link_scope, file_set, all_module_ids, _card_index())
+        prose = linkify_prose(
+            prose, link_scope, file_set, all_module_ids, _card_index()
+        )
         content = head + "\n".join(lines) + "\n" + prose.strip("\n") + "\n"
         if not check and write_if_changed(card, content):
             written += 1
         traced_total += len(watch)
-        summaries.append({"id": did, "members": len(members), "modules": mods,
-                          "watched": len(watch)})
+        summaries.append(
+            {"id": did, "members": len(members), "modules": mods, "watched": len(watch)}
+        )
 
     # Domains are a COVER, not a partition -- a file in no domain is a gap in
     # the analysis, not an error. Reported so the gap is visible rather than
     # assumed to be zero.
     uncovered = sorted(set(files) - covered)
-    print(f"Domain cards: {len(cards)} found, {written} written, "
-          f"{len(covered)}/{len(files)} files covered "
-          f"({len(uncovered)} in no domain), {traced_total} watched file(s)")
+    print(
+        f"Domain cards: {len(cards)} found, {written} written, "
+        f"{len(covered)}/{len(files)} files covered "
+        f"({len(uncovered)} in no domain), {traced_total} watched file(s)"
+    )
     for msg in problems:
         print(f"  WARNING: {msg}")
     return written, uncovered
@@ -1255,6 +1352,7 @@ def write_domain_cards(files, file_imports, file_external, file_to_module,
 # the card is the single source of truth, this is a projection of it. Two
 # hand-maintained copies of the same diagram would drift, and the drift would
 # be invisible.
+
 
 def affected_domains(changed: list[str]) -> int:
     """Which domain cards a changeset touches. The trigger for everything else.
@@ -1292,7 +1390,8 @@ def affected_domains(changed: list[str]) -> int:
         except PreserveError:
             pass
         touched = [
-            c for c in changed
+            c
+            for c in changed
             if any(fnmatch.fnmatch(c, p) for p in patterns)
             or c.rsplit("/", 1)[-1] in prose_files
         ]
@@ -1319,9 +1418,13 @@ def affected_domains(changed: list[str]) -> int:
 # through the same procedure -- and the only way to guarantee that is one file
 # they both read. `skills/velocity/` is the canonical copy; `.claude/` and
 # `.kiro/` are rsync mirrors of it and are never read here.
-DOMAIN_PROMPT = REPO_ROOT / "skills" / "velocity" / "prompts" / "architecture-domain-update.md"
-if not DOMAIN_PROMPT.exists():   # pre-move layout
-    DOMAIN_PROMPT = Path(__file__).resolve().parent / "prompts" / "architecture-domain-update.md"
+DOMAIN_PROMPT = (
+    REPO_ROOT / "skills" / "velocity" / "prompts" / "architecture-domain-update.md"
+)
+if not DOMAIN_PROMPT.exists():  # pre-move layout
+    DOMAIN_PROMPT = (
+        Path(__file__).resolve().parent / "prompts" / "architecture-domain-update.md"
+    )
 
 
 REQUIRED_SECTIONS = ("## Purpose", "## Shape", "## In practice", "## Why this shape")
@@ -1336,8 +1439,20 @@ REQUIRED_SECTIONS = ("## Purpose", "## Shape", "## In practice", "## Why this sh
 # a perfectly legal flowchart node and the natural id for that file. A linter
 # that cries wolf gets ignored, and the one real bug with it.
 MERMAID_RESERVED = {
-    "graph", "flowchart", "subgraph", "end", "class", "classDef", "click",
-    "style", "linkStyle", "direction", "default", "href", "call", "callback",
+    "graph",
+    "flowchart",
+    "subgraph",
+    "end",
+    "class",
+    "classDef",
+    "click",
+    "style",
+    "linkStyle",
+    "direction",
+    "default",
+    "href",
+    "call",
+    "callback",
 }
 MERMAID_FENCE = re.compile(r"```mermaid\n(.*?)```", re.S)
 NODE_DECL = re.compile(r"^\s*(\w+)\s*[\[\(\{]", re.M)
@@ -1376,8 +1491,9 @@ def symbols_digest(watch: list[str]) -> str:
 
 def symbols_at(rev: str, rel: str) -> tuple[str, ...]:
     """A file's symbols as of `rev`. Empty if it did not exist there."""
-    out = subprocess.run(["git", "show", f"{rev}:{rel}"], cwd=REPO_ROOT,
-                         capture_output=True, text=True)
+    out = subprocess.run(
+        ["git", "show", f"{rev}:{rel}"], cwd=REPO_ROOT, capture_output=True, text=True
+    )
     if out.returncode != 0:
         return ()
     if rel.endswith(".py"):
@@ -1433,8 +1549,10 @@ def explain_domains(cards: list[str] | None = None, rev: str = "HEAD") -> int:
         if stored != live:
             print(f"  symbols_signature {stored} -> {live}")
         if not delta:
-            print("  no symbol moved -- the signature differs for another reason "
-                  "(a watched file was added or removed)")
+            print(
+                "  no symbol moved -- the signature differs for another reason "
+                "(a watched file was added or removed)"
+            )
         for rel, sign, sym in delta:
             print(f"    {sign} {rel}::{sym}")
     if not any_change:
@@ -1452,6 +1570,7 @@ def live_watch_set(card: Path, files: list[str]) -> list[str]:
     except yaml.YAMLError:
         return []
     import fnmatch
+
     members: set[str] = set()
     for pat in fm.get("members") or []:
         members.update(fnmatch.filter(files, pat))
@@ -1492,12 +1611,16 @@ def _validate_domain_card(card: Path) -> str | None:
         return "missing " + ", ".join(missing)
     shape = _section(prose, "Shape")
     if "```mermaid" not in shape:
-        return "`## Shape` has no mermaid diagram (nothing to inline into ARCHITECTURE.md)"
+        return (
+            "`## Shape` has no mermaid diagram (nothing to inline into ARCHITECTURE.md)"
+        )
     bad = mermaid_problems(prose)
     if bad:
-        return ("mermaid reserved word(s) used as node id: "
-                + ", ".join(repr(b) for b in bad)
-                + " -- this is a parse error wherever the card renders")
+        return (
+            "mermaid reserved word(s) used as node id: "
+            + ", ".join(repr(b) for b in bad)
+            + " -- this is a parse error wherever the card renders"
+        )
     return None
 
 
@@ -1538,8 +1661,9 @@ def _fallback_notice(cards: list[str] | None = None) -> None:
 DEFAULT_REFRESH_MODEL = "sonnet"
 
 
-def refresh_affected(changed: list[str], timeout: int = 900,
-                     max_cards: int = 3, model: str | None = None) -> int:
+def refresh_affected(
+    changed: list[str], timeout: int = 900, max_cards: int = 3, model: str | None = None
+) -> int:
     """Re-author every DOMAIN card a changeset touches, via headless Claude.
 
     The expensive half of the loop, and deliberately the only half that needs
@@ -1578,9 +1702,12 @@ def refresh_affected(changed: list[str], timeout: int = 900,
                 prose_files.add(name.rsplit("/", 1)[-1])
         except PreserveError:
             pass
-        touched = [c for c in changed
-                   if any(fnmatch.fnmatch(c, p) for p in patterns)
-                   or c.rsplit("/", 1)[-1] in prose_files]
+        touched = [
+            c
+            for c in changed
+            if any(fnmatch.fnmatch(c, p) for p in patterns)
+            or c.rsplit("/", 1)[-1] in prose_files
+        ]
         if touched:
             todo.append((card, touched))
 
@@ -1630,10 +1757,14 @@ def refresh_affected(changed: list[str], timeout: int = 900,
     # work is REPORTED and handed back, not skipped quietly: a sweeping change
     # is exactly when a human should decide what the docs now say.
     if len(todo) > max_cards:
-        print(f"  {len(todo)} domain cards affected -- over the --max-refresh "
-              f"limit of {max_cards}, so nothing was re-authored.")
-        print("  A change this central deserves a deliberate pass, not a "
-              "commit-hook side effect.")
+        print(
+            f"  {len(todo)} domain cards affected -- over the --max-refresh "
+            f"limit of {max_cards}, so nothing was re-authored."
+        )
+        print(
+            "  A change this central deserves a deliberate pass, not a "
+            "commit-hook side effect."
+        )
         _fallback_notice([c.stem for c, _ in todo])
         return 0
 
@@ -1649,17 +1780,30 @@ def refresh_affected(changed: list[str], timeout: int = 900,
         delta = symbol_delta(live_watch_set(card, tracked))
         block = "\n".join(touched)
         if delta:
-            block += ("\n\nSymbols that moved (+ added, - removed) since HEAD:\n"
-                      + "\n".join(f"  {s} {f}::{sym}" for f, s, sym in delta))
-        prompt = (template
-                  .replace("{{CARD}}", rel)
-                  .replace("{{CHANGED_FILES}}", block))
+            block += (
+                "\n\nSymbols that moved (+ added, - removed) since HEAD:\n"
+                + "\n".join(f"  {s} {f}::{sym}" for f, s, sym in delta)
+            )
+        prompt = template.replace("{{CARD}}", rel).replace("{{CHANGED_FILES}}", block)
         try:
             proc = subprocess.run(
-                ["claude", "-p", "--model", model,
-                 "--permission-mode", "acceptEdits",
-                 "--allowedTools", "Read", "Grep", "Glob", "Edit"],
-                input=prompt, cwd=REPO_ROOT, capture_output=True, text=True,
+                [
+                    "claude",
+                    "-p",
+                    "--model",
+                    model,
+                    "--permission-mode",
+                    "acceptEdits",
+                    "--allowedTools",
+                    "Read",
+                    "Grep",
+                    "Glob",
+                    "Edit",
+                ],
+                input=prompt,
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
                 timeout=timeout,
             )
         except FileNotFoundError:
@@ -1668,7 +1812,7 @@ def refresh_affected(changed: list[str], timeout: int = 900,
             # than failing once per card, and hand the WHOLE remaining set to
             # the skill.
             print("    the `claude` CLI could not be run.")
-            _fallback_notice([c.stem for c, _ in todo[len(failed) + refreshed:]])
+            _fallback_notice([c.stem for c, _ in todo[len(failed) + refreshed :]])
             return refreshed
         except subprocess.TimeoutExpired:
             print(f"    TIMEOUT after {timeout}s: {card.name} -- left unchanged")
@@ -1724,26 +1868,43 @@ def write_module_map(summaries: list[dict], check=False) -> bool:
 
     by_lang = {"Backend — Python": [], "Frontend — TypeScript": []}
     for m in summaries:
-        key = "Backend — Python" if m["path"].startswith("backend") else "Frontend — TypeScript"
+        key = (
+            "Backend — Python"
+            if m["path"].startswith("backend")
+            else "Frontend — TypeScript"
+        )
         by_lang[key].append(m)
 
     total = sum(m["file_count"] for m in summaries)
     out = [MAP_START, ""]
-    out.append(f"{len(summaries)} logical modules over {total} tracked source files. "
-               f"Each entry links to its")
-    out.append("architecture card, which carries an auto-generated file and import "
-               "rollup. Module")
-    out.append("cards describe FOLDERS and carry no diagrams — for how a concern "
-               "actually works,")
+    out.append(
+        f"{len(summaries)} logical modules over {total} tracked source files. "
+        f"Each entry links to its"
+    )
+    out.append(
+        "architecture card, which carries an auto-generated file and import "
+        "rollup. Module"
+    )
+    out.append(
+        "cards describe FOLDERS and carry no diagrams — for how a concern "
+        "actually works,"
+    )
     out.append("read the domains above.")
     for label, mods in by_lang.items():
         if not mods:
             continue
-        out += ["", f"### {label} ({sum(m['file_count'] for m in mods)} files)", "",
-                "| Module | Path | Files |", "|---|---|---|"]
+        out += [
+            "",
+            f"### {label} ({sum(m['file_count'] for m in mods)} files)",
+            "",
+            "| Module | Path | Files |",
+            "|---|---|---|",
+        ]
         for m in sorted(mods, key=lambda x: (-x["file_count"], x["id"])):
-            out.append(f"| [{m['id']}](architecture/{m['id']}.md) "
-                       f"| `{m['path']}` | {m['file_count']} |")
+            out.append(
+                f"| [{m['id']}](architecture/{m['id']}.md) "
+                f"| `{m['path']}` | {m['file_count']} |"
+            )
     out += ["", MAP_END]
 
     start, end = text.index(MAP_START), text.index(MAP_END) + len(MAP_END)
@@ -1752,8 +1913,10 @@ def write_module_map(summaries: list[dict], check=False) -> bool:
         print(f"--check: module map would list {len(summaries)} modules, {total} files")
         return False
     wrote = write_if_changed(arch, new)
-    print(f"ARCHITECTURE.md module map: {len(summaries)} modules, {total} files"
-          + ("" if wrote else " (unchanged)"))
+    print(
+        f"ARCHITECTURE.md module map: {len(summaries)} modules, {total} files"
+        + ("" if wrote else " (unchanged)")
+    )
     return wrote
 
 
@@ -1768,7 +1931,7 @@ def _section(prose: str, name: str) -> str:
     for m in SECTION_RE.finditer(prose):
         if m.group(1).strip().lower() == name.lower():
             nxt = SECTION_RE.search(prose, m.end())
-            return prose[m.end(): nxt.start() if nxt else len(prose)].strip()
+            return prose[m.end() : nxt.start() if nxt else len(prose)].strip()
     return ""
 
 
@@ -1806,7 +1969,10 @@ def write_gallery(check=False) -> bool:
             # every card. Links are stripped: they are relative to the card's
             # directory and would resolve one level wrong from here.
             first = re.split(r"(?<=\.)\s", purpose.strip())[0]
-            out += [re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", first).replace("\n", " "), ""]
+            out += [
+                re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", first).replace("\n", " "),
+                "",
+            ]
         if diagram:
             out += [diagram.group(0), ""]
             drawn += 1
@@ -1822,83 +1988,112 @@ def write_gallery(check=False) -> bool:
         print(f"--check: gallery would carry {drawn} diagram(s), {plain} without")
         return False
     wrote = write_if_changed(arch, new)
-    print(f"ARCHITECTURE.md gallery: {drawn} diagram(s) inlined, {plain} domain(s) "
-          f"without one{'' if wrote else ' (unchanged)'}")
+    print(
+        f"ARCHITECTURE.md gallery: {drawn} diagram(s) inlined, {plain} domain(s) "
+        f"without one{'' if wrote else ' (unchanged)'}"
+    )
     return wrote
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="report only, write nothing")
     parser.add_argument(
-        "--needs-rebuild", action="store_true",
+        "--check", action="store_true", help="report only, write nothing"
+    )
+    parser.add_argument(
+        "--needs-rebuild",
+        action="store_true",
         help="exit 0 if the on-disk source file list still matches modules.json, "
-             "1 if it does not. ~0.07s: a pure glob, no extractors. Lets a hook "
-             "decide whether the 40s scan is warranted at all.",
+        "1 if it does not. ~0.07s: a pure glob, no extractors. Lets a hook "
+        "decide whether the 40s scan is warranted at all.",
     )
     parser.add_argument(
-        "--only", "--only-write", action="append", default=None, dest="only",
+        "--only",
+        "--only-write",
+        action="append",
+        default=None,
+        dest="only",
         help="restrict which MOD-*.md files are WRITTEN (repeatable). This "
-             "does NOT shorten the run: pydeps and dependency-cruiser rebuild "
-             "the whole import graph either way, because one module's edges "
-             "cannot be derived without the others. Use it to avoid touching "
-             "prose in modules another agent is editing, not to save time. "
-             "modules.json is always regenerated in full.",
+        "does NOT shorten the run: pydeps and dependency-cruiser rebuild "
+        "the whole import graph either way, because one module's edges "
+        "cannot be derived without the others. Use it to avoid touching "
+        "prose in modules another agent is editing, not to save time. "
+        "modules.json is always regenerated in full.",
     )
     parser.add_argument(
-        "--stale-prose", action="store_true",
+        "--stale-prose",
+        action="store_true",
         help="list cards whose `## Shape` prose was authored against a "
-             "different `code_signature` than the code now has, and module "
-             "cards that have never been authored. Read-only, runs no "
-             "extractor. Exit 1 if anything is stale.",
+        "different `code_signature` than the code now has, and module "
+        "cards that have never been authored. Read-only, runs no "
+        "extractor. Exit 1 if anything is stale.",
     )
     parser.add_argument(
-        "--stamp", action="append", default=None, metavar="CARD",
+        "--stamp",
+        action="append",
+        default=None,
+        metavar="CARD",
         help="mark CARD's prose as current: copy its `code_signature` to "
-             "`prose_signature`. Run this AFTER re-authoring and AFTER a "
-             "rebuild -- the signature now depends on the prose (it hashes "
-             "the `file::symbol` trace the prose claims), so the author "
-             "cannot know it in advance. Repeatable.",
+        "`prose_signature`. Run this AFTER re-authoring and AFTER a "
+        "rebuild -- the signature now depends on the prose (it hashes "
+        "the `file::symbol` trace the prose claims), so the author "
+        "cannot know it in advance. Repeatable.",
     )
     parser.add_argument(
-        "--affected", nargs="*", default=None, metavar="FILE",
+        "--affected",
+        nargs="*",
+        default=None,
+        metavar="FILE",
         help="list the DOMAIN cards a changeset touches, then exit. With no "
-             "arguments, reads the changed files from `git diff --name-only "
-             "--cached`. Exit 1 if any card is affected. This is the hook's "
-             "trigger and the input to the re-authoring prompt.",
+        "arguments, reads the changed files from `git diff --name-only "
+        "--cached`. Exit 1 if any card is affected. This is the hook's "
+        "trigger and the input to the re-authoring prompt.",
     )
     parser.add_argument(
-        "--refresh-model", default=None, metavar="MODEL",
+        "--refresh-model",
+        default=None,
+        metavar="MODEL",
         help=f"model for --refresh-affected (default {DEFAULT_REFRESH_MODEL!r}, "
-             f"or $KNOWLEDGE_REFRESH_MODEL). Pinned rather than inherited so a "
-             f"commit costs the same for everyone regardless of their CLI "
-             f"default.",
+        f"or $KNOWLEDGE_REFRESH_MODEL). Pinned rather than inherited so a "
+        f"commit costs the same for everyone regardless of their CLI "
+        f"default.",
     )
     parser.add_argument(
-        "--max-refresh", type=int, default=3, metavar="N",
+        "--max-refresh",
+        type=int,
+        default=3,
+        metavar="N",
         help="with --refresh-affected, the most cards to re-author in one "
-             "run (default 3). Past it the affected cards are reported and "
-             "left alone -- a change touching most of the system is a "
-             "deliberate documentation pass, not a commit-hook side effect.",
+        "run (default 3). Past it the affected cards are reported and "
+        "left alone -- a change touching most of the system is a "
+        "deliberate documentation pass, not a commit-hook side effect.",
     )
     parser.add_argument(
-        "--explain", nargs="*", default=None, metavar="CARD",
+        "--explain",
+        nargs="*",
+        default=None,
+        metavar="CARD",
         help="show WHICH symbols moved under each domain since a revision, "
-             "instead of only that a hash differs. With no arguments, checks "
-             "every domain card. Read-only; pair with --since.",
+        "instead of only that a hash differs. With no arguments, checks "
+        "every domain card. Read-only; pair with --since.",
     )
     parser.add_argument(
-        "--since", default="HEAD", metavar="REV",
+        "--since",
+        default="HEAD",
+        metavar="REV",
         help="revision --explain compares against (default HEAD).",
     )
     parser.add_argument(
-        "--refresh-affected", nargs="*", default=None, metavar="FILE",
+        "--refresh-affected",
+        nargs="*",
+        default=None,
+        metavar="FILE",
         help="re-author every DOMAIN card the changeset touches using headless "
-             "Claude and the prompt in tools/knowledge/prompts/, then "
-             "regenerate the cards, re-inline their diagrams into "
-             "ARCHITECTURE.md, and stamp them current. With no arguments, "
-             "reads `git diff --name-only --cached`. Never blocks: a missing "
-             "`claude` CLI, a timeout or a failed run reports and exits 0.",
+        "Claude and the prompt in tools/knowledge/prompts/, then "
+        "regenerate the cards, re-inline their diagrams into "
+        "ARCHITECTURE.md, and stamp them current. With no arguments, "
+        "reads `git diff --name-only --cached`. Never blocks: a missing "
+        "`claude` CLI, a timeout or a failed run reports and exits 0.",
     )
     args = parser.parse_args()
     only = set(args.only) if args.only else None
@@ -1911,7 +2106,10 @@ def main() -> int:
         if not changed:
             changed = subprocess.run(
                 ["git", "diff", "--name-only", "--cached"],
-                cwd=REPO_ROOT, capture_output=True, text=True, check=True
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
             ).stdout.split()
         changed = [c for c in changed if not c.startswith(".knowledge/")]
         if not changed:
@@ -1919,8 +2117,12 @@ def main() -> int:
             return 0
         if affected_domains(changed) == 0:
             return 0
-        if refresh_affected(changed, max_cards=args.max_refresh,
-                            model=args.refresh_model) == 0:
+        if (
+            refresh_affected(
+                changed, max_cards=args.max_refresh, model=args.refresh_model
+            )
+            == 0
+        ):
             return 0
         # The prose moved, so both the signature and the gallery must follow.
         # A full rebuild is the only thing that recomputes the watch set from
@@ -1928,17 +2130,29 @@ def main() -> int:
         print("  regenerating cards, gallery and signatures ...")
         rc = subprocess.run(
             [sys.executable, str(Path(__file__).resolve())],
-            cwd=REPO_ROOT, capture_output=True, text=True
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
         )
         for line in rc.stdout.splitlines():
             if any(k in line for k in ("Domain cards", "gallery", "WARNING")):
                 print("  " + line.strip())
         for card in sorted(OUT_DIR.glob(f"{DOMAIN_PREFIX}*.md")):
             sigs = read_signatures(card)
-            if sigs.get("code_signature") and sigs.get("prose_signature") != sigs["code_signature"]:
+            if (
+                sigs.get("code_signature")
+                and sigs.get("prose_signature") != sigs["code_signature"]
+            ):
                 subprocess.run(
-                    [sys.executable, str(Path(__file__).resolve()), "--stamp", str(card)],
-                    cwd=REPO_ROOT, capture_output=True, text=True,
+                    [
+                        sys.executable,
+                        str(Path(__file__).resolve()),
+                        "--stamp",
+                        str(card),
+                    ],
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    text=True,
                 )
         return 0
 
@@ -1947,7 +2161,10 @@ def main() -> int:
         if not changed:
             changed = subprocess.run(
                 ["git", "diff", "--name-only", "--cached"],
-                cwd=REPO_ROOT, capture_output=True, text=True, check=True
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
             ).stdout.split()
         return affected_domains(changed)
 
@@ -1965,27 +2182,44 @@ def main() -> int:
             sigs = read_signatures(p)
             code = sigs.get("code_signature")
             if not code:
-                print(f"  {p.name}: no code_signature -- rebuild first"); rc = 1; continue
+                print(f"  {p.name}: no code_signature -- rebuild first")
+                rc = 1
+                continue
             # BOTH stamps move together. `prose_signature` is what --stale-prose
             # reports on; `prose_symbols_signature` is what the refresh gate
             # tests. Advancing only one leaves the other permanently disagreeing
             # -- stamp the first alone and every commit re-authors forever.
             syms = sigs.get("symbols_signature") or symbols_digest(
-                live_watch_set(p, _tracked_files()))
+                live_watch_set(p, _tracked_files())
+            )
             text = p.read_text(encoding="utf-8")
             head = text.split("---")[1] if text.count("---") >= 2 else ""
-            for key, val in (("prose_signature", code),
-                             ("prose_symbols_signature", syms)):
+            for key, val in (
+                ("prose_signature", code),
+                ("prose_symbols_signature", syms),
+            ):
                 if f"{key}:" in head:
-                    text = re.sub(rf"^{key}:.*$", f"{key}: {val}", text,
-                                  count=1, flags=re.M)
+                    text = re.sub(
+                        rf"^{key}:.*$", f"{key}: {val}", text, count=1, flags=re.M
+                    )
                 else:
-                    text = re.sub(r"^(code_signature: .*)$", rf"\1\n{key}: {val}",
-                                  text, count=1, flags=re.M)
+                    text = re.sub(
+                        r"^(code_signature: .*)$",
+                        rf"\1\n{key}: {val}",
+                        text,
+                        count=1,
+                        flags=re.M,
+                    )
                 head = text.split("---")[1] if text.count("---") >= 2 else ""
             p.write_text(text, encoding="utf-8")
-            print(f"  stamped {p.name}: prose={code} symbols={syms}"
-                  + (f" (was {sigs['prose_signature']})" if sigs.get("prose_signature") else ""))
+            print(
+                f"  stamped {p.name}: prose={code} symbols={syms}"
+                + (
+                    f" (was {sigs['prose_signature']})"
+                    if sigs.get("prose_signature")
+                    else ""
+                )
+            )
         return rc
 
     files = scan_source_files()
@@ -2007,7 +2241,9 @@ def main() -> int:
         added = sorted(set(files) - known_prior)
         removed = sorted(known_prior - set(files))
         if not added and not removed:
-            print(f"architecture current: {len(files)} source files, no additions or removals")
+            print(
+                f"architecture current: {len(files)} source files, no additions or removals"
+            )
             return 0
         for f in added[:10]:
             print(f"  + {f}")
@@ -2031,39 +2267,54 @@ def main() -> int:
         be_imports, be_external = extract_backend_edges(known)
     except ExtractorError as exc:
         print(f"ERROR: {exc}")
-        print("Aborting -- refusing to overwrite existing dependency data with nothing.")
+        print(
+            "Aborting -- refusing to overwrite existing dependency data with nothing."
+        )
         return 1
     print("Running dependency-cruiser over frontend/src ...")
     try:
         fe_imports, fe_external = extract_frontend_edges(known)
     except ExtractorError as exc:
         print(f"ERROR: {exc}")
-        print("Aborting -- refusing to overwrite existing dependency data with nothing.")
+        print(
+            "Aborting -- refusing to overwrite existing dependency data with nothing."
+        )
         return 1
 
     file_imports: dict[str, set] = defaultdict(set)
     file_external: dict[str, set] = defaultdict(set)
-    for d, s in ((be_imports, file_imports), (fe_imports, file_imports),
-                 (be_external, file_external), (fe_external, file_external)):
+    for d, s in (
+        (be_imports, file_imports),
+        (fe_imports, file_imports),
+        (be_external, file_external),
+        (fe_external, file_external),
+    ):
         for k, v in d.items():
             s[k] |= v
 
     with_edges = sum(1 for f in files if file_imports.get(f))
-    print(f"Files with resolved import edges: {with_edges}/{len(files)} "
-          f"({len(files) - with_edges} isolated -- recorded with no edges, not dropped)")
+    print(
+        f"Files with resolved import edges: {with_edges}/{len(files)} "
+        f"({len(files) - with_edges} isolated -- recorded with no edges, not dropped)"
+    )
 
     # Sanity guard against SILENT under-reporting. pydeps returns absolute
     # paths; if the source tree is reached through a symlink, Path.resolve()
     # lands outside REPO_ROOT, relative_to() raises, and every one of those
     # files is skipped -- producing a plausible-looking graph with almost no
     # backend edges and no error at all. Loud is better than wrong.
-    for label, exts in (("backend", (".py",)), ("frontend", (".ts", ".tsx", ".js", ".jsx"))):
+    for label, exts in (
+        ("backend", (".py",)),
+        ("frontend", (".ts", ".tsx", ".js", ".jsx")),
+    ):
         pool = [f for f in files if f.endswith(exts)]
         linked = [f for f in pool if file_imports.get(f)]
         if len(pool) >= 20 and len(linked) < len(pool) * 0.10:
-            print(f"  WARNING: only {len(linked)}/{len(pool)} {label} files resolved any "
-                  f"import edge. Expected far more -- the extractor likely failed to map "
-                  f"paths (a symlinked source tree does this). Treat the graph as suspect.")
+            print(
+                f"  WARNING: only {len(linked)}/{len(pool)} {label} files resolved any "
+                f"import edge. Expected far more -- the extractor likely failed to map "
+                f"paths (a symlinked source tree does this). Treat the graph as suspect."
+            )
 
     # ---- aggregate file edges to module edges ----
     # assign_module() is total here -- the `unassigned` guard above already
@@ -2093,13 +2344,12 @@ def main() -> int:
         for dep in deps:
             module_imported_by[dep].add(mod)
 
-
     today = date.today().isoformat()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     module_summaries = []
     written = 0
-    at_risk: list[str] = []   # files skipped to avoid destroying their content
+    at_risk: list[str] = []  # files skipped to avoid destroying their content
 
     for root in sorted(MODULE_ROOTS):
         mfiles = sorted(module_files.get(root, []))
@@ -2110,7 +2360,9 @@ def main() -> int:
         langs = {language_for(f) for f in mfiles}
         language = next(iter(langs)) if len(langs) == 1 else "mixed"
         imports = sorted(module_slug(m) for m in module_imports.get(root, set()))
-        imported_by = sorted(module_slug(m) for m in module_imported_by.get(root, set()))
+        imported_by = sorted(
+            module_slug(m) for m in module_imported_by.get(root, set())
+        )
         external = sorted(module_external.get(root, set()))
 
         out_path = OUT_DIR / f"{mid}.md"
@@ -2144,9 +2396,16 @@ def main() -> int:
             **({"prose_signature": prior_prose_sig} if prior_prose_sig else {}),
             "last_synced": today,
         }
-        frontmatter = "---\n" + yaml.safe_dump(
-            frontmatter_data, default_flow_style=False, sort_keys=False, allow_unicode=True
-        ) + "---\n\n"
+        frontmatter = (
+            "---\n"
+            + yaml.safe_dump(
+                frontmatter_data,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+            )
+            + "---\n\n"
+        )
 
         auto_lines = [
             "<!-- AUTO-GENERATED BELOW THIS LINE — regenerated by tools/knowledge/build_architecture.py -->",
@@ -2157,38 +2416,49 @@ def main() -> int:
         auto_lines += ["", "### Depends on"]
         auto_lines += [f"- [{m}]({m}.md)" for m in imports] if imports else ["- (none)"]
         auto_lines += ["", "### Depended on by"]
-        auto_lines += [f"- [{m}]({m}.md)" for m in imported_by] if imported_by else ["- (none)"]
+        auto_lines += (
+            [f"- [{m}]({m}.md)" for m in imported_by] if imported_by else ["- (none)"]
+        )
         auto_lines += ["", "### External"]
         auto_lines += [", ".join(external) if external else "(none)"]
         auto_lines.append(AUTO_END)
         auto_lines.append("")
 
-        content = frontmatter + "\n".join(auto_lines) + "\n" + hand_authored.strip("\n") + "\n"
+        content = (
+            frontmatter
+            + "\n".join(auto_lines)
+            + "\n"
+            + hand_authored.strip("\n")
+            + "\n"
+        )
         if not args.check and (only is None or mid in only):
             if write_if_changed(out_path, content):
                 written += 1
 
-        module_summaries.append({
-            "id": mid,
-            "path": root,
-            "language": language,
-            "file_count": len(mfiles),
-            "files": mfiles,
-            "imports": imports,
-            "imported_by": imported_by,
-            "external_deps": external,
-        })
+        module_summaries.append(
+            {
+                "id": mid,
+                "path": root,
+                "language": language,
+                "file_count": len(mfiles),
+                "files": mfiles,
+                "imports": imports,
+                "imported_by": imported_by,
+                "external_deps": external,
+            }
+        )
 
     if not args.check:
-        write_file_cards(files, file_imports, file_external, file_to_module,
-                         check=args.check)
+        write_file_cards(
+            files, file_imports, file_external, file_to_module, check=args.check
+        )
 
         # Domains resolve their members against the same file list, so they
         # must run after it is settled -- and before the gallery, which lifts
         # each domain's diagram into ARCHITECTURE.md.
-        _, uncovered = write_domain_cards(files, file_imports, file_external,
-                                          file_to_module, today,
-                                          check=args.check)
+        _, uncovered = write_domain_cards(
+            files, file_imports, file_external, file_to_module, today, check=args.check
+        )
         if uncovered:
             print(f"  {len(uncovered)} file(s) belong to no domain -- first 10:")
             for f in uncovered[:10]:
@@ -2196,9 +2466,10 @@ def main() -> int:
         write_gallery(check=args.check)
         write_module_map(module_summaries, check=args.check)
 
-        write_if_changed(OUT_DIR / "modules.json",
-            json.dumps({"generated_at": today, "modules": module_summaries},
-                       indent=2) + "\n"
+        write_if_changed(
+            OUT_DIR / "modules.json",
+            json.dumps({"generated_at": today, "modules": module_summaries}, indent=2)
+            + "\n",
         )
 
     total_assigned = sum(m["file_count"] for m in module_summaries)
@@ -2216,7 +2487,10 @@ def main() -> int:
             # "preserved" -- turning the one line that is supposed to prove
             # prose survived into a number that is always reassuring and
             # therefore worthless.
-            if read_hand_authored(OUT_DIR / f"{m['id']}.md").strip() != DEFAULT_HAND_AUTHORED.strip():
+            if (
+                read_hand_authored(OUT_DIR / f"{m['id']}.md").strip()
+                != DEFAULT_HAND_AUTHORED.strip()
+            ):
                 preserved += 1
         except PreserveError:
             pass
@@ -2227,9 +2501,7 @@ def main() -> int:
     # hand-authored prose, so it is reported and left alone -- removing it is
     # a human decision.
     produced = {m["id"] for m in module_summaries}
-    orphans = sorted(
-        p.name for p in OUT_DIR.glob("MOD-*.md") if p.stem not in produced
-    )
+    orphans = sorted(p.name for p in OUT_DIR.glob("MOD-*.md") if p.stem not in produced)
     if orphans:
         print(f"\nOrphaned MOD-*.md ({len(orphans)}) -- left untouched, not deleted:")
         for name in orphans:

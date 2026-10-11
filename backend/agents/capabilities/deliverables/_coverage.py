@@ -80,7 +80,9 @@ def _top_level_titles(text: str) -> list[str]:
     "Top level" is relative to the document: a source whose shallowest heading
     is ``##`` has ``##`` sections. Order-preserving and de-duplicated.
     """
-    headings = [(len(m.group(1)), _normalize(m.group(2))) for m in _ATX_HEADING.finditer(text)]
+    headings = [
+        (len(m.group(1)), _normalize(m.group(2))) for m in _ATX_HEADING.finditer(text)
+    ]
     headings = [(level, title) for level, title in headings if title]
     if not headings:
         return []

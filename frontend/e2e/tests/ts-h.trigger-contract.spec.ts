@@ -11,8 +11,10 @@
  * JSON.stringify({ type, pipeline_type, message, agent_ids, ... }) and MockSse
  * parses it raw — so assert f.pipeline_type / f.agent_ids / f.message directly.
  */
-import { test, expect } from "../fixtures/test";
+import { test, expect, DashboardPage } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
+import { installMockApi } from "../fixtures/mockApi";
+import { installMockSse } from "../fixtures/mockSse";
 
 test.describe("TS-H — trigger contract", () => {
   test("TS-H-01 run_pipeline payload (minimal) is the byte-identical legacy shape", async ({ dashboard, mockSse }) => {
@@ -109,14 +111,123 @@ test.describe("TS-H — trigger contract", () => {
     await expect(dashboard.runningBadge().first()).toBeVisible();
   });
 
-  // TS-H-05 — the wizard path (prototype/ppt) sends od_prototype / od_ppt with a
-  // template_id. From home those workflows router.push to
-  // /workflow/{prototype,ppt}/templates (they do NOT open IdeaInputPage), so the
-  // payload only fires after the template/design-system wizard completes — which
-  // is out of scope for this mocked, WS-only spec. Tracked under TS-V (live).
-  // Standalone fixme so it skips ONLY this case (a bare test.fixme in the
-  // describe body would skip the whole group).
-  test("TS-H-05 wizard path (prototype/ppt) sends od_prototype/od_ppt + template_id", async () => {
-    test.skip(true, "wizard path covered by TS-V live; Owner: frontend");
+  // TS-H-05 — the wizard path (prototype/ppt) launch contract.
+  //
+  // From home these rows router.push to /create/{prototype,ppt} (the [...view]
+  // catch-all's wizardMode branch) instead of opening IdeaInputPage. The launch is a three-hop
+  // hand-off, and this test drives every hop with the seeded Configure registries
+  // (dashboard.seedConfigure → DEFAULT_PROTOTYPE_TEMPLATES / DEFAULT_DESIGN_SYSTEMS
+  // / DEFAULT_PPT_TEMPLATES):
+  //   1. LaunchWizard.handleLaunch (LaunchWizard.tsx:985-1039) serializes the
+  //      selection via buildLaunchDraft (lib/launchDraft.ts) into sessionStorage
+  //      `{prototype,ppt}.draft` + `{prototype,ppt}.pending`, then pushes /dashboard.
+  //   2. The dashboard page consumes the pending draft once the run connection is
+  //      ready ([...view]/page.tsx:2463-2547 prototype, :2551-2627 ppt) and clears
+  //      both keys.
+  //   3. DashboardLayout's launch-consumer effects build the extraParams
+  //      (DashboardLayout.tsx:1367-1386 prototype, :1438-1450 ppt) and call
+  //      onStartPipeline → useWorkflow merges them TOP-LEVEL onto the
+  //      run_pipeline body (useWorkflow.ts:83-122) → POST /api/runs.
+  //
+  // NAMING NOTE: the title's `od_prototype`/`od_ppt` are RETIRED run-label
+  // aliases (backend/agents/registry.py:44-76 — collapsed onto `prototype`/`ppt`;
+  // LaunchWizard.tsx:94-96 — the backend 422s them). The wizard sends the live
+  // catalog ids `prototype`/`ppt` (DashboardLayout.tsx:1360, :1427), so that is
+  // what is asserted. The title is kept verbatim (test IDs are not renamed).
+  test("TS-H-05 wizard path (prototype/ppt) sends od_prototype/od_ppt + template_id", async ({ dashboard, mockSse, page, context, tier }) => {
+    const isRunPipeline = (pt: string) => (c: Record<string, unknown>) =>
+      c.type === "run_pipeline" && c.pipeline_type === pt;
+    // Two full wizard round-trips (home → wizard → home, ×2), each on its own tab.
+    test.setTimeout(120_000);
+
+    // Registries must be seeded BEFORE goto (the wizard lists them on mount).
+    dashboard.seedConfigure();
+    await dashboard.goto();
+
+    // ── prototype: template + design system (DS is REQUIRED for web) ─────────
+    const protoBrief = "A kanban board for a 5-person growth squad";
+    await dashboard.selectWorkflow("Build an interactive prototype");
+    // routes.createPrototype() (lib/routes.ts:65) — served by the [...view] catch-all.
+    await page.waitForURL(/\/create\/prototype(\?|$)/);
+    await expect(page.getByRole("heading", { name: "Configure your prototype" })).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole("textbox", { name: "Brief", exact: true }).fill(protoBrief);
+
+    // Template step: a card opens TemplateDetailModal; "Use this template" selects.
+    await page.getByRole("button", { name: /SaaS analytics dashboard/ }).first().click();
+    const tplDialog = page.getByRole("dialog");
+    await tplDialog.getByRole("button", { name: "Use this template" }).click();
+    await expect(tplDialog).toHaveCount(0);
+
+    // Design System step: the band-card corner toggle drives onSelect(id).
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.getByRole("button", { name: "Select Velocity Motors" }).click();
+    await expect(page.getByRole("button", { name: "Deselect Velocity Motors" })).toBeVisible();
+
+    const protoContinue = page.getByRole("button", { name: "Continue", exact: true });
+    await expect(protoContinue).toBeEnabled();
+    await protoContinue.click();
+    await page.waitForURL(/\/dashboard/);
+
+    const proto = await mockSse.waitForCommand(isRunPipeline("prototype"), 20000);
+    expect(proto.pipeline_type).toBe("prototype");
+    expect(proto.message).toBe(protoBrief);
+    expect(proto.template_id).toBe("saas-dashboard");
+    expect(proto.design_system_id).toBe("velocity-motors");
+    // The staged hand-off was consumed (page.tsx:2509-2511) — a reload must not relaunch.
+    expect(
+      await page.evaluate(() => [sessionStorage.getItem("prototype.pending"), sessionStorage.getItem("prototype.draft")]),
+    ).toEqual([null, null]);
+
+    // One launch per wizard Continue — no double-mint (BUG-007 latch).
+    expect(mockSse.framesOfType("run_pipeline").filter(isRunPipeline("prototype"))).toHaveLength(1);
+
+    // ── ppt: template only (exec-pitch declares design_system.requires=false) ─
+    // Driven on a FRESH tab with its OWN mock backend. HARNESS NOTE: once the
+    // prototype launch lands, the mock lists that run as "running" on every
+    // GET /api/runs and holds its frame-less stream response open (no headers
+    // until a frame), so the provider sits in phase "connecting" — and the
+    // wizard consumer only fires on a phase that maps to "connected"
+    // ([...view]/page.tsx:62-77, :2464). A second launch on the same tab would
+    // therefore test that mock artifact, not the ppt contract. The fresh tab
+    // gives the deck launch the same clean starting state the prototype had.
+    const deckPage = await context.newPage();
+    const deckApi = await installMockApi(deckPage, { user: { tier } });
+    const deckSse = await installMockSse(deckPage, deckApi);
+    const deck = new DashboardPage(deckPage, deckSse, deckApi);
+    deck.seedConfigure();
+    await deck.goto();
+
+    const pptBrief = "A pitch deck for our Series A fundraise";
+    await deck.selectWorkflow("Pitch an idea");
+    await deckPage.waitForURL(/\/create\/ppt(\?|$)/); // routes.createPpt() (lib/routes.ts:63)
+    await expect(deckPage.getByRole("heading", { name: "Configure your presentation" })).toBeVisible({ timeout: 15000 });
+
+    await deckPage.getByRole("textbox", { name: "Brief", exact: true }).fill(pptBrief);
+    await deckPage.getByRole("button", { name: /Executive pitch/ }).first().click();
+    // The PPT detail modal carries no role="dialog" (PPTTemplateGallery.tsx:415),
+    // so target its select button directly — it only exists while the modal is open.
+    const useDeckTemplate = deckPage.getByRole("button", { name: "Use this template", exact: true });
+    await useDeckTemplate.click();
+    await expect(useDeckTemplate).toHaveCount(0);
+
+    const pptContinue = deckPage.getByRole("button", { name: "Continue", exact: true });
+    await expect(pptContinue).toBeEnabled();
+    await pptContinue.click();
+    await deckPage.waitForURL(/\/dashboard/);
+
+    const ppt = await deckSse.waitForCommand(isRunPipeline("ppt"), 20000);
+    expect(ppt.pipeline_type).toBe("ppt");
+    expect(ppt.message).toBe(pptBrief);
+    expect(ppt.template_id).toBe("exec-pitch");
+    // A template that does not require a DS sends NO design_system_id
+    // (LaunchWizard.tsx:999 nulls it; DashboardLayout.tsx:1439 omits a null).
+    expect(ppt).not.toHaveProperty("design_system_id");
+    expect(
+      await deckPage.evaluate(() => [sessionStorage.getItem("ppt.pending"), sessionStorage.getItem("ppt.draft")]),
+    ).toEqual([null, null]);
+    expect(deckSse.framesOfType("run_pipeline").filter(isRunPipeline("ppt"))).toHaveLength(1);
+
+    await deckPage.close();
   });
 });

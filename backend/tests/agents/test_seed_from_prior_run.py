@@ -2,6 +2,7 @@
 
 TODO: Remove with the hack (run_commands._seed_from_prior_run / sandbox .latest).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,7 +32,8 @@ def _manifest(**seed) -> dict:
 def test_copies_declared_files_from_prior_run(runs_root: Path) -> None:
     RunSandbox(USER, PRIOR).write("synthesis.md", "# facts\n- one [user]\n")
     seeded = _seed_from_prior_run(
-        user_id=USER, run_id=NEW,
+        user_id=USER,
+        run_id=NEW,
         manifest_json=_manifest(from_run=["synthesis.md"], run_id=PRIOR),
     )
     assert seeded == ["synthesis.md"]
@@ -39,20 +41,31 @@ def test_copies_declared_files_from_prior_run(runs_root: Path) -> None:
 
 
 def test_no_seed_declared_is_a_noop(runs_root: Path) -> None:
-    assert _seed_from_prior_run(user_id=USER, run_id=NEW, manifest_json={"steps": []}) == []
+    assert (
+        _seed_from_prior_run(user_id=USER, run_id=NEW, manifest_json={"steps": []})
+        == []
+    )
     assert _seed_from_prior_run(user_id=USER, run_id=NEW, manifest_json=None) == []
     # from_run without a run_id (the declared revision surface) is not ours to act on.
-    assert _seed_from_prior_run(
-        user_id=USER, run_id=NEW, manifest_json=_manifest(from_run=["synthesis.md"]),
-    ) == []
+    assert (
+        _seed_from_prior_run(
+            user_id=USER,
+            run_id=NEW,
+            manifest_json=_manifest(from_run=["synthesis.md"]),
+        )
+        == []
+    )
     assert not (runs_root / USER / NEW).exists()
 
 
 def test_missing_file_is_skipped_not_raised(runs_root: Path) -> None:
     RunSandbox(USER, PRIOR).write("synthesis.md", "x")
     seeded = _seed_from_prior_run(
-        user_id=USER, run_id=NEW,
-        manifest_json=_manifest(from_run=["synthesis.md", "validate.json"], run_id=PRIOR),
+        user_id=USER,
+        run_id=NEW,
+        manifest_json=_manifest(
+            from_run=["synthesis.md", "validate.json"], run_id=PRIOR
+        ),
     )
     assert seeded == ["synthesis.md"]
     assert RunSandbox(USER, NEW).read("validate.json") is None
@@ -61,7 +74,8 @@ def test_missing_file_is_skipped_not_raised(runs_root: Path) -> None:
 def test_another_users_run_is_not_readable(runs_root: Path) -> None:
     RunSandbox("user-b", PRIOR).write("synthesis.md", "theirs")
     seeded = _seed_from_prior_run(
-        user_id=USER, run_id=NEW,
+        user_id=USER,
+        run_id=NEW,
         manifest_json=_manifest(from_run=["synthesis.md"], run_id=PRIOR),
     )
     assert seeded == []
@@ -71,7 +85,10 @@ def test_another_users_run_is_not_readable(runs_root: Path) -> None:
 def test_path_escape_in_seed_name_is_swallowed(runs_root: Path) -> None:
     RunSandbox(USER, PRIOR).write("synthesis.md", "x")
     seeded = _seed_from_prior_run(
-        user_id=USER, run_id=NEW,
-        manifest_json=_manifest(from_run=["../../etc/passwd", "synthesis.md"], run_id=PRIOR),
+        user_id=USER,
+        run_id=NEW,
+        manifest_json=_manifest(
+            from_run=["../../etc/passwd", "synthesis.md"], run_id=PRIOR
+        ),
     )
     assert seeded == ["synthesis.md"]

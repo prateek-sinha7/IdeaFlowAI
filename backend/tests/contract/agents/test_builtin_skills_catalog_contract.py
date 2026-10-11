@@ -34,8 +34,8 @@ import app.agents.skills_catalog as skills_catalog
 from agents.factory import AgentContext, create_runner
 from app.agents import hooks_catalog, skills
 from app.agents.sandbox import RunSandbox
-from app.api.launch_context import write_od_context_to_sandbox
 from app.core import config
+from app.services.od_context_sandbox import write_od_context_to_sandbox
 from app.services.od_loader import od_root
 from tests.fakes.chat_model import FakeStaticChatModel
 
@@ -53,8 +53,14 @@ _TEMPLATE_BODY = "# Web Prototype Template\n\nHero + feature triplet."
 
 def _runtime_stage() -> str:
     """The Dockerfile's runtime stage with comment lines dropped."""
-    text = (_BACKEND_DIR / "Dockerfile").read_text(encoding="utf-8").split(" AS runtime", 1)[1]
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    text = (
+        (_BACKEND_DIR / "Dockerfile")
+        .read_text(encoding="utf-8")
+        .split(" AS runtime", 1)[1]
+    )
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
 
 
 def _dockerfile_env(name: str) -> str | None:
@@ -76,7 +82,9 @@ def _runtime_copy(src: str) -> tuple[list[str], PurePosixPath] | None:
 
 def _backend_mount_targets() -> list[PurePosixPath]:
     """Container paths docker-compose.yml bind-mounts into the backend service."""
-    compose = yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    compose = yaml.safe_load(
+        (_REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    )
     targets: list[PurePosixPath] = []
     for volume in compose["services"]["backend"].get("volumes", []):
         target = volume.split(":")[1] if isinstance(volume, str) else volume["target"]
@@ -86,7 +94,11 @@ def _backend_mount_targets() -> list[PurePosixPath]:
 
 def _dockerignore_rules() -> list[str]:
     lines = (_BACKEND_DIR / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    return [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+    return [
+        line.strip()
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
 
 
 def _declared_skill_ids(node: object) -> set[str]:
@@ -166,7 +178,9 @@ def image_catalog(tmp_path, monkeypatch) -> ModuleType:
 
     env_root = _dockerfile_env("GLOBAL_SKILLS_ROOT")
     if env_root:
-        monkeypatch.setenv("GLOBAL_SKILLS_ROOT", str(_on_host(image_root, PurePosixPath(env_root))))
+        monkeypatch.setenv(
+            "GLOBAL_SKILLS_ROOT", str(_on_host(image_root, PurePosixPath(env_root)))
+        )
     else:
         monkeypatch.delenv("GLOBAL_SKILLS_ROOT", raising=False)
     monkeypatch.setattr(config, "settings", config.Settings())
@@ -191,10 +205,14 @@ def test_create_runner_stages_velocity_design_with_template_body_when_running_fr
     # Arrange — the exact step from the dev failure, with a template selected so the
     # skill's {{INJECT_FROM:...}} marker has real content to resolve.
     step_skills = _manifest_step_skills("prototype", "prototype-specify")
-    assert "velocity-design" in step_skills, "fixture assumption: the step from the dev log"
+    assert (
+        "velocity-design" in step_skills
+    ), "fixture assumption: the step from the dev log"
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
-    sandbox = RunSandbox("test-user", "image-layout-run", runs_root=str(runs_root), has_git=False)
+    sandbox = RunSandbox(
+        "test-user", "image-layout-run", runs_root=str(runs_root), has_git=False
+    )
     sandbox.ensure()
     write_od_context_to_sandbox(
         sandbox,
@@ -251,12 +269,16 @@ def test_manifest_skill_ids_resolve_in_checkout_catalog_when_scanning_every_work
     # Act
     missing: dict[str, list[str]] = {}
     for manifest in manifests:
-        declared = _declared_skill_ids(yaml.safe_load(manifest.read_text(encoding="utf-8")))
+        declared = _declared_skill_ids(
+            yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        )
         if declared - checkout_catalog_ids:
             missing[manifest.parent.name] = sorted(declared - checkout_catalog_ids)
 
     # Assert
-    assert not missing, f"manifest skills: ids absent from backend/skills/global: {missing}"
+    assert (
+        not missing
+    ), f"manifest skills: ids absent from backend/skills/global: {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +299,9 @@ def test_dockerfile_copies_catalog_to_global_skills_root_when_runtime_stage_buil
     # Outside every bind-mount (a mount would shadow it) and root-owned (no --chown),
     # so the runtime user can read the catalog but never rewrite it.
     for target in _backend_mount_targets():
-        assert dest != target and target not in dest.parents, f"{dest} is shadowed by {target}"
+        assert (
+            dest != target and target not in dest.parents
+        ), f"{dest} is shadowed by {target}"
     assert not any(flag.startswith("--chown") for flag in flags)
 
 
@@ -292,7 +316,9 @@ def test_dockerignore_readmits_only_skills_global_when_skills_dir_is_excluded():
 
     # Assert
     assert {rules[i] for i in readmits} == {"!skills/global", "!skills/global/**"}
-    assert min(readmits) > last_exclude, "re-include must come after `skills/` (last match wins)"
+    assert (
+        min(readmits) > last_exclude
+    ), "re-include must come after `skills/` (last match wins)"
     assert rules.index("**/.env") > last_readmit, "secret excludes must stay last"
 
 
@@ -312,7 +338,9 @@ def test_dockerfile_bakes_backend_data_dir_at_path_code_reads_when_dir_is_backen
     data_copy = _runtime_copy(f"{rel}/")
 
     # Assert
-    assert app_copy is not None and data_copy is not None, f"runtime stage must COPY {rel}/"
+    assert (
+        app_copy is not None and data_copy is not None
+    ), f"runtime stage must COPY {rel}/"
     assert data_copy[1] == app_copy[1].parent / rel
 
 
@@ -340,5 +368,7 @@ def test_pptx_tool_assets_exist_under_od_root_when_resolved_from_checkout():
     root = od_root()
 
     # Assert
-    assert (root / "skills" / "pptx-html-fidelity-audit" / "scripts" / "verify_layout.py").is_file()
+    assert (
+        root / "skills" / "pptx-html-fidelity-audit" / "scripts" / "verify_layout.py"
+    ).is_file()
     assert (root / "fonts").is_dir()

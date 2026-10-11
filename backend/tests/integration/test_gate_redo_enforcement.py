@@ -80,7 +80,7 @@ def _seed_user(env, tag: str) -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"iss090-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -207,15 +207,17 @@ async def test_http_redo_is_refused_when_the_firing_advertised_no_redo_button(en
         f"resolves the run; got HTTP actions {actions}"
     )
     for action, resp in http_responses:
-        assert resp.status_code == 200, f"{action} POST failed: {resp.status_code} {resp.text}"
+        assert (
+            resp.status_code == 200
+        ), f"{action} POST failed: {resp.status_code} {resp.text}"
 
     assert "_gate_redo" not in types, (
         f"the engine re-ran the agent on a redo the firing published redoable=False "
         f"for (ISS-090); events={types}"
     )
-    assert "review_gate_approved" in types, (
-        f"the gate did not resolve via the follow-up approve; events={types}"
-    )
+    assert (
+        "review_gate_approved" in types
+    ), f"the gate did not resolve via the follow-up approve; events={types}"
 
 
 @pytest.mark.asyncio
@@ -231,6 +233,10 @@ async def test_http_redo_still_fires_when_the_firing_advertised_the_redo_button(
     types = [e.get("type") for e in events]
     actions = [a for a, _r in http_responses]
 
-    assert actions == ["redo"], f"an advertised redo must resolve in one HTTP POST; got {actions}"
+    assert actions == [
+        "redo"
+    ], f"an advertised redo must resolve in one HTTP POST; got {actions}"
     assert http_responses[0][1].status_code == 200, http_responses[0][1].text
-    assert "_gate_redo" in types, f"an advertised redo no longer re-runs the agent; events={types}"
+    assert (
+        "_gate_redo" in types
+    ), f"an advertised redo no longer re-runs the agent; events={types}"

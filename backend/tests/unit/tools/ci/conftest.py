@@ -40,7 +40,7 @@ def pytest_configure(config):
 def ci_canary_session_config():
     """Session-level configuration for canary testing."""
     return {
-        "sonar_timeout_seconds": 300,
+        "external_gate_timeout_seconds": 300,
         "artifact_size_limit_bytes": 100 * 1024 * 1024,
         "cache_hash_algorithm": "sha256",
         "required_coverage_metrics": {

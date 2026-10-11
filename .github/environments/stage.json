@@ -1,0 +1,23 @@
+{
+  "name": "stage",
+  "description": "Stage environment — production-adjacent, engineering team approvals required. Deployed to from the `staging` BRANCH; the environment name is `stage`, matching the EC2 Environment tag, the SSM /velocityai/stage/* prefix and the deploy role's ssm:resourceTag condition.",
+  "can_admins_bypass": true,
+  "wait_timer": 0,
+  "deployment_branch_policy": {
+    "protected_tags": false,
+    "protected_branches": true,
+    "custom_branch_policies": false,
+    "allowed_branches": [
+      "refs/heads/staging"
+    ]
+  },
+  "reviewers": [
+    {
+      "type": "Team",
+      "id": "engineering"
+    }
+  ],
+  "min_review_count": 1,
+  "require_branch_uptodate": true,
+  "protect_custom_deployment_gate_reviewers": false
+}

@@ -178,7 +178,9 @@ class TestPeriodicRecheck:
 
         assert self._revocation_check(env, token) == "credential_expired"
 
-    def test_a_token_signed_by_another_key_terminates_the_stream(self, env, monkeypatch):
+    def test_a_token_signed_by_another_key_terminates_the_stream(
+        self, env, monkeypatch
+    ):
         """Signature is re-checked too, so a pool key rotation ends the stream
         rather than letting it run on a key the pool no longer publishes."""
         other = FakeCognitoAuth(monkeypatch)

@@ -19,19 +19,19 @@ Exit Codes:
 """
 
 import argparse
-import json
 import logging
 import os
 import sys
 from pathlib import Path
 
-# Make app importable + run from backend/.
+import yaml
+from sqlalchemy.orm import Session
+
+# Make app importable + run from backend/. The ``app.*`` imports are deferred
+# into the functions below, so they resolve after this path setup.
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(backend_dir)
 sys.path.insert(0, backend_dir)
-
-import yaml
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -49,6 +49,7 @@ def _load_yaml_file(yaml_path: str) -> dict:
 def _get_db() -> Session:
     """Get a database session."""
     from app.models.database import SessionLocal
+
     return SessionLocal()
 
 
@@ -133,7 +134,9 @@ def sync_workflow(workflow_id: str, yaml_path: str, apply: bool = False) -> int:
             logging.info(f"Found workflow {workflow_id} (name={row.name!r})")
 
             # Compute diff
-            old_manifest = row.manifest_json if isinstance(row.manifest_json, dict) else None
+            old_manifest = (
+                row.manifest_json if isinstance(row.manifest_json, dict) else None
+            )
             diff = _diff_manifest_dicts(old_manifest, new_manifest)
 
             # Print summary

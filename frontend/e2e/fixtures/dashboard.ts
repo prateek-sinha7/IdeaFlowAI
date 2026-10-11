@@ -64,6 +64,9 @@ export class DashboardPage {
   async goto(opts: { tier?: Tier } = {}) {
     if (opts.tier) this.api.setUser({ tier: opts.tier });
     await this.page.addInitScript(([k, t]) => localStorage.setItem(k, t), [TOKEN_KEY, TEST_JWT]);
+    // KAN-125: a spec that emits WITHOUT launching relies on the lazy attach;
+    // the page only honours frames for runs in its mount-time tab allow-list.
+    if (this.sse.autoAttach) await this.sse.seedTabOwnership();
     await this.page.goto("/dashboard");
     await expect(this.homeHeading()).toBeVisible({ timeout: 15000 });
     // SSE is the sole transport (44-06): the app attaches a run's stream only once
@@ -127,7 +130,12 @@ export class DashboardPage {
 
   /** Click a CreationHub workflow row by its H2 label. */
   async selectWorkflow(label: string) {
+    const before = new URL(this.page.url()).pathname;
     await this.page.getByRole("button", { name: new RegExp(label, "i") }).first().click();
+    // 015-frontend-routing: the card swaps the view optimistically, then the URL
+    // commit (/create/{type}, /workflows/new) remounts the screen — settle on the
+    // new route so a subsequent fill is not wiped by that remount.
+    await this.page.waitForURL((u) => u.pathname !== before, { waitUntil: "commit" });
   }
 
   ideaTextarea(): Locator {
@@ -158,17 +166,100 @@ export class DashboardPage {
     await brief.click();
     await brief.fill(opts.idea);
     await expect(this.runButton()).toBeEnabled({ timeout: 10000 });
+    const fetchesBefore = this.sse.eventsFetchCount;
     await this.runButton().click();
     // The app launches over REST (POST /api/runs, body { type:"run_pipeline", … });
     // wait for the recorded up-channel command instead of a WS frame.
-    if (opts.waitForFrame !== false) await this.sse.waitForCommand("run_pipeline", 20000);
+    if (opts.waitForFrame !== false) {
+      await this.sse.waitForCommand("run_pipeline", 20000);
+      // 015-frontend-routing: the launch pushes /runs/{id}/stream, which remounts
+      // the run screen — settle there before the spec drives the run.
+      await this.awaitRunRoute();
+      await this.awaitRunScreenSettled(fetchesBefore);
+    }
+  }
+  /** After the /runs/{id}/stream remount the run screen resets its state and replays
+   *  the durable log (GET /events). Frames pushed before that replay lands can be
+   *  overwritten by it, so wait (bounded and tolerant: the app skips the fetch when
+   *  it already tracks the run) for the replay fetch to be observed. */
+  async awaitRunScreenSettled(fetchesBefore: number) {
+    await expect
+      .poll(() => this.sse.eventsFetchCount > fetchesBefore, { timeout: 5000 })
+      .toBe(true)
+      .catch(() => undefined);
+  }
+
+  /** Wait until the app sits on the tracked run's own route (/runs/{id}/stream). */
+  async awaitRunRoute() {
+    await this.page.waitForURL(new RegExp(`/runs/${this.sse.currentRunId}/stream`), { waitUntil: "commit" });
+  }
+
+  // ── full-page Composer (mainView="composer") ─────────────────────────────────
+  // Since 41-04 (e1490fad) the `custom` workflow ("Compose a custom workflow"
+  // card, My Workflows "New workflow", launching a saved custom row) opens the
+  // full-page ComposerPage at /workflows/new|/workflows/{id}/run — NOT the
+  // IdeaInputPage brief screen. It has no <h1>; these are its role/label anchors.
+
+  /** Open the full-page Composer from Home via the "Compose a custom workflow"
+   *  card (FIX-181 retired Home's "Create workflow" button). */
+  async openComposer(opts: { view?: "simple" | "canvas" } = {}) {
+    await this.goto();
+    await this.selectWorkflow("Compose a custom workflow");
+    await expect(this.composerEyebrow()).toBeVisible();
+    // The composer opens on the Canvas view (ComposerPage default); the Simple
+    // view (agent rows + Summary rail) is one toggle away.
+    if (opts.view === "simple") {
+      await this.page.getByRole("button", { name: "Simple", exact: true }).click();
+      await expect(this.page.getByTestId("composer-summary-rail")).toBeVisible();
+    }
+  }
+
+  /** The Composer header eyebrow ("Custom · Composer") — the composer-mounted signal. */
+  composerEyebrow(): Locator {
+    return this.page.getByText("Custom · Composer", { exact: true });
+  }
+
+  /** The inline workflow-name field (replaces the retired NameWorkflowModal). */
+  composerNameInput(): Locator {
+    return this.page.getByRole("textbox", { name: "Workflow name" });
+  }
+
+  /** The Composer's brief field (Canvas rail / Simple Brief card — one mounts at a time). */
+  composerBrief(): Locator {
+    return this.page.getByRole("textbox", { name: "Brief description" });
+  }
+
+  /** The Composer header's "Run once" launch button. */
+  composerRunOnce(): Locator {
+    return this.page.getByRole("button", { name: "Run once", exact: true });
+  }
+
+  /** The Composer header run summary ("N agents · N review gates · ~est"). */
+  composerSummary(): Locator {
+    return this.page.getByTestId("composer-header-summary");
   }
 
   // ── composer / model picker ──────────────────────────────────────────────────
 
   async openAdvanced() {
     await this.page.getByRole("button", { name: /^Advanced/ }).click();
-    await expect(this.page.getByText("Workflow configuration")).toBeVisible();
+    // AgentsPopup folded its "Advanced" eyebrow into one h2:
+    // "Advanced Workflow Configuration — <workflow label>".
+    await expect(this.advancedHeading()).toBeVisible();
+  }
+
+  /** The AgentsPopup title (h2 "Advanced Workflow Configuration — …"). */
+  advancedHeading(): Locator {
+    return this.page.getByRole("heading", { name: /^Advanced Workflow Configuration/ });
+  }
+
+  /** A tab in the AgentsPopup header strip ("Agents (N)" / "Workflow"). Scoped to
+   *  the strip that holds the Agents tab, so it never resolves the embedded
+   *  canvas rail's own "Workflow" / "Agent" toggle. */
+  advancedTab(name: string | RegExp): Locator {
+    const agentsTab = this.page.getByRole("button", { name: /^Agents \(\d+\)$/ });
+    return this.page.locator("div").filter({ has: agentsTab }).last()
+      .getByRole("button", { name, exact: typeof name === "string" });
   }
 
   async openModelPicker() {
@@ -215,6 +306,14 @@ export class DashboardPage {
     }).toPass({ timeout: 15000 });
   }
 
+  /** Re-select the Preview tab until it sticks (mirror of openSteps): a terminal
+   *  auto-tab or a late replay can clobber a single click. Call after the run is Done. */
+  async openPreview() {
+    await expect(async () => {
+      await this.previewTab().click();
+      await expect(this.previewTab()).toHaveAttribute("aria-selected", "true", { timeout: 1000 });
+    }).toPass({ timeout: 15000 });
+  }
   /** Wait until the live run has SETTLED (Stop gone → isRunning=false). Use before
    *  reading a settled-run surface so any terminal auto-tab has already fired. */
   async waitForRunSettled() {
@@ -246,12 +345,13 @@ export class DashboardPage {
   /** Drill into an agent's L2 detail (AgentDetailPanel) by clicking its spine row. */
   async openAgentDetail(name: string) { await this.stepsAgentRow(name).click(); }
 
-  // Construction · waves & subagents (the Build Agent's L2 detail — Phase 39 plan
-  // 02: the former standalone WaveTreePanel is now ONE integrated block with build
-  // tasks NESTED under their waves; waves display 1-based to match the mock).
-  waveHeading(): Locator { return this.page.getByText(/Construction · waves/); }
-  waveEmpty(): Locator { return this.page.getByTestId("construction-empty"); }
-  waveGroup(index: number): Locator { return this.page.getByText(new RegExp(`^Wave ${index + 1}$`)); }
+  // "Waves & tasks" (the wave step's L2 detail — WaveWorkersBlock). A wave fan-out
+  // is drawn from the step's stamped worker events (agent_start/agent_complete +
+  // task_id); the "Construction" block is reserved for task_loop progress and is
+  // withdrawn when it has nothing to draw.
+  waveBlock(): Locator { return this.page.getByTestId("wave-workers-block"); }
+  waveHeading(): Locator { return this.waveBlock().getByText("Waves & tasks", { exact: true }); }
+  waveGroup(index: number): Locator { return this.page.locator(`[data-testid="wave-section"][data-wave-index="${index}"]`); }
 
   // preview
   previewEmpty(): Locator { return this.page.getByText("Output will appear here"); }
@@ -266,7 +366,9 @@ export class DashboardPage {
   // Phase 39 redesigned right-panel tabs are the Tabs primitive (role="tab");
   // labels may carry a count (e.g. "Files 8"), so match by regex like thinkingTab.
   previewTab(): Locator { return this.page.getByRole("tab", { name: /Preview/i }); }
-  filesTab(): Locator { return this.page.getByRole("tab", { name: /Files/i }); }
+  /** The Workspace tab — replaced the retired "Files" tab in the panel tab strip
+   *  (PreviewPanel TAB_CONFIG: Preview · Steps · Workspace · Audit). */
+  workspaceTab(): Locator { return this.page.getByRole("tab", { name: /Workspace/i }); }
   /** The Steps tab (Phase 32 relabelled the old "Thinking" tab to "Steps"; the
    *  Phase-39 redesign made the tab strip role="tab"). */
   thinkingTab(): Locator { return this.page.getByRole("tab", { name: /Steps/i }); }

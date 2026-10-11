@@ -125,7 +125,7 @@ class TestRefreshRejectionAttribution:
         assert user.status == "active"
 
     def test_an_unreachable_provider_is_left_alone(self, session, monkeypatch):
-        """"We could not check" must never be recorded as "we confirmed it is
+        """ "We could not check" must never be recorded as "we confirmed it is
         gone" -- otherwise a Cognito outage disables every user who happens to
         refresh during it."""
         user = _seed(session)
@@ -158,7 +158,9 @@ class TestRefreshRejectionAttribution:
         session.refresh(user)
         assert user.status == "active"
 
-    def test_the_lookup_uses_the_canonical_sub_not_the_email(self, session, monkeypatch):
+    def test_the_lookup_uses_the_canonical_sub_not_the_email(
+        self, session, monkeypatch
+    ):
         """Reads go through ``cognito_sub``. Passing the email would still work
         against a real pool (it is an alias) but would break the moment an
         operator changed the address, so the contract is pinned here."""

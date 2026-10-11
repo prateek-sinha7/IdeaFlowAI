@@ -450,7 +450,10 @@ def test_uncatalogued_model_fails_open(monkeypatch):
     from app.core.config import settings as _s
 
     monkeypatch.setattr(_s, "BEDROCK_PROMPT_CACHE_ENABLED", True)
-    assert ci_mod._bedrock_cache_control(_fake_bedrock("some.model.nobody.registered")) is not None
+    assert (
+        ci_mod._bedrock_cache_control(_fake_bedrock("some.model.nobody.registered"))
+        is not None
+    )
 
 
 def test_both_cache_paths_agree_for_every_catalog_model(monkeypatch):
@@ -465,7 +468,9 @@ def test_both_cache_paths_agree_for_every_catalog_model(monkeypatch):
 
     monkeypatch.setattr(_s, "BEDROCK_PROMPT_CACHE_ENABLED", True)
     for entry in ModelCatalog().list():
-        helper_caches = ci_mod._bedrock_cache_control(_fake_bedrock(entry.id)) is not None
+        helper_caches = (
+            ci_mod._bedrock_cache_control(_fake_bedrock(entry.id)) is not None
+        )
         assert helper_caches is entry.supports_prompt_caching, (
             f"{entry.id}: cached_invoke says caching={helper_caches}, catalog says "
             f"{entry.supports_prompt_caching}"

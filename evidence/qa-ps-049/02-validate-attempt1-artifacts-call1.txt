@@ -8,7 +8,7 @@
 
   Request headers
     sec-ch-ua-platform: "macOS"
-    authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNmI5YjYxZi0xODNkLTQ2NjItYWU4NC1kN2ZkNWEwNTI1NzEiLCJleHAiOjE3OTAxNzk4MTksImlhdCI6MTc5MDA5MzQxOSwianRpIjoiMjhlZmE1ZmEtMWU1OC00MTRkLWI1NDctYmVlM2Q4MTdiZmQwIn0.Q8ykwasBQmnnMfAvkOCwfOqp_Bq78MVPk6vXk13VMbY
+    authorization: Bearer <REDACTED-EXPIRED-SESSION-JWT>
     referer: http://localhost:3000/
     user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36
     sec-ch-ua: "Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"

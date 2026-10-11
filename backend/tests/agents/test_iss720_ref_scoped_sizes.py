@@ -137,7 +137,9 @@ def _patch_route(monkeypatch, sandbox: _Sandbox):
         return None
 
     monkeypatch.setattr(rf, "_resolve_owned_run", _owned)
-    monkeypatch.setattr(rf, "_resolve_chain_root_or_404", lambda run_id, user_id: run_id)
+    monkeypatch.setattr(
+        rf, "_resolve_chain_root_or_404", lambda run_id, user_id: run_id
+    )
     monkeypatch.setattr(rf, "RunSandbox", lambda *a, **k: sandbox)
     return rf
 
@@ -176,7 +178,9 @@ async def test_the_ref_scoped_zip_refuses_an_over_cap_tree(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_ref_scoped_zip_still_serves_a_tree_under_the_cap(monkeypatch) -> None:
+async def test_the_ref_scoped_zip_still_serves_a_tree_under_the_cap(
+    monkeypatch,
+) -> None:
     """The cap is a ceiling, not a new refusal on the ordinary path."""
     sandbox = _Sandbox({"presentation.html": 27549})
     rf = _patch_route(monkeypatch, sandbox)

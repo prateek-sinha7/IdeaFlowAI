@@ -6,7 +6,9 @@ from app.agents.tools import pptx_tools
 from app.services import od_loader
 
 
-def test_audit_scripts_dir_resolves_under_od_root_when_od_root_overridden(tmp_path, monkeypatch):
+def test_audit_scripts_dir_resolves_under_od_root_when_od_root_overridden(
+    tmp_path, monkeypatch
+):
     # Arrange
     monkeypatch.setattr(od_loader, "_OD_ROOT", tmp_path)
 
@@ -17,7 +19,9 @@ def test_audit_scripts_dir_resolves_under_od_root_when_od_root_overridden(tmp_pa
     assert scripts == tmp_path / "skills" / "pptx-html-fidelity-audit" / "scripts"
 
 
-def test_fonts_dir_resolves_under_od_root_when_od_root_overridden(tmp_path, monkeypatch):
+def test_fonts_dir_resolves_under_od_root_when_od_root_overridden(
+    tmp_path, monkeypatch
+):
     # Arrange
     monkeypatch.setattr(od_loader, "_OD_ROOT", tmp_path)
 
@@ -28,7 +32,9 @@ def test_fonts_dir_resolves_under_od_root_when_od_root_overridden(tmp_path, monk
     assert fonts == tmp_path / "fonts"
 
 
-def test_available_eot_returns_font_when_file_exists_under_od_root(tmp_path, monkeypatch):
+def test_available_eot_returns_font_when_file_exists_under_od_root(
+    tmp_path, monkeypatch
+):
     # Arrange
     (tmp_path / "fonts").mkdir()
     eot = tmp_path / "fonts" / "albert-sans-Regular.eot"
@@ -42,7 +48,9 @@ def test_available_eot_returns_font_when_file_exists_under_od_root(tmp_path, mon
     assert found == eot
 
 
-def test_available_eot_returns_none_when_font_absent_under_od_root(tmp_path, monkeypatch):
+def test_available_eot_returns_none_when_font_absent_under_od_root(
+    tmp_path, monkeypatch
+):
     # Arrange
     monkeypatch.setattr(od_loader, "_OD_ROOT", tmp_path)
 

@@ -64,7 +64,7 @@ from tests.unit.agents.test_redo_gate_safety import (  # noqa: E402
 # ---------------------------------------------------------------------------
 _WORLD_MARKERS = (
     "=== ORIGINAL USER REQUEST",
-    "## Uploaded Files",       # rendered heading (Rev 3: was "uploaded_files_context")
+    "## Uploaded Files",  # rendered heading (Rev 3: was "uploaded_files_context")
     "ACTIVE DESIGN SYSTEM",
     "ACTIVE TEMPLATE",
     "TEMPLATE EXAMPLE",
@@ -103,8 +103,7 @@ def _collect_context_messages(events: list[dict]) -> list[str]:
     return [
         ev["data"].get("context_message", "")
         for ev in events
-        if ev.get("type") == "agent_input"
-        and "context_message" in ev.get("data", {})
+        if ev.get("type") == "agent_input" and "context_message" in ev.get("data", {})
     ]
 
 
@@ -121,7 +120,9 @@ class _FakeUploadSandbox:
     (a)/(b) assertions to have any bite."""
 
     def __init__(self, name: str, text: str) -> None:
-        self._manifest = json.dumps([{"name": name, "mime": "text/plain", "has_text": True}])
+        self._manifest = json.dumps(
+            [{"name": name, "mime": "text/plain", "has_text": True}]
+        )
         self._sidecar_path = f".uploads/{name}.txt"
         self._text = text
 
@@ -189,15 +190,15 @@ async def test_ac_migrated_agent_gets_no_world_blocks_agent1_keeps_brief() -> No
     msgs_a = _collect_context_messages(events_a)
     msgs_b = _collect_context_messages(events_b)
 
-    assert msgs_a and "=== ORIGINAL USER REQUEST ===" in msgs_a[0], (
-        "agent 1 must still get the brief (existing gate, unaffected by Step 0)"
-    )
+    assert (
+        msgs_a and "=== ORIGINAL USER REQUEST ===" in msgs_a[0]
+    ), "agent 1 must still get the brief (existing gate, unaffected by Step 0)"
 
     assert msgs_b, "agent 2 produced no agent_input event"
     for marker in _WORLD_MARKERS:
-        assert marker not in msgs_b[0], (
-            f"migrated (body_only) agent 2's message leaked world-block marker {marker!r}"
-        )
+        assert (
+            marker not in msgs_b[0]
+        ), f"migrated (body_only) agent 2's message leaked world-block marker {marker!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +239,9 @@ async def test_ac_default_policy_agent2_also_gets_no_world_blocks() -> None:
     msgs_a = _collect_context_messages(events_a)
     msgs_b = _collect_context_messages(events_b)
 
-    assert msgs_a and "=== ORIGINAL USER REQUEST ===" in msgs_a[0], (
-        "agent 1 must still get the brief regardless of policy (existing gate)"
-    )
+    assert (
+        msgs_a and "=== ORIGINAL USER REQUEST ===" in msgs_a[0]
+    ), "agent 1 must still get the brief regardless of policy (existing gate)"
 
     assert msgs_b, "agent 2 produced no agent_input event"
     for marker in _WORLD_MARKERS:
@@ -259,7 +260,8 @@ async def test_ac_default_policy_agent2_also_gets_no_world_blocks() -> None:
 
 _BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _ALL_WORKFLOW_IDS = sorted(
-    p.parent.name for p in (_BACKEND_ROOT / "agents" / "workflows").glob("*/workflow.yaml")
+    p.parent.name
+    for p in (_BACKEND_ROOT / "agents" / "workflows").glob("*/workflow.yaml")
 )
 
 # The only pipeline_types the Phase-8 offline harness (test_phase8_live.py) drives
@@ -268,7 +270,13 @@ _REPO_INPUT_CODEGEN = {"mulesoft_to_springboot", "dotnet_to_azure"}
 
 
 def _skip_reason(workflow: str) -> str | None:
-    if workflow in {"user_stories", "prototype", "prototype_revision", "app_builder", "ppt"}:
+    if workflow in {
+        "user_stories",
+        "prototype",
+        "prototype_revision",
+        "app_builder",
+        "ppt",
+    }:
         return None
     if workflow in _REPO_INPUT_CODEGEN:
         return (
@@ -283,13 +291,17 @@ def _skip_reason(workflow: str) -> str | None:
     return f"{workflow}: no Phase-8 offline engine-world helper defined in test_phase8_live.py"
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("workflow", _ALL_WORKFLOW_IDS)
-async def test_workflow_agents_free_of_world_blocks(workflow: str) -> None:
-    reason = _skip_reason(workflow)
-    if reason:
-        pytest.skip(reason)
+# Only the workflows the Phase-8 offline harness can actually drive. The rest used to
+# be generated and then ``pytest.skip``ped with ``_skip_reason`` — a node that can never
+# pass, and one the CI offline gate (tools.ci.inventory_cli verify-execution) rejects.
+# ``_skip_reason`` stays the single source of truth for WHY a workflow is undrivable;
+# adding a helper for a new workflow (returning None from it) pulls that workflow in.
+_DRIVABLE_WORKFLOW_IDS = [w for w in _ALL_WORKFLOW_IDS if _skip_reason(w) is None]
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workflow", _DRIVABLE_WORKFLOW_IDS)
+async def test_workflow_agents_free_of_world_blocks(workflow: str) -> None:
     from agents.loader import load_agent_spec
     from tests.e2e.agents.test_phase8_live import (
         _per_agent_factory,
@@ -304,9 +316,13 @@ async def test_workflow_agents_free_of_world_blocks(workflow: str) -> None:
 
     if workflow == "prototype_revision":
         parent = await _run_prototype(model=_per_agent_factory, fake_planner=True)
-        assert parent.completed, f"prototype_revision needs a completed parent run: {parent.error}"
+        assert (
+            parent.completed
+        ), f"prototype_revision needs a completed parent run: {parent.error}"
         result = await _run_prototype_revision(
-            model=_revision_model_factory, parent_run_id=parent.run_id, fake_planner=True,
+            model=_revision_model_factory,
+            parent_run_id=parent.run_id,
+            fake_planner=True,
         )
     elif workflow == "user_stories":
         result = await _run_user_stories(model=_text_model(), fake_planner=True)
@@ -317,7 +333,9 @@ async def test_workflow_agents_free_of_world_blocks(workflow: str) -> None:
     else:  # ppt
         result = await _run_ppt(model=_per_agent_factory, fake_planner=True)
 
-    assert result.completed, f"{workflow} offline drive did not complete: {result.error}"
+    assert (
+        result.completed
+    ), f"{workflow} offline drive did not complete: {result.error}"
     agent_inputs = result.events_of("agent_input")
     assert agent_inputs, f"{workflow} emitted no agent_input events"
     first_agent_id = agent_inputs[0]["data"]["agent_id"]
@@ -329,13 +347,13 @@ async def test_workflow_agents_free_of_world_blocks(workflow: str) -> None:
         policy = getattr(spec, "prompt_policy", None) or "default"
         if policy != "default" and agent_id != first_agent_id:
             for marker in _WORLD_MARKERS:
-                assert marker not in msg, (
-                    f"{workflow}/{agent_id} (prompt_policy={policy}) leaked {marker!r}"
-                )
+                assert (
+                    marker not in msg
+                ), f"{workflow}/{agent_id} (prompt_policy={policy}) leaked {marker!r}"
         if agent_id == first_agent_id:
-            assert "=== ORIGINAL USER REQUEST ===" in msg, (
-                f"{workflow}: first agent {agent_id} is missing the brief"
-            )
+            assert (
+                "=== ORIGINAL USER REQUEST ===" in msg
+            ), f"{workflow}: first agent {agent_id} is missing the brief"
 
 
 # ---------------------------------------------------------------------------
@@ -460,12 +478,12 @@ def test_workflow_fully_migrated(workflow: str) -> None:
         assert agents, f"{workflow}: no agents found in the registry"
     for spec in agents:
         policy = getattr(spec, "prompt_policy", None) or "default"
-        assert policy != "default", (
-            f"{workflow}/{spec.id}: still on the default prompt_policy"
-        )
-        assert "## Sandbox Reading Guide" in (spec.prompt_body or ""), (
-            f"{workflow}/{spec.id}: AGENT.md is missing the Sandbox Reading Guide"
-        )
+        assert (
+            policy != "default"
+        ), f"{workflow}/{spec.id}: still on the default prompt_policy"
+        assert "## Sandbox Reading Guide" in (
+            spec.prompt_body or ""
+        ), f"{workflow}/{spec.id}: AGENT.md is missing the Sandbox Reading Guide"
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +537,9 @@ def _tool_can_read(path: str) -> bool:
 
     def _under_any(norm: str, entries: frozenset[str]) -> bool:
         return any(
-            norm == e.rstrip("/") or norm.startswith(e.rstrip("/") + "/") or norm.startswith(e)
+            norm == e.rstrip("/")
+            or norm.startswith(e.rstrip("/") + "/")
+            or norm.startswith(e)
             for e in entries
         )
 
@@ -529,8 +549,6 @@ def _tool_can_read(path: str) -> bool:
     if not _under_any(norm, RESERVED_PATHS):
         return True
     return _under_any(norm, AGENT_READABLE_RESERVED)
-
-
 
 
 def _iter_migrated_agent_files():

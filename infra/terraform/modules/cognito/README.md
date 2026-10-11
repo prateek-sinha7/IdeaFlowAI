@@ -1,7 +1,7 @@
 # Module: `cognito`
 
 Creates the Amazon Cognito User Pool that becomes the credential + role
-authority for VelocityAI/Flowin (see `.planning/COGNITO-MIGRATION-PLAN.md`).
+authority for VelocityAI (see `.planning/COGNITO-MIGRATION-PLAN.md`).
 One pool + one confidential app client per environment (Decision 9 — a
 separate call to this module per `dev`/`stage`/`prod`).
 

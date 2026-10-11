@@ -133,7 +133,7 @@ export function AgentSkillsPicker({
   // (WorkflowDialog), fixed by FIX-388 with the shared useEscapeToClose hook.
   // `enabled` is true only while the dialog is actually open — a hidden dialog
   // must not swallow Escape from whatever is actually on screen.
-  const closeDetailSkill = useCallback(() => setDetailSkill(null), []);
+  const closeDetailSkill = useCallback(() => setDetailSkill(null), [setDetailSkill]);
   useEscapeToClose(closeDetailSkill, detailSkill !== null);
 
   return (

@@ -107,7 +107,7 @@ variable "email_mfa_enabled" {
 variable "email_mfa_subject" {
   description = "Subject line for the email carrying the MFA one-time code. Only used when email_mfa_enabled is true."
   type        = string
-  default     = "Your Flowin verification code"
+  default     = "Your VelocityAI verification code"
 }
 
 variable "account_recovery_admin_only_acknowledged" {
@@ -119,7 +119,7 @@ variable "account_recovery_admin_only_acknowledged" {
 variable "email_mfa_message" {
   description = "Body of the email carrying the MFA one-time code. MUST contain the {####} placeholder, which Cognito replaces with the code. Only used when email_mfa_enabled is true."
   type        = string
-  default     = "Your Flowin verification code is {####}. It expires shortly — if you did not try to sign in, change your password."
+  default     = "Your VelocityAI verification code is {####}. It expires shortly — if you did not try to sign in, change your password."
 
   validation {
     condition     = can(regex("\\{####\\}", var.email_mfa_message))

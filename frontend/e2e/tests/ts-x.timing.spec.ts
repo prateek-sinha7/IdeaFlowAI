@@ -2,18 +2,16 @@
  * TS-X — Performance & timing budgets (TEST-REGISTER §TS-X).
  *
  * Scope here is the ACHIEVABLE, deterministic timing surface — real intervals
- * the app drives that a mocked WS / DOM can observe without flakiness:
- *   - TS-X-01  client keepalive ping every 20000ms while the WS is OPEN
- *              (useWebSocket pingInterval) — a genuine wall-clock keepalive
- *              assertion, hence test.slow().
+ * the app drives that a mocked SSE / DOM can observe without flakiness:
+ *   - TS-X-04  prototype tweaks 400ms debounce → iframe rebuild.
  *   - TS-X-05  the 2000ms copy-toast revert (UserStoryPreview "Copy MD"→"Copied",
  *              and the PreviewPanel header [title="Copy"] icon swap).
  *   - TS-X-08  no-spinner-forever: every terminal path (complete / failed /
  *              cancelled) resolves isRunning → false within budget.
  *
- * Cross-refs (standalone-wrapped fixmes, see notes on each):
- *   - TS-X-03  questionnaire 300ms auto-advance — owned by TS-M-03.
- *   - TS-X-04  prototype tweaks 400ms debounce — deep prototype interaction.
+ * Deleted (see the note at each former location): TS-X-01 client keepalive ping
+ * (retired with WS, 44-06) and TS-X-03 questionnaire auto-advance (retired with
+ * the Quick Setup wizard, Phase 42-06).
  *
  * NEVER hard-sleep: all timing is asserted via waitForClientFrame / expect with
  * explicit timeouts so the run is deterministic, not wall-clock-padded.
@@ -30,18 +28,13 @@ const PROTOTYPE_HTML =
   "<!DOCTYPE html><html><head><style>body{background:#fff}</style></head><body><h1>App</h1></body></html>";
 
 test.describe("TS-X — timing budgets", () => {
-  // ── TS-X-01 — client keepalive ping (RETIRED with the WS transport) ──────────
-  // The old WS client armed a 20s setInterval that sent {type:"ping"} to keep the
-  // socket alive through idle-dropping proxies. SSE is now the sole transport
-  // (44-06): the keepalive is SERVER-side (`pipeline_heartbeat`/`pong` frames the
-  // client swallows) and liveness is maintained by the native fetch-stream +
-  // Last-Event-ID reconnect (useRunStream) — there is NO client-sent ping frame to
-  // observe. This case is retired; the SSE liveness/reconnect contract it guarded
-  // is exercised by ts-sse-resilience (drop → reattach) + TS-Y-01. The standalone
-  // fixme keeps the case visible in the report without skipping its siblings.
-  test("TS-X-01 client keepalive ping (retired — SSE server-heartbeat + native reconnect)", () => {
-    test.skip(true, "client ping retired with the WS transport (44-06); SSE liveness = server heartbeat + native Last-Event-ID reconnect (ts-sse-resilience / TS-Y-01); Owner: frontend");
-  });
+  // TS-X-01 (client keepalive ping every 20s) was DELETED: the client ping was
+  // retired with the WS transport (44-06), so there is no client frame left to
+  // observe. SSE liveness is now the server heartbeat plus the native
+  // Last-Event-ID reconnect, owned by:
+  //   ts-y.resilience.spec.ts  TS-Y-01 (drop → reconnect banner → reattach) and
+  //                            TS-Y-03 (server heartbeats swallowed, cursor advances)
+  //   ts-sse-resilience.spec.ts TS-SSE-RESILIENCE-01/03 (resume past the cursor).
 
   // ── TS-X-05 — copy toast reverts after 2000ms ──────────────────────────────
   // The UserStoryPreview header "Copy MD" ⇄ "Copied" affordance uses
@@ -144,17 +137,12 @@ test.describe("TS-X — timing budgets", () => {
   });
 });
 
-// ── TS-X-03 — questionnaire auto-advance 300ms ────────────────────────────────
-// Standalone-wrapped fixme: the 300ms post-MCQ-select auto-advance is already
-// asserted end-to-end by TS-M-03 (ts-m.questionnaire.spec.ts) via expect.poll on
-// q2's options becoming visible. Not re-implemented here to avoid a duplicate,
-// flakier timer assertion of the same behavior.
-test.describe("TS-X-03 — questionnaire auto-advance (cross-ref)", () => {
-  test.skip(true, "covered by TS-M-03 (questionnaire auto-advance 300ms); Owner: frontend");
-  test("questionnaire auto-advances ~300ms after MCQ select", async () => {
-    // Intentionally empty — see TS-M-03.
-  });
-});
+// TS-X-03 (questionnaire 300ms auto-advance) was DELETED. Its cross-ref was stale:
+// TS-M-03 does NOT assert an auto-advance, because the behaviour no longer exists —
+// it went with the one-question-at-a-time "Quick Setup" wizard (Phase 42-06). The
+// inline clarify shows every question at once, so there is no timer to budget.
+// The replacement layout is owned by ts-m.questionnaire.spec.ts TS-M-02 (all
+// questions visible together) and TS-M-03 (per-question chip selection).
 
 // ── TS-X-04 — prototype tweaks 400ms debounce → iframe rebuild ────────────────
 // The TweaksPanel is reachable in mocked mode the same way TS-O-05 reaches the
@@ -174,13 +162,18 @@ test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => 
     mockSse,
   }) => {
     // ── Reach the prototype preview (mirror TS-O-05) ──────────────────────────
+    // Served by the mock's lazy attach (no user_stories launch): since
+    // 015-frontend-routing a launch persists its run TYPE across the
+    // /runs/{id}/stream remount, so launching user_stories and announcing a
+    // prototype run is a state the real backend never produces. od_prototype was
+    // folded into `prototype` (no od_* manifest remains) — announce the real type.
     await dashboard.goto();
-    await dashboard.runWith({ workflow: "Generate product requirements", idea: "A todo app" });
 
     const agents = AGENTS.od_prototype;
-    mockSse.start(agents, { pipelineType: "od_prototype" });
+    mockSse.start(agents, { pipelineType: "prototype" });
+    await mockSse.ready();
     for (const a of agents) await runAgent(mockSse, a.id);
-    mockSse.complete({ pipelineType: "od_prototype", finalOutput: PROTOTYPE_HTML });
+    mockSse.complete({ pipelineType: "prototype", finalOutput: PROTOTYPE_HTML });
 
     // PrototypePreview builds the Blob URL on an effect tick — poll for the iframe.
     const iframe = dashboard.prototypeIframe();

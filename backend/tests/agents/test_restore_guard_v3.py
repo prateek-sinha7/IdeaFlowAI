@@ -111,7 +111,7 @@ def _seed_user(env, tag="u") -> _FakeUser:
         u = User(
             id=str(uuid.uuid4()),
             email=f"restore-guard-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
+            cognito_sub=str(uuid.uuid4()),
         )
         db.add(u)
         db.commit()
@@ -136,17 +136,19 @@ def _seed_run(
 
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id,
-            user_id=owner_id,
-            owner_id=owner_id,
-            parent_run_id=parent_run_id,
-            title=f"Run {run_id[:8]}",
-            type="prototype",
-            status=status,
-            input="test",
-            agent_count=1,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=owner_id,
+                owner_id=owner_id,
+                parent_run_id=parent_run_id,
+                title=f"Run {run_id[:8]}",
+                type="prototype",
+                status=status,
+                input="test",
+                agent_count=1,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -168,7 +170,9 @@ def _seed_run(
     # Initialize a git repository for the sandbox (only if not already initialized)
     git_dir = sandbox_path / ".git"
     if not git_dir.exists():
-        subprocess.run(["git", "init"], cwd=sandbox_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init"], cwd=sandbox_path, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
             cwd=sandbox_path,
@@ -253,7 +257,9 @@ def test_unrelated_active_run_does_not_block_restore_v1(env):
     # ``materialize_tree_at_ref`` legitimately reports "no_change" — the request
     # still has to clear the guard and the rest of the route to get there.
     status_code, body = _post_restore(env, family1_root, tag="v1")
-    assert status_code == 200, f"Expected the restore to proceed, got {status_code}: {body}"
+    assert (
+        status_code == 200
+    ), f"Expected the restore to proceed, got {status_code}: {body}"
     assert body["outcome"] in ("committed", "no_change"), body
 
 
@@ -283,8 +289,7 @@ def test_active_family_member_blocks_restore_v1(env):
         # The guard should return True for family_root (active child exists)
         result = _has_active_family_member(db, family_root, owner.id)
         assert result is True, (
-            f"Expected True when active family member exists. "
-            f"Got {result}"
+            f"Expected True when active family member exists. " f"Got {result}"
         )
     finally:
         db.close()
@@ -309,13 +314,23 @@ def test_terminal_family_members_do_not_block_restore_v1(env):
 
         # Terminal child revisions
         family_child_failed = str(uuid.uuid4())
-        _seed_run(env, family_child_failed, owner.id, "failed", parent_run_id=family_root)
+        _seed_run(
+            env, family_child_failed, owner.id, "failed", parent_run_id=family_root
+        )
 
         family_child_cancelled = str(uuid.uuid4())
-        _seed_run(env, family_child_cancelled, owner.id, "cancelled", parent_run_id=family_root)
+        _seed_run(
+            env,
+            family_child_cancelled,
+            owner.id,
+            "cancelled",
+            parent_run_id=family_root,
+        )
 
         family_child_degraded = str(uuid.uuid4())
-        _seed_run(env, family_child_degraded, owner.id, "degraded", parent_run_id=family_root)
+        _seed_run(
+            env, family_child_degraded, owner.id, "degraded", parent_run_id=family_root
+        )
 
         # The guard should return False (no active family members)
         result = _has_active_family_member(db, family_root, owner.id)
@@ -342,13 +357,14 @@ def test_multi_level_family_active_child_blocks_restore_v1(env):
         _seed_run(env, family_child, owner.id, "completed", parent_run_id=family_root)
 
         family_grandchild = str(uuid.uuid4())
-        _seed_run(env, family_grandchild, owner.id, "running", parent_run_id=family_child)
+        _seed_run(
+            env, family_grandchild, owner.id, "running", parent_run_id=family_child
+        )
 
         # The guard should return True (active grandchild exists in the family)
         result = _has_active_family_member(db, family_root, owner.id)
         assert result is True, (
-            f"Expected True when active grandchild exists in family. "
-            f"Got {result}"
+            f"Expected True when active grandchild exists in family. " f"Got {result}"
         )
     finally:
         db.close()

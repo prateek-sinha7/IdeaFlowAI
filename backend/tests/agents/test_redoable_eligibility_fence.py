@@ -72,9 +72,9 @@ def test_redoable_is_false_for_a_per_task_build_dispatch() -> None:
 
     ectx = ExecutionContext(run_id="redoable-fence-run", owner_id="anon")
 
-    assert engine._redoable(ectx) is True, (
-        "a plain dispatch (no build_task_number) must still offer Redo — dormancy"
-    )
+    assert (
+        engine._redoable(ectx) is True
+    ), "a plain dispatch (no build_task_number) must still offer Redo — dormancy"
 
     ectx.build_task_number = "3"
     assert engine._redoable(ectx) is False, (
@@ -155,9 +155,9 @@ async def _post_redo_at_real_gate(engine, run_id: str, *, redoable: bool):
     finally:
         client.cancel()
 
-    assert posted[:1] == ["redo"], (
-        f"the gate never armed, so nothing was tested; posted={posted} events={events}"
-    )
+    assert posted[:1] == [
+        "redo"
+    ], f"the gate never armed, so nothing was tested; posted={posted} events={events}"
     types = [e.get("type") for e in events]
     verdict = "honored" if "_gate_redo" in types else "refused"
     return verdict, events
@@ -174,16 +174,18 @@ async def test_a_redo_is_refused_when_the_firing_published_redoable_false() -> N
     the "way in" half of ISS-090.
     """
     engine = _fresh_engine()
-    verdict, events = await _post_redo_at_real_gate(engine, "iss090-refuse", redoable=False)
+    verdict, events = await _post_redo_at_real_gate(
+        engine, "iss090-refuse", redoable=False
+    )
     types = [e.get("type") for e in events]
 
     assert verdict == "refused", (
         "the gate re-ran the agent on a redo that this firing published redoable=False "
         f"for (ISS-090); events={types}"
     )
-    assert "_gate_rejected" not in types, (
-        f"a refused redo must never cancel the run; events={types}"
-    )
+    assert (
+        "_gate_rejected" not in types
+    ), f"a refused redo must never cancel the run; events={types}"
     assert "review_gate_approved" in types, (
         "the gate did not stay open after refusing the redo — approve must still be "
         f"available; events={types}"
@@ -196,11 +198,15 @@ async def test_a_redo_still_fires_when_the_firing_published_redoable_true() -> N
     exactly as it always has — the enforcement in (a) above must narrow nothing the
     rule permits."""
     engine = _fresh_engine()
-    verdict, events = await _post_redo_at_real_gate(engine, "iss090-honour", redoable=True)
+    verdict, events = await _post_redo_at_real_gate(
+        engine, "iss090-honour", redoable=True
+    )
     types = [e.get("type") for e in events]
 
-    assert verdict == "honored", f"an advertised redo no longer re-runs the agent; events={types}"
+    assert (
+        verdict == "honored"
+    ), f"an advertised redo no longer re-runs the agent; events={types}"
     redo = [e for e in events if e.get("type") == "_gate_redo"]
-    assert redo and redo[0].get("instructions") == "do it differently", (
-        f"the redo instructions were dropped on the way to the re-run; got {redo}"
-    )
+    assert (
+        redo and redo[0].get("instructions") == "do it differently"
+    ), f"the redo instructions were dropped on the way to the re-run; got {redo}"

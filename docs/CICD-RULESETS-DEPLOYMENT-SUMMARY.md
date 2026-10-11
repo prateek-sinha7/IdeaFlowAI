@@ -1,3 +1,5 @@
+> **Historical design record. It may not match the live workflow YAML. For the current CI/CD state see [.github/CI_STATUS.md](../.github/CI_STATUS.md).**
+
 # CI/CD Rulesets Deployment Summary
 
 **Date**: 2026-08-27  
@@ -12,10 +14,9 @@
 
 #### Commit 1: `8f3042d6` - Fix F-17 and F-18
 - **F-17**: Removed `|| true` bypass from pip-audit step → now **blocking**
-- **F-18**: Added real SonarScanner checksum (verified from official SonarSource binaries)
-  - Checksum: `4bd40bf8411ed104853e94a3746ec92bc92845fde2b27dbf5c33fb5cfa8ecbe9`
-  - Source: https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.0.1.6346-linux-x64.zip.sha256
-  - Implementation: `echo "${SONAR_CHECKSUM}  ${SONAR_ZIP}" | sha256sum -c -` now verifies downloads
+- **F-18**: Added a real, publisher-backed checksum for the external analysis
+  scanner download (superseded — the external quality gate has since been removed
+  entirely; see `docs/CICD-DESIGN-DECISIONS.md`)
 
 #### Commit 2: `603aeaa9` - Deploy branch protection and tag rulesets
 - Applied 3 rulesets to GitHub:
@@ -157,8 +158,8 @@ gh api repos/Hexaware-HnI/velocityai/environments/prod --method DELETE
    - Status check named `ci-required` posts to PRs (✓ implemented in ci.yml)
    - CI gates applied separately via GitHub UI or future API updates
 
-2. **SonarCloud + CodeQL gates**: These should be added to required status checks separately via:
-   - GitHub UI: Settings > Branch > Add status check `SonarCloud Code Analysis`, `CodeQL`
+2. **CodeQL gate**: This should be added to required status checks separately via:
+   - GitHub UI: Settings > Branch > Add status check `CodeQL`
    - Or future API stabilization of `required_status_checks` rule
 
 3. **Team reviews**: Code owner enforcement requires `.github/CODEOWNERS` file. Verify it exists and maps code areas to teams.
@@ -172,8 +173,7 @@ gh api repos/Hexaware-HnI/velocityai/environments/prod --method DELETE
    ```bash
    gh api repos/Hexaware-HnI/velocityai/rulesets/<id> \
      -f 'rules[3].type=required_status_checks' \
-     -f 'rules[3].parameters.required_status_check_contexts[]=ci-required' \
-     -f 'rules[3].parameters.required_status_check_contexts[]=SonarCloud Code Analysis'
+     -f 'rules[3].parameters.required_status_check_contexts[]=ci-required'
    ```
 3. **Document gate defense-in-depth** in `docs/PHASE-12-SUMMARY.md`
 4. **Create test matrix** for all 10 gates
@@ -185,7 +185,7 @@ gh api repos/Hexaware-HnI/velocityai/environments/prod --method DELETE
 
 | File | Change | Reason |
 |------|--------|--------|
-| `.github/workflows/ci.yml` | pip-audit no longer bypassed; SonarScanner checksum verified | F-17, F-18 fixes |
+| `.github/workflows/ci.yml` | pip-audit no longer bypassed; scanner download checksum verified | F-17, F-18 fixes |
 | `.github/rulesets/main.json` | Simplified (removed `required_status_checks` due to API schema mismatch) | API compatibility |
 | `.github/rulesets/dev-staging.json` | Simplified (removed `required_status_checks`) | API compatibility |
 | `.github/scripts/setup-rulesets.sh` | Added fallback for `jq` validation | Git Bash compatibility |
@@ -211,7 +211,7 @@ gh api repos/Hexaware-HnI/velocityai/rulesets --input .github/rulesets/tags.json
 
 # Deploy environments
 gh api repos/Hexaware-HnI/velocityai/environments/prod --input .github/environments/prod.json --method PUT
-gh api repos/Hexaware-HnI/velocityai/environments/staging --input .github/environments/staging.json --method PUT
+gh api repos/Hexaware-HnI/velocityai/environments/stage --input .github/environments/stage.json --method PUT
 gh api repos/Hexaware-HnI/velocityai/environments/dev --input .github/environments/dev.json --method PUT
 
 # Verify
@@ -226,7 +226,7 @@ gh api repos/Hexaware-HnI/velocityai/environments
 - **F-01**: ✓ RESOLVED — Rulesets deployed to GitHub
 - **F-02**: ✓ RESOLVED — Prod environment configured with protection rules
 - **F-17**: ✓ RESOLVED — pip-audit bypass removed
-- **F-18**: ✓ RESOLVED — SonarScanner checksum verified and checked
+- **F-18**: ✓ RESOLVED — scanner download checksum verified and checked
 
 **Pipeline status**: **1/10 gates enforced** → should increase to **7/10** with this deployment (remaining 3 require `required_status_checks` API stabilization or manual GitHub UI configuration).
 

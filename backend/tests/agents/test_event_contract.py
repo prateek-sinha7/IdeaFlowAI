@@ -92,8 +92,9 @@ def db():
         poolclass=StaticPool,
     )
     Base.metadata.create_all(bind=engine)
-    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False,
-                           expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autocommit=False, autoflush=False, expire_on_commit=False
+    )
     session = Session()
     try:
         yield session
@@ -159,7 +160,9 @@ def _seed_event(
     db.commit()
 
 
-def _store(db: Any, *, owner_id: str = "alice", workspace_id: str = "ws-1") -> ScopedStore:
+def _store(
+    db: Any, *, owner_id: str = "alice", workspace_id: str = "ws-1"
+) -> ScopedStore:
     return ScopedStore(owner_id=owner_id, workspace_id=workspace_id, session=db)
 
 
@@ -271,18 +274,18 @@ class TestReasonCodes:
     """The five bounded codes are distinct strings and survive json serialisation."""
 
     def test_five_codes_are_distinct(self) -> None:
-        assert len(_FIVE_REASON_CODES) == len(set(_FIVE_REASON_CODES)), (
-            "reason codes are not all distinct"
-        )
+        assert len(_FIVE_REASON_CODES) == len(
+            set(_FIVE_REASON_CODES)
+        ), "reason codes are not all distinct"
 
     def test_reason_codes_round_trip_json(self) -> None:
         """Each code survives json.dumps + json.loads unchanged."""
         for code in _FIVE_REASON_CODES:
             payload = {"type": _TYPE_CHAIN, "data": {"reason": code}}
             rt = json.loads(json.dumps(payload))
-            assert rt["data"]["reason"] == code, (
-                f"reason code {code!r} did not survive JSON round-trip"
-            )
+            assert (
+                rt["data"]["reason"] == code
+            ), f"reason code {code!r} did not survive JSON round-trip"
 
     def test_all_five_codes_distinct_after_roundtrip(self) -> None:
         """After serialisation, the set of recovered codes is still the full five."""
@@ -303,25 +306,35 @@ class TestScopedStoreReplay:
 
     def test_chain_context_unavailable_is_returned(self, db: Any) -> None:
         _seed_run(db)
-        _seed_event(db, seq=1, event_type="agent_start",
-                    payload={"agent_id": "a1"})
-        _seed_event(db, seq=2, event_type=_TYPE_CHAIN,
-                    payload={"event": _TYPE_CHAIN,
-                              "source_run_id": "src-1",
-                              "reason": "source_payload_missing"})
-        _seed_event(db, seq=3, event_type="pipeline_complete",
-                    payload={"status": "degraded"})
+        _seed_event(db, seq=1, event_type="agent_start", payload={"agent_id": "a1"})
+        _seed_event(
+            db,
+            seq=2,
+            event_type=_TYPE_CHAIN,
+            payload={
+                "event": _TYPE_CHAIN,
+                "source_run_id": "src-1",
+                "reason": "source_payload_missing",
+            },
+        )
+        _seed_event(
+            db, seq=3, event_type="pipeline_complete", payload={"status": "degraded"}
+        )
 
         rows = asyncio.run(_store(db).read_events("run-1", after_seq=0))
         types = [r.type for r in rows]
-        assert _TYPE_CHAIN in types, (
-            "ScopedStore.read_events did not return chain_context_unavailable"
-        )
+        assert (
+            _TYPE_CHAIN in types
+        ), "ScopedStore.read_events did not return chain_context_unavailable"
 
     def test_run_finalization_failed_is_returned(self, db: Any) -> None:
         _seed_run(db)
-        _seed_event(db, seq=1, event_type=_TYPE_FINALIZATION,
-                    payload={"run_id": "run-1", "reason": "snapshot_unrecoverable"})
+        _seed_event(
+            db,
+            seq=1,
+            event_type=_TYPE_FINALIZATION,
+            payload={"run_id": "run-1", "reason": "snapshot_unrecoverable"},
+        )
 
         rows = asyncio.run(_store(db).read_events("run-1", after_seq=0))
         types = [r.type for r in rows]
@@ -331,33 +344,54 @@ class TestScopedStoreReplay:
         """Both event types appear in ascending seq order with surrounding events."""
         _seed_run(db)
         _seed_event(db, seq=1, event_type="workflow_validated", payload={})
-        _seed_event(db, seq=2, event_type=_TYPE_FINALIZATION,
-                    payload={"run_id": "run-1", "reason": "tag_mapping_failed"})
-        _seed_event(db, seq=3, event_type=_TYPE_CHAIN,
-                    payload={"event": _TYPE_CHAIN,
-                              "source_run_id": "src-2",
-                              "reason": "source_not_finalized"})
-        _seed_event(db, seq=4, event_type="pipeline_complete",
-                    payload={"status": "degraded"})
+        _seed_event(
+            db,
+            seq=2,
+            event_type=_TYPE_FINALIZATION,
+            payload={"run_id": "run-1", "reason": "tag_mapping_failed"},
+        )
+        _seed_event(
+            db,
+            seq=3,
+            event_type=_TYPE_CHAIN,
+            payload={
+                "event": _TYPE_CHAIN,
+                "source_run_id": "src-2",
+                "reason": "source_not_finalized",
+            },
+        )
+        _seed_event(
+            db, seq=4, event_type="pipeline_complete", payload={"status": "degraded"}
+        )
 
         rows = asyncio.run(_store(db).read_events("run-1", after_seq=0))
         seqs = [r.seq for r in rows]
         assert seqs == sorted(seqs), "rows are not in ascending seq order"
         types = [r.type for r in rows]
-        assert types.index(_TYPE_FINALIZATION) < types.index(_TYPE_CHAIN), (
-            "seq ordering broken: finalization should precede chain event"
-        )
+        assert types.index(_TYPE_FINALIZATION) < types.index(
+            _TYPE_CHAIN
+        ), "seq ordering broken: finalization should precede chain event"
 
     def test_after_seq_cursor_is_honoured(self, db: Any) -> None:
         """Events at or before after_seq are excluded — the Last-Event-ID contract."""
         _seed_run(db)
         _seed_event(db, seq=1, event_type="workflow_validated", payload={})
-        _seed_event(db, seq=2, event_type=_TYPE_FINALIZATION,
-                    payload={"run_id": "run-1", "reason": "ref_conflict"})
-        _seed_event(db, seq=3, event_type=_TYPE_CHAIN,
-                    payload={"event": _TYPE_CHAIN,
-                              "source_run_id": "src-3",
-                              "reason": "source_non_chainable"})
+        _seed_event(
+            db,
+            seq=2,
+            event_type=_TYPE_FINALIZATION,
+            payload={"run_id": "run-1", "reason": "ref_conflict"},
+        )
+        _seed_event(
+            db,
+            seq=3,
+            event_type=_TYPE_CHAIN,
+            payload={
+                "event": _TYPE_CHAIN,
+                "source_run_id": "src-3",
+                "reason": "source_non_chainable",
+            },
+        )
 
         rows = asyncio.run(_store(db).read_events("run-1", after_seq=2))
         assert len(rows) == 1
@@ -376,24 +410,39 @@ class TestCrossOwnerScoping:
     def test_cross_owner_read_returns_empty(self, db: Any) -> None:
         _seed_run(db, owner_id="alice")
         for seq, etype in [(1, _TYPE_CHAIN), (2, _TYPE_FINALIZATION)]:
-            _seed_event(db, owner_id="alice", seq=seq, event_type=etype,
-                        payload={"reason": "source_running", "run_id": "run-1",
-                                 "event": _TYPE_CHAIN, "source_run_id": "src-x"})
+            _seed_event(
+                db,
+                owner_id="alice",
+                seq=seq,
+                event_type=etype,
+                payload={
+                    "reason": "source_running",
+                    "run_id": "run-1",
+                    "event": _TYPE_CHAIN,
+                    "source_run_id": "src-x",
+                },
+            )
 
         bob_store = _store(db, owner_id="bob")
         rows = asyncio.run(bob_store.read_events("run-1", after_seq=0))
-        assert rows == [], (
-            "cross-owner ScopedStore.read_events must return [] — IDOR gate failed"
-        )
+        assert (
+            rows == []
+        ), "cross-owner ScopedStore.read_events must return [] — IDOR gate failed"
 
     def test_owner_reads_own_events(self, db: Any) -> None:
         """Sanity check: the owning principal sees their events."""
         _seed_run(db, owner_id="alice")
-        _seed_event(db, owner_id="alice", seq=1,
-                    event_type=_TYPE_FINALIZATION,
-                    payload={"run_id": "run-1", "reason": "snapshot_unrecoverable"})
+        _seed_event(
+            db,
+            owner_id="alice",
+            seq=1,
+            event_type=_TYPE_FINALIZATION,
+            payload={"run_id": "run-1", "reason": "snapshot_unrecoverable"},
+        )
 
-        rows = asyncio.run(_store(db, owner_id="alice").read_events("run-1", after_seq=0))
+        rows = asyncio.run(
+            _store(db, owner_id="alice").read_events("run-1", after_seq=0)
+        )
         assert len(rows) == 1
         assert rows[0].type == _TYPE_FINALIZATION
 
@@ -413,8 +462,10 @@ class TestSSEReconnect:
     def _sessionless_store(self, monkeypatch: Any, db: Any) -> ScopedStore:
         """Wire the session-less ScopedStore to the test's in-memory engine."""
         import app.models.database as _db_mod
-        Session = sessionmaker(bind=db.bind, autocommit=False, autoflush=False,
-                               expire_on_commit=False)
+
+        Session = sessionmaker(
+            bind=db.bind, autocommit=False, autoflush=False, expire_on_commit=False
+        )
         monkeypatch.setattr(_db_mod, "SessionLocal", Session)
         # Session-less: no session= kwarg so each read opens its own.
         return ScopedStore(owner_id="alice", workspace_id="ws-1")
@@ -435,8 +486,13 @@ class TestSSEReconnect:
             if isinstance(raw, str):
                 try:
                     body = json.loads(raw)
-                    frames.append({"id": frame.get("id"), "type": body.get("type"),
-                                    "data": body.get("data", {})})
+                    frames.append(
+                        {
+                            "id": frame.get("id"),
+                            "type": body.get("type"),
+                            "data": body.get("data", {}),
+                        }
+                    )
                 except json.JSONDecodeError:
                     pass
         return frames
@@ -447,84 +503,114 @@ class TestSSEReconnect:
         """After a simulated disconnect at seq=1, both new types appear in replay."""
         _seed_run(db, status="degraded")
         _seed_event(db, seq=1, event_type="workflow_validated", payload={})
-        _seed_event(db, seq=2, event_type=_TYPE_FINALIZATION,
-                    payload={"run_id": "run-1", "reason": "tag_mapping_failed"})
-        _seed_event(db, seq=3, event_type=_TYPE_CHAIN,
-                    payload={"event": _TYPE_CHAIN,
-                              "source_run_id": "src-99",
-                              "reason": "source_provenance_conflict"})
-        _seed_event(db, seq=4, event_type="pipeline_complete",
-                    payload={"status": "degraded"})
+        _seed_event(
+            db,
+            seq=2,
+            event_type=_TYPE_FINALIZATION,
+            payload={"run_id": "run-1", "reason": "tag_mapping_failed"},
+        )
+        _seed_event(
+            db,
+            seq=3,
+            event_type=_TYPE_CHAIN,
+            payload={
+                "event": _TYPE_CHAIN,
+                "source_run_id": "src-99",
+                "reason": "source_provenance_conflict",
+            },
+        )
+        _seed_event(
+            db, seq=4, event_type="pipeline_complete", payload={"status": "degraded"}
+        )
 
         store = self._sessionless_store(monkeypatch, db)
         # Client disconnected after seq=1; reconnects with Last-Event-ID=1.
         frames = asyncio.run(self._drain(store, "run-1", after_seq=1))
 
         replay_types = [f["type"] for f in frames if f["type"] != "stream_attached"]
-        assert _TYPE_FINALIZATION in replay_types, (
-            "run_finalization_failed not replayed after reconnect"
-        )
-        assert _TYPE_CHAIN in replay_types, (
-            "chain_context_unavailable not replayed after reconnect"
-        )
+        assert (
+            _TYPE_FINALIZATION in replay_types
+        ), "run_finalization_failed not replayed after reconnect"
+        assert (
+            _TYPE_CHAIN in replay_types
+        ), "chain_context_unavailable not replayed after reconnect"
         # seq=1 must NOT be replayed (cursor honoured)
-        assert "workflow_validated" not in replay_types, (
-            "event at or before Last-Event-ID was incorrectly replayed"
-        )
+        assert (
+            "workflow_validated" not in replay_types
+        ), "event at or before Last-Event-ID was incorrectly replayed"
 
     def test_reconnect_preserves_original_order(
         self, db: Any, monkeypatch: Any
     ) -> None:
         """Replayed frames are in ascending seq order — original emission order."""
         _seed_run(db, status="degraded")
-        _seed_event(db, seq=1, event_type="agent_start",
-                    payload={"agent_id": "a1"})
-        _seed_event(db, seq=2, event_type=_TYPE_FINALIZATION,
-                    payload={"run_id": "run-1", "reason": "ref_conflict"})
-        _seed_event(db, seq=3, event_type=_TYPE_CHAIN,
-                    payload={"event": _TYPE_CHAIN,
-                              "source_run_id": "src-ord",
-                              "reason": "source_not_finalized"})
-        _seed_event(db, seq=4, event_type="pipeline_complete",
-                    payload={"status": "degraded"})
+        _seed_event(db, seq=1, event_type="agent_start", payload={"agent_id": "a1"})
+        _seed_event(
+            db,
+            seq=2,
+            event_type=_TYPE_FINALIZATION,
+            payload={"run_id": "run-1", "reason": "ref_conflict"},
+        )
+        _seed_event(
+            db,
+            seq=3,
+            event_type=_TYPE_CHAIN,
+            payload={
+                "event": _TYPE_CHAIN,
+                "source_run_id": "src-ord",
+                "reason": "source_not_finalized",
+            },
+        )
+        _seed_event(
+            db, seq=4, event_type="pipeline_complete", payload={"status": "degraded"}
+        )
 
         store = self._sessionless_store(monkeypatch, db)
         frames = asyncio.run(self._drain(store, "run-1", after_seq=0))
 
         # Filter to the durable rows only (drop stream_attached handshake)
         durable = [
-            f for f in frames
-            if f["type"] not in ("stream_attached", None)
-            and f["id"] is not None
+            f
+            for f in frames
+            if f["type"] not in ("stream_attached", None) and f["id"] is not None
         ]
         ids = [int(f["id"]) for f in durable if f["id"] is not None]
         assert ids == sorted(ids), f"frames not in ascending seq order: {ids}"
 
-    def test_no_duplicate_events_on_reconnect(
-        self, db: Any, monkeypatch: Any
-    ) -> None:
+    def test_no_duplicate_events_on_reconnect(self, db: Any, monkeypatch: Any) -> None:
         """Each event appears exactly once in the reconnect replay."""
         _seed_run(db, status="completed")
-        _seed_event(db, seq=1, event_type=_TYPE_CHAIN,
-                    payload={"event": _TYPE_CHAIN,
-                              "source_run_id": "src-dup",
-                              "reason": "source_running"})
-        _seed_event(db, seq=2, event_type=_TYPE_FINALIZATION,
-                    payload={"run_id": "run-1", "reason": "unknown"})
-        _seed_event(db, seq=3, event_type="pipeline_complete",
-                    payload={"status": "completed"})
+        _seed_event(
+            db,
+            seq=1,
+            event_type=_TYPE_CHAIN,
+            payload={
+                "event": _TYPE_CHAIN,
+                "source_run_id": "src-dup",
+                "reason": "source_running",
+            },
+        )
+        _seed_event(
+            db,
+            seq=2,
+            event_type=_TYPE_FINALIZATION,
+            payload={"run_id": "run-1", "reason": "unknown"},
+        )
+        _seed_event(
+            db, seq=3, event_type="pipeline_complete", payload={"status": "completed"}
+        )
 
         store = self._sessionless_store(monkeypatch, db)
         frames = asyncio.run(self._drain(store, "run-1", after_seq=0))
 
         durable_ids = [
-            int(f["id"]) for f in frames
-            if f["type"] not in ("stream_attached", None)
-            and f["id"] is not None
+            int(f["id"])
+            for f in frames
+            if f["type"] not in ("stream_attached", None) and f["id"] is not None
         ]
-        assert len(durable_ids) == len(set(durable_ids)), (
-            "duplicate seq values in SSE replay — dedup contract broken"
-        )
+        assert len(durable_ids) == len(
+            set(durable_ids)
+        ), "duplicate seq values in SSE replay — dedup contract broken"
 
 
 # ---------------------------------------------------------------------------
@@ -579,9 +665,9 @@ class TestRunDetailProjection:
             if run is not None and getattr(run, "status", None) == "degraded"
             else None
         )
-        assert finalization_reason == "tag_mapping_failed", (
-            "finalization_reason not correctly derived from run_finalizations"
-        )
+        assert (
+            finalization_reason == "tag_mapping_failed"
+        ), "finalization_reason not correctly derived from run_finalizations"
 
     def test_chain_unavailable_reason_from_provenance_audit(self, db: Any) -> None:
         """chain_unavailable_reason comes from the provenance audit row."""
@@ -610,13 +696,11 @@ class TestRunDetailProjection:
             .first()
         )
         assert row is not None
-        assert row.outcome == "source_non_chainable", (
-            "chain_unavailable_reason not correctly read from run_provenance_audits"
-        )
+        assert (
+            row.outcome == "source_non_chainable"
+        ), "chain_unavailable_reason not correctly read from run_provenance_audits"
 
-    def test_finalization_reason_absent_for_non_degraded_run(
-        self, db: Any
-    ) -> None:
+    def test_finalization_reason_absent_for_non_degraded_run(self, db: Any) -> None:
         """A completed run should not expose finalization_reason."""
         _seed_run(db, status="completed")
         db.add(
@@ -633,9 +717,7 @@ class TestRunDetailProjection:
         db.commit()
 
         row = (
-            db.query(RunFinalization)
-            .filter(RunFinalization.run_id == "run-1")
-            .first()
+            db.query(RunFinalization).filter(RunFinalization.run_id == "run-1").first()
         )
         run = db.query(WorkflowRun).filter(WorkflowRun.id == "run-1").first()
         # Same logic as runs.py: only surface when status == "degraded"
@@ -644,9 +726,9 @@ class TestRunDetailProjection:
             if run is not None and getattr(run, "status", None) == "degraded"
             else None
         )
-        assert finalization_reason is None, (
-            "finalization_reason must be None for a non-degraded run"
-        )
+        assert (
+            finalization_reason is None
+        ), "finalization_reason must be None for a non-degraded run"
 
     def test_cross_owner_audit_row_not_visible(self, db: Any) -> None:
         """A provenance audit row owned by another user is not visible."""
@@ -654,7 +736,7 @@ class TestRunDetailProjection:
         db.add(
             RunProvenanceAudit(
                 id=str(uuid.uuid4()),
-                owner_id="bob",          # different owner
+                owner_id="bob",  # different owner
                 workspace_id="ws-1",
                 run_id="run-1",
                 operation="chain_context_unavailable",
@@ -667,11 +749,11 @@ class TestRunDetailProjection:
             db.query(RunProvenanceAudit)
             .filter(
                 RunProvenanceAudit.run_id == "run-1",
-                RunProvenanceAudit.owner_id == "alice",   # alice's scope
+                RunProvenanceAudit.owner_id == "alice",  # alice's scope
                 RunProvenanceAudit.operation == "chain_context_unavailable",
             )
             .first()
         )
-        assert row is None, (
-            "cross-owner provenance audit row must not be visible under alice's scope"
-        )
+        assert (
+            row is None
+        ), "cross-owner provenance audit row must not be visible under alice's scope"

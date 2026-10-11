@@ -139,6 +139,11 @@ class _FakeEctx:
     current_task_block = ""
     current_prototype_skeleton = ""
 
+    def __init__(self) -> None:
+        # ExecutionContext.pending_validation_fix (Req 14 AC 4) — per-instance, so
+        # the fix loop's seed/drain on one test can never leak into another.
+        self.pending_validation_fix: dict = {}
+
 
 class _FakeSpec:
     id = "code-gen"

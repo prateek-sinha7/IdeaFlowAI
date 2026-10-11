@@ -368,7 +368,7 @@ describe("WorkflowHistory — chain affordance reachable despite onOpenRun (T3-c
     // Stayed on the list — the internal detail (with the chain panel) never mounted.
     expect(screen.queryByText(/suggested next steps/i)).not.toBeInTheDocument();
   });
-  it("the row's Chain menu action reaches the chain panel (bypassing onOpenRun) and fires onChainPipeline with the source run id", async () => {
+  it("the row menu offers only Delete after Chain removal (T3-chaining-reachable)", async () => {
     const run = makeRun({ type: "ppt" });
     mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
     mockGetWorkflow.mockResolvedValue(run);
@@ -381,16 +381,14 @@ describe("WorkflowHistory — chain affordance reachable despite onOpenRun (T3-c
     );
     await screen.findByText(run.title);
     await userEvent.click(screen.getByRole("button", { name: "Run actions" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /chain/i }));
-    // onOpenRun's redirect was bypassed — the internal detail (chain panel) opened instead.
-    expect(onOpenRun).not.toHaveBeenCalled();
-    expect(await screen.findByText(/suggested next steps/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /prototype/i }));
-    expect(onChainPipeline).toHaveBeenCalledTimes(1);
-    expect(onChainPipeline).toHaveBeenCalledWith(
-      expect.objectContaining({ id: run.id, type: run.type }),
-      "prototype",
-    );
+    
+    // After commit dfd16738 "drop the Chain action", RowMenu renders only Delete.
+    const menuItems = screen.getAllByRole("menuitem");
+    expect(menuItems).toHaveLength(1);
+    expect(menuItems[0]).toHaveTextContent("Delete");
+    
+    // Verify no Chain item is reachable (regression check).
+    expect(screen.queryByRole("menuitem", { name: /chain/i })).not.toBeInTheDocument();
   });
 });
 // ─────────────────────────────────────────────────────────────────

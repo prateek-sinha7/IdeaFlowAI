@@ -14,7 +14,7 @@ Schema source: specs/sandbox-git-versioning-v2 task 5.1.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Index, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Index, String
 
 from app.models.database import Base
 
@@ -25,8 +25,8 @@ class RunFinalization(Base):
     __tablename__ = "run_finalizations"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
     run_id = Column(String, nullable=False, unique=True)  # one record per run
 
     # Published / candidate pipeline status written by the finalizer
@@ -45,12 +45,14 @@ class RunFinalization(Base):
     commit_sha = Column(String, nullable=True)
     internal_ref = Column(String, nullable=True)
     git_tag = Column(String, nullable=True)
-    tag_state = Column(String, nullable=True)        # "created" | "rolled_back"
+    tag_state = Column(String, nullable=True)  # "created" | "rolled_back"
 
     # Chain-context installation state
     chain_context_installed = Column(Boolean, nullable=True)
 
-    created_at = Column(DateTime, nullable=True, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime, nullable=True, default=lambda: datetime.now(timezone.utc)
+    )
     updated_at = Column(DateTime, nullable=True)
 
     __table_args__ = (

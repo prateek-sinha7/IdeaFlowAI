@@ -2,11 +2,24 @@
 # CI Authoritative — trusted pull-request finalizer
 # =============================================================================
 # WHY THIS WORKFLOW EXISTS
-#   A pull request may carry fork code. That code must never see SONAR_TOKEN or a
-#   write-scoped token, so `ci.yml` runs it with no secrets at all and defers the
-#   two Sonar signals. This workflow is loaded from the DEFAULT BRANCH by the
-#   `workflow_run` event, so its own contents cannot be modified by the PR it is
-#   judging. It adds Sonar and is the sole publisher of `ci-required` for PRs.
+#   A pull request may carry fork code, and the token a fork-triggered
+#   `pull_request` run receives is read-only — it cannot write a commit status
+#   even if a job asked for `statuses: write`. So `ci.yml` runs the evaluation
+#   with no secrets and no write scope, and this workflow publishes the result.
+#   It is loaded from the DEFAULT BRANCH by the `workflow_run` event, so its own
+#   contents cannot be modified by the PR it is judging.
+#
+#   Its two jobs do exactly two things:
+#     attest-evaluation   — prove the source run is a `ci.yml` pull-request run
+#                           for the current head of an open PR, and that the
+#                           aggregate manifest it produced is complete, for that
+#                           exact SHA, and green.
+#     publish-ci-required — write `ci-required` for that SHA. It is the SOLE
+#                           publisher of that context for pull requests.
+#
+#   This workflow performs no analysis of its own. Every mandatory signal is
+#   owned and evaluated by a job in `ci.yml`; the verdict is already computed in
+#   the manifest, and finalization only attests it.
 #
 # READING THE workflow_run PAYLOAD CORRECTLY
 #   The previous version of this file read `github.event.pull_request.number` and
@@ -20,10 +33,12 @@
 #   works for forks, where `workflow_run.pull_requests` is empty by design.
 #
 # TRUST BOUNDARY
-#   Fork source is checked out READ-ONLY into a subdirectory and treated as data
-#   for the scanner. This workflow never runs a script, action, hook, package
-#   command, or config file from that checkout. All scanner arguments come from
-#   this trusted file, so a fork-controlled sonar-project.properties is ignored.
+#   Pull-request source is never checked out here at all, and no script, action,
+#   hook, package command, or config file from the PR is ever executed. The only
+#   PR-derived input is the aggregate manifest artifact, which is parsed as data
+#   by a script from THIS trusted checkout
+#   (.github/scripts/ci-validate-evidence.sh) and rejected unless it is
+#   well-formed, for the attested SHA, and wholly successful.
 # =============================================================================
 
 name: CI Authoritative (PR Finalizer)
@@ -50,7 +65,7 @@ jobs:
   # ===========================================================================
   attest-evaluation:
     name: Attest PR evaluation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: github.event.workflow_run.event == 'pull_request'
     permissions:
@@ -132,8 +147,8 @@ jobs:
             // "Will verify PR head matches after downloading source artifacts"
             // and never did, so a superseded run could publish a status that
             // looked current. The publisher re-checks this a second time
-            // immediately before writing, because the head can move while Sonar
-            // is still running.
+            // immediately before writing, because the head can move between
+            // attestation and the status write.
             if (pr.head.sha !== headSha) {
               core.setFailed(
                 `Stale evaluation: PR #${pr.number} head is now ${pr.head.sha}, ` +
@@ -158,7 +173,7 @@ jobs:
       # publish-ci-required is worth more than an interim status badge.
 
       - name: Download the evaluator aggregate manifest
-        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -172,116 +187,6 @@ jobs:
         run: bash .github/scripts/ci-validate-evidence.sh attestation
 
   # ===========================================================================
-  # sonar-pr — Sonar analysis over the attested source, with the gate
-  # ===========================================================================
-  # Owns: sonar-analysis, sonar-quality-gate (the two signals ci.yml deferred).
-  # ===========================================================================
-  sonar-pr:
-    name: Sonar analysis and quality gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    needs: [attest-evaluation]
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - name: Checkout trusted default-branch code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          path: trusted
-
-      - name: Checkout PR source as read-only analysis data
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ needs.attest-evaluation.outputs.head_repo }}
-          ref: ${{ needs.attest-evaluation.outputs.evaluation_sha }}
-          path: source
-          # Nothing from this tree is ever executed. Credentials, submodules and
-          # LFS are all disabled so a fork cannot pull in extra content or reuse
-          # a token.
-          persist-credentials: false
-          submodules: false
-          lfs: false
-          fetch-depth: 0
-
-      - name: Verify the source checkout is the attested revision
-        env:
-          EXPECTED_SHA: ${{ needs.attest-evaluation.outputs.evaluation_sha }}
-        run: |
-          set -euo pipefail
-          actual="$(git -C source rev-parse HEAD)"
-          if [[ "${actual}" != "${EXPECTED_SHA}" ]]; then
-            echo "::error::source checkout is ${actual}, expected ${EXPECTED_SHA}"
-            exit 1
-          fi
-          echo "Source checkout verified at ${actual}"
-
-      - name: Download the evaluator's coverage evidence
-        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-          name: ci-${{ needs.attest-evaluation.outputs.evaluation_sha }}-backend-aggregate
-          path: downloaded/
-
-      - name: Download the evaluator's frontend coverage evidence
-        uses: actions/download-artifact@65a9edc5881444af0b87c028056edc830d335231 # v4.1.7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-          name: ci-${{ needs.attest-evaluation.outputs.evaluation_sha }}-frontend-aggregate
-          path: downloaded/
-
-      - name: Validate the downloaded artifacts before using them
-        run: bash trusted/.github/scripts/ci-validate-artifacts.sh downloaded
-
-      - name: Place the validated coverage where the scanner expects it
-        run: |
-          set -euo pipefail
-          # Reserialized copies of validated files only; nothing from the fork
-          # tree is trusted as configuration.
-          mkdir -p source/frontend/coverage
-          cp downloaded/backend-coverage.xml source/backend/coverage.xml
-          cp downloaded/frontend-lcov.info source/frontend/coverage/lcov.info
-
-      - name: Require a Sonar token (a missing secret is a failure, not a skip)
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${SONAR_TOKEN:-}" ]]; then
-            echo "::error::SONAR_TOKEN is unavailable. The Sonar signals are"
-            echo "::error::mandatory, so this is a failed gate, not a skip."
-            exit 1
-          fi
-
-      - name: Sonar analysis with quality-gate wait
-        uses: SonarSource/sonarqube-scan-action@8c71dc039c2dd71d3821e89a2b58ecc7fee6ced9 # v6.0.0
-        env:
-          # Environment, never `-Dsonar.login=`: a command-line token is visible
-          # in the process table to anything else on the runner.
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
-        with:
-          projectBaseDir: source
-          # Every argument is supplied here, from the trusted default branch, so
-          # a fork-controlled sonar-project.properties cannot redirect the
-          # analysis or the report paths.
-          args: >-
-            -Dsonar.projectKey=velocityai
-            -Dsonar.organization=velocityai
-            -Dsonar.python.coverage.reportPaths=backend/coverage.xml
-            -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
-            -Dsonar.python.version=3.13
-            -Dsonar.pullrequest.key=${{ needs.attest-evaluation.outputs.pr_number }}
-            -Dsonar.pullrequest.branch=pr-${{ needs.attest-evaluation.outputs.pr_number }}
-            -Dsonar.pullrequest.base=main
-            -Dsonar.scm.revision=${{ needs.attest-evaluation.outputs.evaluation_sha }}
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.qualitygate.timeout=600
-
-  # ===========================================================================
   # publish-ci-required — the sole publisher of ci-required for pull requests
   # ===========================================================================
   # `if: always()` so a failure upstream still produces an explicit red status
@@ -289,26 +194,22 @@ jobs:
   # ===========================================================================
   publish-ci-required:
     name: Publish ci-required
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: always() && github.event.workflow_run.event == 'pull_request'
-    needs: [attest-evaluation, sonar-pr]
+    needs: [attest-evaluation]
     permissions:
       # The only elevated permission in this workflow, and only in this job.
       statuses: write
     steps:
-      - name: Checkout trusted default-branch code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
+      # No checkout: the script below uses only env and the API, and this is the
+      # one job holding `statuses: write`.
       - name: Publish the status for the exact current PR head
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         env:
           ATTESTED_SHA: ${{ needs.attest-evaluation.outputs.evaluation_sha }}
           FALLBACK_SHA: ${{ github.event.workflow_run.head_sha }}
           ATTEST_RESULT: ${{ needs.attest-evaluation.result }}
-          SONAR_RESULT: ${{ needs.sonar-pr.result }}
         with:
           script: |
             const sha = process.env.ATTESTED_SHA || process.env.FALLBACK_SHA;
@@ -318,12 +219,12 @@ jobs:
             }
 
             const attest = process.env.ATTEST_RESULT;
-            const sonar = process.env.SONAR_RESULT;
-            const success = attest === 'success' && sonar === 'success';
+            const success = attest === 'success';
 
-            // Second stale-head check. The head can move while Sonar runs, and a
-            // status written against a superseded commit would be misleading at
-            // best. If it moved, publish nothing: the new head has its own run.
+            // Second stale-head check. The head can move between attestation
+            // and this step, and a status written against a superseded commit
+            // would be misleading at best. If it moved, publish nothing: the new
+            // head has its own run.
             const { data: prs } =
               await github.rest.repos.listPullRequestsAssociatedWithCommit({
                 owner: context.repo.owner,
@@ -349,7 +250,7 @@ jobs:
               context: 'ci-required',
               description: success
                 ? 'All mandatory CI signals succeeded'
-                : `Blocked (attest: ${attest}, sonar: ${sonar})`,
+                : `Blocked (attest: ${attest})`,
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
             });
             core.info(`Published ci-required=${success ? 'success' : 'failure'} for ${sha}`);

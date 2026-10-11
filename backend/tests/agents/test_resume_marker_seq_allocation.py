@@ -38,8 +38,11 @@ async def test_stamp_resume_marker_does_not_read_entire_event_log():
     # fixture: any call to the unbounded read is the defect, regardless of row count.
     for seq in range(1, 4):
         await seed_store.append_event(
-            run_id, seq=seq, event_id=f"iss125-{seq}",
-            type=f"agent_chunk_{seq}", payload_json={"seq": seq},
+            run_id,
+            seq=seq,
+            event_id=f"iss125-{seq}",
+            type=f"agent_chunk_{seq}",
+            payload_json={"seq": seq},
         )
     session.commit()
 

@@ -48,6 +48,9 @@ from agents.capabilities.registry import register
 @register(
     "deliverable",
     "ppt",
+    # ADR-0054: a saved (Composer) copy of a built-in may reference this; it
+    # stays in the run's own owner-scoped sandbox and reaches no host resource.
+    saved_workflow_allowed=True,
     description="Resolve the deliverable as an HTML slide-deck (PPT) read back from the run sandbox.",
 )
 class PptResolver:

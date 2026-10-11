@@ -51,7 +51,9 @@ def _make_in_memory_db():
     return engine, session
 
 
-async def _fake_offset(run_id, user_id, session_id, pipeline_type, agents) -> int:
+async def _fake_offset(
+    run_id, user_id, session_id, pipeline_type, agents, compiled=None
+) -> int:
     """Stub for `_compute_resume_offset` — offset computation is orthogonal to
     FR-065 (see module docstring); returning 0 lets resume_run() proceed straight
     to the od_context merge + `_drive_resumed_stream` call under test."""
@@ -70,7 +72,7 @@ async def test_resume_run_uses_context_file_over_diverging_db_column(
     the downstream execution entry point.
     """
     from app.agents.sandbox import RunSandbox
-    from app.api.launch_context import rebuild_od_context_from_sandbox
+    from app.services.od_context_sandbox import rebuild_od_context_from_sandbox
     from app.core.config import settings as _settings
     import app.models.database as db_mod
     from app.models.workflow import WorkflowRun
@@ -154,11 +156,13 @@ async def test_resume_run_uses_context_file_over_diverging_db_column(
         except _ReachedDriveStream:
             pass
 
-        assert "od_context" in captured, "resume_run never reached _drive_resumed_stream"
+        assert (
+            "od_context" in captured
+        ), "resume_run never reached _drive_resumed_stream"
         threaded = captured["od_context"]
-        assert threaded is not None, (
-            "resume_run must thread a non-None od_context when .context/ exists"
-        )
+        assert (
+            threaded is not None
+        ), "resume_run must thread a non-None od_context when .context/ exists"
         assert threaded["template_id"] == "file-tpl-789", (
             f"resume_run must use the .context/ file version; "
             f"got {threaded['template_id']!r}"
@@ -243,7 +247,9 @@ async def test_resume_run_falls_back_to_db_column_when_context_absent(
         except _ReachedDriveStream:
             pass
 
-        assert "od_context" in captured, "resume_run never reached _drive_resumed_stream"
+        assert (
+            "od_context" in captured
+        ), "resume_run never reached _drive_resumed_stream"
         threaded = captured["od_context"]
         assert threaded == db_od_context_value, (
             "resume_run must fall back to the DB od_context_json column when "

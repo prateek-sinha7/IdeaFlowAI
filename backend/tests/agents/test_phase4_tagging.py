@@ -24,9 +24,11 @@ Structure:
 All tests are pure unit tests — no real engine run, no LLM calls, no DB.
 Tests that exercise git operations use real temporary git repos (tmp_path).
 """
+
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -37,6 +39,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Helpers shared across test classes
 # ---------------------------------------------------------------------------
+
 
 def _fresh_run_id() -> str:
     return f"tag-test-{uuid.uuid4()}"
@@ -86,6 +89,7 @@ def _make_mock_ectx(
 # ---------------------------------------------------------------------------
 # 1. LocalWorkspace.create_tag and list_tags — unit tests with mock _git
 # ---------------------------------------------------------------------------
+
 
 class TestLocalWorkspaceTagUnit:
     """LocalWorkspace.create_tag / list_tags via a mocked _git call."""
@@ -163,6 +167,7 @@ class TestLocalWorkspaceTagUnit:
 # 2. LocalWorkspace.create_tag and list_tags — real git repo integration
 # ---------------------------------------------------------------------------
 
+
 class TestLocalWorkspaceTagRealGit:
     """Round-trip tag tests against a real temporary git repository."""
 
@@ -200,7 +205,8 @@ class TestLocalWorkspaceTagRealGit:
         """Tagging the same name twice raises — failure must be visible (Req 15 AC 4)."""
         ws = self._make_ws(tmp_path)
         ws.create_tag("v1")
-        with pytest.raises(Exception):
+        # LocalWorkspace._git runs git with check=True; a duplicate tag exits non-zero.
+        with pytest.raises(subprocess.CalledProcessError):
             ws.create_tag("v1")
 
     def test_tag_name_matches_revision_ordinal_convention(self, tmp_path: Path) -> None:
@@ -218,6 +224,7 @@ class TestLocalWorkspaceTagRealGit:
 # ---------------------------------------------------------------------------
 # 3. RunSandbox.create_tag and list_tags delegation
 # ---------------------------------------------------------------------------
+
 
 class TestRunSandboxTagDelegation:
     """RunSandbox delegates create_tag / list_tags to LocalWorkspace via duck-typing."""
@@ -276,6 +283,7 @@ class TestRunSandboxTagDelegation:
 # ---------------------------------------------------------------------------
 # 4. finalize_terminal_run with non-completed statuses — real git integration
 # ---------------------------------------------------------------------------
+
 
 class TestFirePostRunNonCompleted:
     """finalize_terminal_run for non-completed statuses: no tag, internal ref present.
@@ -337,12 +345,14 @@ class TestFirePostRunNonCompleted:
 
         # No tag should exist
         tags = sb.list_tags()
-        assert tags == [], f"Non-completed status {status} must not create a tag; got {tags}"
+        assert (
+            tags == []
+        ), f"Non-completed status {status} must not create a tag; got {tags}"
 
         # But an internal ref should be present
-        assert record.internal_ref is not None, (
-            f"Non-completed status {status} must have an internal_ref"
-        )
+        assert (
+            record.internal_ref is not None
+        ), f"Non-completed status {status} must have an internal_ref"
 
         eng._finalize_terminal_run_started.discard(run_id)
 
@@ -350,6 +360,7 @@ class TestFirePostRunNonCompleted:
 # ---------------------------------------------------------------------------
 # 6. _validate_ref — ref validation (Requirement 16)
 # ---------------------------------------------------------------------------
+
 
 class TestValidateRef:
     """_validate_ref rejects every ref not in list_tags(); fail-closed.
@@ -387,21 +398,24 @@ class TestValidateRef:
 
     # ── rejects arbitrary strings ─────────────────────────────────────────
 
-    @pytest.mark.parametrize("bad_ref", [
-        "HEAD",
-        "HEAD~1",
-        "HEAD~3",
-        "main",
-        "master",
-        "@{upstream}",
-        ":/message",
-        "$(whoami)",
-        "../secret",
-        "refs/heads/main",
-        "",
-        "v999",           # a tag that would be valid by name but is not in list
-        "v1 && rm -rf /",  # injection attempt
-    ])
+    @pytest.mark.parametrize(
+        "bad_ref",
+        [
+            "HEAD",
+            "HEAD~1",
+            "HEAD~3",
+            "main",
+            "master",
+            "@{upstream}",
+            ":/message",
+            "$(whoami)",
+            "../secret",
+            "refs/heads/main",
+            "",
+            "v999",  # a tag that would be valid by name but is not in list
+            "v1 && rm -rf /",  # injection attempt
+        ],
+    )
     def test_rejects_arbitrary_revspec(self, bad_ref: str) -> None:
         """Arbitrary revspecs not in list_tags() are rejected with HTTP 400."""
         from fastapi import HTTPException
@@ -471,6 +485,7 @@ class TestValidateRef:
 # ---------------------------------------------------------------------------
 # 7. Real git repo: _validate_ref with RunSandbox.list_tags()
 # ---------------------------------------------------------------------------
+
 
 class TestValidateRefRealGit:
     """_validate_ref + RunSandbox.list_tags() against a real repository."""

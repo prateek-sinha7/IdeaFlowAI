@@ -115,4 +115,3 @@ def test_reference_golden_has_a_stable_nonempty_page_set() -> None:
         f"expected the scripted reference to have no const routes map; "
         f"got route keys {sorted(_REFERENCE_ROUTE_KEYS)}"
     )
-

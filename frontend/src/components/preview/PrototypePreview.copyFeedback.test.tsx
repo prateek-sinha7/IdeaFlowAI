@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { PrototypePreview } from "./PrototypePreview";
 
 // ─────────────────────────────────────────────────────────────────
@@ -39,12 +39,7 @@ describe("PrototypePreview 'Copy all' source button — ISS-560", () => {
     fireEvent.click(await screen.findByTitle("View source"));
     fireEvent.click(await screen.findByRole("button", { name: /Copy all/i }));
 
-    // Let the rejected .then() chain settle (it never resolves — this just
-    // gives any competing state update a tick to land).
-    await new Promise((r) => setTimeout(r, 0));
-
-    // ISS-560: today nothing changes on rejection — no failure text, button
-    // stays "Copy all". The fixed behaviour must surface SOMETHING.
-    expect(screen.queryByText(/fail|error|couldn.?t/i)).toBeInTheDocument();
+    // findByText retries until the async state update completes, eliminating the race.
+    await expect(screen.findByText(/copy failed/i)).resolves.toBeInTheDocument();
   });
 });

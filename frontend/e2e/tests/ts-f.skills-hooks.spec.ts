@@ -1,38 +1,43 @@
 /**
- * TS-F — Skills & Hooks tab (AgentsPopup → SkillsHooksTab). Proves the
- * skills/hooks attach UX (empty states, picker, search, category/event
- * filters, count pills), payload threading into `run_pipeline`
- * (attached_skills / attached_hooks), and persistence across popup reopen via
- * the global SkillsHooksContext.
+ * TS-F — Skills & Hooks in the Advanced popup (AgentsPopup). Proves the
+ * attach UX (empty states, pickers, search, category/event filters, count
+ * pills), payload threading into `run_pipeline` (attached_hooks), and
+ * persistence across popup reopen via the global SkillsHooksContext.
+ *
+ * ADR-0010 split the old run-level "Skills & Hooks" tab:
+ *   • SKILLS are attached PER AGENT (`Step.skills`) through the shared
+ *     composer/AgentSkillsPicker — in this popup: select a canvas node, then the
+ *     config rail's "Skills" tab. There is no run-level skills picker any more,
+ *     so `attached_skills` is no longer a run_pipeline field.
+ *   • HOOKS stay run-level: the popup's "Workflow" tab is now hooks-only
+ *     (HooksTab), bound to SkillsHooksContext, and ride `attached_hooks`.
  *
  * Flow: from home → select `user_stories` ("Generate product requirements") +
- * type a brief → click `Advanced` (opens AgentsPopup) → `Skills & Hooks` tab.
- * We do NOT run first (the Advanced button only lives on IdeaInputPage); for
- * TS-F-05 we Save the popup, then Run from the same idea page.
+ * type a brief → click `Advanced` (opens AgentsPopup). We do NOT run first (the
+ * Advanced button only lives on IdeaInputPage); for TS-F-05 we close the popup,
+ * then Run from the same idea page.
  *
- * Names are read from the live catalogs the UI actually renders (not guessed).
- * Skills come from GET /api/skills/library and hooks from GET /api/hooks/library,
- * both folder-scans of backend/skills/global/<id>/SKILL.md and
- * backend/hooks/global/<id>/HOOK.md — so a rename there is what moves these:
- *   - FIRST skill (id superpowers-brainstorming, category `planning`)
- *     → "Brainstorming Ideas Into Designs".
- *   - FIRST testing-category skill → "Dispatching Parallel Agents".
- *   - FIRST hook (id ecc-post-quality-gate, event PostToolUse) → "Quality Gate".
+ * Names come from the catalogs the UI renders (fixtures/mockApi.ts mirrors the
+ * real scans): hooks from backend/hooks/global/<id>/HOOK.md, skills from
+ * backend/skills/global/<id>/SKILL.md (plus the composer fixtures' Emoji/Joke/
+ * HTML Page).
  */
 import { test, expect } from "../fixtures/test";
+import type { Page } from "@playwright/test";
+import type { DashboardPage } from "../fixtures/dashboard";
 
 const WORKFLOW = "Generate product requirements"; // TYPE_CONFIG.user_stories.tag
 const IDEA = "Generate epics for a refunds workflow";
-
-// First entry in the skills catalog (category: planning).
-const SKILL_NAME = "Brainstorming Ideas Into Designs";
-// First category:"testing" entry in the skills catalog.
-const TESTING_SKILL_NAME = "Dispatching Parallel Agents";
-// First entry in the hooks catalog (event: PostToolUse).
+// A user_stories agent node to attach per-agent skills to.
+const AGENT_ID = "domain-analyst";
+// A planning-category skill and a testing-category skill.
+const SKILL_NAME = "Coding Standards & Best Practices";
+const TESTING_SKILL_NAME = "Test-Driven Development Workflow";
+// A PostToolUse hook.
 const HOOK_NAME = "Quality Gate";
 
-/** Open the AgentsPopup from the idea page and switch to the Skills & Hooks tab. */
-async function openSkillsHooksTab(dashboard: { page: import("@playwright/test").Page; selectWorkflow: (l: string) => Promise<void>; fillIdea: (t: string) => Promise<void>; openAdvanced: () => Promise<void> }) {
+/** Land on the brief screen with an idea typed, then open the Advanced popup. */
+async function openPopup(dashboard: DashboardPage) {
   await dashboard.selectWorkflow(WORKFLOW);
   // Wait for the brief screen to mount before filling — else the fill races the
   // still-mounted home composer and the idea never lands in the brief textarea,
@@ -41,14 +46,28 @@ async function openSkillsHooksTab(dashboard: { page: import("@playwright/test").
     dashboard.page.getByRole("heading", { name: /Provide the brief/i }),
   ).toBeVisible({ timeout: 15000 });
   await dashboard.fillIdea(IDEA);
-  await dashboard.openAdvanced(); // asserts "Workflow configuration"
-  // Phase 39 redesign: the old "Skills & Hooks" tab is now the "Workflow" tab
-  // (Puzzle icon; still hosts the SkillsHooksTab body unchanged).
-  await dashboard.page.getByRole("button", { name: /^Workflow/ }).click();
+  await dashboard.openAdvanced(); // asserts the "Advanced Workflow Configuration" heading
 }
 
-/** The Add/Added button inside a specific skill/hook picker row (deepest match). */
-function rowButton(page: import("@playwright/test").Page, rowText: string, btn: RegExp) {
+/** Open the popup on its run-level "Workflow" (hooks) tab. Scoped to the popup
+ *  tab strip: the embedded canvas rail has its own "Workflow" toggle. */
+async function openHooksTab(dashboard: DashboardPage) {
+  await openPopup(dashboard);
+  await dashboard.advancedTab(/^Workflow/).click();
+}
+
+/** Open the popup and the per-agent skills picker for AGENT_ID. */
+async function openAgentSkills(dashboard: DashboardPage) {
+  await openPopup(dashboard);
+  await dashboard.page.getByTestId(`canvas-node-${AGENT_ID}`).click();
+  await dashboard.page.getByRole("tab", { name: "Skills" }).click();
+  const picker = dashboard.page.getByTestId(`agent-skills-picker-${AGENT_ID}`);
+  await expect(picker).toBeVisible();
+  return picker;
+}
+
+/** The Add/Added button inside a specific hook picker row (deepest match). */
+function rowButton(page: Page, rowText: string, btn: RegExp) {
   return page
     .locator("div")
     .filter({ has: page.getByText(rowText, { exact: true }) })
@@ -63,152 +82,102 @@ test.describe("TS-F — Skills & Hooks", () => {
   });
 
   test("TS-F-01 empty states for skills and hooks", async ({ dashboard }) => {
-    await openSkillsHooksTab(dashboard);
+    const page = dashboard.page;
+    await openHooksTab(dashboard);
+    await expect(page.getByText('No hooks attached · click "Add hook" to browse')).toBeVisible();
+    // ADR-0010: the run-level skills picker is gone from this tab.
+    await expect(page.getByRole("button", { name: /Add skill/ })).toHaveCount(0);
 
-    await expect(
-      dashboard.page.getByText('No skills attached · click "Add skill" to browse'),
-    ).toBeVisible();
-    await expect(
-      dashboard.page.getByText('No hooks attached · click "Add hook" to browse'),
-    ).toBeVisible();
+    // Per-agent: a fresh agent has no skill attached — every row offers "Add".
+    await dashboard.advancedTab(/^Agents/).click();
+    await page.getByTestId(`canvas-node-${AGENT_ID}`).click();
+    await page.getByRole("tab", { name: "Skills" }).click();
+    const picker = page.getByTestId(`agent-skills-picker-${AGENT_ID}`);
+    await expect(picker.getByRole("button", { name: /^Add / }).first()).toBeVisible();
+    await expect(picker.getByRole("button", { name: /^Remove / })).toHaveCount(0);
   });
 
-  test("TS-F-02 attach a skill → Add becomes Added, count pill increments", async ({ dashboard }) => {
+  test("TS-F-02 attach a skill → Add becomes Remove, the node shows the skill", async ({ dashboard }) => {
     const page = dashboard.page;
-    await openSkillsHooksTab(dashboard);
+    const picker = await openAgentSkills(dashboard);
 
-    // No skills count pill yet (the pill only renders when attachedSkills > 0).
-    await expect(page.getByText('No skills attached · click "Add skill" to browse')).toBeVisible();
-
-    // Open the picker → search input appears.
-    await page.getByRole("button", { name: /Add skill/ }).click();
-    const search = page.getByPlaceholder("Search skills...");
-    await expect(search).toBeVisible();
-
-    // Narrow to the first real skill and attach it.
-    await search.fill(SKILL_NAME);
-    const addBtn = rowButton(page, SKILL_NAME, /^Add$/);
-    await expect(addBtn).toBeVisible();
-    await addBtn.click();
-
-    // Its button flips Add → Added (disabled, with the Check icon).
-    const addedBtn = rowButton(page, SKILL_NAME, /^Added$/);
-    await expect(addedBtn).toBeVisible();
-    await expect(addedBtn).toBeDisabled();
-
-    // The Skills section count pill now shows 1 — it's the dark rounded badge
-    // immediately following the "Skills" section heading span.
-    const skillsCountPill = page
-      .locator("span.text-gray-800", { hasText: /^Skills$/ })
-      .locator("xpath=following-sibling::span[1]");
-    await expect(skillsCountPill).toHaveText("1");
-    // The count is a rounded-full badge pill — a reskin-durable shape signal
-    // (the dark fill is retokenised by the reskin; the pill shape is not).
-    await expect(skillsCountPill).toHaveClass(/rounded-full/);
+    await picker.getByRole("button", { name: `Add ${SKILL_NAME}` }).click();
+    // The row's toggle flips Add → Remove.
+    await expect(picker.getByRole("button", { name: `Remove ${SKILL_NAME}` })).toBeVisible();
+    await expect(picker.getByRole("button", { name: `Add ${SKILL_NAME}` })).toHaveCount(0);
+    // The canvas node lists the attached skill id as a removable chip.
+    await expect(
+      page.getByTestId(`canvas-node-${AGENT_ID}`).getByRole("button", { name: "Remove coding-standards" }),
+    ).toBeVisible();
   });
 
   test("TS-F-03 skill category pills filter the list", async ({ dashboard }) => {
-    const page = dashboard.page;
-    await openSkillsHooksTab(dashboard);
-    await page.getByRole("button", { name: /Add skill/ }).click();
+    const picker = await openAgentSkills(dashboard);
 
-    // Phase 39 renamed the popup tab to "Workflow", which now collides with the
-    // "Workflow" skill-category pill under strict mode. The category pills are the
-    // only rounded-full buttons on screen while the skills picker is open (the
-    // tab is a border-b-2 button, the hooks picker is closed), so target by that
-    // reskin-durable shape + exact label to exclude the tab.
-    const catPill = (cat: string) =>
-      page.locator("button.rounded-full").filter({ hasText: new RegExp(`^${cat}$`) });
-
-    // Every category pill is present.
-    for (const cat of ["All", "Planning", "Testing", "Workflow", "Security", "Debugging", "Collaboration", "Meta"]) {
-      await expect(catPill(cat)).toBeVisible();
+    // Search + category pills render once >6 skills are compatible.
+    await expect(picker.getByTestId("agent-skills-search")).toBeVisible();
+    for (const cat of ["All", "Planning", "Testing", "Security", "Debugging"]) {
+      await expect(picker.getByRole("button", { name: cat, exact: true })).toBeVisible();
     }
-
-    // Default ("All"): the planning-category first skill is in the list.
-    await expect(page.getByText(SKILL_NAME, { exact: true })).toBeVisible();
-
-    // Filter to Testing → the planning skill drops out, a testing skill appears.
-    await catPill("Testing").click();
-    await expect(page.getByText(SKILL_NAME, { exact: true })).toHaveCount(0);
-    await expect(page.getByText(TESTING_SKILL_NAME, { exact: true }).first()).toBeVisible();
-
-    // Filter to Planning → the planning skill is back, the testing skill drops out.
-    await catPill("Planning").click();
-    await expect(page.getByText(SKILL_NAME, { exact: true })).toBeVisible();
-    await expect(page.getByText(TESTING_SKILL_NAME, { exact: true })).toHaveCount(0);
+    // Default ("All"): both skills are listed.
+    await expect(picker.getByRole("button", { name: `Add ${SKILL_NAME}` })).toBeVisible();
+    await expect(picker.getByRole("button", { name: `Add ${TESTING_SKILL_NAME}` })).toBeVisible();
+    // Filter to Testing → the planning skill drops out, the testing skill stays.
+    await picker.getByRole("button", { name: "Testing", exact: true }).click();
+    await expect(picker.getByRole("button", { name: `Add ${SKILL_NAME}` })).toHaveCount(0);
+    await expect(picker.getByRole("button", { name: `Add ${TESTING_SKILL_NAME}` })).toBeVisible();
+    // Filter to Planning → back again, the testing skill drops out.
+    await picker.getByRole("button", { name: "Planning", exact: true }).click();
+    await expect(picker.getByRole("button", { name: `Add ${SKILL_NAME}` })).toBeVisible();
+    await expect(picker.getByRole("button", { name: `Add ${TESTING_SKILL_NAME}` })).toHaveCount(0);
+    // Search narrows by name.
+    await picker.getByRole("button", { name: "All", exact: true }).click();
+    await picker.getByTestId("agent-skills-search").fill("Test-Driven");
+    await expect(picker.getByRole("button", { name: `Add ${TESTING_SKILL_NAME}` })).toBeVisible();
+    await expect(picker.getByRole("button", { name: `Add ${SKILL_NAME}` })).toHaveCount(0);
   });
 
   test("TS-F-04 hooks picker: search, the known hooks, and event filter pills", async ({ dashboard }) => {
     const page = dashboard.page;
-    await openSkillsHooksTab(dashboard);
-
+    await openHooksTab(dashboard);
     await page.getByRole("button", { name: /Add hook/ }).click();
     await expect(page.getByPlaceholder("Search hooks...")).toBeVisible();
-
-    // The 8 hooks include these named ones (read from the hooks catalog).
+    // The catalog's hooks include these named ones.
     for (const name of ["Quality Gate", "Config Protection", "Format + Typecheck on Stop"]) {
       await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
     }
-
-    // Event filter pills.
-    for (const ev of ["All Events", "Pre Tool Use", "Post Tool Use", "On Stop", "Session Start", "Session End"]) {
+    // Event filter pills — the endpoint's derived event list (raw event names).
+    for (const ev of ["All", "PreToolUse", "PostToolUse", "Stop", "SessionStart"]) {
       await expect(page.getByRole("button", { name: ev, exact: true })).toBeVisible();
     }
-
-    // Sanity: the On Stop filter narrows the list (Quality Gate is PostToolUse →
-    // drops out; "Format + Typecheck on Stop" is a Stop hook → stays).
-    await page.getByRole("button", { name: "On Stop", exact: true }).click();
+    // The Stop filter narrows the list (Quality Gate is PostToolUse → drops out;
+    // "Format + Typecheck on Stop" is a Stop hook → stays).
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
     await expect(page.getByText("Quality Gate", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Format + Typecheck on Stop", { exact: true }).first()).toBeVisible();
+    // Search narrows by name.
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    await page.getByPlaceholder("Search hooks...").fill("Config");
+    await expect(page.getByText("Config Protection", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Quality Gate", { exact: true })).toHaveCount(0);
   });
 
-  test("TS-F-05 attached skill + hook are persisted into the run_pipeline payload", async ({ dashboard, mockSse }) => {
+  test("TS-F-05 an attached hook is persisted into the run_pipeline payload", async ({ dashboard, mockSse }) => {
     const page = dashboard.page;
-    await openSkillsHooksTab(dashboard);
-
-    // Attach one skill.
-    await page.getByRole("button", { name: /Add skill/ }).click();
-    await page.getByPlaceholder("Search skills...").fill(SKILL_NAME);
-    await rowButton(page, SKILL_NAME, /^Add$/).click();
-    await expect(rowButton(page, SKILL_NAME, /^Added$/)).toBeVisible();
-
-    // Attach one hook.
+    await openHooksTab(dashboard);
     await page.getByRole("button", { name: /Add hook/ }).click();
     await page.getByPlaceholder("Search hooks...").fill(HOOK_NAME);
     await rowButton(page, HOOK_NAME, /^Add$/).click();
     await expect(rowButton(page, HOOK_NAME, /^Added$/)).toBeVisible();
+    // The tab badge is its {totalAttached} span (1 hook).
+    await expect(dashboard.advancedTab(/^Workflow/).locator("span", { hasText: /^1$/ })).toBeVisible();
 
-    // The combined tab badge reflects both (1 skill + 1 hook = 2). Phase 39
-    // relabelled the tab "Workflow"; the badge is its {totalAttached} span.
-    await expect(
-      page.getByRole("button", { name: /^Workflow/ }).locator("span", { hasText: /^2$/ }),
-    ).toBeVisible();
-
-    // Close the popup, then Run from the idea page. Phase 39 replaced the footer
-    // "Save changes" with "Cancel" (config persists live via context/refs, so
-    // closing retains the attachments) + a separate "Save workflow" (catalogue).
+    // Close the popup (config persists live via context), then Run.
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(page.getByText("Workflow configuration")).toBeHidden();
-
+    await expect(dashboard.advancedHeading()).toBeHidden();
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
-
     const f = await mockSse.waitForCommand("run_pipeline");
-
-    // attached_skills: non-empty, each item carries id/name/content.
-    expect(Array.isArray(f.attached_skills)).toBe(true);
-    const skills = f.attached_skills as Array<Record<string, unknown>>;
-    expect(skills.length).toBeGreaterThan(0);
-    for (const s of skills) {
-      expect(typeof s.id).toBe("string");
-      expect((s.id as string).length).toBeGreaterThan(0);
-      expect(typeof s.name).toBe("string");
-      expect((s.name as string).length).toBeGreaterThan(0);
-      expect(typeof s.content).toBe("string");
-      expect((s.content as string).length).toBeGreaterThan(0);
-    }
-    expect(skills.some((s) => s.name === SKILL_NAME)).toBe(true);
 
     // attached_hooks: non-empty, each item carries id/name/event.
     expect(Array.isArray(f.attached_hooks)).toBe(true);
@@ -223,31 +192,29 @@ test.describe("TS-F — Skills & Hooks", () => {
       expect((h.event as string).length).toBeGreaterThan(0);
     }
     expect(hooks.some((h) => h.name === HOOK_NAME)).toBe(true);
+    // ADR-0010: no run-level skills bag on the wire.
+    expect(f.attached_skills).toBeUndefined();
   });
 
   test("TS-F-06 attachment survives closing and reopening the popup", async ({ dashboard }) => {
     const page = dashboard.page;
-    await openSkillsHooksTab(dashboard);
+    await openHooksTab(dashboard);
+    await page.getByRole("button", { name: /Add hook/ }).click();
+    await page.getByPlaceholder("Search hooks...").fill(HOOK_NAME);
+    await rowButton(page, HOOK_NAME, /^Add$/).click();
+    await expect(rowButton(page, HOOK_NAME, /^Added$/)).toBeVisible();
 
-    // Attach a skill.
-    await page.getByRole("button", { name: /Add skill/ }).click();
-    await page.getByPlaceholder("Search skills...").fill(SKILL_NAME);
-    await rowButton(page, SKILL_NAME, /^Add$/).click();
-    await expect(rowButton(page, SKILL_NAME, /^Added$/)).toBeVisible();
-
-    // Close the popup (Phase 39: footer "Save changes" → "Cancel").
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(page.getByText("Workflow configuration")).toBeHidden();
+    await expect(dashboard.advancedHeading()).toBeHidden();
 
-    // Reopen via Advanced → Workflow tab (formerly "Skills & Hooks").
+    // Reopen → the hook is still attached (SkillsHooksContext is global) and the
+    // picker shows it as Added.
     await dashboard.openAdvanced();
-    await page.getByRole("button", { name: /^Workflow/ }).click();
-
-    // The attached skill is listed in the "attached" section (CheckCircle row),
-    // and reopening the picker shows it as Added (context persisted globally).
-    await expect(page.getByText(SKILL_NAME, { exact: true }).first()).toBeVisible();
-    await page.getByRole("button", { name: /Add skill/ }).click();
-    await page.getByPlaceholder("Search skills...").fill(SKILL_NAME);
-    await expect(rowButton(page, SKILL_NAME, /^Added$/)).toBeVisible();
+    await dashboard.advancedTab(/^Workflow/).click();
+    await expect(page.getByText('No hooks attached · click "Add hook" to browse')).toHaveCount(0);
+    await expect(page.getByText(HOOK_NAME, { exact: true }).first()).toBeVisible();
+    await page.getByRole("button", { name: /Add hook/ }).click();
+    await page.getByPlaceholder("Search hooks...").fill(HOOK_NAME);
+    await expect(rowButton(page, HOOK_NAME, /^Added$/)).toBeVisible();
   });
 });

@@ -35,10 +35,14 @@ const ROSTER = [
 ];
 
 describe("useRunStateStore — ISS-673 background run progress reaches the screen", () => {
-  // ISS-673 unfixed: `{ fails: true }` is vitest's xfail. Observed red on the
-  // unfixed store at the on-screen assertion (store 2, screen "0"); the verifier
-  // removes this marker once the fix turns it into an unexpected pass.
-  it("re-renders its consumer when a non-viewed run completes an agent", { fails: true }, () => {
+  // FIX-521 (the fix ISS-673 placed in the shared producer): handleFrame bumps a
+  // state tick when a NON-viewed run's completedCount changes, so the consumer
+  // re-renders; no other background frame does (FIX-224 flicker rule holds).
+  // Scope: this covers a background run whose pipeline_start reached THIS store
+  // instance. The page-remount case — QA-PS-002's own repro, where a new store never
+  // sees pipeline_start — is ISS-679, pinned by useRunStateStore.remountLifetime.test.tsx.
+  // The `{ fails: true }` xfail marker was removed once FIX-521 made this pass.
+  it("re-renders its consumer when a non-viewed run completes an agent", () => {
     render(<Harness />);
 
     act(() => {

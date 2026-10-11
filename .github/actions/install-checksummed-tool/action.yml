@@ -3,9 +3,11 @@
 #
 # F-05 / F-08: replaces the duplicated "curl | sha256sum -c | tar/unzip |
 # sudo mv" blocks for gitleaks, trivy (installed separately in BOTH ci.yml's
-# security-scan job and deploy.yml's build job), tflint, and terraform. Each
+# `security` matrix leg `iac` and deploy.yml's build job), tflint, and terraform. Each
 # caller now supplies only the four facts that differ (url, checksum, archive
 # format, binary name) instead of repeating the ~10-line install recipe.
+# An archive that nests its binary one directory down (ShellCheck:
+# `shellcheck-vX.Y.Z/shellcheck`) names it with the optional `archive-member`.
 #
 # Why not a third-party action (e.g. aquasecurity/setup-trivy): CVE-2026-33634
 # (GHSA-69fq-xp46-6x23) — attackers force-pushed malicious commits onto
@@ -35,10 +37,19 @@ inputs:
     description: "'tar.gz' or 'zip'."
     required: true
   binary-name:
-    description: Name of the binary file inside the archive to extract and install.
+    description: >-
+      Name of the binary inside the archive. It is extracted and installed to
+      /usr/local/bin under this same name. There used to be an optional
+      `dest-name` input to rename it on install; no caller ever set it, so the
+      only thing it did was add a second name for the same file to reason about.
     required: true
-  dest-name:
-    description: Name to install the binary as under /usr/local/bin (defaults to binary-name).
+  archive-member:
+    description: >-
+      Path of the binary INSIDE the archive, for archives that nest it one
+      directory down (ShellCheck ships `shellcheck-vX.Y.Z/shellcheck`). Empty
+      means `binary-name` at the archive root, which is what gitleaks, trivy,
+      grype, tflint and actionlint use. It must be relative and contain no
+      `..` segment.
     required: false
     default: ""
 
@@ -54,25 +65,40 @@ runs:
         TOOL_SHA256: ${{ inputs.sha256 }}
         ARCHIVE_FORMAT: ${{ inputs.archive-format }}
         BINARY_NAME: ${{ inputs.binary-name }}
-        DEST_NAME: ${{ inputs.dest-name }}
+        ARCHIVE_MEMBER: ${{ inputs.archive-member }}
       run: |
         set -euo pipefail
 
-        dest="${DEST_NAME:-$BINARY_NAME}"
+        member="${ARCHIVE_MEMBER:-$BINARY_NAME}"
+        case "/${member}/" in
+          //*|*/../*)
+            echo "::error::archive-member must be a relative path with no '..' segment."
+            exit 1
+            ;;
+        esac
+
         workdir="$(mktemp -d)"
         archive="${workdir}/archive.${ARCHIVE_FORMAT}"
 
         echo "Downloading ${TOOL_NAME} ${TOOL_VERSION} from ${TOOL_URL}..."
-        curl -sSL -o "$archive" "$TOOL_URL"
+        # --fail: an HTTP 4xx/5xx exits non-zero instead of saving the error
+        # page as the "archive" (which then surfaced as a misleading checksum
+        # mismatch). --proto/--tlsv1.2 refuse a downgrade to plain HTTP or old
+        # TLS on redirect. --retry covers transient CDN resets only; the
+        # checksum below is still the integrity check.
+        curl --fail --silent --show-error --location \
+          --proto '=https' --tlsv1.2 \
+          --retry 3 --retry-delay 2 \
+          -o "$archive" "$TOOL_URL"
 
         echo "${TOOL_SHA256}  ${archive}" | sha256sum -c -
 
         case "$ARCHIVE_FORMAT" in
           tar.gz)
-            tar -xzf "$archive" -C "$workdir" "$BINARY_NAME"
+            tar -xzf "$archive" -C "$workdir" "$member"
             ;;
           zip)
-            unzip -q "$archive" -d "$workdir" "$BINARY_NAME"
+            unzip -q "$archive" -d "$workdir" "$member"
             ;;
           *)
             echo "::error::Unsupported archive-format '${ARCHIVE_FORMAT}' (expected tar.gz or zip)."
@@ -80,9 +106,9 @@ runs:
             ;;
         esac
 
-        sudo mv "${workdir}/${BINARY_NAME}" "/usr/local/bin/${dest}"
-        sudo chmod +x "/usr/local/bin/${dest}"
+        sudo mv "${workdir}/${member}" "/usr/local/bin/${BINARY_NAME}"
+        sudo chmod +x "/usr/local/bin/${BINARY_NAME}"
         rm -rf "$workdir"
 
-        echo "Installed ${TOOL_NAME} to /usr/local/bin/${dest}:"
-        "/usr/local/bin/${dest}" --version || "/usr/local/bin/${dest}" version
+        echo "Installed ${TOOL_NAME} to /usr/local/bin/${BINARY_NAME}:"
+        "/usr/local/bin/${BINARY_NAME}" --version || "/usr/local/bin/${BINARY_NAME}" version

@@ -156,7 +156,9 @@ def test_losing_requests_response_reports_its_own_value(engine, seeded_user_id):
     session_a.close()
     session_b.close()
 
-    assert response_b_holder["response"].github_username == "user-b-login"  # B's own response is correct
+    assert (
+        response_b_holder["response"].github_username == "user-b-login"
+    )  # B's own response is correct
 
     assert response_a.github_username == "user-a-login", (
         f"request A submitted a PAT that validates as 'user-a-login' but its "

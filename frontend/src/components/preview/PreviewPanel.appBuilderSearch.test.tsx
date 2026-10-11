@@ -56,7 +56,7 @@ const markdown = [
 ].join("\n");
 
 describe("PreviewPanel — app_builder embedded Preview tab search (ISS-500)", () => {
-  it.fails("ISS-500 — a folder with zero matching descendants is hidden by an active search in the embedded IDE tab, same as ISS-332", async () => {
+  it("ISS-500 — a folder with zero matching descendants is hidden by an active search in the embedded IDE tab, same as ISS-332", async () => {
     const user = userEvent.setup();
     render(<PreviewPanel workflowType="app_builder" userStoryContent={markdown} />);
 

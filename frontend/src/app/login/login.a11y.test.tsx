@@ -11,7 +11,7 @@
  * + motion/react stubs) so the page renders in jsdom with no live transport.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 
 const { pushMock, mockSearchParams } = vi.hoisted(() => ({

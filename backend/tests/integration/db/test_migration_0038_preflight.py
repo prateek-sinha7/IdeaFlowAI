@@ -90,7 +90,9 @@ def _insert_user_at_0037(
 
 
 class TestPreflightAbortsOnDirtyData:
-    def test_a_null_cognito_sub_row_aborts_the_migration(self, fresh_db_url: str) -> None:
+    def test_a_null_cognito_sub_row_aborts_the_migration(
+        self, fresh_db_url: str
+    ) -> None:
         cfg = _make_config(fresh_db_url)
         command.upgrade(cfg, "0037")
         bad_id = _insert_user_at_0037(
@@ -114,7 +116,9 @@ class TestPreflightAbortsOnDirtyData:
         engine.dispose()
         assert current == "0037"
 
-    def test_a_duplicated_cognito_sub_aborts_the_migration(self, fresh_db_url: str) -> None:
+    def test_a_duplicated_cognito_sub_aborts_the_migration(
+        self, fresh_db_url: str
+    ) -> None:
         """``uq_users_cognito_sub`` (migration 0031) already blocks a true
         SQL-level duplicate on any normal insert path in THIS database --
         proven unable to seed the scenario through a real ``alembic upgrade``
@@ -183,7 +187,9 @@ class TestPreflightAbortsOnDirtyData:
         asserting both appear in the single raised message."""
         cfg = _make_config(fresh_db_url)
         command.upgrade(cfg, "0037")
-        _insert_user_at_0037(fresh_db_url, email="unlinked@example.com", cognito_sub=None)
+        _insert_user_at_0037(
+            fresh_db_url, email="unlinked@example.com", cognito_sub=None
+        )
         _insert_user_at_0037(
             fresh_db_url,
             email="local-admin@example.com",

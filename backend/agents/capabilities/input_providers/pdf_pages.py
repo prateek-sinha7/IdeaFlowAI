@@ -83,8 +83,6 @@ class PdfPagesProvider:
         blocks = []
 
         try:
-            import json
-
             # Every document under .extract/{format}/{slug}/, in a STABLE order.
             # iterdir() yields filesystem order, so anything that picked "the
             # first" depended on inode layout — a run with two materialised
@@ -127,9 +125,11 @@ class PdfPagesProvider:
         """
         import json
 
-        blocks: list = []
+        page_images: list = []
         try:
-            manifest_data = json.loads((slug_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest_data = json.loads(
+                (slug_dir / "manifest.json").read_text(encoding="utf-8")
+            )
         except (json.JSONDecodeError, OSError, IOError):
             return []
 
@@ -184,7 +184,9 @@ class PdfPagesProvider:
                                 continue
                         else:
                             # Image is within byte ceiling, but check pixel ceiling
-                            image_bytes = self._validate_pixel_ceiling(image_bytes, _IMAGE_MAX_PIXELS)
+                            image_bytes = self._validate_pixel_ceiling(
+                                image_bytes, _IMAGE_MAX_PIXELS
+                            )
                             if image_bytes is None:
                                 logger.warning(
                                     "Skipping %s: exceeds pixel ceiling",
@@ -199,7 +201,7 @@ class PdfPagesProvider:
                         mime_type = "image/png"
 
                         # Add content block
-                        blocks.append(
+                        page_images.append(
                             {
                                 "type": "image",
                                 "source_type": "base64",
@@ -221,7 +223,7 @@ class PdfPagesProvider:
             # Any error reading directories or manifest -> degrade to []
             return []
 
-        return blocks
+        return page_images
 
     @staticmethod
     def _validate_pixel_ceiling(image_bytes: bytes, max_pixels: int) -> bytes | None:

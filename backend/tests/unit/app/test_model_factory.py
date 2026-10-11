@@ -14,14 +14,19 @@ All chat-model constructors are mocked — zero network calls, zero real credent
 
 from __future__ import annotations
 
+import base64 as _b64
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
 
 from app.agents.model_factory import (
+    BedrockTokenDecodeError,
     ModelConfigurationError,
     build_model,
+    decode_bedrock_bearer_token_expiry,
     model_identifier,
+    preflight_check_provider,
 )
 from app.core.config import settings
 
@@ -309,15 +314,6 @@ def test_model_identifier_unknown_shape() -> None:
 # A4 (STABILIZATION.md) — Bedrock bearer-token expiry decode + launch preflight
 # ---------------------------------------------------------------------------
 
-import base64 as _b64
-from datetime import datetime, timedelta, timezone
-
-from app.agents.model_factory import (
-    BedrockTokenDecodeError,
-    decode_bedrock_bearer_token_expiry,
-    preflight_check_provider,
-)
-
 
 def _make_bearer_token(issued_at: "datetime", expires_seconds: int) -> str:
     """Build a syntactically-real ``bedrock-api-key-`` token around a KNOWN,
@@ -383,7 +379,9 @@ class TestPreflightCheckProvider:
         assert ok is True
         assert message is None
 
-    def test_valid_unexpired_token_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_valid_unexpired_token_passes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         issued = datetime.now(timezone.utc) - timedelta(minutes=5)
         monkeypatch.setattr(
             settings, "AWS_BEARER_TOKEN_BEDROCK", _make_bearer_token(issued, 3600)
@@ -409,7 +407,9 @@ class TestPreflightCheckProvider:
         assert "AWS_BEARER_TOKEN_BEDROCK" in message
         assert "restart the backend" in message
 
-    def test_token_within_skew_window_rejects(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_token_within_skew_window_rejects(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A token with 10s of nominal life left is treated as already-expired
         (60s skew) — a run that takes even a few seconds to actually start
         would otherwise launch on a token that's dead before the first call."""
@@ -428,7 +428,9 @@ class TestPreflightCheckProvider:
         """An unrecognized token shape degrades to "don't block" rather than
         failing every launch on a decode gap this function didn't anticipate."""
         monkeypatch.setattr(
-            settings, "AWS_BEARER_TOKEN_BEDROCK", "bedrock-api-key-not-a-real-payload-shape"
+            settings,
+            "AWS_BEARER_TOKEN_BEDROCK",
+            "bedrock-api-key-not-a-real-payload-shape",
         )
 
         ok, message = preflight_check_provider()
@@ -451,7 +453,9 @@ HAIKU_45 = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 SONNET_5 = "us.anthropic.claude-sonnet-5"
 
 
-def _bedrock_fields(monkeypatch: pytest.MonkeyPatch, model: str, **kwargs) -> dict | None:
+def _bedrock_fields(
+    monkeypatch: pytest.MonkeyPatch, model: str, **kwargs
+) -> dict | None:
     """Build on the Bedrock tier and return additional_model_request_fields."""
     mock_cls = _mock_chat_bedrock(monkeypatch)
     monkeypatch.setattr(settings, "BEDROCK_MODEL_ID", model)
@@ -459,24 +463,32 @@ def _bedrock_fields(monkeypatch: pytest.MonkeyPatch, model: str, **kwargs) -> di
     return mock_cls.call_args.kwargs.get("additional_model_request_fields")
 
 
-def test_sc02_gpt_effort_becomes_nested_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sc02_gpt_effort_becomes_nested_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """SC-02 — Sol + High produces exactly {"reasoning": {"effort": "high"}}.
 
     The nesting is not cosmetic: verified live against bedrock-runtime in
     eu-north-1 (spec §12), a FLAT ``reasoning_effort`` is rejected with
     ValidationException: unknown_parameter.
     """
-    assert _bedrock_fields(monkeypatch, SOL, effort="high") == {"reasoning": {"effort": "high"}}
+    assert _bedrock_fields(monkeypatch, SOL, effort="high") == {
+        "reasoning": {"effort": "high"}
+    }
 
 
 @pytest.mark.parametrize("level", ["none", "low", "medium", "high", "xhigh", "max"])
-def test_sc02_every_gpt_level_round_trips(monkeypatch: pytest.MonkeyPatch, level: str) -> None:
+def test_sc02_every_gpt_level_round_trips(
+    monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
     """All six levels the catalog advertises for GPT reach the payload verbatim.
 
     Bedrock accepts exactly this set and rejects anything else (spec §12), so a
     level silently dropped here is a 400 at run time, not a degraded request.
     """
-    assert _bedrock_fields(monkeypatch, LUNA, effort=level) == {"reasoning": {"effort": level}}
+    assert _bedrock_fields(monkeypatch, LUNA, effort=level) == {
+        "reasoning": {"effort": level}
+    }
 
 
 def test_sc03_claude_never_sends_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -486,7 +498,9 @@ def test_sc03_claude_never_sends_reasoning(monkeypatch: pytest.MonkeyPatch) -> N
     assert fields == {"thinking": {"type": "enabled", "budget_tokens": 32767}}
 
 
-def test_sc03_claude_effort_none_disables_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sc03_claude_effort_none_disables_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Effort=None on a Claude model is the UI's "off" — it must actively
     disable thinking, not merely omit the field (adaptive models default ON)."""
     assert _bedrock_fields(monkeypatch, SONNET_5, effort="none") == {
@@ -506,7 +520,9 @@ def test_sc03_gpt_level_on_claude_is_dropped_not_forwarded(
     assert "is not offered by" in caplog.text and "xhigh" in caplog.text
 
 
-def test_sc04_reasoning_mode_none_sends_no_field(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sc04_reasoning_mode_none_sends_no_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """SC-04 — a model with reasoning mode "none" sends no field at ANY effort.
 
     Haiku 3.5 was the only catalog model in this mode and was removed on
@@ -542,14 +558,18 @@ _PRE_CHANGE_FIELDS: dict[str, dict | None] = {
     "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": {
         "thinking": {"type": "enabled", "budget_tokens": 32767}
     },
-    "eu.anthropic.claude-sonnet-4-6": {"thinking": {"type": "enabled", "budget_tokens": 32767}},
+    "eu.anthropic.claude-sonnet-4-6": {
+        "thinking": {"type": "enabled", "budget_tokens": 32767}
+    },
     "eu.anthropic.claude-sonnet-4-20250514-v1:0": {
         "thinking": {"type": "enabled", "budget_tokens": 32767}
     },
     "eu.anthropic.claude-opus-4-5-20251101-v1:0": {
         "thinking": {"type": "enabled", "budget_tokens": 32767}
     },
-    "eu.anthropic.claude-opus-4-6-v1": {"thinking": {"type": "enabled", "budget_tokens": 32767}},
+    "eu.anthropic.claude-opus-4-6-v1": {
+        "thinking": {"type": "enabled", "budget_tokens": 32767}
+    },
     SONNET_5: {"thinking": {"type": "adaptive"}},
     "eu.anthropic.claude-sonnet-5": {"thinking": {"type": "adaptive"}},
 }
@@ -577,18 +597,22 @@ def test_sc05_every_catalog_model_is_byte_identical_without_an_effort(
     for entry in ModelCatalog().list():
         actual = _bedrock_fields(monkeypatch, entry.id)  # no effort — today's path
         if entry.id in _PARITY_EXCEPTIONS:
-            assert actual is None, (
-                f"{entry.id}: {_PARITY_EXCEPTIONS[entry.id]} — expected no fields, got {actual}"
-            )
+            assert (
+                actual is None
+            ), f"{entry.id}: {_PARITY_EXCEPTIONS[entry.id]} — expected no fields, got {actual}"
         else:
             assert entry.id in _PRE_CHANGE_FIELDS, (
                 f"{entry.id} is new to the catalog but has no recorded pre-change payload and no "
                 f"entry in _PARITY_EXCEPTIONS. Record one or the other — an unlisted model is an "
                 f"unverified parity claim."
             )
-            assert actual == _PRE_CHANGE_FIELDS[entry.id], f"parity broken for {entry.id}"
+            assert (
+                actual == _PRE_CHANGE_FIELDS[entry.id]
+            ), f"parity broken for {entry.id}"
         checked += 1
-    assert checked == 11, f"catalog changed size ({checked}); re-record the parity fixture"
+    assert (
+        checked == 11
+    ), f"catalog changed size ({checked}); re-record the parity fixture"
 
 
 def test_sc05_disable_thinking_parity_holds_for_adaptive_models(
@@ -614,13 +638,17 @@ def test_sc08_gpt_fallback_rebuilt_on_claude_sends_thinking(
     `reasoning.effort` on Sol must become a `thinking` block on Haiku — the
     mapping is keyed on the model, not on what the step asked for.
     """
-    assert _bedrock_fields(monkeypatch, SOL, effort="high") == {"reasoning": {"effort": "high"}}
+    assert _bedrock_fields(monkeypatch, SOL, effort="high") == {
+        "reasoning": {"effort": "high"}
+    }
     assert _bedrock_fields(monkeypatch, HAIKU_45, effort="high") == {
         "thinking": {"type": "enabled", "budget_tokens": 32767}
     }
 
 
-def test_temperature_pinned_only_when_thinking_is_on(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_temperature_pinned_only_when_thinking_is_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Bedrock requires temperature=1 when extended thinking is on, and GPT's
     reasoning.effort is NOT extended thinking — pinning temperature there would
     silently change sampling for every GPT run."""

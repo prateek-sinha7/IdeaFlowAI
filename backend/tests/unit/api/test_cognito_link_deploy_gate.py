@@ -129,9 +129,7 @@ class TestLinkWritesBothColumns:
         self, script, monkeypatch
     ):
         statements: list[str] = []
-        monkeypatch.setattr(
-            script, "engine", _capturing_engine(statements)
-        )
+        monkeypatch.setattr(script, "engine", _capturing_engine(statements))
 
         script._write_link("row-id", "sub-value", {"cognito_sub", "auth_provider"})
 
@@ -144,9 +142,7 @@ class TestLinkWritesBothColumns:
     ):
         """Post-0038 the column is gone; naming it would raise."""
         statements: list[str] = []
-        monkeypatch.setattr(
-            script, "engine", _capturing_engine(statements)
-        )
+        monkeypatch.setattr(script, "engine", _capturing_engine(statements))
 
         script._write_link("row-id", "sub-value", {"cognito_sub"})
 

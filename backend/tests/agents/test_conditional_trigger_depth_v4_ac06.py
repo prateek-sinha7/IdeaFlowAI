@@ -72,6 +72,7 @@ def env(monkeypatch):
 
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
     import app.api.run_commands as rc_module
+
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _StubEngine())
 
@@ -92,12 +93,17 @@ async def test_six_level_chain_fails_closed_on_sixth_hop_AC06(env):
     WORKSPACE = "v4-chain-ws"
 
     session = env["Session"]()
-    session.add(User(id=OWNER, email="v4chain@example.com", password_hash="x"))
+    session.add(User(id=OWNER, email="v4chain@example.com", cognito_sub=f"sub-{OWNER}"))
     root_run_id = "run-chain-root"
     session.add(
         WorkflowRun(
-            id=root_run_id, user_id=OWNER, owner_id=OWNER, workspace_id=WORKSPACE,
-            type="user_stories", status="running", input="go",
+            id=root_run_id,
+            user_id=OWNER,
+            owner_id=OWNER,
+            workspace_id=WORKSPACE,
+            type="user_stories",
+            status="running",
+            input="go",
         )
     )
     session.commit()
@@ -114,8 +120,12 @@ async def test_six_level_chain_fails_closed_on_sixth_hop_AC06(env):
     current_run_id = root_run_id
     for hop in range(1, 6):
         calling_depth = hop - 1  # hop 1 called with depth 0, hop 5 called with depth 4
-        ectx = _TriggerEctx(current_run_id, OWNER, WORKSPACE, trigger_depth=calling_depth)
-        new_run_id, resolved = await ks.run_trigger_workflow(None, ectx, workflow_ref="self")
+        ectx = _TriggerEctx(
+            current_run_id, OWNER, WORKSPACE, trigger_depth=calling_depth
+        )
+        new_run_id, resolved = await ks.run_trigger_workflow(
+            None, ectx, workflow_ref="self"
+        )
         assert resolved == "user_stories"
 
         task = rc._PIPELINE_TASKS.get(new_run_id)
@@ -124,7 +134,9 @@ async def test_six_level_chain_fails_closed_on_sixth_hop_AC06(env):
 
         verify = env["Session"]()
         row = verify.query(WorkflowRun).filter(WorkflowRun.id == new_run_id).first()
-        assert row is not None, f"hop {hop} (calling depth={calling_depth}) failed to mint"
+        assert (
+            row is not None
+        ), f"hop {hop} (calling depth={calling_depth}) failed to mint"
         assert row.parent_run_id == current_run_id
         verify.close()
 

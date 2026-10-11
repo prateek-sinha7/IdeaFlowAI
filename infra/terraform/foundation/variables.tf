@@ -106,13 +106,13 @@ variable "log_retention_days" {
 # --- Bedrock / LLM ----------------------------------------------------------
 
 variable "bedrock_model_id" {
-  description = "Bedrock foundation-model ID VelocityAI invokes. Must start with `anthropic.`, `eu.anthropic.`, or `us.anthropic.` to match the IAM Bedrock scope."
+  description = "Bedrock foundation-model ID VelocityAI invokes by default. Must be an `anthropic.`/`openai.` model ID, optionally geography-prefixed, to match the IAM Bedrock scope."
   type        = string
   default     = "anthropic.claude-haiku-4-5-20251001-v1:0"
 
   validation {
-    condition     = startswith(var.bedrock_model_id, "anthropic.") || startswith(var.bedrock_model_id, "eu.anthropic.") || startswith(var.bedrock_model_id, "us.anthropic.")
-    error_message = "bedrock_model_id must start with `anthropic.`, `eu.anthropic.`, or `us.anthropic.`."
+    condition     = can(regex("^((eu|us|apac|global)\\.)?(anthropic|openai)\\.", var.bedrock_model_id))
+    error_message = "bedrock_model_id must be an `anthropic.` or `openai.` model ID, optionally prefixed with a geography (eu./us./apac./global.)."
   }
 }
 
@@ -120,6 +120,57 @@ variable "bedrock_inference_profile_id" {
   description = "Cross-region inference profile ID, used in IAM and as the active model_id when traffic must span regions."
   type        = string
   default     = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+}
+
+variable "bedrock_allowed_inference_profile_ids" {
+  description = <<-EOT
+    Every Bedrock inference profile the EC2 instance role may invoke. The
+    application can select any model in `backend/agents/capabilities/model_catalog.py`
+    at run time, so each one needs to be in this grant — a catalogued model that
+    is missing here fails mid-run with AccessDeniedException, not at deploy time.
+
+    Profile IDs only; the foundation-model ARNs are derived in the iam module by
+    stripping the geography prefix.
+
+    DATA RESIDENCY: `eu.*` (Anthropic) profiles keep inference inside the EU.
+    OpenAI GPT models publish no EU geographic profile — only `us.*` (not
+    callable from an EU source region) and `global.*`, which routes to any
+    commercial region where the model is deployed. The `global.openai.*` entries
+    below therefore mean GPT prompts and completions may be processed outside
+    the EU. Remove them to keep all inference EU-resident.
+    https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html
+  EOT
+  type        = list(string)
+  default = [
+    # Anthropic — EU geographic profiles (EU-resident inference).
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "eu.anthropic.claude-sonnet-4-6",
+    "eu.anthropic.claude-sonnet-4-20250514-v1:0",
+    "eu.anthropic.claude-opus-4-5-20251101-v1:0",
+    "eu.anthropic.claude-opus-4-6-v1",
+    # OpenAI — global profiles (see DATA RESIDENCY above). eu-central-1 is a
+    # valid SOURCE region for these; `us.openai.*` is not, so it is deliberately
+    # absent.
+    "global.openai.gpt-6-sol",
+    "global.openai.gpt-6-luna",
+    "global.openai.gpt-5.6-sol",
+    "global.openai.gpt-5.6-terra",
+    "global.openai.gpt-5.6-luna",
+  ]
+
+  validation {
+    condition = alltrue([
+      for id in var.bedrock_allowed_inference_profile_ids :
+      can(regex("^(eu|us|apac|global)\\.[A-Za-z0-9][A-Za-z0-9.:_-]*$", id))
+    ])
+    error_message = "Each entry must be a geography-prefixed inference-profile ID (eu./us./apac./global.), e.g. global.openai.gpt-6-sol."
+  }
+
+  validation {
+    condition     = contains(var.bedrock_allowed_inference_profile_ids, var.bedrock_inference_profile_id)
+    error_message = "bedrock_allowed_inference_profile_ids must contain bedrock_inference_profile_id — the app's active profile has to be inside the IAM grant."
+  }
 }
 
 variable "use_inference_profile_for_app" {

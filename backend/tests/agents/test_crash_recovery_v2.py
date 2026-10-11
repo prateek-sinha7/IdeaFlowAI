@@ -40,6 +40,7 @@ from agents.execution_engine.fanout import (
 # LocalWorkspace factory (uses LocalSandboxRuntime.create_workspace)
 # ---------------------------------------------------------------------------
 
+
 def _make_runtime():
     discover()
     return CapabilityRegistry().resolve("runtime_env", "local")
@@ -48,6 +49,7 @@ def _make_runtime():
 def _make_local_workspace(tmp_path: Path):
     """Construct a LocalWorkspace via the runtime so the init signature is satisfied."""
     import app.core.config as config_module
+
     config_module.settings.RUNS_ROOT = str(tmp_path / "runs")
     runtime = _make_runtime()
     return runtime.create_workspace(
@@ -62,9 +64,19 @@ def _init_real_git_repo(tmp_path: Path) -> Path:
 
     def _g(*args):
         subprocess.check_call(
-            ["git", "-c", "user.name=Test", "-c", "user.email=t@t.com",
-             "-c", "commit.gpgsign=false", *args],
-            cwd=str(root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=t@t.com",
+                "-c",
+                "commit.gpgsign=false",
+                *args,
+            ],
+            cwd=str(root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
     _g("init")
@@ -85,10 +97,13 @@ def _get_ws_at_root(root: Path):
     as unbound class methods by patching _root directly onto a minimal object.
     """
     from app.agents.runtime.local import LocalWorkspace
+
     # Build a minimal shim that ONLY has _root set; the detect/reconcile methods only
     # access self._root, so this is sufficient.
     obj = object.__new__(LocalWorkspace)
-    object.__setattr__(obj, "_LocalWorkspace__root_override", root)  # can't set _root directly
+    object.__setattr__(
+        obj, "_LocalWorkspace__root_override", root
+    )  # can't set _root directly
     # Patch via __dict__ since the class uses normal attribute access.
     obj.__dict__["_root"] = root  # type: ignore[attr-defined]
     return obj
@@ -98,6 +113,7 @@ def _get_ws_at_root(root: Path):
 # Helpers to build a real git sandbox
 # ---------------------------------------------------------------------------
 
+
 def _make_git_sandbox(tmp_path: Path) -> Path:
     """Init a git repo in *tmp_path/sandbox* with an initial commit."""
     return _init_real_git_repo(tmp_path)
@@ -106,6 +122,7 @@ def _make_git_sandbox(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # 1. detect_persistent_git_state — every state
 # ---------------------------------------------------------------------------
+
 
 class TestDetectPersistentGitState:
     """detect_persistent_git_state covers every well-known state file."""
@@ -188,6 +205,7 @@ class TestDetectPersistentGitState:
 # 2. reconcile_persistent_git_state — outcomes and never-raises guarantee
 # ---------------------------------------------------------------------------
 
+
 class TestReconcilePersistentGitState:
     """reconcile_persistent_git_state returns the correct outcome and never raises."""
 
@@ -210,11 +228,20 @@ class TestReconcilePersistentGitState:
         """The BLE001 contract: never raises regardless of git outcome."""
         root = _make_git_sandbox(tmp_path)
         ws = _get_ws_at_root(root)
-        for state_label in ("merge", "cherry_pick", "revert", "bisect", "squash",
-                            "clean", "garbage", "squash"):
+        for state_label in (
+            "merge",
+            "cherry_pick",
+            "revert",
+            "bisect",
+            "squash",
+            "clean",
+            "garbage",
+            "squash",
+        ):
             result = ws.reconcile_persistent_git_state({"state": state_label})
-            assert isinstance(result, str), \
-                f"reconcile must return str (never raise) for state={state_label!r}"
+            assert isinstance(
+                result, str
+            ), f"reconcile must return str (never raise) for state={state_label!r}"
 
     def test_stale_merge_head_file_reconciled_without_raise(self, tmp_path):
         """A stale MERGE_HEAD (no real merge in progress) returns a str or reconcile_failed."""
@@ -233,6 +260,7 @@ class TestReconcilePersistentGitState:
 # 3. Git command failure raises (Req 10 AC 6-7)
 # ---------------------------------------------------------------------------
 
+
 class TestGitCommandFailureRaises:
     """A git command failure raises rather than appearing as a clean tree."""
 
@@ -245,7 +273,9 @@ class TestGitCommandFailureRaises:
         result = ws.detect_persistent_git_state()
         assert result["state"] == "clean"
 
-    def test_reconcile_git_failure_returns_reconcile_failed_not_exception(self, tmp_path):
+    def test_reconcile_git_failure_returns_reconcile_failed_not_exception(
+        self, tmp_path
+    ):
         """When git subprocess fails during reconcile, returns 'reconcile_failed' (BLE001)."""
         root = tmp_path / "not_a_repo"
         root.mkdir()
@@ -269,6 +299,7 @@ class TestGitCommandFailureRaises:
 # 4. Staged, unstaged, and untracked content survive reconciliation
 # ---------------------------------------------------------------------------
 
+
 class TestContentSurvivesReconciliation:
     """Staged, unstaged, and untracked files are still present after reconcile."""
 
@@ -280,7 +311,9 @@ class TestContentSurvivesReconciliation:
         staged_file.write_text("staged content", encoding="utf-8")
         subprocess.check_call(
             ["git", "-c", "commit.gpgsign=false", "add", "staged.txt"],
-            cwd=str(root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            cwd=str(root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
         ws = _get_ws_at_root(root)
@@ -314,7 +347,9 @@ class TestContentSurvivesReconciliation:
         readme.write_text("unstaged change", encoding="utf-8")
 
         # Plant a stale BISECT_LOG.
-        (root / ".git" / "BISECT_LOG").write_text("# git bisect start\n", encoding="utf-8")
+        (root / ".git" / "BISECT_LOG").write_text(
+            "# git bisect start\n", encoding="utf-8"
+        )
 
         ws = _get_ws_at_root(root)
         state = ws.detect_persistent_git_state()
@@ -328,6 +363,7 @@ class TestContentSurvivesReconciliation:
 # ---------------------------------------------------------------------------
 # 5. Fan-out policy matrix helpers
 # ---------------------------------------------------------------------------
+
 
 class _FakeChildSandbox:
     def __init__(self, root):
@@ -360,8 +396,15 @@ class _FakeBaseWorkspace:
 class _MergeRunner:
     """Fake ctx.runner exposing the merge dispatch surface."""
 
-    def __init__(self, base_workspace, *, worker_files, hitl_events=None,
-                 merge_agent_resolves=None, artifact_write_fails=False):
+    def __init__(
+        self,
+        base_workspace,
+        *,
+        worker_files,
+        hitl_events=None,
+        merge_agent_resolves=None,
+        artifact_write_fails=False,
+    ):
         self.run_id = "run-cr"
         self.allowed_workers = []
         self.workspace = base_workspace
@@ -380,9 +423,19 @@ class _MergeRunner:
     def agent_exists(self, agent_id):
         return True
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation,
-                                   status, tokens=None, cost=None, worker_index=None,
-                                   task_id=None):
+    async def record_subagent_run(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         self._row_seq += 1
         return f"row-{self._row_seq}"
 
@@ -403,32 +456,61 @@ class _MergeRunner:
     async def reclaim_isolated_workspace(self, base_workspace, worker_ws):
         return None
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input,
-                         workspace=None, **kw):
+    async def run_worker(
+        self,
+        step,
+        ctx,
+        *,
+        worker_index,
+        thread_id,
+        agent_id,
+        input,
+        workspace=None,
+        **kw,
+    ):
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}
 
     def resolve_merge_strategy(self, name):
         discover()
         return CapabilityRegistry().resolve("merge", name)
 
-    async def write_fragment_artifact(self, *, producer_step, worker_agent, worker_index,
-                                       content, location, kind="file_bundle"):
+    async def write_fragment_artifact(
+        self,
+        *,
+        producer_step,
+        worker_agent,
+        worker_index,
+        content,
+        location,
+        kind="file_bundle",
+    ):
         ref_id = f"frag-{worker_index}"
         self.fragment_artifacts.append(
-            dict(id=ref_id, step=producer_step, worker=worker_index,
-                 location=location, content=content))
+            dict(
+                id=ref_id,
+                step=producer_step,
+                worker=worker_index,
+                location=location,
+                content=content,
+            )
+        )
         return ref_id
 
-    async def write_merge_conflict_artifact(self, *, producer_step, conflicts, payload=None):
+    async def write_merge_conflict_artifact(
+        self, *, producer_step, conflicts, payload=None
+    ):
         if self._artifact_write_fails:
             raise RuntimeError("artifact store unavailable")
         ref_id = f"conflict-{len(self.conflict_artifacts)}"
         self.conflict_artifacts.append(
-            dict(id=ref_id, step=producer_step, conflicts=conflicts, payload=payload))
+            dict(id=ref_id, step=producer_step, conflicts=conflicts, payload=payload)
+        )
         return ref_id
 
     async def run_human_gate(self, step, *, output="", payload=None):
-        self.hitl_calls.append({"step": getattr(step, "agent_id", None), "payload": payload})
+        self.hitl_calls.append(
+            {"step": getattr(step, "agent_id", None), "payload": payload}
+        )
         for ev in self._hitl_events:
             yield ev
 
@@ -437,7 +519,11 @@ class _MergeRunner:
         if self._merge_agent_resolves is None:
             return False
         idx = attempt - 1
-        return self._merge_agent_resolves[idx] if idx < len(self._merge_agent_resolves) else False
+        return (
+            self._merge_agent_resolves[idx]
+            if idx < len(self._merge_agent_resolves)
+            else False
+        )
 
     async def update_wave_run_merge_state(self, state: FanoutMergeState) -> None:
         self.durable_merge_states.append(state)
@@ -445,14 +531,24 @@ class _MergeRunner:
 
 def _make_ctx(runner):
     from agents.execution_engine.budget import BudgetManager
+
     return SimpleNamespace(runner=runner, depth=0, budget=BudgetManager())
 
 
-def _make_step(agent_id="worker-a", *, on_conflict="human_gate",
-               merge_agent=None, mode="sequential"):
+def _make_step(
+    agent_id="worker-a",
+    *,
+    on_conflict="human_gate",
+    merge_agent=None,
+    mode="sequential",
+):
     fanout = SimpleNamespace(
-        mode=mode, max_parallel=2, agent="self", count=None,
-        workers=[], merge_agent=merge_agent,
+        mode=mode,
+        max_parallel=2,
+        agent="self",
+        count=None,
+        workers=[],
+        merge_agent=merge_agent,
     )
     return SimpleNamespace(agent_id=agent_id, fanout=fanout, on_conflict=on_conflict)
 
@@ -468,6 +564,7 @@ async def _collect(gen):
 # conflicted" path.
 # ---------------------------------------------------------------------------
 
+
 class TestConflictedMergePolicies:
     """Conflicted merge via copy_disjoint (has_git=False) — all four on_conflict policies."""
 
@@ -479,10 +576,16 @@ class TestConflictedMergePolicies:
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="abort")
         with pytest.raises(FanoutError) as exc_info:
-            await _collect(run_fanout(
-                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-                ctx, step=step,
-            ))
+            await _collect(
+                run_fanout(
+                    [
+                        {"agent": "self", "input": "t0"},
+                        {"agent": "self", "input": "t1"},
+                    ],
+                    ctx,
+                    step=step,
+                )
+            )
         assert "abort" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -492,10 +595,13 @@ class TestConflictedMergePolicies:
         runner = _MergeRunner(base, worker_files={0: {"x.txt": "A"}, 1: {"x.txt": "B"}})
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="partial")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         partial_evs = [e for e in events if e["type"] == "merge_partial"]
         assert len(partial_evs) >= 1
         ev = partial_evs[0]
@@ -516,13 +622,17 @@ class TestConflictedMergePolicies:
         )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="merge_agent", merge_agent="merge-worker")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         # Exactly 2 attempts (MERGE_AGENT_MAX_ATTEMPTS = 2), no more.
-        assert len(runner.merge_agent_calls) == 2, \
-            "Resolver must not oscillate past MERGE_AGENT_MAX_ATTEMPTS"
+        assert (
+            len(runner.merge_agent_calls) == 2
+        ), "Resolver must not oscillate past MERGE_AGENT_MAX_ATTEMPTS"
         assert [c["attempt"] for c in runner.merge_agent_calls] == [1, 2]
         # After exhaustion, falls through to the ONE human_gate.
         assert len(runner.hitl_calls) == 1
@@ -538,14 +648,23 @@ class TestConflictedMergePolicies:
         )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="merge_agent", merge_agent="merge-worker")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         assert len(runner.merge_agent_calls) == 1
-        assert runner.hitl_calls == [], "Successful merge_agent must not fall back to human_gate"
-        completed_evs = [e for e in events if e["type"] == "merge_completed"
-                         and e["data"].get("resolved_by") == "merge_agent"]
+        assert (
+            runner.hitl_calls == []
+        ), "Successful merge_agent must not fall back to human_gate"
+        completed_evs = [
+            e
+            for e in events
+            if e["type"] == "merge_completed"
+            and e["data"].get("resolved_by") == "merge_agent"
+        ]
         assert len(completed_evs) == 1
 
     @pytest.mark.asyncio
@@ -559,10 +678,13 @@ class TestConflictedMergePolicies:
         )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="human_gate")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         assert len(runner.hitl_calls) >= 1
         assert any(e["type"] == "review_gate_ready" for e in events)
 
@@ -571,6 +693,7 @@ class TestConflictedMergePolicies:
 # 7. Prior successful fragment commits stay intact (cross-policy invariant)
 # ---------------------------------------------------------------------------
 
+
 class TestPriorCommitsIntact:
     """Req 12 AC 5: under every policy, prior successful fragment commits are kept."""
 
@@ -578,16 +701,22 @@ class TestPriorCommitsIntact:
     async def test_partial_disjoint_fragment_survives_conflict(self):
         """w0 (unique file) applies; w1 conflicts on the same file — w0's output intact."""
         base = _FakeBaseWorkspace()
-        runner = _MergeRunner(base, worker_files={
-            0: {"unique_w0.txt": "W0"},         # unique → no conflict
-            1: {"unique_w0.txt": "W1_CONFLICT"}, # same path → conflict
-        })
+        runner = _MergeRunner(
+            base,
+            worker_files={
+                0: {"unique_w0.txt": "W0"},  # unique → no conflict
+                1: {"unique_w0.txt": "W1_CONFLICT"},  # same path → conflict
+            },
+        )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="partial")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         partial_evs = [e for e in events if e["type"] == "merge_partial"]
         assert len(partial_evs) >= 1
         # x was applied (no conflict on unique_w0.txt for w0); conflict is for w1.
@@ -604,10 +733,16 @@ class TestPriorCommitsIntact:
         step = _make_step(on_conflict="abort")
         events = []
         try:
-            events = await _collect(run_fanout(
-                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-                ctx, step=step,
-            ))
+            events = await _collect(
+                run_fanout(
+                    [
+                        {"agent": "self", "input": "t0"},
+                        {"agent": "self", "input": "t1"},
+                    ],
+                    ctx,
+                    step=step,
+                )
+            )
         except FanoutError:
             pass
         # Abort does NOT fabricate a merge_completed event.
@@ -617,6 +752,7 @@ class TestPriorCommitsIntact:
 # ---------------------------------------------------------------------------
 # 8. Partial: retained_state explicitly asserted
 # ---------------------------------------------------------------------------
+
 
 class TestPartialRetainedState:
     """FanoutMergeState.retained_state is the applied set, not implied."""
@@ -630,24 +766,31 @@ class TestPartialRetainedState:
         runner = _MergeRunner(base, worker_files={0: {"x.txt": "A"}, 1: {"x.txt": "B"}})
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="partial")
-        await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         # Drain any fire-and-forget asyncio tasks.
         await asyncio.sleep(0)
-        partial_states = [s for s in runner.durable_merge_states
-                         if s.merge_state == "partial"]
-        assert len(partial_states) >= 1, \
-            "partial policy must persist at least one FanoutMergeState with merge_state='partial'"
+        partial_states = [
+            s for s in runner.durable_merge_states if s.merge_state == "partial"
+        ]
+        assert (
+            len(partial_states) >= 1
+        ), "partial policy must persist at least one FanoutMergeState with merge_state='partial'"
         for ps in partial_states:
-            assert isinstance(ps.retained_state, list), \
-                "retained_state must be a list (the applied set, Req 12 AC 5)"
+            assert isinstance(
+                ps.retained_state, list
+            ), "retained_state must be a list (the applied set, Req 12 AC 5)"
 
 
 # ---------------------------------------------------------------------------
 # 9. Resolver exhaustion without oscillation
 # ---------------------------------------------------------------------------
+
 
 class TestResolverExhaustionNoOscillation:
     """merge_agent exhausts at MERGE_AGENT_MAX_ATTEMPTS (=2), then human_gate. No more."""
@@ -663,12 +806,17 @@ class TestResolverExhaustionNoOscillation:
         )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="merge_agent", merge_agent="merge-worker")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         attempt_evs = [e for e in events if e["type"] == "merge_agent_attempt"]
-        assert len(attempt_evs) == 2, "Must attempt exactly 2 times (MERGE_AGENT_MAX_ATTEMPTS)"
+        assert (
+            len(attempt_evs) == 2
+        ), "Must attempt exactly 2 times (MERGE_AGENT_MAX_ATTEMPTS)"
         # No attempt number > 2.
         assert all(e["data"]["attempt"] <= 2 for e in attempt_evs)
         # Falls through to human_gate after exhaustion.
@@ -678,6 +826,7 @@ class TestResolverExhaustionNoOscillation:
 # ---------------------------------------------------------------------------
 # 10. Human-gate receives conflict payload (persistent decision)
 # ---------------------------------------------------------------------------
+
 
 class TestHumanGatePayload:
     """The HITL gate receives the conflict payload for durable decision recording."""
@@ -692,20 +841,25 @@ class TestHumanGatePayload:
         )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="human_gate")
-        await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         assert len(runner.hitl_calls) == 1
         gate_call = runner.hitl_calls[0]
         # payload carries the merge conflict context for durable persistence.
-        assert gate_call["payload"] is not None, \
-            "Human gate must receive the conflict payload for gate_events persistence"
+        assert (
+            gate_call["payload"] is not None
+        ), "Human gate must receive the conflict payload for gate_events persistence"
 
 
 # ---------------------------------------------------------------------------
 # 11. Artifact-persistence-failure branch
 # ---------------------------------------------------------------------------
+
 
 class TestArtifactPersistenceFailure:
     """write_merge_conflict_artifact failing → run still follows its policy."""
@@ -722,10 +876,13 @@ class TestArtifactPersistenceFailure:
         )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="human_gate")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         # Artifact write failed but the run still followed its human_gate policy.
         assert len(runner.hitl_calls) >= 1 or any(
             e["type"] == "merge_human_gate_skipped" for e in events
@@ -742,10 +899,13 @@ class TestArtifactPersistenceFailure:
         )
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="partial")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         # The partial merge event must still fire.
         partial_evs = [e for e in events if e["type"] == "merge_partial"]
         assert len(partial_evs) >= 1
@@ -754,6 +914,7 @@ class TestArtifactPersistenceFailure:
 # ---------------------------------------------------------------------------
 # 12. Sandbox-open entry point (Req 10 AC 14)
 # ---------------------------------------------------------------------------
+
 
 class TestSandboxOpenDetection:
     """detect/reconcile applies at sandbox open — the fourth entry point."""
@@ -775,7 +936,9 @@ class TestSandboxOpenDetection:
     def test_reconcile_squash_msg_returns_outcome_string(self, tmp_path):
         """SQUASH_MSG triggers the fallback reset_hard path (or reconcile_failed)."""
         root = _make_git_sandbox(tmp_path)
-        (root / ".git" / "SQUASH_MSG").write_text("squash commit message\n", encoding="utf-8")
+        (root / ".git" / "SQUASH_MSG").write_text(
+            "squash commit message\n", encoding="utf-8"
+        )
 
         ws = _get_ws_at_root(root)
         state = ws.detect_persistent_git_state()
@@ -798,6 +961,7 @@ class TestSandboxOpenDetection:
 # 13. Clean merge persists durable FanoutMergeState
 # ---------------------------------------------------------------------------
 
+
 class TestCleanMergeDurableState:
     """A clean disjoint merge persists FanoutMergeState with merge_state='clean'."""
 
@@ -809,12 +973,16 @@ class TestCleanMergeDurableState:
         runner = _MergeRunner(base, worker_files={0: {"a.txt": "A"}, 1: {"b.txt": "B"}})
         ctx = _make_ctx(runner)
         step = _make_step(on_conflict="human_gate")
-        events = await _collect(run_fanout(
-            [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
-            ctx, step=step,
-        ))
+        events = await _collect(
+            run_fanout(
+                [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}],
+                ctx,
+                step=step,
+            )
+        )
         await asyncio.sleep(0)
         assert any(e["type"] == "merge_completed" for e in events)
         # A durable state must be persisted with merge_state='clean'.
-        assert any(s.merge_state == "clean" for s in runner.durable_merge_states), \
-            "A clean merge must persist FanoutMergeState(merge_state='clean')"
+        assert any(
+            s.merge_state == "clean" for s in runner.durable_merge_states
+        ), "A clean merge must persist FanoutMergeState(merge_state='clean')"

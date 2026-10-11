@@ -10,6 +10,7 @@ route_decision JSON" having built everything correctly.
 Six live runs died this way. The readback now skips a step that declares
 `produces: ["route_decision"]`.
 """
+
 from __future__ import annotations
 
 import re
@@ -20,8 +21,8 @@ SOURCE = Path(__file__).resolve().parents[2] / "agents/execution_engine/engine.p
 
 def _readback_block() -> str:
     """The single_file readback condition, as written in the engine."""
-    text = SOURCE.read_text()
-    start = text.index("_deliv = getattr(ectx, \"deliverable\", None)")
+    text = SOURCE.read_text(encoding="utf-8")
+    start = text.index('_deliv = getattr(ectx, "deliverable", None)')
     end = text.index("output = file_from_disk", start)
     return text[start:end]
 
@@ -32,9 +33,9 @@ def test_readback_skips_a_decision_step() -> None:
         "the readback must exempt a step that produces route_decision — without "
         "it a conditional gate is handed the deliverable instead of the verdict"
     )
-    assert re.search(r"not\s+_is_decision_step", block), (
-        "the exemption must be part of the guard, not merely computed"
-    )
+    assert re.search(
+        r"not\s+_is_decision_step", block
+    ), "the exemption must be part of the guard, not merely computed"
 
 
 def test_readback_still_applies_to_an_ordinary_step() -> None:
@@ -47,6 +48,6 @@ def test_readback_still_applies_to_an_ordinary_step() -> None:
 
 def test_decision_step_is_detected_from_produces() -> None:
     block = _readback_block()
-    assert 'getattr(spec, "produces", None)' in block, (
-        "a decision step is identified by its DECLARED produces, never by name"
-    )
+    assert (
+        'getattr(spec, "produces", None)' in block
+    ), "a decision step is identified by its DECLARED produces, never by name"

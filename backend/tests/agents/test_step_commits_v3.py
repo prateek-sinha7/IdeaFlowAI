@@ -59,9 +59,12 @@ def _run_git(*args: str, cwd: Path, check: bool = True) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=Flowin Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
+            "-c",
+            "user.name=Flowin Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
             *args,
         ],
         cwd=str(cwd),
@@ -78,18 +81,20 @@ def _git_init(repo: Path) -> None:
     _run_git("config", "user.email", "test@test.test", cwd=repo)
     _run_git("config", "user.name", "Test Bot", cwd=repo)
     # Seed .gitignore with reserved paths (per sandbox.py RESERVED_PATHS)
-    reserved = "\n".join([
-        ".uploads/",
-        ".logs/",
-        ".verify/",
-        ".browser/",
-        ".agents/",
-        ".chain/",
-        ".context/",
-        "skills/",
-        "conversation_history/",
-        ".chain-legacy/",
-    ])
+    reserved = "\n".join(
+        [
+            ".uploads/",
+            ".logs/",
+            ".verify/",
+            ".browser/",
+            ".agents/",
+            ".chain/",
+            ".context/",
+            "skills/",
+            "conversation_history/",
+            ".chain-legacy/",
+        ]
+    )
     (repo / ".gitignore").write_text(reserved + "\n", encoding="utf-8")
     _run_git("add", ".gitignore", cwd=repo)
     _run_git("commit", "-m", "chore: init", cwd=repo)
@@ -174,7 +179,9 @@ class _FakeSandbox:
             return ""
 
 
-def _make_sandbox(tmp_path: Path, *, run_id: str | None = None, has_git: bool = True) -> _FakeSandbox:
+def _make_sandbox(
+    tmp_path: Path, *, run_id: str | None = None, has_git: bool = True
+) -> _FakeSandbox:
     """Create and provision a sandbox with a real git repo under tmp_path."""
     rid = run_id or _run_id()
     sandbox_root = tmp_path / "runs" / rid
@@ -218,7 +225,9 @@ def _git_show_stat(repo: Path, ref: str = "HEAD") -> str:
     return _run_git("show", "--stat", ref, cwd=repo)
 
 
-def _assert_no_reserved_in_stat(stat_output: str, reserved_paths: frozenset[str]) -> None:
+def _assert_no_reserved_in_stat(
+    stat_output: str, reserved_paths: frozenset[str]
+) -> None:
     """Assert that stat output mentions no reserved paths."""
     for reserved in reserved_paths:
         # Normalize: remove trailing slash for comparison if present
@@ -251,24 +260,28 @@ async def test_multi_step_dispatch_one_commit_per_step(tmp_path: Path) -> None:
     """
     from agents.execution_engine.engine import commit_in_sandbox
 
-    RESERVED_PATHS = frozenset({
-        ".uploads/",
-        ".logs/",
-        ".verify/",
-        ".browser/",
-        ".agents/",
-        ".chain/",
-        ".context/",
-        "skills/",
-        "conversation_history/",
-        ".chain-legacy/",
-    })
+    RESERVED_PATHS = frozenset(
+        {
+            ".uploads/",
+            ".logs/",
+            ".verify/",
+            ".browser/",
+            ".agents/",
+            ".chain/",
+            ".context/",
+            "skills/",
+            "conversation_history/",
+            ".chain-legacy/",
+        }
+    )
 
     sb = _make_sandbox(tmp_path)
     ectx = _make_ectx()
 
     # Step 1: writer-agent writes output.md
-    (sb.root / "output.md").write_text("# Analysis\n\nInitial output.\n", encoding="utf-8")
+    (sb.root / "output.md").write_text(
+        "# Analysis\n\nInitial output.\n", encoding="utf-8"
+    )
     step1 = _make_step("writer-agent")
     result1 = await commit_in_sandbox(
         sb, f"step: {step1.agent_id}", ectx, step1, audit_operation=None
@@ -290,7 +303,7 @@ async def test_multi_step_dispatch_one_commit_per_step(tmp_path: Path) -> None:
     # Step 3: reviewer-agent appends review
     (sb.root / "output.md").write_text(
         "# Analysis\n\nInitial output.\n\nAnalysis added.\n\nReview: Looks good.\n",
-        encoding="utf-8"
+        encoding="utf-8",
     )
     step3 = _make_step("reviewer-agent")
     result3 = await commit_in_sandbox(
@@ -301,14 +314,18 @@ async def test_multi_step_dispatch_one_commit_per_step(tmp_path: Path) -> None:
 
     # Verify git log: 4 commits (init + 3 steps)
     log = _git_log_oneline(sb.root)
-    assert len(log) == 4, (
-        f"Expected 4 commits (init + 3 steps), got {len(log)}: {log}"
-    )
+    assert len(log) == 4, f"Expected 4 commits (init + 3 steps), got {len(log)}: {log}"
 
     # Verify commits are ordered by execution (most recent first in git log)
-    assert "reviewer-agent" in log[0], f"Most recent commit should be reviewer-agent, got: {log[0]}"
-    assert "analyzer-agent" in log[1], f"Second commit should be analyzer-agent, got: {log[1]}"
-    assert "writer-agent" in log[2], f"Third commit should be writer-agent, got: {log[2]}"
+    assert (
+        "reviewer-agent" in log[0]
+    ), f"Most recent commit should be reviewer-agent, got: {log[0]}"
+    assert (
+        "analyzer-agent" in log[1]
+    ), f"Second commit should be analyzer-agent, got: {log[1]}"
+    assert (
+        "writer-agent" in log[2]
+    ), f"Third commit should be writer-agent, got: {log[2]}"
 
     # Verify each step commit's stat contains no reserved paths
     for step_sha in [step1_sha, step2_sha, step3_sha]:
@@ -406,7 +423,9 @@ async def test_step_commits_before_conditional_gate_routing() -> None:
         if agent_id == "custom-agent:check":
             calls["check"] += 1
             decision = "retry" if calls["check"] <= 2 else "ok"
-            return [_ScriptedTurn(texts=[f'{{"decision": "{decision}"}}'], usage=(5, 3))]
+            return [
+                _ScriptedTurn(texts=[f'{{"decision": "{decision}"}}'], usage=(5, 3))
+            ]
         return [_ScriptedTurn(texts=[f"{agent_id} default output."], usage=(5, 3))]
 
     # ── Spy 1: commit_in_sandbox is a module-level free function; execute() calls
@@ -429,7 +448,9 @@ async def test_step_commits_before_conditional_gate_routing() -> None:
     # the wrapper only re-yields what it produces.
     _orig_evaluate_gates = engine_mod.ExecutionEngine._evaluate_gates
 
-    async def _spied_evaluate_gates(self, step, ectx, registry, *, phase, inline_gated=False):
+    async def _spied_evaluate_gates(
+        self, step, ectx, registry, *, phase, inline_gated=False
+    ):
         async for item in _orig_evaluate_gates(
             self, step, ectx, registry, phase=phase, inline_gated=inline_gated
         ):
@@ -455,10 +476,18 @@ async def test_step_commits_before_conditional_gate_routing() -> None:
 
     # ── Sanity: this really is T23's loop scenario (belt & braces) ─────────────
     types = [e.get("type") for e in events]
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
-    assert started.count("custom-agent:greet") == 3, f"expected 3 greet dispatches: {started}"
-    assert started.count("custom-agent:check") == 3, f"expected 3 check dispatches: {started}"
-    assert started.count("custom-agent:done") == 1, f"expected 1 done dispatch: {started}"
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
+    assert (
+        started.count("custom-agent:greet") == 3
+    ), f"expected 3 greet dispatches: {started}"
+    assert (
+        started.count("custom-agent:check") == 3
+    ), f"expected 3 check dispatches: {started}"
+    assert (
+        started.count("custom-agent:done") == 1
+    ), f"expected 1 done dispatch: {started}"
     assert "budget_aborted" not in types, f"run failed closed unexpectedly: {types}"
     assert "pipeline_complete" in types, f"run never completed: {types[-5:]}"
 
@@ -507,14 +536,18 @@ async def test_step_commits_before_conditional_gate_routing() -> None:
 
     greet_calls = _calls_for("custom-agent:greet")
     check_calls = _calls_for("custom-agent:check")
-    assert len(greet_calls) == 3, f"expected 3 commit_in_sandbox calls for greet: {greet_calls}"
-    assert len(check_calls) == 3, f"expected 3 commit_in_sandbox calls for check: {check_calls}"
-    assert greet_calls[0][1] and not greet_calls[0][2], (
-        f"greet pass 1 must produce a real commit: {greet_calls[0]}"
-    )
-    assert check_calls[0][1] and not check_calls[0][2], (
-        f"check pass 1 must produce a real commit: {check_calls[0]}"
-    )
+    assert (
+        len(greet_calls) == 3
+    ), f"expected 3 commit_in_sandbox calls for greet: {greet_calls}"
+    assert (
+        len(check_calls) == 3
+    ), f"expected 3 commit_in_sandbox calls for check: {check_calls}"
+    assert (
+        greet_calls[0][1] and not greet_calls[0][2]
+    ), f"greet pass 1 must produce a real commit: {greet_calls[0]}"
+    assert (
+        check_calls[0][1] and not check_calls[0][2]
+    ), f"check pass 1 must produce a real commit: {check_calls[0]}"
     for pass_num, call in enumerate(greet_calls[1:], start=2):
         assert not call[1] and call[2], (
             f"greet pass {pass_num} should be a legitimate no_change (identical "
@@ -543,29 +576,33 @@ async def test_step_commits_before_conditional_gate_routing() -> None:
 
     log_shas = set(_run_git("log", "--format=%H", cwd=sandbox_root).splitlines())
 
-    RESERVED_PATHS = frozenset({
-        ".uploads/",
-        ".logs/",
-        ".verify/",
-        ".browser/",
-        ".agents/",
-        ".chain/",
-        ".context/",
-        "skills/",
-        "conversation_history/",
-        ".chain-legacy/",
-    })
-    done_calls = _calls_for("custom-agent:done")
-    assert len(done_calls) == 1 and done_calls[0][1] and not done_calls[0][2], (
-        f"done must produce exactly 1 real commit: {done_calls}"
+    RESERVED_PATHS = frozenset(
+        {
+            ".uploads/",
+            ".logs/",
+            ".verify/",
+            ".browser/",
+            ".agents/",
+            ".chain/",
+            ".context/",
+            "skills/",
+            "conversation_history/",
+            ".chain-legacy/",
+        }
     )
+    done_calls = _calls_for("custom-agent:done")
+    assert (
+        len(done_calls) == 1 and done_calls[0][1] and not done_calls[0][2]
+    ), f"done must produce exactly 1 real commit: {done_calls}"
     for _agent_id, sha, _no_change in [
         greet_calls[0],
         check_calls[0],
         check_calls[2],
         done_calls[0],
     ]:
-        assert sha in log_shas, f"commit_in_sandbox's reported SHA {sha} is not in real git log"
+        assert (
+            sha in log_shas
+        ), f"commit_in_sandbox's reported SHA {sha} is not in real git log"
         stat = _git_show_stat(sandbox_root, sha)
         _assert_no_reserved_in_stat(stat, RESERVED_PATHS)
     assert check_calls[0][1] != check_calls[2][1], (
@@ -603,9 +640,9 @@ async def test_no_commit_when_no_change(tmp_path: Path) -> None:
 
     # Verify git log is unchanged
     final_log = _git_log_oneline(sb.root)
-    assert len(final_log) == initial_count, (
-        f"No commit should be created on no-change; log went from {initial_count} to {len(final_log)}"
-    )
+    assert (
+        len(final_log) == initial_count
+    ), f"No commit should be created on no-change; log went from {initial_count} to {len(final_log)}"
 
 
 @pytest.mark.asyncio
@@ -619,18 +656,20 @@ async def test_commit_stat_excludes_reserved_paths(tmp_path: Path) -> None:
     """
     from agents.execution_engine.engine import commit_in_sandbox
 
-    RESERVED_PATHS = frozenset({
-        ".uploads/",
-        ".logs/",
-        ".verify/",
-        ".browser/",
-        ".agents/",
-        ".chain/",
-        ".context/",
-        "skills/",
-        "conversation_history/",
-        ".chain-legacy/",
-    })
+    RESERVED_PATHS = frozenset(
+        {
+            ".uploads/",
+            ".logs/",
+            ".verify/",
+            ".browser/",
+            ".agents/",
+            ".chain/",
+            ".context/",
+            "skills/",
+            "conversation_history/",
+            ".chain-legacy/",
+        }
+    )
 
     sb = _make_sandbox(tmp_path)
     ectx = _make_ectx()
@@ -640,7 +679,9 @@ async def test_commit_stat_excludes_reserved_paths(tmp_path: Path) -> None:
 
     # Also plant files in reserved paths (they should be gitignored)
     (sb.root / ".agents").mkdir(exist_ok=True)
-    (sb.root / ".agents" / "01-agent.md").write_text("Agent transcript", encoding="utf-8")
+    (sb.root / ".agents" / "01-agent.md").write_text(
+        "Agent transcript", encoding="utf-8"
+    )
 
     (sb.root / ".logs").mkdir(exist_ok=True)
     (sb.root / ".logs" / f"{ectx.run_id}.jsonl").write_text(
@@ -660,6 +701,6 @@ async def test_commit_stat_excludes_reserved_paths(tmp_path: Path) -> None:
     _assert_no_reserved_in_stat(stat, RESERVED_PATHS)
 
     # Verify the normal file IS in the stat
-    assert "report.txt" in stat, (
-        f"Normal file 'report.txt' should be in git stat: {stat}"
-    )
+    assert (
+        "report.txt" in stat
+    ), f"Normal file 'report.txt' should be in git stat: {stat}"

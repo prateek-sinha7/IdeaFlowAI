@@ -34,8 +34,11 @@ def _manifest_one_step(step: dict) -> WorkflowManifest:
     return WorkflowManifest(
         id="pub-test",
         steps=[step],
-        deliverable={"strategy": "single_file", "name": "prototype.html",
-                     "publish_from_glob": "draft.v*.html"},
+        deliverable={
+            "strategy": "single_file",
+            "name": "prototype.html",
+            "publish_from_glob": "draft.v*.html",
+        },
         planner="run",
         clarify={"mode": "auto", "defaults": []},
         context_providers=[],
@@ -45,8 +48,9 @@ def _manifest_one_step(step: dict) -> WorkflowManifest:
 
 
 def test_mechanical_publish_compiles_and_is_materialized_on_the_step():
-    manifest = _manifest_one_step({"agent": "custom-agent", "instance_id": "publish",
-                                    "mechanical": "publish"})
+    manifest = _manifest_one_step(
+        {"agent": "custom-agent", "instance_id": "publish", "mechanical": "publish"}
+    )
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
     assert compiled.steps[0].mechanical == "publish"
 
@@ -66,10 +70,13 @@ def test_unknown_mechanical_kind_raises():
 
 def test_mechanical_with_tools_grant_raises():
     """A mechanical step runs no agent — a tools: grant has nothing to bind to."""
-    manifest = _manifest_one_step({
-        "agent": "step-x", "mechanical": "publish",
-        "tools": {"read_files": True},
-    })
+    manifest = _manifest_one_step(
+        {
+            "agent": "step-x",
+            "mechanical": "publish",
+            "tools": {"read_files": True},
+        }
+    )
     with pytest.raises(CompilerError) as exc:
         WorkflowCompiler().compile(manifest, CapabilityRegistry())
     assert "tools" in str(exc.value)
@@ -78,10 +85,13 @@ def test_mechanical_with_tools_grant_raises():
 def test_mechanical_with_validators_is_allowed():
     """validators: is explicitly meaningful on a publish step (the shipped file
     is render-checked) — must NOT be rejected."""
-    manifest = _manifest_one_step({
-        "agent": "step-x", "mechanical": "publish",
-        "validators": ["html_static"],
-    })
+    manifest = _manifest_one_step(
+        {
+            "agent": "step-x",
+            "mechanical": "publish",
+            "validators": ["html_static"],
+        }
+    )
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
     assert compiled.steps[0].mechanical == "publish"
     assert compiled.steps[0].validators == ["html_static"]
@@ -90,9 +100,13 @@ def test_mechanical_with_validators_is_allowed():
 def test_mechanical_with_human_gate_is_allowed():
     """gates: is explicitly meaningful on a publish step (review before publish)
     — must NOT be rejected."""
-    manifest = _manifest_one_step({
-        "agent": "step-x", "mechanical": "publish", "gates": ["human"],
-    })
+    manifest = _manifest_one_step(
+        {
+            "agent": "step-x",
+            "mechanical": "publish",
+            "gates": ["human"],
+        }
+    )
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
     assert compiled.steps[0].gates == ["human"]
 
@@ -129,8 +143,10 @@ def test_publish_draft_copies_highest_version_numerically(sandbox):
     sandbox.write("draft.v2.html", "<html>v2</html>")
     sandbox.write("draft.v9.html", "<html>v9</html>")
     sandbox.write("draft.v10.html", "<html>v10 — the real highest</html>")
-    ctx = _Ctx(_FakeRunner(sandbox),
-               _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"))
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"),
+    )
 
     out = publish_draft(ctx)
 
@@ -140,8 +156,9 @@ def test_publish_draft_copies_highest_version_numerically(sandbox):
 
 def test_publish_draft_defaults_deliverable_name_to_prototype_html(sandbox):
     sandbox.write("draft.v1.html", "<html>only draft</html>")
-    ctx = _Ctx(_FakeRunner(sandbox),
-               _Deliverable(publish_from_glob="draft.v*.html"))  # name omitted
+    ctx = _Ctx(
+        _FakeRunner(sandbox), _Deliverable(publish_from_glob="draft.v*.html")
+    )  # name omitted
 
     publish_draft(ctx)
 
@@ -150,9 +167,12 @@ def test_publish_draft_defaults_deliverable_name_to_prototype_html(sandbox):
 
 def test_publish_draft_raises_when_no_draft_exists(sandbox):
     with pytest.raises(PublishStepError) as exc:
-        publish_draft(_Ctx(_FakeRunner(sandbox),
-                            _Deliverable(name="prototype.html",
-                                         publish_from_glob="draft.v*.html")))
+        publish_draft(
+            _Ctx(
+                _FakeRunner(sandbox),
+                _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"),
+            )
+        )
     assert "draft.v*.html" in str(exc.value)
 
 
@@ -165,9 +185,12 @@ def test_publish_draft_raises_when_glob_undeclared(sandbox):
 def test_publish_draft_never_invents_content_on_failure(sandbox):
     """A failed publish must not leave a fabricated prototype.html behind."""
     with pytest.raises(PublishStepError):
-        publish_draft(_Ctx(_FakeRunner(sandbox),
-                            _Deliverable(name="prototype.html",
-                                         publish_from_glob="draft.v*.html")))
+        publish_draft(
+            _Ctx(
+                _FakeRunner(sandbox),
+                _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"),
+            )
+        )
     assert sandbox.read("prototype.html") is None
 
 
@@ -190,10 +213,14 @@ async def _drain(agen):
 @pytest.mark.asyncio
 async def test_strategy_emits_start_chunk_complete_with_zero_tokens(sandbox):
     sandbox.write("draft.v1.html", "<html>final</html>")
-    ctx = _Ctx(_FakeRunner(sandbox),
-               _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"))
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"),
+    )
     results: list = []
-    strategy = MechanicalPublishStrategy(spec=_Spec(), index=7, total=9, results=results)
+    strategy = MechanicalPublishStrategy(
+        spec=_Spec(), index=7, total=9, results=results
+    )
 
     events = await _drain(strategy.run(step=None, ctx=ctx))
 
@@ -206,20 +233,33 @@ async def test_strategy_emits_start_chunk_complete_with_zero_tokens(sandbox):
     assert complete["input_tokens"] == 0 and complete["total_tokens"] == 0
     # The step's output lands in the shared `results` list (the SAME contract
     # `_run_agent` appends to), so `ectx.last_streamed` refreshes downstream.
-    assert results == [{
-        "agent_id": "custom-agent:publish", "name": "Publish", "role": _Spec.role,
-        "icon": _Spec.icon, "output": "<html>final</html>", "duration": results[0]["duration"],
-        "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
-        "cache_read_tokens": 0, "cache_write_tokens": 0,
-    }]
+    assert results == [
+        {
+            "agent_id": "custom-agent:publish",
+            "name": "Publish",
+            "role": _Spec.role,
+            "icon": _Spec.icon,
+            "output": "<html>final</html>",
+            "duration": results[0]["duration"],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        }
+    ]
 
 
 @pytest.mark.asyncio
 async def test_strategy_emits_agent_error_and_appends_nothing_when_no_draft(sandbox):
-    ctx = _Ctx(_FakeRunner(sandbox),
-               _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"))
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        _Deliverable(name="prototype.html", publish_from_glob="draft.v*.html"),
+    )
     results: list = []
-    strategy = MechanicalPublishStrategy(spec=_Spec(), index=0, total=1, results=results)
+    strategy = MechanicalPublishStrategy(
+        spec=_Spec(), index=0, total=1, results=results
+    )
 
     events = await _drain(strategy.run(step=None, ctx=ctx))
 
@@ -253,7 +293,11 @@ def _publish_fixture_scripts_for(agent_id: str) -> list:
             _ScriptedTurn(
                 texts=["Writing the draft. "],
                 tool_calls=[
-                    ("write_file", _json.dumps({"file_path": "draft.v1.html", "content": html}), "c_draft"),
+                    (
+                        "write_file",
+                        _json.dumps({"file_path": "draft.v1.html", "content": html}),
+                        "c_draft",
+                    ),
                 ],
                 usage=(20, 10),
             ),
@@ -270,16 +314,25 @@ async def test_engine_runs_mechanical_publish_step_end_to_end():
     orig_scripts_for = _sm._scripts_for
     _sm._scripts_for = _publish_fixture_scripts_for
     try:
-        events = await _drive("ex_publish_step")
+        # ``offline_db=False``: this test asserts a CLEAN completion, and the
+        # finalizer degrades a completed run whenever its tag->WorkflowRun mapping
+        # write raises (Requirement 5 AC 22). The default no-database seam raises
+        # on every session, so it would publish ``degraded`` for reasons unrelated
+        # to the publish step. The hermetic per-worker SQLite (tests/conftest.py)
+        # lets that write run — a missing row is tolerated, not a failure.
+        events = await _drive("ex_publish_step", offline_db=False)
     finally:
         _sm._scripts_for = orig_scripts_for
 
     types = [e.get("type") for e in events]
-    starts = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    starts = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
     assert starts == ["custom-agent:draft", "custom-agent:publish"], (starts, types)
 
     publish_complete = next(
-        e for e in events
+        e
+        for e in events
         if e.get("type") == "agent_complete"
         and e["data"].get("agent_id") == "custom-agent:publish"
     )
@@ -290,7 +343,8 @@ async def test_engine_runs_mechanical_publish_step_end_to_end():
     assert publish_complete["data"]["total_tokens"] == 0
 
     publish_chunk = next(
-        e for e in events
+        e
+        for e in events
         if e.get("type") == "agent_chunk"
         and e["data"].get("agent_id") == "custom-agent:publish"
     )

@@ -1,3 +1,5 @@
+> **Historical design record. It may not match the live workflow YAML. For the current CI/CD state see [.github/CI_STATUS.md](../.github/CI_STATUS.md).**
+
 # CI/CD Pipeline — Design Decisions
 
 This document holds the "why" behind non-obvious choices in
@@ -35,7 +37,7 @@ themselves rather than left as convention:
 1. **Every `uses:` line is SHA-pinned**, with the human-readable version kept
    as a trailing `# vX.Y.Z` comment (Dependabot understands this format and
    updates both together — see `.github/dependabot.yml` if/when added).
-2. **The `security-scan` job in `ci.yml` does not use `aquasecurity/trivy-action`
+2. **The `security` job in `ci.yml` does not use `aquasecurity/trivy-action`
    or `aquasecurity/setup-trivy` at all**, even pinned by SHA. Instead,
    gitleaks, checkov, trivy, and tflint are installed as direct release
    binaries: download the exact release archive by version-pinned URL,
@@ -70,7 +72,7 @@ verbatim** — e.g.:
   echo '#!/bin/bash'
   echo "REGISTRY='${ECR_REGISTRY}'"
   echo "IMAGE_TAG='${IMAGE_TAG}'"
-  cat .github/scripts/remote-deploy.sh
+  sed -E '/^[[:space:]]*#/d' .github/scripts/remote-deploy.sh   # comment lines stripped (payload size guard)
 } > remote.sh
 ```
 
@@ -128,24 +130,39 @@ changes are applied out-of-band by an operator, not by a workflow run).
 
 ---
 
-## SonarCloud: `sonar-project.properties` is authoritative, not `-D` flags
+## Removal of the external quality gate
 
-`sonar-project.properties` at the repo root is the single source of truth
-for SonarScanner's project identity, source paths, exclusions, and coverage
-report paths. The `sonarcloud-analysis` job in `ci.yml` intentionally passes
-**no** `-Dsonar.organization=`, `-Dsonar.projectKey=`, `-Dsonar.exclusions=`,
-etc. flags — those values live in the properties file alone (F-08). A
-`-D` flag on the command line overrides the properties file silently on any
-conflict, which previously meant the properties file was decorative: editing
-it had no effect unless the identical edit was *also* made to the workflow.
-The only flag still passed at invocation is `-Dsonar.log.level`, which has no
-equivalent in the properties file by design (it's a debugging knob, not
-committed project config).
+The pipeline previously carried two mandatory signals owned by an external
+analysis service, reached over the network with a repository secret. That shape
+forced three structural compromises:
 
-**When changing SonarCloud scope/exclusions:** edit
-`sonar-project.properties` only. If a value needs to differ between CI and
-local runs, that is a sign it belongs in a `-D` flag instead — but check the
-properties file first for whether the value already exists there.
+1. **`ci.yml` had to be able to hold a secret.** It declared a
+   `workflow_call.secrets` input, `deploy.yml` had to map it through the `gate`
+   call, and every reviewer had to reason about whether fork code could reach it.
+2. **Two signals could not be evaluated on the pull-request path**, so `ci_gate
+   aggregate` grew a `--defer` flag that removed them from the required set. A
+   deferral is a hole with a good explanation next to it; the aggregate manifest
+   for a pull request was, by construction, not the whole verdict.
+3. **The trusted finalizer had to do real work** — check out fork source, place
+   coverage files, run the scanner — which meant the fork tree had to be present
+   on a runner that also held a secret and, in the same workflow, a
+   status-writing token.
+
+All three are now gone. Every mandatory signal is owned by a job in `ci.yml` on
+every event type; `ci.yml` declares no secrets; `--defer` no longer exists, so
+the `aggregate_truth()` cross-check runs on every path including pull requests;
+and `ci-authoritative.yml` performs no analysis at all — it attests the evaluator
+run and publishes `ci-required`.
+
+**Why the finalizer still exists.** Not for secrets. A fork-triggered
+`pull_request` run receives a read-only token and cannot write a commit status
+even if the job requests `statuses: write`. Publishing therefore has to happen
+from a `workflow_run` context, which executes default-branch code.
+
+**If an external gate is reintroduced**, it must not reopen (2): give it an owner
+job inside `ci.yml` that runs on every event type, or accept that
+`ci-required` no longer covers it and add it as a second required context in the
+rulesets. Do not add a deferral flag back to `ci_gate`.
 
 ---
 
@@ -171,7 +188,6 @@ Three rulesets are committed as JSON under `.github/rulesets/`:
    - **Required status checks** (strict: branch must be up-to-date):
      - `ci-required` (Phase 1: aggregator of all CI jobs)
      - `CodeQL` (GitHub's SAST scanner)
-     - `SonarCloud Code Analysis` (quality gates)
    - **Required signatures**: commits must be GPG-signed
    - **Bypass actors**: `[]` — no one, not even admins
 
@@ -184,7 +200,7 @@ Three rulesets are committed as JSON under `.github/rulesets/`:
      - Stale review dismissal enabled
      - All review threads must be resolved
    - **Required status checks** (strict):
-     - `ci-required` only (CodeQL and SonarCloud run but are advisory)
+     - `ci-required` only (CodeQL runs but is advisory)
    - **Bypass actors**: `[]`
 
 3. **`tags.json`** — Release tags (`refs/tags/v*`)
@@ -207,7 +223,7 @@ branch policies and approval requirements:
    - **Usage**: `deploy.yml`'s `deploy` job targets this environment for prod
      releases
 
-2. **`staging.json`** — Staging deployment (production-adjacent)
+2. **`stage.json`** — Stage deployment (production-adjacent; the environment is named `stage`, deployed to from the `staging` BRANCH)
    - `can_admins_bypass: true` — team can expedite in emergency
    - `deployment_branch_policy.protected_branches: true` — deploys from `staging`
      branch only
@@ -396,7 +412,7 @@ exit=1
 - Each pytest shard now sets `COVERAGE_FILE: .coverage.<shard>` as an environment variable
 - Pytest-cov respects this and emits the `.coverage.<shard>` data file (plus terminal/XML if requested)
 - `test-results` combines the data files: `coverage combine .coverage.agents-a .coverage.agents-b ...`
-- From the combined data, `coverage xml` generates the coverage.xml SonarCloud consumes
+- From the combined data, `coverage xml` generates the coverage.xml the backend coverage gate consumes
 
 ```bash
 # Each shard:
@@ -408,17 +424,17 @@ coverage combine .coverage.agents-a .coverage.agents-b ...
 coverage xml  # generates coverage.xml from combined data
 ```
 
-**F-11: Coverage doesn't reach SonarCloud**
+**F-11: Coverage reports never reached their consumer**
 
-*Problem:* The `prepare-sonarcloud` job tried to download the artifact named `backend-coverage-report` and read `coverage.xml` out of it. That artifact only ever contained `htmlcov/`, so the file was never there. On the frontend side it looked for `coverage-final.xml`, which vitest never wrote (the `"xml"` entry in the vitest reporter list is not a valid coverage reporter). Both `if [ -f ... ]` guards took the `else` branch, printed `⚠ WARNING` to stderr, and the job **still exited 0** — so SonarCloud received zero coverage while every job reported green. Compounding it, the reports were pointed at `sonar.coverageReportPaths`, which accepts only Sonar's *Generic Test Data* XML schema and would not have parsed Cobertura or istanbul output even if the files had existed.
+*Problem:* A dedicated report-preparation job tried to download the artifact named `backend-coverage-report` and read `coverage.xml` out of it. That artifact only ever contained `htmlcov/`, so the file was never there. On the frontend side it looked for `coverage-final.xml`, which vitest never wrote (the `"xml"` entry in the vitest reporter list is not a valid coverage reporter). Both `if [ -f ... ]` guards took the `else` branch, printed `⚠ WARNING` to stderr, and the job **still exited 0** — so the consumer received zero coverage while every job reported green.
 
-*Solution (implemented):* `prepare-sonarcloud` was **deleted**. Each report is now uploaded by the job that produces it and downloaded straight to the path `sonar-project.properties` names:
+*Solution (implemented):* the preparation job was **deleted**. Each report is now uploaded by the job that produces it and downloaded by the evidence job that gates on it:
 
-- `test-results` → `coverage combine` → `coverage xml` → normalise `<source>` roots to `backend/...` → artifact `backend-coverage-xml`
-- `frontend` → vitest LCOV → normalise `SF:` paths to `frontend/...` → artifact `frontend-coverage-lcov`
-- `sonarcloud-analysis` (`needs: [test-results, frontend]`) downloads both and **hard-fails** if either is missing or empty, then runs the scanner with `-Dsonar.qualitygate.wait=true`
+- `backend-offline` / `backend-postgres` → `coverage combine` → `coverage xml` → normalise `<source>` roots to `backend/...` → artifact `<sha>-backend-aggregate`
+- `frontend-vitest` → vitest LCOV → normalise `SF:` paths to `frontend/...` → artifact `<sha>-frontend-aggregate`
+- `backend-evidence` / `frontend-evidence` download them and **hard-fail** if either is missing or empty, then enforce the 80% floor through `tools.ci.ci_gate`
 
-Language-specific properties replaced the generic one: `sonar.python.coverage.reportPaths` and `sonar.javascript.lcov.reportPaths`. `backend/pyproject.toml` also sets `relative_files = true`, so Cobertura source roots are relative instead of absolute shard-runner paths that only resolved by runner-path coincidence.
+`backend/pyproject.toml` also sets `relative_files = true`, so Cobertura source roots are relative instead of absolute shard-runner paths that only resolved by runner-path coincidence.
 
 **F-12: junit-merged.xml never created**
 
@@ -446,7 +462,7 @@ Or use Python's junitparser / defusedxml to merge XML trees properly. (For now, 
 fail_under = 80
 ```
 
-**Recommendation**: 80% overall + 80% on new code (via SonarCloud quality gate).
+**Recommendation**: 80% overall, enforced by `tools.ci.ci_gate coverage-gate-backend` / `coverage-gate-frontend`.
 
 **Ratcheting strategy**: If current measured floor is lower than 80%, start there and raise 2% per sprint. This avoids blocking PRs on a retroactive requirement nobody had time to meet on the first run.
 
@@ -970,49 +986,45 @@ Merged two apt-get update calls into one:
 
 **Decision**: Keep git. Attack surface is acceptable given the capability it enables.
 
-### Reusable Docker Build + Scan Workflow
+### Reusable Docker Build + Scan Workflow — proposed, then retired
 
-**New file**: `.github/workflows/_docker.yml` (composite workflow)
+A reusable `.github/workflows/_docker.yml` was designed to take
+`component` / `build-context` / `dockerfile-path` / `build-contexts` /
+`image-tag` / `push` / `registry` and return the image `digest`, so that ci.yml
+(`push: false`) and deploy.yml (`push: true`) could share one build+scan
+implementation.
 
-**Inputs**:
-- `component`: "backend" or "frontend"
-- `build-context`, `dockerfile-path`: Build specifications
-- `image-tag`: ECR tag
-- `push`: true for deploy, false for PR
-- `registry`: ECR registry (optional)
+**It was never wired up, and has been deleted.** No workflow ever declared
+`uses: ./.github/workflows/_docker.yml`; ci.yml's `container-scan` job and
+deploy.yml's `build` job each grew their own inline build steps instead. Two
+concrete harms came from leaving a plausible-looking unused workflow in the
+tree:
 
-**Outputs**:
-- `digest`: Image digest
-- `image-ref`: Full reference with digest
+- It declared its own third copy of `TRIVY_VERSION` and the only copy of
+  `GRYPE_VERSION`, and the pin-drift tests read the versions *from it* — so the
+  authority for two scanner pins lived in a file that never ran.
+- It installed grype by unverified `curl | tar` with no checksum, which is a
+  direct violation of the "scanners are installed via
+  `install-checksummed-tool`" rule. That went unnoticed because the code was
+  dead.
 
-**Scanning (all images)**:
+It also, ironically, had the `build-contexts` input correct — including
+`opendesign=./skills/opendesign` in its own description — while the live
+`container-scan` job it was meant to replace was missing both the build context
+and the named context and could not build either image at all (fixed separately).
 
-```yaml
-- Trivy: --exit-code 1, --severity CRITICAL,HIGH, SARIF output
-- Grype: --fail-on high, second engine (different CVE DB)
-```
-
-**Results**:
-- SARIF uploaded to GitHub Security tab (Trivy findings)
-- Exit code 1 on any HIGH/CRITICAL → blocks build/deploy
-- Dual-engine approach reduces false negatives
+**If a shared build+scan workflow is reintroduced:** make ci.yml and deploy.yml
+call it in the same change that adds it, move the scanner pins with it, and
+install scanners through `./.github/actions/install-checksummed-tool`.
 
 ### Image Scanning on PR (CI)
 
 **Phase 7 Addition**: Images scanned on every PR before merge.
 
-**Implementation** (ci.yml):
-
-```yaml
-- name: Scan frontend Docker image
-  uses: ./.github/workflows/_docker.yml
-  with:
-    component: frontend
-    build-context: ./frontend
-    dockerfile-path: ./frontend/Dockerfile
-    image-tag: pr-${{ github.run_number }}
-    push: false  # Build locally, don't push to ECR
-```
+Implemented directly in ci.yml's `container-scan` matrix job (backend +
+frontend): build locally with `push: false`, then Trivy and Grype both run
+against the loaded image, with the verdict coming from
+`tools.ci.ci_gate scan-gate` rather than either scanner's exit code.
 
 **Benefit**: Dockerfile errors caught pre-merge, not at deploy time.
 
@@ -1031,10 +1043,13 @@ Merged two apt-get update calls into one:
 **Now**: No `--exit-code 0`, no `|| true`. Scan failure = deploy failure.
 
 **Task 3.18 update (ci-pipeline-remediation, bugfix 2.8)**: `--ignore-unfixed`
-and `--ignorefile ci/trivyignore.images` were removed. Zero-finding policy: a
-resolved HIGH/CRITICAL finding blocks the build regardless of fix
-availability. `ci/trivyignore.images` is retired (unconsumed); remediate the
-Dockerfile instead of suppressing the finding.
+and the image-scan `--ignorefile` were removed. Zero-finding policy: a resolved
+HIGH/CRITICAL finding blocks the build regardless of fix availability. The
+suppression file itself (`ci/trivyignore.images`) has since been **deleted** — it
+sat unconsumed for long enough to become a trap, since an entry added to it would
+have suppressed nothing. There is no suppression path for image findings:
+remediate by rebuilding on a patched base digest, bumping the dependency, or
+removing the package.
 
 ### Dockerfile Standards (Codified in Phase 7)
 
@@ -1054,8 +1069,9 @@ Dockerfile instead of suppressing the finding.
 - [ ] Backend/frontend Dockerfiles use digest-pinned base images
 - [ ] Backend uses `--mount=type=cache` for pip
 - [ ] Backend apt-get calls consolidated to single RUN
-- [ ] `.github/workflows/_docker.yml` present and callable
-- [ ] ci.yml calls _docker.yml for backend + frontend on PR (push: false)
+- [x] ci.yml's `container-scan` matrix builds backend + frontend on PR without
+      pushing (the reusable `_docker.yml` this once named was never wired up and
+      has been deleted — see "Reusable Docker Build + Scan Workflow" above)
 - [ ] deploy.yml trivy scans are `--exit-code 1` (not 0) without `|| true`
 - [ ] First PR with image scans succeeds (Trivy + Grype both pass)
 - [ ] First deploy with blocking scans proceeds
@@ -1290,7 +1306,7 @@ Phase 9 hardens GitHub Actions workflows against credential leakage, injection a
 ### Findings & Fixes
 
 **Finding F-30**: `persist-credentials: false` missing on all 14 checkouts.
-- **Impact**: `actions/checkout` writes `GITHUB_TOKEN` to `.git/config`; any subsequent step can read it (npm ci, sonar-scanner, etc.)
+- **Impact**: `actions/checkout` writes `GITHUB_TOKEN` to `.git/config`; any subsequent step can read it (npm ci, any third-party scanner, etc.)
 - **Fix (Phase 9)**: Added `persist-credentials: false` to all checkouts
 - **Benefit**: Token only available in `GITHUB_TOKEN` env var (scoped to `run:` steps), not in git
 
@@ -1313,12 +1329,11 @@ Phase 9 hardens GitHub Actions workflows against credential leakage, injection a
   ```
 - **Behavior**: Non-prod runs cancel previous queued runs; prod runs queue with timeout-minutes guard
 
-**Finding F-34**: Fork PRs cannot pass CI (sonarcloud-analysis requires SONAR_TOKEN with no guard).
-- **Fix (Phase 9)**: Added fork PR guard
-  ```yaml
-  if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
-  ```
-- **Result**: Fork PR sonarcloud step skips gracefully (no secret access)
+**Finding F-34**: Fork PRs could not pass CI, because a secret-bearing job had no
+guard and a fork PR never receives the secret.
+- **Fix (Phase 9)**: Added a fork PR guard on the secret-bearing job.
+- **Superseded**: `ci.yml` now holds no secrets at all, so the class of bug is
+  gone rather than guarded. See "Removal of the external quality gate".
 
 **Finding F-35**: Injection surface in deploy.yml (`${{ vars.AWS_REGION }}` interpolated into `run:` block).
 - **Analysis**: Low risk (vars are org-controlled, validated by upstream), but not defense-in-depth
@@ -1358,12 +1373,16 @@ Phase 9 hardens GitHub Actions workflows against credential leakage, injection a
 
 Fork PR protection pattern (Phase 9):
 ```yaml
-sonarcloud-analysis:
+some-secret-bearing-job:
   if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
   runs-on: ubuntu-latest
 ```
 
 **Rule**: Any job using `secrets.*` must have an `if:` guard. Fork PRs fail safely (step skipped, no secret leak).
+
+**Current state**: `ci.yml` declares no secrets and no `workflow_call.secrets`
+inputs, so no job in it needs this guard. The rule stands for any future job that
+does reach for a secret.
 
 ### Input Validation & Injection Prevention
 
@@ -1420,7 +1439,7 @@ concurrency:
 ### Verification Checklist
 
 - [x] All checkouts have `persist-credentials: false`
-- [x] sonarcloud-analysis guarded from fork PRs
+- [x] No job in `ci.yml` requests a secret, so no fork-PR secret guard is needed
 - [x] Workflow-level permissions set to `contents: read` (read-only)
 - [x] Per-job `id-token: write` for AWS jobs
 - [x] Concurrency uses conditional cancellation (non-prod cancel, prod timeout)
@@ -1436,7 +1455,7 @@ concurrency:
 | **F-30** Credential leak | `persist-credentials: false` on all checkouts | Token not in .git/config; only in env vars |
 | **F-31** No action allow-list | Documented setup + org setting | Prevents typosquatting, account takeover |
 | **F-33** Concurrency deadlock | Conditional cancellation + timeout | Non-prod fast, prod safe |
-| **F-34** Fork PR secret leak | `if:` guard on sonarcloud-analysis | Fork PRs skip secret-dependent jobs |
+| **F-34** Fork PR secret leak | `if:` guard on the secret-bearing job; later, removal of every secret from `ci.yml` | Fork PRs cannot reach a secret |
 | **F-35** Injection surface | All inputs passed via `env:` | Shell-escaped by GitHub |
 
 
@@ -1486,10 +1505,10 @@ Phase 10 restores and enforces deployment gates that were all open (1 of 10 enfo
    - Gate cannot be removed without breaking deploy (contract enforced)
 
 3. **workflow contract test** (Phase 10-3 & 10-4)
-   - New step in fast-checks: `check-workflow-gate-contract.py --verbose`
+   - Originally a `fast-checks` step running `check-workflow-gate-contract.py --verbose`. That step, the `fast-checks` job and the script are all gone; the contract is now enforced by `backend/tests/unit/tools/ci/test_workflow_contracts.py`.
    - Enforces gate dependencies (build → gate, deploy → gate, transitive closure)
    - Extended validation: no `continue-on-error` on security steps, no `|| true` in scanners, `--exit-code 1` on trivy image
-   - Contract test is blocking: if gate is removed, fast-checks fails, merge is blocked
+   - Contract test is blocking: if gate is removed, the contract test fails, merge is blocked
 
 4. **GitHub branch protection + environment approval** (Phase 10-6 & 10-7)
    - Branch protection ruleset for `main`: requires `ci-required` passing, code owner review, blocks force push, blocks admin bypass
@@ -1533,11 +1552,11 @@ Layer 1 (CI gate):     ci-required aggregation job
   └─ contract test ensures gate dependency exists
   └─ merge blocked if ci-required fails
 
-Layer 2 (Workflow contract):  check-workflow-gate-contract.py
+Layer 2 (Workflow contract):  backend/tests/unit/tools/ci/test_workflow_contracts.py
   └─ validates gate→build→deploy dependency chain
   └─ validates no || true in scanners
   └─ validates --exit-code 1 on trivy
-  └─ if contract violated → fast-checks fails → merge blocked
+  └─ if contract violated → the contract test fails → merge blocked
 
 Layer 3 (GitHub ruleset):  branch protection on main
   └─ requires ci-required passing
@@ -1601,15 +1620,15 @@ Each step is either:
 
 **Files modified**:
 - `.github/workflows/ci.yml`: Updated ci-required job with jq-based validation
-- `.github/workflows/ci.yml`: Added workflow contract test to fast-checks
-- `.github/scripts/check-workflow-gate-contract.py`: Extended with Phase 10 validations
+- `.github/workflows/ci.yml`: Added workflow contract test to fast-checks (the `fast-checks` job no longer exists; see test_workflow_contracts.py)
+- `.github/scripts/check-workflow-gate-contract.py`: Extended with Phase 10 validations (removed in Phase 3; the contract lives in `backend/tests/unit/tools/ci/test_workflow_contracts.py`)
 
 **Files created**:
 - `docs/GITHUB-BRANCH-PROTECTION-SETUP.md`: Step-by-step setup guide for GitHub ruleset + environment approval
 
 **Already in place** (verified):
-- `gate` job in deploy.yml (secrets mapped explicitly — `SONAR_TOKEN` only, not
-  `secrets: inherit`, so the gate never holds AWS/OIDC material)
+- `gate` job in deploy.yml (no `secrets:` block at all — ci.yml declares no
+  secret inputs, so the gate cannot hold AWS/OIDC material by construction)
 - build and deploy both depend on gate
 - digest-pinned deploys: `build` resolves and scans the digest, `deploy` ships it
   into the SSM payload, the host pulls by digest
@@ -1622,7 +1641,7 @@ Each step is either:
 
 1. **Test gate dependency**:
    - Edit deploy.yml, remove `gate` from build's `needs:`
-   - Push to branch → fast-checks fails on workflow contract test
+   - Push to branch → the workflow contract test fails
    - ✓ Contract test caught the violation
 
 2. **Test ci-required aggregation**:
@@ -1653,7 +1672,7 @@ Each step is either:
 
 Phase 11 consolidates and optimizes the entire CI pipeline into a gold standard architecture with:
 1. **Composite actions** for deduplication (setup-backend, setup-frontend)
-2. **Structured stages** (fast-checks → parallel [backend/frontend/security/iac] → docker → sonarcloud → ci-required)
+2. **Structured stages** (fast-checks → parallel [backend/frontend/security/iac] → docker → ci-evidence → ci-required)
 3. **Dynamic pytest matrix** with coverage gating (no hardcoded file lists)
 4. **All checks blocking** (no --exit-code 0, no || true on scanners)
 5. **Digest-pinned promotion + SLSA provenance** for artifact integrity
@@ -1689,10 +1708,8 @@ STAGE 1-5: PARALLEL QUALITY & SECURITY
   └─ OTHER
       ├─ backend-postgres (Postgres integration)
       ├─ backend-postgres-populated-migration (migration head test)
-      ├─ container-scan (matrix: backend/frontend — build + Trivy + Grype;
-      │                  job-scope call to _docker.yml, NOT a step)
-      └─ sonarcloud-analysis (quality gate, independent check;
-                              needs: [test-results, frontend])
+      └─ container-scan (matrix: backend/frontend — build + Trivy + Grype,
+                         implemented inline in ci.yml)
 
 STAGE 6: AGGREGATION
   ci-required (the repository-owned required status check in the ruleset)
@@ -1706,9 +1723,9 @@ STAGE 6: AGGREGATION
       directly: test-results asserts each shard's result == success AND
       enforces the 80% floor on MERGED coverage. Before that edge existed,
       this gate depended on no backend test job at all.
-    - EXCLUDES sonarcloud-analysis on purpose (external service). The
-      SonarCloud quality gate must therefore be a SECOND required status
-      check in the ruleset; ci-required does not cover it.
+    - Covers EVERY mandatory signal. No signal is owned by an external
+      service and none is excluded, so `ci-required` is the only required
+      status context the rulesets need.
 
 STAGE 7: BUILD (deploy.yml)
   gate → build → deploy
@@ -1798,7 +1815,7 @@ coverage:
 ### SLSA Provenance (and why there is no SBOM/signing layer)
 
 **Implemented**: `provenance: mode=max` on `docker/build-push-action` in
-`deploy.yml`'s `build` job (and on the push path of `_docker.yml`). Buildkit
+`deploy.yml`'s `build` job — the only place an image is pushed. Buildkit
 attaches a GitHub-signed SLSA v1 Build Level 2 attestation to the pushed digest.
 
 **Not implemented** (previously described here as a design, with a `syft` +
@@ -1842,7 +1859,6 @@ ci-required:
 
 **GitHub Branch Protection Ruleset**:
 - Required status checks: **ci-required** (the ONLY name)
-- Also add: SonarCloud (external service, independent check)
 - Other checks (backend, frontend, etc.) are NOT in ruleset; they flow into ci-required
 
 **Benefit**: Renaming pytest-agents-a → pytest-agents-1 doesn't break the ruleset. ci-required still aggregates all jobs; ruleset never needs updating.
@@ -1898,3 +1914,140 @@ ci-required:
 - [ ] Image signing/verification — **removed, not pending.** Requires ECR read on
       the per-env deploy roles before it can be reintroduced
 
+---
+
+## IMDS containment for the pptx_export Node subprocess (C2-2)
+
+> Moved verbatim from `infra/scripts/bootstrap-ec2.sh` §8b, which carried ~120
+> lines of this rationale around 2 lines of executable code. The script now holds
+> a short pointer to this section plus the two observation checks it actually
+> performs. Nothing about the behaviour changed.
+
+```text
+
+Audit C / TF-Sec CRITICAL-2: the pptx_export.py service spawns a Node
+subprocess running LLM-generated rendering code. G1-C1 hardened that
+subprocess with:
+  - scrubbed env (no AWS_*, DATABASE_URL, SECRET_KEY in the child env)
+  - prlimit-style rlimits (CPU, AS, NOFILE)
+  - a Semaphore that caps concurrency at 3
+But the child INHERITS the container's network namespace. Inside that
+namespace, 169.254.169.254 (IMDSv2) is reachable because
+`infra/modules/compute/main.tf` sets `http_put_response_hop_limit = 2`
+— required so Docker's bridge can forward IMDS to ANY container — and
+the EC2 security group can't block link-local IMDS (it bypasses VPC
+routing entirely; 169.254.169.254 is reached via a special hypervisor
+route not visible to security groups).
+
+The Node child can therefore call:
+  curl -sH "X-aws-ec2-metadata-token-ttl-seconds: 21600" -X PUT \
+    http://169.254.169.254/latest/api/token \
+    | xargs -I{} curl -H "X-aws-ec2-metadata-token: {}" \
+    http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>
+…and exfiltrate STS credentials valid for ~6h. Those credentials carry
+Bedrock invoke, SSM Get* on /velocityai/${ENV}/*, KMS Decrypt against the
+project CMK, and S3 PutObject on the backup bucket.
+
+── Why we can NOT cleanly block this in bootstrap-ec2.sh today ────────
+
+Five candidate enforcement points, four of them broken for our shape:
+
+1. `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP`
+   Drops IMDS from ALL containers. But the BACKEND container ALSO uses
+   IMDS via boto3 (instance-role credential resolution chain). Blocking
+   all containers breaks legitimate boto3 → SSM / Bedrock / S3 calls.
+   Verdict: REJECTED — would break the running service.
+
+2. `iptables -A OUTPUT -m owner --uid-owner 10001 -d 169.254.169.254 -j DROP`
+   Drops IMDS from any process running as uid 10001 on the host. But
+   UID 10001 inside the container does NOT map to UID 10001 on the host
+   in our config — there's no user namespace, but the OUTPUT chain on
+   the host doesn't see traffic that originates from inside Docker's
+   bridge network anyway (it goes through the FORWARD path with the
+   container's bridge IP as source). The `--uid-owner` match requires
+   locally-originating traffic. Verdict: REJECTED — no effect on
+   bridge-network-originating IMDS attempts.
+
+3. cgroup-based block: `iptables -A OUTPUT -m cgroup --cgroup <id>`
+   Container processes ARE in distinct cgroups (per docker), but the
+   Node subprocess inherits the backend container's cgroup. Distinguishing
+   parent (backend uvicorn) from child (Node) by cgroup is not feasible
+   inside the same container's namespace.
+   Verdict: REJECTED — same-cgroup parent and child are indistinguishable.
+
+4. `unshare -n` (network-namespace isolation for the Node child)
+   pptx_export.py:48 documents the rejection: "unshare -n would require
+   CAP_SYS_ADMIN we don't grant." Granting it would let the LLM-generated
+   Node code mount filesystems, escape the cgroup, etc. — worse than the
+   IMDS surface. Verdict: REJECTED — net negative.
+
+5. Per-process network namespace via a setuid wrapper that drops IMDS
+   and then exec's Node:
+   Possible in principle but: (a) requires us to ship a setuid binary
+   inside the container, which we explicitly reject as a hardening
+   practice; (b) the LLM-generated Node code could just curl 169.254.x
+   after the wrapper exec's — the wrapper drops privileges but doesn't
+   keep the namespace, since unshare -n requires CAP_SYS_ADMIN per (4).
+   Verdict: REJECTED — same blocker as (4).
+
+── What we DO have ────────────────────────────────────────────────────
+
+Containment is currently layered as follows:
+  (a) process-level — env-scrubbed subprocess (pptx_export.py:277-320),
+      so even if Node calls IMDS the IAM creds are fresh, not the long-
+      lived host vars.
+  (b) process-level — rlimits cap CPU, address space, file descriptors.
+  (c) process-level — concurrency cap (Semaphore = 3 max parallel).
+  (d) VPC-egress level — the EC2 security group restricts the host's
+      egress to {80, 443, 53, VPC-internal endpoint ranges}; an
+      attacker exfiltrating credentials over arbitrary TCP ports is
+      blocked at the SG. (Bedrock, SSM, KMS are 443 — that's what the
+      SG INTENDS to allow because the legitimate workload needs them.)
+  (e) detection — Phase C C2-1 (this branch, modules/monitoring) adds a
+      CloudTrail trail + metric filter + CloudWatch alarm on any
+      SSM Get* on /velocityai/${ENV}/* or KMS Decrypt from a principal
+      OTHER than the instance role. An LLM-RCE-exfil attempt would
+      trigger the UnexpectedSecretRead / UnexpectedKmsDecrypt alarm
+      within 5 minutes — the "find out" surface for the surface (d)
+      leaves open.
+
+── The REAL fix (deferred to a follow-up branch) ──────────────────────
+
+Sidecar refactor: spin a separate `pptx-renderer` container in
+docker-compose.yml with:
+  network_mode: "none"     # NO network namespace at all — can't reach 169.254
+  read_only: true
+  cap_drop: [ALL]
+  pids_limit: 32
+  mem_limit: 256m
+  cpus: 0.5
+The backend (FastAPI) then HTTP-POSTs `js_code` to the renderer over
+the internal compose network (which the renderer ISN'T attached to —
+they share a unix socket bind-mounted from the host, or the backend
+`docker exec`s a one-shot command into the renderer). The renderer
+can't reach IMDS because it has no network namespace; the backend
+(which DOES need IMDS for boto3) keeps its current network and
+never executes LLM-generated code itself.
+
+TODO(C3-x, separate PR — see docs/_audit/TRIAGE_PHASE_C.md group C3):
+  1. Add `pptx-renderer` service to docker-compose.yml with `network_mode: none`.
+  2. Build a minimal Node-only image (no boto3, no AWS SDK, no curl).
+  3. Refactor pptx_export.py to POST js_code to the renderer over a
+     unix-domain socket bind-mounted from the host into both containers.
+  4. Once landed, this whole §8b comment block can be deleted (the
+     sidecar's `network_mode: none` is the real fix; the layered
+     controls (a)-(e) above become defence-in-depth rather than the
+     primary control).
+
+Until then, the layered controls above are what we have. This section
+adds NO iptables rule because every candidate rule is either ineffective
+(rejected in 1-5 above) or breaks legitimate backend traffic.
+
+What this section DOES add: assertion checks. The TF compute module
+(`infra/modules/compute/main.tf::metadata_options`) is the authoritative
+source for IMDS posture (http_tokens=required, hop_limit=2). The
+instance role does NOT carry `ec2:ModifyInstanceMetadataOptions` (we
+don't want the host able to grant itself more permissive IMDS), so the
+bootstrap can only OBSERVE the current setting, not re-assert it.
+
+```

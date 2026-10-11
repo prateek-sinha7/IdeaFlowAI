@@ -42,7 +42,9 @@ def session():
 
 
 def _user(session, user_id="u1") -> User:
-    user = User(id=user_id, email=f"{user_id}@example.com", cognito_sub=f"sub-{user_id}")
+    user = User(
+        id=user_id, email=f"{user_id}@example.com", cognito_sub=f"sub-{user_id}"
+    )
     session.add(user)
     session.commit()
     return user
@@ -64,34 +66,62 @@ class TestRunFanout:
     def test_deletes_every_child_row_of_an_owned_run(self, session):
         user = _user(session)
         run = WorkflowRun(
-            id="run-1", user_id=user.id, type="prototype", status="completed",
-            input="x", workspace_id="ws-1",
+            id="run-1",
+            user_id=user.id,
+            type="prototype",
+            status="completed",
+            input="x",
+            workspace_id="ws-1",
         )
         session.add(run)
         session.commit()
         session.add(
             RunEvent(
-                id="e1", run_id="run-1", owner_id=user.id, workspace_id="ws-1",
-                seq=1, event_id="evt-1", type="t", payload_json={},
+                id="e1",
+                run_id="run-1",
+                owner_id=user.id,
+                workspace_id="ws-1",
+                seq=1,
+                event_id="evt-1",
+                type="t",
+                payload_json={},
             )
         )
         session.add(
             ArtifactRef(
-                id="a1", run_id="run-1", owner_id=user.id, workspace_id="ws-1",
-                kind="k", producer_step="s", producer_agent="ag", content="c",
-                content_hash="h", location="loc", version=1,
+                id="a1",
+                run_id="run-1",
+                owner_id=user.id,
+                workspace_id="ws-1",
+                kind="k",
+                producer_step="s",
+                producer_agent="ag",
+                content="c",
+                content_hash="h",
+                location="loc",
+                version=1,
             )
         )
         session.add(
             GateEvent(
-                id="g1", run_id="run-1", owner_id=user.id, workspace_id="ws-1",
-                step="s", gate="human", outcome="pass",
+                id="g1",
+                run_id="run-1",
+                owner_id=user.id,
+                workspace_id="ws-1",
+                step="s",
+                gate="human",
+                outcome="pass",
             )
         )
         session.add(
             ExecRun(
-                id="x1", run_id="run-1", owner_id=user.id, workspace_id="ws-1",
-                step="s", argv_json=[], outcome="allowed",
+                id="x1",
+                run_id="run-1",
+                owner_id=user.id,
+                workspace_id="ws-1",
+                step="s",
+                argv_json=[],
+                outcome="allowed",
             )
         )
         session.commit()
@@ -108,17 +138,28 @@ class TestRunFanout:
         assert session.query(WorkflowRun).count() == 0
         assert session.query(RunEvent).count() == 0
 
-    def test_nulls_parent_run_id_on_a_revision_child_instead_of_cascading(self, session):
+    def test_nulls_parent_run_id_on_a_revision_child_instead_of_cascading(
+        self, session
+    ):
         """A revision-chain row must SURVIVE with its link nulled, not be
         deleted along with its parent -- preserves history."""
         user = _user(session)
         parent = WorkflowRun(
-            id="parent", user_id=user.id, type="prototype", status="completed",
-            input="x", workspace_id="ws-1",
+            id="parent",
+            user_id=user.id,
+            type="prototype",
+            status="completed",
+            input="x",
+            workspace_id="ws-1",
         )
         child = WorkflowRun(
-            id="child", user_id=user.id, type="prototype_revision", status="completed",
-            input="x", workspace_id="ws-1", parent_run_id="parent",
+            id="child",
+            user_id=user.id,
+            type="prototype_revision",
+            status="completed",
+            input="x",
+            workspace_id="ws-1",
+            parent_run_id="parent",
         )
         session.add_all([parent, child])
         session.commit()
@@ -137,15 +178,24 @@ class TestRunFanout:
         owner = _user(session, "owner")
         other = _user(session, "other")
         parent = WorkflowRun(
-            id="parent", user_id=owner.id, type="prototype", status="completed",
-            input="x", workspace_id="ws-1",
+            id="parent",
+            user_id=owner.id,
+            type="prototype",
+            status="completed",
+            input="x",
+            workspace_id="ws-1",
         )
         # Defensive case: a revision owned by a DIFFERENT user pointing at the
         # deleted user's run. In practice a revision's parent is always the
         # same owner, but the nulling must not assume that.
         child = WorkflowRun(
-            id="child", user_id=other.id, type="prototype_revision", status="completed",
-            input="x", workspace_id="ws-1", parent_run_id="parent",
+            id="child",
+            user_id=other.id,
+            type="prototype_revision",
+            status="completed",
+            input="x",
+            workspace_id="ws-1",
+            parent_run_id="parent",
         )
         session.add_all([parent, child])
         session.commit()
@@ -206,9 +256,12 @@ class TestScoping:
         counts = delete_user_dependents(session, victim.id)
 
         assert counts == {}
-        assert session.query(WorkflowMemory).filter(
-            WorkflowMemory.user_id == bystander.id
-        ).count() == 1
+        assert (
+            session.query(WorkflowMemory)
+            .filter(WorkflowMemory.user_id == bystander.id)
+            .count()
+            == 1
+        )
 
     def test_omits_zero_count_tables_from_the_report(self, session):
         """Decision 6 asks for per-table counts in the audit event -- a user

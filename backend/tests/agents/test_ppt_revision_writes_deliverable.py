@@ -56,12 +56,12 @@ def test_ppt_revision_step_compiles_with_write_tools_granted() -> None:
     assert step.tools.write_files is True
 
     denied = denied_tools(step.tools)
-    assert "edit_file" not in denied, (
-        f"edit_file must be grantable on ppt_revision's step; denied={sorted(denied)}"
-    )
-    assert "write_file" not in denied, (
-        f"write_file must be grantable on ppt_revision's step; denied={sorted(denied)}"
-    )
+    assert (
+        "edit_file" not in denied
+    ), f"edit_file must be grantable on ppt_revision's step; denied={sorted(denied)}"
+    assert (
+        "write_file" not in denied
+    ), f"write_file must be grantable on ppt_revision's step; denied={sorted(denied)}"
 
 
 def test_ppt_revision_deliverable_is_single_file_presentation_html() -> None:
@@ -88,9 +88,12 @@ def _git(*args: str, cwd: Path) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=E2E Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
+            "-c",
+            "user.name=E2E Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
             *args,
         ],
         cwd=str(cwd),
@@ -196,9 +199,9 @@ def test_chain_payload_copies_the_revised_deliverable_byte_identical() -> None:
         _write_chain_payload("fix601-chain", ectx)
 
         copied = sb.root / ".chain" / "fix601-chain" / "presentation.html"
-        assert copied.is_file(), (
-            ".chain/{run_id}/presentation.html must exist after a terminal write"
-        )
+        assert (
+            copied.is_file()
+        ), ".chain/{run_id}/presentation.html must exist after a terminal write"
         assert copied.read_text(encoding="utf-8") == revised_bytes, (
             ".chain/ copy must be byte-identical to the sandbox-root deliverable "
             "the revision wrote, not stale v1 content"

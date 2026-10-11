@@ -59,7 +59,7 @@ def test_a_hook_with_a_blank_event_is_excluded_from_the_catalog(blank_event_hook
     """
     entries = hooks_catalog.list_global_hooks()
     assert not any(e.id == "blank-event-hook" for e in entries), (
-        "a hook with event: \"\" survived into list_global_hooks() — it is "
+        'a hook with event: "" survived into list_global_hooks() — it is '
         "present in the catalog but its event value is falsy, so it can "
         "never match any event pill's filter (hooks.py:33 drops empty "
         "strings from the pill list), reproducing ISS-329's reachability "

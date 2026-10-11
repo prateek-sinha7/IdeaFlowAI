@@ -361,7 +361,9 @@ class TestTTLSweepLoopBuildingProtectedSet:
             # FK-safe two-step insert for the cycle A -> B -> A: A first with
             # no parent (so it can be referenced), then B -> A, then rewrite
             # A -> B — no row is ever inserted whose parent doesn't exist yet.
-            _seed_run(session, run_id=run_id_a, user_id=user.id, status="waiting_for_user")
+            _seed_run(
+                session, run_id=run_id_a, user_id=user.id, status="waiting_for_user"
+            )
             run_ids.append(run_id_a)
             _seed_run(
                 session,

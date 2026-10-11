@@ -145,6 +145,9 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     # ── REDO-GATE follow-up: declared-gate redo opt-in ─────────────────────────
     # Consumed directly onto Step.redoable (bool coercion in _compile_step).
     "redoable": (True, lambda s, c: s.redoable is True),
+    # ── owned write surface: outputs + replaces (plan.py Step.outputs/replaces) ──
+    "outputs": (["index.html"], lambda s, c: s.outputs == ["index.html"]),
+    "replaces": (True, lambda s, c: s.replaces is True),
 }
 
 

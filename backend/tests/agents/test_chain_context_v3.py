@@ -135,10 +135,15 @@ class TestFR020SourceRunIdWritten:
         user.tier = "pro"
 
         with patch("app.api.run_commands.can_run_pipeline", return_value=(True, "")):
-            with patch("agents.registry.get_pipeline_agents", return_value=["a1", "a2"]):
+            with patch(
+                "agents.registry.get_pipeline_agents", return_value=["a1", "a2"]
+            ):
                 rev_id, _ = _mint_revision_row(
                     db_session,
                     user=user,
+                    # The caller's EFFECTIVE tier (Cognito-only auth migration,
+                    # Decision 3) — the same tier this user carries.
+                    caller_tier="pro",
                     parent_run_id=root_id,
                     target_artifact_type="custom_output",
                     instruction="test revision",
@@ -348,7 +353,9 @@ class TestFR024RootResolveFromMidFamily:
         # The chained run should use the root sandbox (shared with rev1)
         root_sb = RunSandbox(user_id, root_id, runs_root=str(tmp_path))
         # rev1 shares the same sandbox root (root_id)
-        rev1_sb = RunSandbox(user_id, root_id, current_run_id=rev1_id, runs_root=str(tmp_path))
+        rev1_sb = RunSandbox(
+            user_id, root_id, current_run_id=rev1_id, runs_root=str(tmp_path)
+        )
         # chained creates a new family (no parent_run_id), so it uses its own run_id as root
         chained_sb = RunSandbox(user_id, chained_id, runs_root=str(tmp_path))
 
@@ -373,7 +380,9 @@ class TestFR026InstallReturnsEmptyAndLandsFiles:
     @pytest.mark.asyncio
     async def test_provider_load_returns_empty_dict(self):
         """ChainContextProvider.load() always returns an empty dict (no text injection)."""
-        from agents.capabilities.context_providers.chain_context import ChainContextProvider
+        from agents.capabilities.context_providers.chain_context import (
+            ChainContextProvider,
+        )
 
         provider = ChainContextProvider()
 
@@ -389,7 +398,9 @@ class TestFR026InstallReturnsEmptyAndLandsFiles:
     @pytest.mark.asyncio
     async def test_provider_dormant_when_chains_from_false(self):
         """Provider returns {} when workflow doesn't declare chains_from."""
-        from agents.capabilities.context_providers.chain_context import ChainContextProvider
+        from agents.capabilities.context_providers.chain_context import (
+            ChainContextProvider,
+        )
 
         provider = ChainContextProvider()
         ctx = MagicMock()
@@ -403,7 +414,9 @@ class TestFR026InstallReturnsEmptyAndLandsFiles:
     @pytest.mark.asyncio
     async def test_provider_dormant_when_no_source(self):
         """Provider returns {} when chain_source_run_id is missing."""
-        from agents.capabilities.context_providers.chain_context import ChainContextProvider
+        from agents.capabilities.context_providers.chain_context import (
+            ChainContextProvider,
+        )
 
         provider = ChainContextProvider()
         ctx = MagicMock()
@@ -420,7 +433,9 @@ class TestFR026InstallReturnsEmptyAndLandsFiles:
         # This test verifies the core contract: ChainContextProvider always
         # returns empty dict. The return value is consistent regardless of path
         # (whether install succeeds, fails, or is skipped).
-        from agents.capabilities.context_providers.chain_context import ChainContextProvider
+        from agents.capabilities.context_providers.chain_context import (
+            ChainContextProvider,
+        )
 
         provider = ChainContextProvider()
 
@@ -451,7 +466,9 @@ class TestFR026InstallReturnsEmptyAndLandsFiles:
         A stray chain_source_run_id on a workflow that doesn't declare chaining
         triggers ZERO cross-run reads.
         """
-        from agents.capabilities.context_providers.chain_context import ChainContextProvider
+        from agents.capabilities.context_providers.chain_context import (
+            ChainContextProvider,
+        )
 
         provider = ChainContextProvider()
 
@@ -466,7 +483,9 @@ class TestFR026InstallReturnsEmptyAndLandsFiles:
         # If the provider tries to read, this will fail
         ctx.runner = MagicMock()
         ctx.runner.sandbox = None
-        ctx.runner.open_source_sandbox = MagicMock(side_effect=RuntimeError("Should not be called"))
+        ctx.runner.open_source_sandbox = MagicMock(
+            side_effect=RuntimeError("Should not be called")
+        )
 
         # Provider should return {} without any cross-run reads
         result = await provider.load(ctx)
@@ -513,7 +532,9 @@ class TestInstallV2RealGitRef:
         sb.git_init_sandbox()
         return sb
 
-    def _commit_chain_payload(self, sb, *, logs: str, summary: str, html: str, tag: str) -> str:
+    def _commit_chain_payload(
+        self, sb, *, logs: str, summary: str, html: str, tag: str
+    ) -> str:
         from app.agents.sandbox import payload_allowlist
 
         sb.write(".chain/logs.jsonl", logs)
@@ -584,7 +605,9 @@ class TestInstallV2RealGitRef:
         ctx.run_id = "receiving-run"
         ctx.chain_source_run_id = "source-root"
         ctx.compiled_plan.deliverable.chains_from = True
-        ctx.chain_selection = SimpleNamespace(is_legacy=False, ref="v1", basename="hello.html")
+        ctx.chain_selection = SimpleNamespace(
+            is_legacy=False, ref="v1", basename="hello.html"
+        )
         ctx.runner = fake_runner
 
         provider = ChainContextProvider()
@@ -607,7 +630,9 @@ class TestInstallV2RealGitRef:
         assert (dest / "hello.html").read_bytes() == b"<h1>hi v1</h1>"
 
     @pytest.mark.asyncio
-    async def test_install_v2_from_mid_family_revision_ref(self, tmp_path: Path) -> None:
+    async def test_install_v2_from_mid_family_revision_ref(
+        self, tmp_path: Path
+    ) -> None:
         """FR-024/AC-04/AC-22: chaining from a mid-family revision reads that
         revision's own exact ref, not the root's — even though both revisions
         share one physical sandbox directory (root-resolve keeps a family on
@@ -642,7 +667,9 @@ class TestInstallV2RealGitRef:
             current_run_id=rev1_id,
             runs_root=str(tmp_path / "runs"),
         )
-        assert rev1_sb.root == root_sb.root, "revision must share the root's physical sandbox"
+        assert (
+            rev1_sb.root == root_sb.root
+        ), "revision must share the root's physical sandbox"
         self._commit_chain_payload(
             rev1_sb,
             logs="rev1-log\n",
@@ -674,7 +701,9 @@ class TestInstallV2RealGitRef:
         ctx.run_id = "receiving-run-2"
         ctx.chain_source_run_id = rev1_id
         ctx.compiled_plan.deliverable.chains_from = True
-        ctx.chain_selection = SimpleNamespace(is_legacy=False, ref="v2", basename="hello.html")
+        ctx.chain_selection = SimpleNamespace(
+            is_legacy=False, ref="v2", basename="hello.html"
+        )
         ctx.runner = fake_runner
 
         provider = ChainContextProvider()
@@ -754,7 +783,9 @@ class TestChainFromMidFamilyIntegration:
         # Verify sandbox paths
         root_sb = RunSandbox(user_id, root_id, runs_root=str(tmp_path))
         # revision shares the root sandbox (use root_id as sandbox key)
-        rev_sb = RunSandbox(user_id, root_id, current_run_id=rev_id, runs_root=str(tmp_path))
+        rev_sb = RunSandbox(
+            user_id, root_id, current_run_id=rev_id, runs_root=str(tmp_path)
+        )
         # chained run creates a new family (no parent), uses its own run_id as root
         chained_sb = RunSandbox(user_id, chained_id, runs_root=str(tmp_path))
 
@@ -793,11 +824,14 @@ def test_atomic_write_merges_not_replaces(tmp_path: Path) -> None:
     (dest / "selections.json").write_bytes(b'{"template":"hero"}')
 
     # Chain install writes its three flat payload files.
-    _atomic_write_context_dir(dest, {
-        "summary.md": b"# Summary",
-        "logs.jsonl": b'{"step":1}',
-        "prototype.html": b"<html/>",
-    })
+    _atomic_write_context_dir(
+        dest,
+        {
+            "summary.md": b"# Summary",
+            "logs.jsonl": b'{"step":1}',
+            "prototype.html": b"<html/>",
+        },
+    )
 
     # Chain payload files must be written at .context/ root.
     assert (dest / "summary.md").read_bytes() == b"# Summary"
@@ -805,18 +839,18 @@ def test_atomic_write_merges_not_replaces(tmp_path: Path) -> None:
     assert (dest / "prototype.html").read_bytes() == b"<html/>"
 
     # OpenDesign seed files must survive untouched (BUG-126 regression guard).
-    assert (dest / "design" / "tokens.json").exists(), (
-        "design/tokens.json was destroyed — BUG-126 regression"
-    )
-    assert (dest / "design" / "tokens.json").read_bytes() == b'{"color":"red"}', (
-        "design/tokens.json was modified — BUG-126 regression"
-    )
-    assert (dest / "selections.json").exists(), (
-        "selections.json was destroyed — BUG-126 regression"
-    )
-    assert (dest / "selections.json").read_bytes() == b'{"template":"hero"}', (
-        "selections.json was modified — BUG-126 regression"
-    )
+    assert (
+        dest / "design" / "tokens.json"
+    ).exists(), "design/tokens.json was destroyed — BUG-126 regression"
+    assert (
+        (dest / "design" / "tokens.json").read_bytes() == b'{"color":"red"}'
+    ), "design/tokens.json was modified — BUG-126 regression"
+    assert (
+        dest / "selections.json"
+    ).exists(), "selections.json was destroyed — BUG-126 regression"
+    assert (
+        (dest / "selections.json").read_bytes() == b'{"template":"hero"}'
+    ), "selections.json was modified — BUG-126 regression"
 
 
 if __name__ == "__main__":

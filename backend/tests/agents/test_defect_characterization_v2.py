@@ -61,6 +61,7 @@ import pytest
 BACKEND_ROOT = Path(__file__).parent.parent.parent  # …/backend/
 ENGINE_PATH = BACKEND_ROOT / "agents" / "execution_engine" / "engine.py"
 SANDBOX_PATH = BACKEND_ROOT / "app" / "agents" / "sandbox.py"
+REVISION_ROOT_PATH = BACKEND_ROOT / "app" / "services" / "revision_root.py"
 LOCAL_PATH = BACKEND_ROOT / "app" / "agents" / "runtime" / "local.py"
 SECRET_SCAN_PATH = BACKEND_ROOT / "agents" / "capabilities" / "hooks" / "secret_scan.py"
 
@@ -119,7 +120,12 @@ class TestD1FindChainRootWalksSourceRunId:
         FAILS NOW because the function does not exist yet.
         PASSES after task 3.1 creates resolve_revision_root.
         """
-        src = _source(ENGINE_PATH)
+        # The canonical resolver was moved app-side (ece8b18c) to
+        # app/services/revision_root.py; engine.py's _resolve_root_id delegates to it.
+        assert "resolve_revision_root" in _source(
+            ENGINE_PATH
+        ), "engine.py must delegate root resolution to resolve_revision_root"
+        src = _source(REVISION_ROOT_PATH)
         tree = ast.parse(src)
 
         resolver_node = next(
@@ -133,22 +139,20 @@ class TestD1FindChainRootWalksSourceRunId:
         )
 
         assert resolver_node is not None, (
-            "D1 NOT YET FIXED: resolve_revision_root does not exist in engine.py. "
+            "D1 NOT YET FIXED: resolve_revision_root does not exist in revision_root.py. "
             "Task 3.1 must create it."
         )
 
         lines = src.splitlines()
-        fn_body = "\n".join(
-            lines[resolver_node.lineno - 1 : resolver_node.end_lineno]
-        )
+        fn_body = "\n".join(lines[resolver_node.lineno - 1 : resolver_node.end_lineno])
 
         # The correct resolver walks parent_run_id, never source_run_id.
-        assert "parent_run_id" in fn_body, (
-            "D1 NOT YET FIXED: resolve_revision_root does not walk parent_run_id."
-        )
-        assert "source_run_id" not in fn_body, (
-            "D1 NOT YET FIXED: resolve_revision_root still references source_run_id."
-        )
+        assert (
+            "parent_run_id" in fn_body
+        ), "D1 NOT YET FIXED: resolve_revision_root does not walk parent_run_id."
+        assert (
+            "source_run_id" not in fn_body
+        ), "D1 NOT YET FIXED: resolve_revision_root still references source_run_id."
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +221,9 @@ class TestD2LogPathCollidesAcrossRevisions:
             current_run_id=revision_id,
             runs_root=str(tmp_path),
         )
-        assert revision_id in str(revision_sandbox.run_log_path), (
-            "D2 REGRESSION: run_log_path does not contain current_run_id."
-        )
+        assert revision_id in str(
+            revision_sandbox.run_log_path
+        ), "D2 REGRESSION: run_log_path does not contain current_run_id."
         assert sandbox_root_id not in revision_sandbox.run_log_path.name, (
             "D2 REGRESSION: run_log_path filename still uses sandbox_root_id instead of "
             "current_run_id.  Expected .logs/{current_run_id}.jsonl."
@@ -381,9 +385,7 @@ class TestD4ChainDirGitignored:
                 timeout=30,
             )
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"git {' '.join(args)} failed:\n{result.stderr}"
-                )
+                raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr}")
             return result.stdout.strip()
 
         _git("init", "-b", "main")
@@ -417,12 +419,12 @@ class TestD4ChainDirGitignored:
             "D4 NOT YET FIXED: .chain/logs.jsonl not in the terminal snapshot commit. "
             "Task 5.2 must force-stage the exact three allowlist paths."
         )
-        assert ".chain/summary.md" in show_stat, (
-            "D4 NOT YET FIXED: .chain/summary.md not in the terminal snapshot commit."
-        )
-        assert ".chain/prototype.html" in show_stat, (
-            "D4 NOT YET FIXED: .chain/prototype.html not in the terminal snapshot commit."
-        )
+        assert (
+            ".chain/summary.md" in show_stat
+        ), "D4 NOT YET FIXED: .chain/summary.md not in the terminal snapshot commit."
+        assert (
+            ".chain/prototype.html" in show_stat
+        ), "D4 NOT YET FIXED: .chain/prototype.html not in the terminal snapshot commit."
 
     def test_d4_chain_payload_absent_from_commits_today_characterization(
         self, tmp_path: Path
@@ -451,9 +453,7 @@ class TestD4ChainDirGitignored:
                 timeout=30,
             )
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"git {' '.join(args)} failed:\n{result.stderr}"
-                )
+                raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr}")
             return result.stdout.strip()
 
         _git("init", "-b", "main")
@@ -519,7 +519,7 @@ class TestD5PreCommitEmptyPayload:
                         pre_commit_block_lines.append(i + 1)
 
         assert not pre_commit_block_lines, (
-            f"D5 NOT YET FIXED: pre_commit is fired with payload=\"\" at "
+            f'D5 NOT YET FIXED: pre_commit is fired with payload="" at '
             f"line(s) {pre_commit_block_lines} in engine.py. "
             "Task 4.2 must replace the empty placeholder with the real staged "
             "diff (staged.hook_payload)."
@@ -592,6 +592,6 @@ class TestD5PreCommitEmptyPayload:
         )
 
         # Empty string (the current defective payload) returns None — no block.
-        assert scan_for_secret("") is None, (
-            "scan_for_secret('') returned non-None — unexpected behavior."
-        )
+        assert (
+            scan_for_secret("") is None
+        ), "scan_for_secret('') returned non-None — unexpected behavior."

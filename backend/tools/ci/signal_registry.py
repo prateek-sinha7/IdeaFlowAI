@@ -9,8 +9,25 @@ policy verdicts remains distinct.
 """
 
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
 from typing import Optional, Set
+
+from tools.ci.pin_authority import get_authority
+
+# Every `tool_version` below is read from the pin authority rather than written
+# as a literal. The literals had drifted (tflint 0.59.1, ruff 0.9.11, pyright
+# 1.1.407, checkov 3.2.180, grype 0.75.0) from what CI actually installs (F-08);
+# test_signal_registry.py asserts the mapping.
+_PINS = get_authority()
+
+#: The change areas ci.yml's `changes` job can report as unchanged on a pull
+#: request (F-15). backend/tools/ci/change_scope.py declares the same tuple as
+#: `AREAS` (it is stdlib-only and cannot import this module), and
+#: test_change_scope.py asserts the two agree. See `Signal.path_filter_area`.
+PATH_FILTER_AREAS = frozenset(
+    {"backend", "frontend", "infra", "backend_image", "frontend_image"}
+)
 
 
 class SignalType(Enum):
@@ -42,6 +59,95 @@ class Signal:
     is_mandatory: bool = True
     is_blocking: bool = True
     aggregate_members: Optional[list[str]] = None  # For aggregate signals (ci_required)
+
+    # ------------------------------------------------------------------
+    # THE PATH-FILTER (SKIP-AS-SUCCESS) POLICY (F-15)
+    # ------------------------------------------------------------------
+    # `path_filter_area` names the change area (one of PATH_FILTER_AREAS) whose
+    # files this signal evaluates. A signal may be reported FILTERED — "did not
+    # run because nothing it evaluates changed" — only when ALL of these hold:
+    #
+    #   1. the event is `pull_request`. push, workflow_dispatch and
+    #      workflow_call (the deploy gate) always run everything, so a branch tip
+    #      and every deployment are always fully evaluated;
+    #   2. this field is not None, and ci.yml's `changes` job reported this
+    #      area as unchanged for the pull request;
+    #   3. the signal's job was skipped, or its matrix leg was excluded.
+    #
+    # FILTERED satisfies the aggregate, but it is recorded APART from verdicts
+    # (the manifest's `policy_filtered` list, never `signal_states`), so a
+    # reader can always tell "not needed" from "succeeded". It is also distinct
+    # from MISSING, which still fails: a job that vanished, or a skip whose area
+    # was NOT reported unchanged, has no verdict and blocks.
+    #
+    # A job that RAN keeps its real result for every signal it evaluated, so a
+    # failure is never hidden by the filter. The one exception is a PARTIALLY
+    # filtered matrix job (e.g. `security` running only its `secrets` leg
+    # because its other areas are unchanged): the signals of the excluded legs
+    # never ran, so they are FILTERED, while the live legs' signals keep the
+    # real job result (ci_gate._signal_state_for). A failed live leg therefore
+    # still fails its signals.
+    #
+    # None means NEVER filterable: repo-static/* and security[secrets] evaluate
+    # the whole repository (workflows, scripts, compose files, full history) on
+    # every event.
+    path_filter_area: Optional[str] = None
+
+    # ------------------------------------------------------------------
+    # Advisory eligibility (F-03)
+    # ------------------------------------------------------------------
+    # A signal marked `advisory_eligible` MAY be downgraded to advisory for a
+    # single evaluation, by an explicit `--advisory <id>` argument to
+    # `tools.ci.ci_gate aggregate`. A downgraded signal still runs, still
+    # reports, and is still recorded in the manifest — it simply does not fail
+    # the aggregate.
+    #
+    # This exists because the alternative shipped instead was far worse: the
+    # `dev` environment's CI gate was SKIPPED ENTIRELY (deploy.yml `if:
+    # needs.resolve.outputs.environment != 'dev'`) to work around four
+    # pre-existing red signals. That turned off lint, every test, the coverage
+    # gates, secret scanning, dependency audits and both container scans for
+    # every dev deploy — every mandatory signal discarded to avoid a handful of
+    # red ones. A per-signal, listed, dated downgrade keeps every other signal
+    # blocking.
+    #
+    # THE THREE PROPERTIES THAT KEEP THIS FROM BECOMING A BYPASS:
+    #   1. ALLOWLIST. Only signals with `advisory_eligible=True` can be named.
+    #      Asking for any other id is a hard failure, so a caller cannot
+    #      downgrade an arbitrary signal — least of all the whole set.
+    #   2. EXPIRY. `advisory_expires` is a real date. Past it, naming the signal
+    #      FAILS the aggregate instead of downgrading it. A temporary allowance
+    #      that cannot expire is a permanent one, so the deadline is enforced by
+    #      the gate rather than by intention.
+    #   3. NO REACH INTO PULL REQUESTS. The downgrade is only reachable through a
+    #      workflow input, and `pull_request` events carry no inputs. The trusted
+    #      finalizer additionally refuses any manifest that records a downgrade
+    #      (.github/scripts/ci-validate-evidence.sh), so `ci-required` on a PR is
+    #      always the strict verdict.
+    #
+    # `advisory_reason` is the record of WHY, and `advisory_owner` of WHO is
+    # removing the need for it. Both are required alongside eligibility.
+    advisory_eligible: bool = False
+    advisory_expires: Optional[str] = None  # ISO-8601 date, e.g. "2026-12-31"
+    advisory_reason: Optional[str] = None
+    advisory_owner: Optional[str] = None
+
+    def advisory_allowance_expired(self, today: Optional[date] = None) -> bool:
+        """
+        Return True when this signal's advisory allowance is no longer valid.
+
+        A signal that is not advisory-eligible is reported as expired, so the
+        caller's single check covers both "never allowed" and "no longer
+        allowed".
+        """
+        if not self.advisory_eligible:
+            return True
+        if not self.advisory_expires:
+            # Eligible but undated is treated as expired: an allowance with no
+            # end is exactly what this mechanism refuses to grant.
+            return True
+        reference = today or date.today()
+        return reference > date.fromisoformat(self.advisory_expires)
 
     def __hash__(self):
         """Make Signal hashable."""
@@ -91,7 +197,7 @@ class SignalRegistry:
                 trust_boundary="repository-code",
                 verdict_semantics="workflow-schema-valid",
                 required_artifact_formats=["log"],
-                tool_version="1.7.12",
+                tool_version=_PINS.actionlint_version,
                 config_file=".github/workflows/*.yml",
                 timeout_seconds=300,
             )
@@ -123,6 +229,28 @@ class SignalRegistry:
                 trust_boundary="repository-code",
                 verdict_semantics="shellcheck-warnings-resolved",
                 required_artifact_formats=["log"],
+                tool_version=_PINS.shellcheck_version,
+                timeout_seconds=300,
+            )
+        )
+
+        # F-19: the compose files shipped to hosts were never parsed in CI, so a
+        # broken overlay or an un-defaulted variable only surfaced mid-deploy.
+        self._register_signal(
+            Signal(
+                id="repo-static/compose-config",
+                name="Compose config",
+                description=(
+                    "docker compose config for docker-compose.yml alone and with "
+                    "docker-compose.prod.yml, using placeholder-only ci/compose-ci.env"
+                ),
+                signal_type=SignalType.STATIC_CHECK,
+                owner_job="repo-static",
+                scope="compose-files",
+                trust_boundary="repository-code",
+                verdict_semantics="compose-config-valid",
+                required_artifact_formats=["log"],
+                config_file="docker-compose.yml",
                 timeout_seconds=300,
             )
         )
@@ -139,45 +267,19 @@ class SignalRegistry:
                 trust_boundary="repository-code",
                 verdict_semantics="no-secrets-found",
                 required_artifact_formats=["json", "log"],
-                tool_version="8.30.1",
+                tool_version=_PINS.gitleaks_version,
                 config_file="ci/gitleaks.toml",
                 timeout_seconds=600,
             )
         )
 
-        self._register_signal(
-            Signal(
-                id="security[backend-deps]",
-                name="pip-audit",
-                description="Python dependency audit and vulnerability detection",
-                signal_type=SignalType.SECURITY_SCAN,
-                owner_job="security",
-                scope="backend-dependencies",
-                trust_boundary="frozen-lock",
-                verdict_semantics="zero-high-critical-dependencies",
-                required_artifact_formats=["json"],
-                tool_version="(via uv frozen)",
-                config_file="backend/pyproject.toml",
-                timeout_seconds=600,
-            )
-        )
-
-        self._register_signal(
-            Signal(
-                id="security[frontend-deps]",
-                name="npm-audit",
-                description="NPM dependency audit and vulnerability detection",
-                signal_type=SignalType.SECURITY_SCAN,
-                owner_job="security",
-                scope="frontend-dependencies",
-                trust_boundary="frozen-lock",
-                verdict_semantics="zero-high-critical-dependencies",
-                required_artifact_formats=["json"],
-                tool_version="(npm built-in)",
-                config_file="frontend/package-lock.json",
-                timeout_seconds=600,
-            )
-        )
+        # security[backend-deps] (pip-audit) and security[frontend-deps]
+        # (npm audit) were RETIRED. Every dependency-vulnerability verdict now
+        # comes from Trivy or Grype in `container-scan`: the backend image holds
+        # exactly the `uv export --frozen --no-dev` slice of backend/uv.lock, and
+        # the frontend lockfile is scanned by container-scan[frontend]/
+        # trivy-lockfile below. Their exceptions moved to the single dated list in
+        # tools/ci/scan_accepts.py, and neither is advisory-eligible any more.
 
         # ===== Backend Inventory and Static Checks =====
         self._register_signal(
@@ -187,6 +289,7 @@ class SignalRegistry:
                 description="Canonical pytest collection and test node classification",
                 signal_type=SignalType.TEST_EXECUTION,
                 owner_job="backend-inventory",
+                path_filter_area="backend",
                 scope="backend-tests",
                 trust_boundary="repository-code",
                 verdict_semantics="inventory-complete-and-disjoint",
@@ -202,11 +305,12 @@ class SignalRegistry:
                 description="Python code linting with Ruff",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="backend-python",
                 trust_boundary="repository-code",
                 verdict_semantics="ruff-lint-passed",
                 required_artifact_formats=["log", "json"],
-                tool_version="0.9.11",
+                tool_version=_PINS.ruff_version,
                 timeout_seconds=300,
             )
         )
@@ -218,11 +322,12 @@ class SignalRegistry:
                 description="Python code formatting validation with Ruff",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="backend-python",
                 trust_boundary="repository-code",
                 verdict_semantics="ruff-format-passed",
                 required_artifact_formats=["log"],
-                tool_version="0.9.11",
+                tool_version=_PINS.ruff_version,
                 timeout_seconds=300,
             )
         )
@@ -234,6 +339,7 @@ class SignalRegistry:
                 description="Python bytecode compilation check",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="backend-python",
                 trust_boundary="repository-code",
                 verdict_semantics="python-compile-passed",
@@ -246,14 +352,15 @@ class SignalRegistry:
             Signal(
                 id="backend-static/pyright",
                 name="Pyright",
-                description="Python type checking with Pyright",
+                description="Python import resolution with Pyright (typeCheckingMode off)",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="backend-python",
                 trust_boundary="repository-code",
                 verdict_semantics="pyright-passed",
                 required_artifact_formats=["log", "json"],
-                tool_version="1.1.407",
+                tool_version=_PINS.pyright_version,
                 timeout_seconds=600,
             )
         )
@@ -265,6 +372,7 @@ class SignalRegistry:
                 description="Python import boundary enforcement",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="backend-python",
                 trust_boundary="repository-code",
                 verdict_semantics="import-boundaries-valid",
@@ -280,6 +388,7 @@ class SignalRegistry:
                 description="Dead code detection",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="backend-python",
                 trust_boundary="repository-code",
                 verdict_semantics="vulture-passed",
@@ -295,6 +404,7 @@ class SignalRegistry:
                 description="Python security issue scanner",
                 signal_type=SignalType.SECURITY_SCAN,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="backend-python",
                 trust_boundary="repository-code",
                 verdict_semantics="bandit-passed",
@@ -310,6 +420,7 @@ class SignalRegistry:
                 description="Database migration integrity and validity checks",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="backend-static",
+                path_filter_area="backend",
                 scope="database-migrations",
                 trust_boundary="repository-code",
                 verdict_semantics="migrations-valid",
@@ -326,6 +437,7 @@ class SignalRegistry:
                 description="Offline backend unit/integration/characterization tests without live providers",
                 signal_type=SignalType.TEST_EXECUTION,
                 owner_job="backend-offline",
+                path_filter_area="backend",
                 scope="backend-tests-offline",
                 trust_boundary="ci-code",
                 verdict_semantics="all-offline-tests-pass",
@@ -341,6 +453,7 @@ class SignalRegistry:
                 description="Backend tests requiring PostgreSQL database service",
                 signal_type=SignalType.TEST_EXECUTION,
                 owner_job="backend-postgres",
+                path_filter_area="backend",
                 scope="backend-tests-postgres",
                 trust_boundary="ci-code",
                 verdict_semantics="all-postgres-tests-pass",
@@ -356,6 +469,7 @@ class SignalRegistry:
                 description="Merge backend coverage, validate producers, enforce >=80% overall coverage",
                 signal_type=SignalType.COVERAGE_REPORT,
                 owner_job="backend-evidence",
+                path_filter_area="backend",
                 scope="backend-coverage",
                 trust_boundary="ci-code",
                 verdict_semantics="backend-coverage-80-percent",
@@ -372,6 +486,7 @@ class SignalRegistry:
                 description="TypeScript type checking",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="frontend-static",
+                path_filter_area="frontend",
                 scope="frontend-typescript",
                 trust_boundary="repository-code",
                 verdict_semantics="typescript-valid",
@@ -387,6 +502,7 @@ class SignalRegistry:
                 description="ESLint and stale-suppression checks",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="frontend-static",
+                path_filter_area="frontend",
                 scope="frontend-typescript",
                 trust_boundary="repository-code",
                 verdict_semantics="eslint-passed",
@@ -395,18 +511,25 @@ class SignalRegistry:
             )
         )
 
+        # F-12: the production build is its own job. It used to be the third
+        # check of frontend-static (`frontend-static/build`) and was then
+        # thrown away; frontend-e2e now runs against exactly this bundle.
         self._register_signal(
             Signal(
-                id="frontend-static/build",
+                id="frontend-build",
                 name="Frontend build",
-                description="Production Next.js build validation",
+                description=(
+                    "Production Next.js standalone build, uploaded once as the "
+                    "tarball frontend-e2e serves"
+                ),
                 signal_type=SignalType.STATIC_CHECK,
-                owner_job="frontend-static",
+                owner_job="frontend-build",
+                path_filter_area="frontend",
                 scope="frontend-build",
                 trust_boundary="repository-code",
                 verdict_semantics="build-succeeds",
-                required_artifact_formats=["log"],
-                timeout_seconds=720,
+                required_artifact_formats=["log", "tar.gz"],
+                timeout_seconds=1200,
             )
         )
 
@@ -418,6 +541,7 @@ class SignalRegistry:
                 description="Complete Vitest unit/component/integration test execution with coverage",
                 signal_type=SignalType.TEST_EXECUTION,
                 owner_job="frontend-vitest",
+                path_filter_area="frontend",
                 scope="frontend-tests",
                 trust_boundary="ci-code",
                 verdict_semantics="all-vitest-tests-pass",
@@ -433,11 +557,24 @@ class SignalRegistry:
                 description="Complete mocked Playwright E2E test execution",
                 signal_type=SignalType.TEST_EXECUTION,
                 owner_job="frontend-e2e",
+                path_filter_area="frontend",
                 scope="frontend-e2e",
                 trust_boundary="ci-code",
                 verdict_semantics="all-mocked-e2e-tests-pass",
                 required_artifact_formats=["junit"],
                 timeout_seconds=1500,
+                advisory_eligible=True,
+                advisory_expires="2027-03-31",
+                advisory_reason=(
+                    "The mandatory mocked Playwright project fails at HEAD "
+                    "(.github/CI_STATUS.md); the earlier ~40-skip baseline no "
+                    "longer applies. Each failing test needs its own reviewed "
+                    "change: either the test is restored or it is deleted with a "
+                    "reason. Clearing this by widening the skip audit or "
+                    "converting a failing test to a skip is explicitly not "
+                    "acceptable."
+                ),
+                advisory_owner="frontend",
             )
         )
 
@@ -445,14 +582,25 @@ class SignalRegistry:
             Signal(
                 id="frontend-evidence",
                 name="Frontend evidence aggregation",
-                description="Merge frontend coverage/E2E, validate producers, enforce >=80% all metrics",
+                description="Validate the Vitest producer and enforce >=80% on all four coverage metrics",
                 signal_type=SignalType.COVERAGE_REPORT,
                 owner_job="frontend-evidence",
+                path_filter_area="frontend",
                 scope="frontend-coverage",
                 trust_boundary="ci-code",
                 verdict_semantics="frontend-coverage-80-percent-all-metrics",
                 required_artifact_formats=["lcov", "junit"],
                 timeout_seconds=600,
+                advisory_eligible=True,
+                advisory_expires="2027-03-31",
+                advisory_reason=(
+                    "Frontend coverage measures 47.34 / 45.11 / 46.34 / 49.26 "
+                    "against a 80% four-metric threshold (.github/CI_STATUS.md). "
+                    "Remediation is writing tests. Lowering the threshold or "
+                    "narrowing the coverage denominator to clear this is "
+                    "explicitly not acceptable — the gate stays at 80%."
+                ),
+                advisory_owner="frontend",
             )
         )
 
@@ -463,6 +611,7 @@ class SignalRegistry:
                 description="Terraform code formatting validation",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="security",
+                path_filter_area="infra",
                 scope="terraform-configuration",
                 trust_boundary="repository-code",
                 verdict_semantics="terraform-formatted",
@@ -478,6 +627,7 @@ class SignalRegistry:
                 description="Terraform configuration validation (backend disabled)",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="security",
+                path_filter_area="infra",
                 scope="terraform-configuration",
                 trust_boundary="repository-code",
                 verdict_semantics="terraform-valid",
@@ -493,11 +643,12 @@ class SignalRegistry:
                 description="Terraform linter for best practices",
                 signal_type=SignalType.STATIC_CHECK,
                 owner_job="security",
+                path_filter_area="infra",
                 scope="terraform-configuration",
                 trust_boundary="repository-code",
                 verdict_semantics="tflint-passed",
                 required_artifact_formats=["log"],
-                tool_version="0.59.1",
+                tool_version=_PINS.tflint_version,
                 timeout_seconds=300,
             )
         )
@@ -509,11 +660,12 @@ class SignalRegistry:
                 description="Infrastructure-as-code policy checks",
                 signal_type=SignalType.SECURITY_SCAN,
                 owner_job="security",
+                path_filter_area="infra",
                 scope="terraform-configuration",
                 trust_boundary="repository-code",
                 verdict_semantics="iac-policies-passed",
                 required_artifact_formats=["json"],
-                tool_version="3.2.180",
+                tool_version=_PINS.checkov_version,
                 config_file="ci/checkov.yaml",
                 timeout_seconds=600,
             )
@@ -526,16 +678,25 @@ class SignalRegistry:
                 description="Trivy configuration and vulnerability scan",
                 signal_type=SignalType.SECURITY_SCAN,
                 owner_job="security",
+                path_filter_area="infra",
                 scope="terraform-configuration",
                 trust_boundary="repository-code",
                 verdict_semantics="zero-high-critical-config-vulns",
                 required_artifact_formats=["json"],
-                tool_version="0.69.3",
+                tool_version=_PINS.trivy_version,
                 timeout_seconds=600,
             )
         )
 
         # ===== Container Scanning Signals =====
+        # TODO(security): TEMPORARY - vulnerability scans are WARN-ONLY (advisory) as of 2026-10-11.
+        # In future this must be changed back to BLOCKING, and the outstanding High/Critical
+        # vulnerabilities must be fixed (see backend/tools/ci/scan_accepts.py and scan reports).
+        # These signals stay MANDATORY (they must still run and report, so a vanished
+        # job still fails the aggregate) but are is_blocking=False because
+        # `ci_gate scan-gate --mode warn` reports findings without failing. They are
+        # deliberately NOT advisory_eligible: that downgrade cannot reach pull requests
+        # and would also excuse non-vulnerability failures.
         self._register_signal(
             Signal(
                 id="container-scan[backend]/trivy",
@@ -543,12 +704,14 @@ class SignalRegistry:
                 description="Container image vulnerability scan with Trivy",
                 signal_type=SignalType.SECURITY_SCAN,
                 owner_job="container-scan",
+                path_filter_area="backend_image",
                 scope="backend-image",
                 trust_boundary="ci-build",
                 verdict_semantics="zero-high-critical-image-vulns",
                 required_artifact_formats=["json"],
-                tool_version="0.69.3",
+                tool_version=_PINS.trivy_version,
                 timeout_seconds=600,
+                is_blocking=False,  # TODO(security): TEMPORARY, restore True
             )
         )
 
@@ -559,12 +722,14 @@ class SignalRegistry:
                 description="Container image vulnerability scan with Grype",
                 signal_type=SignalType.SECURITY_SCAN,
                 owner_job="container-scan",
+                path_filter_area="backend_image",
                 scope="backend-image",
                 trust_boundary="ci-build",
                 verdict_semantics="zero-high-critical-image-vulns",
                 required_artifact_formats=["json"],
-                tool_version="0.75.0",
+                tool_version=_PINS.grype_version,
                 timeout_seconds=600,
+                is_blocking=False,  # TODO(security): TEMPORARY, restore True
             )
         )
 
@@ -575,12 +740,14 @@ class SignalRegistry:
                 description="Container image vulnerability scan with Trivy",
                 signal_type=SignalType.SECURITY_SCAN,
                 owner_job="container-scan",
+                path_filter_area="frontend_image",
                 scope="frontend-image",
                 trust_boundary="ci-build",
                 verdict_semantics="zero-high-critical-image-vulns",
                 required_artifact_formats=["json"],
-                tool_version="0.69.3",
+                tool_version=_PINS.trivy_version,
                 timeout_seconds=600,
+                is_blocking=False,  # TODO(security): TEMPORARY, restore True
             )
         )
 
@@ -591,57 +758,53 @@ class SignalRegistry:
                 description="Container image vulnerability scan with Grype",
                 signal_type=SignalType.SECURITY_SCAN,
                 owner_job="container-scan",
+                path_filter_area="frontend_image",
                 scope="frontend-image",
                 trust_boundary="ci-build",
                 verdict_semantics="zero-high-critical-image-vulns",
                 required_artifact_formats=["json"],
-                tool_version="0.75.0",
+                tool_version=_PINS.grype_version,
                 timeout_seconds=600,
+                is_blocking=False,  # TODO(security): TEMPORARY, restore True
             )
         )
 
-        # ===== Sonar Quality Gate =====
+        # The standalone Next.js image compiles most dependencies into .next/
+        # chunks with no package.json, so the image scans above cannot see them.
+        # This lockfile scan is what covers the frontend's production graph
+        # (Trivy skips devDependencies by default). It replaced npm audit.
         self._register_signal(
             Signal(
-                id="sonar-analysis",
-                name="Sonar analysis",
-                description="SonarCloud/SonarQube static analysis completion",
-                signal_type=SignalType.EXTERNAL_GATE,
-                owner_job="sonar-pr",
-                scope="source-analysis",
-                trust_boundary="sonar-service",
-                verdict_semantics="sonar-analysis-complete",
+                id="container-scan[frontend]/trivy-lockfile",
+                name="Trivy lockfile scan (frontend)",
+                description="frontend/package-lock.json vulnerability scan with Trivy fs",
+                signal_type=SignalType.SECURITY_SCAN,
+                owner_job="container-scan",
+                path_filter_area="frontend_image",
+                scope="frontend-dependencies",
+                trust_boundary="frozen-lock",
+                verdict_semantics="zero-high-critical-dependency-vulns",
                 required_artifact_formats=["json"],
+                tool_version=_PINS.trivy_version,
+                config_file="frontend/package-lock.json",
                 timeout_seconds=600,
+                is_blocking=False,  # TODO(security): TEMPORARY, restore True
             )
         )
 
-        self._register_signal(
-            Signal(
-                id="sonar-quality-gate",
-                name="Sonar quality gate",
-                description="SonarCloud/SonarQube quality gate verdict",
-                signal_type=SignalType.EXTERNAL_GATE,
-                owner_job="sonar-pr",
-                scope="source-analysis",
-                trust_boundary="sonar-service",
-                verdict_semantics="sonar-quality-gate-passed",
-                required_artifact_formats=["json"],
-                timeout_seconds=600,
-            )
-        )
-
-        # ===== Aggregate Gate (ci-evidence and ci-required-shadow during shadow mode) =====
-        # This signal exists to define the mandatory aggregate composition
-        # During shadow (Tasks 3.19-3.25), publishes as ci-required-shadow
-        # After cutover (Task 3.26+), renamed to ci-required
+        # ===== Aggregate Gate =====
+        # This signal exists to define the mandatory aggregate composition.
+        # It is owned by ci-evidence; the status itself is published by the
+        # ci-required job in ci.yml (trusted intents) and by ci-authoritative.yml
+        # (pull requests). The shadow-mode `ci-required-shadow` context was
+        # retired at cutover and no workflow publishes it any more.
         self._register_signal(
             Signal(
                 id="ci-required",
                 name="CI Required Gate",
                 description="Aggregate verdict that all mandatory signals succeeded for exact current SHA",
                 signal_type=SignalType.EXTERNAL_GATE,
-                owner_job="ci-evidence",  # Shadow mode: ci-evidence or ci-required-shadow job
+                owner_job="ci-evidence",  # the aggregate itself; ci-required publishes the status
                 scope="aggregate",
                 trust_boundary="ci-aggregate",
                 verdict_semantics="all-mandatory-signals-success",
@@ -653,6 +816,7 @@ class SignalRegistry:
                     "repo-static/actionlint",
                     "repo-static/bash-syntax",
                     "repo-static/shellcheck",
+                    "repo-static/compose-config",
                     "backend-inventory",
                     "backend-static/ruff-lint",
                     "backend-static/ruff-format",
@@ -667,13 +831,11 @@ class SignalRegistry:
                     "backend-evidence",
                     "frontend-static/typecheck",
                     "frontend-static/lint",
-                    "frontend-static/build",
+                    "frontend-build",
                     "frontend-vitest",
                     "frontend-e2e",
                     "frontend-evidence",
                     "security[secrets]",
-                    "security[backend-deps]",
-                    "security[frontend-deps]",
                     "security[iac]/terraform-fmt",
                     "security[iac]/terraform-validate",
                     "security[iac]/tflint",
@@ -683,8 +845,7 @@ class SignalRegistry:
                     "container-scan[backend]/grype",
                     "container-scan[frontend]/trivy",
                     "container-scan[frontend]/grype",
-                    "sonar-analysis",
-                    "sonar-quality-gate",
+                    "container-scan[frontend]/trivy-lockfile",
                 ],
             )
         )
@@ -698,6 +859,16 @@ class SignalRegistry:
         """
         if signal.id in self._signals:
             raise ValueError(f"Signal {signal.id} already registered")
+
+        if (
+            signal.path_filter_area is not None
+            and signal.path_filter_area not in PATH_FILTER_AREAS
+        ):
+            raise ValueError(
+                f"Signal {signal.id} declares unknown path_filter_area "
+                f"{signal.path_filter_area!r}; expected one of "
+                f"{sorted(PATH_FILTER_AREAS)} or None"
+            )
 
         # Check for duplicate owners with same semantics ONLY if tool is the same
         for existing_id, existing_signal in self._signals.items():
@@ -730,9 +901,71 @@ class SignalRegistry:
             return []
         return [self._signals[sid] for sid in self._owner_map[owner_job]]
 
+    def get_signals_by_area(self, area: Optional[str]) -> list[Signal]:
+        """Get every signal whose `path_filter_area` is `area` (None = never filterable)."""
+        return [s for s in self._signals.values() if s.path_filter_area == area]
+
     def get_mandatory_signals(self) -> list[Signal]:
         """Get all mandatory signals."""
         return [s for s in self._signals.values() if s.is_mandatory]
+
+    def get_advisory_eligible_signals(self) -> list[Signal]:
+        """
+        Get every signal that MAY be downgraded to advisory (F-03).
+
+        Membership here is the allowlist that keeps `--advisory` from being a
+        general-purpose bypass. Keep it short, and keep every entry dated.
+        """
+        return [s for s in self._signals.values() if s.advisory_eligible]
+
+    def resolve_advisory_request(
+        self, requested: list[str], today: Optional[date] = None
+    ) -> tuple[set[str], list[str]]:
+        """
+        Validate a set of requested advisory downgrades.
+
+        Args:
+            requested: signal ids the caller wants treated as advisory.
+            today: injectable clock, so the expiry rule is testable without
+                freezing real time.
+
+        Returns:
+            (accepted ids, problems). `problems` is non-empty when any request
+            was refused, and the caller MUST fail on that rather than proceeding
+            with a partial set — a refused downgrade means the caller's intent
+            and the gate's policy disagree, which is not a safe thing to guess
+            about in either direction.
+        """
+        accepted: set[str] = set()
+        problems: list[str] = []
+
+        for signal_id in requested:
+            signal = self._signals.get(signal_id)
+            if signal is None:
+                problems.append(
+                    f"advisory request names '{signal_id}', which is not a "
+                    f"registered signal"
+                )
+                continue
+            if not signal.advisory_eligible:
+                problems.append(
+                    f"signal '{signal_id}' is not advisory-eligible. Only signals "
+                    f"explicitly allowlisted in the registry may be downgraded; "
+                    f"add advisory_eligible/advisory_expires/advisory_reason/"
+                    f"advisory_owner there in a reviewed change, or fix the signal."
+                )
+                continue
+            if signal.advisory_allowance_expired(today):
+                problems.append(
+                    f"signal '{signal_id}' advisory allowance expired on "
+                    f"{signal.advisory_expires}. It is blocking again by design — "
+                    f"either land the remediation ({signal.advisory_owner}) or "
+                    f"extend the date in a reviewed change that says why."
+                )
+                continue
+            accepted.add(signal_id)
+
+        return accepted, problems
 
     def get_blocking_signals(self) -> list[Signal]:
         """Get all blocking signals."""

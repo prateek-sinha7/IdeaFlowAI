@@ -991,7 +991,11 @@ def _prepare_engine_run(
     # needs a UNIQUE run_id (a reused id is "already completed" → StateMachineError).
     import uuid as _uuid
 
-    run_id = f"harness-{pipeline_type}-{_uuid.uuid4().hex[:8]}"
+    # A real UUID, like every production run id. ``LocalWorkspace._validate_run_id``
+    # (9efb704d) rejects anything else for ``refs/ideaflow/runs/{run_id}``, so the
+    # old readable ``harness-<pipeline>-<hex8>`` id made the finalizer's
+    # create_run_ref fail and degrade EVERY scripted run (ref_creation_failed).
+    run_id = str(_uuid.uuid4())
 
     # Prototype agents declare injects=['template', 'design_system', ...]; the
     # factory raises TemplateMissingError without a template body. Supply a

@@ -69,6 +69,7 @@ async def _drive_with_declared_gate() -> tuple[list[dict], list[str]]:
     from agents.loader import _SPEC_CACHE
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     specs = _load_fixture_specs()  # [producer, worker] (sorted by order)
@@ -117,7 +118,9 @@ async def _drive_with_declared_gate() -> tuple[list[dict], list[str]]:
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]

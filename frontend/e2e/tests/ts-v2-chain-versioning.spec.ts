@@ -10,19 +10,18 @@
  * Cases:
  *  TS-V2-01  Version browse: a completed run with a git_tag shows the tag in the
  *            VersionTimeline chip row (if visible), and in the SandboxTab ref picker.
- *  TS-V2-02  Restore: the restore button is disabled while a family member is active.
- *  TS-V2-03  Restore: the restore button is enabled when all family members are terminal.
  *  TS-V2-04  Chain launch: RunEngineNotice renders for chain_context_unavailable event.
  *  TS-V2-05  Degraded run: the Badge shows "Degraded", not "Done".
+ *  TS-V2-06  Degraded finalization: RunEngineNotice renders for run_finalization_failed.
  *
- * NOTE: TS-V2-02/03 require the SandboxTab to render, which needs a file listing
- *       response. Cases that need real API interactions (non-mocked) are marked
- *       test.fixme with the live-e2e owner.
+ * TS-V2-02/03/07/08 were deleted from this file; see the note at the end of the
+ * describe for the owner that covers each.
  *
  * Fixture contract: `mocked` project — no real backend needed.
  */
 import { test, expect } from "../fixtures/test";
 import { makeRun } from "../fixtures/mockApi";
+import { AGENTS, runAgent } from "../fixtures/scenarios";
 import type { Page } from "@playwright/test";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -84,62 +83,69 @@ test.describe("TS-V2 — Sandbox Git Versioning V2", () => {
     await openRunHistory(page);
 
     await expect(page.getByText("Degraded run output")).toBeVisible();
-    // Degraded run must show "Degraded" badge — never "Done" or "Queued"
-    await expect(page.getByText("Degraded", { exact: true })).toBeVisible();
+    // Title kept (renames need a migration plan). History now labels a degraded
+    // run "Failed" (RevisionFamilyView THE RULE: an agent failed → the run failed,
+    // no softer word) — and still never "Done" or "Queued".
+    await expect(page.getByText("Failed", { exact: true })).toBeVisible();
+    expect(await page.getByText("Degraded", { exact: true }).count()).toBe(0);
     expect(await page.getByText("Done", { exact: true }).count()).toBe(0);
   });
 
-  // TS-V2-02/03: Restore gating is unit-tested in SandboxTab.restore.test.tsx.
-  // The e2e version requires SandboxTab to mount with file listing data, which
-  // is only available in the run detail view with a live API or a more
-  // elaborate mock setup. Marked fixme for the live-e2e pass.
-  test.fixme(
-    "TS-V2-02 restore disabled while family has active run [live-e2e]",
-    async () => {
-      // Covered by: SandboxTab.restore.test.tsx restore button gating tests.
-      // Live validation: open a run detail while a sibling is running;
-      // assert the Restore button is disabled.
-    },
-  );
+  // TS-V2-04 / TS-V2-06 — the engine-fact notices, end to end over the mocked SSE
+  // stream: the frame reaches the useWorkflow reducer and RunChatLane mounts the
+  // RunEngineNotice (role=status) in the live run's transcript. The copy for every
+  // reason code is owned by src/components/__tests__/RunEngineNotice.test.tsx.
+  test("TS-V2-04 chain_context_unavailable on the stream renders the chain-unavailable notice", async ({
+    dashboard,
+    mockSse,
+    page,
+  }) => {
+    await dashboard.goto();
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "Chain from the refunds backlog" });
+    mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
+    mockSse.emit("chain_context_unavailable", { run_id: mockSse.currentRunId, reason: "source_non_chainable" });
 
-  test.fixme(
-    "TS-V2-03 restore enabled when all family members terminal [live-e2e]",
-    async () => {
-      // Covered by: SandboxTab.restore.test.tsx
-    },
-  );
+    const notice = page.getByTestId("run-engine-notice-chain_unavailable");
+    await expect(notice).toBeVisible();
+    await expect(notice).toHaveAttribute("role", "status");
+    await expect(notice).toContainText(/source run cannot be used as context/i);
+    // The bounded reason code is support detail, never the user-facing headline.
+    await expect(notice.getByText("source_non_chainable")).toHaveCount(0);
+  });
 
-  // TS-V2-04: RunEngineNotice rendering is unit-tested in RunEngineNotice.test.tsx.
-  // The e2e version requires the SSE stream to emit chain_context_unavailable.
-  // Marked fixme for the SSE-mocked pass.
-  test.fixme(
-    "TS-V2-04 chain_context_unavailable event renders RunEngineNotice [sse-mocked]",
-    async () => {
-      // Covered by: RunEngineNotice.test.tsx (all reason codes, a11y pattern).
-      // Live/SSE-mocked validation: emit chain_context_unavailable via mockSse;
-      // assert role="status" notice appears with the correct reason code headline.
-    },
-  );
+  test("TS-V2-06 run_finalization_failed before the terminal renders the finalization notice", async ({
+    dashboard,
+    mockSse,
+    page,
+  }) => {
+    const agents = AGENTS.user_stories;
+    await dashboard.goto();
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    // engine.py finalize: a degraded finalization queues run_finalization_failed
+    // BEFORE the terminal frame.
+    mockSse.emit("run_finalization_failed", { run_id: mockSse.currentRunId, reason: "db_write_failure" });
 
-  test.fixme(
-    "TS-V2-06 run_finalization_failed event renders RunEngineNotice [sse-mocked]",
-    async () => {
-      // Covered by: RunEngineNotice.test.tsx finalization_failed tests.
-    },
-  );
+    const notice = page.getByTestId("run-engine-notice-finalization_failed");
+    await expect(notice).toBeVisible();
+    await expect(notice).toHaveAttribute("role", "status");
+    await expect(notice).toContainText(/run finalization encountered an issue/i);
 
-  test.fixme(
-    "TS-V2-07 version browse: SandboxTab ref picker shows git tags [live-e2e]",
-    async () => {
-      // Requires SandboxTab to mount with a refs array in the sandbox listing.
-      // Covered unit-level by SandboxTab.restore.test.tsx.
-    },
-  );
+    // The notice survives the terminal frame that follows it.
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n", status: "degraded" });
+    await expect(dashboard.stopButton()).toHaveCount(0);
+    await expect(notice).toBeVisible();
+  });
 
-  test.fixme(
-    "TS-V2-08 chain launch: source picker shows non-chainable source as unavailable [live-e2e]",
-    async () => {
-      // Covered by: frontend unit tests in WorkflowHistory source-picker section.
-    },
-  );
+  // Deleted from the mocked project (were empty test.fixme bodies):
+  //   TS-V2-02 / TS-V2-03 restore gating — inapplicable: there is no Restore
+  //     control any more (its cited owner "SandboxTab.restore.test.tsx" does not
+  //     exist). The absence is pinned by src/components/preview/
+  //     VersionSwitch.integration.test.tsx "VersionSwitch: no restore control".
+  //   TS-V2-07 version browse by git tag — owned by src/components/preview/
+  //     PreviewPanel.sandboxRef.test.tsx "Task U1 — version menu ref-view".
+  //   TS-V2-08 non-chainable source shown as unavailable — owned by
+  //     src/components/history/WorkflowHistory.test.tsx "WorkflowHistory —
+  //     non-success chain sources" (payload_chainable=false / true cases).
 });

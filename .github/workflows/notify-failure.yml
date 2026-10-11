@@ -1,0 +1,195 @@
+# =============================================================================
+# Notify Failure — the alarm for unattended workflows
+# =============================================================================
+# F-13: no workflow in this repository told anyone when it failed. There was no
+# Slack/Teams/email step, no issue creation, no badge, and the daily Cognito
+# reconcile's entire alarm design rested on "the scheduled run FAILS the job when
+# the report contains drift, so the alarm is a red run and a notification rather
+# than a line in a log" — while no notification existed. A red run nobody is
+# looking at is a line in a log.
+#
+# WHICH FAILURES NEED AN ALARM, AND WHICH DO NOT
+#   Notified:
+#     CI on a branch push (main/dev/staging) — nobody owns a post-merge red.
+#     CI Authoritative (PR Finalizer)        — if this breaks, EVERY pull request
+#                                              becomes unmergeable and the cause
+#                                              is invisible from the PR itself.
+#     Deploy                                 — a failed deploy may have left an
+#                                              environment mid-change.
+#     Cognito Reconcile                      — scheduled; there is no human in
+#                                              the loop at 03:00 UTC.
+#     Governance Drift                       — scheduled weekly; a live ruleset
+#                                              that drifted from the committed one
+#                                              is invisible without an alarm.
+#     Release                                — a `v*` tag push; a failed release
+#                                              is otherwise silent.
+#   Deliberately NOT yet notified:
+#     CodeQL — it cannot succeed while GitHub Code Security is disabled on this
+#       repository (SARIF upload returns HTTP 403), so an alarm would only
+#       repeat a known licensing gap. Add it here once Code Security is on.
+#   NOT notified:
+#     CI on a pull request — the author is already looking at it, the status is
+#       on their PR, and an issue per red PR would train everyone to ignore this
+#       workflow. This is the deliberate omission; everything else is in.
+#     Provision — workflow_dispatch only, so somebody is watching the run they
+#       just started.
+#
+# WHY A GITHUB ISSUE RATHER THAN SLACK
+#   It works today with no secret, no external service and no per-environment
+#   configuration, and it is auditable after the fact. There is deliberately no
+#   `secrets.SLACK_WEBHOOK_URL` step: that secret does not exist in this
+#   repository, and a notifier whose delivery path is unconfigured is worse than
+#   none — it looks wired up and delivers nothing. To add Slack later, add a step
+#   here guarded on the secret being non-empty; do not replace the issue path,
+#   because the issue is the durable record.
+#
+# DEDUPLICATION
+#   One open issue per (workflow, ref). A repeat failure COMMENTS on the existing
+#   issue instead of opening a second one, so a broken scheduled job produces one
+#   thread with a history rather than 30 identical issues in a month. Closing the
+#   issue when the cause is fixed is a human act — this workflow never closes one,
+#   because "the next run happened to pass" is not evidence that a flaky alarm was
+#   resolved.
+#
+# TRUST
+#   `workflow_run` means this file is always loaded from the default branch, so a
+#   pull request cannot edit the notifier that reports on it. It checks out
+#   nothing and executes no repository code at all: the only inputs are fields of
+#   the event payload and the API, and they are passed to the script through
+#   `env:`, never interpolated into a shell or script body.
+# =============================================================================
+
+name: Notify Failure
+
+on:
+  workflow_run:
+    workflows:
+      - "CI"
+      - "CI Authoritative (PR Finalizer)"
+      - "Deploy"
+      - "Cognito Reconcile"
+      # A tag push runs Release and Deploy side by side. A failed Release (for
+      # example a tag outside the release grammar) had no alarm at all (REL-04).
+      - "Release"
+      # Scheduled weekly (and fails closed when its read token is missing), so
+      # a red run with no alarm means ruleset drift goes unnoticed — the exact
+      # silent failure this workflow exists to surface. PR-triggered runs are
+      # still excluded by the job condition below.
+      - "Governance Drift"
+    types: [completed]
+
+# Read-only by default; the one job widens to `issues: write` and nothing more.
+# No `contents: write`, no `id-token`, no `packages` — this workflow has no reason
+# to touch the repository or any cloud.
+permissions:
+  contents: read
+
+concurrency:
+  # Serialise per source run so two attempts cannot both open an issue for the
+  # same failure. Not cancel-in-progress: an alarm that cancels itself is not an
+  # alarm.
+  group: notify-failure-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    name: Open or update the failure issue
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Three conditions, all necessary:
+    #   1. the source run actually failed (`success` and `skipped` are not alarms;
+    #      `cancelled` is a human act, so it is excluded too). `startup_failure`
+    #      counts: a workflow that never started (bad reusable-workflow ref,
+    #      invalid expression) is a failure nobody would otherwise see (REL-15)
+    #   2. it was not a pull-request evaluation (see the header)
+    #   3. it is a branch the project owns, or a non-push event like `schedule`
+    #      and `workflow_dispatch` where `head_branch` is not the point
+    if: >-
+      (github.event.workflow_run.conclusion == 'failure'
+        || github.event.workflow_run.conclusion == 'timed_out'
+        || github.event.workflow_run.conclusion == 'startup_failure')
+      && github.event.workflow_run.event != 'pull_request'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the failure issue
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          SOURCE_WORKFLOW: ${{ github.event.workflow_run.name }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+        with:
+          script: |
+            const workflow = process.env.SOURCE_WORKFLOW;
+            const conclusion = process.env.SOURCE_CONCLUSION;
+            const event = process.env.SOURCE_EVENT;
+            const branch = process.env.SOURCE_BRANCH || '(no branch)';
+            const sha = process.env.SOURCE_SHA || '';
+            const runUrl = process.env.SOURCE_URL;
+            const runId = process.env.SOURCE_RUN_ID;
+            const attempt = process.env.SOURCE_ATTEMPT;
+
+            // The dedup key. Kept in the TITLE rather than a label so it needs no
+            // label to pre-exist in the repository — a missing label would make
+            // `createIssue` fail and lose the alarm entirely.
+            const title = `CI/CD failure: ${workflow} on ${branch}`;
+            const marker = `<!-- notify-failure:${workflow}:${branch} -->`;
+
+            const shortSha = /^[0-9a-f]{40}$/.test(sha) ? sha.slice(0, 12) : sha;
+            const body = [
+              marker,
+              `**${workflow}** concluded \`${conclusion}\` on \`${branch}\`.`,
+              '',
+              `| | |`,
+              `|---|---|`,
+              `| Run | [#${process.env.SOURCE_RUN_NUMBER} (attempt ${attempt})](${runUrl}) |`,
+              `| Trigger | \`${event}\` |`,
+              `| Commit | \`${shortSha}\` |`,
+              '',
+              'This issue is opened by `.github/workflows/notify-failure.yml`.',
+              'Repeat failures are added as comments rather than new issues.',
+              'Close it when the cause is fixed — a later green run does not close it,',
+              'because a run that happens to pass is not evidence that the cause is gone.',
+            ].join('\n');
+
+            // Find an existing open issue for this (workflow, ref). Search by
+            // marker over open issues rather than the search API: the search
+            // index lags by up to a minute, which is long enough for two
+            // consecutive scheduled failures to each open their own issue.
+            const existing = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100 },
+            );
+            const match = existing.find(
+              (issue) => typeof issue.body === 'string' && issue.body.includes(marker),
+            );
+
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body: body,
+              });
+              core.notice(
+                `Recorded ${workflow} ${conclusion} on #${match.number} (run ${runId})`,
+              );
+              return;
+            }
+
+            const created = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+            });
+            core.notice(
+              `Opened #${created.data.number} for ${workflow} ${conclusion} (run ${runId})`,
+            );

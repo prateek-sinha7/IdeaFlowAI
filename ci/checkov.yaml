@@ -2,7 +2,7 @@
 # Checkov configuration for VelocityAI IaC scanning.
 # =============================================================================
 # Location: ci/checkov.yaml (moved from the repo root).
-# Consumed by .github/workflows/ci.yml (`security-scan-iac` job):
+# Consumed by .github/workflows/ci.yml, the `security` matrix leg `iac`:
 #     checkov -d infra/terraform --config-file ci/checkov.yaml
 # (previously by the retired infra/buildspec.yml pre_build phase — the
 # invocation is unchanged, only the runner moved to GitHub Actions).

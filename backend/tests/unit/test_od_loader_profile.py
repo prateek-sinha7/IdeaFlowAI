@@ -37,7 +37,8 @@ def _is_deck(od):
 
 
 @pytest.mark.parametrize(
-    "pipeline_type", ["prototype", "prototype_feature_revision", "custom", "prototype_v2"]
+    "pipeline_type",
+    ["prototype", "prototype_feature_revision", "custom", "prototype_v2"],
 )
 def test_web_pipelines_get_the_page_loader(pipeline_type):
     """Named web pipelines, a composed run, and a web FILE workflow all agree."""
@@ -48,7 +49,9 @@ def test_web_pipelines_get_the_page_loader(pipeline_type):
 
 
 @pytest.mark.parametrize("pipeline_type", ["ppt", "ppt_revision", "ppt_v2"])
-def test_deck_pipelines_keep_the_deck_loader_and_its_blank_template_error(pipeline_type):
+def test_deck_pipelines_keep_the_deck_loader_and_its_blank_template_error(
+    pipeline_type,
+):
     """A deck pipeline with no template must FAIL, not silently build a web one.
 
     The blank-canvas branch upstream sets template_id = "", so there is no mode

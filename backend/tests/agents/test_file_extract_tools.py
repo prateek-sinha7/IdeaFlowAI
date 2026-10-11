@@ -67,6 +67,7 @@ class _Sandbox:
 def sandbox(tmp_path, monkeypatch):
     """Bind a temporary sandbox for PDF tools testing."""
     from app.agents.tools import file_extract_tools
+
     mock_sandbox = _Sandbox(tmp_path)
     monkeypatch.setattr(file_extract_tools, "_SANDBOX", mock_sandbox)
     # Create uploads directory
@@ -87,12 +88,14 @@ def test_pdf(tmp_path):
 
 # ─── Test Suite ────────────────────────────────────────────────────────────
 
+
 class TestInfo:
     """file_info: document inventory and profiling."""
 
     def test_info_with_empty_path_lists_uploads(self, sandbox, test_pdf):
         """Empty path inventories all uploads in sorted order."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_info("")
         assert "test.pdf" in result
         assert "extract_text materialises it into" in result
@@ -100,12 +103,14 @@ class TestInfo:
     def test_info_with_empty_path_says_so_when_no_uploads(self, sandbox):
         """Empty path explicitly says when there are no uploads."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_info("")
         assert "No uploads" in result
 
     def test_info_profiles_a_document(self, sandbox, test_pdf):
         """Path provided profiles page count, text layer, encryption, metadata."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_info(test_pdf)
         assert "Pages: 3" in result
         assert "text layer" in result.lower()
@@ -114,6 +119,7 @@ class TestInfo:
     def test_info_never_materialises(self, sandbox, test_pdf):
         """file_info does not create .extract/ folder."""
         from app.agents.tools import file_extract_tools
+
         file_extract_tools.file_info(test_pdf)
         pdf_dir = sandbox / ".pdf"
         assert not pdf_dir.exists()
@@ -121,6 +127,7 @@ class TestInfo:
     def test_info_rejects_traversal(self, sandbox):
         """Reject ../../etc/passwd traversal attempts."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_info("../../etc/passwd")
         assert "path rejected" in result.lower()
 
@@ -134,6 +141,7 @@ class TestInfo:
         subject and let two tool contracts disagree inside one run.
         """
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_info("/etc/passwd")
         assert "root:" not in result, "real /etc/passwd content leaked"
         assert "not a file" in result.lower() or "not found" in result.lower()
@@ -141,6 +149,7 @@ class TestInfo:
     def test_info_returns_text_not_raises(self, sandbox):
         """Every failure returns readable text."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_info("/bad/path")
         assert isinstance(result, str)
         assert "not a file" in result.lower() or "not found" in result.lower()
@@ -152,18 +161,22 @@ class TestReadingOrder:
     def test_reading_order_materialises_each_page(self, sandbox, test_pdf):
         """extract_text materialises each page with text.md."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools._extract_text_sync(test_pdf)
         assert result.startswith("Materialised")
 
         # Check that pages have text.md files
         for page_num in [1, 2, 3]:
-            page_dir = sandbox / ".extract" / "pdf" / "test" / "pages" / f"{page_num:02d}"
+            page_dir = (
+                sandbox / ".extract" / "pdf" / "test" / "pages" / f"{page_num:02d}"
+            )
             text_file = page_dir / "text.md"
             assert text_file.exists(), f"page {page_num} missing text.md"
 
     def test_reading_order_text_md_format_valid(self, sandbox, test_pdf):
         """Each page's text.md is readable text (even if empty)."""
         from app.agents.tools import file_extract_tools
+
         file_extract_tools._extract_text_sync(test_pdf)
 
         page_dir = sandbox / ".extract" / "pdf" / "test" / "pages" / "01"
@@ -226,7 +239,9 @@ class TestCropGeometry:
         render_width = 1224
         render_height = 1584
 
-        box = _crop_box_for_image(image, page_width, page_height, render_width, render_height)
+        box = _crop_box_for_image(
+            image, page_width, page_height, render_width, render_height
+        )
         # Should be scaled by 2.0x
         assert box[0] == 200
         assert box[1] == 200
@@ -241,13 +256,16 @@ class TestCropGeometry:
         render_width = 100
         render_height = 100
 
-        box = _crop_box_for_image(image, page_width, page_height, render_width, render_height)
+        box = _crop_box_for_image(
+            image, page_width, page_height, render_width, render_height
+        )
         assert box[2] <= render_width
         assert box[3] <= render_height
 
     def test_crop_geometry_extracts_pages(self, sandbox, test_pdf):
         """Crop geometry function is invoked during materialisation."""
         from app.agents.tools import file_extract_tools
+
         # This test verifies that materialisation completes without error,
         # which means crop geometry is working (no exceptions raised).
         result = file_extract_tools._extract_text_sync(test_pdf)
@@ -260,7 +278,8 @@ class TestMaterialise:
     def test_materialise_creates_page_directories(self, sandbox, test_pdf):
         """extract_text creates numbered page directories (01, 02, ...)."""
         from app.agents.tools import file_extract_tools
-        result = file_extract_tools._extract_text_sync(test_pdf)
+
+        file_extract_tools._extract_text_sync(test_pdf)
 
         pages_dir = sandbox / ".extract" / "pdf" / "test" / "pages"
         assert pages_dir.exists()
@@ -272,6 +291,7 @@ class TestMaterialise:
     def test_materialise_creates_manifest(self, sandbox, test_pdf):
         """extract_text creates manifest.json with source_sha256, page_count, scale."""
         from app.agents.tools import file_extract_tools
+
         file_extract_tools._extract_text_sync(test_pdf)
 
         manifest_path = sandbox / ".extract" / "pdf" / "test" / "manifest.json"
@@ -287,17 +307,21 @@ class TestMaterialise:
     def test_materialise_creates_document_md(self, sandbox, test_pdf):
         """extract_text creates document.md concatenating all page text.md."""
         from app.agents.tools import file_extract_tools
+
         file_extract_tools._extract_text_sync(test_pdf)
 
         doc_path = sandbox / ".extract" / "pdf" / "test" / "document.md"
         assert doc_path.exists()
         content = doc_path.read_text()
         assert "PAGE 1" in content or "Page" in content
-        assert "PAGE 2" in content or "Page" in content or content  # might vary by renderer
+        assert (
+            "PAGE 2" in content or "Page" in content or content
+        )  # might vary by renderer
 
     def test_materialise_returns_receipt_not_content(self, sandbox, test_pdf):
         """extract_text returns a receipt (page counts, token estimate), never page text."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools._extract_text_sync(test_pdf)
 
         assert "Materialised" in result
@@ -393,10 +417,12 @@ class TestStale:
         manifest_path.write_text(json.dumps(manifest))
 
         # Re-run with same filename
-        result = file_extract_tools._extract_text_sync(test_pdf)
+        file_extract_tools._extract_text_sync(test_pdf)
 
         # Folder should be rebuilt (mtime changed)
-        new_manifest = json.loads((sandbox / ".extract" / "pdf" / "test" / "manifest.json").read_text())
+        new_manifest = json.loads(
+            (sandbox / ".extract" / "pdf" / "test" / "manifest.json").read_text()
+        )
         assert new_manifest["source_sha256"] != "0" * 64
 
     def test_same_filename_different_content_detected(self, sandbox, test_pdf):
@@ -426,6 +452,7 @@ class TestTraversalRefusal:
     def test_reject_traversal_up(self, sandbox):
         """Reject ../../etc/passwd attempts."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_find("test", path="../../etc/passwd")
         assert "path rejected" in result.lower() or "not found" in result.lower()
 
@@ -435,12 +462,14 @@ class TestTraversalRefusal:
         Traversal (`..`) is still refused; a leading slash is only spelling.
         """
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_find("root:", path="/etc/passwd")
         assert "root:" not in result, "real /etc/passwd content leaked"
 
     def test_sandbox_binding_required(self, sandbox, monkeypatch):
         """Tools without a bound sandbox return an error message."""
         from app.agents.tools import file_extract_tools
+
         monkeypatch.setattr(file_extract_tools, "_SANDBOX", None)
         result = file_extract_tools.file_info(".uploads/test.pdf")
         assert "not bound" in result.lower()
@@ -452,6 +481,7 @@ class TestErrorHandling:
     def test_nonexistent_pdf_returns_error_text(self, sandbox):
         """Missing PDF returns readable error, not an exception."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools.file_info(".uploads/nonexistent.pdf")
         assert isinstance(result, str)
         assert "not a file" in result.lower() or "failed" in result.lower()
@@ -459,6 +489,7 @@ class TestErrorHandling:
     def test_corrupt_pdf_returns_error_text(self, sandbox):
         """Corrupt PDF bytes return readable error."""
         from app.agents.tools import file_extract_tools
+
         (sandbox / ".uploads").mkdir(exist_ok=True)
         (sandbox / ".uploads" / "corrupt.pdf").write_bytes(b"not a pdf")
         result = file_extract_tools._extract_text_sync(".uploads/corrupt.pdf")
@@ -468,6 +499,7 @@ class TestErrorHandling:
     def test_invalid_page_selector_returns_error_text(self, sandbox, test_pdf):
         """Invalid pages="x,y,z" syntax returns readable error."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools._extract_text_sync(test_pdf, pages="1,foo,3")
         assert isinstance(result, str)
         assert "invalid" in result.lower() or "error" in result.lower()
@@ -475,6 +507,7 @@ class TestErrorHandling:
     def test_out_of_range_page_returns_error_text(self, sandbox, test_pdf):
         """Pages="999" (out of range) returns error, not exception."""
         from app.agents.tools import file_extract_tools
+
         result = file_extract_tools._extract_text_sync(test_pdf, pages="999")
         assert isinstance(result, str)
         assert "out of bounds" in result.lower() or "error" in result.lower()
@@ -529,7 +562,7 @@ class TestPageImage:
         file_extract_tools._extract_text_sync(test_pdf)
 
         # Skip if not implemented (T6 task)
-        if not hasattr(file_extract_tools, 'file_page_image'):
+        if not hasattr(file_extract_tools, "file_page_image"):
             pytest.skip("file_page_image not yet implemented (T6)")
 
         # Valid page
@@ -556,6 +589,7 @@ class TestParallel:
 
 
 # ─── Acceptance Criteria Verification ─────────────────────────────────────
+
 
 def test_ac1_file_passes_standalone(sandbox, test_pdf):
     """AC1: pytest backend/tests/agents/test_pdf_tools.py -q passes."""
@@ -608,7 +642,9 @@ class TestDocumentRefs:
 
         # Inject a placeholder into an already-complete page, then re-extract:
         # document.md is rebuilt from whatever is on disk (the folder is the state).
-        (pages_dir / "01" / "text.md").write_text("before\n\n@[[image-1.png]]  <!-- 10x10, 1 source object -->\n\nafter\n")
+        (pages_dir / "01" / "text.md").write_text(
+            "before\n\n@[[image-1.png]]  <!-- 10x10, 1 source object -->\n\nafter\n"
+        )
         file_extract_tools._extract_text_sync(test_pdf)
 
         document = (sandbox / ".extract" / "pdf" / "test" / "document.md").read_text()
@@ -632,7 +668,9 @@ class TestDocumentRefs:
 class TestParallelBranch:
     """The >threshold branch actually runs, including from inside an event loop."""
 
-    def test_parallel_branch_materialises_every_page(self, sandbox, test_pdf, monkeypatch):
+    def test_parallel_branch_materialises_every_page(
+        self, sandbox, test_pdf, monkeypatch
+    ):
         """Forced above the threshold, the process pool produces the same page set."""
         from app.agents.tools import file_extract_tools
 
@@ -642,9 +680,15 @@ class TestParallelBranch:
         assert "Materialised" in result
         assert "failed" not in result
         pages_dir = sandbox / ".extract" / "pdf" / "test" / "pages"
-        assert sorted(p.name for p in pages_dir.iterdir() if p.is_dir()) == ["01", "02", "03"]
+        assert sorted(p.name for p in pages_dir.iterdir() if p.is_dir()) == [
+            "01",
+            "02",
+            "03",
+        ]
 
-    def test_parallel_branch_survives_a_running_event_loop(self, sandbox, test_pdf, monkeypatch):
+    def test_parallel_branch_survives_a_running_event_loop(
+        self, sandbox, test_pdf, monkeypatch
+    ):
         """Regression: an asyncio.run() wrapper here raised inside a live loop.
 
         The tool is a plain sync callable; calling it from a thread that owns a
@@ -701,7 +745,9 @@ class TestMissingSourceWithSidecar:
         file_extract_tools._extract_text_sync(test_pdf)
         (sandbox / test_pdf).unlink()
 
-        assert "materialised pages survive" in file_extract_tools._file_page_image_sync(test_pdf, 1)
+        assert "materialised pages survive" in file_extract_tools._file_page_image_sync(
+            test_pdf, 1
+        )
 
 
 # ─── Office formats: one entry point, one route (spec 019, FR-026…FR-043) ──
@@ -737,17 +783,21 @@ class TestFormatIsADirectoryLevel:
     def test_slug_drops_the_extension(self):
         from app.agents.tools import file_extract_tools
 
-        assert file_extract_tools._slug_from_filename("Inland Marine Creating a Quote 2.pdf") == (
-            "inland-marine-creating-a-quote-2"
-        )
+        assert file_extract_tools._slug_from_filename(
+            "Inland Marine Creating a Quote 2.pdf"
+        ) == ("inland-marine-creating-a-quote-2")
         assert file_extract_tools._slug_from_filename("report.docx") == "report"
 
     def test_same_stem_different_format_land_in_different_directories(self):
         """The slugs are equal on purpose; the format level is what separates them."""
         from app.agents.tools import file_extract_tools
 
-        assert file_extract_tools._slug_from_filename("report.docx") == file_extract_tools._slug_from_filename("report.pdf")
-        assert file_extract_tools._doc_rel("docx", "report") != file_extract_tools._doc_rel("pdf", "report")
+        assert file_extract_tools._slug_from_filename(
+            "report.docx"
+        ) == file_extract_tools._slug_from_filename("report.pdf")
+        assert file_extract_tools._doc_rel(
+            "docx", "report"
+        ) != file_extract_tools._doc_rel("pdf", "report")
         assert file_extract_tools._doc_rel("docx", "report") == ".extract/docx/report"
 
     @requires_soffice
@@ -755,16 +805,21 @@ class TestFormatIsADirectoryLevel:
         """The collision FR-030 exists to prevent, end to end."""
         from app.agents.tools import file_extract_tools
 
-        (sandbox / ".uploads" / "test.docx").write_bytes(_gen_docx_bytes(("Word revision.",)))
+        (sandbox / ".uploads" / "test.docx").write_bytes(
+            _gen_docx_bytes(("Word revision.",))
+        )
         file_extract_tools._extract_text_sync(test_pdf)
         file_extract_tools._extract_text_sync(".uploads/test.docx")
         file_extract_tools._extract_text_sync(test_pdf)
 
         assert (sandbox / ".extract" / "pdf" / "test" / "manifest.json").is_file()
         assert (sandbox / ".extract" / "docx" / "test" / "manifest.json").is_file()
-        assert "Word revision." in (
-            sandbox / ".extract" / "docx" / "test" / "pages" / "01" / "text.md"
-        ).read_text()
+        assert (
+            "Word revision."
+            in (
+                sandbox / ".extract" / "docx" / "test" / "pages" / "01" / "text.md"
+            ).read_text()
+        )
 
 
 class TestFormatDispatch:
@@ -817,7 +872,9 @@ class TestOfficeConversion:
         stamp = cached.stat().st_mtime_ns
 
         file_extract_tools._extract_text_sync(".uploads/report.docx")
-        assert cached.stat().st_mtime_ns == stamp, "conversion re-ran instead of reusing the cache"
+        assert (
+            cached.stat().st_mtime_ns == stamp
+        ), "conversion re-ran instead of reusing the cache"
 
     def test_manifest_records_the_source_format_and_converter(self, sandbox):
         """FR-029: the hash is of the .docx, not of the PDF derived from it."""
@@ -827,7 +884,9 @@ class TestOfficeConversion:
         (sandbox / ".uploads" / "report.docx").write_bytes(docx_bytes)
         file_extract_tools._extract_text_sync(".uploads/report.docx")
 
-        manifest = json.loads((sandbox / ".extract" / "docx" / "report" / "manifest.json").read_text())
+        manifest = json.loads(
+            (sandbox / ".extract" / "docx" / "report" / "manifest.json").read_text()
+        )
         assert manifest["source_format"] == "docx"
         assert manifest["converted_by"] == "libreoffice"
         assert manifest["source_sha256"] == hashlib.sha256(docx_bytes).hexdigest()
@@ -855,7 +914,9 @@ class TestOfficeConversion:
         upload.write_bytes(_gen_docx_bytes(("Second revision.",)))
         file_extract_tools._extract_text_sync(".uploads/report.docx")
 
-        text = (sandbox / ".extract" / "docx" / "report" / "pages" / "01" / "text.md").read_text()
+        text = (
+            sandbox / ".extract" / "docx" / "report" / "pages" / "01" / "text.md"
+        ).read_text()
         assert "Second revision." in text
         assert "First revision." not in text
 
@@ -874,9 +935,13 @@ class TestNoPageCap:
 
         monkeypatch.setattr(fx, "_LARGE_DOCUMENT_PAGES", 1)
         monkeypatch.setattr(
-            fx, "_converted_pdf", lambda path, doc_dir: (_gen_minimal_pdf_bytes(), "libreoffice", "")
+            fx,
+            "_converted_pdf",
+            lambda path, doc_dir: (_gen_minimal_pdf_bytes(), "libreoffice", ""),
         )
-        (sandbox / ".uploads" / "book.xlsx").write_bytes(b"stand-in; conversion is stubbed")
+        (sandbox / ".uploads" / "book.xlsx").write_bytes(
+            b"stand-in; conversion is stubbed"
+        )
 
         result = fx._extract_text_sync(".uploads/book.xlsx")
 
@@ -890,13 +955,19 @@ class TestNoPageCap:
 
         monkeypatch.setattr(fx, "_LARGE_DOCUMENT_PAGES", 1)
         monkeypatch.setattr(
-            fx, "_converted_pdf", lambda path, doc_dir: (_gen_minimal_pdf_bytes(), "libreoffice", "")
+            fx,
+            "_converted_pdf",
+            lambda path, doc_dir: (_gen_minimal_pdf_bytes(), "libreoffice", ""),
         )
-        (sandbox / ".uploads" / "book.xlsx").write_bytes(b"stand-in; conversion is stubbed")
+        (sandbox / ".uploads" / "book.xlsx").write_bytes(
+            b"stand-in; conversion is stubbed"
+        )
 
         result = fx._extract_text_sync(".uploads/book.xlsx")
         assert 'pages="1-20"' in result
-        assert (sandbox / ".extract" / "xlsx" / "book" / "pages" / "03").is_dir(), (
+        assert (
+            sandbox / ".extract" / "xlsx" / "book" / "pages" / "03"
+        ).is_dir(), (
             "every page must still be materialised — the note is advice, not a limit"
         )
 
@@ -904,9 +975,13 @@ class TestNoPageCap:
         from app.agents.tools import file_extract_tools as fx
 
         monkeypatch.setattr(
-            fx, "_converted_pdf", lambda path, doc_dir: (_gen_minimal_pdf_bytes(), "libreoffice", "")
+            fx,
+            "_converted_pdf",
+            lambda path, doc_dir: (_gen_minimal_pdf_bytes(), "libreoffice", ""),
         )
-        (sandbox / ".uploads" / "book.xlsx").write_bytes(b"stand-in; conversion is stubbed")
+        (sandbox / ".uploads" / "book.xlsx").write_bytes(
+            b"stand-in; conversion is stubbed"
+        )
 
         result = fx._extract_text_sync(".uploads/book.xlsx")
         assert "print settings" in result
@@ -928,14 +1003,18 @@ class TestThreeRoutes:
         result = file_extract_tools._extract_text_sync(".uploads/notes.md")
 
         assert "# Heading" in result and "Body line." in result
-        assert not (sandbox / ".extract").exists(), "a text file must not be materialised"
+        assert not (
+            sandbox / ".extract"
+        ).exists(), "a text file must not be materialised"
 
     @pytest.mark.parametrize("name", ["a.txt", "b.md", "c.csv", "d.json"])
     def test_every_text_format_takes_the_inline_route(self, sandbox, name):
         from app.agents.tools import file_extract_tools
 
         (sandbox / ".uploads" / name).write_text("payload-marker")
-        assert "payload-marker" in file_extract_tools._extract_text_sync(f".uploads/{name}")
+        assert "payload-marker" in file_extract_tools._extract_text_sync(
+            f".uploads/{name}"
+        )
 
     def test_a_huge_text_file_is_truncated_and_says_so(self, sandbox):
         from app.agents.tools import file_extract_tools
@@ -948,14 +1027,18 @@ class TestThreeRoutes:
         assert "read_file" in result
         assert len(result) < len(big)
 
-    def test_a_paged_format_returns_a_receipt_naming_document_md(self, sandbox, test_pdf):
+    def test_a_paged_format_returns_a_receipt_naming_document_md(
+        self, sandbox, test_pdf
+    ):
         from app.agents.tools import file_extract_tools
 
         result = file_extract_tools._extract_text_sync(test_pdf)
         assert "read_file .extract/pdf/test/document.md" in result
         assert (sandbox / ".extract" / "pdf" / "test" / "document.md").is_file()
 
-    def test_an_unknown_type_is_refused_without_trying_a_conversion(self, sandbox, monkeypatch):
+    def test_an_unknown_type_is_refused_without_trying_a_conversion(
+        self, sandbox, monkeypatch
+    ):
         """No blind soffice attempt: the allow-list decides what reaches this process."""
         from app.agents.tools import file_extract_tools, soffice
 
@@ -990,7 +1073,15 @@ class TestDeclaredDependencies:
     which is exactly why this is asserted rather than remembered.
     """
 
-    THIRD_PARTY = {"pdfplumber", "pypdfium2", "pypdf", "PIL", "docx", "pptx", "openpyxl"}
+    THIRD_PARTY = {
+        "pdfplumber",
+        "pypdfium2",
+        "pypdf",
+        "PIL",
+        "docx",
+        "pptx",
+        "openpyxl",
+    }
     PACKAGE_FOR = {"PIL": "pillow", "docx": "python-docx", "pptx": "python-pptx"}
 
     # Imported directly, declared nowhere ON PURPOSE: each is a hard dependency of
@@ -1001,17 +1092,32 @@ class TestDeclaredDependencies:
     TRANSITIVE_VIA = {"pypdfium2": "pdfplumber", "PIL": "pdfplumber"}
 
     def _requirements(self) -> str:
-        """Declared packages only — comment lines are prose, not declarations."""
+        """Declared packages only — comment lines are prose, not declarations.
+
+        ``requirements.txt`` is a convenience include since a56e279a
+        (``-r requirements-prod.txt`` / ``-r requirements-dev.txt``, kept identical
+        to pyproject.toml by test_dependency_lock_contracts.py), so ``-r`` lines are
+        followed to the files that carry the pins — the same prod+dev set the flat
+        file used to hold.
+        """
         import pathlib
 
         here = pathlib.Path(__file__).resolve()
         backend = next(p for p in here.parents if (p / "requirements.txt").is_file())
-        lines = (backend / "requirements.txt").read_text().splitlines()
-        return "\n".join(
-            line.split("#", 1)[0].strip().lower()
-            for line in lines
-            if line.strip() and not line.lstrip().startswith("#")
-        )
+
+        def _declared(path: pathlib.Path) -> list[str]:
+            found: list[str] = []
+            for line in path.read_text(encoding="utf-8").splitlines():
+                decl = line.split("#", 1)[0].strip()
+                if not decl:
+                    continue
+                if decl.startswith(("-r ", "--requirement ")):
+                    found.extend(_declared(path.parent / decl.split(None, 1)[1]))
+                    continue
+                found.append(decl.lower())
+            return found
+
+        return "\n".join(_declared(backend / "requirements.txt"))
 
     def _imported_modules(self) -> set:
         import ast
@@ -1035,9 +1141,9 @@ class TestDeclaredDependencies:
         for module in sorted(self._imported_modules() & self.THIRD_PARTY):
             if module in self.TRANSITIVE_VIA:
                 carrier = self.TRANSITIVE_VIA[module]
-                assert carrier.lower() in requirements, (
-                    f"{module} rides on {carrier}, which is itself undeclared"
-                )
+                assert (
+                    carrier.lower() in requirements
+                ), f"{module} rides on {carrier}, which is itself undeclared"
                 continue
             package = self.PACKAGE_FOR.get(module, module)
             if package.lower() not in requirements:
@@ -1091,7 +1197,9 @@ class TestColumnSeparation:
         assert line == "46445 Yes"
         assert "46445Yes" not in line
 
-    def test_prose_extraction_is_unchanged_by_the_tighter_tolerance(self, sandbox, test_pdf):
+    def test_prose_extraction_is_unchanged_by_the_tighter_tolerance(
+        self, sandbox, test_pdf
+    ):
         """Measured on the reference PDF: 15,072 chars at every tolerance 3.0 → 1.0."""
         from app.agents.tools import file_extract_tools as fx
 

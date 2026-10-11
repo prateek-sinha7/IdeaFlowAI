@@ -90,8 +90,6 @@ async def test_clarify_engine_no_missing_info_proceeds():
     assert result["execution_gate"] == "PROCEED"
 
 
-
-
 # ---------------------------------------------------------------------------
 # All pipelines resolve
 # ---------------------------------------------------------------------------

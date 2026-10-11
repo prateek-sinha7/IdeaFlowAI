@@ -46,9 +46,11 @@ class EvaluationIdentity:
         repository_owner: Repository owner (immutable from event)
         repository_name: Repository name (immutable from event)
         event_type: Event classification (pull_request, push, workflow_dispatch, workflow_call)
-        exact_sha: Full 40-character commit SHA (never a ref or merge SHA)
+        exact_sha: Full 40-character commit SHA (never a ref, and never the
+            temporary merge commit `github.sha` carries on pull_request events)
         pr_number: PR number (only for pull_request events)
-        pr_head_sha: PR head SHA (only for pull_request events; must equal exact_sha)
+        pr_head_sha: PR head SHA (only for pull_request events; must equal
+            exact_sha — see compute_identity's Args note on F-01)
         intent_id: Unique intent identifier (for manual/reusable disambiguation)
         intent_hash: Derived hash of intent_id for coalescing
     """
@@ -193,7 +195,17 @@ def compute_identity(event: dict[str, Any]) -> EvaluationIdentity:
           - github.event (the event payload)
           - github.event_name (the event type)
           - github.repository (owner/name)
-          - github.sha (commit SHA for push; PR head SHA for PR events)
+          - sha: the EVALUATION SHA. For push/dispatch/call events that is
+            `github.sha`. For `pull_request` events it is
+            `github.event.pull_request.head.sha` and NOT `github.sha` — on that
+            event GitHub sets `github.sha` to a temporary merge commit (PR head
+            merged into the base), which is a different, ephemeral commit. An
+            earlier version of this docstring claimed `github.sha` already was
+            the PR head; it is not, and the `pr_head_sha != exact_sha` check
+            below rejected the merge SHA correctly while the workflows fed it in
+            anyway (F-01). `.github/actions/checkout-exact` now resolves the
+            evaluation SHA as `github.event.pull_request.head.sha || github.sha`,
+            which is what makes the check below satisfiable.
           - github.ref (full ref name)
           - (for workflow_dispatch) inputs with unique intent ID
 

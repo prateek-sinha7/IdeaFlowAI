@@ -1201,7 +1201,7 @@
     "data": {
       "agents_completed": 15,
       "agents_total": 15,
-      "final_output": "```filename: .family.lock\n\n```\n\n```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('hello')\n\n```",
+      "final_output": "```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('hello')\n\n```",
       "pipeline_type": "app_builder",
       "status": "degraded",
       "total_input_tokens": "<normalized>",

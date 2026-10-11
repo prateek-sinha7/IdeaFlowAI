@@ -17,15 +17,14 @@ describe("StepSelection.strategy — ISS-705 task_loop unreachable from Simple c
   it("includes task_loop as a selectable strategy value", () => {
     const src = readFileSync(path.join(__dirname, "AgentsPopup.tsx"), "utf8");
 
-    const marker = 'strategy?: "fanout_batch" | "wave_scheduler";';
-    const idx = src.indexOf(marker);
-    // Sanity: the exact restrictive union the card names must still be here,
-    // otherwise this test is no longer pinning the right line.
-    expect(idx).toBeGreaterThan(-1);
-
-    // ISS-705 unfixed: the strategy union has no task_loop member anywhere
-    // in the file, so a step downstream of a task-emitting planner can never
-    // be wired to consume it via task_loop through this UI.
-    expect(src).toContain('"task_loop"');
+    // ISS-705 resolved (landed via 9efb704d): the lock now pins the FIXED union.
+    // The old sanity marker — the restrictive `"fanout_batch" | "wave_scheduler";`
+    // line — pinned the pre-fix source, so it could only pass while the bug stood.
+    // A bare `toContain('"task_loop"')` is not enough on its own: the string also
+    // appears in comments. Pin the type member AND the selectable <option>.
+    expect(src).toContain('strategy?: "fanout_batch" | "wave_scheduler" | "task_loop";');
+    expect(src).toContain('<option value="task_loop">');
+    // The restrictive two-member union must be gone.
+    expect(src).not.toContain('strategy?: "fanout_batch" | "wave_scheduler";');
   });
 });

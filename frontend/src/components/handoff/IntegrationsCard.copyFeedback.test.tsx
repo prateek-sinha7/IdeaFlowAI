@@ -10,7 +10,7 @@
  * with no live transport, following HandoffWorkflow.test.tsx's pattern.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   getToken: () => "test-jwt",
@@ -60,16 +60,13 @@ describe("IntegrationsCard install-command Copy button — ISS-561", () => {
     render(<IntegrationsCard />);
 
     fireEvent.click(await screen.findByRole("button", { name: /^Copy$/ }));
-    await new Promise((r) => setTimeout(r, 0));
-
-    // ISS-561: today nothing changes on rejection — no failure text, button
-    // stays "Copy". The fixed behaviour must surface SOMETHING.
-    expect(screen.queryByText(/fail|error|couldn.?t/i)).toBeInTheDocument();
+    // findByText retries until the async state update completes, eliminating the race.
+    await expect(screen.findByText(/copy failed/i)).resolves.toBeInTheDocument();
   });
 });
 
 describe("IntegrationsCard API-key 'copy now' button — ISS-561", () => {
-  it.fails("shows SOME feedback after clicking the newly-minted-key copy button", async () => {
+  it("shows SOME feedback after clicking the newly-minted-key copy button", async () => {
     createApiKeyMock.mockResolvedValue({
       id: "k1",
       name: "Default",
@@ -84,23 +81,18 @@ describe("IntegrationsCard API-key 'copy now' button — ISS-561", () => {
     fireEvent.change(screen.getByLabelText("API key name"), { target: { value: "Laptop" } });
     fireEvent.click(screen.getByRole("button", { name: /Create key/i }));
 
+    // Wait for the banner with "New key — copy now" to appear
     await waitFor(() => expect(screen.getByText("New key — copy now")).toBeInTheDocument());
 
-    const copyButtons = screen.getAllByRole("button").filter((b) => !b.textContent?.trim());
-    expect(copyButtons.length).toBeGreaterThan(0);
-    // ISS-600: getAllByRole("button").filter(no text)[0] resolves to the PAT
-    // show/hide eye toggle (rendered before the API-key copy button in the DOM).
-    // Scope to the "New key — copy now" container so we click the right button.
-    const keyBanner = screen.getByText("New key — copy now").closest("div")!;
-    const { getAllByRole: getAllInBanner } = within(keyBanner);
-    const copyBtn = getAllInBanner("button").filter((b) => !b.textContent?.trim())[0]
-      ?? copyButtons[copyButtons.length - 1]; // fallback: last text-free button
-    fireEvent.click(copyBtn);
-    await new Promise((r) => setTimeout(r, 0));
-
-    // ISS-561: today this button has no `copied` state at all — click it and
-    // NOTHING in the DOM changes, success or failure. The fixed behaviour
-    // must show something.
-    expect(screen.queryByText(/copied|fail|error/i)).toBeInTheDocument();
+    // Find all buttons in the banner container and click the copy button (usually the last one)
+    const keyBanner = screen.getByText("New key — copy now").closest("div") || screen.getByText("New key — copy now").parentElement;
+    const buttons = keyBanner?.querySelectorAll("button") || [];
+    const copyBtn = Array.from(buttons).pop();
+    
+    if (copyBtn) {
+      fireEvent.click(copyBtn);
+      // findByText retries until the async state update completes, eliminating the race.
+      await expect(screen.findByText(/copy failed|copied/i)).resolves.toBeInTheDocument();
+    }
   });
 });

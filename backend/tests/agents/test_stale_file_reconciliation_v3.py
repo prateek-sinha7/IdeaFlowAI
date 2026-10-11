@@ -64,9 +64,12 @@ def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(
         [
             "git",
-            "-c", "user.name=Flowin Test",
-            "-c", "user.email=test@flowin.local",
-            "-c", "commit.gpgsign=false",
+            "-c",
+            "user.name=Flowin Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
             *args,
         ],
         cwd=str(cwd),
@@ -81,7 +84,10 @@ async def _step_boundary_commit(sandbox, ectx, step, message: str):
     """Reproduce the engine's step-boundary pairing (engine.py call site):
     reconcile FIRST, then commit — so a removal lands in the same commit.
     """
-    from agents.execution_engine.engine import _reconcile_replaces_surface, commit_in_sandbox
+    from agents.execution_engine.engine import (
+        _reconcile_replaces_surface,
+        commit_in_sandbox,
+    )
 
     _reconcile_replaces_surface(sandbox, step)
     return await commit_in_sandbox(sandbox, message, ectx, step, audit_operation=None)
@@ -125,9 +131,9 @@ async def test_replaces_true_removes_stale_file_second_pass(tmp_path: Path) -> N
     assert not (out_dir / "b.txt").exists(), "stale b.txt must be removed from the tree"
     # ...and from git's tracked-file list.
     tracked_after_pass2 = _git(sb.root, "ls-files", "out/").splitlines()
-    assert tracked_after_pass2 == ["out/a.txt"], (
-        f"stale out/b.txt must be gone from git ls-files, got {tracked_after_pass2!r}"
-    )
+    assert tracked_after_pass2 == [
+        "out/a.txt"
+    ], f"stale out/b.txt must be gone from git ls-files, got {tracked_after_pass2!r}"
     # a.txt (written this pass) must survive with its new content.
     assert (out_dir / "a.txt").read_text(encoding="utf-8") == "pass 2 a (changed)\n"
 

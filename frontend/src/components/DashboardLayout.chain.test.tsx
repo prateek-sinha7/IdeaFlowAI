@@ -24,6 +24,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
+// Typed with getChainContext's own parameter list: the call site below passes
+// two args, and a zero-arg factory would make that a compile error.
 const getChainContextMock = vi.fn(async (_token: string, _workflowId: string) => ({
   brief: "Context brief from source",
   // A distinctive marker string — if handleChainPipeline/handleChainFromHistory
@@ -150,8 +152,8 @@ function makeRun(input: string): WorkflowRun {
     input,
     parentRunId: null,
     rootRunId: "hist-run-1",
-    createdAt: "2026-09-01T00:00:00Z",
-    agentCount: 1,
+    createdAt: new Date().toISOString(),
+    agentCount: 0,
   };
 }
 

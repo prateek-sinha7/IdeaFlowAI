@@ -158,9 +158,17 @@ export function ResultCard({ message, onRequestOpenTab }: ResultCardProps) {
         {kind === "deliverable" && (
           <p className="text-[12px] font-semibold text-ink-900">Deliverable</p>
         )}
-        <p className="font-serif text-[13px] leading-relaxed text-ink-900">
-          {inlineText}
-        </p>
+        {kind === "gate" ? (
+          <p className="font-serif text-[13px] leading-relaxed text-ink-900">
+            {inlineText}
+          </p>
+        ) : (
+          // Narrator content is markdown (CHATUI-02) — the inline (no-chrome)
+          // KAN-154 layout must still render it, not leak raw `**` syntax.
+          <div className="markdown-content font-serif text-[13px] leading-relaxed text-ink-900">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{inlineText}</ReactMarkdown>
+          </div>
+        )}
         {/* Gate cards: resolved shows no link (action complete); active shows "Open in Steps" */}
         {kind === "gate" && !message.resolved ? (
           <button

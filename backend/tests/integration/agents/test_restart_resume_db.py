@@ -4989,25 +4989,29 @@ async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
     )
     session.commit()
 
+    # [Phase Z / seam-2 deletion, FR-030 row 10] The planning context is no longer
+    # pasted into the per-agent context message; the dispatched agent reads it from
+    # the run's PLANNER.md (written after rehydration, before Step 4 dispatch). The
+    # D2 proof therefore asserts on that file — the agent's channel to it now.
+    from app.agents.sandbox import RunSandbox
+
     composed: list[str] = []
+    _orig_write = RunSandbox.write
+
+    def _spy_write(self, relpath, content, *a, **k):
+        if relpath == "PLANNER.md":
+            composed.append(content)
+        return _orig_write(self, relpath, content, *a, **k)
+
+    monkeypatch.setattr(RunSandbox, "write", _spy_write)
 
     with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
         engine_b = h.make_engine()
-
-        _orig_compose = engine_b._compose_context_message
-
-        async def _spy_compose(*a, **k):
-            msg = await _orig_compose(*a, **k)
-            composed.append(msg)
-            return msg
-
-        engine_b._compose_context_message = _spy_compose  # type: ignore[assignment]
-
         rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
         await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
 
-    assert composed, "the resumed run dispatched no agent — nothing to assert on"
-    first = composed[0]
+    assert composed, "the resumed run wrote no PLANNER.md — nothing to assert on"
+    first = composed[-1]
     assert _REHYDRATE_ANSWER in first, (
         "D2: a resumed dispatch must carry the user's clarification answers; got:\n"
         f"{first[:1500]}"

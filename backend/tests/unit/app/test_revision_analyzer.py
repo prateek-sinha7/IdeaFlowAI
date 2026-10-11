@@ -229,9 +229,14 @@ class TestAgentMdSmoke:
         ]
 
     def test_analyzer_agent_md_frontmatter_max_tokens(self) -> None:
-        """prototype-revision-analyzer AGENT.md: max_tokens == 4096."""
+        """prototype-revision-analyzer AGENT.md: max_tokens == 32768.
+
+        Raised from 4096 in 9efb704d alongside the sandbox-read migration (the
+        analyzer now reads prototype.html itself) and the multi-pipeline
+        pipeline_type change asserted above.
+        """
         fm = _load_frontmatter(_ANALYZER_AGENT_MD)
-        assert fm["max_tokens"] == 4096
+        assert fm["max_tokens"] == 32768
 
     def test_analyzer_agent_md_frontmatter_tools_empty(self) -> None:
         """prototype-revision-analyzer AGENT.md: tools == []."""

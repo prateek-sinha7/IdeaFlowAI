@@ -53,8 +53,12 @@ def engine():
 def seeded_ids(engine):
     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     s = Session()
-    admin = User(id="admin-1", email="admin@example.com", tier="enterprise", is_admin=True)
-    target = User(id="user-target", email="target@example.com", tier="basic", is_admin=False)
+    admin = User(
+        id="admin-1", email="admin@example.com", tier="enterprise", is_admin=True
+    )
+    target = User(
+        id="user-target", email="target@example.com", tier="basic", is_admin=False
+    )
     s.add_all([admin, target])
     s.commit()
     ids = (admin.id, target.id)
@@ -154,7 +158,9 @@ def test_losing_role_updates_response_reports_its_own_value(engine, seeded_ids):
     session_a.close()
     session_b.close()
 
-    assert response_b_holder["response"].is_admin is False  # B's own response is correct
+    assert (
+        response_b_holder["response"].is_admin is False
+    )  # B's own response is correct
 
     assert response_a.is_admin is True, (
         f"request A set is_admin=True but its own response reported "

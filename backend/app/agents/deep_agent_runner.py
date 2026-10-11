@@ -68,6 +68,8 @@ if TYPE_CHECKING:
     from langchain.agents.middleware.types import (
         ModelRequest,
         ModelResponse,
+        # Used unquoted in annotations below: safe under ``from __future__ import
+        # annotations``, and visible to vulture (no ignore_names entry needed).
         ToolCallRequest,
     )
     from langchain_core.language_models import BaseChatModel
@@ -262,7 +264,7 @@ class _ToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
     # ``request.tools`` filtering is therefore a UX narrowing, and a permission
     # the manifest withheld needs an enforcement point at EXECUTION. This is it:
     # the tool never runs, and the model is told plainly so it stops retrying.
-    def _refusal(self, request: "ToolCallRequest") -> ToolMessage | None:
+    def _refusal(self, request: ToolCallRequest) -> ToolMessage | None:
         """A denial ``ToolMessage`` when this call is excluded, else ``None``."""
         call = getattr(request, "tool_call", None)
         if not self._excluded or not isinstance(call, dict):
@@ -284,11 +286,11 @@ class _ToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
             status="error",
         )
 
-    def wrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+    def wrap_tool_call(self, request: ToolCallRequest, handler: Callable):
         refusal = self._refusal(request)
         return refusal if refusal is not None else handler(request)
 
-    async def awrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+    async def awrap_tool_call(self, request: ToolCallRequest, handler: Callable):
         refusal = self._refusal(request)
         return refusal if refusal is not None else await handler(request)
 
@@ -609,7 +611,7 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                 return True
         return False
 
-    def _refusal(self, request: "ToolCallRequest") -> "ToolMessage | None":
+    def _refusal(self, request: ToolCallRequest) -> "ToolMessage | None":
         """Return a denial ToolMessage when this call violates the guard, else None."""
         call = getattr(request, "tool_call", None)
         if not isinstance(call, dict):
@@ -658,11 +660,11 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                 )
         return None
 
-    def wrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+    def wrap_tool_call(self, request: ToolCallRequest, handler: Callable):
         refusal = self._refusal(request)
         return refusal if refusal is not None else handler(request)
 
-    async def awrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+    async def awrap_tool_call(self, request: ToolCallRequest, handler: Callable):
         refusal = self._refusal(request)
         return refusal if refusal is not None else await handler(request)
 

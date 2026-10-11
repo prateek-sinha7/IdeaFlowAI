@@ -173,7 +173,9 @@ def cmd_report(fail_on_unlinked: bool = False) -> int:
         return EXIT_OK
 
     for row in rows:
-        extra = f" auth_provider={row['auth_provider']!r}" if "auth_provider" in row else ""
+        extra = (
+            f" auth_provider={row['auth_provider']!r}" if "auth_provider" in row else ""
+        )
         print(
             f"  {row['id']}  {row['email']}  tier={row['tier']}  "
             f"is_admin={bool(row['is_admin'])}  cognito_sub={row['cognito_sub']!r}"
@@ -268,7 +270,9 @@ def cmd_invite(apply: bool) -> int:
 
     still_unlinked = [r for r in rows if r["cognito_sub"] is None]
     if not still_unlinked:
-        print("Nothing to invite — every row already has a cognito_sub. Run --link first?")
+        print(
+            "Nothing to invite — every row already has a cognito_sub. Run --link first?"
+        )
         return EXIT_OK
 
     print(f"\nInvite — {'APPLY' if apply else 'DRY RUN'}\n")

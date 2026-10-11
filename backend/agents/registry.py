@@ -344,7 +344,11 @@ def _own_manifest_step_agents(pipeline_type: str) -> set[str]:
 
     out: set[str] = set()
     for step in getattr(manifest, "steps", []) or []:
-        agent = step.get("agent") if isinstance(step, dict) else getattr(step, "agent", None)
+        agent = (
+            step.get("agent")
+            if isinstance(step, dict)
+            else getattr(step, "agent", None)
+        )
         if isinstance(agent, str) and agent:
             out.add(agent)
     return out

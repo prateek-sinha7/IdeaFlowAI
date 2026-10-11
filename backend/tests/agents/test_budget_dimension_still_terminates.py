@@ -38,7 +38,9 @@ async def test_subagents_dimension_still_aborts_the_run(monkeypatch):
     assert events, f"{_PIPELINE} produced no events"
 
     types = [e.get("type") for e in events]
-    started = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    started = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
     budget_events = [e for e in events if e.get("type") == "budget_aborted"]
 
     print("EVENT TYPES:", types)

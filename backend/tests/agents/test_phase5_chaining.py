@@ -29,7 +29,7 @@ drives the code path").
 v2 API surface (no v1 symbols left to patch):
 - ``runner.open_source_sandbox(source_run_id)`` (``KernelServices``,
   ``agents/execution_engine/kernel_services.py``) root-resolves via
-  ``resolve_revision_root`` (``app/api/runs.py``) and returns a
+  ``resolve_revision_root`` (``app/services/revision_root.py``) and returns a
   ``ReadOnlySandbox`` on the resolved root — never the mid-family id itself.
 - ``ctx.chain_selection`` (pre-validated at admission, task 6.3/6.5) is the
   ChainContextProvider's ONLY selection input; the provider never re-checks
@@ -249,6 +249,9 @@ class TestSourceRunIdWritten:
         child_id, revision_pipeline_type = _mint_revision_row(
             db_session,
             user=user,
+            # The caller's EFFECTIVE tier (Cognito-only auth migration,
+            # Decision 3) — the same tier this user carries.
+            caller_tier="basic",
             parent_run_id=parent_id,
             target_artifact_type="user_stories",
             instruction="update the color scheme",
@@ -257,12 +260,12 @@ class TestSourceRunIdWritten:
         assert revision_pipeline_type == "user_stories_revision"
         child = db_session.query(WorkflowRun).filter(WorkflowRun.id == child_id).first()
         assert child is not None, "_mint_revision_row must persist the child row"
-        assert child.source_run_id == parent_id, (
-            f"source_run_id should be {parent_id!r} but got {child.source_run_id!r}"
-        )
-        assert child.parent_run_id == parent_id, (
-            "parent_run_id must also be set on the revision row"
-        )
+        assert (
+            child.source_run_id == parent_id
+        ), f"source_run_id should be {parent_id!r} but got {child.source_run_id!r}"
+        assert (
+            child.parent_run_id == parent_id
+        ), "parent_run_id must also be set on the revision row"
 
     def test_workflow_run_model_has_source_run_id_column(self) -> None:
         """WorkflowRun ORM model has a source_run_id column (migration 0014).
@@ -293,9 +296,9 @@ class TestSourceRunIdWritten:
 
         field = WorkflowRunResponse.model_fields["source_run_id"]
         # Optional fields have is_required() == False or a default of None
-        assert not field.is_required() or field.default is None, (
-            "source_run_id must be optional so non-chained runs don't break"
-        )
+        assert (
+            not field.is_required() or field.default is None
+        ), "source_run_id must be optional so non-chained runs don't break"
 
     def test_source_run_id_written_on_revision_row(
         self, db_session, tmp_path, monkeypatch
@@ -325,6 +328,9 @@ class TestSourceRunIdWritten:
         rev1_id, _ = _mint_revision_row(
             db_session,
             user=user,
+            # The caller's EFFECTIVE tier (Cognito-only auth migration,
+            # Decision 3) — the same tier this user carries.
+            caller_tier="basic",
             parent_run_id=root_id,
             target_artifact_type="user_stories",
             instruction="first revision",
@@ -339,6 +345,7 @@ class TestSourceRunIdWritten:
         rev2_id, _ = _mint_revision_row(
             db_session,
             user=user,
+            caller_tier="basic",
             parent_run_id=rev1_id,
             target_artifact_type="user_stories",
             instruction="second revision",
@@ -393,10 +400,12 @@ class TestRootResolutionV2:
     ) -> None:
         """A source run with no parent IS the root — open_source_sandbox must
         return a sandbox scoped to that same id (the depth-0/1 case)."""
-        import app.api.run_engine as run_engine_mod
+        import app.models.database as database_mod
         from agents.execution_engine.context import ExecutionContext
 
-        monkeypatch.setattr(run_engine_mod, "_get_db", lambda: db_session)
+        # open_source_sandbox opens its session via a call-time
+        # ``from app.models.database import SessionLocal`` (never app.api).
+        monkeypatch.setattr(database_mod, "SessionLocal", lambda: db_session)
 
         user_id = "user-1"
         root_id = _fresh_run_id("root")
@@ -418,10 +427,12 @@ class TestRootResolutionV2:
         to the family ROOT, not to rev2 itself — the exact v1 bug this v2 API
         replaces (the old code walked source_run_id, the chain edge, instead of
         parent_run_id, the revision edge, producing the wrong root at depth 2+)."""
-        import app.api.run_engine as run_engine_mod
+        import app.models.database as database_mod
         from agents.execution_engine.context import ExecutionContext
 
-        monkeypatch.setattr(run_engine_mod, "_get_db", lambda: db_session)
+        # open_source_sandbox opens its session via a call-time
+        # ``from app.models.database import SessionLocal`` (never app.api).
+        monkeypatch.setattr(database_mod, "SessionLocal", lambda: db_session)
 
         user_id = "user-1"
         root_id = _fresh_run_id("root")
@@ -706,9 +717,10 @@ class TestListChainFiles:
             }
         )
         result = _list_chain_files(sandbox, prefix)
-        assert sorted(result) == ["logs/run-abc.jsonl", "summary.md"], (
-            f"Expected only files under {prefix!r} relative; got {result}"
-        )
+        assert sorted(result) == [
+            "logs/run-abc.jsonl",
+            "summary.md",
+        ], f"Expected only files under {prefix!r} relative; got {result}"
 
     def test_excludes_files_from_different_prefix(self) -> None:
         """Files under a different .chain/ subdirectory are excluded."""

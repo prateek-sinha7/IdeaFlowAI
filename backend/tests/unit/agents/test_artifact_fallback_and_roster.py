@@ -121,12 +121,17 @@ def test_artifact_fallback_skips_write_when_publish_from_glob_declared(tmp_path)
     engine = ExecutionEngine()
     sandbox = _sandbox(tmp_path, "run-5")
     deliverable = SimpleNamespace(
-        name="prototype.html", publish_from_glob="draft.v*.html",
+        name="prototype.html",
+        publish_from_glob="draft.v*.html",
     )
     ectx = SimpleNamespace(topic="crm-rollout", deliverable=deliverable)
 
     result = engine._check_artifact_fallback(
-        ectx, "custom-agent:story-layer", "narration text", sandbox, "Build a CRM",
+        ectx,
+        "custom-agent:story-layer",
+        "narration text",
+        sandbox,
+        "Build a CRM",
         deliverable_filename="prototype.html",
     )
 
@@ -143,7 +148,11 @@ def test_artifact_fallback_writes_when_no_publish_from_glob_declared(tmp_path):
     ectx = SimpleNamespace(topic="crm-rollout", deliverable=deliverable)
 
     result = engine._check_artifact_fallback(
-        ectx, "custom-agent:story-layer", "narration text", sandbox, "Build a CRM",
+        ectx,
+        "custom-agent:story-layer",
+        "narration text",
+        sandbox,
+        "Build a CRM",
         deliverable_filename="prototype.html",
     )
 
@@ -170,7 +179,10 @@ def test_artifact_fallback_overwrites_on_retry_when_step_cannot_write(tmp_path):
     sandbox.write(filename, "pass 1: plain greeting, no joke")
 
     result = engine._check_artifact_fallback(
-        ectx, "custom-agent:greet", "pass 2: greeting with a joke this time", sandbox,
+        ectx,
+        "custom-agent:greet",
+        "pass 2: greeting with a joke this time",
+        sandbox,
         "loop",
     )
 
@@ -194,7 +206,10 @@ def test_artifact_fallback_noop_when_file_exists_and_step_can_write(tmp_path):
     sandbox.write(filename, "the agent's real deliverable")
 
     result = engine._check_artifact_fallback(
-        ectx, "custom-agent:research-a", "streamed text (should be ignored)", sandbox,
+        ectx,
+        "custom-agent:research-a",
+        "streamed text (should be ignored)",
+        sandbox,
         "Build a CRM",
     )
 

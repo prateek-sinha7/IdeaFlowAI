@@ -64,9 +64,9 @@ async def test_cap_trip_with_no_deliverable_still_degrades():
     cap_message = budget_events[0]["data"].get("message")
     assert cap_message, budget_events[0]
 
-    assert len(completes) == 1, (
-        f"{_PIPELINE} did not reach pipeline_complete. Events: {types}"
-    )
+    assert (
+        len(completes) == 1
+    ), f"{_PIPELINE} did not reach pipeline_complete. Events: {types}"
     data = completes[0]["data"]
 
     # No deliverable resolved (``done`` streamed nothing) → the run genuinely has

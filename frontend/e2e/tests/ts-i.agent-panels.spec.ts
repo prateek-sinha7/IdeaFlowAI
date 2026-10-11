@@ -39,9 +39,15 @@ test.describe("TS-I — live agent panels", () => {
     mockSse.agentStart(agents[1].id);
     await expect(dashboard.stepsLiveBadge()).toHaveCount(1);
 
-    // ERROR — agent1 errors: the overview flips to "Run failed" and the agent's
-    // L2 detail surfaces the sanitized failure message.
+    // ERROR — agent1 errors and the server fails the run: the overview flips to
+    // "Run failed" (ISS-701/764: only the run-level pipeline_failed marker decides
+    // that — a per-agent error alone is not a run verdict) and the agent's L2
+    // detail surfaces the sanitized failure message.
     mockSse.agentError(agents[1].id, "The model rejected this request.");
+    mockSse.failed({ agentsFailed: [agents[1].id], error: "The model rejected this request." });
+    // Terminal failure auto-tabs to Audit once; wait for it, then re-select Steps.
+    await expect(dashboard.errorBadge().first()).toBeVisible();
+    await dashboard.openSteps();
     await expect(dashboard.page.getByText("Run failed", { exact: true })).toBeVisible();
 
     await dashboard.openAgentDetail("Story Writer");

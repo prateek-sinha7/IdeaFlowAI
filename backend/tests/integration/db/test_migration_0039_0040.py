@@ -189,9 +189,9 @@ class TestMigration0039:
                 result = conn.execute(
                     text(f"SELECT id FROM {table} WHERE id = :id"), {"id": row_id}
                 )
-                assert result.fetchone() is None, (
-                    f"{table} row {row_id} survived user delete — cascade failed"
-                )
+                assert (
+                    result.fetchone() is None
+                ), f"{table} row {row_id} survived user delete — cascade failed"
 
         engine.dispose()
 
@@ -272,9 +272,7 @@ class TestMigration0040:
         engine = create_engine(fresh_db_url)
         with engine.connect() as conn:
             result = conn.execute(
-                text(
-                    "SELECT expires_at, created_at FROM user_api_keys WHERE id = :id"
-                ),
+                text("SELECT expires_at, created_at FROM user_api_keys WHERE id = :id"),
                 {"id": uak_id},
             )
             row = result.fetchone()
@@ -286,9 +284,9 @@ class TestMigration0040:
             # so just verify the backfill happened (not None) and that the value makes sense.
             # The migration itself is tested more thoroughly elsewhere, here we just verify
             # the column was populated.
-            assert isinstance(expires_at, str) or expires_at is not None, (
-                "expires_at was populated by 0040"
-            )
+            assert (
+                isinstance(expires_at, str) or expires_at is not None
+            ), "expires_at was populated by 0040"
 
         engine.dispose()
 
@@ -336,9 +334,7 @@ class TestMigration0040:
                 {"id": uak_id},
             )
             row = result.fetchone()
-            assert row[0] is None, (
-                "0040 should leave revoked keys' expires_at as NULL"
-            )
+            assert row[0] is None, "0040 should leave revoked keys' expires_at as NULL"
 
         engine.dispose()
 
@@ -385,7 +381,9 @@ class TestMigration0040:
                 {"id": uak_id},
             )
             row = result.fetchone()
-            assert row[0] is not None, "expires_at should be backfilled before downgrade"
+            assert (
+                row[0] is not None
+            ), "expires_at should be backfilled before downgrade"
 
         engine.dispose()
 
@@ -400,6 +398,8 @@ class TestMigration0040:
                 {"id": uak_id},
             )
             row = result.fetchone()
-            assert row[0] is None, "0040 downgrade should restore NULL on backfilled rows"
+            assert (
+                row[0] is None
+            ), "0040 downgrade should restore NULL on backfilled rows"
 
         engine.dispose()

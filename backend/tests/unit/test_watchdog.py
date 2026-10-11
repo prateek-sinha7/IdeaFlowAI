@@ -21,7 +21,9 @@ from app.core import watchdog
 async def test_watchdog_warns_when_the_loop_falls_behind(caplog, monkeypatch):
     monkeypatch.setattr(watchdog, "POLL_INTERVAL_SECONDS", 0.2)
     monkeypatch.setattr(watchdog, "WARN_LAG_SECONDS", 0.5)
-    monkeypatch.setattr(watchdog, "ERROR_LAG_SECONDS", 999.0)  # keep this test to the warning path
+    monkeypatch.setattr(
+        watchdog, "ERROR_LAG_SECONDS", 999.0
+    )  # keep this test to the warning path
 
     async def block_the_loop():
         # A synchronous sleep inside a coroutine blocks the WHOLE loop for its
@@ -42,7 +44,9 @@ async def test_watchdog_warns_when_the_loop_falls_behind(caplog, monkeypatch):
         await task
 
     warnings = [r for r in caplog.records if "event loop lag" in r.message]
-    assert warnings, f"expected a lag warning, got: {[r.message for r in caplog.records]}"
+    assert (
+        warnings
+    ), f"expected a lag warning, got: {[r.message for r in caplog.records]}"
 
 
 @pytest.mark.asyncio
@@ -65,5 +69,7 @@ async def test_watchdog_error_path_dumps_task_stacks(caplog, monkeypatch):
         await task
 
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert errors, f"expected an error-level stack dump, got: {[r.message for r in caplog.records]}"
+    assert (
+        errors
+    ), f"expected an error-level stack dump, got: {[r.message for r in caplog.records]}"
     assert "all task stacks" in errors[0].message

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { routes } from "@/lib/routes";
 import {
-  ArrowLeft, CheckCircle2, AlertCircle, Check, ShieldCheck, Info,
+  ArrowLeft, CheckCircle2, AlertCircle, ShieldCheck, Info,
 } from "lucide-react";
 import { authedFetch, getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities, getConstitution } from "@/lib/api";
 import type { ModelOption, CapabilityModelEntry } from "@/lib/api";
@@ -577,7 +577,7 @@ interface ConstitutionSectionProps {
   setLoadedValue: (v: string) => void;
 }
 
-function ConstitutionSection({ content, setContent, loadedValue, setLoadedValue }: ConstitutionSectionProps) {
+function ConstitutionSection({ content, setContent, loadedValue: _loadedValue, setLoadedValue }: ConstitutionSectionProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);

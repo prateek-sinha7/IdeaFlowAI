@@ -126,7 +126,9 @@ def _register_and_login(
     """
     session = client.SessionLocal()
     try:
-        create_user(session, email, password, cognito_sub=client.fake_auth.sub_for(email))
+        create_user(
+            session, email, password, cognito_sub=client.fake_auth.sub_for(email)
+        )
     finally:
         session.close()
     resp = client.post("/api/auth/login", json={"email": email, "password": password})

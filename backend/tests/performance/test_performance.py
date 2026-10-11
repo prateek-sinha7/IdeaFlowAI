@@ -41,6 +41,11 @@ requires_api_key = pytest.mark.skipif(
 )
 
 
+# The registered marker (pyproject) is what CI's `-m "not requires_api_key"`
+# deselects; the local skipif above only covers a bare `pytest` run. Without the
+# real marker these were COLLECTED into the offline partition and then skipped,
+# which verify-execution counts as a failure.
+@pytest.mark.requires_api_key
 @requires_api_key
 class TestPerformanceTargets:
     """Live performance validation — requires LLM credentials."""

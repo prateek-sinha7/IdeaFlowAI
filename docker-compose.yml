@@ -80,15 +80,28 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Baked at BUILD time (Next.js inlines NEXT_PUBLIC_* at build, not
-        # runtime). CI populates these from the deployment FQDN. Empty
-        # defaults are fine for local dev (relative URLs via nginx).
+        # Baked at BUILD time — Next.js inlines NEXT_PUBLIC_* during the build,
+        # so it cannot be changed by the runtime container env.
+        #
+        # CI DOES NOT SET THIS. The previous comment claimed "CI populates these
+        # from the deployment FQDN", which was true of the retired CodeBuild
+        # scripts (scripts/deploy.sh still does it) but is the opposite of the
+        # current design: deploy.yml's "Build + push frontend" step passes NO
+        # NEXT_PUBLIC_* build args on purpose (D-4), so one env-agnostic image
+        # promotes dev -> stage -> prod unchanged and talks to its backend
+        # through relative URLs that nginx terminates.
+        #
+        # The arg is KEPT because it is not dead for local development:
+        # `NEXT_PUBLIC_API_URL=http://localhost:8000 docker compose up` is a
+        # documented workflow (docs/ENVIRONMENT_CONFIGURATION.md) for running
+        # the frontend against a backend on the host rather than behind nginx.
+        # Empty — the default — is what every pipeline-built image gets.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:
-      # node:20-bookworm-slim ships neither wget nor curl, so probe with
+      # node:24-bookworm-slim ships neither wget nor curl, so probe with
       # Node's http client instead. 127.0.0.1 (not localhost): the standalone
       # server binds IPv4 only, and Debian resolves localhost to ::1 first.
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]

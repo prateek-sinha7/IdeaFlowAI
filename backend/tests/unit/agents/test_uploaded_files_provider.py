@@ -257,6 +257,23 @@ def _staged_ectx(providers=_OPT_IN_PROVIDERS) -> ExecutionContext:
     return ectx
 
 
+async def _provider_load_for(ectx, spec) -> str:
+    """Load the provider as it would be for ``spec`` at dispatch (own-run ctx)."""
+    from agents.capabilities.context_providers.uploaded_files import (
+        UploadedFilesProvider,
+    )
+
+    ctx = SimpleNamespace(
+        runner=ectx.runner,
+        current_spec_injects=set(spec.injects),
+        run_id=ectx.run_id,
+        user_id=ectx.owner_id,
+        scoped_store=getattr(ectx, "scoped_store", None),
+    )
+    blocks = await UploadedFilesProvider().load(ctx)
+    return blocks.get("uploaded_files_context", "")
+
+
 async def _compose(engine, ectx, spec, ordered) -> str:
     return await engine._compose_context_message(
         spec=spec,
@@ -273,15 +290,22 @@ async def test_uploaded_text_is_sticky_in_every_agent_input() -> None:
     # A 3-agent opted-in workflow: the uploaded doc text must appear in the composed
     # context for EVERY agent (sticky — the provider re-reads the durable sidecar each
     # dispatch), not just the first.
+    #
+    # [Phase Z / seam-2 deletion, FR-030 rows 2/11/26] The engine no longer PASTES
+    # the provider output into the context message — every agent reads `.uploads/`
+    # from its sandbox itself. Stickiness is now proved at the provider: every
+    # opted-in agent's dispatch-time load returns the doc text, and the context
+    # message carries no world-block paste.
     engine = ExecutionEngine()
     ectx = _staged_ectx()
     ordered = [_spec("plan"), _spec("build"), _spec("review")]
 
     for spec in ordered:
         msg = await _compose(engine, ectx, spec, ordered)
-        assert _UPLOAD_TEXT in msg, f"upload text missing from {spec.id} agent_input"
-        assert "## Uploaded Files" in msg
-        assert "brief.pdf" in msg
+        assert "## Uploaded Files" not in msg
+        body = await _provider_load_for(ectx, spec)
+        assert _UPLOAD_TEXT in body, f"upload text missing for {spec.id}"
+        assert "brief.pdf" in body
 
 
 @pytest.mark.asyncio
@@ -294,11 +318,13 @@ async def test_non_opted_agent_gets_no_uploaded_block() -> None:
     bare = _spec("bare", injects=())
     ordered = [opted, bare]
 
-    opted_msg = await _compose(engine, ectx, opted, ordered)
     bare_msg = await _compose(engine, ectx, bare, ordered)
-    assert _UPLOAD_TEXT in opted_msg
+    # Seam-2 deleted: the engine never pastes the block for anyone.
     assert _UPLOAD_TEXT not in bare_msg
     assert "## Uploaded Files" not in bare_msg
+    # The provider's per-agent self-gate still separates opted from bare.
+    assert _UPLOAD_TEXT in await _provider_load_for(ectx, opted)
+    assert await _provider_load_for(ectx, bare) == ""
 
 
 @pytest.mark.asyncio
@@ -491,8 +517,10 @@ async def test_wiped_resume_three_agent_sticky_context() -> None:
 
     for spec in ordered:
         msg = await _compose(engine, ectx, spec, ordered)
+        assert "## Uploaded Files" not in msg  # seam-2 deleted: no paste
+        body = await _provider_load_for(ectx, spec)
         assert (
-            _UPLOAD_TEXT in msg
+            _UPLOAD_TEXT in body
         ), f"upload text missing from {spec.id} on wiped resume"
-        assert "## Uploaded Files" in msg
-        assert "brief.pdf" in msg
+        assert "## Uploaded Files" in body
+        assert "brief.pdf" in body

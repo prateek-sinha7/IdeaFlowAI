@@ -14,6 +14,7 @@ order, and the entire body are preserved byte-for-byte -- the file is edited
 as text, never round-tripped through a YAML dumper (which would reflow
 quoting, drop comments, and reorder keys across all 951 files).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -120,7 +121,9 @@ def main() -> int:
         fm, body = m.group(1), m.group(2)
         line = f"compact_summary: {yaml_scalar(summary.strip())}"
         if SUMMARY_RE.search(fm):
-            new_fm = SUMMARY_RE.sub(lambda _: line, fm, count=1)
+            new_fm = SUMMARY_RE.sub(
+                lambda _match, replacement=line: replacement, fm, count=1
+            )
         else:
             # Keep it next to the other summary-ish keys rather than appended.
             new_fm = fm.rstrip("\n") + "\n" + line

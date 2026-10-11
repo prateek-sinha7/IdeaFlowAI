@@ -187,7 +187,11 @@ async def _drive_with_fix_policy(max_attempts: int | None) -> list[dict]:
     _sm._scripts_for = _default_scripts_for
     try:
         with _InstallDraftValidation(max_attempts):
-            return await _drive("ex_validation_retry")
+            # ``offline_db=False`` — see test_mechanical_publish_step: the default
+            # no-database seam makes the finalizer's tag mapping fail and degrade
+            # every completed run (Requirement 5 AC 22), masking what these tests
+            # assert about the validation gate.
+            return await _drive("ex_validation_retry", offline_db=False)
     finally:
         _sm._scripts_for = orig_scripts_for
 
@@ -205,9 +209,13 @@ async def test_blocks_once_then_passes_retries_once_and_completes(_captured_prom
 
     types = [e.get("type") for e in events]
     retries = [e for e in events if e.get("type") == "validation_retry"]
-    starts = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    starts = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
 
-    assert validator.calls == 2, f"expected 2 validation calls, got {validator.calls}: {types}"
+    assert (
+        validator.calls == 2
+    ), f"expected 2 validation calls, got {validator.calls}: {types}"
     assert len(retries) == 1, f"expected exactly one validation_retry event: {types}"
     assert retries[0]["data"]["attempt"] == 1
     assert retries[0]["data"]["max"] == 2
@@ -224,11 +232,13 @@ async def test_blocks_once_then_passes_retries_once_and_completes(_captured_prom
 
     # The SECOND attempt's prompt carried the validator's feedback text; the
     # FIRST did not (there was nothing to feed back yet).
-    assert len(_captured_prompts) >= 2, "expected at least 2 model calls (2 draft attempts)"
+    assert (
+        len(_captured_prompts) >= 2
+    ), "expected at least 2 model calls (2 draft attempts)"
     assert "broken nav" not in _flat_text(_captured_prompts[0])
-    assert any("broken nav" in _flat_text(m) for m in _captured_prompts[1:]), (
-        "the retry's feedback text never reached a later attempt's prompt"
-    )
+    assert any(
+        "broken nav" in _flat_text(m) for m in _captured_prompts[1:]
+    ), "the retry's feedback text never reached a later attempt's prompt"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -243,13 +253,17 @@ async def test_exhausts_max_attempts_fails_closed_and_does_not_advance():
 
     types = [e.get("type") for e in events]
     retries = [e for e in events if e.get("type") == "validation_retry"]
-    starts = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    starts = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
     failed = [e for e in events if e.get("type") == "pipeline_failed"]
     completes = [e for e in events if e.get("type") == "pipeline_complete"]
 
     # fix.max_attempts=2 -> 2 validation_retry events (attempts 1 and 2), then a
     # 3rd block fails closed.
-    assert len(retries) == 2, f"expected exactly 2 validation_retry events, got {len(retries)}: {types}"
+    assert (
+        len(retries) == 2
+    ), f"expected exactly 2 validation_retry events, got {len(retries)}: {types}"
     assert [r["data"]["attempt"] for r in retries] == [1, 2]
     assert validator.calls == 3, validator.calls
 
@@ -278,7 +292,9 @@ async def test_no_fix_declared_fails_closed_with_zero_retries():
 
     types = [e.get("type") for e in events]
     retries = [e for e in events if e.get("type") == "validation_retry"]
-    starts = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    starts = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
     failed = [e for e in events if e.get("type") == "pipeline_failed"]
 
     assert retries == [], f"a step with no fix: must get zero retries: {types}"
@@ -300,7 +316,9 @@ async def test_validator_passes_zero_retries():
 
     types = [e.get("type") for e in events]
     retries = [e for e in events if e.get("type") == "validation_retry"]
-    starts = [e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"]
+    starts = [
+        e["data"].get("agent_id") for e in events if e.get("type") == "agent_start"
+    ]
     completes = [e for e in events if e.get("type") == "pipeline_complete"]
 
     assert validator.calls == 1, validator.calls

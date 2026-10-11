@@ -561,6 +561,11 @@ export function useRunStateStore(): RunStateStoreReturn {
       // verdict. These three types rehydrate `validationPassed` / `validationIssues`
       // via handlePipelineMessage's existing cases; no new reducer needed.
       "validator_result", "gate_passed", "gate_blocked",
+      // Task 9.2 (SGV2, Req 20/19): same allowlist trap — without these the engine
+      // notices' projections (chainContextUnavailableReason /
+      // finalizationFailedReason) never reached the viewed state the lane reads,
+      // so RunChatLane's RunEngineNotice never mounted on a live run.
+      "chain_context_unavailable", "run_finalization_failed",
     ];
 
     if (!pipelineFrameTypes.includes(msg.type)) return;

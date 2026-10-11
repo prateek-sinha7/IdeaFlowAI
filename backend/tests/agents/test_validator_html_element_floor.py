@@ -90,12 +90,12 @@ async def test_good_pair_adds_content_and_passes(tmp_path):
     root.mkdir()
     v2 = (
         "<html><body>"
-        "<section data-page=\"1\"><input><button>Go</button></section>"
+        '<section data-page="1"><input><button>Go</button></section>'
         "</body></html>"
     )
     v3 = (
         "<html><body>"
-        "<section data-page=\"1\"><input><button>Go</button>"
+        '<section data-page="1"><input><button>Go</button>'
         "<textarea></textarea><select><option>a</option></select>"
         "<p>An added affordance sentence that is long enough to keep the byte "
         "count comfortably above the 40% floor even after this edit.</p>"
@@ -117,10 +117,14 @@ async def test_numeric_version_sort_not_lexicographic(tmp_path):
     # v9 has real content; v10 (the "highest") dropped everything -> must be the
     # pair actually compared, not v1 vs v9 (which a naive lexicographic max would pick).
     (root / "draft.v9.html").write_text(
-        "<section data-page=\"1\"><input><button>Go</button></section>", encoding="utf-8"
+        '<section data-page="1"><input><button>Go</button></section>', encoding="utf-8"
     )
-    (root / "draft.v10.html").write_text("<section data-page=\"1\"></section>", encoding="utf-8")
-    (root / "draft.v1.html").write_text("<section data-page=\"1\"></section>", encoding="utf-8")
+    (root / "draft.v10.html").write_text(
+        '<section data-page="1"></section>', encoding="utf-8"
+    )
+    (root / "draft.v1.html").write_text(
+        '<section data-page="1"></section>', encoding="utf-8"
+    )
 
     v = CapabilityRegistry().resolve("validator", "html_element_floor")
     issues = await v.validate(_Target(_FakeRunner(root)))
@@ -135,7 +139,9 @@ async def test_numeric_version_sort_not_lexicographic(tmp_path):
 async def test_fewer_than_two_drafts_degrades_to_no_issues(tmp_path):
     root = tmp_path / "sandbox"
     root.mkdir()
-    (root / "draft.v1.html").write_text("<section data-page=\"1\"></section>", encoding="utf-8")
+    (root / "draft.v1.html").write_text(
+        '<section data-page="1"></section>', encoding="utf-8"
+    )
     v = CapabilityRegistry().resolve("validator", "html_element_floor")
     issues = await v.validate(_Target(_FakeRunner(root)))
     assert issues == []

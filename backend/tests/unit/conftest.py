@@ -83,7 +83,7 @@ def _deny_db_connect(dbapi_connection, connection_record):  # noqa: ARG001
         "tests/integration/<mirror>/ (the hermetic in-memory SQLite db_session fixture "
         "lives in tests/integration/repositories/conftest.py), or mock the Session with "
         "MagicMock(spec=Session) / AsyncMock(spec=AsyncSession). "
-        "Deliberate exception: @pytest.mark.allow_io(\"reason\")."
+        'Deliberate exception: @pytest.mark.allow_io("reason").'
     )
 
 
@@ -230,7 +230,9 @@ def _forbid_real_database_access(monkeypatch):
 
     # Patch at the sqlalchemy module level (handles import-time calls)
     monkeypatch.setattr(sa, "create_engine", forbidden_create_engine)
-    monkeypatch.setattr(sa_asyncio, "create_async_engine", forbidden_async_create_engine)
+    monkeypatch.setattr(
+        sa_asyncio, "create_async_engine", forbidden_async_create_engine
+    )
 
     # Patch at the dependency injection level (handles FastAPI app.dependency_overrides)
     try:

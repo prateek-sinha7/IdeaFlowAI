@@ -29,10 +29,11 @@ class _Runner:
 
     async def run_fanout(self, requests, ctx, *, step=None):
         self.seen_requests = requests
-        yield {"type": "subagent_spawned",
-               "data": {"worker": 0, "agent": "custom-agent:fi-readers", "depth": 1}}
-        yield {"type": "subagent_result",
-               "data": {"worker": 0, "status": "complete"}}
+        yield {
+            "type": "subagent_spawned",
+            "data": {"worker": 0, "agent": "custom-agent:fi-readers", "depth": 1},
+        }
+        yield {"type": "subagent_result", "data": {"worker": 0, "status": "complete"}}
 
 
 def _ectx(runner, *, task_id):
@@ -48,19 +49,27 @@ def _ectx(runner, *, task_id):
 
 
 def _event(*tasks):
-    return {"tool": "spawn_subagents",
-            "result": json.dumps({"fanout_request": list(tasks), "mode": "parallel"})}
+    return {
+        "tool": "spawn_subagents",
+        "result": json.dumps({"fanout_request": list(tasks), "mode": "parallel"}),
+    }
 
 
 async def _drain(ectx, event):
-    return [e async for e in ExecutionEngine._derive_fanout(
-        ExecutionEngine.__new__(ExecutionEngine), event, ectx)]
+    return [
+        e
+        async for e in ExecutionEngine._derive_fanout(
+            ExecutionEngine.__new__(ExecutionEngine), event, ectx
+        )
+    ]
 
 
 @pytest.mark.asyncio
 async def test_child_events_name_the_wave_member_that_spawned_them():
     runner = _Runner()
-    out = await _drain(_ectx(runner, task_id="s01"), _event("read page 1", "read page 2"))
+    out = await _drain(
+        _ectx(runner, task_id="s01"), _event("read page 1", "read page 2")
+    )
 
     assert [e["type"] for e in out] == ["subagent_spawned", "subagent_result"]
     assert all(e["data"]["parent_task_id"] == "s01" for e in out)
@@ -75,8 +84,10 @@ async def test_a_fanout_outside_a_wave_is_byte_identical():
     out = await _drain(_ectx(runner, task_id=None), _event("do a thing"))
 
     assert out == [
-        {"type": "subagent_spawned",
-         "data": {"worker": 0, "agent": "custom-agent:fi-readers", "depth": 1}},
+        {
+            "type": "subagent_spawned",
+            "data": {"worker": 0, "agent": "custom-agent:fi-readers", "depth": 1},
+        },
         {"type": "subagent_result", "data": {"worker": 0, "status": "complete"}},
     ]
     assert not any("parent_task_id" in e["data"] for e in out)

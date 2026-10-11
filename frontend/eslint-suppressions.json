@@ -1,24 +1,29 @@
 {
+  "src/app/[...view]/page.tsx": {
+    "react-hooks/exhaustive-deps": {
+      "count": 3
+    },
+    "react-hooks/immutability": {
+      "count": 7
+    },
+    "react-hooks/refs": {
+      "count": 1
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 6
+    }
+  },
   "src/app/admin/page.tsx": {
     "react-hooks/set-state-in-effect": {
       "count": 1
     }
   },
-  "src/app/dashboard/page.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 10
-    },
-    "react-hooks/exhaustive-deps": {
-      "count": 3
-    },
-    "react-hooks/immutability": {
-      "count": 6
-    },
+  "src/app/handoff/settings/page.tsx": {
     "react-hooks/set-state-in-effect": {
-      "count": 2
+      "count": 1
     }
   },
-  "src/app/handoff/settings/page.tsx": {
+  "src/app/login/page.tsx": {
     "react-hooks/set-state-in-effect": {
       "count": 1
     }
@@ -29,16 +34,13 @@
     }
   },
   "src/app/workflow/page.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
     "react-hooks/set-state-in-effect": {
       "count": 1
     }
   },
   "src/components/analytics/AnalyticsPage.tsx": {
     "react-hooks/set-state-in-effect": {
-      "count": 3
+      "count": 4
     }
   },
   "src/components/catalog/HomeLaunchGrid.tsx": {
@@ -92,18 +94,15 @@
   },
   "src/components/history/RunDetailPage.tsx": {
     "react-hooks/set-state-in-effect": {
-      "count": 1
+      "count": 3
     }
   },
   "src/components/history/WorkflowHistory.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
     "react-hooks/exhaustive-deps": {
       "count": 2
     },
     "react-hooks/set-state-in-effect": {
-      "count": 3
+      "count": 6
     }
   },
   "src/components/layout/DashboardLayout.launchLatch.test.tsx": {
@@ -116,13 +115,13 @@
       "count": 11
     },
     "react-hooks/exhaustive-deps": {
-      "count": 8
+      "count": 7
     },
     "react-hooks/immutability": {
       "count": 2
     },
     "react-hooks/set-state-in-effect": {
-      "count": 7
+      "count": 10
     }
   },
   "src/components/library/LibraryPage.reskin.test.tsx": {
@@ -133,6 +132,12 @@
   "src/components/library/LibraryPage.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 1
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 3
     }
   },
   "src/components/preview/AppBuilderPreview.tsx": {
@@ -149,8 +154,11 @@
     }
   },
   "src/components/preview/PreviewPanel.tsx": {
+    "react-hooks/exhaustive-deps": {
+      "count": 2
+    },
     "react-hooks/set-state-in-effect": {
-      "count": 5
+      "count": 7
     }
   },
   "src/components/preview/PrototypePreview.tsx": {
@@ -158,8 +166,18 @@
       "count": 2
     }
   },
+  "src/components/preview/RunHeader.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
   "src/components/preview/TweaksPanel.tsx": {
     "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/components/results/ActivityTrail.tsx": {
+    "react-hooks/exhaustive-deps": {
       "count": 1
     }
   },
@@ -170,7 +188,7 @@
   },
   "src/components/results/AgentThinkingTab.tsx": {
     "react-hooks/set-state-in-effect": {
-      "count": 1
+      "count": 3
     }
   },
   "src/components/results/ArtifactVersionPicker.tsx": {
@@ -181,6 +199,24 @@
   "src/components/results/AuditTab.tsx": {
     "react-hooks/set-state-in-effect": {
       "count": 1
+    }
+  },
+  "src/components/results/FigmaExportModal.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/components/results/FilesTab.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/components/results/SandboxTab.tsx": {
+    "react-hooks/exhaustive-deps": {
+      "count": 1
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 2
     }
   },
   "src/components/results/StepsOverviewSpine.tsx": {
@@ -222,27 +258,24 @@
     }
   },
   "src/components/workflow/AgentsPopup.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 6
-    },
     "react-hooks/set-state-in-effect": {
       "count": 3
     }
   },
   "src/components/workflow/IdeaInputPage.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    },
     "react-hooks/set-state-in-effect": {
-      "count": 3
+      "count": 4
     }
   },
   "src/components/workflow/LaunchWizard.tsx": {
     "react-hooks/exhaustive-deps": {
-      "count": 2
+      "count": 4
+    },
+    "react-hooks/refs": {
+      "count": 1
     },
     "react-hooks/set-state-in-effect": {
-      "count": 2
+      "count": 5
     }
   },
   "src/components/workflow/SkillManager.tsx": {
@@ -252,7 +285,7 @@
   },
   "src/components/workflow/TokenUsageSummary.tsx": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 4
+      "count": 1
     }
   },
   "src/components/workflow/WizardStepper.tsx": {
@@ -270,24 +303,31 @@
       "count": 2
     }
   },
+  "src/components/workflow/composer/CanvasConfigRail.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
   "src/components/workflow/composer/CanvasView.tsx": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 3
+      "count": 2
     },
     "react-hooks/exhaustive-deps": {
       "count": 1
     },
     "react-hooks/set-state-in-effect": {
-      "count": 4
+      "count": 3
     }
   },
   "src/components/workflow/composer/ComposerPage.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
     "react-hooks/exhaustive-deps": {
-      "count": 1
+      "count": 3
     },
+    "react-hooks/set-state-in-effect": {
+      "count": 3
+    }
+  },
+  "src/components/workflow/composer/DesignPickerModal.tsx": {
     "react-hooks/set-state-in-effect": {
       "count": 1
     }

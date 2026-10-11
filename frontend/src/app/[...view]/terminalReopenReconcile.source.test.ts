@@ -23,6 +23,16 @@ import { resolve } from "node:path";
 
 const pageSource = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
 
+// Full call signatures, locked argument-for-argument. The two trailing args are the
+// additive optionals on applyTerminalStatus (useWorkflow.ts:400):
+//   warnings = undefined        — A14; page.tsx deliberately does not forward the run's
+//                                  persisted warnings yet (pending A24), and undefined
+//                                  leaves prev.warnings untouched.
+//   usage = fullRun.tokenUsage  — ISS-304; the run's PERSISTED token_usage.
+// A change to either argument must fail here and be re-reviewed, not slip through a prefix.
+const APPLY_CALL = "applyTerminalStatus(prev, fullRun.status, undefined, fullRun.tokenUsage)";
+const RECONCILE_CALL = "reconcileTerminalStatus(fullRun.status, undefined, fullRun.tokenUsage);";
+
 describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
   it("imports the shared terminal reducer rather than re-deriving markers inline", () => {
     // FAIL-BEFORE: no such import — RED. INV-12: one vocabulary, imported.
@@ -35,7 +45,7 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
     // A NEW list here would be the INV-12 violation the fix exists to avoid.
     expect(pageSource).toContain("REOPEN_TERMINAL_STATUSES.has(fullRun.status)");
     expect(pageSource).toContain("runStore.updatePipelineState(");
-    expect(pageSource).toContain("applyTerminalStatus(prev, fullRun.status)");
+    expect(pageSource).toContain(APPLY_CALL);
   });
 
   it("reconciles BOTH containers — the store AND the legacy reducer state", () => {
@@ -45,7 +55,7 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
     // switches to the reopened run, and that legacy state accumulated the same
     // terminal-less replay — so it clobbered the store patch a few hundred ms
     // later and the screen kept showing a live Stop.
-    expect(pageSource).toContain("reconcileTerminalStatus(fullRun.status);");
+    expect(pageSource).toContain(RECONCILE_CALL);
     expect(pageSource).toMatch(/reconcileTerminalStatus\s*\}\s*=\s*useWorkflow\(\)|reconcileTerminalStatus\s*\}\s*=/);
   });
 
@@ -57,7 +67,10 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
   });
 
   it("does NOT clear reviewGateData — that would erase the historical gate card", () => {
-    const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+    const call = pageSource.indexOf(APPLY_CALL);
+    // Guard: without it a missing call gives indexOf -1 and slice(-1, 1599) === "",
+    // so the negative assertion below would pass vacuously.
+    expect(call).toBeGreaterThan(-1);
     const windowAfter = pageSource.slice(call, call + 1600);
     expect(windowAfter).not.toContain("reviewGateData: null");
   });
@@ -67,14 +80,14 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
     // what DashboardLayout receives. The legacy React setters at :1197-1201 are
     // NOT read by the lane, so writing there would be invisible.
     expect(pageSource).toContain("const displayedPipelineState = runStore.viewed.pipelineState;");
-    const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+    const call = pageSource.indexOf(APPLY_CALL);
     const storeWrite = pageSource.lastIndexOf("runStore.updatePipelineState(", call);
     expect(storeWrite).toBeGreaterThan(-1);
   });
 
   it("runs AFTER the durable replay loop, never before it", () => {
     const loopStart = pageSource.indexOf("for (const frame of durableFrames)");
-    const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+    const call = pageSource.indexOf(APPLY_CALL);
     expect(loopStart).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(loopStart);
@@ -82,7 +95,7 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
 
   it("stays inside the reopen handler, after the durable fetch", () => {
     const fetchAt = pageSource.indexOf("const durableFrames = await getRunEvents(currentToken, fullRun.id);");
-    const call = pageSource.indexOf("applyTerminalStatus(prev, fullRun.status)");
+    const call = pageSource.indexOf(APPLY_CALL);
     expect(fetchAt).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(fetchAt);
   });

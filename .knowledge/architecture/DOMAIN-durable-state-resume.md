@@ -255,7 +255,7 @@ sequenceDiagram
 7. Then `asyncio.create_task(engine.py::resume_run)`.
 8. Inside [engine.py::resume_run](../../backend/agents/execution_engine/engine.py), the run's OpenDesign context (for `od_ppt` / `od_prototype` pipelines)
    is rebuilt from `.context/selections.json` written at sandbox open (task 8.1) via
-   [launch_context.py::rebuild_od_context_from_sandbox](../../backend/app/api/launch_context.py), and this disk-sourced `od_context` *wins* over the
+   [od_context_sandbox.py::rebuild_od_context_from_sandbox](../../backend/app/services/od_context_sandbox.py), and this disk-sourced `od_context` *wins* over the
    `od_context_json` column if both exist — the `.context/` files are the authoritative
    record. Non-OD runs and sandboxes created before task 8.1 fall back to the DB column.
 9. Then [engine.py::_compute_resume_completed_task_ids](../../backend/agents/execution_engine/engine.py) reads `ScopedStore.tree` and

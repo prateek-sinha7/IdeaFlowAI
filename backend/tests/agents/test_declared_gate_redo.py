@@ -137,13 +137,13 @@ async def _drive(engine, compiled, run_id: str, on_ready):
 async def test_redoable_step_re_runs_with_instructions_and_rearms_gate() -> None:
     """A redo at an opted-in (``redoable: true``) declared gate:
 
-      * re-runs the step (a SECOND ``agent_start``/``agent_input``/``agent_complete``);
-      * delivers the user's free-text instructions to the re-run via the generic
-        steering-note seam (the ``=== USER GUIDANCE ===`` block in the re-run's
-        composed context — NOT a second injection mechanism);
-      * re-arms the SAME gate afterwards (a SECOND ``review_gate_ready`` for the
-        same agent_id) so the user can approve or redo again;
-      * an eventual approve completes the run.
+    * re-runs the step (a SECOND ``agent_start``/``agent_input``/``agent_complete``);
+    * delivers the user's free-text instructions to the re-run via the generic
+      steering-note seam (the ``=== USER GUIDANCE ===`` block in the re-run's
+      composed context — NOT a second injection mechanism);
+    * re-arms the SAME gate afterwards (a SECOND ``review_gate_ready`` for the
+      same agent_id) so the user can approve or redo again;
+    * an eventual approve completes the run.
     """
     compiled = _build_compiled(redoable=True)
     assert compiled.steps[0].redoable is True
@@ -176,7 +176,11 @@ async def test_redoable_step_re_runs_with_instructions_and_rearms_gate() -> None
     assert types.count("agent_complete") == 2, types
     # The gate re-armed: two review_gate_ready for the same agent_id.
     assert len(readies) == 2
-    assert readies[0]["data"]["agent_id"] == readies[1]["data"]["agent_id"] == "domain-analyst"
+    assert (
+        readies[0]["data"]["agent_id"]
+        == readies[1]["data"]["agent_id"]
+        == "domain-analyst"
+    )
 
     # The RE-RUN's context carries the redo instructions via the steering-note seam.
     agent_inputs = [e for e in events if e.get("type") == "agent_input"]
@@ -201,6 +205,8 @@ async def test_non_redoable_declared_gate_unaffected_by_redo_action() -> None:
     run_id = f"no-redo-gate-{uuid.uuid4().hex[:8]}"
     readies: list[dict] = []
 
+    followups: list[asyncio.Task] = []
+
     async def _on_ready(ev):
         readies.append(ev)
         engine = harness.engine
@@ -210,11 +216,25 @@ async def test_non_redoable_declared_gate_unaffected_by_redo_action() -> None:
             gate_key, approved=False, action="redo", instructions="ignored"
         )
 
+        # ISS-090: _run_review_gate REFUSES a redo this firing never advertised
+        # and keeps the SAME gate open. A real user then approves; the scripted
+        # client does the same once the refusal has been processed.
+        async def _approve_after_refusal():
+            await asyncio.sleep(0.5)
+            await engine._store.set_review_response(gate_key, approved=True)
+
+        followups.append(asyncio.create_task(_approve_after_refusal()))
+
     with _Harness(["only pass output. "]) as harness:
         events = await _drive(harness.engine, compiled, run_id, _on_ready)
+    for task in followups:
+        await task
 
     types = [e.get("type") for e in events]
 
-    # Exactly one dispatch, one gate — the redo action was consumed, not honoured.
+    # Exactly one dispatch, one gate — the redo action was refused, not honoured.
     assert types.count("agent_start") == 1, types
     assert len(readies) == 1
+    # The refused redo neither re-ran the step nor ended the run: the follow-up
+    # approve on the still-open gate completes it.
+    assert "pipeline_complete" in types, types

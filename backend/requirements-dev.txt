@@ -5,7 +5,7 @@
 # against the committed backend/uv.lock (see
 # .github/actions/setup-backend/action.yml); local development runs
 # `uv sync`, which reads pyproject.toml's `[dependency-groups].dev` directly.
-# backend/tests/ci/test_dependency_lock_contracts.py asserts this file's
+# backend/tests/unit/tools/ci/test_dependency_lock_contracts.py asserts this file's
 # dev-only pins stay identical to that group, so it cannot silently drift
 # into a second, disagreeing source of truth — but it is not read by CI.
 

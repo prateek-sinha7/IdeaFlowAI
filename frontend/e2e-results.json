@@ -1,4 +1,0 @@
-﻿
-> frontend@0.1.0 e2e
-> playwright test --project=mocked --project=mocked --reporter=json
-

@@ -323,7 +323,6 @@ describe("agentsToManifestSteps / manifestStepsToAgents — lossless round trip 
       },
     };
     const steps = agentsToManifestSteps([agent], selections);
-    const restored = manifestStepsToAgents(steps);
     const restored_selections = manifestStepsToGateSelections(steps);
 
     expect(restored_selections["screen-builder"]).toMatchObject({

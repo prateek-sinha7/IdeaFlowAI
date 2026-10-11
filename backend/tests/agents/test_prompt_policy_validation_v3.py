@@ -4,6 +4,7 @@ Covers Requirement 29 AC1: prompt_policy must be validated against registered
 prompt-policy names from CapabilityRegistry at LOAD time, not at dispatch time.
 Unknown → AgentSpecError naming the file and the allowed names.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -292,8 +293,12 @@ class TestPromptPolicyValidation:
         fresh in a subprocess: that must fail, not silently cache the spec.
         """
         backend_root = Path(__file__).resolve().parents[2]
-        bogus_dir = backend_root / "agents" / "prompts" / "__test_bogus_prompt_policy_agent__"
-        assert not bogus_dir.exists(), f"stale fixture dir from a prior run: {bogus_dir}"
+        bogus_dir = (
+            backend_root / "agents" / "prompts" / "__test_bogus_prompt_policy_agent__"
+        )
+        assert (
+            not bogus_dir.exists()
+        ), f"stale fixture dir from a prior run: {bogus_dir}"
         bogus_dir.mkdir()
         try:
             (bogus_dir / "AGENT.md").write_text(

@@ -103,7 +103,9 @@ class TestAnthropicMapping:
     def test_401_authentication_error_maps_to_auth_error(self):
         import anthropic
 
-        result = map_exception(_anthropic_status_error(anthropic.AuthenticationError, 401))
+        result = map_exception(
+            _anthropic_status_error(anthropic.AuthenticationError, 401)
+        )
         assert result.code == "auth_error"
         assert result.recoverable is False
         assert result.message
@@ -111,7 +113,9 @@ class TestAnthropicMapping:
     def test_403_permission_denied_error_maps_to_auth_error(self):
         import anthropic
 
-        result = map_exception(_anthropic_status_error(anthropic.PermissionDeniedError, 403))
+        result = map_exception(
+            _anthropic_status_error(anthropic.PermissionDeniedError, 403)
+        )
         assert result.code == "auth_error"
         assert result.recoverable is False
 

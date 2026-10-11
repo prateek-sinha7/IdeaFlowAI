@@ -146,13 +146,12 @@ test.describe("TS-S — reconnect / replay", () => {
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   });
 
-  // TS-S-07 — cross-owner demotion (a reconnect by a different owner must be
-  // refused / the run demoted) is enforced entirely on the backend (BE-RES-01).
-  // There is no FE-observable surface to drive in mocked mode (the mock WS never
-  // performs the ownership check), so this is documented as backend-gated. The
-  // standalone fixme test keeps the case visible in the run report without
-  // skipping its siblings.
-  test("TS-S-07 cross-owner demotion (backend-gated)", () => {
-    test.skip(true, "cross-owner demotion is backend-gated (BE-RES-01); Owner: backend");
-  });
+  // TS-S-07 (cross-owner reattach is refused) was DELETED from the mocked project:
+  // the ownership check is server-side and the mock never performs it, so the case
+  // could only ever be skipped here. Owner: backend —
+  //   backend/tests/integration/api/test_sse_stream_api.py
+  //     ::TestOwnerScope::test_cross_owner_is_404 / ::test_never_403
+  //   backend/tests/integration/api/test_attach_replay_matrix_api.py
+  //     ::TestCrossOwner::test_cross_owner_attach_is_404
+  // (an attacker's GET /api/runs/{id}/events/stream is a 404, never a 403).
 });

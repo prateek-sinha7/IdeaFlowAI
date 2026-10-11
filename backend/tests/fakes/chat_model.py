@@ -32,4 +32,6 @@ class FakeStaticChatModel(BaseChatModel):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=self.reply))])
+        return ChatResult(
+            generations=[ChatGeneration(message=AIMessage(content=self.reply))]
+        )

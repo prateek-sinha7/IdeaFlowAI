@@ -49,10 +49,6 @@ def _fresh_run_id() -> str:
     return f"test-{uuid.uuid4()}"
 
 
-
-
-
-
 # ===========================================================================
 # 1.  Deliverable and list_files exclusions — independence (Req 9 AC 4)
 # ===========================================================================
@@ -97,7 +93,9 @@ class TestExclusionIndependence:
         # Git internals written directly (simulating git init side-effects).
         git_dir = sb.root / ".git"
         git_dir.mkdir()
-        (git_dir / "config").write_text("[core]\n\trepositoryformatversion = 0\n", encoding="utf-8")
+        (git_dir / "config").write_text(
+            "[core]\n\trepositoryformatversion = 0\n", encoding="utf-8"
+        )
         (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
 
         # .gitignore at root.
@@ -127,13 +125,13 @@ class TestExclusionIndependence:
         paths = {f["path"] for f in files}
 
         assert "prototype.html" in paths, "list_files must include prototype.html"
-        assert not any(p.startswith(".git") for p in paths), (
-            f".git/ tree must be absent from list_files; got: {[p for p in paths if p.startswith('.git')]}"
-        )
+        assert not any(
+            p.startswith(".git") for p in paths
+        ), f".git/ tree must be absent from list_files; got: {[p for p in paths if p.startswith('.git')]}"
         assert ".gitignore" not in paths, ".gitignore must be absent from list_files"
-        assert not any(p.startswith("skills") for p in paths), (
-            f"skills/ tree must be absent from list_files; got: {[p for p in paths if p.startswith('skills')]}"
-        )
+        assert not any(
+            p.startswith("skills") for p in paths
+        ), f"skills/ tree must be absent from list_files; got: {[p for p in paths if p.startswith('skills')]}"
         assert not truncated
 
     def test_git_init_sandbox_exclusions_on_real_git_repo(self, tmp_path: Path) -> None:
@@ -147,7 +145,9 @@ class TestExclusionIndependence:
         import shutil as _shutil
 
         if not _shutil.which("git"):
-            pytest.skip("git not available on PATH — skipping git integration smoke-test")
+            pytest.skip(
+                "git not available on PATH — skipping git integration smoke-test"
+            )
 
         from app.agents.runtime.local import LocalExecutionPolicy, LocalWorkspace
         from app.agents.sandbox import (
@@ -188,8 +188,12 @@ class TestExclusionIndependence:
         # ── Deliverable must not include .git/ or .gitignore ─────────────
         out = serialize_sandbox_deliverable(sandbox.root)
         assert "index.html" in out, "deliverable must include index.html"
-        assert ".git" not in out, ".git/ must not appear in deliverable after git_init_sandbox"
-        assert ".gitignore" not in out, ".gitignore must not appear in deliverable after git_init_sandbox"
+        assert (
+            ".git" not in out
+        ), ".git/ must not appear in deliverable after git_init_sandbox"
+        assert (
+            ".gitignore" not in out
+        ), ".gitignore must not appear in deliverable after git_init_sandbox"
         assert count_sandbox_deliverables(sandbox.root) == 1
 
         # ── list_files must not include .git/ or .gitignore ──────────────
@@ -197,12 +201,14 @@ class TestExclusionIndependence:
         paths = {f["path"] for f in files}
 
         assert "index.html" in paths
-        assert not any(p.startswith(".git") for p in paths), (
-            f".git/ files must be absent from list_files; found: {[p for p in paths if p.startswith('.git')]}"
-        )
+        assert not any(
+            p.startswith(".git") for p in paths
+        ), f".git/ files must be absent from list_files; found: {[p for p in paths if p.startswith('.git')]}"
         assert ".gitignore" not in paths, ".gitignore must be absent from list_files"
 
-    def test_reserved_prefixes_not_in_deliverable_combined(self, tmp_path: Path) -> None:
+    def test_reserved_prefixes_not_in_deliverable_combined(
+        self, tmp_path: Path
+    ) -> None:
         """All reserved sandbox prefixes are absent from serialize_sandbox_deliverable.
 
         Combines Req 9 (.git, .gitignore, skills) with the other reserved prefixes
@@ -349,7 +355,9 @@ class TestRefValidation:
         ws.git_init_sandbox()
 
         tags = ws.list_tags()
-        assert isinstance(tags, list), f"list_tags() must return a list; got {type(tags)}"
+        assert isinstance(
+            tags, list
+        ), f"list_tags() must return a list; got {type(tags)}"
 
     def test_ref_validation_rejects_arbitrary_string(self, tmp_path: Path) -> None:
         """A free-form string NOT in list_tags() must be rejected.

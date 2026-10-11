@@ -186,6 +186,8 @@ async def test_kernel_services_threads_aux_usage_sink_into_fix_loop() -> None:
         disk_principal="u1",
         checkpointer=None,
         current_step=None,
+        # ExecutionContext field the fix loop seeds and drains (Req 14 AC 4).
+        pending_validation_fix={},
     )
     handle = KernelServices(
         engine=_StubEngine(),

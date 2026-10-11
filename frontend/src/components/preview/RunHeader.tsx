@@ -4,10 +4,10 @@
  * RunHeader — the run-screen RIGHT-column header row (Phase 39, RUNUI-06/07).
  *
  * Share button (Option B): opens a popover that mints a public /s/{token} link.
- * The caller supplies `onShare` for backwards compatibility; when `runId` is also
- * provided the button calls POST /api/runs/{id}/share, shows a copy-able URL, and
- * offers a Revoke action. Falls back to the legacy clipboard-copy when only
- * `onShare` is supplied (history reopens that don't carry a runId).
+ * When `runId` is provided the button calls POST /api/runs/{id}/share, shows a
+ * copy-able URL, and offers a Revoke action. `onShare` is still accepted for
+ * API compatibility but is NOT currently invoked — the legacy clipboard-copy
+ * fallback for runId-less reopens was never wired to the button.
  *
  * SC-001 / ND-D: status keys off the generic `RunLaneState` discriminator — never
  * a workflow name. Styling routes through the Phase-32 token layer.
@@ -68,7 +68,10 @@ function VersionMenu({
   onSelectVersion: (tag: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const sortedTags = useMemo(() => sortTagsNewestFirst(tags), [tags]);
 
   // Close on outside click.
@@ -83,12 +86,51 @@ function VersionMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Keyboard contract (restored from the pre-24f11270 VersionMenu; the tag-driven
+  // rewrite dropped it without saying so): opening moves focus INTO the listbox
+  // onto the highlighted option, Arrow keys move it, Enter/Space selects, and
+  // Escape closes and returns focus to the chip.
+  useEffect(() => {
+    if (open) optionRefs.current[highlightIdx]?.focus();
+  }, [open, highlightIdx]);
+
   const chipText = selectedRef ? `Viewing ${selectedRef}` : liveLabel;
   // With "Latest (live)" dropped, nothing in the menu would be marked as the
   // current selection while browsing un-pinned — so the tag matching the chip's
   // own label (the version actually on screen) carries it instead. `liveLabel`
   // is the bare `vN` in exactly the states where the live entry is dropped.
   const markedRef = selectedRef ?? (showLatestLive ? null : liveLabel);
+  // Every option in render order: `null` is "Latest (live)", then tags newest first.
+  const entries: (string | null)[] = showLatestLive ? [null, ...sortedTags] : sortedTags;
+
+  const openMenu = () => {
+    const marked = entries.indexOf(markedRef);
+    setHighlightIdx(marked >= 0 ? marked : 0);
+    setOpen(true);
+  };
+  const closeMenu = () => {
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+  const select = (tag: string | null) => {
+    onSelectVersion(tag);
+    closeMenu();
+  };
+  const onListKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeMenu();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIdx((i) => Math.min(i + 1, entries.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (highlightIdx < entries.length) select(entries[highlightIdx]);
+    }
+  };
 
   return (
     // `relative` anchors the listbox below — without a positioned ancestor its
@@ -96,8 +138,9 @@ function VersionMenu({
     // which put it far down the page instead of adjacent to the chip.
     <div className="relative inline-flex flex-col items-start gap-[3px]" ref={menuRef}>
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? setOpen(false) : openMenu())}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="inline-flex items-center gap-[9px] rounded-[10px] border border-line-control bg-surface-card px-3 py-2 cursor-pointer hover:border-line-faint hover:bg-surface-white"
@@ -113,18 +156,21 @@ function VersionMenu({
         <div
           role="listbox"
           aria-label="Select a version"
+          onKeyDown={onListKeyDown}
           className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-[12px] border border-line-border bg-surface-white shadow-xl py-1"
         >
           {showLatestLive && (
             <>
               <button
+                ref={(el) => {
+                  optionRefs.current[0] = el;
+                }}
                 type="button"
                 role="option"
                 aria-selected={markedRef === null}
-                onClick={() => {
-                  onSelectVersion(null);
-                  setOpen(false);
-                }}
+                tabIndex={highlightIdx === 0 ? 0 : -1}
+                onMouseEnter={() => setHighlightIdx(0)}
+                onClick={() => select(null)}
                 className={`w-full px-4 py-2 text-left font-sans text-[12.5px] hover:bg-surface-warm transition-colors ${
                   markedRef === null ? "font-semibold text-brand" : "text-ink-700"
                 }`}
@@ -138,23 +184,28 @@ function VersionMenu({
               )}
             </>
           )}
-          {sortedTags.map((tag) => (
+          {sortedTags.map((tag, i) => {
+            const idx = showLatestLive ? i + 1 : i;
+            return (
             <button
               key={tag}
+              ref={(el) => {
+                optionRefs.current[idx] = el;
+              }}
               type="button"
               role="option"
               aria-selected={tag === markedRef}
-              onClick={() => {
-                onSelectVersion(tag);
-                setOpen(false);
-              }}
+              tabIndex={highlightIdx === idx ? 0 : -1}
+              onMouseEnter={() => setHighlightIdx(idx)}
+              onClick={() => select(tag)}
               className={`w-full px-4 py-2 text-left font-sans text-[12.5px] hover:bg-surface-warm transition-colors ${
                 tag === markedRef ? "font-semibold text-brand" : "text-ink-700"
               }`}
             >
               {tag}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -278,7 +329,7 @@ export function RunHeader({
   latestVersionTag,
   latestVersionInFlight = false,
   runId,
-  onShare,
+  onShare: _onShare,
   onDownload,
   canDownload = false,
   currentAgentName,
@@ -286,10 +337,6 @@ export function RunHeader({
   buildStepTotal,
   clarifyCount,
 }: RunHeaderProps) {
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current); }, []);
-
   const isFailed = failed || runState === "terminal";
   const isRunning = runState === "building" || runState === "clarify" || runState === "gate";
   const isSettled = !isFailed && !isRunning; // complete / idle-with-content
@@ -331,15 +378,6 @@ export function RunHeader({
   // What the chip says while no tag is pinned — matches today's static chip
   // per run state so switching to the interactive menu changes nothing else.
   const liveLabel = `${versionLabel ?? "v1"}${!isSettled ? (isRunning ? " draft" : isFailed ? " · partial" : "") : ""}`;
-
-  const shareEnabled = isSettled && !!onShare;
-  const handleShare = () => {
-    if (!shareEnabled || !onShare) return;
-    onShare();
-    setCopied(true);
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    copiedTimer.current = setTimeout(() => setCopied(false), 2000);
-  };
 
   // ── Share popover state (Option B public link) ────────────────────────────
   const [sharePopoverOpen, setSharePopoverOpen] = useState(false);

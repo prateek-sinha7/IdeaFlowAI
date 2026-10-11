@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from app.api.launch_context import (
+from app.services.od_context_sandbox import (
     context_already_present,
     rebuild_od_context_from_sandbox,
     write_od_context_to_sandbox,
@@ -40,7 +40,7 @@ from app.api.launch_context import (
 def _make_sandbox(tmp_path: Path) -> types.SimpleNamespace:
     """Return a sandbox whose read/write methods are backed by *tmp_path*.
 
-    Mirrors the duck-typed surface that launch_context.py probes:
+    Mirrors the duck-typed surface that app/services/od_context_sandbox.py probes:
       - ``write(relpath, content: str)``
       - ``read(relpath) -> str | None``
       - ``list_files() -> (list[dict], ...)``
@@ -59,7 +59,11 @@ def _make_sandbox(tmp_path: Path) -> types.SimpleNamespace:
         return p.read_text(encoding="utf-8")
 
     def list_files():  # noqa: ANN001 — mirrors real signature
-        paths = [str(p.relative_to(root)).replace("\\", "/") for p in root.rglob("*") if p.is_file()]
+        paths = [
+            str(p.relative_to(root)).replace("\\", "/")
+            for p in root.rglob("*")
+            if p.is_file()
+        ]
         entries = [{"path": p} for p in paths]
         return entries, {}
 
@@ -126,7 +130,10 @@ class TestResumeBytesIdentical:
         assert rebuilt["template_name"] == _SAMPLE_OD_CONTEXT["template_name"]
         assert rebuilt["ds_name"] == _SAMPLE_OD_CONTEXT["ds_name"]
         assert rebuilt["no_template"] == _SAMPLE_OD_CONTEXT["no_template"]
-        assert rebuilt["is_design_system_required"] == _SAMPLE_OD_CONTEXT["is_design_system_required"]
+        assert (
+            rebuilt["is_design_system_required"]
+            == _SAMPLE_OD_CONTEXT["is_design_system_required"]
+        )
         assert rebuilt["ds_body"] == _SAMPLE_OD_CONTEXT["ds_body"]
         assert rebuilt["craft_block"] == _SAMPLE_OD_CONTEXT["craft_block"]
         assert rebuilt["template_body"] == _SAMPLE_OD_CONTEXT["template_body"]
@@ -142,9 +149,9 @@ class TestResumeBytesIdentical:
         tf = rebuilt.get("template_files") or {}
         for rel, content in _SAMPLE_OD_CONTEXT["template_files"].items():
             assert rel in tf, f"template_files missing key {rel!r}"
-            assert tf[rel] == content, (
-                f"template_files[{rel!r}] does not match: {tf[rel]!r} != {content!r}"
-            )
+            assert (
+                tf[rel] == content
+            ), f"template_files[{rel!r}] does not match: {tf[rel]!r} != {content!r}"
 
     def test_resume_does_not_change_file_bytes(self, tmp_path: Path) -> None:
         """A second write call (simulating resume) must not alter any file.
@@ -180,7 +187,9 @@ class TestResumeBytesIdentical:
             "was supplied. The inheritance guard must prevent any overwrite."
         )
 
-    def test_rebuild_after_resume_is_identical_to_original(self, tmp_path: Path) -> None:
+    def test_rebuild_after_resume_is_identical_to_original(
+        self, tmp_path: Path
+    ) -> None:
         """rebuild_od_context_from_sandbox after a resume returns the same dict."""
         sb = _make_sandbox(tmp_path)
 
@@ -234,7 +243,9 @@ class TestRevisionInheritance:
         # Root run writes its design inputs.
         write_od_context_to_sandbox(sb, _SAMPLE_OD_CONTEXT)
         root_selections = (tmp_path / ".context" / "selections.json").read_bytes()
-        root_design_system = (tmp_path / ".context" / "design" / "design-system.md").read_bytes()
+        root_design_system = (
+            tmp_path / ".context" / "design" / "design-system.md"
+        ).read_bytes()
 
         # Revision run does NOT supply an explicit_selection.
         revision_ctx = dict(_SAMPLE_OD_CONTEXT)
@@ -242,11 +253,17 @@ class TestRevisionInheritance:
         write_od_context_to_sandbox(sb, revision_ctx, explicit_selection=False)
 
         # Files must be unchanged.
-        assert (tmp_path / ".context" / "selections.json").read_bytes() == root_selections
-        assert (tmp_path / ".context" / "design" / "design-system.md").read_bytes() == root_design_system
+        assert (
+            tmp_path / ".context" / "selections.json"
+        ).read_bytes() == root_selections
+        assert (
+            tmp_path / ".context" / "design" / "design-system.md"
+        ).read_bytes() == root_design_system
 
         # And the template_id in selections must still be the ROOT's value.
-        sel = json.loads((tmp_path / ".context" / "selections.json").read_text(encoding="utf-8"))
+        sel = json.loads(
+            (tmp_path / ".context" / "selections.json").read_text(encoding="utf-8")
+        )
         assert sel["template_id"] == _SAMPLE_OD_CONTEXT["template_id"], (
             "selections.json was overwritten by the revision even though no "
             "explicit_selection was supplied."
@@ -271,14 +288,18 @@ class TestRevisionInheritance:
         new_ctx["ds_body"] = "# REVISED Design System\nNew color: #FFFFFF"
         write_od_context_to_sandbox(sb, new_ctx, explicit_selection=True)
 
-        revised_ds = (tmp_path / ".context" / "design" / "design-system.md").read_bytes()
-        assert revised_ds != root_ds, (
-            "design-system.md was NOT updated despite explicit_selection=True."
-        )
+        revised_ds = (
+            tmp_path / ".context" / "design" / "design-system.md"
+        ).read_bytes()
+        assert (
+            revised_ds != root_ds
+        ), "design-system.md was NOT updated despite explicit_selection=True."
         assert b"REVISED Design System" in revised_ds
 
         # selections.json must also reflect the new context.
-        sel = json.loads((tmp_path / ".context" / "selections.json").read_text(encoding="utf-8"))
+        sel = json.loads(
+            (tmp_path / ".context" / "selections.json").read_text(encoding="utf-8")
+        )
         assert sel["ds_id"] == new_ctx["ds_id"]
 
     def test_context_already_present_returns_false_for_empty_sandbox(
@@ -362,22 +383,24 @@ class TestChainInstallDoesNotTouchDesignFiles:
         # Chain flat files must be written.
         assert (context_dir / "logs.jsonl").read_bytes() == chain_files["logs.jsonl"]
         assert (context_dir / "summary.md").read_bytes() == chain_files["summary.md"]
-        assert (context_dir / "prototype.html").read_bytes() == chain_files["prototype.html"]
+        assert (context_dir / "prototype.html").read_bytes() == chain_files[
+            "prototype.html"
+        ]
 
         # Design inputs must still be present and byte-identical — the chain
         # install must not blow away the whole directory (BUG-126 / B24 fix).
-        assert (context_dir / "selections.json").exists(), (
-            "selections.json was destroyed by _atomic_write_context_dir — BUG-126 regression"
-        )
-        assert (context_dir / "selections.json").read_bytes() == sel_before, (
-            "selections.json was modified by _atomic_write_context_dir — BUG-126 regression"
-        )
-        assert (context_dir / "design" / "design-system.md").exists(), (
-            "design/design-system.md was destroyed by _atomic_write_context_dir — BUG-126 regression"
-        )
-        assert (context_dir / "design" / "design-system.md").read_bytes() == design_before, (
-            "design/design-system.md was modified by _atomic_write_context_dir — BUG-126 regression"
-        )
+        assert (
+            context_dir / "selections.json"
+        ).exists(), "selections.json was destroyed by _atomic_write_context_dir — BUG-126 regression"
+        assert (
+            (context_dir / "selections.json").read_bytes() == sel_before
+        ), "selections.json was modified by _atomic_write_context_dir — BUG-126 regression"
+        assert (
+            context_dir / "design" / "design-system.md"
+        ).exists(), "design/design-system.md was destroyed by _atomic_write_context_dir — BUG-126 regression"
+        assert (
+            (context_dir / "design" / "design-system.md").read_bytes() == design_before
+        ), "design/design-system.md was modified by _atomic_write_context_dir — BUG-126 regression"
 
     def test_chain_payload_files_are_at_context_root_not_in_subdir(
         self, tmp_path: Path
@@ -410,9 +433,9 @@ class TestChainInstallDoesNotTouchDesignFiles:
 
         # No subdirectory is created.
         subdirs = [p for p in context_dir.iterdir() if p.is_dir()]
-        assert not subdirs, (
-            f"_atomic_write_context_dir created unexpected subdirectory/ies: {subdirs}"
-        )
+        assert (
+            not subdirs
+        ), f"_atomic_write_context_dir created unexpected subdirectory/ies: {subdirs}"
 
     def test_resume_after_chain_install_does_not_re_read_source_ref(
         self, tmp_path: Path
@@ -458,9 +481,7 @@ class TestSweptSourceTagDoesNotAffectResume:
     bytes the resumed run sees are unchanged.
     """
 
-    def test_rebuild_succeeds_after_source_would_be_swept(
-        self, tmp_path: Path
-    ) -> None:
+    def test_rebuild_succeeds_after_source_would_be_swept(self, tmp_path: Path) -> None:
         """rebuild works when the 'source' directory no longer exists.
 
         We write context to sandbox A, then attempt a rebuild from sandbox A
@@ -481,9 +502,7 @@ class TestSweptSourceTagDoesNotAffectResume:
         assert rebuilt["ds_body"] == _SAMPLE_OD_CONTEXT["ds_body"]
         assert rebuilt["craft_block"] == _SAMPLE_OD_CONTEXT["craft_block"]
 
-    def test_context_files_unchanged_when_source_deleted(
-        self, tmp_path: Path
-    ) -> None:
+    def test_context_files_unchanged_when_source_deleted(self, tmp_path: Path) -> None:
         """The .context/ bytes on disk are not affected by source sandbox deletion.
 
         Byte-for-byte: snapshot the files, delete the source, re-read the files,
@@ -508,6 +527,7 @@ class TestSweptSourceTagDoesNotAffectResume:
 
         # Delete the source.
         import shutil
+
         shutil.rmtree(str(source_dir))
         assert not source_dir.exists()
 
@@ -518,13 +538,11 @@ class TestSweptSourceTagDoesNotAffectResume:
             if p.is_file()
         }
 
-        assert before == after, (
-            "Deleting the source sandbox altered the receiving sandbox's .context/ bytes."
-        )
+        assert (
+            before == after
+        ), "Deleting the source sandbox altered the receiving sandbox's .context/ bytes."
 
-    def test_rebuild_after_source_sweep_returns_same_data(
-        self, tmp_path: Path
-    ) -> None:
+    def test_rebuild_after_source_sweep_returns_same_data(self, tmp_path: Path) -> None:
         """rebuild_od_context_from_sandbox returns identical data before and after source sweep."""
         source_dir = tmp_path / "source"
         source_dir.mkdir(parents=True)
@@ -537,6 +555,7 @@ class TestSweptSourceTagDoesNotAffectResume:
 
         # "Sweep" source.
         import shutil
+
         shutil.rmtree(str(source_dir))
 
         after = rebuild_od_context_from_sandbox(receiving_sb)
@@ -616,7 +635,9 @@ class TestEdgeCases:
         sb = _make_sandbox(tmp_path)
         write_od_context_to_sandbox(sb, _SAMPLE_OD_CONTEXT)
 
-        sel_raw = (tmp_path / ".context" / "selections.json").read_text(encoding="utf-8")
+        sel_raw = (tmp_path / ".context" / "selections.json").read_text(
+            encoding="utf-8"
+        )
         sel = json.loads(sel_raw)
 
         expected = _full_expected_selections(_SAMPLE_OD_CONTEXT)
@@ -665,6 +686,6 @@ class TestEdgeCases:
             for p in context2.rglob("*")
             if p.is_file()
         }
-        assert files1 == files2, (
-            "explicit_selection=False produced different files from the default."
-        )
+        assert (
+            files1 == files2
+        ), "explicit_selection=False produced different files from the default."

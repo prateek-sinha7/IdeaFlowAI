@@ -122,8 +122,10 @@ class SecurityGate:
         # ── exec — profile-conditional PASS (10-03 / N3) ───────────────────────────
         if wants_exec:
             # (a) trust: file/builtin only (compiler already enforces this — 10-02).
-            #     No explicit `trust` attribute on the compiled Step ⇒ an exec grant
-            #     reaching here is engineer-authored (file/builtin default).
+            #     The compiler stamps ``Step.trust`` (ADR-0054), so this is a real
+            #     second check: a db/user-trust step carrying exec (a tampered or
+            #     hand-built plan) is refused here. The ``"file"`` fallback only
+            #     covers hand-built non-Step objects in tests.
             trust = getattr(step, "trust", "file") or "file"
             if trust not in _ENGINEER_TRUST:
                 return await self._block_exec(

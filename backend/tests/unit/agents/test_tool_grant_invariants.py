@@ -113,7 +113,19 @@ def test_the_cap_index_is_the_only_ceiling() -> None:
     one table instead of grepping the compiler. If a third cap key appears, or a
     key is renamed, that is a design change that should be made deliberately.
     """
-    assert set(PERMISSION_CAP_INDEX) == {"trusted", "untrusted"}
+    # ADR-0054 added the third key deliberately: saved (db) workflows.
+    assert set(PERMISSION_CAP_INDEX) == {"trusted", "saved", "untrusted"}
+
+
+def test_saved_cap_keeps_budget_but_nothing_that_reaches_the_host() -> None:
+    """ADR-0054: db trust gets spawn_subagents (budget) but no exec/network/git."""
+    assert cap_key_for_trust("db") == "saved"
+    cap = cap_for_trust("db")
+    assert cap.spawn_subagents is True
+    assert cap.exec is False
+    assert cap.network is False
+    assert cap.git is False
+    assert cap.secrets == []
 
 
 def test_unknown_trust_falls_to_the_restrictive_cap() -> None:
@@ -122,7 +134,7 @@ def test_unknown_trust_falls_to_the_restrictive_cap() -> None:
         assert cap_key_for_trust(trust) == "untrusted", trust
 
 
-@pytest.mark.parametrize("trust", ["file", "builtin", "db"])
+@pytest.mark.parametrize("trust", ["file", "builtin"])
 def test_engineer_authored_manifests_may_hold_privileged_capabilities(
     trust: str,
 ) -> None:

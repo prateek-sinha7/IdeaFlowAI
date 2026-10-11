@@ -110,7 +110,13 @@ def _skip_reason() -> str | None:
 # Module-level gate: evaluated at collection so the whole module skips cleanly
 # (rather than erroring) in a credential-less / CI environment. Keeping the
 # default suite green is the point of the opt-in design.
-pytestmark = pytest.mark.skipif(_skip_reason() is not None, reason=_skip_reason() or "")
+# ``live``: this module makes a real Bedrock call, so it belongs to the credential-gated
+# live partition (tools/ci/execution_recorder.LIVE_MARKERS), not the mandatory offline
+# one — where it could only ever skip, which the offline gate rejects.
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(_skip_reason() is not None, reason=_skip_reason() or ""),
+]
 
 
 # ---------------------------------------------------------------------------

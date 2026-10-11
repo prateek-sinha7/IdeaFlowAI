@@ -337,13 +337,20 @@ def _deck_styles_radius_count() -> int:
         data = json.loads((_SANDBOX.browser_dir / "deck-styles.json").read_text())
     except (OSError, ValueError):
         return 0
-    return sum(1 for el in data.get("elements", []) if (el.get("borderRadiusPx") or 0) > 0)
+    return sum(
+        1 for el in data.get("elements", []) if (el.get("borderRadiusPx") or 0) > 0
+    )
 
 
-_ROUNDED_AUTO_SHAPES = frozenset({
-    "ROUNDED_RECTANGLE", "ROUND_1_RECTANGLE", "ROUND_2_DIAG_RECTANGLE",
-    "ROUND_2_SAME_RECTANGLE", "OVAL",
-})
+_ROUNDED_AUTO_SHAPES = frozenset(
+    {
+        "ROUNDED_RECTANGLE",
+        "ROUND_1_RECTANGLE",
+        "ROUND_2_DIAG_RECTANGLE",
+        "ROUND_2_SAME_RECTANGLE",
+        "OVAL",
+    }
+)
 
 
 def _pptx_rounded_shape_count(path: Path) -> int | None:
@@ -358,7 +365,10 @@ def _pptx_rounded_shape_count(path: Path) -> int | None:
                 if shape.shape_type != MSO_SHAPE_TYPE.AUTO_SHAPE:
                     continue
                 try:
-                    if shape.auto_shape_type is not None and shape.auto_shape_type.name in _ROUNDED_AUTO_SHAPES:
+                    if (
+                        shape.auto_shape_type is not None
+                        and shape.auto_shape_type.name in _ROUNDED_AUTO_SHAPES
+                    ):
                         count += 1
                 except (ValueError, AttributeError):
                     continue
@@ -422,7 +432,9 @@ def _embed_fonts(path: Path) -> int:
             return 0
 
         with zipfile.ZipFile(path, "r") as zin:
-            entries = {info.filename: zin.read(info.filename) for info in zin.infolist()}
+            entries = {
+                info.filename: zin.read(info.filename) for info in zin.infolist()
+            }
 
         presentation_xml = entries["ppt/presentation.xml"].decode("utf-8")
         rels_xml = entries["ppt/_rels/presentation.xml.rels"].decode("utf-8")
@@ -450,7 +462,9 @@ def _embed_fonts(path: Path) -> int:
                 'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" '
                 f'Target="fonts/font{i + 1}.fntdata"/>'
             )
-        rels_xml = rels_xml.replace("</Relationships>", "".join(rel_entries) + "</Relationships>")
+        rels_xml = rels_xml.replace(
+            "</Relationships>", "".join(rel_entries) + "</Relationships>"
+        )
 
         # 3. presentation.xml — embedTrueTypeFonts="true" on the root element,
         #    plus one <p:embeddedFont> per font. Schema order places
@@ -461,7 +475,7 @@ def _embed_fonts(path: Path) -> int:
             )
         font_entries = "".join(
             f'<p:embeddedFont><p:font typeface="{name}"/><p:regular r:id="{rid}"/></p:embeddedFont>'
-            for (name, _eot), rid in zip(to_embed, font_font_ids)
+            for (name, _eot), rid in zip(to_embed, font_font_ids, strict=True)
         )
         embedded_lst = f"<p:embeddedFontLst>{font_entries}</p:embeddedFontLst>"
         if "<p:defaultTextStyle>" in presentation_xml:
@@ -589,12 +603,17 @@ def _run_audit(script: str, *args: str) -> tuple[int, str]:
     """Run one audit script on the built deck. Returns (exit_code, combined output)."""
     path = _pptx_path()
     if path is None:
-        return 1, "no run sandbox is bound — the pptx tools are unavailable in this context."
+        return (
+            1,
+            "no run sandbox is bound — the pptx tools are unavailable in this context.",
+        )
     if not path.is_file():
         return 1, f"{PPTX_NAME} does not exist yet — call render_pptx first."
     proc = subprocess.run(
         [sys.executable, str(_audit_scripts_dir() / script), str(path), *args],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
@@ -751,7 +770,11 @@ def verify_pptx_layout() -> str:
     """
     code, out = _run_audit("verify_layout.py")
     if code == 0:
-        return f"clean — no layout violations.\n{out}" if out else "clean — no layout violations."
+        return (
+            f"clean — no layout violations.\n{out}"
+            if out
+            else "clean — no layout violations."
+        )
     return f"VIOLATIONS — fix these and call render_pptx again:\n{out}"
 
 

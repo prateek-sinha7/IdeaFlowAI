@@ -94,6 +94,12 @@ module "iam" {
   bedrock_inference_profile_id = var.bedrock_inference_profile_id
   attach_ssm_managed_policy    = true
 
+  # Full model allow-list: every profile the model catalog can select (Claude
+  # Haiku/Sonnet/Opus on eu.*, GPT Sol/Terra/Luna on global.*), not just the
+  # default one. `bedrock_allowed_request_regions` keeps its module default (the
+  # 7 EU source regions).
+  bedrock_allowed_inference_profile_ids = var.bedrock_allowed_inference_profile_ids
+
   # Cognito — pool-scoped admin permissions. The policy's `count` keys off the
   # boolean, not the ARN (which is unknown until apply).
   cognito_enabled       = var.cognito_enabled

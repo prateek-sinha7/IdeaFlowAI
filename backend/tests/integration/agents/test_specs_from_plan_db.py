@@ -61,7 +61,11 @@ async def test_resume_run_builds_display_names_for_a_real_composed_workflow():
 
     captured: dict = {}
 
-    async def _spy_offset(run_id, user_id, session_id, pipeline_type, agents):
+    # Mirrors ExecutionEngine._compute_resume_offset's real signature, which gained
+    # an optional ``compiled`` kwarg the resume path now passes.
+    async def _spy_offset(
+        run_id, user_id, session_id, pipeline_type, agents, compiled=None
+    ):
         captured["agents"] = agents
         raise _ReachedOffset()
 

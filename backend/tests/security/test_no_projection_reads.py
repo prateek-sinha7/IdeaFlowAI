@@ -68,9 +68,7 @@ def _findings(source: str) -> list[tuple[str, str, int]]:
 
     def visit(node: ast.AST, scope: str) -> None:
         for child in ast.iter_child_nodes(node):
-            if isinstance(
-                child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            ):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 visit(child, f"{scope}.{child.name}" if scope else child.name)
                 continue
             if (

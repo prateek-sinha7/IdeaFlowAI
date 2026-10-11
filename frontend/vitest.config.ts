@@ -9,6 +9,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // The full suite runs ~300 jsdom files in parallel under V8 coverage; the
+    // 5s default made unrelated heavy tests (Composer, LaunchWizard, Account
+    // settings) time out nondeterministically though each passes in ~1s alone.
+    testTimeout: 30_000,
     // Vitest owns the src unit tests ONLY. The Playwright E2E suite lives under
     // e2e/ (*.spec.ts using @playwright/test) — scope vitest to src so it never
     // tries to collect those (they'd report as failed "0 test" files).

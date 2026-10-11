@@ -355,6 +355,7 @@ def test_cache_middleware_fails_open_for_an_uncatalogued_model():
 # control in the same session). BEDROCK_PROMPT_CACHE_ENABLED defaults to true, so
 # without this gate every GPT run fails on its first call.
 
+
 @pytest.mark.parametrize(
     "gpt_id", ["global.openai.gpt-5.6-luna", "global.openai.gpt-5.6-sol"]
 )

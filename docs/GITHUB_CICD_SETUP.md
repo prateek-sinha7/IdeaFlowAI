@@ -1,3 +1,5 @@
+> **Historical design record. It may not match the live workflow YAML. For the current CI/CD state see [.github/CI_STATUS.md](../.github/CI_STATUS.md).**
+
 # GitHub Actions CI/CD Setup — VelocityAI
 
 Comprehensive operator guide for the GitHub Actions CI/CD pipeline
@@ -152,8 +154,14 @@ Runs on every `pull_request` and `push`. Three parallel jobs:
   and `pytest` (against SQLite — no Postgres service needed).
 - **frontend** — Node 20: `npm ci`, `npm run lint`, `npm run test` (vitest
   single-pass), `npm run build`.
-- **security-scan** — `gitleaks`, `checkov`, `trivy config`, `tflint`. All
-  scanners are installed as checksum-verified release binaries (not via the
+- **security** (a matrix job; legs `secrets`/`iac`) — `gitleaks`, `checkov`, `trivy config`, `tflint`.
+- **container-scan** (matrix `backend`/`frontend`) — builds each image locally
+  and scans it with Trivy and Grype; the frontend leg also runs `trivy fs` on
+  `frontend/package-lock.json`. This replaced the old `pip-audit` / `npm audit`
+  legs. The only exceptions are the dated entries in
+  `backend/tools/ci/scan_accepts.py`.
+
+  All scanners are installed as checksum-verified release binaries (not via the
   compromised `aquasecurity/*` actions — see the `ci.yml` header for the
   CVE-2026-33634 rationale).
 
@@ -452,18 +460,26 @@ instead of failing against the `IMMUTABLE` repository.
 
 **Inline permissions policy — DEPLOY role for `<ENV>`.** Save as
 `deploy-policy-<ENV>.json`. Note what is *absent*: no ECR (the box pulls with
-its instance role), no `kms:Decrypt`/`GenerateDataKey` (the workflow only
-writes), no `ssm:ListCommandInvocations` (never called), no
+its instance role), no `kms:Decrypt`/`GenerateDataKey` for SSM (the workflow only
+writes — see below), no `ssm:ListCommandInvocations` (never called), no
 `sts:GetCallerIdentity` (never called).
+
+`SSMManageParameters` carries three actions, not one. `deploy.yml`'s `put_param`
+implements explicit desired-state semantics, and the `delete-if-empty` policy
+needs `ssm:GetParameter` to check existence and `ssm:DeleteParameter` to clear a
+value GitHub has stopped setting. `get-parameter` is called **without**
+`--with-decryption` — it is an existence check only and returns ciphertext for a
+SecureString without invoking KMS — which is why no `kms:Decrypt` is granted
+here. Do not add one: this role has no reason to read back the secrets it writes.
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "SSMPutParameters",
+      "Sid": "SSMManageParameters",
       "Effect": "Allow",
-      "Action": "ssm:PutParameter",
+      "Action": ["ssm:PutParameter", "ssm:GetParameter", "ssm:DeleteParameter"],
       "Resource": "arn:aws:ssm:eu-central-1:<ACCOUNT_ID>:parameter/velocityai/<ENV>/*"
     },
     {
@@ -639,14 +655,32 @@ maps to app env vars) is in [§10](#10-reference-config-key-mapping).
 
 ### 2.5 SSM Deploy Coordinates
 
-`deploy.yml` reads the target instance ID from the `EC2_INSTANCE_ID` GitHub
-variable (§3.2). For parity with the retired buildspec (which read it from SSM),
-you may also store it here — harmless and useful for host-side scripts:
+**Nothing for you to create here.** `deploy.yml` reads the target instance ID
+from the `EC2_INSTANCE_ID` GitHub variable (§3.2), and it writes the `deploy/`
+sub-prefix itself after a successful health gate.
 
-```bash
-aws ssm put-parameter --name "/velocityai/<ENV>/deploy/instance_id" \
-  --type String --value "<INSTANCE_ID>" --region eu-central-1
-```
+What actually lives under `/velocityai/<ENV>/deploy/`, all written by
+`deploy.yml`'s "Record deployed digests for host self-recovery" step, all
+plain `String`:
+
+| Parameter | Written by | Read by |
+|---|---|---|
+| `deploy/backend_image` | `deploy.yml`, post-health-gate | `bootstrap-ec2.sh` §10b, to recover a rebuilt host onto the current release |
+| `deploy/frontend_image` | `deploy.yml`, post-health-gate | same |
+| `deploy/image_tag` | `deploy.yml`, post-health-gate | humans reading the parameter tree; the digests above are what a host deploys |
+
+Two things worth knowing:
+
+- **`deploy/instance_id` is not a thing.** This section used to suggest storing
+  the instance ID there "for parity with the retired buildspec — harmless and
+  useful for host-side scripts". Nothing reads it: the pipeline uses
+  `vars.EC2_INSTANCE_ID`, and `velocityai-load-secrets.sh` skips the whole
+  `deploy/*` sub-prefix by design. Creating it produces an unread parameter that
+  looks load-bearing.
+- **The whole `deploy/` sub-prefix is excluded from the container environment.**
+  The host loader's allowlist skips `deploy/*` (alongside `cloudwatch-agent/*`
+  and `bootstrap/*`), so these values reach `bootstrap-ec2.sh` but never the
+  application's environment.
 
 ### 2.6 Provisioning a Hand-Created EC2 Instance
 
@@ -714,15 +748,69 @@ the box.
 
 | Name | Example value | Notes |
 |---|---|---|
-| `VELOCITYAI_BACKUP_BUCKET` | `velocityai-dev-pg-dumps-<account>` | The env's own backup bucket. Config artifacts land under its `config/` prefix. |
-| `VELOCITYAI_KMS_KEY_ID` | `arn:aws:kms:eu-central-1:<account>:key/<id>` | Project CMK ARN — used for backup encryption and, if the bucket enforces SSE-KMS, the config upload. |
+| `VELOCITYAI_BACKUP_BUCKET` | `velocityai-dev-pg-dumps-<account>` | The env's own backup bucket. Config artifacts land under its `config/` prefix. **Also required by `deploy.yml` — see below.** |
+| `VELOCITYAI_KMS_KEY_ID` | `arn:aws:kms:eu-central-1:<account>:key/<id>` | Project CMK ARN — used for backup encryption and, if the bucket enforces SSE-KMS, the config upload. **Also required by `deploy.yml` — see below.** |
 | `VELOCITYAI_FQDN` | `dev.velocityai.example.com` | Must already resolve to the instance's EIP — `certbot` fails otherwise. |
 | `VELOCITYAI_ACME_EMAIL` | `platform@example.com` | Let's Encrypt registration contact. |
-| `VELOCITYAI_PARAM_PREFIX` | `/velocityai/dev` | Optional — defaults to `/velocityai/<environment>`. |
+| `VELOCITYAI_PARAM_PREFIX` | `/velocityai/dev` | Optional — defaults to `/velocityai/<environment>`. **Read by `deploy.yml` too — see the warning below.** |
 | `VELOCITYAI_DATA_DEVICE` | `/dev/nvme1n1` | Optional — only needed if the attached data volume uses a different device path. |
 
 `AWS_DEPLOY_ROLE_ARN`, `AWS_REGION`, `ECR_REGISTRY`, and `EC2_INSTANCE_ID` are
 reused as-is from §3.2.
+
+> **`VELOCITYAI_PARAM_PREFIX` must be identical for provision and deploy on the
+> same environment.** It is one variable consumed by three parties, and they must
+> agree or the deploy writes config the host never reads:
+>
+> - **`provision.yml`** passes it into `remote-bootstrap.sh`, which records it as
+>   `VELOCITYAI_PARAM_PREFIX` in `/etc/velocityai/bootstrap.env`.
+> - **The host** reads that recorded value on every app start
+>   (`infra/scripts/velocityai-load-secrets.sh`, and `bootstrap-ec2.sh` §10b for
+>   the `deploy/*` image pins). The host never sees the GitHub variable directly.
+> - **`deploy.yml`** resolves it in both "Push config to SSM Parameter Store" and
+>   "Record deployed digests for host self-recovery", defaulting to
+>   `/velocityai/<environment>` when unset.
+>
+> Because these are two separate workflows reading the same variable at different
+> times, changing it after provisioning does **not** re-point an existing host:
+> the box keeps the prefix in its `bootstrap.env` until it is re-provisioned. If
+> you change it, re-run **Provision** for that environment before the next deploy.
+>
+> Leaving it unset on both sides is the supported default and needs no
+> coordination. Both steps validate the resolved value against
+> `^/[A-Za-z0-9_./-]+$` and reject a trailing slash, so a typo fails the deploy
+> immediately instead of scattering ~30 parameters under a wrong path.
+
+> **`VELOCITYAI_BACKUP_BUCKET` and `VELOCITYAI_KMS_KEY_ID` are now required on
+> the deploy side too, not only for provisioning.** `deploy.yml`'s "Refresh host
+> config artifacts in S3" step fails if either is unset.
+>
+> Why the step exists: four files are applied to the running host inline in the
+> SSM payload, but are *also* fetched from `s3://<bucket>/config/` by
+> `bootstrap-ec2.sh` when a host boots —
+> `docker-compose.yml`, `docker-compose.prod.yml`,
+> `infra/scripts/reconcile-host-config.sh`, and
+> `infra/scripts/velocityai-load-secrets.sh`. Only **Provision** used to write
+> that prefix, and provisioning happens once per instance, so a replaced or
+> rebuilt box came up on whatever the last provision uploaded — potentially many
+> deploys stale. The sharpest version of that bug: `velocityai-load-secrets.sh`
+> carries the allowlist of SSM keys copied into the container environment, so an
+> old copy silently drops config keys the current application reads, and the host
+> passes its health check while misconfigured.
+>
+> The refresh runs only after the SSM redeploy exits 0, i.e. after the on-box
+> health gate passed, so S3 never advances to a configuration that was rolled
+> back. `bootstrap-ec2.sh` is refreshed too, so `config/` is one coherent
+> commit after every deploy. The `sha256` Provision checks is computed and
+> verified inside a single Provision run and never persisted, so a later deploy
+> upload cannot break it.
+>
+> **No IAM change is needed.** The per-environment deploy role already carries
+> `s3:PutObject` + `s3:GetObject` on `<bucket>/config/*` (sid
+> `ConfigObjectUpload`), `s3:GetEncryptionConfiguration` on the bucket, and
+> `kms:GenerateDataKey` + `kms:Decrypt` via S3 — the same grants Provision uses.
+> Both workflows share one implementation,
+> `.github/scripts/upload-host-config.sh`.
 
 **After provisioning succeeds:** the host is fully provisioned but the app is
 **not** running yet — same as the Terraform path, `bootstrap-ec2.sh` §18b
@@ -903,6 +991,36 @@ Three things about this table are enforced, not conventional:
 
 ## 5. First Deploy and Validation
 
+### 5.0 Post-merge seeding (do this once per environment, before any host boots)
+
+`bootstrap-ec2.sh` §1b now *requires* `config/host-common.sh` in
+`s3://<VELOCITYAI_BACKUP_BUCKET>/config/` — the shared helpers (apt-over-HTTPS,
+the single `AWSCLI_VERSION` pin, the CloudWatch namespace map) live only there.
+A host that cannot fetch it aborts rather than provisioning with drifted
+helpers.
+
+Nothing seeds that object automatically on merge, so for **each** environment
+(`dev`, `stage`, `prod`) run one of the following **before** a new instance
+boots or an existing host re-runs bootstrap:
+
+- **Provision → Run workflow → \<env\> with `dry_run=true`** — the S3 upload
+  step runs before any host change, so this seeds the bucket without touching
+  the box. This is the recommended path.
+- or any successful **Deploy** to that environment — its "Refresh host config in
+  S3" step uploads the same object.
+
+Verify:
+
+```bash
+aws s3 ls "s3://<VELOCITYAI_BACKUP_BUCKET>/config/host-common.sh" --region eu-central-1
+```
+
+If a host has already failed with
+`[bootstrap] FATAL: config/host-common.sh missing in s3://…`, seed the bucket as
+above and re-run bootstrap; no other remediation is needed.
+
+### 5.1 First deploy
+
 Do this for **dev** first.
 
 1. **Trigger:** push a commit to the `dev` branch, or go to
@@ -932,7 +1050,8 @@ Do this for **dev** first.
 
 - [ ] `backend` job green (ruff, pyright, lint-imports, vulture, pytest)
 - [ ] `frontend` job green (eslint, vitest, build)
-- [ ] `security-scan` job green (gitleaks, checkov, trivy, tflint)
+- [ ] `security` job green on both matrix legs (gitleaks, checkov/trivy config/tflint)
+- [ ] `container-scan` job green on both legs (Trivy + Grype per image, Trivy on `frontend/package-lock.json`)
 
 ### After a `deploy.yml` run
 
@@ -980,7 +1099,7 @@ Do this for **dev** first.
 | `docker compose pull` fails with `manifest unknown` | The digest isn't in the repo the box is pulling from (build job skipped/failed, or `ECR_REGISTRY` points at another account) | Re-run the workflow; confirm the `build` job completed and compare its digests with `/etc/velocityai/app.env` |
 | Push to ECR fails with `denied` | Build role missing ECR push actions, or repo ARN mismatch | Re-check the `ECRPushPull` statement resource ARNs (§2.1) |
 | Push to ECR fails with `ImagePushNotAllowedException` / `cannot be overwritten because the repository is configured as immutable` | The tag already exists and the "Probe ECR for an existing image" step didn't adopt it — usually because the build role lacks `ecr:DescribeImages` | Add `ecr:DescribeImages` to the build policy (§2.1). Never "fix" this by flipping the repository to `MUTABLE`. |
-| Image scan step fails the build on a CVE | The scan is blocking at HIGH,CRITICAL for **every resolved finding**, fixable or not (zero-finding policy, Task 3.18) | Rebuild on a patched/newer base image digest, bump the dependency, or remove the vulnerable package. There is no suppression path — `ci/trivyignore.images` is retired and unconsumed. |
+| Image scan step fails the build on a CVE | The scan is blocking at HIGH,CRITICAL for **every resolved finding**, fixable or not (zero-finding policy, Task 3.18) | Rebuild on a patched/newer base image digest, bump the dependency, or remove the vulnerable package. There is no suppression path at all — the image-scan step passes no `--ignorefile`, and the old `ci/trivyignore.images` has been deleted. |
 | `deploy` job fails with `environment mismatch — this host is 'X', the deploy targets 'Y'` | `EC2_INSTANCE_ID` on this Environment points at another environment's box, or the instance's `Environment` tag / `VELOCITYAI_ENVIRONMENT` is wrong | Fix the variable or the tag. This is a deliberate hard stop: continuing would put one environment's images on another's host, and skip that host's pre-deploy backup. |
 | `resolve` job fails with `commit … is not an ancestor of origin/main` | A `v*` tag was cut on a commit that isn't merged to `main` | Merge to `main` and re-tag. For a genuine emergency use `workflow_dispatch` with `allow_untagged_prod=true` (reviewer-gated, logged as a warning). |
 | Deploy reports `ROLLBACK SUCCEEDED` | The new images failed the health gate; the box was returned to the previous digests | Investigate the printed backend/frontend logs. Note that **migrations are not rolled back** — if the failed release migrated the schema, restore the pre-deploy `pg_dump` (§ backups). |
@@ -1305,7 +1424,7 @@ document and every deploy fails with `AccessDeniedException`.
       ],
       "Resource": "*"
     },
-    { "Sid": "SSMPutParameters", "Effect": "Allow", "Action": "ssm:PutParameter", "Resource": "*" },
+    { "Sid": "SSMManageParameters", "Effect": "Allow", "Action": ["ssm:PutParameter", "ssm:GetParameter", "ssm:DeleteParameter"], "Resource": "*" },
     {
       "Sid": "SSMSendCommandDocument",
       "Effect": "Allow",
@@ -1364,18 +1483,27 @@ Environment (§3.2). `deploy.yml` already consumes both:
 ```yaml
 # build job
 - name: Configure AWS credentials (OIDC — build role)
-  uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+  id: aws
+  uses: ./.github/actions/aws-deploy-auth
   with:
     role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
-    aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+    region: ${{ vars.AWS_REGION }}
 
 # deploy job
 - name: Configure AWS credentials (OIDC — per-env deploy role)
-  uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+  id: aws
+  uses: ./.github/actions/aws-deploy-auth
   with:
     role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-    aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+    region: ${{ vars.AWS_REGION }}
+    instance-id: ${{ vars.EC2_INSTANCE_ID }}
+    require-instance-id: "true"
 ```
+
+The `aws-deploy-auth` composite resolves the region (the `AWS_REGION` variable,
+else its own `eu-central-1` default), validates the instance id, then assumes the
+role through `aws-actions/configure-aws-credentials`. The old workflow-level
+`AWS_REGION_DEFAULT` fallback no longer exists.
 
 Both jobs declare `permissions: id-token: write` at **job** level; the workflow
 default is `contents: read` only, so jobs that never touch AWS (`gate`,

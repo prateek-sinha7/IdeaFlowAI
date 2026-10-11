@@ -94,7 +94,7 @@ class _RecordingMerge(MergeStrategy):
 
     def merge(self, base, fragments):
         self.fragment_names_received = [
-            getattr(f, "name", f"<unknown>") for f in (fragments or [])
+            getattr(f, "name", "<unknown>") for f in (fragments or [])
         ]
         # Return a clean result (no conflicts) so run_fanout completes normally.
         result = MergeResult()
@@ -131,8 +131,17 @@ class _OrderingRunner:
 
     # --- subagent_runs protocol ------------------------------------------
     async def record_subagent_run(
-        self, *, parent_step, worker_agent, depth, isolation, status,
-        tokens=None, cost=None, worker_index=None, task_id=None
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
     ):
         self._row_seq += 1
         return f"row-{self._row_seq}"
@@ -146,7 +155,9 @@ class _OrderingRunner:
         root.mkdir(parents=True, exist_ok=True)
         ws = _FakeWorkerWorkspace(root, worker_index)
         # Pre-write a unique file per worker so the merge has something to integrate.
-        ws.write_file(f"output-{worker_index}.txt", f"content from worker {worker_index}")
+        ws.write_file(
+            f"output-{worker_index}.txt", f"content from worker {worker_index}"
+        )
         self._workspaces[worker_index] = ws
         return ws
 
@@ -155,8 +166,17 @@ class _OrderingRunner:
 
     # --- run_worker protocol — worker 0 is slowest -----------------------
     async def run_worker(
-        self, step, ctx, *, worker_index, thread_id, agent_id, input,
-        workspace=None, total_workers=None, **kw
+        self,
+        step,
+        ctx,
+        *,
+        worker_index,
+        thread_id,
+        agent_id,
+        input,
+        workspace=None,
+        total_workers=None,
+        **kw,
     ):
         # Worker 0 sleeps longest → completes LAST in parallel mode.
         delays = {0: 0.04, 1: 0.01, 2: 0.02}
@@ -169,11 +189,20 @@ class _OrderingRunner:
         return self._recording
 
     async def write_fragment_artifact(
-        self, *, producer_step, worker_agent, worker_index, content, location, kind="file_bundle"
+        self,
+        *,
+        producer_step,
+        worker_agent,
+        worker_index,
+        content,
+        location,
+        kind="file_bundle",
     ):
         return f"frag-{worker_index}"
 
-    async def write_merge_conflict_artifact(self, *, producer_step, conflicts, payload=None):
+    async def write_merge_conflict_artifact(
+        self, *, producer_step, conflicts, payload=None
+    ):
         return "conflict-ref"
 
 
@@ -181,9 +210,16 @@ def _make_ordering_ctx(runner):
     return SimpleNamespace(runner=runner, depth=0, budget=BudgetManager())
 
 
-def _make_ordering_step(agent_id="worker-a", *, mode="parallel", on_conflict="human_gate"):
+def _make_ordering_step(
+    agent_id="worker-a", *, mode="parallel", on_conflict="human_gate"
+):
     fanout = SimpleNamespace(
-        mode=mode, max_parallel=3, agent="self", count=None, workers=[], merge_agent=None
+        mode=mode,
+        max_parallel=3,
+        agent="self",
+        count=None,
+        workers=[],
+        merge_agent=None,
     )
     return SimpleNamespace(agent_id=agent_id, fanout=fanout, on_conflict=on_conflict)
 
@@ -221,12 +257,12 @@ async def test_merge_receives_fragments_in_declared_worker_index_order(tmp_path)
     events = await _collect(run_fanout(requests, ctx, step=step))
 
     # Confirm merge_started and merge_completed fired (merge ran).
-    assert any(e["type"] == "merge_started" for e in events), (
-        "merge_started event missing — merge never ran"
-    )
-    assert any(e["type"] == "merge_completed" for e in events), (
-        "merge_completed event missing — merge did not complete cleanly"
-    )
+    assert any(
+        e["type"] == "merge_started" for e in events
+    ), "merge_started event missing — merge never ran"
+    assert any(
+        e["type"] == "merge_completed" for e in events
+    ), "merge_completed event missing — merge did not complete cleanly"
 
     # The recording strategy captured the fragments in the order they arrived.
     # They MUST be in declared worker-index order, not arrival order.
@@ -275,13 +311,13 @@ async def test_subagent_result_events_also_in_index_order_parallel(tmp_path):
     events = await _collect(run_fanout(requests, ctx, step=step))
 
     result_workers = [
-        e["data"]["worker"]
-        for e in events
-        if e["type"] == "subagent_result"
+        e["data"]["worker"] for e in events if e["type"] == "subagent_result"
     ]
-    assert result_workers == [0, 1, 2], (
-        f"subagent_result events not in index order: {result_workers}"
-    )
+    assert result_workers == [
+        0,
+        1,
+        2,
+    ], f"subagent_result events not in index order: {result_workers}"
 
 
 # ===========================================================================
@@ -313,8 +349,17 @@ class _ConflictRunner:
 
     # --- subagent_runs protocol ------------------------------------------
     async def record_subagent_run(
-        self, *, parent_step, worker_agent, depth, isolation, status,
-        tokens=None, cost=None, worker_index=None, task_id=None
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
     ):
         self._row_seq += 1
         return f"row-{self._row_seq}"
@@ -338,27 +383,48 @@ class _ConflictRunner:
 
     # --- run_worker ----------------------------------------------------------
     async def run_worker(
-        self, step, ctx, *, worker_index, thread_id, agent_id, input,
-        workspace=None, total_workers=None, **kw
+        self,
+        step,
+        ctx,
+        *,
+        worker_index,
+        thread_id,
+        agent_id,
+        input,
+        workspace=None,
+        total_workers=None,
+        **kw,
     ):
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}
 
     # --- merge dispatch protocol (real copy_disjoint via registry) -----------
     def resolve_merge_strategy(self, name: str):
         from agents.capabilities.registry import CapabilityRegistry, discover
+
         discover()
         return CapabilityRegistry().resolve("merge", name)
 
     async def write_fragment_artifact(
-        self, *, producer_step, worker_agent, worker_index, content, location, kind="file_bundle"
+        self,
+        *,
+        producer_step,
+        worker_agent,
+        worker_index,
+        content,
+        location,
+        kind="file_bundle",
     ):
         return f"frag-{worker_index}"
 
-    async def write_merge_conflict_artifact(self, *, producer_step, conflicts, payload=None):
+    async def write_merge_conflict_artifact(
+        self, *, producer_step, conflicts, payload=None
+    ):
         return "conflict-ref"
 
     async def run_human_gate(self, step, *, output="", payload=None):
-        self.hitl_calls.append({"step": getattr(step, "agent_id", None), "payload": payload})
+        self.hitl_calls.append(
+            {"step": getattr(step, "agent_id", None), "payload": payload}
+        )
         for ev in self._hitl_events:
             yield ev
 
@@ -380,7 +446,11 @@ def _make_conflict_ctx(runner):
 
 def _make_conflict_step(on_conflict: str, *, merge_agent=None, mode="sequential"):
     fanout = SimpleNamespace(
-        mode=mode, max_parallel=2, agent="self", count=None, workers=[],
+        mode=mode,
+        max_parallel=2,
+        agent="self",
+        count=None,
+        workers=[],
         merge_agent=merge_agent,
     )
     return SimpleNamespace(agent_id="worker-a", fanout=fanout, on_conflict=on_conflict)
@@ -577,6 +647,7 @@ async def test_all_four_on_conflict_policies_produce_distinct_event_signatures()
 
     All four run from the same test to confirm none is a dead branch.
     """
+
     async def _events_for(policy, *, merge_agent=None, hitl_events=None, resolves=None):
         runner = _ConflictRunner(
             hitl_events=hitl_events or [],
@@ -607,33 +678,31 @@ async def test_all_four_on_conflict_policies_produce_distinct_event_signatures()
     )
 
     # human_gate is the only policy that emits review_gate_ready.
-    assert "review_gate_ready" in human_gate_types, (
-        "human_gate policy did not emit review_gate_ready"
-    )
+    assert (
+        "review_gate_ready" in human_gate_types
+    ), "human_gate policy did not emit review_gate_ready"
     assert "review_gate_ready" not in partial_types
     assert "review_gate_ready" not in abort_types
     assert "review_gate_ready" not in merge_agent_types
 
     # partial is the only policy that emits merge_partial.
-    assert "merge_partial" in partial_types, (
-        "partial policy did not emit merge_partial"
-    )
+    assert "merge_partial" in partial_types, "partial policy did not emit merge_partial"
     assert "merge_partial" not in human_gate_types
     assert "merge_partial" not in abort_types
     assert "merge_partial" not in merge_agent_types
 
     # merge_agent is the only policy that emits merge_agent_attempt.
-    assert "merge_agent_attempt" in merge_agent_types, (
-        "merge_agent policy did not emit merge_agent_attempt"
-    )
+    assert (
+        "merge_agent_attempt" in merge_agent_types
+    ), "merge_agent policy did not emit merge_agent_attempt"
     assert "merge_agent_attempt" not in human_gate_types
     assert "merge_agent_attempt" not in partial_types
     assert "merge_agent_attempt" not in abort_types
 
     # abort is the only policy with NO merge_completed (run terminated via exception).
-    assert "merge_completed" not in abort_types, (
-        "abort policy must not emit merge_completed"
-    )
+    assert (
+        "merge_completed" not in abort_types
+    ), "abort policy must not emit merge_completed"
     # All other policies produce merge_completed or a downstream resolution event.
     assert "merge_completed" in merge_agent_types
     # partial and human_gate don't produce a standard merge_completed in this

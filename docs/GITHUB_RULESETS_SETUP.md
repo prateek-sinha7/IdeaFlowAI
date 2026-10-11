@@ -1,3 +1,5 @@
+> **Historical design record. It may not match the live workflow YAML. For the current CI/CD state see [.github/CI_STATUS.md](../.github/CI_STATUS.md).**
+
 # GitHub Rulesets & Environments — Setup Guide
 
 This document walks you through setting up GitHub branch protection rulesets
@@ -37,7 +39,7 @@ Step 1: Validating JSON syntax...
   ✓ dev-staging.json
   ✓ tags.json
   ✓ prod.json
-  ✓ staging.json
+  ✓ stage.json
   ✓ dev.json
 
 Step 2: Verifying gh CLI and repository access...
@@ -83,7 +85,6 @@ Phase 2 Bootstrap Complete
   - Required status checks (strict mode):
     - `ci-required` (Phase 1 aggregator)
     - `CodeQL`
-    - `SonarCloud Code Analysis`
   - Commit signatures required (GPG)
   - **No bypass actors** (not even admins)
 
@@ -116,7 +117,7 @@ Phase 2 Bootstrap Complete
 - No wait timer
 - Used by: `deploy.yml` production releases
 
-**`staging` environment** (`staging.json`)
+**`stage` environment** (`stage.json`)
 - Deployment branch policy: `refs/heads/staging` branch only
 - Reviewers: `engineering` team (1 approval)
 - Admins can bypass (emergency expedite)
@@ -167,7 +168,7 @@ git push origin test/ruleset-verification
 # Open a PR in the GitHub UI to main
 # Verify you cannot merge without:
 #   - 2 approvals
-#   - All checks passing (ci-required, CodeQL, SonarCloud)
+#   - All checks passing (ci-required, CodeQL)
 #   - All threads resolved
 #   - Your own approval does not count as one of the two
 ```
@@ -256,8 +257,8 @@ gh api -X PUT repos/Hexaware-HnI/velocityai/environments/prod \
   -F can_admins_bypass=false \
   -F 'deployment_branch_policy[protected_tags]=true'
 
-# Configure staging environment
-gh api -X PUT repos/Hexaware-HnI/velocityai/environments/staging \
+# Configure stage environment (the ENVIRONMENT is `stage`; the BRANCH is `staging`)
+gh api -X PUT repos/Hexaware-HnI/velocityai/environments/stage \
   -f 'deployment_branch_policy[protected_branches]=true'
 
 # Configure dev environment

@@ -38,7 +38,9 @@ async def _threads_over_dispatches(n: int) -> list[str]:
 
     spec = load_agent_spec("domain-analyst")  # text-only, single_shot
 
-    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("out. "))) as h:
+    with _EngineHarness(
+        lambda aid, idx: ScriptedFakeChatModel(_text_turn("out. "))
+    ) as h:
         ectx = _make_ectx("loop-thread-run", gate_agent_ids=[])
         for _ in range(n):
             await _drive_agent(h.engine, spec, ectx, [], [spec])
@@ -62,7 +64,10 @@ async def test_every_re_dispatch_gets_its_own_thread() -> None:
     spec = load_agent_spec("domain-analyst")
     base = f"loop-thread-run:{spec.id}"
     assert await _threads_over_dispatches(4) == [
-        base, f"{base}:visit1", f"{base}:visit2", f"{base}:visit3",
+        base,
+        f"{base}:visit1",
+        f"{base}:visit2",
+        f"{base}:visit3",
     ]
 
 
@@ -84,7 +89,9 @@ async def test_a_gate_step_re_running_forward_also_gets_a_fresh_thread() -> None
 
     spec = load_agent_spec("domain-analyst")
 
-    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("out. "))) as h:
+    with _EngineHarness(
+        lambda aid, idx: ScriptedFakeChatModel(_text_turn("out. "))
+    ) as h:
         ectx = _make_ectx("gate-thread-run", gate_agent_ids=[])
         await _drive_agent(h.engine, spec, ectx, [], [spec])
         await _drive_agent(h.engine, spec, ectx, [], [spec])

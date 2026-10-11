@@ -32,6 +32,19 @@ module "iam" {
   bedrock_model_id             = "anthropic.claude-haiku-4-5-20251001-v1:0"
   bedrock_inference_profile_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
+  # Every profile the app may select. Foundation-model ARNs are derived from
+  # these (geography prefix stripped), so no second list is needed. The
+  # `global.openai.*` entries also pull in the `project/default` grant the
+  # bedrock-runtime OpenAI path requires.
+  bedrock_allowed_inference_profile_ids = [
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "eu.anthropic.claude-opus-4-5-20251101-v1:0",
+    "global.openai.gpt-6-sol",
+    "global.openai.gpt-6-luna",
+    "global.openai.gpt-5.6-terra",
+  ]
+
   # policies_dir defaults to "../../policies" relative to the module dir
   # (-> infra/terraform/policies), which is correct from any caller.
 }

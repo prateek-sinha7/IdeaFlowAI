@@ -1,6 +1,6 @@
 {
   "name": "prod",
-  "description": "Production environment — strict approval gates, release-managers team required, no admin bypass.",
+  "description": "Production environment — strict approval gates, release-managers team required, no admin bypass. NOT YET APPLIED: as of 2026-09-23 the live prod environment has ZERO protection rules and no deployment branch policy, so nothing in this file is currently enforced and any claim that prod deployments are approval-gated is false. Two things block applying it. (1) The `release-managers` team does not exist in the Hexaware-HnI organization, so the reviewer cannot be resolved; setup-rulesets.sh now fails loudly on that instead of silently dropping the reviewer, which is how this went unnoticed. (2) Applying reviewers changes behaviour for any scheduled job that references this environment — see the F-14 note in .github/workflows/cognito-reconcile.yml; the nightly reconcile and deletion-retry have been moved off prod onto dev for exactly that reason, and backend/tests/unit/tools/ci/test_ruleset_workflow_contract.py fails the build if a cron-reachable job targets a reviewer-gated environment again. Drift between this file and the live repository is reported weekly by .github/workflows/governance-drift.yml.",
   "can_admins_bypass": false,
   "wait_timer": 0,
   "deployment_branch_policy": {
