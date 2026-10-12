@@ -226,9 +226,6 @@ jobs:
   gate:
     name: CI gate
     needs: resolve
-    # TEMPORARY TESTING: gate disabled so deploy runs without waiting on CI.
-    # REVERT: delete this `if: false` and restore the two `needs.gate.result == 'success'` checks.
-    if: false
     # STARTUP-FAILURE FIX: a called reusable workflow cannot request MORE token
     # permission than the calling job grants, and GitHub enforces this while
     # BUILDING the graph — before any `if:` is evaluated and before any job is
@@ -470,7 +467,7 @@ jobs:
     # failure here, and it still fails closed on a broken `resolve`: if `resolve`
     # fails, `gate` (which needs it) is skipped, `needs.gate.result` is 'skipped',
     # and this job does not run.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' }} # TEMP: gate bypassed (was needs.gate.result == 'success')
+    if: ${{ !cancelled() && needs.gate.result == 'success' }}
     # 90, was 60: the post-push scan now runs BOTH engines against BOTH pushed
     # digests (each engine pulls the image itself), on top of the two builds.
     timeout-minutes: 90
@@ -863,7 +860,7 @@ jobs:
     # the `environment == 'dev'` escape hatch is gone), plus an explicit demand
     # that `build` SUCCEEDED — a skipped build produces no digests, and this job
     # would go on to assemble an SSM payload out of empty strings.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success' }} # TEMP: gate bypassed (was needs.gate.result == 'success')
+    if: ${{ !cancelled() && needs.gate.result == 'success' && needs.build.result == 'success' }}
     timeout-minutes: 50
     environment: ${{ needs.resolve.outputs.environment }}
     # See the workflow-level `permissions:` note — the AWS token is minted per
