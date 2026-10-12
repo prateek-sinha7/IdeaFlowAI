@@ -501,56 +501,56 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-37 logical modules over 925 tracked source files. Each entry links to its
+37 logical modules over 1027 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (385 files)
+### Backend — Python (382 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 142 |
+| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 144 |
 | [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 49 |
 | [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 45 |
-| [MOD-backend](architecture/MOD-backend.md) | `backend` | 37 |
 | [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 33 |
+| [MOD-backend](architecture/MOD-backend.md) | `backend` | 30 |
 | [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 27 |
 | [MOD-backend-app-core](architecture/MOD-backend-app-core.md) | `backend/app/core` | 17 |
 | [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 12 |
+| [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 9 |
 | [MOD-backend-evals](architecture/MOD-backend-evals.md) | `backend/evals` | 9 |
-| [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 7 |
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 3 |
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 2 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
 
-### Frontend — TypeScript (540 files)
+### Frontend — TypeScript (645 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 84 |
-| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 81 |
-| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 65 |
-| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 47 |
-| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 42 |
-| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 41 |
-| [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 38 |
-| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 36 |
-| [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 18 |
+| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 117 |
+| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 85 |
+| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 69 |
+| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 66 |
+| [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 49 |
+| [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 47 |
+| [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 42 |
+| [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 39 |
+| [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 22 |
+| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 21 |
 | [MOD-frontend-src-components-ui](architecture/MOD-frontend-src-components-ui.md) | `frontend/src/components/ui` | 17 |
-| [MOD-frontend-src-components-layout](architecture/MOD-frontend-src-components-layout.md) | `frontend/src/components/layout` | 15 |
-| [MOD-frontend-src-components-handoff](architecture/MOD-frontend-src-components-handoff.md) | `frontend/src/components/handoff` | 10 |
+| [MOD-frontend-src-components-handoff](architecture/MOD-frontend-src-components-handoff.md) | `frontend/src/components/handoff` | 13 |
+| [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 11 |
+| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 7 |
+| [MOD-frontend-src-components](architecture/MOD-frontend-src-components.md) | `frontend/src/components` | 6 |
 | [MOD-frontend-src-components-analytics](architecture/MOD-frontend-src-components-analytics.md) | `frontend/src/components/analytics` | 6 |
-| [MOD-frontend-src-components-catalog](architecture/MOD-frontend-src-components-catalog.md) | `frontend/src/components/catalog` | 6 |
-| [MOD-frontend-src-components-settings](architecture/MOD-frontend-src-components-settings.md) | `frontend/src/components/settings` | 6 |
-| [MOD-frontend-src-components](architecture/MOD-frontend-src-components.md) | `frontend/src/components` | 5 |
-| [MOD-frontend-src-components-library](architecture/MOD-frontend-src-components-library.md) | `frontend/src/components/library` | 5 |
+| [MOD-frontend-src-components-library](architecture/MOD-frontend-src-components-library.md) | `frontend/src/components/library` | 6 |
 | [MOD-frontend-src-components-savedworkflows](architecture/MOD-frontend-src-components-savedworkflows.md) | `frontend/src/components/savedworkflows` | 5 |
 | [MOD-frontend-src-providers](architecture/MOD-frontend-src-providers.md) | `frontend/src/providers` | 5 |
-| [MOD-frontend-src-components-sidebar](architecture/MOD-frontend-src-components-sidebar.md) | `frontend/src/components/sidebar` | 2 |
-| [MOD-frontend-src-styles](architecture/MOD-frontend-src-styles.md) | `frontend/src/styles` | 2 |
+| [MOD-frontend-src-components-sidebar](architecture/MOD-frontend-src-components-sidebar.md) | `frontend/src/components/sidebar` | 4 |
+| [MOD-frontend-src-styles](architecture/MOD-frontend-src-styles.md) | `frontend/src/styles` | 3 |
+| [MOD-frontend-src-components-home](architecture/MOD-frontend-src-components-home.md) | `frontend/src/components/home` | 2 |
 | [MOD-frontend-src-types](architecture/MOD-frontend-src-types.md) | `frontend/src/types` | 2 |
-| [MOD-frontend-src-components-home](architecture/MOD-frontend-src-components-home.md) | `frontend/src/components/home` | 1 |
 | [MOD-frontend-src-context](architecture/MOD-frontend-src-context.md) | `frontend/src/context` | 1 |
 
 <!-- /MODULE-MAP -->
