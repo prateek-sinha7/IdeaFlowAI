@@ -108,6 +108,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("validator", "html_element_floor"),  # pdf_to_prototype A1
     ("validator", "fragment_field_coverage"),  # pdf_to_prototype A1
     ("validator", "screens_plan_coverage"),  # prototype v3 — screens.json spec coverage
+    ("validator", "backlog_plan_coverage"),  # backlog — every coverage item in the plan
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -270,6 +271,9 @@ def register(
     saved_workflow_allowed: bool = False,
     description: str = "",
     config_schema: dict | None = None,
+    reads: list[str] | None = None,
+    process: str = "",
+    writes: list[str] | None = None,
 ) -> Callable[[type[_T]], type[_T]]:
     """Self-registration decorator: bind ``(kind,name)->impl`` at module import (D-01).
 
@@ -285,6 +289,10 @@ def register(
         are additive-optional (D-09): ``description`` defaults to ``""`` and
         ``config_schema`` to ``{}`` for capabilities that author no metadata, so
         the thin one-method Protocol ports stay unchanged.
+      * records ``reads`` / ``process`` / ``writes`` into ``_META`` too — the files a
+        step of this kind reads and writes BY DEFAULT (folders end in ``/``) and one or
+        two sentences on what it does. The composer rail shows them for a step that
+        declares no ``consumes`` / ``produces`` of its own. Optional, like the above.
 
     Built-ins decorate their existing Phase-7 impl classes so ``discover()``
     reproduces the exact ``_IMPLS`` set the deleted ``install()`` produced (INV-12).
@@ -299,6 +307,9 @@ def register(
         _META[(kind, name)] = {
             "description": description,
             "config_schema": config_schema or {},
+            "reads": list(reads or []),
+            "process": process,
+            "writes": list(writes or []),
         }
         return cls
 
@@ -361,6 +372,8 @@ def discover() -> None:
         "agents.capabilities.tools.file_extract",  # spec 019
         "agents.capabilities.publish_step",  # A10 — mechanical: publish capability
         "agents.capabilities.assemble_step",  # prototype v3 — mechanical: assemble_prototype
+        "agents.capabilities.backlog_assemble",  # spec 021 — mechanical: assemble_backlog
+        "agents.capabilities.prototype_ui_extract",  # mechanical: extract_prototype_ui
         "agents.capabilities.context_providers.opendesign",
         "agents.capabilities.context_providers.previous_run",
         "agents.capabilities.input_providers.run_images",  # 260707-edw — image-input Wave 1
@@ -381,6 +394,7 @@ def discover() -> None:
         "agents.capabilities.validators.html_element_floor",
         "agents.capabilities.validators.fragment_field_coverage",
         "agents.capabilities.validators.screens_plan_coverage",  # prototype v3
+        "agents.capabilities.validators.backlog_plan_coverage",  # backlog planner check
         # 10-04 / EXEC-02 — the three code validators that drive gated exec. They
         # reach exec ONLY via the runner/workspace handle (never spawn directly,
         # never import app.*); kernel-side + pure-stdlib (the argv targets python/
@@ -499,18 +513,21 @@ class CapabilityRegistry:
         return _SAVED_TRUST.get((kind, name), False)
 
     def describe(self, kind: str, name: str) -> dict:
-        """Return the capability's display metadata ``{description, config_schema}`` (D-08).
+        """Return the capability's display metadata (D-08).
 
-        Ensures impls are discovered so ``_META`` is bound (mirroring
-        ``is_user_allowed``), then reads it. A capability with no recorded
-        metadata (name-only data capabilities, or an unknown reference) returns
-        the safe default ``{"description": "", "config_schema": {}}`` — never a
-        ``KeyError``. This is the SINGLE accessor the ``/api/capabilities``
-        palette projects; no static metadata map lives in the API layer.
+        ``{description, config_schema, reads, process, writes}``. Ensures impls are
+        discovered so ``_META`` is bound (mirroring ``is_user_allowed``), then reads
+        it. A capability with no recorded metadata (name-only data capabilities, or
+        an unknown reference) returns the empty default — never a ``KeyError``. This
+        is the SINGLE accessor the ``/api/capabilities`` palette projects; no static
+        metadata map lives in the API layer.
         """
         if not _DISCOVERED:
             discover()
-        return _META.get((kind, name), {"description": "", "config_schema": {}})
+        return _META.get(
+            (kind, name),
+            {"description": "", "config_schema": {}, "reads": [], "process": "", "writes": []},
+        )
 
     def resolve(self, kind: str, name: str) -> object:
         """Return the impl instance bound to ``(kind, name)`` (D-02).

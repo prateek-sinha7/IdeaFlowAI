@@ -56,7 +56,7 @@ The `QA-` prefix is required. Everything after it is yours.
 
 ### Reproduction
 
-1. Sign in as `qa-admin@flowinqa.com`
+1. Sign in as `admin@velocity.ai`
 2. Go to `/runs` and open any completed `ppt_v2` run
 3. Click the **Files** tab
 
@@ -147,7 +147,7 @@ Write the steps as if the reader has just opened a new browser and knows nothing
 **Good — reachable from nothing:**
 
 ```
-1. Sign in as qa-admin@flowinqa.com
+1. Sign in as admin@velocity.ai
 2. Go to /create/ppt_v2
 3. Enter any brief and click Continue
 4. On the template step, select "Investment Banking Pitch Book"
@@ -256,11 +256,11 @@ analyzer and fixer both read the full section and will see it.
 
 ```
 http://localhost:3000
-qa-admin@flowinqa.com / flowin-e2e-pass
+admin@velocity.ai / Velocity!Dev2026
 ```
 
-Other tiers exist (`qa-enterprise@`, `qa-pro@`, `qa-basic@flowinqa.com`, same password). Use
-`qa-admin` unless the bug is specifically about a tier — switching account or theme changes
+Other tiers exist (`enterprise@`, `pro@`, `basic@velocity.ai`, same password). Use
+`admin@velocity.ai` unless the bug is specifically about a tier — switching account or theme changes
 shared state that other people's testing depends on.
 
 **Never grant a second admin on `/admin`.** It locks out every admin credential and needs a

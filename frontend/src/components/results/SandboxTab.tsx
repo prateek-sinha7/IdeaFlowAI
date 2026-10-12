@@ -58,6 +58,7 @@ import {
   Loader2,
   Lock,
   Package,
+  RefreshCw,
   Settings,
 } from "lucide-react";
 
@@ -89,10 +90,6 @@ const CHAIN_PREFIX = ".chain/";
  *  seed files) and selections.json.  Listed in the Workspace tab for debugging
  *  but EXCLUDED from the deliverable zip.  Gitignored by design. */
 const CONTEXT_PREFIX = ".context/";
-
-/** Legacy chain payloads relocated by the v2 migration (task 6.7).
- *  Excluded from all listing surfaces per Requirement 18 / task 11.6. */
-const CHAIN_LEGACY_PREFIX = ".chain-legacy/";
 
 export interface FileGroup {
   id: string;
@@ -1150,30 +1147,44 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
     [],
   );
 
+  // Bumped by the Refresh button: re-lists the SAME workspace (a live run writes
+  // files as it goes). Only arriving at a new run or version resets the open
+  // file, pane and collapse state — a refresh that shut your file and collapsed
+  // your tree would be worse than no refresh at all.
+  const [refreshTick, setRefreshTick] = useState(0);
+  const listedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!runId) return;
     const token = getToken();
     if (!token) return;
     let cancelled = false;
+    const key = `${runId}|${selectedRef ?? ""}`;
+    const reset = listedKeyRef.current !== key;
     setListLoading(true);
     setListError(null);
-    // A new run is a new workspace: drop whatever file was open.
-    setActive(null);
-    setContent(null);
-    setMedia(null);
+    if (reset) {
+      // A new run is a new workspace: drop whatever file was open.
+      setActive(null);
+      setContent(null);
+      setMedia(null);
+    }
     // ISS-830: StrictMode's dev remount runs the cleanup below before any
     // microtask does — list one tick late, from the surviving mount only.
     Promise.resolve()
       .then(() => (cancelled ? null : getRunSandbox(token, runId, selectedRef ?? undefined)))
       .then((res) => {
         if (!res || cancelled) return;
-        // Filter .chain-legacy/ from the listing — it is reserved and must not
-        // appear in any Workspace surface (Requirement 18 / task 11.6).
-        setFiles(res.files.filter((f) => !f.path.startsWith(CHAIN_LEGACY_PREFIX)));
+        setFiles(res.files);
         setExpired(res.expired);
         setTruncated(res.truncated);
-        setShut(new Set());
-        setPane("artifacts");
+        if (reset) {
+          setShut(new Set());
+          setPane("artifacts");
+        }
+        // Recorded only once applied, so StrictMode's discarded first mount
+        // cannot turn the surviving mount's arrival into a "refresh".
+        listedKeyRef.current = key;
       })
       .catch((err: Error) => {
         if (!cancelled) setListError(err.message);
@@ -1184,7 +1195,7 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
     return () => {
       cancelled = true;
     };
-  }, [runId, selectedRef, setMedia]);
+  }, [runId, selectedRef, setMedia, refreshTick]);
 
   const handleSelect = useCallback(
     (file: SandboxFile) => {
@@ -1332,6 +1343,19 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
                 file{files.length !== 1 ? "s" : ""}
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setRefreshTick((n) => n + 1)}
+              disabled={listLoading}
+              title="Re-list the workspace — a running agent writes files as it goes"
+              aria-label="Refresh"
+              className="flex flex-none items-center justify-center rounded-[10px] border border-line-control bg-surface-card p-1.5 text-ink-700 transition-colors hover:border-line-faint hover:bg-surface-white disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${listLoading ? "animate-spin" : ""}`}
+                strokeWidth={1.7}
+              />
+            </button>
             {files.length > 0 && (
               <button
                 type="button"
@@ -1433,7 +1457,7 @@ export function SandboxTab({ runId, agentNameById, hasDeliverable, selectedRef: 
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          {listLoading && (
+          {listLoading && files.length === 0 && (
             <div className="flex items-center gap-1.5 px-1 py-2 text-[11px] text-ink-500">
               <Loader2 className="h-3 w-3 animate-spin" /> Loading workspace…
             </div>

@@ -29,7 +29,6 @@ Shape::
 
 Pure stdlib; imports nothing from the kernel or the web layer (import-linter).
 """
-
 from __future__ import annotations
 
 import json
@@ -43,54 +42,15 @@ VALID_ATTRS: frozenset[str] = frozenset(
 # The class vocabulary the fixed shell (assemble_shell.html) styles. A builder is
 # handed this list and told to use nothing else; the shell is the only stylesheet.
 COMPONENT_CLASSES: tuple[str, ...] = (
-    "page-header",
-    "page-title",
-    "page-description",
-    "section-title",
-    "section-content",
-    "toolbar",
-    "card",
-    "form",
-    "form-fieldset",
-    "form-legend",
-    "form-row",
-    "form-row-group",
-    "form-label",
-    "form-control",
-    "form-control-group",
-    "form-hint",
-    "form-actions",
-    "required-indicator",
-    "radio-group",
-    "radio-label",
-    "checkbox-group",
-    "checkbox-label",
-    "btn",
-    "btn-primary",
-    "btn-secondary",
-    "btn-link",
-    "btn-icon",
-    "table",
-    "table-wrap",
-    "table-head",
-    "table-header",
-    "table-body",
-    "table-row",
-    "table-cell",
-    "selected",
-    "tabs",
-    "tabs-nav",
-    "tab-link",
-    "tabs-content",
-    "tab-panel",
-    "active",
-    "badge",
-    "empty-state",
-    "menu",
-    "menu-item",
-    "status-ok",
-    "status-error",
-    "status-warning",
+    "page-header", "page-title", "page-description", "section-title", "section-content",
+    "toolbar", "card",
+    "form", "form-fieldset", "form-legend", "form-row", "form-row-group", "form-label",
+    "form-control", "form-control-group", "form-hint", "form-actions", "required-indicator",
+    "radio-group", "radio-label", "checkbox-group", "checkbox-label",
+    "btn", "btn-primary", "btn-secondary", "btn-link", "btn-icon",
+    "table", "table-wrap", "table-head", "table-header", "table-body", "table-row", "table-cell", "selected",
+    "tabs", "tabs-nav", "tab-link", "tabs-content", "tab-panel", "active",
+    "badge", "empty-state", "menu", "menu-item", "status-ok", "status-error", "status-warning",
 )
 _DIALOG_KINDS = {"dialog", "overlay", "modal", "popup", "drawer"}
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -116,11 +76,16 @@ class Transition:
 class Screen:
     id: str
     title: str
-    kind: str = "page"  # "page" | "dialog"
+    kind: str = "page"                       # "page" | "dialog"
     nav: str = "Screens"
     reqs: list[str] = field(default_factory=list)
     summary: str = ""
     transitions: list[Transition] = field(default_factory=list)
+    # The menu section a page belongs to ("" = none given: the flat menu of before),
+    # "_auth" for sign-in / register / setup pages that are never in the menu, and the
+    # page's label in its section's tab strip ("" = its title).
+    section: str = ""
+    tab: str = ""
 
     @property
     def is_dialog(self) -> bool:
@@ -136,7 +101,7 @@ class Inventory:
     title: str
     entry: str
     screens: list[Screen]
-    notes: list[str] = field(default_factory=list)  # every default the parser applied
+    notes: list[str] = field(default_factory=list)   # every default the parser applied
 
     def by_id(self) -> dict[str, Screen]:
         return {s.id: s for s in self.screens}
@@ -190,9 +155,7 @@ def parse_inventory(text: str) -> Inventory:
         raw = {"screens": raw}
         notes.append("top-level array wrapped as {screens: [...]}")
     if not isinstance(raw, dict):
-        raise InventoryError(
-            "build/screens.json must be a JSON object with a 'screens' list"
-        )
+        raise InventoryError("build/screens.json must be a JSON object with a 'screens' list")
     screens_raw = raw.get("screens")
     if not isinstance(screens_raw, list) or not screens_raw:
         raise InventoryError("build/screens.json has no 'screens' list, or it is empty")
@@ -222,31 +185,19 @@ def parse_inventory(text: str) -> Inventory:
         elif kind == "page":
             pass
         else:
-            kind = (
-                "dialog"
-                if norm.endswith("-dialog") or norm.endswith("-modal")
-                else "page"
-            )
+            kind = "dialog" if norm.endswith("-dialog") or norm.endswith("-modal") else "page"
             if entry.get("kind"):
-                notes.append(
-                    f"{norm}: unknown kind {entry.get('kind')!r} treated as {kind!r}"
-                )
+                notes.append(f"{norm}: unknown kind {entry.get('kind')!r} treated as {kind!r}")
         nav = entry.get("nav") or entry.get("group") or entry.get("flow") or "Screens"
         reqs = entry.get("reqs") or entry.get("requirements") or []
         if isinstance(reqs, str):
             reqs = [r.strip() for r in re.split(r"[,\s]+", reqs) if r.strip()]
         reqs = [str(r).strip() for r in reqs if str(r).strip()]
         summary = str(entry.get("summary") or entry.get("description") or "").strip()
-        screens.append(
-            Screen(
-                id=norm,
-                title=title.strip(),
-                kind=kind,
-                nav=str(nav).strip(),
-                reqs=reqs,
-                summary=summary,
-            )
-        )
+        screens.append(Screen(id=norm, title=title.strip(), kind=kind, nav=str(nav).strip(),
+                              reqs=reqs, summary=summary,
+                              section=str(entry.get("section") or "").strip(),
+                              tab=str(entry.get("tab") or "").strip()))
 
     ids = {s.id for s in screens}
     dialog_ids = {s.id for s in screens if s.is_dialog}
@@ -263,7 +214,7 @@ def parse_inventory(text: str) -> Inventory:
             attr = str(t.get("attr") or t.get("attribute") or "").strip().lower()
             if attr.startswith("data-") is False and attr:
                 attr = f"data-{attr}"
-            to_slug = slug(to[len("dialog-") :] if to.startswith("dialog-") else to)
+            to_slug = slug(to[len("dialog-"):] if to.startswith("dialog-") else to)
             if attr not in VALID_ATTRS:
                 # Infer from the target: a dialog is opened, a self-reference is a tab,
                 # anything else moves the user.
@@ -273,29 +224,21 @@ def parse_inventory(text: str) -> Inventory:
                     attr = "data-tab"
                 else:
                     attr = "data-goto"
-                notes.append(
-                    f"{s.id}: transition to {to!r} had attr {t.get('attr')!r}, using {attr}"
-                )
+                notes.append(f"{s.id}: transition to {to!r} had attr {t.get('attr')!r}, using {attr}")
             if attr == "data-tab":
                 target = slug(to)
             elif attr in ("data-opens", "data-closes"):
                 target = to_slug
                 if target not in dialog_ids:
-                    notes.append(
-                        f"{s.id}: {attr} targets {target!r} which is not a dialog screen"
-                    )
+                    notes.append(f"{s.id}: {attr} targets {target!r} which is not a dialog screen")
             else:
                 target = to_slug
                 if target not in ids:
                     notes.append(f"{s.id}: {attr} targets unknown screen {target!r}")
                 elif target in dialog_ids:
                     attr = "data-opens"
-                    notes.append(
-                        f"{s.id}: goto to dialog {target!r} changed to data-opens"
-                    )
-            label = str(
-                t.get("label") or t.get("control") or target.replace("-", " ").title()
-            ).strip()
+                    notes.append(f"{s.id}: goto to dialog {target!r} changed to data-opens")
+            label = str(t.get("label") or t.get("control") or target.replace("-", " ").title()).strip()
             s.transitions.append(Transition(label=label, attr=attr, to=target))
         if s.is_dialog and not any(t.attr == "data-closes" for t in s.transitions):
             s.transitions.append(Transition(label="Close", attr="data-closes", to=s.id))
@@ -313,13 +256,10 @@ def parse_inventory(text: str) -> Inventory:
         entry = fallback
     else:
         entry = slug(entry)
-    return Inventory(
-        title=str(title).strip(), entry=entry, screens=screens, notes=notes
-    )
+    return Inventory(title=str(title).strip(), entry=entry, screens=screens, notes=notes)
 
 
 # ── spec.md helpers (shared by screen_plan and the assembler) ────────────────────
-
 
 def spec_section(spec: str, sid: str) -> str:
     """The ``### <sid> — <Name>`` block of spec.md, up to the next ``###``/``##`` heading."""
@@ -328,14 +268,12 @@ def spec_section(spec: str, sid: str) -> str:
     m = re.search(rf"^###\s+{re.escape(sid)}\b.*$", spec, re.MULTILINE)
     if not m:
         return ""
-    rest = spec[m.start() :]
-    nxt = re.search(r"^#{2,3}\s", rest[m.end() - m.start() :], re.MULTILINE)
+    rest = spec[m.start():]
+    nxt = re.search(r"^#{2,3}\s", rest[m.end() - m.start():], re.MULTILINE)
     return rest[: (m.end() - m.start()) + nxt.start()].strip() if nxt else rest.strip()
 
 
-_FIELDS_HEAD = re.compile(
-    r"^\s*(?:-\s*)?\**Fields\**:?\**\s*$|^\s*-\s*Fields:\s*$", re.MULTILINE
-)
+_FIELDS_HEAD = re.compile(r"^\s*(?:-\s*)?\**Fields\**:?\**\s*$|^\s*-\s*Fields:\s*$", re.MULTILINE)
 
 
 def spec_fields(section: str) -> list[str]:
@@ -349,7 +287,7 @@ def spec_fields(section: str) -> list[str]:
     if start is None:
         return []
     out: list[str] = []
-    for line in lines[start + 1 :]:
+    for line in lines[start + 1:]:
         t = line.strip()
         if not t:
             continue  # blank lines separate sub-sections and tables inside one Fields block
@@ -357,11 +295,7 @@ def spec_fields(section: str) -> list[str]:
             break  # next heading, or the next `- Actions:` / `- States:` / `- Data:` bullet
         if t.startswith("|"):
             cells = [c.strip() for c in t.strip("|").split("|")]
-            if (
-                not cells
-                or set(cells[0]) <= set("-: ")
-                or cells[0].lower() in ("field", "field label", "label")
-            ):
+            if not cells or set(cells[0]) <= set("-: ") or cells[0].lower() in ("field", "field label", "label"):
                 continue
             out.append(cells[0].strip("*` "))
         elif t.startswith("**") and t.endswith("**"):
@@ -375,32 +309,19 @@ def spec_fields(section: str) -> list[str]:
 
 _ID = r"(?:`|\*\*)(?P<{name}>[a-z0-9][a-z0-9-]*)(?:`|\*\*)"
 _FLOW_MOVE = re.compile(
-    _ID.format(name="src")
-    + r"[^\n]*?(?:lands on|returns to|→)\s*"
-    + _ID.format(name="dst"),
+    _ID.format(name="src") + r"[^\n]*?(?:lands on|returns to|→)\s*" + _ID.format(name="dst"),
 )
-_FLOW_LABEL = re.compile(
-    r"(?:clicks|selects|opens|presses|chooses)\s+(?:the\s+)?([A-Z][^→`,;.]{1,40}?)\s*(?:→|,|\.|link|button|icon|tab)"
-)
+_FLOW_LABEL = re.compile(r"(?:clicks|selects|opens|presses|chooses)\s+(?:the\s+)?([A-Z][^→`,;.]{1,40}?)\s*(?:→|,|\.|link|button|icon|tab)")
 
 
-_NAV_HEADS = (
-    "navigates to",
-    "navigate to",
-    "goes to",
-    "destination",
-    "target screen",
-    "target",
-)
+_NAV_HEADS = ("navigates to", "navigate to", "goes to", "destination", "target screen", "target")
 
 
 def _section_of(spec: str, heading: str) -> str:
     """The body of a ``## <heading>`` section, up to the next ``## ``; empty when absent."""
     if f"## {heading}" not in spec:
         return ""
-    return re.split(
-        r"^## ", spec.split(f"## {heading}", 1)[1], maxsplit=1, flags=re.MULTILINE
-    )[0]
+    return re.split(r"^## ", spec.split(f"## {heading}", 1)[1], maxsplit=1, flags=re.MULTILINE)[0]
 
 
 def _action_table_moves(spec: str) -> list[tuple[str, str, str]]:
@@ -420,26 +341,12 @@ def _action_table_moves(spec: str) -> list[tuple[str, str, str]]:
             col = None  # a table ends at its first non-table line
             continue
         cells = [c.strip() for c in t.strip("|").split("|")]
-        if (
-            col is None
-        ):  # header row: find the destination column, if this table has one
-            col = next(
-                (
-                    i
-                    for i, c in enumerate(cells)
-                    if c.strip("*` ").lower() in _NAV_HEADS
-                ),
-                None,
-            )
+        if col is None:  # header row: find the destination column, if this table has one
+            col = next((i for i, c in enumerate(cells) if c.strip("*` ").lower() in _NAV_HEADS), None)
             if col is None:
                 col = -1  # a table without a destination column (Fields): skip its rows
             continue
-        if (
-            col < 0
-            or cur is None
-            or len(cells) <= col
-            or set("".join(cells)) <= set("-: ")
-        ):
+        if col < 0 or cur is None or len(cells) <= col or set("".join(cells)) <= set("-: "):
             continue
         dst = cells[col].strip("*` ")
         if re.fullmatch(r"[a-z0-9][a-z0-9-]*", dst) and dst not in (cur, "stays"):
@@ -478,17 +385,12 @@ def apply_flow_backstop(inv: Inventory, spec: str) -> list[str]:
         src, dst = by.get(src_id), by.get(dst_id)
         if src is None or dst is None or src.is_dialog:
             continue
-        if any(
-            t.to == dst_id and t.attr in ("data-goto", "data-submit", "data-opens")
-            for t in src.transitions
-        ):
+        if any(t.to == dst_id and t.attr in ("data-goto", "data-submit", "data-opens") for t in src.transitions):
             continue
         attr = "data-opens" if dst.is_dialog else "data-goto"
         if not label:
             label = f"Continue to {dst.title}"
         src.transitions.append(Transition(label=label, attr=attr, to=dst_id))
-        notes.append(
-            f"flow backstop: added {attr}=\"{dst_id}\" ('{label}') on {src_id} — the flow names the move, the inventory did not"
-        )
+        notes.append(f"flow backstop: added {attr}=\"{dst_id}\" ('{label}') on {src_id} — the flow names the move, the inventory did not")
     inv.notes.extend(notes)
     return notes

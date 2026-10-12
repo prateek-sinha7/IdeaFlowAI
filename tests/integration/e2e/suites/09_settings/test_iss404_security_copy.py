@@ -9,7 +9,7 @@ verified and rewritten in place by this app's own
 `POST /api/auth/change-password` (`auth.py:1254-1269`) — reachable from this
 very settings shell's Profile tab.
 
-`qa-admin` is confirmed break-glass/local for this pool: `GET /api/auth/mfa`
+`admin@velocity.ai` is confirmed break-glass/local for this pool: `GET /api/auth/mfa`
 returns `supported: false` (verified live via curl, 2026-08-28), contradicting
 `test_settings.py`'s header comment that "every seeded QA account is
 Cognito-managed" — S-09-13's `EXTERNALLY_MANAGED` assertion currently encodes
@@ -48,7 +48,7 @@ def test_security_unavailable_copy_does_not_claim_external_management(page, shot
     assert res["status"] == 200, f"/api/auth/mfa returned {res['status']}: {res['body']}"
     status = json.loads(res["body"])
     assert status.get("supported") is False, (
-        "qa-admin is expected to be break-glass/local (supported=false); "
+        "admin@velocity.ai is expected to be break-glass/local (supported=false); "
         f"got {status} — this test needs that account shape"
     )
 

@@ -176,7 +176,7 @@ smart-hybrid policy and seeds the parent run's spec/design (via `parent_run_id`)
   across the run's agents (files persist agent-to-agent). The LangGraph checkpoint `thread_id`
   is **per agent-invocation** (`f"{run_id}:{agent_id}"`, plus `:task` in the build loop) so
   agents never collide on one checkpoint thread.
-- **No per-agent iteration cap**: `recursion_limit = settings.AGENT_RECURSION_LIMIT` (400) is
+- **No per-agent iteration cap**: `recursion_limit = settings.AGENT_RECURSION_LIMIT` (2500) is
   the backstop; the old per-agent `max_iterations` map is gone.
 - **HITL**: `gate_agent_ids` (per-run) selects which agents pause for the inter-agent Human
   review gate; default = the static set (agents whose `AGENT.md` declares `gate: Human_Gate`,

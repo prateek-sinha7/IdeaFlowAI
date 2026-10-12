@@ -2936,12 +2936,12 @@
     },
     {
       "key": "loginEmail",
-      "value": "qa-admin@flowinqa.com",
+      "value": "admin@velocity.ai",
       "type": "string"
     },
     {
       "key": "loginPassword",
-      "value": "flowin-e2e-pass",
+      "value": "Velocity!Dev2026",
       "type": "string"
     },
     {

@@ -955,3 +955,105 @@ async def test_agent_error_with_agent_complete_recorded_complete():
     assert len(results) == 1
     assert results[0]["data"]["status"] == "complete"
     assert "error" not in results[0]["data"]
+
+
+@pytest.mark.asyncio
+async def test_subagent_result_carries_the_model_the_worker_ran_on():
+    # The row for a spawn_subagents child shows its model: the engine resolved it,
+    # and the worker's own agent_start says which one it was.
+    runner = _FakeRunner(known_agents={"worker-a"}, yield_events={
+        0: [{"type": "agent_start", "data": {"model_id": "eu.anthropic.claude-sonnet-4-6"}},
+            {"type": "agent_complete", "data": {"total_tokens": 10}}],
+    })
+    events = await _collect(run_fanout(
+        [{"agent": "self", "input": f"task-{i}"} for i in range(2)],
+        _make_ctx(runner), step=_make_step("worker-a")))
+    results = {e["data"]["worker"]: e["data"] for e in events if e["type"] == "subagent_result"}
+    assert results[0]["model_id"] == "eu.anthropic.claude-sonnet-4-6"
+    assert "model_id" not in results[1]  # a worker that never reported one gets no guess
+
+
+class _ScriptedCallsRunner(_FakeRunner):
+    """Each run_worker call plays the next scripted event list (one per attempt)."""
+
+    def __init__(self, calls):
+        super().__init__(known_agents={"worker-a"})
+        self._calls = list(calls)
+
+    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input,
+                         total_workers=None, **kw):
+        self.spawned.append(dict(index=worker_index, thread_id=thread_id))
+        for event in self._calls.pop(0):
+            yield event
+
+
+_TIMED_OUT = [{"type": "agent_error", "data": {"error": "The model did not respond in time."}}]
+_DONE = [{"type": "agent_complete", "data": {"total_tokens": 5}}]
+
+
+@pytest.mark.asyncio
+async def test_a_worker_whose_model_call_timed_out_is_retried_on_a_fresh_call():
+    # Run 2867387c: one stalled model call failed a wave that was otherwise done.
+    runner = _ScriptedCallsRunner([_TIMED_OUT, _TIMED_OUT, _DONE])
+    events = await _collect(run_fanout([{"agent": "self", "input": "t"}],
+                                       _make_ctx(runner), step=_make_step("worker-a")))
+    assert [s["thread_id"].rsplit(":", 1)[-1] for s in runner.spawned] == ["0", "retry1", "retry2"]
+    assert runner.updated_rows[-1]["status"] == "complete"
+    result = next(e["data"] for e in events if e["type"] == "subagent_result")
+    assert result["status"] == "complete" and "error" not in result
+
+
+@pytest.mark.asyncio
+async def test_a_worker_still_timing_out_after_two_retries_fails():
+    from agents.execution_engine.fanout import FanoutWorkerFailed
+
+    runner = _ScriptedCallsRunner([_TIMED_OUT, _TIMED_OUT, _TIMED_OUT])
+    with pytest.raises(FanoutWorkerFailed):
+        await _collect(run_fanout([{"agent": "self", "input": "t"}],
+                                  _make_ctx(runner), step=_make_step("worker-a")))
+    assert len(runner.spawned) == 3
+    assert runner.updated_rows[-1]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_a_deterministic_worker_error_fails_at_once():
+    from agents.execution_engine.fanout import FanoutWorkerFailed
+
+    for message in ("The model rejected this request.",
+                    "The model could not be reached — a provider credential or permission "
+                    "problem (the run's cloud session may have expired)."):
+        runner = _ScriptedCallsRunner([[{"type": "agent_error", "data": {"error": message}}], _DONE])
+        with pytest.raises(FanoutWorkerFailed):
+            await _collect(run_fanout([{"agent": "self", "input": "t"}],
+                                      _make_ctx(runner), step=_make_step("worker-a")))
+        assert len(runner.spawned) == 1, message
+
+
+class _CheckpointedRunner(_FakeRunner):
+    """A checkpointer stand-in: each thread keeps its message history across calls."""
+
+    def __init__(self):
+        super().__init__(known_agents={"worker-a"})
+        self.threads: dict[str, list[str]] = {}
+        self.first_call_history: list[list[str]] = []
+
+    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input,
+                         total_workers=None, **kw):
+        history = self.threads.setdefault(thread_id, [])
+        history.append(input)
+        self.first_call_history.append(list(history))
+        yield {"type": "agent_complete", "data": {"total_tokens": 1}}
+
+
+@pytest.mark.asyncio
+async def test_a_slot_reused_by_the_next_wave_starts_from_a_clean_thread():
+    # Run 3976f8ce: EPIC-08a took slot 8 after EPIC-40 and replayed EPIC-40's cut reply.
+    runner = _CheckpointedRunner()
+    for task in ("EPIC-40", "EPIC-08a"):  # two waves, both on slot 0
+        await _collect(run_fanout([{"agent": "self", "input": f"write {task}", "task_id": task}],
+                                  _make_ctx(runner), step=_make_step("worker-a")))
+    assert runner.first_call_history[1] == ["write EPIC-08a"]
+    # A resume of the SAME task still finds its own thread.
+    await _collect(run_fanout([{"agent": "self", "input": "write EPIC-08a", "task_id": "EPIC-08a"}],
+                              _make_ctx(runner), step=_make_step("worker-a")))
+    assert runner.first_call_history[2] == ["write EPIC-08a", "write EPIC-08a"]

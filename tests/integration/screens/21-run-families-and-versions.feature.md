@@ -59,7 +59,7 @@ aria-label, not the visible text.
 Feature: Run families on run history
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   @S-21-01
   @sourced

@@ -31,6 +31,9 @@ export function MermaidBlock({ chart }: { chart: string }) {
     let cancelled = false;
     const dark = document.documentElement.getAttribute("data-theme") === "dark";
 
+    seq += 1;
+    const id = `mermaid-${seq}`;
+
     void (async () => {
       try {
         const mermaid = (await import("mermaid")).default;
@@ -42,12 +45,17 @@ export function MermaidBlock({ chart }: { chart: string }) {
           theme: dark ? "dark" : "neutral",
           fontFamily: "var(--font-sans, system-ui), sans-serif",
         });
-        seq += 1;
-        const { svg } = await mermaid.render(`mermaid-${seq}`, chart.trim());
+        const { svg } = await mermaid.render(id, chart.trim());
         if (cancelled || !host.current) return;
         host.current.innerHTML = svg;
         setError(null);
       } catch (e) {
+        // A failed render leaves mermaid's "Syntax error in text" graphic in a
+        // container it appended to <body> (`d<id>`) and never removes. In an SPA
+        // those pile up above every later page — remove them; the error box
+        // below is what this block shows instead.
+        document.getElementById(`d${id}`)?.remove();
+        document.getElementById(id)?.remove();
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
     })();

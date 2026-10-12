@@ -57,7 +57,7 @@ import type { CustomTemplate } from "@/components/workflow/prototype/CustomTempl
 import type { AgentDef } from "@/types/index";
 import { CUSTOM_AGENT_PREFIX } from "@/store/api/userWorkflows";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
-import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload } from "@/lib/uploadTypes";
+import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -776,8 +776,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setAttachedFiles((prev) => {
       const removedName = prev[idx]?.name;
       if (removedName) {
-        setAttachedFileContents((c) => c.filter((f) => f.name !== removedName));
-        setStagedUploads((s) => s.filter((f) => f.name !== removedName));
+        setAttachedFileContents((c) => withoutOne(c, removedName));
+        setStagedUploads((s) => withoutOne(s, removedName));
       }
       return prev.filter((_, i) => i !== idx);
     });

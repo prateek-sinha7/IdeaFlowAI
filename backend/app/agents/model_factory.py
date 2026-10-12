@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from agents.capabilities.model_catalog import ModelCatalog
+from agents.capabilities.model_catalog import ModelCatalog, max_output_tokens
 from app.core.config import settings
 
 if TYPE_CHECKING:
@@ -273,16 +273,14 @@ def reasoning_fields(
         if mode == "adaptive":
             block = {"type": "adaptive"}
             if include_budget_on_adaptive:
-                block["budget_tokens"] = max(
-                    1024, min(settings.THINKING_BUDGET_TOKENS, max_tokens - 1)
-                )
+                block["budget_tokens"] = max(1024, max_tokens - 1)
             return {"thinking": block}
         return {
             "thinking": {
                 "type": "enabled",
-                "budget_tokens": max(
-                    1024, min(settings.THINKING_BUDGET_TOKENS, max_tokens - 1)
-                ),
+                # From the call's own max_tokens (the model's output cap unless the
+                # caller set a smaller one); the API requires budget < max_tokens.
+                "budget_tokens": max(1024, max_tokens - 1),
             }
         }
 
@@ -375,6 +373,10 @@ def build_model(
         )
     # --- end override ---
 
+    # No explicit cap ⇒ the model's own output ceiling, resolved per provider branch
+    # below once the model id is known; MAX_OUTPUT_TOKENS stays the cap for a model
+    # the catalog does not list.
+    cap_from_model = max_tokens is None
     if max_tokens is None:
         max_tokens = settings.MAX_OUTPUT_TOKENS
 
@@ -412,6 +414,8 @@ def build_model(
         from langchain_anthropic import ChatAnthropic
 
         model_id = model or settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5-20251001"
+        if cap_from_model:
+            max_tokens = max_output_tokens(model_id) or max_tokens
         logger.debug(
             "build_model: ChatAnthropic model=%s max_tokens=%d", model_id, max_tokens
         )
@@ -478,6 +482,8 @@ def build_model(
     model_id = (
         model or settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID
     )
+    if cap_from_model:
+        max_tokens = max_output_tokens(model_id) or max_tokens
     region = settings.AWS_REGION
     logger.debug(
         "build_model: ChatBedrockConverse model=%s region=%s max_tokens=%d",
@@ -500,10 +506,13 @@ def build_model(
         model=model_id,
         region_name=region,
         max_tokens=max_tokens,
-        # read_timeout bounds time-to-first-token on a slow stream; adaptive
-        # retries absorb on-demand throttling.
+        # read_timeout bounds the silence between stream chunks; adaptive retries
+        # absorb on-demand throttling. A tool call's input is buffered by the API
+        # and arrives in one burst, so a large write_file sends nothing while it is
+        # generated: at ~60 tokens/s, 1800 s covers ~100K output tokens (the old
+        # 600 s cut a call off at ~36K, below the 64K/128K caps).
         config=Config(
-            read_timeout=600,
+            read_timeout=1800,
             connect_timeout=30,
             # STABILIZATION.md A4: verified against botocore's own retry
             # classifiers (ModeledRetryableChecker/ThrottledRetryableChecker/

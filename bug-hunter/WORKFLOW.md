@@ -136,8 +136,8 @@ array, not something to paraphrase.
 | | |
 |---|---|
 | App | `http://localhost:3000` (backend `http://localhost:8000`) |
-| Sign in | `qa-admin@flowinqa.com` / `flowin-e2e-pass` — admin, enterprise |
-| Other tiers | `qa-enterprise@`, `qa-pro@`, `qa-basic@` — same password, same domain |
+| Sign in | `admin@velocity.ai` / `Velocity!Dev2026` — admin, enterprise |
+| Other tiers | `enterprise@`, `pro@`, `basic@` — same password, same domain |
 | Already signed in? | `!!localStorage.getItem('auth_token')` — **never return the token itself** |
 | Login | `/login` → fill `input[type=email]`, `input[type=password]` → `button:has-text("Sign in")` → wait for `/dashboard` |
 

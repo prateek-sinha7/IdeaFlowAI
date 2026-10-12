@@ -3,7 +3,7 @@ id: BUG-013-GROUNDED-CONTEXT
 type: bug
 kind: event
 title: BUG-013 — grounded fix spec
-status: open
+status: resolved
 applies_to:
   phases: []
   modules:
@@ -29,7 +29,7 @@ verification:
   status: required
   test_files: []
 compact_summary: 'One EventSource per non-terminal run saturates the browser''s ~6-connection-per-origin limit, hanging fetches; fix stops auto-streaming parked runs, adds an AbortController timeout to the REST client.'
-last_updated: '2026-08-14'
+last_updated: 2026-10-01
 author: 'Bilal Arshad <bilala@hexaware.com>'
 author_source: applies-to-glob
 ---
@@ -75,3 +75,13 @@ The FE opens **one long-lived EventSource SSE stream per non-terminal run**, all
 - **Part B fail-before/pass-after:** a `request()`/api test — a `fetch` that never resolves rejects after the timeout (fake timers / mocked fetch) with the typed error (fail-before: hangs).
 - **No-regression:** launch→watch still streams (focused run attaches); the SSE reconnect/resilience specs green; reopening a terminal run unaffected.
 - Executor does NOT run live Bedrock — the orchestrator does the live proof: with ≥6 non-terminal runs present, reopen a clarify-paused run → the 6 questions render (no hang); launch a no-template prototype → clarify renders.
+
+## Resolution
+
+Verified fixed in the current code on 2026-10-01 (feat/user-stories-v2 @ 3b08b2ba8) by static review: a first-pass check and an independent adversarial re-check both found every claim of this card fixed. No tests were run for this closure.
+
+**Fixed by:** c35f73e6d (fix) + aebff8685 (tests)
+
+**Evidence:** Read card and source myself. Part A: RunConnectionProvider.tsx:69-75 AUTO_STREAM_STATUSES = running/planning/analyzing/generating/revising (no waiting_for_user/clarifying); refreshLiveRuns filters by it (:355) into autoIdsRef; recomputeLiveRunIds (:292-306) unions single focusedRunIdRef with an identity guard; attachRun (:464-471) sets sticky focus, replacing the prior one; detachRun clears it. page.tsx:2970 attachRun(fullRun.id) on reopen (gated to non-terminal); launch paths still attachRun (page.tsx:2774, 2851, 4311). Part B: api.ts:331 REQUEST_TIMEOUT_MS=30_000; fetchWithTimeout (:487-509) uses AbortController, maps AbortError to ApiError(0), clearTimeout in finally; fetchWithAuth (:544) -> request() -> singleFlightGet -> getWorkflow (:1334). Tests exist: RunConnectionProvider.test.tsx, attachRunOnOpen.source.test.ts, api.requestTimeout.test.ts.
+
+**Left over (outside this card's claims):** none. Minor non-blocking deviations: reopen attachRun is gated on non-terminal status, and auto-attach also requires tab-owned ids (sessionStorage), both stricter than the card and consistent with its intent. The card frontmatter still says status: open (bookkeeping only). Live proof was not re-verified here (read-only).

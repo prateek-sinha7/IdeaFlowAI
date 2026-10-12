@@ -202,6 +202,19 @@ def test_multiple_nested_files_sorted(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_family_lock_is_never_a_deliverable(tmp_path: Path) -> None:
+    """The revision-family lock sits at the sandbox root; it is engine plumbing,
+    not something the client receives (it was showing under Deliverables)."""
+    from app.agents.sandbox import is_deliverable_relpath
+
+    (tmp_path / ".family.lock").write_bytes(b"")
+    (tmp_path / "prototype.html").write_text("<h1>x</h1>", encoding="utf-8")
+
+    assert not is_deliverable_relpath(".family.lock")
+    assert count_sandbox_deliverables(tmp_path) == 1
+    assert ".family.lock" not in serialize_sandbox_deliverable(tmp_path)
+
+
 def test_planner_md_excluded_root(tmp_path: Path) -> None:
     pairs = {
         "PLANNER.md": "# Deep Planner Analysis\n",
@@ -569,10 +582,9 @@ def test_skills_dir_excluded_from_deliverable(tmp_path: Path) -> None:
     assert count_sandbox_deliverables(tmp_path) == 1
 
 
-def test_git_artifacts_excluded_from_list_files(tmp_path: Path) -> None:
-    """.git/, .gitignore, and skills/ must NOT appear in list_files — the
-    deliverable walk exclusion and the list_files exclusion are tested
-    separately (Requirement 9 AC 4)."""
+def test_git_artifacts_listed_in_list_files(tmp_path: Path) -> None:
+    """.git/, .gitignore, and skills/ appear in list_files (the Workspace shows
+    every file) even though the deliverable walk excludes them."""
     sb = _mk_sandbox(tmp_path)
     sb.write("prototype.html", "<h1>x</h1>")
     sb.write(".gitignore", ".logs/\n")
@@ -587,9 +599,9 @@ def test_git_artifacts_excluded_from_list_files(tmp_path: Path) -> None:
     paths = {f["path"] for f in files}
 
     assert "prototype.html" in paths, "deliverable file must appear in list_files"
-    assert not any(p.startswith(".git") for p in paths), ".git tree must be absent"
-    assert ".gitignore" not in paths, ".gitignore must be absent"
-    assert not any(p.startswith("skills") for p in paths), "skills/ tree must be absent"
+    assert ".git/config" in paths, ".git tree is listed"
+    assert ".gitignore" in paths, ".gitignore is listed"
+    assert any(p.startswith("skills/") for p in paths), "skills/ is listed like every reserved subtree"
     assert not truncated
 
 

@@ -1,0 +1,5 @@
+Manrope — Copyright 2018 The Manrope Project Authors (https://github.com/sharanda/manrope)
+Licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+The two .woff2 files here are the variable-weight latin and latin-ext subsets served by
+Google Fonts, the same files the frontend loads through next/font. Used by
+agents/capabilities/backlog_export.py to typeset Backlog.pdf offline.

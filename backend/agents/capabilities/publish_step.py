@@ -89,12 +89,12 @@ def publish_draft(ctx: Any) -> str:
     return content
 
 
-@register(
-    "mechanical",
-    "publish",
-    user_allowed=True,
-    description="Copies the finished file onto the workflow's deliverable so it shows in Results. Pure code, no AI. Needs the step's publish pattern to match a file the run wrote.",
-)
+@register("mechanical", "publish", user_allowed=True, description="Copies the finished file onto the workflow's deliverable so it shows in Results. Pure code, no AI. Needs the step's publish pattern to match a file the run wrote.",
+          reads=["<deliverable.publish_from_glob>"],
+          process=("Copies the newest file matching the workflow's publish pattern, byte for byte, onto the "
+                   "deliverable so it shows in Results. Fails rather than inventing a substitute when nothing "
+                   "matches."),
+          writes=["<deliverable.name>"])
 class _PublishRegistryStub:
     """Thin stub for registry purposes only (capability palette discovery).
 
@@ -102,7 +102,6 @@ class _PublishRegistryStub:
     per-dispatch arguments (spec/index/total/results). This stub is registered for
     the palette and describes the capability; it is never executed.
     """
-
     name = "publish"
 
 
@@ -136,14 +135,8 @@ class MechanicalPublishStrategy:
         spec = self._spec
         yield {
             "type": "agent_start",
-            "data": {
-                "agent_id": spec.id,
-                "name": spec.name,
-                "role": spec.role,
-                "icon": spec.icon,
-                "index": self._index,
-                "total": self._total,
-            },
+            "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
+                      "icon": spec.icon, "index": self._index, "total": self._total},
         }
         started = time.time()
         try:
@@ -158,32 +151,16 @@ class MechanicalPublishStrategy:
         yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": content}}
 
         duration = time.time() - started
-        self._results.append(
-            {
-                "agent_id": spec.id,
-                "name": spec.name,
-                "role": spec.role,
-                "icon": spec.icon,
-                "output": content,
-                "duration": duration,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": 0,
-                "cache_read_tokens": 0,
-                "cache_write_tokens": 0,
-            }
-        )
+        self._results.append({
+            "agent_id": spec.id, "name": spec.name, "role": spec.role,
+            "icon": spec.icon, "output": content, "duration": duration,
+            "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+            "cache_read_tokens": 0, "cache_write_tokens": 0,
+        })
         yield {
             "type": "agent_complete",
-            "data": {
-                "agent_id": spec.id,
-                "name": spec.name,
-                "duration": round(duration, 2),
-                "output_length": len(content),
-                "index": self._index,
-                "total": self._total,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": 0,
-            },
+            "data": {"agent_id": spec.id, "name": spec.name,
+                      "duration": round(duration, 2), "output_length": len(content),
+                      "index": self._index, "total": self._total,
+                      "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
         }

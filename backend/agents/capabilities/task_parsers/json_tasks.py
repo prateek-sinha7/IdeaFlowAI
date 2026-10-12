@@ -56,6 +56,15 @@ def _strip_json_fence(text: str) -> str:
     a fence is present (even amid prose) its inner content is returned for ``json.loads``.
     """
     stripped = (text or "").strip()
+    # A payload that is JSON as a whole IS the task list, whatever its task bodies
+    # quote: revision 48b0811e's tasks.json was valid JSON whose bodies carried six
+    # ```json snippets of the files they change, and the fence search below handed
+    # the first snippet to json.loads instead. Only text that is not JSON is searched.
+    try:
+        json.loads(stripped)
+        return stripped
+    except (json.JSONDecodeError, ValueError):
+        pass
     # EVERY fence is a candidate, not just the first. `search` took only the
     # leading fence, so a reply that opened with any other fenced block — an
     # echoed example from its own prompt, a snippet of prose, a stray ``` run —

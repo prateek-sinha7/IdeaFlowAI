@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shell Prototype</title>
+</head>
+<body>
+<script>
+window.__prototype = {
+  show: function (id) {
+    document.querySelectorAll('.screen').forEach(function (el) {
+      el.style.display = el.id === id ? 'block' : 'none';
+    });
+  },
+  openDialog: function (id) {
+    var el = document.getElementById(id);
+    if (el) { el.style.display = 'block'; }
+  }
+};
+</script>
+
+<section id="anchor" class="screen" style="display:block">
+  <h1>Anchor Screen</h1>
+  <form>
+    <div class="field">
+      <label for="effective-date">Effective Date</label>
+      <input id="effective-date" name="effective_date" type="date" required min="2026-01-01">
+    </div>
+    <div class="field">
+      <label for="policy-type">Policy Type</label>
+      <select id="policy-type" name="policy_type" required>
+        <option value="AUTO">Auto</option>
+        <option value="HOME">Home</option>
+        <option value="RENT">Renters</option>
+        <option value="UMB">Umbrella</option>
+      </select>
+    </div>
+    <button type="button" data-goto="beacon">Begin Quote</button>
+  </form>
+  <div id="anchor--error" class="state" hidden>Effective Date cannot be in the past</div>
+</section>
+
+<section id="beacon" class="screen" style="display:none">
+  <h1>Beacon Screen</h1>
+  <div class="field">
+    <label for="applicant-name">Applicant Name</label>
+    <input id="applicant-name" name="applicant_name" type="text" pattern="[A-Za-z ]+" minlength="2" maxlength="60">
+  </div>
+  <button type="button" data-goto="crimson">Continue</button>
+</section>
+
+<section id="crimson" class="screen" style="display:none">
+  <h1>Crimson Screen</h1>
+  <p>Review and submit your quote.</p>
+  <button type="button" data-submit="quote">Submit Quote</button>
+</section>
+
+<div id="confirm-dialog" class="dialog" style="display:none">
+  <h2>Confirm</h2>
+  <p>Are you sure you want to submit?</p>
+  <button type="button" data-closes="confirm-dialog">Cancel</button>
+  <button type="button" data-submit="quote">Yes, submit</button>
+</div>
+</body>
+</html>

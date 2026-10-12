@@ -192,7 +192,7 @@ def test_run_commands_persists_model_id_per_agent() -> None:
     from the agent_complete event into the agent_outputs JSON (ISS-165 path,
     confirmed unbroken by RFN-001 changes)."""
     src = _RUN_COMMANDS.read_text(encoding="utf-8")
-    assert 'current_agent["model_id"] = data.get("model_id")' in src, (
+    assert 'row["model_id"] = data.get("model_id")' in src, (
         "RFN-001: run_commands.py must still persist model_id per-agent from the "
         "agent_complete event payload into agent_outputs (ISS-165 path must be intact)"
     )

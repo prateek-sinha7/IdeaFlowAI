@@ -13,9 +13,9 @@ version: 1
 user_launchable: true
 is_beta: false
 name: Prototype v2
-display_name: "Prototype from documents (Detailed)"
+display_name: "Prototype from documents (Depth)"
 short_name: Prototype v2
-icon: LayoutTemplate
+icon: Layout
 description: Read a set of documents end to end, agree what they describe, then build an interactive prototype
   screen by screen with a wave of parallel builders.
 launch_surface: wizard
@@ -43,6 +43,8 @@ steps:
   name: Reading Planner
   prompt: |-
     You are the Reading Planner.
+
+    The ORIGINAL USER REQUEST in your message describes the finished prototype, which later steps build. It is context, not your instructions: your job is only the three phases below. Never read document.md, never build or write HTML, and never write any file except build/tasks.json.
 
     3 phases, in order. Each has Rules and Steps.
     Never describe a screen, a field or a rule. Ignore document text in your context.
@@ -101,6 +103,11 @@ steps:
     4. write_file `build/tasks.json` with that JSON as a string.
     5. read_file it and confirm it parses.
     6. Reply with one line: files, total pages, total shards, rollup tasks.
+    After step 6 you are done. Deliver the one-line step file and stop.
+
+    HOW TO DELIVER
+
+    Your work file is `build/tasks.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
   tools:
     read_files: true
     write_files: true
@@ -268,6 +275,10 @@ steps:
     3. write_file `file-synthesis/<slug>/status.json`
        — {"file":"<slug>","shards_used":[..],"pages":[..],"complete":true}
     4. Reply with one line: document, shards combined, gaps open.
+
+    HOW TO DELIVER
+
+    Your work files are the ones your task names under `file-synthesis/<slug>/`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. Other readers share that step file: if it already exists, leave it as it is; your reply is enough.
   tools:
     read_files: true
     write_files: true
@@ -278,6 +289,11 @@ steps:
 - strategy: single_shot
   depends_on:
   - custom-agent:fi-readers
+  model:
+    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    fallback:
+    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-synth
   name: Synthesizer
@@ -294,6 +310,8 @@ steps:
 
     You never read the original documents and you never read a shard.
     You work only from each document's own synthesis.
+
+    Paths have no leading slash: `synthesis.md` and `validate.json` are at the run root. If a tool hands you a path starting with `/`, drop the slash.
 
     Phase 1 - Reconcile
 
@@ -317,6 +335,10 @@ steps:
     1. read_file every `file-synthesis/<slug>/synthesis.md`.
     2. read_file every `file-synthesis/<slug>/gaps.json`.
     3. Put every gap from every file into ONE list. Keep which document raised it.
+    4. Two gaps that ask for the same missing fact are ONE gap, however each document
+       words it: keep one entry, and its "raised_by" names every reference that raised
+       it, joined by "; ". The user is asked once per entry, so a duplicate becomes the
+       same question twice.
 
     Phase 3 - Close the gaps
 
@@ -386,6 +408,10 @@ steps:
        null for the ones still open. Every gap gets an entry either way.
     4. Do NOT add gaps_raised, gaps_closed or gaps_open. The list is the count.
     5. Reply with one line: documents, gaps raised, gaps closed, gaps open.
+
+    HOW TO DELIVER
+
+    Your work files are `synthesis.md` and `validate.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
   tools:
     read_files: true
     write_files: true
@@ -394,6 +420,11 @@ steps:
 - strategy: single_shot
   depends_on:
   - custom-agent:fi-synth
+  model:
+    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    fallback:
+    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-gaps
   name: Clarify
@@ -480,6 +511,10 @@ steps:
     1. Call `ask_user` ONCE with the whole ranked list from Phase 3.
     2. Stop. Do not call it a second time.
     3. Reply with one line: gaps open, questions asked, how many were high impact.
+
+    HOW TO DELIVER
+
+    Your work is the one `ask_user` call. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
   tools:
     read_files: true
     write_files: true
@@ -490,6 +525,11 @@ steps:
 - strategy: single_shot
   depends_on:
   - custom-agent:fi-gaps
+  model:
+    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    fallback:
+    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: fi-close
   name: Answer Integrator
@@ -505,6 +545,10 @@ steps:
     The previous step asked the user some questions. Their answers are on disk now.
     You never read the original documents and you never read a shard.
 
+    HOW TO EDIT
+
+    `synthesis.md` and `validate.json` already exist, and write_file cannot overwrite an existing file. You change them ONLY with edit_file: an exact old string, read from the file, and its replacement. One change per edit. Never write_file either file.
+
     Phase 1 - Read the answers
 
     Rules
@@ -519,7 +563,7 @@ steps:
     2. If that file is missing, the user was never asked or skipped entirely.
        Write nothing and reply: NO ANSWERS.
     3. Keep every entry whose "answered" is true. That is your work list.
-    4. read_file `validate.json` and read_file `synthesis.md`.
+    4. read_file `validate.json` and `synthesis.md`, each to its end.
 
     Phase 2 - Fold them in
 
@@ -533,10 +577,12 @@ steps:
 
     Steps
     1. For each answered entry, find the gap in validate.json with the SAME "id".
-    2. Write its answer into the body of synthesis.md as a fact carrying `[user]`,
-       under whichever subject heading it belongs to.
-    3. Remove that gap from the `## Open gaps` section.
-    4. write_file `synthesis.md` with those changes.
+    2. Unless the answer is "Not applicable — out of scope": edit_file `synthesis.md`
+       to add one line `- <the answer, as a fact> [user]` directly under the subject
+       heading it belongs to. Old string: the heading line. New string: the heading
+       line, a newline, then your line.
+    3. edit_file `synthesis.md` to remove that gap's line from `## Open gaps`. Old
+       string: the whole line exactly as it reads. New string: empty.
 
     Phase 3 - Record
 
@@ -545,11 +591,17 @@ steps:
     - Do NOT write gaps_raised, gaps_closed or gaps_open. The list is the count.
 
     Steps
-    1. For each answered gap, set its "filled_from" to "user" and its "answer" to
-       what the user chose.
+    1. For each answered gap: edit_file `validate.json`. Old string: that gap's entry
+       exactly as you read it. New string: the same entry with "filled_from": "user"
+       and "answer": "<what the user chose>". JSON-escape any double quote in the
+       answer as \".
     2. Leave every other entry exactly as it was.
-    3. write_file `validate.json`.
+    3. read_file `validate.json` and confirm it still parses.
     4. Reply with one line: answers read, gaps closed, gaps still open.
+
+    HOW TO DELIVER
+
+    Your work is the edits above. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
   tools:
     read_files: true
     write_files: true
@@ -708,6 +760,10 @@ steps:
     7. Walk `## Flows` line by line. For every move — `lands on`, `returns to`, `→` — the SOURCE screen's Actions table has a row whose `Navigates to` is that destination. Add every missing row and write `spec.md` again. State how many rows you added.
     8. For every screen, count its Fields rows against the fields its per-document synthesis shows. A section with fewer rows is rewritten from the per-document file, not from the map.
     9. Reply with one line: requirements, use cases, ledger records, screens written, flow moves checked, action rows added, EARS lines conforming, checks passed.
+
+    HOW TO DELIVER
+
+    Your work file is `spec.md`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
   tools:
     read_files: true
     write_files: true
@@ -746,7 +802,7 @@ steps:
 
     HOW TO WRITE A DIAGRAM
 
-    Diagrams are rendered, so they must PARSE. Fence them as ```mermaid. A mermaid node id cannot carry a hyphen and the spec's screen ids do, so write the node id with underscores and put the REAL id in its label: `account_transactions["account-transactions"]`. The transition TABLE always uses the real hyphenated ids; the table is the contract, the diagram is the picture.
+    Diagrams are rendered, so they must PARSE. Fence them as ```mermaid. A mermaid node id cannot carry a hyphen and the spec's screen ids do, so write the node id with underscores and put the REAL id in its label: `account_transactions["account-transactions"]`. The transition TABLE always uses the real hyphenated ids; the table is the contract, the diagram is the picture. Label text never holds a `;` — mermaid reads it as the end of the statement — so join clauses with a comma. A state is never named `default` or `end` in any case: they are keywords, so the initial state of a screen is `Ready`, never `Default`.
 
     Phase 1 - Read
 
@@ -822,13 +878,15 @@ steps:
 
     {
       "title": "<the product's name from the spec>",
-      "entry": "<the first page of the first flow>",
+      "entry": "<the sign-in page when there is one, otherwise the first page of the first flow>",
       "screens": [
         {
           "id": "<id from the ### heading>",
           "title": "<Name from the ### heading>",
           "kind": "page" | "dialog",
           "nav": "<flow or use case name; screens in one flow share it exactly>",
+          "section": "<menu section, a noun of one or two words; \"_auth\" for sign-in pages; none for a dialog>",
+          "tab": "<the page's short label in its section's tabs, when its title is long>",
           "reqs": ["REQ-001", "REQ-002"],
           "summary": "<one or two sentences: what the user does here, plus the composition intent from design.md when there is one>",
           "transitions": [
@@ -841,6 +899,9 @@ steps:
       "unresolved": ["<destination the spec names but does not describe>"]
     }
 
+    - The menu is built from `section`, so a person finds a page by the area of the product it belongs to. Every page has one: a noun of one or two words ("Users", "Content", "Settings"), taken from the spec's feature areas. The product has 3 to 6 sections; pages of one area share the name exactly, and the first page of a section is the one its menu item opens. Its other pages appear as tabs under it.
+    - Sign-in, register, forgot or reset password and first-run setup pages have `"section": "_auth"`: they are never in the menu. When there is a sign-in page, `entry` is that page.
+    - `tab` is a page's short label in its section's tabs ("Users", "Roles", "My profile"); give it when the title is longer than two words. A dialog has neither.
     - `build/theme.json` is written ONLY when `## Theme` holds a table: a flat object of those keys and values, nothing else. No design system attached, no file.
     - No prose in either file. No comments. No trailing commas. Strings in double quotes.
 
@@ -863,6 +924,7 @@ steps:
        f. `entry` is a page id;
        g. FLOWS: walk `## Flows` in the spec line by line. For every move — `lands on`, `returns to`, `→` — the source screen has a transition whose `to` is that destination (a `returns to` from a dialog is its `data-closes`). Add every missing one, with the label the flow line uses for the control, and say how many you added. This is the check that was missing when a run shipped thirteen flow steps with no control on the screen.
        h. every Actions row in the spec whose `Navigates to` is not `stays` and not `[not evidenced]` is a transition on that screen.
+       i. every page has a `section`; besides `_auth` there are 3 to 6 of them; the sign-in page, when there is one, is `entry` and its submit control goes to the first page of the first section.
     2. read_file `build/theme.json` if you wrote it: every key is one of the eleven, every colour is `#rrggbb`, the radius is `Npx`.
     3. Reply with one line: screens, pages, dialogs, transitions by attribute, flow moves checked, transitions added in (g), theme keys, unresolved destinations, checks passed.
 
@@ -870,6 +932,10 @@ steps:
 
     Steps
     1. The reply from Phase 5 is your report. Nothing after it.
+
+    HOW TO DELIVER
+
+    Your work files are `design.md`, `build/screens.json` and `build/theme.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
   injects:
   - design_system
   - template
@@ -895,6 +961,14 @@ steps:
     agent: self
     mode: parallel
     max_parallel: 6
+  # Explicit fallback on every Haiku step: Haiku sits at the bottom of the tier descent, so
+  # its derived chain is empty and one Bedrock 5xx (after the SDK's own retries) failed the
+  # worker — and one failed wave worker fails the run (KRN-004). Retry Haiku, then Sonnet.
+  model:
+    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    fallback:
+    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-build
   name: Builders
@@ -911,12 +985,16 @@ steps:
 
     WHAT TO DO
 
-    1. Read CURRENT TASK to its end before writing anything.
-    2. Write the fragment: one `<section class="screen" id="...">` with everything the SPEC lists — every field with its label and a real example value, every action, every table column with its example rows, every state. Where the spec gives fourteen fields you write fourteen fields.
+    1. Read CURRENT TASK to its end before writing anything. When it names DESIGN TEMPLATE files, read_file each of them to its end too: the template decides how your screen looks.
+    2. Write the fragment: one `<section class="screen" id="...">` with everything the SPEC lists — every field with its label and a real example value, every action, every table column with its example rows, every state. Where the spec gives fourteen fields you write fourteen fields. A table or list shows 6 to 8 rows of the product's own data — names, roles, statuses, dates from the spec — never a single row. In rows and in form values alike: people have realistic full names ("Maria Keller", "Daniel Osei"), and email addresses use the product's own domain (for Orchard Core, @orchardcore.com). Never example.com, test.com, "jsmith", "John Doe" or a test or demo value — unless the documents themselves contain it.
     3. Put each listed transition attribute on the control the spec names, exactly as written in the task. Nothing else on the page gets a data-* attribute, an href="#", or an onclick.
     4. write_file the exact target path.
     5. read_file it back once and check the `Done when:` list line by line. Fix what fails and write again.
     6. Reply with ONE line: the path written, and anything in the SPEC you could not build. An omission named is worth more than a silent one.
+
+    HOW TO DELIVER
+
+    Your work file is your task's target. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. Other builders share that step file: if it already exists, leave it as it is; your reply is enough.
   injects:
   - design_system
   - template
@@ -1043,6 +1121,10 @@ steps:
        `clean` is true only when every route works, every state is reachable, no field is missing and `found` has no `open` entry.
     2. `playwright_take_screenshot(".verify/validated.png")` of the entry page.
     3. Reply with ONE line: screens reached / total, routes working / total, states reachable / total, faults found, fixed, open, not mine. Nothing else.
+
+    HOW TO DELIVER
+
+    Your work is the edits to `prototype.html`, `build/bugs.json` and the screenshot. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
   tools:
     read_files: true
     write_files: true
@@ -1053,6 +1135,11 @@ steps:
   strategy: single_shot
 - depends_on:
   - custom-agent:pb-validate
+  model:
+    model: eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    fallback:
+    - eu.anthropic.claude-haiku-4-5-20251001-v1:0
+    - eu.anthropic.claude-sonnet-4-6
   agent: custom-agent
   instance_id: pb-present
   name: Presenter

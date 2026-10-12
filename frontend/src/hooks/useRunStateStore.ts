@@ -145,6 +145,8 @@ export interface WaveGroup {
     parentTaskId?: string;
     /** Why it failed, verbatim from the backend. */
     error?: string;
+    /** Model it ran on, when the backend sends `model_id`. */
+    modelId?: string;
   }>;
 }
 
@@ -513,8 +515,9 @@ export function useRunStateStore(): RunStateStoreReturn {
               : wk.worker === undefined && wk.agent === agent)
         );
         const err = typeof data.error === "string" ? (data.error as string) : undefined;
-        if (existing) { existing.status = status; existing.agent = agent; if (err) existing.error = err; }
-        else group.workers.push({ agent, status, worker: workerIndex, taskId, parentTaskId, error: err });
+        const modelId = typeof data.model_id === "string" && data.model_id ? (data.model_id as string) : undefined;
+        if (existing) { existing.status = status; existing.agent = agent; if (err) existing.error = err; if (modelId) existing.modelId = modelId; }
+        else group.workers.push({ agent, status, worker: workerIndex, taskId, parentTaskId, error: err, modelId });
       }
 
       entry.waveGroups = next;

@@ -211,7 +211,7 @@ async def test_commit_blocked_by_mandatory_secret_scan(
 
     # Plant a file with a recognisable secret pattern that scan_for_secret catches.
     # The AWS access key id pattern: AKIA followed by 16 uppercase alnum chars.
-    secret_value = "AKIAIOSFODNN7EXAMPLE"
+    secret_value = "AKIAQ3EGRL7ZXBV2WK4P"
     (sb.root / "config.txt").write_text(
         f"aws_access_key_id = {secret_value}\n", encoding="utf-8"
     )
@@ -394,3 +394,61 @@ def _assert_secret_unreachable_from_git(repo_root: Path, secret: str) -> None:
         f"Secret value {secret!r} was found in git history — "
         "the blocked commit should not have created a reachable commit object."
     )
+
+
+# ---------------------------------------------------------------------------
+# A refused binary leaves the commit; the rest of the step still commits
+# ---------------------------------------------------------------------------
+# Live (run 53d022e9): one screenshot the binary scan refused blocked EVERY commit
+# of the run, so its history held none of the deliverables.
+
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + bytes(range(256))
+
+
+@pytest.mark.asyncio
+async def test_refused_binary_is_left_out_and_the_rest_commits(tmp_path: Path) -> None:
+    from agents.execution_engine.engine import commit_in_sandbox
+
+    sb = _make_sandbox(tmp_path)
+    ectx = _make_ectx()
+    (sb.root / "backlog.md").write_text("# Backlog\n", encoding="utf-8")
+    (sb.root / "build").mkdir()
+    (sb.root / "build" / "button.png").write_bytes(_PNG_BYTES)
+
+    result = await commit_in_sandbox(sb, "step: writer", ectx, _make_step(), audit_operation=None)
+
+    assert result.blocked is False and result.sha, result
+    tracked = _git(sb.root, "ls-tree", "-r", "--name-only", "HEAD").split()
+    assert "backlog.md" in tracked
+    assert "build/button.png" not in tracked
+    assert (sb.root / "build" / "button.png").exists(), "a refused file stays in the working tree"
+    assert set(ectx.commit_excluded_files) == {"build/button.png"}
+    assert not getattr(ectx, "last_commit_blocked", False), "a partial commit is not a blocked one"
+
+
+@pytest.mark.asyncio
+async def test_only_a_refused_binary_commits_nothing(tmp_path: Path) -> None:
+    from agents.execution_engine.engine import commit_in_sandbox
+
+    sb = _make_sandbox(tmp_path)
+    ectx = _make_ectx()
+    (sb.root / "shot.png").write_bytes(_PNG_BYTES)
+
+    result = await commit_in_sandbox(sb, "step: ui", ectx, _make_step(), audit_operation=None)
+
+    assert result.no_change is True and result.blocked is False, result
+    assert "shot.png" in ectx.commit_excluded_files
+
+
+@pytest.mark.asyncio
+async def test_a_whole_refusal_records_its_reason(tmp_path: Path) -> None:
+    from agents.execution_engine.engine import commit_in_sandbox
+
+    sb = _make_sandbox(tmp_path)
+    ectx = _make_ectx()
+    (sb.root / "config.txt").write_text("aws_access_key_id = AKIAQ3EGRL7ZXBV2WK4P\n", encoding="utf-8")
+
+    result = await commit_in_sandbox(sb, "test", ectx, _make_step(), audit_operation=None)
+
+    assert result.blocked is True
+    assert ectx.last_commit_block_reason == "secret_detected"

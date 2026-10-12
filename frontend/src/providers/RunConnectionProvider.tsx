@@ -576,10 +576,12 @@ export function RunConnectionProvider({
         // Non-SSE /messages response (e.g. confirm-proposal JSON). Parse it to
         // extract the revision_run_id when a concierge-confirmed revision launched
         // a child run — this lets the caller attachRun + switchViewTo the new run.
+        // A revision the Concierge launches straight from a chat turn (no proposal
+        // to confirm, e.g. a backlog revision) carries it at the top level.
         try {
           const body = (await res.json()) as Record<string, unknown> | null;
           const proposal = body?.proposal as Record<string, unknown> | undefined;
-          const revisionRunId = proposal?.revision_run_id as string | undefined;
+          const revisionRunId = (proposal?.revision_run_id ?? body?.revision_run_id) as string | undefined;
           return revisionRunId ?? null;
         } catch {
           return null;

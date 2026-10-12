@@ -23,7 +23,7 @@ import type { GateContext } from "@/components/chat/RunChatLane";
 import type { ClarifyQuestion } from "@/types/index";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { ClarificationsCard } from "./ClarificationsCard";
-import { formatDuration, formatTokenCount } from "@/lib/runStats";
+import { formatDuration, formatTokenCount, sumWorkers } from "@/lib/runStats";
 import { routes } from "@/lib/routes";
 
 // ─── Divert-link spine row — same source/target relationship
@@ -644,7 +644,9 @@ export function StepsOverviewSpine({
         const rowMeta = [
           agent.duration != null ? formatDuration(agent.duration) : null,
           multiPass && agent.cumulativeDuration ? `${formatDuration(agent.cumulativeDuration)} total` : null,
-          agent.totalTokens != null && agent.totalTokens > 0 ? `${formatTokenCount(agent.totalTokens)} tok` : null,
+          // A wave step's usage is its members' sum, live while the wave runs.
+          (agent.totalTokens || sumWorkers(agent, "totalTokens")) > 0
+            ? `${formatTokenCount(agent.totalTokens || sumWorkers(agent, "totalTokens"))} tok` : null,
         ].filter(Boolean).join(" · ");
 
         const gateHere = laneGate?.agentId === agent.id;

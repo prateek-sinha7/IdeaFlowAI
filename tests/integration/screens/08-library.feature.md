@@ -75,7 +75,7 @@ Section set varies by skill — do not assert a fixed list.
 Feature: The capability library
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   @S-08-01
   Scenario: The library opens on Agents by default

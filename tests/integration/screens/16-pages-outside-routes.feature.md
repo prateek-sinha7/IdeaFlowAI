@@ -75,7 +75,7 @@ and a `Back to dashboard` link. A valid token was not available to the sweep.
 Feature: Pages outside routes.ts
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   # ---------- /workflow ----------
 
@@ -215,8 +215,8 @@ Feature: Pages outside routes.ts
 
   @S-16-14
   Scenario: One user cannot see another's handoff credentials
-    Given "qa-pro@flowinqa.com" has saved a GitHub token and created an API key
-    When I cold-load "/handoff/settings" as "qa-basic@flowinqa.com"
+    Given "pro@velocity.ai" has saved a GitHub token and created an API key
+    When I cold-load "/handoff/settings" as "basic@velocity.ai"
     Then I see no token and no API keys
     # This surface stores a credential that grants repo access. Cross-account
     # isolation is the assertion that matters most in this whole file.

@@ -3,7 +3,7 @@ id: BUG-CWF-002-custom-workflow
 type: bug
 kind: event
 title: CWF-002 — Per-agent model actually used is never persisted or queryable
-status: open
+status: resolved
 applies_to:
   phases: []
   modules:
@@ -18,7 +18,7 @@ verification:
   status: required
   test_files: []
 compact_summary: 'The resolved per-agent model was never emitted or persisted, so cost was always priced against the default profile; fixed by persisting model_id and exposing it on agent_complete.'
-last_updated: '2026-08-14'
+last_updated: 2026-10-01
 author: 'unknown'
 author_source: 'unknown'
 recorded_by: 'Bilal Arshad <bilala@hexaware.com>'
@@ -40,3 +40,13 @@ recorded_by: 'Bilal Arshad <bilala@hexaware.com>'
 - **Root cause (same investigation):** the effective model is resolved at runtime (`ModelResolver`, `engine.py:1621-1627`) but **never emitted or persisted**: `agent_start` payload (`engine.py:2931-2934`) and `agent_complete` payload (`engine.py:3684-3693`) carry no model; `_SUMMARY_SAFE_AGENT_KEYS` (`runs.py:995-1007`) + `WorkflowRunResponse` (`runs.py:88`) have no model field; `WorkflowRun.model_id` column exists (`workflow.py:37`) but has **zero assignment sites** (never written on the REST launch path). Cost `estimated_cost_usd` is computed with `wr.model_id or BEDROCK_INFERENCE_PROFILE_ID` (`run_commands.py:1464-1471`) — since `model_id` is NULL, cost is **always priced at the default profile regardless of the real model** (circular; cannot confirm the model). The model id is logged only at `logger.debug` (`model_factory.py:61,93`), off at INFO.
 - **Impact / proxy:** verifying a run's model requires DEBUG logging at launch, or inference from the resolution chain (no overrides ⇒ default). For run `3c958122`, cost $0.0152 for 6903 tokens is consistent with Haiku (Sonnet would be ~$0.041) AND with the selection sent — strong indication, not a recorded fact.
 - **Fix (proposed, enhancement):** set `wr.model_id` at mint; add `model` to the `agent_complete` payload + `_SUMMARY_SAFE_AGENT_KEYS`. Then cost is non-circular and the model is queryable. Route through gsd-quick if desired.
+
+## Resolution
+
+Verified fixed in the current code on 2026-10-01 (feat/user-stories-v2 @ 3b08b2ba8) by static review: a first-pass check and an independent adversarial re-check both found every claim of this card fixed. No tests were run for this closure.
+
+**Fixed by:** 8e0af54f3 / 9c6ef0f44 / 8251081db (quick 260718-rf7, CWF-002; [ISS-165](20260819-1726-ISS-165.md) added the agent_outputs copy)
+
+**Evidence:** Verified in source. engine.py:9592 agent_start and :10881 agent_complete both carry the resolved model_id (_resolved_model_id=ctx.model). run_commands.py:3987 copies it into agent_outputs rows. runs.py:124 WorkflowRunResponse.model_id, runs.py:1804 in _SUMMARY_SAFE_AGENT_KEYS. workflow.py:66 column, migration 0008. run_commands.py:4010 sets wr.model_id before cost; engine.py:7957 prices per-agent, run_commands.py:4021-4022 fallback prices per-agent model_id. Commit 8e0af54f3 is an ancestor of HEAD.
+
+**Left over (outside this card's claims):** Minor. wr.model_id is set from the session model_id param, which is getattr(user, 'preferred_model', None), so it can be NULL when the user has no preferred model. The truthful per-agent model lives in agent_outputs[].model_id and the events. The card front-matter still says status: open, which is stale bookkeeping. The debug-only model_factory logging was not changed, but it was context rather than a defect.

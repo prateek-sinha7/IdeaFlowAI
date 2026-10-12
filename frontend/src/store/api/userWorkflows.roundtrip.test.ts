@@ -237,6 +237,32 @@ it("a leaf wave step's saved custom-agent: source_step hydrates as the bare node
   expect(build.task_source?.source_step).toBe("custom-agent:pb-design");
 });
 
+it("a wave step's custom path survives load → save, and a switch back to a parser drops the path", () => {
+  const steps: ManifestStep[] = [
+    { agent: "custom-agent", instance_id: "plan", name: "Planner", prompt: "x", tools: { read_files: true, write_files: true, exec: false }, gates: [] },
+    {
+      agent: "custom-agent", instance_id: "write", name: "Writers", prompt: "y",
+      tools: { read_files: true, write_files: true, exec: false }, gates: [],
+      strategy: "wave_scheduler",
+      task_source: { kind: "custom_path", parser: "json_tasks", path: "revisions/{revision_n}/tasks.json", source_step: "custom-agent:plan" },
+      fanout: { agent: "self", mode: "parallel", max_parallel: 6 },
+    },
+  ];
+  type Saved = ManifestStep & { task_source?: Record<string, unknown> };
+  const selections = manifestStepsToGateSelections(steps);
+  expect(selections["write"]?.task_source).toMatchObject({ kind: "custom_path", path: "revisions/{revision_n}/tasks.json" });
+  const agents = manifestStepsToAgents(steps);
+  const saved = agentsToManifestSteps(agents, selections as never).find((s) => s.instance_id === "write") as Saved;
+  expect(saved.task_source).toEqual({
+    kind: "custom_path", parser: "json_tasks", path: "revisions/{revision_n}/tasks.json", source_step: "custom-agent:plan",
+  });
+
+  const toParser = { write: { ...selections["write"], task_source: { kind: "parsed", parser: "json_tasks", source_step: "plan" } } };
+  const reverted = agentsToManifestSteps(agents, toParser as never).find((s) => s.instance_id === "write") as Saved;
+  expect(reverted.task_source?.kind).toBe("parsed");
+  expect(reverted.task_source).not.toHaveProperty("path");
+});
+
 it("a step with injects survives manifest → AgentDef → manifest unchanged and is not in extra", () => {
   const step: ManifestStep = {
     agent: "custom-agent",

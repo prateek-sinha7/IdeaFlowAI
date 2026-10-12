@@ -17,7 +17,7 @@ describe("upload types", () => {
   it("offers every document type the backend accepts", () => {
     // Mirrors backend run_files._ALLOWED_EXTS.
     expect([...DOCUMENT_EXTS].sort()).toEqual(
-      ["csv", "docx", "json", "md", "pdf", "pptx", "txt", "xlsx"].sort(),
+      ["csv", "docx", "htm", "html", "json", "md", "pdf", "pptx", "txt", "xlsx"].sort(),
     );
   });
 
@@ -31,6 +31,10 @@ describe("upload types", () => {
   it("stages xlsx server-side rather than dropping it", () => {
     expect(isBinaryUpload("4-azure.xlsx")).toBe(true);
     expect(DOCUMENT_ACCEPT).toContain(".xlsx");
+  });
+
+  it("stages html prototypes server-side rather than reading client-side", () => {
+    expect(isBinaryUpload("prototype.html")).toBe(true);
   });
 
   it("reads text formats in the browser", () => {
@@ -52,5 +56,18 @@ describe("upload types", () => {
     expect(isImageUpload("shot.png")).toBe(true);
     expect(isImageUpload("blob", "image/webp")).toBe(true);
     expect(isImageUpload("1-crimson.pdf")).toBe(false);
+  });
+});
+
+import { withoutOne } from "./uploadTypes";
+
+describe("withoutOne — removing one attachment copy keeps the other", () => {
+  it("removes only the first entry with that name", () => {
+    const staged = [{ name: "a.pdf", id: 1 }, { name: "b.pdf", id: 2 }, { name: "a.pdf", id: 3 }];
+    expect(withoutOne(staged, "a.pdf")).toEqual([{ name: "b.pdf", id: 2 }, { name: "a.pdf", id: 3 }]);
+  });
+  it("leaves the list alone when the name is absent", () => {
+    const l = [{ name: "a.pdf" }];
+    expect(withoutOne(l, "x.pdf")).toBe(l);
   });
 });

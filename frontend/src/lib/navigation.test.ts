@@ -1,34 +1,36 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { goBackOr } from "./navigation";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { backToOrigin, readBackOrigin, rememberBackOrigin } from "./navigation";
 
-function setHistoryLength(length: number) {
-  Object.defineProperty(window.history, "length", { value: length, configurable: true });
-}
-
-afterEach(() => {
-  setHistoryLength(1);
-});
-
-describe("goBackOr", () => {
-  it("pops the previous entry instead of pushing a duplicate (ISS-741)", () => {
-    setHistoryLength(3);
-    const router = { back: vi.fn() };
-    const fallback = vi.fn();
-
-    goBackOr(router, fallback);
-
-    expect(router.back).toHaveBeenCalledTimes(1);
-    expect(fallback).not.toHaveBeenCalled();
+describe("backToOrigin — a run's Back returns to the list it came from", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+    vi.restoreAllMocks();
   });
 
-  it("falls back when there is no prior entry to pop", () => {
-    setHistoryLength(1);
-    const router = { back: vi.fn() };
-    const fallback = vi.fn();
+  it("defaults to the dashboard when no list recorded itself", () => {
+    const push = vi.fn();
+    backToOrigin({ push });
+    expect(readBackOrigin().label).toBe("dashboard");
+    expect(push).toHaveBeenCalledWith("/dashboard");
+  });
 
-    goBackOr(router, fallback);
+  it("pops every entry pushed since the Runs list (tabs, wizard) instead of one", () => {
+    vi.spyOn(window.history, "length", "get").mockReturnValue(3);
+    rememberBackOrigin("runs", "/runs?type=backlog");
+    vi.spyOn(window.history, "length", "get").mockReturnValue(7); // run + 3 tab switches
+    const go = vi.spyOn(window.history, "go").mockImplementation(() => {});
+    const push = vi.fn();
+    backToOrigin({ push });
+    expect(go).toHaveBeenCalledWith(-4);
+    expect(push).not.toHaveBeenCalled();
+    expect(readBackOrigin().label).toBe("runs");
+  });
 
-    expect(fallback).toHaveBeenCalledTimes(1);
-    expect(router.back).not.toHaveBeenCalled();
+  it("pushes the list when history holds nothing past it (shared link)", () => {
+    vi.spyOn(window.history, "length", "get").mockReturnValue(5);
+    rememberBackOrigin("runs", "/runs");
+    const push = vi.fn();
+    backToOrigin({ push });
+    expect(push).toHaveBeenCalledWith("/runs");
   });
 });

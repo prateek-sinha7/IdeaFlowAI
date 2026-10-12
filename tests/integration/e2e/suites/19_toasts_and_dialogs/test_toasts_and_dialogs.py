@@ -8,7 +8,7 @@ the live tier. What runs offline is the admin family — its toasts, its timeout
 and the in-app confirm that guards the most destructive control in the product.
 
 The admin scenarios mutate a seeded account and put it back in a `finally`.
-Each one changes exactly one thing about qa-pro and reverses it.
+Each one changes exactly one thing about pro@velocity.ai and reverses it.
 """
 
 from __future__ import annotations

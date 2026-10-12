@@ -371,6 +371,7 @@ export function AgentThinkingTab({
         inputPrompt: selectedWorker.inputPrompt ?? "",
         contextSources: selectedWorker.contextSources ?? [],
         error: selectedWorker.error ?? null,
+        modelId: selectedWorker.modelId ?? selectedAgent.modelId,
         duration: selectedWorker.durationMs != null ? selectedWorker.durationMs / 1000 : null,
         inputTokens: selectedWorker.inputTokens,
         outputTokens: selectedWorker.outputTokens,

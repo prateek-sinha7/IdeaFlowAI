@@ -335,7 +335,7 @@ def test_creating_a_user_answers_201_with_the_created_user(page, shot, disposabl
     """
     with shot("create-201", "When an admin POSTs to /api/admin/users"):
         page.goto("/dashboard")
-        address = f"e2e-{uuid.uuid4().hex[:12]}@flowinqa.com"
+        address = f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
         result = api.full(
             disposable_user.admin_page,
             "POST",
@@ -388,7 +388,7 @@ def test_role_and_tier_changes_return_the_updated_user(page, shot):
 
     TIER only. A role change would promote a second local admin, which locks
     every admin out of the product — see D-31 and S-19-07. The tier is changed
-    on qa-pro and changed back.
+    on pro@velocity.ai and changed back.
     """
     page.goto("/dashboard")
     users = api.json_body(page, "GET", "/api/admin/users")

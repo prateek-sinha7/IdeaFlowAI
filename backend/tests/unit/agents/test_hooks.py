@@ -212,8 +212,8 @@ async def test_secret_scan_blocks_secret_before_write_and_writes_block_row():
     ctx = _Ctx(runner)
 
     secret_payload = (
-        'AWS_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"\n'
-        "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"
+        'AWS_SECRET = "q8Zr2LmN4vXk7Tp1Wb9Yc3Hd6Fs0Gj5Ue2Ra8Kx"\n'
+        "aws_access_key_id = AKIAQ3EGRL7ZXBV2WK4P\n"
     )
     event = {"event": "before_write", "payload": secret_payload}
     result = await hook.handle(event, ctx)

@@ -76,7 +76,7 @@ the user-visible defect intact.
 Take the reproduction **from the register entry**, not from the card, not from the test. Drive it
 in the browser via the Playwright MCP tools:
 
-- App `http://localhost:3000`, sign in `qa-admin@flowinqa.com` / `flowin-e2e-pass` (or the tier
+- App `http://localhost:3000`, sign in `admin@velocity.ai` / `Velocity!Dev2026` (or the tier
   the entry names)
 - Read `velocity.json` first for routes, selectors and quirks
 - Same conditions the 2-validator recorded — tier, theme, entry path, run state, timing. A fix

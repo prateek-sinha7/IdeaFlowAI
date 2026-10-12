@@ -366,6 +366,7 @@ export function deriveDeliverableFilename(
   if (
     workflowType === "prototype" || workflowType === "prototype_revision"
     || workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision"
+    || workflowType === "prototype_v2_revision" || workflowType === "prototype_v2_feature_revision"
   ) {
     if (content) {
       const t = content.match(/<title>(.+?)<\/title>/i);
@@ -446,7 +447,8 @@ function deriveDeliverableFiles(
 
   // ── Prototype ─────────────────────────────────────────────────────────────
   const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision"
-    || workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision";
+    || workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision"
+    || workflowType === "prototype_v2_revision" || workflowType === "prototype_v2_feature_revision";
   if (isPrototype && prototypeContent) {
     let name = "prototype";
     const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
@@ -676,7 +678,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   // row so the user can see and click it — handleDownload fetches the HTML from
   // the sandbox on demand. Only when NOT running (building hero covers that case).
   const isPrototypeType = workflowType === "prototype" || workflowType === "prototype_revision"
-    || workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision";
+    || workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision"
+    || workflowType === "prototype_v2_revision" || workflowType === "prototype_v2_feature_revision";
   if (isPrototypeType && !prototypeContent && runId && !isRunning) {
     derivedFiles.push({ id: "prototype-figma-json", name: "prototype-figma.json", type: "Figma Design", icon: Palette, size: "—", format: "ZIP — JSON + Figma plugin", content: "__figma__", mimeType: "application/json" });
   }

@@ -23,7 +23,8 @@ Engine contract this class reproduces (verified against
 1088–1098``). The engine consumes an agent object via:
   - ``agent.astream_events(msg)`` → async-yields dicts with a ``type`` key:
     ``{"type":"chunk","chunk":str}``,
-    ``{"type":"usage","input_tokens":int,"output_tokens":int,"cache_read_tokens":int,"cache_write_tokens":int}``,
+    ``{"type":"usage","input_tokens":int,"output_tokens":int,"total_tokens":int,"cache_read_tokens":int,"cache_write_tokens":int}``
+    (agents/capabilities/token_usage.py — input excludes cache reads),
     ``{"type":"tool_call","tool":str,"args":dict}``,
     ``{"type":"tool_result","tool":str,"result":str}``,
     ``{"type":"done","output":str}``, ``{"type":"error","error":str}``.
@@ -59,6 +60,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
 from agents.capabilities.model_catalog import ModelCatalog
+from agents.capabilities.token_usage import usage_from_metadata
 from app.agents.model_factory import build_model, model_identifier
 from app.agents.validating_backend import ValidatingFilesystemBackend
 from app.agents.sandbox import AGENT_READABLE_RESERVED, RESERVED_PATHS
@@ -513,6 +515,67 @@ class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):
 # ---------------------------------------------------------------------------
 
 
+TRUNCATED_WRITE_MESSAGE = (
+    "Your output was cut off at the output token limit, so this call arrived without "
+    "its content. Write the file in smaller parts: write_file the first sections, "
+    "then edit_file to add the rest."
+)
+
+
+def _last_turn_hit_max_tokens(state: Any) -> bool:
+    """True when the latest model message stopped on the output token limit."""
+    messages = (state or {}).get("messages", []) if isinstance(state, dict) else (
+        getattr(state, "messages", None) or []
+    )
+    for message in reversed(messages):
+        if getattr(message, "type", None) == "ai":
+            meta = getattr(message, "response_metadata", None) or {}
+            return (meta.get("stopReason") or meta.get("stop_reason")) == "max_tokens"
+    return False
+
+
+class _TruncatedWriteGuardMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Name the cause when a write arrives empty because the model hit max_tokens.
+
+    A model that emits a whole file as one tool call and runs out of output tokens
+    mid-call sends the call with its content missing (run 7ef4faf8: three 32K-token
+    ``write_file`` attempts, each arriving as ``{file_path}`` only). The tool's own
+    argument error says nothing about why, so the model tried the same giant call
+    again. This returns an error naming the cause and the way out instead.
+    """
+
+    _CONTENT_ARG = {"write_file": "content", "edit_file": "new_string"}
+
+    def _refusal(self, request: "ToolCallRequest") -> "ToolMessage | None":
+        call = getattr(request, "tool_call", None)
+        if not isinstance(call, dict):
+            return None
+        arg = self._CONTENT_ARG.get(call.get("name"))
+        if arg is None or (call.get("args") or {}).get(arg):
+            return None
+        if not _last_turn_hit_max_tokens(getattr(request, "state", None)):
+            return None
+        logger.warning(
+            "truncated %s (max_tokens): no %r in the call — told the model to write in parts",
+            call.get("name"),
+            arg,
+        )
+        return ToolMessage(
+            content=TRUNCATED_WRITE_MESSAGE,
+            name=call.get("name"),
+            tool_call_id=call.get("id") or "",
+            status="error",
+        )
+
+    def wrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else handler(request)
+
+    async def awrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else await handler(request)
+
+
 class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
     """Intercept agent filesystem tool calls and enforce the reserved-path registry.
 
@@ -886,6 +949,7 @@ class DeepAgentRunner:
             _ToolFilterMiddleware(excluded=excluded),
             _ImagePayloadGuardMiddleware(),
             _BedrockCachePointsMiddleware(),
+            _TruncatedWriteGuardMiddleware(),
         ]
         if _attach_path_guard:
             _middleware.append(_ReservedPathGuardMiddleware())
@@ -1173,17 +1237,10 @@ class DeepAgentRunner:
                     msg = event["data"]["output"]
                     meta = getattr(msg, "usage_metadata", None)
                     if meta:
-                        # ISS-032: input_tokens stays the TOTAL (incl. cache); the
-                        # cache split rides alongside so the cost sites can price the
-                        # UNCACHED portion. Absent input_token_details → (0, 0).
-                        _cr, _cw = _cache_token_counts(meta)
-                        yield {
-                            "type": "usage",
-                            "input_tokens": meta.get("input_tokens", 0),
-                            "output_tokens": meta.get("output_tokens", 0),
-                            "cache_read_tokens": _cr,
-                            "cache_write_tokens": _cw,
-                        }
+                        # The ONE usage record (agents/capabilities/token_usage.py):
+                        # input = uncached + cache write, cache reads kept apart and
+                        # never inside input or total.
+                        yield {"type": "usage", **usage_from_metadata(meta)}
                     # No-delta fallback: if this turn surfaced NO
                     # ``on_chat_model_stream`` text (a documented Bedrock case),
                     # the end event still carries the full assistant message.
@@ -1498,14 +1555,10 @@ class DeepAgentRunner:
         ``error`` already ``return`` inside ``astream_events`` so the loop simply
         ends.
 
-        ``TokenUsage`` always carries ``total_tokens = input + output``. Since
-        ISS-032 the ``cache_read_tokens`` / ``cache_write_tokens`` fields are SUMMED
-        from the ``usage`` events' cache split (which :meth:`astream_events` now
-        surfaces from ``usage_metadata["input_token_details"]`` — the Bedrock
-        cache_read/cache_creation counts, 0 on ChatAnthropic/scripted/no-cache
-        turns). ``total_tokens`` stays ``input + output`` (the input count remains
-        the TOTAL incl. cache); the cache fields are additive telemetry the cost
-        sites use to price the uncached split.
+        ``TokenUsage`` always carries ``total_tokens = input + output``, summed from
+        the ``usage`` events (agents/capabilities/token_usage.py): input is uncached
+        input + cache write; cache reads ride in ``cache_read_tokens`` only, never
+        inside input or total.
 
         Error path: if the stream ends via an ``error`` event we still yield the
         final ``TokenUsage`` with whatever was accumulated — matching the legacy
@@ -1646,21 +1699,3 @@ def _extract_thinking(content: Any) -> str:
     return "".join(out)
 
 
-def _cache_token_counts(meta: Any) -> tuple[int, int]:
-    """Extract the prompt-cache split (cache_read, cache_write) from usage_metadata.
-
-    ISS-032: ``langchain_aws`` (Bedrock ``ChatBedrockConverse``) reports
-    ``usage_metadata["input_tokens"]`` as the TOTAL input (cached + uncached) and
-    puts the split in ``input_token_details = {"cache_read": N, "cache_creation": M}``
-    (see ``langchain_aws/chat_models/bedrock_converse.py``). ChatAnthropic (local),
-    scripted characterization models, and any no-cache turn OMIT the
-    ``input_token_details`` block entirely (or set it to ``None``), so this returns
-    ``(0, 0)`` for them.
-
-    Degrade-not-crash: a ``None``/absent ``meta``, a ``None`` ``input_token_details``,
-    or a missing/``None`` sub-key all yield ``0`` via ``int(... or 0)`` — never raises.
-    """
-    details = (meta or {}).get("input_token_details") or {}
-    cache_read = int(details.get("cache_read", 0) or 0)
-    cache_write = int(details.get("cache_creation", 0) or 0)
-    return cache_read, cache_write

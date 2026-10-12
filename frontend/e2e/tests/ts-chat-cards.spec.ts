@@ -49,6 +49,11 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
     const previewTab = page.getByRole("tab", { name: /Preview/ });
     // The retired "Files" tab is now "Workspace" (PreviewPanel TAB_CONFIG).
     const filesTab = dashboard.workspaceTab();
+    // Wait for the building-state auto-tab (building → Steps) to settle before
+    // clicking Workspace. Without this wait the auto-tab can fire AFTER the
+    // click and overwrite it — the same race `openSteps()` guards against with
+    // its own retry loop (see DashboardPage.openSteps in dashboard.ts).
+    await expect(dashboard.thinkingTab()).toHaveAttribute("aria-selected", "true");
     await filesTab.click();
     await expect(filesTab).toHaveAttribute("aria-selected", "true");
 

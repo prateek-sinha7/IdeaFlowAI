@@ -18,26 +18,26 @@
     "passwordEnvOverride": "E2E_BASE_PASSWORD",
     "credentials": [
       {
-        "email": "test@hexaware.com",
-        "password": "flowin-e2e-pass",
+        "email": "admin@velocity.ai",
+        "password": "Velocity!Dev2026",
         "tier": "enterprise",
         "isAdmin": true
       },
       {
-        "email": "qa-enterprise@flowinqa.com",
-        "password": "flowin-e2e-pass",
+        "email": "enterprise@velocity.ai",
+        "password": "Velocity!Dev2026",
         "tier": "enterprise",
         "isAdmin": false
       },
       {
-        "email": "qa-pro@flowinqa.com",
-        "password": "flowin-e2e-pass",
+        "email": "pro@velocity.ai",
+        "password": "Velocity!Dev2026",
         "tier": "pro",
         "isAdmin": false
       },
       {
-        "email": "qa-basic@flowinqa.com",
-        "password": "flowin-e2e-pass",
+        "email": "basic@velocity.ai",
+        "password": "Velocity!Dev2026",
         "tier": "basic",
         "isAdmin": false
       }

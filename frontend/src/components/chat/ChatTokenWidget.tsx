@@ -4,14 +4,14 @@
  * ChatTokenWidget — the chat lane's compact token-usage widget (Phase 31,
  * CHATUI-03). Mirrors `TokenUsageSummary` (P26) but sized for the lane: it reads
  * the live run state's telemetry fields and renders
- * "N tokens · $cost · ⚡ M cached (P%)".
+ * "N tokens · $cost · M in".
  *
  * FIGURE-TO-FIELD (P26): every figure is PINNED to its live-state field — no
  * invented number. `totalTokens` / `totalInputTokens` / `totalOutputTokens` /
  * `estimatedCostUsd` come from the `agent_complete` / `pipeline_complete` token
- * totals; `cacheReadTokens` is the cache-telemetry split. The cached segment
- * only renders when `cacheReadTokens > 0`. SC-001: keyed purely on generic
- * telemetry fields — never a workflow/agent name.
+ * totals, which exclude cache reads (agents/capabilities/token_usage.py) — cache
+ * reads are shown only on Analytics. SC-001: keyed purely on generic telemetry
+ * fields — never a workflow/agent name.
  *
  * Phase 33 (D-08): the widget also surfaces the COMPOSED-CONTEXT usage — the
  * bounded conversation-context size relative to its budget — so the user can SEE
@@ -83,8 +83,6 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
     totalInputTokens,
     totalOutputTokens,
     estimatedCostUsd,
-    cacheReadTokens,
-    cacheWriteTokens,
   } = pipelineState;
 
   // No token data yet → render nothing (mirrors TokenUsageSummary).
@@ -94,14 +92,8 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
   const output = totalOutputTokens ?? 0;
   const total = totalTokens ?? input + output;
   const cost = estimatedCostUsd ?? 0;
-  const cacheRead = cacheReadTokens ?? 0;
-  const cacheWrite = cacheWriteTokens ?? 0;
-
-  // `input` = total prompt tokens (uncached + cache_read + cache_write) per
-  // ChatBedrockConverse convention — shown in full so the "in" figure reconciles
-  // against the "tokens" total, with the cached share called out beside it.
-  const hasCaching = cacheRead > 0 || cacheWrite > 0;
-  const cacheReadPct = Math.round((cacheRead / Math.max(1, input)) * 100);
+  // As the backend counts them (agents/capabilities/token_usage.py): input =
+  // uncached + cache write, total = input + output. Cache reads are never shown here.
 
   // Composed-context usage sub-display (D-08). Null → hidden (graceful degrade).
   const ctx = composedContextUsage(pipelineState);
@@ -118,14 +110,6 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
       <span>{formatCost(cost)}</span>
       <span className="text-gray-400">·</span>
       <span>{formatTokens(input)} in</span>
-      {hasCaching && (
-        <>
-          <span className="text-gray-400">·</span>
-          <span className="text-amber-600">
-            ⚡ {formatTokens(cacheRead)} cached ({cacheReadPct}%)
-          </span>
-        </>
-      )}
       {ctx && (
         <>
           <span className="text-gray-400">·</span>

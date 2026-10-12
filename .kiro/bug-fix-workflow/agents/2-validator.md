@@ -66,7 +66,7 @@ will be mangled by the echo bug.
 - Its evidence folder if one exists.
 - For browser cards: app `http://localhost:3000`, sign in using
   `framework.accounts.ADMIN` / `framework.accounts.PASSWORD` (i.e.
-  `qa-admin@flowinqa.com` / env `E2E_BASE_PASSWORD`, default `flowin-e2e-pass`)
+  `admin@velocity.ai` / env `E2E_BASE_PASSWORD`, default `Velocity!Dev2026`)
   unless the card names a different tier — in which case use the matching
   `framework.accounts.BY_ROLE[tier]` constant. Never hardcode credentials in the
   validation notes or return contract.

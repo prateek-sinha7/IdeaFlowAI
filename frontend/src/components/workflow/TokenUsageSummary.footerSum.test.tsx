@@ -45,14 +45,14 @@ const base = {
 
 describe("TokenUsageSummary — footer input+output must reconstruct total (ISS-278)", () => {
   it(
-    "ISS-278: shows the full input figure (not the uncached remainder) when caching is active, mirroring the reported run",
+    "ISS-278: input + output reconstructs total, cache reads never shown — the reported run",
     () => {
       render(
         <TokenUsageSummary
           pipelineState={{
             ...base,
-            totalTokens: 3105278,
-            totalInputTokens: 2915058,
+            totalTokens: 661405,
+            totalInputTokens: 471185,
             totalOutputTokens: 190220,
             cacheReadTokens: 2443873,
             cacheWriteTokens: 332250,
@@ -60,21 +60,22 @@ describe("TokenUsageSummary — footer input+output must reconstruct total (ISS-
         />,
       );
 
-      // The visible "input" label must be the FULL input total (the same value
-      // `total` was derived from), so input + output reconstructs total.
-      expect(screen.getByText("2.9M input")).toBeTruthy();
+      // input + output reconstructs total; cache reads are never shown.
+      expect(screen.getByText("471.2K input")).toBeTruthy();
+      expect(screen.getByText("661.4K total")).toBeTruthy();
+      expect(screen.queryByText(/cached/i)).toBeNull();
     },
   );
 
   it(
-    "ISS-278: shows the full input figure (not the uncached remainder) — smaller fixture",
+    "ISS-278: input + output reconstructs total — smaller fixture",
     () => {
       render(
         <TokenUsageSummary
           pipelineState={{
             ...base,
-            totalTokens: 100000,
-            totalInputTokens: 70000,
+            totalTokens: 40000,
+            totalInputTokens: 10000,
             totalOutputTokens: 30000,
             cacheReadTokens: 60000,
             cacheWriteTokens: 5000,
@@ -82,7 +83,8 @@ describe("TokenUsageSummary — footer input+output must reconstruct total (ISS-
         />,
       );
 
-      expect(screen.getByText("70.0K input")).toBeTruthy();
+      expect(screen.getByText("10.0K input")).toBeTruthy();
+      expect(screen.getByText("40.0K total")).toBeTruthy();
     },
   );
 });

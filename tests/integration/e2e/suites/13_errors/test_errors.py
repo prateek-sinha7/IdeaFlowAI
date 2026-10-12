@@ -303,8 +303,8 @@ def test_another_users_run_is_not_readable(page, shot, page_as):
     `read_parent_file` call inside it, so a parent sandbox was read before
     ownership was established.
 
-    Uses qa-admin's run rather than qa-pro's — same ownership boundary, and
-    qa-admin is the account this suite knows holds runs.
+    Uses admin@velocity.ai's run rather than pro@velocity.ai's — same ownership boundary, and
+    admin@velocity.ai is the account this suite knows holds runs.
     """
     owner = page_as("admin")
     owner.goto("/runs")

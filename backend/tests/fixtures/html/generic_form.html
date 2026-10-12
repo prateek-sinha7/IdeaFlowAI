@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Generic Form</title>
+</head>
+<body>
+<main>
+<section id="step-one">
+  <h2>Step One</h2>
+  <form>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required>
+    <button type="button" onclick="location.hash='#/step-two'">Next</button>
+  </form>
+</section>
+<section id="step-two">
+  <h2>Step Two</h2>
+  <label for="plan">Plan</label>
+  <select id="plan" name="plan">
+    <option value="basic">Basic</option>
+    <option value="pro">Pro</option>
+  </select>
+  <button type="button">Finish</button>
+</section>
+</main>
+<dialog id="help-dialog">
+  <p>Need help? Contact support.</p>
+  <button type="button">Close</button>
+</dialog>
+</body>
+</html>

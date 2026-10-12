@@ -6,6 +6,7 @@ import type { AgentRunState, PipelineRunState, AttachedHook, ClarifyRound, WaveW
 // SSE transport). SSE + REST is the sole transport (44-06 hard cutoff). The
 // shared handlePipelineMessage reducer is transport-agnostic and untouched.
 import { getToken, postAnswers } from "@/lib/api";
+import { runUsage, sumWorkers } from "@/lib/runStats";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface UseWorkflowReturn {
@@ -485,6 +486,14 @@ function upsertWaveWorker(
   const workers = agent.waveWorkers ? [...agent.waveWorkers] : [];
   const idx = workers.findIndex((w) => w.taskId === taskId);
   const prior = idx !== -1 ? workers[idx] : undefined;
+  // A finished member starting again is a wave-repair re-run of the same task:
+  // bank what the finished attempt spent so the re-run's usage adds to it.
+  const rerun = status === "running" && (prior?.status === "done" || prior?.status === "failed");
+  const earlierIn = rerun ? prior?.inputTokens ?? 0 : prior?.earlierInputTokens ?? 0;
+  const earlierOut = rerun ? prior?.outputTokens ?? 0 : prior?.earlierOutputTokens ?? 0;
+  const earlierTotal = rerun ? prior?.totalTokens ?? 0 : prior?.earlierTotalTokens ?? 0;
+  const earlierCacheRead = rerun ? prior?.cacheReadTokens ?? 0 : prior?.earlierCacheReadTokens ?? 0;
+  const earlierCacheWrite = rerun ? prior?.cacheWriteTokens ?? 0 : prior?.earlierCacheWriteTokens ?? 0;
   const entry: WaveWorkerEntry = {
     taskId,
     status,
@@ -494,6 +503,7 @@ function upsertWaveWorker(
     taskAuthorId: typeof msg.task_author_id === "string"
       ? (msg.task_author_id as string) : prior?.taskAuthorId,
     error: typeof msg.error === "string" ? (msg.error as string) : prior?.error,
+    modelId: typeof msg.model_id === "string" && msg.model_id ? (msg.model_id as string) : prior?.modelId,
     // Carried forward, never cleared — a member's tool calls and reasoning
     // accumulate across its events, and its output arrives on agent_complete.
     toolCalls: prior?.toolCalls,
@@ -513,9 +523,18 @@ function upsertWaveWorker(
     attachedHooks: prior?.attachedHooks,
     validationIssues: prior?.validationIssues,
     validationPassed: prior?.validationPassed,
-    inputTokens: typeof msg.input_tokens === "number" ? (msg.input_tokens as number) : prior?.inputTokens,
-    outputTokens: typeof msg.output_tokens === "number" ? (msg.output_tokens as number) : prior?.outputTokens,
-    totalTokens: typeof msg.total_tokens === "number" ? (msg.total_tokens as number) : prior?.totalTokens,
+    inputTokens: typeof msg.input_tokens === "number" ? earlierIn + (msg.input_tokens as number) : prior?.inputTokens,
+    outputTokens: typeof msg.output_tokens === "number" ? earlierOut + (msg.output_tokens as number) : prior?.outputTokens,
+    totalTokens: typeof msg.total_tokens === "number" ? earlierTotal + (msg.total_tokens as number) : prior?.totalTokens,
+    earlierInputTokens: earlierIn || undefined,
+    earlierOutputTokens: earlierOut || undefined,
+    earlierTotalTokens: earlierTotal || undefined,
+    cacheReadTokens: typeof msg.cache_read_tokens === "number"
+      ? earlierCacheRead + (msg.cache_read_tokens as number) : prior?.cacheReadTokens,
+    cacheWriteTokens: typeof msg.cache_write_tokens === "number"
+      ? earlierCacheWrite + (msg.cache_write_tokens as number) : prior?.cacheWriteTokens,
+    earlierCacheReadTokens: earlierCacheRead || undefined,
+    earlierCacheWriteTokens: earlierCacheWrite || undefined,
     // Start the clock on the FIRST event for this member, whatever it is — its
     // agent_start is not guaranteed to be the first thing we see.
     startedAt: prior?.startedAt ?? Date.now(),
@@ -535,7 +554,9 @@ function upsertWaveWorker(
   };
   if (idx === -1) workers.push(entry);
   else workers[idx] = entry;
-  return { ...agent, waveWorkers: workers };
+  // A wave/fan-out step's own agent_start carries no model_id — only its members'
+  // events do — so the step header borrows the first member's model.
+  return { ...agent, modelId: agent.modelId ?? entry.modelId, waveWorkers: workers };
 }
 
 /** Append reasoning text to the wave member that produced it, keyed by task_id.
@@ -1099,7 +1120,11 @@ export function handlePipelineMessage(
           if (agentIdx === -1) return prev;
           const updated = [...prev.agents];
           updated[agentIdx] = upsertWaveWorker(updated[agentIdx], msg, "done");
-          return { ...prev, agents: updated };
+          // A finished member moves the run's totals too, not only its step's.
+          const totalInput = runUsage(updated, "inputTokens");
+          const totalOutput = runUsage(updated, "outputTokens");
+          return { ...prev, agents: updated, totalInputTokens: totalInput,
+            totalOutputTokens: totalOutput, totalTokens: totalInput + totalOutput };
         });
         return true;
       }
@@ -1122,10 +1147,14 @@ export function handlePipelineMessage(
           status: "done",
           duration,
           thinking: "",
-          inputTokens: (msg.input_tokens as number) || 0,
-          outputTokens: (msg.output_tokens as number) || 0,
-          totalTokens: (msg.total_tokens as number) || 0,
-          estimatedCostUsd: (msg.estimated_cost_usd as number) || 0,
+          // A wave step never calls a model itself — its agent_complete carries no
+          // usage — so its totals are its members' sums, or the card reads as free.
+          inputTokens: (msg.input_tokens as number) || sumWorkers(updated[agentIdx], "inputTokens"),
+          outputTokens: (msg.output_tokens as number) || sumWorkers(updated[agentIdx], "outputTokens"),
+          totalTokens: (msg.total_tokens as number) || sumWorkers(updated[agentIdx], "totalTokens"),
+          estimatedCostUsd: (msg.estimated_cost_usd as number) || sumWorkers(updated[agentIdx], "estimatedCostUsd"),
+          cacheReadTokens: (msg.cache_read_tokens as number) || sumWorkers(updated[agentIdx], "cacheReadTokens"),
+          cacheWriteTokens: (msg.cache_write_tokens as number) || sumWorkers(updated[agentIdx], "cacheWriteTokens"),
           // The engine mirrors visit_count on BOTH ends (engine.py :5754) so a client
           // can pair start/complete per pass; keep the pass the finished numbers
           // belong to rather than letting a stale value from the previous pass stand.
@@ -1135,14 +1164,16 @@ export function handlePipelineMessage(
           // RFN-001 — the engine already emits the resolved per-agent model id on
           // agent_complete (engine.py). Surface it here so the chip can render
           // immediately when the agent finishes, and persist through pipeline end.
-          modelId: (msg.model_id as string) || undefined,
+          // A wave/fan-out step's own agent_complete has no model_id — keep the one
+          // its members lent it rather than blanking the chip.
+          modelId: (msg.model_id as string) || updated[agentIdx].modelId || undefined,
         };
 
         const completedCount = updated.filter((a) => a.status === "done").length;
 
         // Accumulate pipeline-level token totals
-        const totalInput = updated.reduce((s, a) => s + (a.inputTokens ?? 0), 0);
-        const totalOutput = updated.reduce((s, a) => s + (a.outputTokens ?? 0), 0);
+        const totalInput = runUsage(updated, "inputTokens");
+        const totalOutput = runUsage(updated, "outputTokens");
 
         return {
           ...prev,
@@ -1275,6 +1306,9 @@ export function handlePipelineMessage(
           agents: updated,
           degraded: isDegraded || undefined,
           degradedFailedAgents: isDegraded ? degradedFailedIds : undefined,
+          // A resumed run that now completes must not keep naming the agent from
+          // its earlier pipeline_failed as the reason in the header.
+          failedAgents: undefined,
           warnings,
           completedCount: updated.filter((a) => a.status === "done").length,
           // ISS-304: prefer the totals accumulated from agent_complete, and fall
@@ -1467,7 +1501,7 @@ export function handlePipelineMessage(
         setPipelineState((prev) =>
           (prev.isRunning && !prev.cancelled && !prev.failed && !prev.degraded && !prev.pipelineError)
             ? prev
-            : { ...prev, isRunning: true, cancelled: undefined, failed: undefined, degraded: undefined, pipelineError: undefined }
+            : { ...prev, isRunning: true, cancelled: undefined, failed: undefined, degraded: undefined, pipelineError: undefined, failedAgents: undefined, degradedFailedAgents: undefined }
         );
         return true;
       }

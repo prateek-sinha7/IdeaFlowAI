@@ -254,12 +254,12 @@ export function NotificationPanel({
       <button
         ref={bellRef}
         onClick={handleOpen}
-        className="relative flex items-center justify-center h-8 w-8 rounded-[var(--radius-button)] text-ink-300 hover:text-white hover:bg-white/10 transition-all"
+        className="relative flex items-center justify-center h-9 w-9 rounded-[var(--radius-button)] text-ink-300 hover:text-white hover:bg-white/10 transition-all"
         aria-label="Notifications"
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <Bell className="h-4 w-4" />
+        <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-[9px] font-bold text-white border border-surface-near-black">
             {unreadCount > 9 ? "9+" : unreadCount}

@@ -174,8 +174,8 @@ Feature: Errors and fallbacks
 
   @S-13-13
   Scenario: Another user's run is not readable
-    Given a run owned by "qa-pro@flowinqa.com"
-    When I cold-load that run's URL as "qa-basic@flowinqa.com"
+    Given a run owned by "pro@velocity.ai"
+    When I cold-load that run's URL as "basic@velocity.ai"
     Then I do not see its contents
     And I am shown a not-found or forbidden state
     # FIX-309's UI half. previous_run.py ran assert_owns AFTER

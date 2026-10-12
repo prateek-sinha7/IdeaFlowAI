@@ -1,5 +1,6 @@
 "use client";
 
+import { SandboxPdfPreview } from "@/components/preview/SandboxPdfPreview";
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
@@ -597,7 +598,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const isPrototype = workflowType === "prototype"
       || workflowType === "prototype_revision"
       || workflowType === "prototype_large_revision"
-      || workflowType === "prototype_feature_revision";
+      || workflowType === "prototype_feature_revision"
+      || workflowType === "prototype_v2_revision"
+      || workflowType === "prototype_v2_feature_revision";
     // ─── ISS-021 (18-03) — 2nd facet: the reopen generic fallback ─────────────
     // The OLD `isMarkdown = isCustom` swallowed HTML deliverables into
     // MarkdownPreview (escaped HTML). Replace it with a structural "no known
@@ -619,7 +622,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     // — matching the live GenericDeliverablePreview dispatch — instead of a flat
     // MarkdownPreview / `.md` download. Markdown is the residual case.
     const isGenericBundle = isGeneric && genericMimetype === "application/zip";
-    const isGenericMarkdown = isGeneric && !isGenericHtml && !isGenericBundle;
+    // A PDF deliverable is read from the run's workspace by its declared filename.
+    const isGenericPdf = isGeneric && genericMimetype === "application/pdf" && !!selectedRun.deliverableFilename;
+    const isGenericMarkdown = isGeneric && !isGenericHtml && !isGenericBundle && !isGenericPdf;
     // KAN-112 (FIX-060 follow-up): a custom-composer user stories run stores
     // deliverableFilename="user_stories.md" — route it to UserStoryPreview
     // for the same styled epic/story card layout as the dedicated pipeline.
@@ -1082,6 +1087,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     <UserStoryPreview content={selectedOutput} onRevise={undefined} />
                   )}
                   {isPlainMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
+                  {isGenericPdf && (
+                    <SandboxPdfPreview
+                      runId={selectedRun.id}
+                      path={selectedRun.deliverableFilename as string}
+                      fallback={<p className="p-6 text-[12px] text-ink-400">{selectedRun.deliverableFilename} could not be loaded.</p>}
+                    />
+                  )}
                   {isPpt && selectedOutput && (
                     <PPTPreview
                       content={selectedOutput}

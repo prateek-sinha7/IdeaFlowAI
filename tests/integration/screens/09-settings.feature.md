@@ -114,7 +114,7 @@ authentication is configured separately." No inputs, no buttons.
 Feature: Account settings
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com" with tier "enterprise"
+    Given I am signed in as "admin@velocity.ai" with tier "enterprise"
 
   @S-09-01
   Scenario Outline: Every tab is addressable by URL
@@ -224,8 +224,8 @@ Feature: Account settings
 
     Examples:
       | email                      | included              | excluded         |
-      | qa-basic@flowinqa.com      | Product Requirements  | Custom Workflow  |
-      | qa-enterprise@flowinqa.com | Custom Workflow       |                  |
+      | basic@velocity.ai      | Product Requirements  | Custom Workflow  |
+      | enterprise@velocity.ai | Custom Workflow       |                  |
     # This list is the user-facing face of TIER_PIPELINES. It should not
     # contradict which cards the home catalog offers the same user — see D-04,
     # where it does: the ex_A* fixtures are launchable but not listed here.

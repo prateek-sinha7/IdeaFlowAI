@@ -101,7 +101,12 @@ class SingleFileResolver:
     def resolve(self, ctx: Any) -> Any:
         runner = ctx.runner
         deliverable = getattr(ctx, "deliverable", None)
-        filename = getattr(deliverable, "name", None) or _DEFAULT_NAME
+        # A binary deliverable declares its text form; that is what final_output carries.
+        filename = (
+            getattr(deliverable, "text_name", None)
+            or getattr(deliverable, "name", None)
+            or _DEFAULT_NAME
+        )
         publish_from_glob = getattr(deliverable, "publish_from_glob", None)
 
         # (0) DECLARED mechanical publish: the engine, not a model, copies the

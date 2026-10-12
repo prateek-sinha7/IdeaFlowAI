@@ -28,11 +28,13 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     "prototype", "prototype_revision",
     // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
     // wherever `prototype` is (backend/app/core/entitlements.py).
-    "prototype_v2",
+    "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
+    // file-manifest workflow: full-application user stories from a prototype (spec 021)
+    "backlog", "backlog_revision",
   ]),
   pro: new Set([
     "user_stories", "user_stories_revision",
@@ -41,12 +43,14 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     "prototype", "prototype_revision",
     // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
     // wherever `prototype` is (backend/app/core/entitlements.py).
-    "prototype_v2",
+    "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
     "prototype_large_revision", "prototype_feature_revision",
     "app_builder", "app_builder_revision",
+    // file-manifest workflow: full-application user stories from a prototype (spec 021)
+    "backlog", "backlog_revision",
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
@@ -55,7 +59,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     "prototype", "prototype_revision",
     // file-manifest copy of the DB-composed Prototype v2; entitled on the backend
     // wherever `prototype` is (backend/app/core/entitlements.py).
-    "prototype_v2",
+    "prototype_v2", "prototype_v2_revision", "prototype_v2_feature_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
     // the UI hid them, so the backend allowed a launch the catalog never offered.
@@ -83,6 +87,8 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // Entitled on the backend but missed here on first pass — same drift class
     // as the ex_A* fixtures above.
     "ex_playwright_smoke_test",
+    // file-manifest workflow: full-application user stories from a prototype (spec 021)
+    "backlog", "backlog_revision",
     // reference fan-out fixture — kept in parity with the backend map.
     "sample_subagents_parallel",
   ]),

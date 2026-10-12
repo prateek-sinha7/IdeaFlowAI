@@ -1244,10 +1244,12 @@ export default function DashboardPage() {
             existing.status = status;
             existing.agent = agent;
             if (typeof data.error === "string") existing.error = data.error as string;
+            if (typeof data.model_id === "string" && data.model_id) existing.modelId = data.model_id as string;
           } else {
             group.workers.push({
               agent, status, worker: workerIndex, taskId, parentTaskId,
               error: typeof data.error === "string" ? (data.error as string) : undefined,
+              modelId: typeof data.model_id === "string" && data.model_id ? (data.model_id as string) : undefined,
             });
           }
         }
@@ -1666,7 +1668,9 @@ export default function DashboardPage() {
             setPptContent(finalOutput);
           } else if (pipelineType === "prototype" || pipelineType === "prototype_revision"
             || pipelineType === "prototype_large_revision"
-            || pipelineType === "prototype_feature_revision") {
+            || pipelineType === "prototype_feature_revision"
+            || pipelineType === "prototype_v2_revision"
+            || pipelineType === "prototype_v2_feature_revision") {
             setPrototypeContent(finalOutput);
           } else {
             // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
@@ -3223,7 +3227,9 @@ export default function DashboardPage() {
             setPptContent(fullRun.output);
           } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision"
             || fullRun.type === "prototype_large_revision"
-            || fullRun.type === "prototype_feature_revision") {
+            || fullRun.type === "prototype_feature_revision"
+            || fullRun.type === "prototype_v2_revision"
+            || fullRun.type === "prototype_v2_feature_revision") {
             setPrototypeContent(fullRun.output);
           } else {
             // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.

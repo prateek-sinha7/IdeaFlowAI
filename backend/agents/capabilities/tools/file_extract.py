@@ -32,7 +32,7 @@ TOOL_FILE_PAGE_IMAGE = "file_page_image"
     "tool",
     "file_extract",
     user_allowed=True,
-    description="Extract text from an uploaded file: extract_text / file_info / file_find / file_page_image (spec 019). ONE entry point for every type — a plain-text file (.txt, .md, .csv, .json) comes back as text in the tool result; a .pdf, .docx, .xlsx or .pptx is materialised into .extract/{format}/{name}/ (Office files converted by LibreOffice first) and the receipt names document.md to read; anything else is refused in readable text. Page images are crops of the RENDERED page, so annotation arrows drawn over a screenshot survive where embedded-image extraction loses them."
+    description="Extract text from an uploaded file: extract_text / file_info / file_find / file_page_image (spec 019). ONE entry point for every type — a plain-text file (.txt, .md, .csv, .json) comes back as text in the tool result; a .pdf, .docx, .xlsx or .pptx is materialised into .extract/{format}/{name}/ (Office files converted by LibreOffice first) and the receipt names document.md to read; a .html or .htm is opened in a headless browser and materialised screen by screen into .extract/html/{name}/, falling back to a static read when no browser can launch (spec 021); anything else is refused in readable text. Page images are crops of the RENDERED page, so annotation arrows drawn over a screenshot survive where embedded-image extraction loses them."
     "or PowerPoint document: extract_text / file_info / file_find / "
     "file_page_image (spec 019). One entry point for every format — an Office "
     "file is converted to PDF underneath and the caller never sees it. Materialises "

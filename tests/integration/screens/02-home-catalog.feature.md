@@ -67,7 +67,7 @@ is `<STATUS> <age> <brief-excerpt> <workflow>`, e.g.
 Feature: The home catalog
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com" with tier "enterprise"
+    Given I am signed in as "admin@velocity.ai" with tier "enterprise"
 
   @S-02-01
   Scenario: The catalog renders on a cold dashboard load
@@ -110,7 +110,7 @@ Feature: The home catalog
   # a "Requires <Plan> plan" badge. The first draft of this file asserted absence,
   # which would have passed vacuously and tested nothing.
   Scenario: Every catalog card renders regardless of tier
-    Given I am signed in as "qa-basic@flowinqa.com"
+    Given I am signed in as "basic@velocity.ai"
     When I cold-load "/dashboard"
     Then I see all 13 launchable card titles
     And the ones my tier does not cover carry a "Requires ... plan" badge
@@ -123,15 +123,15 @@ Feature: The home catalog
 
     Examples:
       | email                      | card                          | lock       |
-      | qa-basic@flowinqa.com      | Generate product requirements | (unlocked) |
-      | qa-basic@flowinqa.com      | Pitch an idea (Fast)                 | Pro        |
-      | qa-basic@flowinqa.com      | Compose a custom workflow     | Enterprise |
-      | qa-pro@flowinqa.com        | Pitch an idea (Fast)                 | (unlocked) |
-      | qa-pro@flowinqa.com        | Build an end-to-end application | (unlocked) |
-      | qa-pro@flowinqa.com        | Compose a custom workflow     | Enterprise |
-      | qa-pro@flowinqa.com        | Branch on a decision           | Enterprise |
-      | qa-enterprise@flowinqa.com | Compose a custom workflow     | (unlocked) |
-      | qa-enterprise@flowinqa.com | Branch on a decision           | (unlocked) |
+      | basic@velocity.ai      | Generate product requirements | (unlocked) |
+      | basic@velocity.ai      | Pitch an idea (Fast)                 | Pro        |
+      | basic@velocity.ai      | Compose a custom workflow     | Enterprise |
+      | pro@velocity.ai        | Pitch an idea (Fast)                 | (unlocked) |
+      | pro@velocity.ai        | Build an end-to-end application | (unlocked) |
+      | pro@velocity.ai        | Compose a custom workflow     | Enterprise |
+      | pro@velocity.ai        | Branch on a decision           | Enterprise |
+      | enterprise@velocity.ai | Compose a custom workflow     | (unlocked) |
+      | enterprise@velocity.ai | Branch on a decision           | (unlocked) |
     # Source of truth is TIER_PIPELINES in BOTH frontend/src/lib/entitlements.ts
     # and backend/app/core/entitlements.py. test_entitlement_parity keeps them
     # equal; FIX-315 exists because they had drifted. This is the end-to-end half
@@ -139,7 +139,7 @@ Feature: The home catalog
 
   @S-02-08
   Scenario: A locked card cannot be launched
-    Given I am signed in as "qa-basic@flowinqa.com"
+    Given I am signed in as "basic@velocity.ai"
     When I cold-load "/dashboard"
     And I click a card badged "Requires Enterprise plan"
     Then no run is started
@@ -147,7 +147,7 @@ Feature: The home catalog
 
   @S-02-09
   Scenario: The backend refuses a launch the badge says is locked
-    Given I hold a valid token for "qa-basic@flowinqa.com"
+    Given I hold a valid token for "basic@velocity.ai"
     When I POST a run for a pipeline my tier does not cover
     Then the response is refused
     # The badge is presentation. Assert the server enforces it too — ISS-055
@@ -158,7 +158,7 @@ Feature: The home catalog
   # grid into a collapsed "Engine examples" section (id prefix ex_/sample_/sc001).
   # They stay launchable; the internal id no longer appears in their copy.
   Scenario: spec-014 test fixtures are launchable under Engine examples
-    Given I am signed in as "qa-enterprise@flowinqa.com"
+    Given I am signed in as "enterprise@velocity.ai"
     When I cold-load "/dashboard"
     And I open the "Engine examples" section
     Then I see the launchable card "Retry until it passes"
@@ -190,17 +190,17 @@ Feature: The home catalog
   @S-02-13
   @defect @unverified
   # D-10. The same card advertises a different agent count depending on whether
-  # the signed-in user has a saved override of that built-in. qa-basic (no
-  # override) sees "~15 agents"; qa-admin (override "My app_builder", 1 agent)
+  # the signed-in user has a saved override of that built-in. basic@velocity.ai (no
+  # override) sees "~15 agents"; admin@velocity.ai (override "My app_builder", 1 agent)
   # sees "~1 agents · ~33m" — and the duration did not scale with the count.
   # Possibly intended (the card predicts YOUR run), possibly a leak of per-user
   # state into a catalog estimate. Recorded, not judged.
   Scenario: A saved override changes the catalog card's agent estimate
-    Given "qa-basic@flowinqa.com" has no override of "app_builder"
-    And "qa-admin@flowinqa.com" has a 1-step override of "app_builder"
+    Given "basic@velocity.ai" has no override of "app_builder"
+    And "admin@velocity.ai" has a 1-step override of "app_builder"
     When each signs in and cold-loads "/dashboard"
-    Then qa-basic sees "Build an end-to-end application" reporting "~15 agents"
-    And qa-admin sees the same card reporting "~1 agents"
+    Then basic@velocity.ai sees "Build an end-to-end application" reporting "~15 agents"
+    And admin@velocity.ai sees the same card reporting "~1 agents"
 ```
 
 ## Notes for phase 2

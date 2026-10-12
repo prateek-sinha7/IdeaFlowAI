@@ -1,6 +1,6 @@
 """File text extraction endpoint.
 
-Accepts a binary file upload (PDF, DOCX, PPTX) and returns its extracted
+Accepts a binary file upload (PDF, DOCX, PPTX, HTML, HTM) and returns its extracted
 plain text, which the frontend appends into the workflow brief so agents
 receive the actual document content.
 
@@ -8,6 +8,7 @@ Supported formats:
   - PDF  (.pdf)  — via pypdf
   - Word (.docx) — via python-docx
   - PowerPoint (.pptx) — via python-pptx
+  - HTML (.html, .htm) — raw upload, no text extraction (returned as empty string)
 
 Max file size: 10 MB. Extracted text is capped at settings.BRIEF_MAX_CHARS
 characters (~450,000) — the single source of truth shared with the planner /
@@ -179,10 +180,11 @@ async def extract_text(
     # succeeds with an empty preview and the agent-side `extract_text` tool
     # (which DOES convert it) reads the real content at run time. Rejecting it
     # outright is what silently dropped spreadsheets before they ever uploaded.
-    if ext not in ("pdf", "docx", "pptx", "xlsx"):
+    # HTML/HTM are similarly accepted as raw uploads for agents to read directly.
+    if ext not in ("pdf", "docx", "pptx", "xlsx", "html", "htm"):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: .{ext}. Supported: .pdf, .docx, .pptx, .xlsx",
+            detail=f"Unsupported file type: .{ext}. Supported: .pdf, .docx, .pptx, .xlsx, .html, .htm",
         )
 
     data = await file.read()
@@ -201,7 +203,8 @@ async def extract_text(
     # answer. Raising 422 on it made the attach surface treat a perfectly good
     # spreadsheet as a broken file and drop it before upload: the chip rendered,
     # the run received one document fewer, and nothing said why.
-    if not text.strip() and ext != "xlsx":
+    # HTML/HTM are uploaded raw for agents to read, with no brief preview.
+    if not text.strip() and ext not in ("xlsx", "html", "htm"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Could not extract text from {filename}. The file may be image-based or encrypted.",

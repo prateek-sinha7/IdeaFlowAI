@@ -440,7 +440,7 @@ def disposable_user(page_as):
     created: list[str] = []
 
     def make(tier: str = "basic", *, email: str | None = None) -> dict:
-        address = email or f"e2e-{uuid.uuid4().hex[:12]}@flowinqa.com"
+        address = email or f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
         result = _api.full(
             admin,
             "POST",

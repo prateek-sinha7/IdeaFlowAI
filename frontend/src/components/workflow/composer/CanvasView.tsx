@@ -920,6 +920,20 @@ export function CanvasView({
   const handleInjectsChange = (id: string, injects: string[]) => {
     onTreeChange?.(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, injects: injects.length ? injects : undefined })));
   };
+  // Data tab: `produces`/`consumes` live in the step's `extra` passthrough,
+  // which a save re-spreads onto the manifest step. An empty list drops the key.
+  const handleDataFlowChange = (id: string, flow: { produces: string[]; consumes: string[] }) => {
+    onTreeChange?.(
+      mapAgentInTree(pipelineAgents, id, (a) => {
+        const extra: Record<string, unknown> = { ...(a.extra ?? {}) };
+        for (const key of ["produces", "consumes"] as const) {
+          if (flow[key].length) extra[key] = flow[key];
+          else delete extra[key];
+        }
+        return { ...a, extra: Object.keys(extra).length ? extra : undefined };
+      }),
+    );
+  };
   const handlePromptChange = (id: string, prompt: string) => {
     onTreeChange?.(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, prompt })));
   };
@@ -2679,6 +2693,7 @@ export function CanvasView({
             onRouteChange={handleRouteChange}
             onMechanicalChange={handleMechanicalChange}
             onInjectsChange={handleInjectsChange}
+            onDataFlowChange={handleDataFlowChange}
             openConfigSignal={openConfigSignal}
             allSteps={[...pipelineAgents, ...allDescendants]}
           />
@@ -2686,8 +2701,10 @@ export function CanvasView({
 
         {/* declared-capability chips — the agent/gate/duration stats and the
             Save/Run actions moved to the shared top bar (ComposerPage), so
-            this canvas-specific supplement is the only thing left docked here. */}
-        {declaredCapabilities.length > 0 && (
+            this canvas-specific supplement is the only thing left docked here.
+            Workflow tab only: the list is the whole workflow's, so under the
+            Agent tab it read as the selected agent's own. */}
+        {railTab === "workflow" && declaredCapabilities.length > 0 && (
           <div
             data-testid="canvas-declared-capabilities"
             className="flex-none border-t border-line-divider bg-surface-warm px-[18px] py-3.5"

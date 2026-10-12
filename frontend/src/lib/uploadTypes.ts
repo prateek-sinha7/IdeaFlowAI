@@ -23,6 +23,8 @@ export const DOCUMENT_EXTS = [
   "md",
   "csv",
   "json",
+  "html",
+  "htm",
 ] as const;
 
 /** Read client-side with FileReader; the rest are staged/extracted server-side. */
@@ -49,3 +51,13 @@ export const isTextUpload = (name: string) => has(TEXT_EXTS, name);
 /** A document that must be staged + extracted server-side. */
 export const isBinaryUpload = (name: string) =>
   has(DOCUMENT_EXTS, name) && !isTextUpload(name);
+
+/** Remove ONE entry named `name` — the first — never every entry with that
+ *  name. Attachment side-lists (staged uploads, extracted text) are keyed by
+ *  filename, and the same file can be attached twice: filtering by name on
+ *  removing one copy dropped the other copy's upload too, while its chip stayed
+ *  on screen, so the run launched with no files and no warning. */
+export function withoutOne<T extends { name: string }>(list: T[], name: string): T[] {
+  const i = list.findIndex((x) => x.name === name);
+  return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
+}

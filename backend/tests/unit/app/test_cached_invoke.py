@@ -153,9 +153,10 @@ async def test_bedrock_call_places_cache_control_on_stable_prefix():
     )
 
     assert text == "ok"
-    # Token counting: usage populated incl. the cache split (ISS-032 shape).
+    # Token counting: the one usage record (agents/capabilities/token_usage.py) —
+    # input is uncached + cache write, so Bedrock's 100 minus the 80 cache reads.
     assert usage == {
-        "input_tokens": 100,
+        "input_tokens": 20,
         "output_tokens": 20,
         "cache_read_tokens": 80,
         "cache_write_tokens": 5,

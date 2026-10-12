@@ -289,23 +289,25 @@ export function AppHeader({
 
   return (
     <header className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 bg-surface-near-black border-b border-white/10 z-40 relative">
-      {/* Left — Hexaware Logo + VelocityAI wordmark */}
-      <div className="flex items-center gap-2 sm:gap-2.5">
+      {/* Left — HEXAWARE | VelocityAI. The wordmark is the square logo's white
+          lettering cropped out (hexaware-wordmark.png, 371×50, transparent). */}
+      <div className="flex items-center gap-2.5 sm:gap-3.5">
         <Image
-          src="/hexaware-logo.png"
+          src="/hexaware-wordmark.png"
           alt="Hexaware"
-          width={32}
-          height={32}
+          width={371}
+          height={50}
           priority
-          className="h-8 w-8 rounded-[6px] flex-shrink-0"
+          className="h-4 sm:h-5 w-auto flex-shrink-0"
         />
-        <span className="text-sm sm:text-base font-semibold text-white tracking-tight font-sans">
+        <span aria-hidden className="h-5 sm:h-6 w-px bg-white/30" />
+        <span className="text-base sm:text-lg font-semibold text-white tracking-tight font-sans">
           VelocityAI
         </span>
       </div>
 
       {/* Center — Navigation (purple-underline active, no pill fill) */}
-      <nav className="flex items-center gap-3 sm:gap-5">
+      <nav className="flex items-center gap-3 sm:gap-6">
         {navItems.map(({ key, label, Icon }) => {
           const active = currentPage === key;
           return (
@@ -313,13 +315,13 @@ export function AppHeader({
               key={key}
               onClick={() => onNavigate(key)}
               aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-1 sm:gap-1.5 -mb-px border-b-2 px-1 pb-1 pt-0.5 text-[10px] sm:text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 sm:gap-2 -mb-px border-b-2 px-1 pb-1 pt-0.5 text-xs sm:text-sm font-medium transition-colors ${
                 active
                   ? "text-white border-brand"
                   : "text-white/60 border-transparent hover:text-white"
               }`}
             >
-              <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+              <Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
               <span className="hidden sm:inline">{label}</span>
             </button>
           );
@@ -536,10 +538,10 @@ export function AppHeader({
               disabled ? "opacity-40 cursor-not-allowed" : "text-white/60 hover:text-white hover:bg-white/10"
             }`}
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-button)] bg-brand">
-              <User className="h-3.5 w-3.5 text-white" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-button)] bg-brand">
+              <User className="h-[18px] w-[18px] text-white" />
             </div>
-            <ChevronDown className={`h-3 w-3 transition-transform hidden sm:block ${profileOpen ? "rotate-180" : ""}`} />
+            <ChevronDown className={`h-4 w-4 transition-transform hidden sm:block ${profileOpen ? "rotate-180" : ""}`} />
           </button>
 
           <AnimatePresence>

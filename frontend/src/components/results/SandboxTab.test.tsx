@@ -319,6 +319,30 @@ describe("SandboxTab", () => {
     expect(screen.queryByText("02-ppt-composer.md")).toBeNull();
   });
 
+  it("Refresh re-lists the workspace and keeps the open file and collapsed groups", async () => {
+    // A live run writes files as it goes. Refresh shows them without shutting
+    // the file you are reading or re-expanding what you collapsed.
+    getRunSandboxFile.mockResolvedValue("# the plan");
+    render(<SandboxTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText("PLANNER.md")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("PLANNER.md"));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "the plan" })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /agent outputs/i }));
+
+    getRunSandbox.mockResolvedValue({
+      ...PPT_V2,
+      files: [...PPT_V2.files, f("late.md", 1_000)],
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => expect(screen.getByText("late.md")).toBeInTheDocument());
+    expect(getRunSandbox).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("heading", { name: "the plan" })).toBeInTheDocument();
+    expect(screen.queryByText("02-ppt-composer.md")).toBeNull();
+  });
+
   it("draws a ```mermaid fence as a diagram and leaves the prose and other fences alone", async () => {
     // A design document is markdown whose most useful pages are shapes. Before
     // this, EVERY fence went to CodeView, so the Architect's transition diagram

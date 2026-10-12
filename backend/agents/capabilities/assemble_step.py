@@ -35,10 +35,19 @@ import json
 import re
 import time
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 from agents.capabilities.registry import register
+from agents.capabilities.template_kit import (
+    NAV_SLOT,
+    Frame,
+    TemplateKit,
+    find_avatar,
+    load_template_kit,
+    strip_demo_chrome,
+)
 from agents.capabilities.screen_inventory import (
     spec_fields,
     spec_section,
@@ -47,6 +56,7 @@ from agents.capabilities.screen_inventory import (
     Screen,
     attribute_string,
     parse_inventory,
+    slug,
 )
 
 SCREENS_PATH = "build/screens.json"
@@ -258,9 +268,256 @@ def _wrap_dialog(screen: Screen, section: str) -> str:
     )
 
 
+# A page that exists to act on one record — create, edit, clone, a detail — is reached
+# from its list, not from the menu: a "Role Edit" item with no role chosen is a dead end.
+_RECORD_PAGE_WORDS = {
+    "create",
+    "new",
+    "add",
+    "edit",
+    "update",
+    "clone",
+    "copy",
+    "duplicate",
+    "detail",
+    "details",
+}
+
+
+def nav_pages(inv: Inventory) -> list[Screen]:
+    """The pages the menu lists: every page except a record page (see above) that
+    another screen already leads to. The entry page is always listed."""
+    reached = {
+        t.to
+        for s in inv.screens
+        for t in s.transitions
+        if t.attr in ("data-goto", "data-submit") and t.to != s.id
+    }
+    out = []
+    for s in inv.pages:
+        words = set(re.split(r"[^a-z0-9]+", f"{s.id} {s.title}".lower()))
+        if s.id != inv.entry and s.id in reached and words & _RECORD_PAGE_WORDS:
+            continue
+        out.append(s)
+    return out
+
+
+AUTH_SECTION = "_auth"
+_LOGIN_WORDS = {"login", "signin", "sign", "logon"}
+_PROFILE_WORDS = {"profile", "account"}
+
+
+@dataclass
+class NavModel:
+    """Two-level navigation: a menu of sections, and the active section's pages as tabs."""
+
+    sections: list[tuple[str, str, list[Screen]]]  # (slug, name, its menu pages)
+    place: dict[str, tuple[str, str]]  # page id -> (section slug, tab page id)
+    entry: str
+    login: str | None
+    profile: str | None
+
+
+def _words(s: Screen) -> set[str]:
+    return set(re.split(r"[^a-z0-9]+", f"{s.id} {s.title}".lower()))
+
+
+def nav_model(inv: Inventory) -> NavModel | None:
+    """The sections the Architect gave the pages, or ``None`` when it gave none — then
+    the menu is the flat list it always was."""
+    if not any(s.section for s in inv.pages):
+        return None
+    menu = [s for s in nav_pages(inv) if s.section != AUTH_SECTION]
+    groups: dict[str, list[Screen]] = {}
+    for s in menu:
+        groups.setdefault(s.section or s.nav, []).append(s)
+    sections = [(slug(name), name, pages) for name, pages in groups.items()]
+    place = {p.id: (sec, p.id) for sec, _, pages in sections for p in pages}
+    for s in inv.pages:
+        if s.section == AUTH_SECTION:
+            place[s.id] = (AUTH_SECTION, "")
+    # A page reached only from another one (a create, an edit, a detail) keeps its
+    # parent's section and tab lit, following the chain a few links up.
+    for _ in range(3):
+        for s in inv.screens:
+            if s.id not in place:
+                continue
+            for t in s.transitions:
+                if t.attr in ("data-goto", "data-submit") and t.to not in place:
+                    place[t.to] = place[s.id]
+    login = next(
+        (
+            s.id
+            for s in inv.pages
+            if s.section == AUTH_SECTION and _words(s) & _LOGIN_WORDS
+        ),
+        None,
+    )
+    profile = next(
+        (
+            s.id
+            for s in inv.pages
+            if s.section != AUTH_SECTION and _words(s) & _PROFILE_WORDS
+        ),
+        None,
+    )
+    # The prototype opens on the app — the first section's first page — not on a
+    # sign-in wall; sign-in stays one click away under the account menu's Sign out.
+    landing = sections[0][2][0].id if sections else inv.entry
+    return NavModel(
+        sections=sections, place=place, entry=landing, login=login, profile=profile
+    )
+
+
+_SUBMIT_RE = re.compile(
+    r"""<(?:button|input)\b[^>]*\btype\s*=\s*["']?submit\b[^>]*>""", re.IGNORECASE
+)
+_PRIMARY_RE = re.compile(
+    r"""<button\b[^>]*\bclass\s*=\s*["'][^"']*primary[^"']*["'][^>]*>""", re.IGNORECASE
+)
+_MOVES_RE = re.compile(
+    r"""\bdata-(?:submit|goto)\s*=\s*["']([^"']+)["']""", re.IGNORECASE
+)
+
+
+def _wire_sign_in(section: str, model: NavModel) -> tuple[str, list[str]]:
+    """A sign-in page that leads nowhere gets its primary button wired into the app:
+    the Architect is asked for that transition and did not always write it (run 9b6f1bfb
+    had no way from Login into the app but the URL)."""
+    auth = {pid for pid, (sec, _) in model.place.items() if sec == AUTH_SECTION}
+    if any(t not in auth for t in _MOVES_RE.findall(section)):
+        return section, []
+    m = (
+        _SUBMIT_RE.search(section)
+        or _PRIMARY_RE.search(section)
+        or re.search(r"<button\b[^>]*>", section, re.IGNORECASE)
+    )
+    if not m:
+        return section, []
+    landing = model.entry
+    tag = m.group(0)
+    tag = (
+        tag[:-2].rstrip() + f' data-submit="{landing}" />'
+        if tag.endswith("/>")
+        else tag[:-1] + f' data-submit="{landing}">'
+    )
+    return section[: m.start()] + tag + section[m.end() :], [
+        f"sign-in button wired to {landing}: nothing led out of this page"
+    ]
+
+
+_PERSON_ICON = (
+    '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="8" r="4" '
+    'fill="currentColor"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="currentColor"/></svg>'
+)
+
+
+def _user_menu(model: NavModel) -> str:
+    links = []
+    if model.profile:
+        links.append(
+            f'<a href="#{model.profile}" data-goto="{model.profile}">My profile</a>'
+        )
+    if model.login:
+        links.append(f'<a href="#{model.login}" data-goto="{model.login}">Sign out</a>')
+    if not links:
+        return ""
+    return (
+        f'<div class="proto-user" tabindex="0" aria-label="Account"><span class="proto-user-avatar">{_PERSON_ICON}</span>'
+        f'<div class="proto-user-menu">{"".join(links)}</div></div>'
+    )
+
+
+def _tab_strip(model: NavModel) -> str:
+    groups = []
+    for sec, _, pages in model.sections:
+        if len(pages) < 2:
+            continue  # one page is not a choice: no tabs
+        tabs = "".join(
+            f'<a class="proto-tab" href="#{p.id}" data-goto="{p.id}">{_html.escape(p.tab or p.title)}</a>'
+            for p in pages
+        )
+        groups.append(
+            f'<div class="proto-tab-group" data-tabs-for="{sec}">{tabs}</div>'
+        )
+    return (
+        f'<nav id="slot-tabs" class="proto-tabs" aria-label="Pages">{"".join(groups)}</nav>\n'
+        if groups
+        else ""
+    )
+
+
+def _section_script(model: NavModel, active_class: str) -> str:
+    """Lights the section and the tab of the page on show. It watches the screens'
+    classes, so the shell's runtime is not touched; changes are only made when needed,
+    so its own class writes do not re-trigger it."""
+    place = json.dumps({pid: list(v) for pid, v in model.place.items()})
+    return (
+        "<script>\n(function () {\n"
+        f"  var PLACE = {place}, ACTIVE = {json.dumps(active_class)}, AUTH = {json.dumps(AUTH_SECTION)};\n"
+        "  function set(el, cls, on) { if (el.classList.contains(cls) !== on) el.classList.toggle(cls, on); }\n"
+        "  function sync() {\n"
+        "    var cur = document.querySelector('#slot-content > .screen.active'); if (!cur) return;\n"
+        "    var p = PLACE[cur.id] || ['', ''];\n"
+        "    document.querySelectorAll('#slot-nav [data-section]').forEach(function (a) { set(a, ACTIVE, a.getAttribute('data-section') === p[0]); });\n"
+        "    document.querySelectorAll('#slot-tabs [data-tabs-for]').forEach(function (g) { var on = g.getAttribute('data-tabs-for') === p[0]; if (g.hidden === on) g.hidden = !on; });\n"
+        "    document.querySelectorAll('#slot-tabs [data-goto]').forEach(function (t) { set(t, 'active', t.getAttribute('data-goto') === p[1]); });\n"
+        "    set(document.body, 'auth-mode', p[0] === AUTH);\n"
+        "  }\n"
+        "  new MutationObserver(sync).observe(document.getElementById('slot-content'), {subtree: true, attributes: true, attributeFilter: ['class']});\n"
+        "  sync();\n"
+        "})();\n</script>\n"
+    )
+
+
+# The tab strip and the account menu are the prototype's own, styled from the
+# template's variables when it has them and the shell's otherwise.
+SECTION_CSS = (
+    ".proto-tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--border,var(--color-border));"
+    "margin:0 0 16px;padding:0 24px;background:var(--surface,var(--bg,#fff))}"
+    ".proto-tab-group{display:flex;flex-wrap:wrap;gap:4px}.proto-tab-group[hidden]{display:none}"
+    ".proto-tab{padding:10px 14px;text-decoration:none;color:var(--muted,var(--color-text-muted));"
+    "border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;white-space:nowrap}"
+    ".proto-tab:hover{color:var(--fg,var(--color-text))}"
+    ".proto-tab.active{color:var(--accent,var(--color-primary));border-bottom-color:var(--accent,var(--color-primary))}"
+    ".proto-user{position:relative;margin-left:auto;cursor:pointer;outline:none}"
+    ".proto-user-avatar{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;"
+    "border-radius:50%;background:var(--accent,var(--color-primary));color:#fff}"
+    ".proto-user-menu{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:160px;z-index:40;"
+    "background:#fff;border:1px solid var(--border,var(--color-border));border-radius:6px;"
+    "box-shadow:0 8px 24px rgba(0,0,0,.15);padding:4px 0}"
+    ".proto-user:hover .proto-user-menu,.proto-user:focus-within .proto-user-menu{display:block}"
+    ".proto-user-menu a{display:block;padding:8px 14px;color:var(--fg,var(--color-text));text-decoration:none;white-space:nowrap}"
+    ".proto-user-menu a:hover{background:var(--surface,var(--color-surface))}"
+    "body.auth-mode #slot-nav,body.auth-mode #slot-tabs,body.auth-mode .proto-user,body.auth-mode .proto-search{display:none!important}"
+    "#slot-nav [data-section]{white-space:nowrap}"
+)
+
+
+def _section_nav(model: NavModel, statuses: dict[str, str], frame: Frame | None) -> str:
+    """The menu: one item per section, opening its first page."""
+    items = []
+    for sec, name, pages in model.sections:
+        landing = pages[0]
+        if frame:
+            cls = frame.item_classes
+            items.append(
+                f'<{frame.item_tag} class="{cls}" href="#{landing.id}" data-goto="{landing.id}" '
+                f'data-section="{sec}">{_html.escape(name)}</{frame.item_tag}>'
+            )
+        else:
+            items.append(
+                f'<a class="nav-link" href="#{landing.id}" data-goto="{landing.id}" '
+                f'data-section="{sec}">{_html.escape(name)}</a>'
+            )
+    if frame:
+        return '<div id="slot-nav" class="nav-slot">' + "".join(items) + "</div>"
+    return '<div class="nav-group">' + "\n".join(items) + "</div>"
+
+
 def _nav(inv: Inventory, statuses: dict[str, str]) -> str:
     groups: dict[str, list[Screen]] = {}
-    for s in inv.pages:
+    for s in nav_pages(inv):
         groups.setdefault(s.nav, []).append(s)
     out: list[str] = []
     for name, screens in groups.items():
@@ -451,6 +708,14 @@ def _fix_double_nav_attrs(section: str) -> tuple[str, list[str]]:
     def _one(m: re.Match) -> str:
         tag = m.group(0)
         present = [a for a in _NAV_ATTRS if re.search(rf"\b{a}\s*=", tag)]
+        moves = [a for a in present if a != "data-tab"]
+        if moves and re.search(r"\bdata-(?:show|hide)\s*=", tag):
+            # The runtime checks data-show before a move, so a Sign in that also shows
+            # an error would only ever show the error (run 87e02c32): the move wins.
+            tag = re.sub(r"""\s+data-(?:show|hide)\s*=\s*(["']).*?\1""", "", tag)
+            notes.append(
+                f"removed data-show/data-hide from a control that also carries {', '.join(moves)}"
+            )
         if len(present) < 2:
             return tag
         if "data-tab" in present:
@@ -478,6 +743,189 @@ def _untriggered_states(section: str) -> list[str]:
     return [s for s in states if s not in shown]
 
 
+# ── the design template (template_kit) ───────────────────────────────────────────
+# With a template, its CSS is emitted after the shell's, then GUARD_CSS, then the theme.
+# The guard keeps the runtime's show/hide working whatever the template restyles:
+# screens, tab panels, states and dialogs are shown ONLY by the classes the runtime sets.
+GUARD_CSS = (
+    "#slot-content>.screen{display:none!important}#slot-content>.screen.active{display:block!important}"
+    ".tab-panel{display:none!important}.tab-panel.active{display:block!important}"
+    ".state{display:none!important}.state.open{display:revert!important}"
+    "#slot-overlays .dialog{display:none!important}#slot-overlays .dialog.open{display:flex!important}"
+    "#slot-overlays .dialog-content>.screen{display:block!important}"
+    "#slot-nav.nav-slot{display:contents}"
+)
+# The shell's own frame and base-element rules, dropped when the template supplies the
+# frame (they would restyle the template's nav and body). Component rules stay.
+_SHELL_FRAME_RULES = (
+    "html,body{",
+    "body{",
+    "a{",
+    "h1,h2,h3,h4{",
+    "h1{",
+    "p{",
+    ".shell-header",
+    ".shell-body",
+    "#slot-nav",
+    ".nav-group",
+    ".nav-link",
+    "#slot-content{",
+    "#slot-content>.screen",
+    "@media",
+)
+# The design system reaches the template through the six variables the DS preamble names,
+# on whichever of them the template declares; the template keeps its own value otherwise.
+TEMPLATE_THEME_VARS = {
+    "primary": "--accent",
+    "background": "--bg",
+    "text": "--fg",
+    "surface": "--surface",
+    "border": "--border",
+    "text_muted": "--muted",
+}
+# A nav item or tab written as a <button> keeps the browser's grey box unless the
+# template resets buttons. Zero specificity, emitted BEFORE the template's CSS: any
+# rule the template has for its own items still wins.
+BUTTON_RESET_CSS = (
+    ":where(#slot-nav,#slot-tabs) :where(button){appearance:none;background:none;border:0;"
+    "font:inherit;color:inherit;cursor:pointer}"
+)
+_STATUS_FOOTER_RE = re.compile(
+    r'<footer class="shell-status">.*?</footer>\n?', re.DOTALL
+)
+_FIELD_RE = re.compile(
+    r"""<(?:select|textarea)\b|<input\b(?![^>]*\btype\s*=\s*["']?(?:hidden|submit|button|reset)\b)""",
+    re.IGNORECASE,
+)
+
+
+def _template_theme(theme: str | None, kit: TemplateKit) -> tuple[str, list[str]]:
+    _, report = load_theme(theme)
+    try:
+        data = json.loads(theme or "{}")
+    except json.JSONDecodeError:
+        return "", []
+    decls, themed = [], []
+    for key, var in TEMPLATE_THEME_VARS.items():
+        if key in report["applied"] and var in kit.variables:
+            decls.append(f"{var}:{str(data[key]).strip()}")
+            themed.append(var)
+    # The template's own chrome and button colours (its --navy, not only --accent): a
+    # dark bar takes the design system's dark primary, the primary button its primary.
+    applied = {k: str(data[k]).strip() for k in report["applied"]}
+    bar = applied.get("primary_dark") or applied.get("primary")
+    for vars_, value in (
+        (kit.chrome_vars, bar),
+        (kit.button_vars, applied.get("primary")),
+    ):
+        for var in vars_:
+            if value and var not in themed and var not in TEMPLATE_THEME_VARS.values():
+                decls.append(f"{var}:{value}")
+                themed.append(var)
+    return (":root{" + ";".join(decls) + "}" if decls else ""), themed
+
+
+def _template_nav(frame: Frame, pages: list[Screen], statuses: dict[str, str]) -> str:
+    items = []
+    for s in pages:
+        cls = frame.item_classes + (
+            " stub-link" if statuses.get(s.id) in ("missing", "invalid") else ""
+        )
+        items.append(
+            f'<{frame.item_tag} class="{cls.strip()}" href="#{s.id}" data-goto="{s.id}">'
+            f"{_html.escape(s.title)}</{frame.item_tag}>"
+        )
+    return '<div id="slot-nav" class="nav-slot">' + "".join(items) + "</div>"
+
+
+_NAME_TOKENS = {"brand-name", "brand-title", "app-name", "product-name", "logo-text"}
+
+
+def _retitle(html: str, title: str) -> str:
+    """The template's example product name becomes this prototype's title."""
+    for m in re.finditer(r"<([a-zA-Z][\w-]*)\b([^>]*)>([^<]*)</\1>", html):
+        if set((_attr(m.group(0), "class") or "").split()) & _NAME_TOKENS:
+            return html[: m.start(3)] + _html.escape(title) + html[m.end(3) :]
+    return html
+
+
+def _templated_document(
+    shell: str,
+    kit: TemplateKit,
+    theme: str | None,
+    inv: Inventory,
+    statuses: dict[str, str],
+    model: NavModel | None,
+) -> tuple[str, dict]:
+    """The shell with the template's CSS (and frame, when it has one) — see GUARD_CSS."""
+    frame = kit.frame
+    if frame:
+        shell = "\n".join(
+            line
+            for line in shell.split("\n")
+            if not line.startswith(_SHELL_FRAME_RULES)
+        )
+        start, end = (
+            shell.index('<header class="shell-header">'),
+            shell.index('<div id="slot-overlays">'),
+        )
+        before = strip_demo_chrome(_retitle(frame.before, inv.title))
+        menu = _user_menu(model) if model else ""
+        nav = (
+            _section_nav(model, statuses, frame)
+            if model
+            else _template_nav(frame, nav_pages(inv), statuses)
+        )
+        avatar = find_avatar(before)
+        if (
+            avatar
+        ):  # the example's initials give way to the account menu, or a plain icon
+            before = (
+                before[: avatar[0]]
+                + (menu or f'<span class="proto-user-avatar">{_PERSON_ICON}</span>')
+                + before[avatar[1] :]
+            )
+        elif menu:
+            nav += menu
+        shell = (
+            shell[:start]
+            + before.replace(NAV_SLOT, nav)
+            + f'<{frame.content_tag} id="slot-content"'
+            + (f' class="{frame.content_classes}"' if frame.content_classes else "")
+            + f">\n__CONTENT__\n</{frame.content_tag}>"
+            + frame.after
+            + "\n"
+            + shell[end:]
+        )
+        if frame.active_class != "active":
+            shell = shell.replace(
+                "links[k].classList.toggle('active', ",
+                f"links[k].classList.toggle('{frame.active_class}', ",
+            )
+    template_theme, themed = _template_theme(theme, kit)
+    theme_css, _ = load_theme(theme)
+    head = (
+        "".join(kit.head_links)
+        + f"<style>{BUTTON_RESET_CSS}</style>\n"
+        + "".join(f"<style>\n{block}\n</style>\n" for block in kit.css_blocks)
+        + f"<style>{GUARD_CSS}</style>\n"
+        + (
+            f"<style>{theme_css}{template_theme}</style>\n"
+            if theme_css or template_theme
+            else ""
+        )
+    )
+    shell = shell.replace("</head>", head + "</head>", 1)
+    report = {
+        "sources": kit.sources,
+        "css_bytes": len(kit.css.encode("utf-8")),
+        "classes": len(kit.classes),
+        "frame": "template" if frame else "shell",
+        "themed_vars": themed,
+    }
+    return shell, report
+
+
 def assemble(
     inv: Inventory,
     parts: dict[str, str | None],
@@ -485,9 +933,13 @@ def assemble(
     threshold: float = COVERAGE_THRESHOLD,
     theme: str | None = None,
     spec: str = "",
+    template: TemplateKit | None = None,
 ) -> tuple[str, dict]:
-    """Pure core: inventory + {screen id: part text or None} (+ theme.json, + spec.md) → (prototype_html, validation)."""
+    """Pure core: inventory + {screen id: part text or None} (+ theme.json, + spec.md, + the
+    design template) → (prototype_html, validation). No template → the shell as it always was."""
     theme_css, theme_report = load_theme(theme)
+    model = nav_model(inv)
+    entry = model.entry if model else inv.entry
     reserved = (
         set(inv.by_id())
         | {s.dialog_id for s in inv.dialogs}
@@ -523,6 +975,9 @@ def assemble(
         else:
             section, notes = strip_forbidden(section)
             issues += notes
+            if model and screen.id == model.login:
+                section, notes = _wire_sign_in(section, model)
+                issues += notes
             section, notes = _fix_double_nav_attrs(section)
             issues += notes
             section, dups, local_ids = namespace_ids(section, screen.id, reserved)
@@ -531,8 +986,14 @@ def assemble(
                 issues.append(
                     f"{len(untriggered)} state(s) nothing reveals: {', '.join(untriggered)}"
                 )
-            found_fields = len(
-                re.findall(r"""\bclass\s*=\s*["'][^"']*\bform-control\b""", section)
+            # With a template the builders use its field classes, so fields are counted
+            # as the controls themselves; the shell's parts carry form-control.
+            found_fields = (
+                len(_FIELD_RE.findall(section))
+                if template is not None
+                else len(
+                    re.findall(r"""\bclass\s*=\s*["'][^"']*\bform-control\b""", section)
+                )
             )
             if expected_fields and found_fields < 0.8 * len(expected_fields):
                 issues.append(
@@ -558,7 +1019,20 @@ def assemble(
         if screen.is_dialog:
             overlays.append(_wrap_dialog(screen, section))
         else:
-            if screen.id == inv.entry:
+            column = (
+                template.frame.column_class
+                if template is not None and template.frame
+                else ""
+            )
+            if column and not re.match(
+                rf"""\s*<[a-zA-Z][\w-]*\b[^>]*\bclass\s*=\s*["'][^"']*\b{re.escape(column)}\b""",
+                section[section.find(">") + 1 :],
+            ):
+                # Every page in the template's own column, so screens line up whether or
+                # not their builder wrapped the content the way example.html does.
+                cut, end = section.find(">") + 1, section.rfind("</section>")
+                section = f'{section[:cut]}<div class="{column}">{section[cut:end]}</div>{section[end:]}'
+            if screen.id == entry:
                 cut = section.find(">") + 1
                 root = section[:cut]
                 root = _set_attr(
@@ -605,12 +1079,34 @@ def assemble(
     )
 
     shell = _read_shell()
+    template_report = None
+    if template is not None:
+        shell, template_report = _templated_document(
+            shell, template, theme, inv, statuses, model
+        )
+    if model:
+        menu = _user_menu(model)
+        if menu:
+            shell = shell.replace('<div class="user">Welcome, Reviewer</div>', menu)
+        active_class = (
+            template.frame.active_class
+            if template is not None and template.frame
+            else "active"
+        )
+        shell = shell.replace(
+            "</head>", f"<style>{SECTION_CSS}</style>\n</head>", 1
+        ).replace("</body>", _section_script(model, active_class) + "</body>", 1)
     doc = (
         shell.replace("__TITLE__", _html.escape(inv.title))
-        .replace("__NAV__", _nav(inv, statuses))
-        .replace("__CONTENT__", "\n".join(content))
+        .replace(
+            "__NAV__",
+            _section_nav(model, statuses, None) if model else _nav(inv, statuses),
+        )
+        .replace(
+            "__CONTENT__", (_tab_strip(model) if model else "") + "\n".join(content)
+        )
         .replace("__OVERLAYS__", "\n".join(overlays))
-        .replace("__ENTRY__", inv.entry)
+        .replace("__ENTRY__", entry)
         .replace(
             "__STATUS_CLASS__",
             "" if passed and not degraded_ids and not missing_ids else "warn",
@@ -618,6 +1114,8 @@ def assemble(
         .replace("__STATUS__", _html.escape(status_text))
         .replace("__THEME__", theme_css)
     )
+    # The build status is for the run, not the product: validation.json keeps it.
+    doc = _STATUS_FOOTER_RE.sub("", doc)
 
     validation = {
         "version": 1,
@@ -633,7 +1131,7 @@ def assemble(
             "missing": totals.get("missing", 0),
             "invalid": totals.get("invalid", 0),
         },
-        "entry": inv.entry,
+        "entry": entry,
         "missing": missing_ids,
         "degraded": degraded_ids,
         "screens": report,
@@ -645,6 +1143,8 @@ def assemble(
         "theme": theme_report,
         "summary": status_text,
     }
+    if template_report is not None:
+        validation["template"] = template_report
     return doc, validation
 
 
@@ -663,7 +1163,11 @@ def assemble_prototype(ctx: Any) -> str:
 
     parts = {s.id: sandbox.read(f"{PARTS_DIR}/{s.id}.html") for s in inv.screens}
     doc, validation = assemble(
-        inv, parts, theme=sandbox.read(THEME_PATH), spec=sandbox.read("spec.md") or ""
+        inv,
+        parts,
+        theme=sandbox.read(THEME_PATH),
+        spec=sandbox.read("spec.md") or "",
+        template=load_template_kit(sandbox.read),
     )
 
     deliverable = getattr(ctx, "deliverable", None)
@@ -681,6 +1185,12 @@ def assemble_prototype(ctx: Any) -> str:
     th = validation["theme"]
     if th["status"] == "applied":
         summary += f" Theme applied from {THEME_PATH}: {', '.join(th['applied'])}."
+    if "template" in validation:
+        tpl = validation["template"]
+        summary += (
+            f" Template: {tpl['classes']} classes from {', '.join(tpl['sources'])}, "
+            f"{'its own frame' if tpl['frame'] == 'template' else 'the shell frame'}."
+        )
     if th["rejected"]:
         summary += f" Theme keys ignored: {', '.join(f'{k} ({v})' for k, v in th['rejected'].items())}."
     if validation["missing"]:
@@ -699,6 +1209,20 @@ def assemble_prototype(ctx: Any) -> str:
     "assemble_prototype",
     user_allowed=True,
     description="Stitches the screen pages the builder agents wrote into one clickable prototype. Pure code, no AI: every screen is included, links between screens work, and a coverage report lists anything missing. Needs an earlier step that lists the screens (build/screens.json) and a builder step that writes one page per screen (parts/).",
+    reads=[
+        "build/screens.json",
+        "parts/",
+        "build/theme.json",
+        "spec.md",
+        ".context/design/template/",
+    ],
+    process=(
+        "Pours every screen's part into the fixed shell as one clickable prototype, then checks ids, "
+        "links and expected transitions. With a design template it adds the template's CSS and, when "
+        "the template has one, its own page frame. A screen with no usable part becomes a stub; below "
+        "the coverage threshold the step fails, naming what is missing."
+    ),
+    writes=["prototype.html", "build/validation.json"],
 )
 class _AssembleRegistryStub:
     """Thin stub for registry purposes only (capability palette discovery).

@@ -8,10 +8,12 @@ import {
   Minus,
   Plus,
   AlertCircle,
-  Webhook,
-  Check,
+  ArrowRightLeft,
   Info,
   X,
+  Maximize2,
+  Bot,
+  Code,
 } from "lucide-react";
 import {
   AgentPromptSection,
@@ -21,14 +23,15 @@ import {
   effortLevelsFor,
   effortLabel,
   modelChangePatch,
-  getAgentInitials,
   KNOWN_PRODUCERS,
   TOOL_GRANT_LEVERS,
   type StepSelection,
   type SelectionsMap,
+  type MechanicalOption,
 } from "../AgentsPopup";
 import { resolveRouteTargetId } from "@/store/api/userWorkflows";
 import { AgentSkillsPicker } from "./AgentSkillsPicker";
+import { stepKind } from "./stepKind";
 import {
   applyRoutePatch,
   applyOutcomePatch,
@@ -40,8 +43,9 @@ import {
   type RouteOutcomeDraft,
 } from "./CanvasNode";
 import { Tabs } from "@/components/ui/Tabs";
-import { useHooksCatalog } from "@/hooks/useHooksCatalog";
-import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { SkillMarkdown } from "@/components/ui/SkillMarkdown";
+import { Modal } from "@/components/ui/Modal";
+import { createPortal } from "react-dom";
 import type { AgentDef, SubagentStrategy } from "@/types/index";
 
 /** "assemble_prototype" → "Assemble prototype" / "context_provider" → "Context provider" —
@@ -67,6 +71,11 @@ const PARSER_TARGET: Record<string, string> = {
   json_tasks: "build/tasks.json",
   screen_plan: "build/screens.json",
 };
+/** Waves only: the 4th task source — a JSON task list read from exactly the file the
+ *  author names (task_source kind `custom_path`). `{revision_n}` is the current
+ *  revision's number, the highest numbered `revisions/<n>/` folder. */
+const CUSTOM_PATH = "custom_path";
+const DEFAULT_CUSTOM_PATH = "revisions/{revision_n}/tasks.json";
 const friendlyName = (name: string) => FRIENDLY_NAMES[name] ?? humanize(name);
 
 // The validator→gate coupling gate name (EMP-04). The Review-gate toggle reflects
@@ -160,6 +169,7 @@ export function CanvasConfigRail({
   onRouteChange,
   onMechanicalChange,
   onInjectsChange,
+  onDataFlowChange,
   allSteps = [],
   openConfigSignal,
 }: {
@@ -197,6 +207,9 @@ export function CanvasConfigRail({
   /** Design context blocks write-through — sets which OpenDesign context blocks
    *  the step receives in its prompt. */
   onInjectsChange?: (agentId: string, injects: string[]) => void;
+  /** Data tab write-through — the step's `produces` / `consumes` labels
+   *  (both string arrays; empty clears the key). */
+  onDataFlowChange?: (agentId: string, flow: { produces: string[]; consumes: string[] }) => void;
   /** Bumped by CanvasView when a node's Gate/Route badge is clicked — jumps
    *  this rail to the Config tab where the gate + route controls live. */
   openConfigSignal?: number;
@@ -215,14 +228,12 @@ export function CanvasConfigRail({
     mechanicalOptions,
     loading,
   } = useAgentCapabilities();
-  const { hooks: HOOKS } = useHooksCatalog();
-  const { attachedHooks, attachHook } = useSkillsHooks();
 
   // Same 4-tab inspector as the library agent drawer (AgentCapabilitiesModal) —
   // requested so the canvas rail and the library click panel share one mental
   // model instead of two different per-agent surfaces.
   const [activeTab, setActiveTab] = useState<
-    "overview" | "skills" | "hooks" | "tools" | "config"
+    "overview" | "skills" | "data" | "tools" | "config"
   >("overview");
   // Clicking a node's Gate chip or Route badge should land the author ON the
   // gate controls, not on Overview with the gate two clicks away. CanvasView
@@ -233,6 +244,14 @@ export function CanvasConfigRail({
     setActiveTab("config");
   }, [openConfigSignal]);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
+  // Keyed by node id, so selecting a different node opens it in read mode
+  // with no dialog — no reset effect needed.
+  const [editingPromptFor, setEditingPromptFor] = useState<string | null>(null);
+  const [promptDialogFor, setPromptDialogFor] = useState<string | null>(null);
+  const editingPrompt = !!agent && editingPromptFor === agent.id;
+  const promptDialogOpen = !!agent && promptDialogFor === agent.id;
+  const setEditingPrompt = (on: boolean) => setEditingPromptFor(on && agent ? agent.id : null);
+  const setPromptDialogOpen = (on: boolean) => setPromptDialogFor(on && agent ? agent.id : null);
 
   // Same hover-tooltip "i" affordance as the Workflow properties panel
   // (CanvasView's workflowSettingsSection) — reproduced here rather than
@@ -492,8 +511,35 @@ export function CanvasConfigRail({
     setNameDraft(null);
   };
 
-  const suggestedHooks = HOOKS.filter((h) => h.compatible_agents.includes(agent.id)).slice(0, 3);
-  const isHookAttached = (id: string) => attachedHooks.some((h) => h.id === id);
+  // Data tab. Both keys are string arrays riding in `extra` (the canvas's
+  // passthrough), so a save writes them back untouched.
+  const labels = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  const produces = labels(agent.extra?.produces);
+  const consumes = labels(agent.extra?.consumes);
+  // What earlier steps offer, grouped by the step that writes it (entries are
+  // file paths; a folder ends in "/"). A path two steps write shows under both.
+  // A code step declares no produces in the manifest — its files come from
+  // the capability's own `writes`, so that is what it offers downstream.
+  const upstreamGroups = priorAgents
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      paths: a.mechanical
+        ? (mechanicalOptions.find((m) => m.name === a.mechanical)?.writes ?? []).filter((w) => !w.startsWith("<"))
+        : labels(a.extra?.produces),
+    }))
+    .filter((g) => g.paths.length > 0);
+  const offered = new Set(upstreamGroups.flatMap((g) => g.paths));
+  const chosenCode = agent.mechanical ? mechanicalOptions.find((m) => m.name === agent.mechanical) : undefined;
+  // What the RUN brings rather than a step writes: the user's uploads and a
+  // chained run's context. No step produces these, and that is not a fault.
+  const isRunInput = (p: string) => /^\.(uploads|context)(\/|$)/.test(p);
+  const runInputs = consumes.filter((c) => !offered.has(c) && isRunInput(c));
+  const orphans = consumes.filter((c) => !offered.has(c) && !isRunInput(c));
+  const setFlow = (next: { produces?: string[]; consumes?: string[] }) =>
+    onDataFlowChange?.(agent.id, { produces, consumes, ...next });
+
+  const kind = stepKind(agent, sel);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -501,8 +547,14 @@ export function CanvasConfigRail({
       {/* selected-node header — the name is editable here (same write-through
           the node-card pencil icon uses), independent of which tab is open. */}
       <div className="flex items-center gap-2.5">
-        <div className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-brand font-sans text-[12px] font-bold text-surface-white">
-          {getAgentInitials(agent.name)}
+        {/* Same mark as the node's card (stepKind.ts): the header tells you
+            how this step runs before any tab does. Code gets its own tint. */}
+        <div
+          className={`grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] text-surface-white ${
+            kind.key === "code" ? "bg-(--code-string)" : "bg-brand"
+          }`}
+        >
+          <kind.Icon className="h-[18px] w-[18px]" aria-label={kind.label} />
         </div>
         <div className="min-w-0 flex-1">
           <input
@@ -519,7 +571,8 @@ export function CanvasConfigRail({
             className="w-full truncate rounded-md border border-transparent bg-transparent px-1 -mx-1 font-sans text-[15px] font-semibold text-ink-900 focus:border-line-control focus:bg-surface-white focus:outline-none"
           />
           <p className="truncate font-serif text-[11px] text-ink-300">
-            Agent · step {index + 1} of {total} · {agent.role}
+            {kind.label} · step {index + 1} of {total}
+            {kind.key === "code" && agent.mechanical ? ` · ${friendlyName(agent.mechanical)}` : ""}
           </p>
         </div>
       </div>
@@ -532,7 +585,7 @@ export function CanvasConfigRail({
         tabs={[
           { id: "overview", label: "Overview" },
           { id: "skills", label: "Skills" },
-          { id: "hooks", label: "Hooks" },
+          { id: "data", label: "Data" },
           { id: "tools", label: "Tools" },
           { id: "config", label: "Config" },
         ]}
@@ -546,6 +599,81 @@ export function CanvasConfigRail({
             </p>
           )}
 
+          {/* HOW THIS STEP RUNS — AI agent or Code, chosen at the top of
+              Overview because it decides what the rest of the tab is: a
+              prompt for an agent, the code step's dropdown for code. Options
+              come from `mechanicalOptions` (SC-001 — never a hardcoded list). */}
+          <div
+            role="radiogroup"
+            aria-label="Node type"
+            className="mt-4 grid grid-cols-2 gap-1 rounded-[10px] border border-line-faint-row bg-line-faint-row p-1"
+          >
+            {([
+              { v: "agent", label: "AI agent", Icon: Bot },
+              { v: "code", label: "Code", Icon: Code },
+            ] as const).map(({ v, label, Icon }) => {
+              const on = (v === "code") === !!agent.mechanical;
+              const unavailable = v === "code" && mechanicalOptions.length === 0;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  disabled={loading || unavailable || !onMechanicalChange}
+                  onClick={() => {
+                    if (on) return;
+                    onMechanicalChange?.(agent.id, v === "code" ? mechanicalOptions[0]?.name : undefined);
+                  }}
+                  className={`flex items-center justify-center gap-1.5 rounded-[7px] py-1.5 font-sans text-[12px] font-semibold transition-colors disabled:cursor-not-allowed ${
+                    on
+                      ? v === "code"
+                        ? "bg-surface-white text-(--code-string) shadow-sm"
+                        : "bg-surface-white text-brand shadow-sm"
+                      : "text-ink-400 hover:text-ink-700 disabled:opacity-50"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1.5 font-serif text-[11px] leading-snug text-ink-400">
+            {agent.mechanical
+              ? "Fixed logic runs instead of a model. No prompt, no tools, no cost, same result every time."
+              : "A model reads the prompt below, uses its tools and writes the output."}
+          </p>
+
+          {agent.mechanical ? (
+            <div className="mt-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Code className="h-3.5 w-3.5 text-(--code-string)" />
+                <p className="font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
+                  Code step
+                </p>
+              </div>
+              <div className="relative">
+                <select
+                  aria-label="Code step"
+                  name="agent-mechanical"
+                  disabled={loading}
+                  value={agent.mechanical}
+                  onChange={(e) => onMechanicalChange?.(agent.id, e.target.value)}
+                  className="w-full appearance-none rounded-[9px] border border-line-control bg-surface-white py-2.5 pl-3 pr-8 font-sans text-[12.5px] font-medium text-ink-900 focus:border-brand focus:outline-none disabled:opacity-50"
+                >
+                  {mechanicalOptions.map((m) => (
+                    <option key={m.name} value={m.name}>
+                      {friendlyName(m.name)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+              </div>
+              {chosenCode && <CodeStepCard option={chosenCode} />}
+            </div>
+          ) : (
+          <>
           {/* PROMPT — a custom-agent instance edits its OWN `prompt`
               (R-02/R-06/R-36); a built-in agent keeps the EXISTING
               prompt-override mechanism (REUSE AgentPromptSection, same full
@@ -559,19 +687,65 @@ export function CanvasConfigRail({
               </p>
             </div>
             {agent.isCustom ? (
-              <textarea
-                aria-label="Custom agent prompt"
-                name="canvas-agent-prompt"
-                value={agent.prompt ?? ""}
-                onChange={(e) => onPromptChange?.(agent.id, e.target.value)}
-                placeholder="What should this agent do?"
-                rows={5}
-                className="w-full rounded-[9px] border border-line-control bg-surface-white p-2.5 font-sans text-[12.5px] text-ink-900 focus:border-brand focus:outline-none"
-              />
+              // Read as rendered markdown; Edit swaps in the raw text. An empty
+              // prompt opens straight in edit — there is nothing to read.
+              editingPrompt || !agent.prompt?.trim() ? (
+                <div className="relative">
+                  {/* Same spot as Edit, so the toggle never moves under the cursor. */}
+                  {editingPrompt && (
+                    <div className="absolute right-2 top-2 z-[1] flex gap-1">
+                      <PromptExpandButton onClick={() => setPromptDialogOpen(true)} />
+                      <button
+                        type="button"
+                        onClick={() => setEditingPrompt(false)}
+                        className={PROMPT_TOOL_BTN}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  )}
+                  <textarea
+                    aria-label="Custom agent prompt"
+                    name="canvas-agent-prompt"
+                    value={agent.prompt ?? ""}
+                    onChange={(e) => onPromptChange?.(agent.id, e.target.value)}
+                    placeholder="What should this agent do?"
+                    rows={5}
+                    autoFocus={editingPrompt}
+                    // Grows with its text up to most of the viewport.
+                    className={`field-sizing-content min-h-40 max-h-[70vh] w-full rounded-[9px] border border-line-control bg-surface-white p-2.5 font-mono text-[12px] leading-relaxed text-ink-900 focus:border-brand focus:outline-none ${editingPrompt ? "pt-10" : ""}`}
+                  />
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="absolute right-2 top-2 z-[1] flex gap-1">
+                    <PromptExpandButton onClick={() => setPromptDialogOpen(true)} />
+                    <button type="button" onClick={() => setEditingPrompt(true)} className={PROMPT_TOOL_BTN}>
+                      Edit
+                    </button>
+                  </div>
+                  <div
+                    data-testid="agent-prompt-rendered"
+                    className="max-h-[70vh] overflow-y-auto rounded-[9px] border border-line-control bg-surface-white p-3 pt-10 font-sans text-[12.5px] leading-relaxed text-ink-800"
+                  >
+                    <SkillMarkdown content={agent.prompt ?? ""} />
+                  </div>
+                </div>
+              )
             ) : (
-              <AgentPromptSection agent={agent} />
+              <AgentPromptSection agent={agent} expanded />
             )}
           </div>
+          {promptDialogOpen && agent.isCustom && (
+            <PromptDialog
+              title={agent.name}
+              value={agent.prompt ?? ""}
+              onChange={(v) => onPromptChange?.(agent.id, v)}
+              onClose={() => setPromptDialogOpen(false)}
+            />
+          )}
+          </>
+          )}
         </div>
       )}
 
@@ -586,78 +760,148 @@ export function CanvasConfigRail({
         </div>
       )}
 
-      {activeTab === "hooks" && (
+      {activeTab === "data" && agent.mechanical && (
         <div className="mt-4">
-          {suggestedHooks.length > 0 ? (
-            <div>
-              <div className="mb-2.5 flex items-center gap-2">
-                <Webhook className="h-3.5 w-3.5 text-ink-300" />
-                <p className="font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
-                  Suggested hooks
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                {suggestedHooks.map((hook) => {
-                  const attached = isHookAttached(hook.id);
-                  return (
-                    <div
-                      key={hook.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-line-faint-row bg-surface-warm px-3 py-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-0.5 flex items-center gap-1.5">
-                          <p className="truncate font-sans text-[11px] font-semibold text-ink-900">
-                            {hook.name}
-                          </p>
-                          <span className="flex-shrink-0 rounded bg-line-faint px-1.5 py-0.5 font-sans text-[9px] font-semibold text-ink-300">
-                            {hook.event}
-                          </span>
-                        </div>
-                        <p className="line-clamp-1 font-serif text-[10px] leading-relaxed text-ink-300">
-                          {hook.description}
-                        </p>
-                      </div>
+          <p className="mb-2 font-serif text-[11px] leading-snug text-ink-400">
+            A code step&apos;s files are fixed by its code, so there is nothing to wire here. Later steps can consume anything it writes.
+          </p>
+          {chosenCode ? (
+            <CodeStepCard option={chosenCode} />
+          ) : (
+            <p className="font-serif text-[11px] italic text-ink-400">Loading the code step…</p>
+          )}
+        </div>
+      )}
+
+      {activeTab === "data" && !agent.mechanical && (
+        <div className="mt-4">
+          <div className="mb-1 flex items-center gap-2">
+            <ArrowRightLeft className="h-3.5 w-3.5 text-brand" />
+            <p className="font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
+              Produces
+            </p>
+          </div>
+          <p className="mb-2 font-serif text-[11px] leading-snug text-ink-400">
+            Files this step writes. A folder ends in <code className="font-mono">/</code>. A later step that consumes one gets this step&apos;s output in its context.
+          </p>
+          <LabelInput
+            values={produces}
+            onChange={(next) => setFlow({ produces: next })}
+            disabled={!onDataFlowChange}
+          />
+
+          <div className="mb-1 mt-5 flex items-center gap-2">
+            <ArrowRightLeft className="h-3.5 w-3.5 rotate-180 text-brand" />
+            <p className="font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
+              Consumes
+            </p>
+            <span className="ml-auto font-sans text-[10.5px] text-ink-400">{consumes.length} picked</span>
+          </div>
+          <p className="mb-2 font-serif text-[11px] leading-snug text-ink-400">
+            Pick the files this step reads from earlier steps. None picked means no earlier step&apos;s output is added to its context; it can still read files in the workspace.
+          </p>
+          {upstreamGroups.length === 0 && orphans.length === 0 && runInputs.length === 0 ? (
+            <p className="rounded-[9px] border border-dashed border-line-control px-3 py-2.5 font-serif text-[11px] text-ink-400">
+              No earlier step produces anything yet. Add a file under Produces on an earlier step first.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {upstreamGroups.map((g) => {
+                const picked = g.paths.filter((p) => consumes.includes(p));
+                const all = picked.length === g.paths.length;
+                return (
+                  <div key={g.id} className="overflow-hidden rounded-[9px] border border-line-faint-row">
+                    <div className="flex items-center gap-2 bg-surface-warm px-2.5 py-1.5">
+                      <span className="truncate font-sans text-[11.5px] font-semibold text-ink-800">{g.name}</span>
+                      <span className="font-sans text-[10.5px] text-ink-400">{picked.length}/{g.paths.length}</span>
                       <button
                         type="button"
+                        disabled={!onDataFlowChange}
                         onClick={() =>
-                          !attached &&
-                          attachHook({
-                            id: hook.id,
-                            name: hook.name,
-                            event: hook.event,
-                            trigger: hook.trigger,
-                            description: hook.description,
+                          setFlow({
+                            consumes: all
+                              ? consumes.filter((c) => !g.paths.includes(c))
+                              : [...consumes, ...g.paths.filter((p) => !consumes.includes(p))],
                           })
                         }
-                        disabled={attached}
-                        className={`flex flex-shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 font-sans text-[10px] font-semibold transition-colors ${
-                          attached
-                            ? "cursor-default bg-line-faint text-ink-300"
-                            : "cursor-pointer bg-ink-900 text-surface-white hover:bg-ink-700"
-                        }`}
+                        className="ml-auto font-sans text-[10.5px] font-semibold text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {attached ? (
-                          <>
-                            <Check className="h-2.5 w-2.5" /> Added
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="h-2.5 w-2.5" /> Attach
-                          </>
-                        )}
+                        {all ? "Clear" : "All"}
                       </button>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Webhook className="mb-3 h-8 w-8 text-ink-200" />
-              <p className="font-sans text-[13px] font-medium text-ink-500">No suggested hooks</p>
-              <p className="mt-1 max-w-[220px] font-serif text-[11px] leading-relaxed text-ink-300">
-                There are no pre-built hooks recommended for this agent.
-              </p>
+                    <ul>
+                      {g.paths.map((p) => (
+                        <li key={p}>
+                          <label className="flex cursor-pointer items-center gap-2 px-2.5 py-1 hover:bg-surface-warm">
+                            <input
+                              type="checkbox"
+                              checked={consumes.includes(p)}
+                              disabled={!onDataFlowChange}
+                              onChange={() =>
+                                setFlow({ consumes: consumes.includes(p) ? consumes.filter((c) => c !== p) : [...consumes, p] })
+                              }
+                              className="accent-[var(--brand)]"
+                            />
+                            <span className="truncate font-mono text-[11.5px] text-ink-700">{p}</span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+              {runInputs.length > 0 && (
+                // ponytail: the run-start check (resolver.py) rejects ANY consume
+                // no upstream step produces, run inputs included — drop this
+                // warning if the backend exempts .uploads/ and .context/.
+                <div className="rounded-[9px] border border-status-amber-border bg-status-amber-fill px-2.5 py-1.5">
+                  <p className="mb-1 font-sans text-[11px] font-semibold text-status-amber">
+                    Run inputs — uploaded, or carried in from a chained run
+                  </p>
+                  <p className="mb-1 font-serif text-[11px] leading-snug text-status-amber">
+                    The run-start check doesn&apos;t accept these in Consumes yet, so the run will refuse to start. A code step lists them as its own reads instead.
+                  </p>
+                  <ul>
+                    {runInputs.map((p) => (
+                      <li key={p} className="flex items-center gap-2 py-0.5">
+                        <span className="truncate font-mono text-[11.5px] text-ink-700">{p}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${p}`}
+                          disabled={!onDataFlowChange}
+                          onClick={() => setFlow({ consumes: consumes.filter((c) => c !== p) })}
+                          className="ml-auto grid h-4 w-4 place-items-center rounded-full text-ink-300 hover:bg-line-faint hover:text-ink-700"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {orphans.length > 0 && (
+                <div className="rounded-[9px] border border-status-amber-border bg-status-amber-fill px-2.5 py-1.5">
+                  <p className="mb-1 font-sans text-[11px] font-semibold text-status-amber">
+                    No earlier step writes these — the run will refuse to start
+                  </p>
+                  <ul>
+                    {orphans.map((p) => (
+                      <li key={p} className="flex items-center gap-2 py-0.5">
+                        <span className="truncate font-mono text-[11.5px] text-status-amber">{p}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${p}`}
+                          disabled={!onDataFlowChange}
+                          onClick={() => setFlow({ consumes: consumes.filter((c) => c !== p) })}
+                          className="ml-auto grid h-4 w-4 place-items-center rounded-full text-status-amber hover:bg-status-amber/10"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -760,70 +1004,6 @@ export function CanvasConfigRail({
 
       {activeTab === "config" && (
       <>
-      {/* HOW THIS STEP RUNS — a step is either a model agent (prompt + tools
-          + model) or a mechanical code step (fixed logic, no model). Options
-          come from `mechanicalOptions` (SC-001 — never a hardcoded list). */}
-      <p className="relative mb-2 mt-4 flex items-center gap-1.5 font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
-        <InfoHint wide>{`Every step is done either by an AI agent or by code.
-
-AI agent: a model reads this step's prompt, uses its tools and writes the output. Choose this for anything that needs reading, judgment or writing, such as a spec, a screen list or a screen page.
-
-Code: fixed logic runs instead. No prompt, no tools, no model, so it costs nothing and gives the same result every time. Choose this for stitching, copying or checking files, then pick which code step below. Each one says what it needs from earlier steps.`}</InfoHint>
-        Node type
-      </p>
-      <div className="relative">
-        <select
-          aria-label="Node type"
-          name="agent-node-type"
-          disabled={loading}
-          value={agent.mechanical ? "code" : "agent"}
-          onChange={(e) =>
-            onMechanicalChange?.(
-              agent.id,
-              e.target.value === "code" ? mechanicalOptions[0]?.name : undefined,
-            )
-          }
-          className="w-full appearance-none rounded-[9px] border border-line-control bg-surface-white py-2.5 pl-3 pr-8 font-sans text-[12.5px] font-medium text-ink-900 focus:border-brand focus:outline-none disabled:opacity-50"
-        >
-          <option value="agent">AI agent — reads the prompt, writes the output</option>
-          <option value="code" disabled={mechanicalOptions.length === 0}>
-            Code — fixed logic, no prompt or model
-          </option>
-        </select>
-        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-      </div>
-      {agent.mechanical && (
-        <>
-          <p className="mb-2 mt-3 flex items-center gap-1.5 font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
-            <InfoHint>Which fixed logic runs in this step. The note below says what it needs from earlier steps.</InfoHint>
-            Code step
-          </p>
-          <div className="relative">
-            <select
-              aria-label="Code step"
-              name="agent-mechanical"
-              disabled={loading}
-              value={agent.mechanical}
-              onChange={(e) => onMechanicalChange?.(agent.id, e.target.value)}
-              className="w-full appearance-none rounded-[9px] border border-line-control bg-surface-white py-2.5 pl-3 pr-8 font-sans text-[12.5px] font-medium text-ink-900 focus:border-brand focus:outline-none disabled:opacity-50"
-            >
-              {mechanicalOptions.map((m) => (
-                <option key={m.name} value={m.name}>
-                  {friendlyName(m.name)}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-          </div>
-          {(() => {
-            const chosen = mechanicalOptions.find((m) => m.name === agent.mechanical);
-            return chosen ? (
-              <p className="mt-1.5 font-serif text-[11px] leading-snug text-ink-300">{chosen.description}</p>
-            ) : null;
-          })()}
-        </>
-      )}
-
       {/* DESIGN CONTEXT — OpenDesign blocks to inject into this step's prompt.
           Only shown for AI agents, not mechanical code steps. */}
       {!agent.mechanical && (
@@ -1437,6 +1617,11 @@ Higher effort costs more and takes longer.`}</InfoHint>
                 name="fanout-source"
                 value={currentSource}
                 onChange={(e) => {
+                  // A custom path is a choice too: keep it, change only the source.
+                  if (sel.task_source?.kind === CUSTOM_PATH) {
+                    patch({ task_source: { ...sel.task_source, source_step: e.target.value } });
+                    return;
+                  }
                   // Keep an already-chosen parser (and its target) — hardcoding
                   // heading_tasks/json_tasks here would silently downgrade an
                   // author's `screen_plan` choice back to a mode default.
@@ -1472,8 +1657,9 @@ Higher effort costs more and takes longer.`}</InfoHint>
                 <span>
                   {(() => {
                     const parser = sel.task_source?.parser ?? (waveOn ? "json_tasks" : "heading_tasks");
-                    const expects = PARSER_TARGET[parser]
-                      ? <>write <code>{PARSER_TARGET[parser]}</code></>
+                    const file = sel.task_source?.kind === CUSTOM_PATH ? sel.task_source.path : PARSER_TARGET[parser];
+                    const expects = file
+                      ? <>write <code>{file}</code></>
                       : <>end its reply with <code>## Task N:</code> headings</>;
                     const name = priorAgents.find((a) => a.id === currentSource)?.name ?? "the source step";
                     return <>Make sure {name} is prompted to {expects} — this step reads that to create its tasks.</>;
@@ -1494,7 +1680,9 @@ Higher effort costs more and takes longer.`}</InfoHint>
 
 JSON task list: the agent wrote build/tasks.json, a JSON list that also says which tasks depend on which. Independent tasks run at the same time; dependent ones wait.
 
-Screen list: the agent wrote build/screens.json. Code creates exactly one task per screen, so no screen is skipped or counted twice. Use this for prototype builders.`}</InfoHint>
+Screen list: the agent wrote build/screens.json. Code creates exactly one task per screen, so no screen is skipped or counted twice. Use this for prototype builders.
+
+Custom path (waves only): the agent wrote a JSON task list to a file you name, and this step reads exactly that file. {revision_n} in the path is the current revision's number.`}</InfoHint>
             Task source type
           </p>
           <div className="relative">
@@ -1502,15 +1690,31 @@ Screen list: the agent wrote build/screens.json. Code creates exactly one task p
               aria-label="Task source type"
               name="task-list-parser"
               disabled={loading}
-              value={sel.task_source?.parser ?? (waveOn ? "json_tasks" : "heading_tasks")}
+              value={
+                sel.task_source?.kind === CUSTOM_PATH
+                  ? CUSTOM_PATH
+                  : sel.task_source?.parser ?? (waveOn ? "json_tasks" : "heading_tasks")
+              }
               onChange={(e) => {
+                const source_step = currentSource || defaultSource || "";
+                if (e.target.value === CUSTOM_PATH) {
+                  patch({
+                    task_source: {
+                      kind: CUSTOM_PATH,
+                      parser: "json_tasks",
+                      path: sel.task_source?.path || DEFAULT_CUSTOM_PATH,
+                      source_step,
+                    },
+                  });
+                  return;
+                }
                 const parser = e.target.value;
                 const target = PARSER_TARGET[parser] ?? sel.task_source?.target;
                 patch({
                   task_source: {
                     kind: "parsed",
                     parser,
-                    source_step: currentSource || defaultSource || "",
+                    source_step,
                     ...(target ? { target } : {}),
                   },
                 });
@@ -1522,10 +1726,31 @@ Screen list: the agent wrote build/screens.json. Code creates exactly one task p
                   {friendlyName(p.name)}
                 </option>
               ))}
+              {(waveOn || sel.task_source?.kind === CUSTOM_PATH) && (
+                <option value={CUSTOM_PATH}>Custom path — a file you name</option>
+              )}
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
           </div>
-          {(() => {
+          {sel.task_source?.kind === CUSTOM_PATH ? (() => {
+            const ts = sel.task_source;
+            return (
+              <>
+                <input
+                  aria-label="Task file path"
+                  name="task-file-path"
+                  value={ts.path ?? ""}
+                  placeholder={DEFAULT_CUSTOM_PATH}
+                  onChange={(e) => patch({ task_source: { ...ts, path: e.target.value } })}
+                  className="mt-2 w-full rounded-[9px] border border-line-control bg-surface-white px-3 py-2.5 font-mono text-[12px] text-ink-900 focus:border-brand focus:outline-none"
+                />
+                <p className="mt-1.5 font-serif text-[11px] leading-snug text-ink-300">
+                  Reads a JSON task list from exactly this file, with no fallback. <code>{"{revision_n}"}</code> is
+                  the current revision&apos;s number: the highest numbered <code>revisions/</code> folder.
+                </p>
+              </>
+            );
+          })() : (() => {
             const parserValue = sel.task_source?.parser ?? (waveOn ? "json_tasks" : "heading_tasks");
             const chosenParser = taskParserOptions.find((p) => p.name === parserValue);
             return chosenParser ? (
@@ -1612,3 +1837,179 @@ Screen list: the agent wrote build/screens.json. Code creates exactly one task p
 // Type re-referenced so the INV-3 reuse guard (grep SelectionsMap) holds and the
 // shared selection shape stays the single source of truth for this rail.
 export type CanvasRailSelections = SelectionsMap;
+
+/** The step's written files as a list — same box and rows as the Consumes
+ *  checklist. The last row adds one (Enter, comma or blur); × removes a row.
+ *  Trimmed and never duplicated — `produces` is a list, never one string. */
+function LabelInput({
+  values,
+  onChange,
+  disabled,
+}: {
+  values: string[];
+  onChange: (next: string[]) => void;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const l = draft.trim().replace(/,$/, "").trim();
+    if (l && !values.includes(l)) onChange([...values, l]);
+    setDraft("");
+  };
+  return (
+    <div className="overflow-hidden rounded-[9px] border border-line-faint-row">
+      <div className="flex items-center gap-2 bg-surface-warm px-2.5 py-1.5">
+        <span className="font-sans text-[11.5px] font-semibold text-ink-800">This step writes</span>
+        <span className="font-sans text-[10.5px] text-ink-400">{values.length}</span>
+      </div>
+      <ul>
+        {values.map((v) => (
+          <li key={v} className="group flex items-center gap-2 px-2.5 py-1 hover:bg-surface-warm">
+            <span className="h-1.5 w-1.5 flex-none rounded-full bg-brand" aria-hidden />
+            <span className="truncate font-mono text-[11.5px] text-ink-700">{v}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${v}`}
+              disabled={disabled}
+              onClick={() => onChange(values.filter((x) => x !== v))}
+              className="ml-auto grid h-4 w-4 flex-none place-items-center rounded-full text-ink-300 hover:bg-line-faint hover:text-ink-700 disabled:cursor-not-allowed"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </li>
+        ))}
+        <li className="flex items-center gap-2 border-t border-line-faint-row px-2.5 py-1">
+          <Plus className="h-3 w-3 flex-none text-ink-300" aria-hidden />
+          <input
+            aria-label="Add produced file"
+            name="produces-label"
+            value={draft}
+            disabled={disabled}
+            onChange={(e) => (e.target.value.endsWith(",") ? (setDraft(e.target.value), add()) : setDraft(e.target.value))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+            onBlur={add}
+            placeholder={values.length ? "Add a file…" : "e.g. solution.md, build/"}
+            className="min-w-0 flex-1 bg-transparent py-0.5 font-mono text-[11.5px] text-ink-900 outline-none placeholder:font-sans placeholder:text-ink-300"
+          />
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+/** A code step's own Reads / Process / Writes, from the capability. A code
+ *  step opens what its code opens — the manifest's consumes/produces never
+ *  change these (and backlog's code steps declare none). */
+function CodeStepCard({ option }: { option: MechanicalOption }) {
+  return (
+    <dl
+      data-testid="code-step-card"
+      className="mt-2 divide-y divide-line-faint-row overflow-hidden rounded-[9px] border border-line-faint-row"
+    >
+      <CodeStepSection title="Reads" files={option.reads ?? []} empty="This code step doesn't declare what it reads." />
+      <div className="px-3 py-2.5">
+        <dt className="font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">Process</dt>
+        <dd className="mt-1 font-serif text-[12px] leading-relaxed text-ink-700">{option.process ?? option.description}</dd>
+      </div>
+      <CodeStepSection title="Writes" files={option.writes ?? []} empty="This code step doesn't declare what it writes." />
+    </dl>
+  );
+}
+
+/** One file list in a code step's Reads / Writes card. */
+function CodeStepSection({ title, files, empty }: { title: string; files: string[]; empty: string }) {
+  return (
+    <div className="px-3 py-2.5">
+      <dt className="flex items-center gap-1.5 font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
+        {title}
+        {files.length > 0 && <span className="font-normal normal-case tracking-normal text-ink-400">{files.length}</span>}
+      </dt>
+      <dd className="mt-1">
+        {files.length ? (
+          <ul className="space-y-0.5">
+            {files.map((f) => (
+              <li key={f} className="flex items-center gap-2 font-mono text-[11.5px] text-ink-700">
+                <span className="h-1 w-1 flex-none rounded-full bg-(--code-string)" aria-hidden />
+                <span className="truncate">{f}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="font-serif text-[11.5px] italic text-ink-400">{empty}</p>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+const PROMPT_TOOL_BTN =
+  "rounded-[7px] border border-line-control bg-surface-white px-2.5 py-1 font-sans text-[11px] font-semibold text-ink-700 hover:border-brand hover:text-brand";
+
+function PromptExpandButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-label="Expand prompt" title="Open in a wide editor" className={`${PROMPT_TOOL_BTN} px-1.5`}>
+      <Maximize2 className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/** The prompt in a near-full-screen dialog: raw markdown on the left, the
+ *  rendered page on the right, both at reading size. Edits write through live
+ *  (same `onPromptChange` as the rail), so Done only closes. Portalled to
+ *  <body> so the rail's own overflow/stacking can't clip it. */
+function PromptDialog({
+  title,
+  value,
+  onChange,
+  onClose,
+}: {
+  title: string;
+  value: string;
+  onChange: (v: string) => void;
+  onClose: () => void;
+}) {
+  return createPortal(
+    <Modal
+      title={`${title} — prompt`}
+      description="Markdown on the left, how it reads on the right. Changes apply as you type."
+      onClose={onClose}
+      closeOnBackdropClick={false}
+      className="flex h-[88vh] max-w-[min(1400px,96vw)]! flex-col"
+    >
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-2">
+        <textarea
+          aria-label="Prompt source"
+          name="prompt-dialog-source"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          spellCheck={false}
+          className="min-h-0 w-full resize-none rounded-[10px] border border-line-control bg-surface-white p-4 font-mono text-[13px] leading-[1.7] text-ink-900 focus:border-brand focus:outline-none"
+        />
+        <div
+          data-testid="prompt-dialog-preview"
+          className="min-h-0 overflow-y-auto rounded-[10px] border border-line-control bg-surface-white px-6 py-5 font-sans text-[14px] leading-[1.75] text-ink-800"
+        >
+          <div className="mx-auto max-w-[72ch]">
+            <SkillMarkdown content={value} />
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 flex items-center justify-between">
+        <span className="font-sans text-[11px] text-ink-400">{value.length.toLocaleString()} characters</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-[9px] bg-brand px-4 py-2 font-sans text-[12px] font-semibold text-white hover:bg-brand-pressed"
+        >
+          Done
+        </button>
+      </div>
+    </Modal>,
+    document.body,
+  );
+}

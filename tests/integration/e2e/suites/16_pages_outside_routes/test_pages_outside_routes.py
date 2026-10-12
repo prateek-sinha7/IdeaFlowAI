@@ -149,7 +149,7 @@ def test_a_non_admin_traversal_never_navigates_to_admin(page, shot):
     frame has already navigated there, client-side, post-mount.
 
     Confirmed by direct observation (Playwright `framenavigated` on the main
-    frame, qa-basic session): the frame's navigation history for
+    frame, basic@velocity.ai session): the frame's navigation history for
     `?mode=../admin` is `/admin` -> `/admin` -> `/dashboard` — i.e. the
     browser genuinely visits `/admin` before the client bounce fires, it does
     not merely settle there. The final settled URL is `/dashboard`, so a
@@ -171,7 +171,7 @@ def test_a_non_admin_traversal_never_navigates_to_admin(page, shot):
 
     with shot(
         "mode-traversal-admin-non-admin-tier",
-        'When qa-basic cold-loads "/workflow/create?mode=../admin"',
+        'When basic@velocity.ai cold-loads "/workflow/create?mode=../admin"',
     ):
         page.goto("/workflow/create?mode=../admin")
         page.wait_for_load_state("load")
@@ -179,11 +179,11 @@ def test_a_non_admin_traversal_never_navigates_to_admin(page, shot):
 
     admin_visits = [u for u in visited if u.rstrip("/").endswith("/admin")]
     assert not admin_visits, (
-        f"qa-basic (non-admin) frame navigated to /admin via mode traversal "
+        f"basic@velocity.ai (non-admin) frame navigated to /admin via mode traversal "
         f"before being bounced away: {visited}"
     )
     assert not admin_calls, (
-        f"qa-basic (non-admin) triggered admin API calls via mode traversal: {admin_calls}"
+        f"basic@velocity.ai (non-admin) triggered admin API calls via mode traversal: {admin_calls}"
     )
 
 
@@ -427,7 +427,7 @@ def test_one_user_cannot_see_anothers_handoff_credentials(page, shot, page_as):
     a safe value (see S-16-11). The isolation being checked is the same one —
     both live on the same screen, behind the same account scope.
 
-    qa-pro's key is revoked in the teardown.
+    pro@velocity.ai's key is revoked in the teardown.
     """
     name = f"e2e-s-16-14-pro-{uuid.uuid4().hex[:8]}"
     pro = page_as("pro")
@@ -436,21 +436,21 @@ def test_one_user_cannot_see_anothers_handoff_credentials(page, shot, page_as):
     pro.wait_for_timeout(settings.SETTLE_MS // 2)
 
     try:
-        with shot("pro-creates-a-key", 'Given "qa-pro" has created an API key'):
+        with shot("pro-creates-a-key", 'Given "pro@velocity.ai" has created an API key'):
             pro.fill(L.API_KEY_NAME, name)
             pro.click(L.CREATE_KEY)
             expect(pro.get_by_text(name).first).to_be_visible()
 
-        with shot("basic-sees-nothing", 'When I cold-load "/handoff/settings" as qa-basic'):
+        with shot("basic-sees-nothing", 'When I cold-load "/handoff/settings" as basic@velocity.ai'):
             cold(page, "/handoff/settings")
 
         body = page.evaluate("() => document.body.innerText")
         assert name not in body, (
-            "qa-basic is shown an API key belonging to qa-pro — cross-account "
+            "basic@velocity.ai is shown an API key belonging to pro@velocity.ai — cross-account "
             "isolation is broken on /handoff/settings"
         )
         assert L.NO_TOKEN in body, (
-            f"qa-basic is shown a GitHub token it does not own. Page said: {body[:200]!r}"
+            f"basic@velocity.ai is shown a GitHub token it does not own. Page said: {body[:200]!r}"
         )
     finally:
         revoke_key(pro, name)
@@ -489,7 +489,7 @@ def test_a_valid_handoff_token_opens_the_handoff_workflow(page, shot, handoff_se
 def test_a_handoff_token_belonging_to_another_user_is_refused(page, shot, handoff_session):
     """Scenario: A handoff token belonging to another user is refused
 
-    The handoff is minted by qa-admin and read as qa-basic. The URL is the only
+    The handoff is minted by admin@velocity.ai and read as basic@velocity.ai. The URL is the only
     credential this surface has, so a token that worked across accounts would
     hand a run's contents to anyone who saw the link.
     """

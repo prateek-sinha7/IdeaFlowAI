@@ -265,6 +265,45 @@ async def test_generator_exit_releases_session(monkeypatch) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# An UNHANDLED exception — run 05832e65: a mechanical step's TypeError left the
+# state machine on "generating", and the finally recorded the run "completed"
+# ════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_unhandled_exception_finalizes_as_failed_not_completed(monkeypatch) -> None:
+    import agents.execution_engine.engine as engine_mod
+
+    _install_release_spy(monkeypatch)
+    statuses: list[str] = []
+    orig_finalize = engine_mod.finalize_terminal_run
+
+    async def _spy_finalize(run_id, ectx, *, candidate_status, **kw):
+        statuses.append(candidate_status)
+        return await orig_finalize(run_id, ectx, candidate_status=candidate_status, **kw)
+
+    monkeypatch.setattr(engine_mod, "finalize_terminal_run", _spy_finalize)
+    engine, specs, restore = _build_single_agent_engine(monkeypatch)
+    run_id = str(uuid.uuid4())
+
+    try:
+        gen = engine._execute_impl(
+            agents=specs,
+            user_message="build a backlog",
+            pipeline_run_id=run_id,
+            pipeline_type="user_stories",
+            session_id="unhandled-exception-test",
+        )
+        await _advance_to(gen, "agent_start")
+        with pytest.raises(TypeError):
+            await gen.athrow(TypeError("sequence item 0: expected str instance, int found"))
+    finally:
+        restore()
+
+    assert statuses == ["failed"], statuses
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # BudgetExceeded — a second, structurally distinct handled abort (no
 # cancel_event branching at all) proving the finally is try-attached
 # ════════════════════════════════════════════════════════════════════════════

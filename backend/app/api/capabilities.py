@@ -83,6 +83,12 @@ class CapabilityEntry(BaseModel):
     # JSON-Schema-lite for caps that take config, legitimately ``{}`` for caps
     # that take none. No longer the literal ``{}`` stub.
     config_schema: dict = {}
+    # What a step of this kind reads and writes by default (folders end in "/") and
+    # what it does, from ``registry.describe``. The composer rail shows a step's own
+    # consumes/produces first and falls back to these. Empty when not authored.
+    reads: list[str] = []
+    process: str = ""
+    writes: list[str] = []
 
 
 class ModelCatalogEntry(BaseModel):
@@ -167,6 +173,9 @@ def list_capabilities(
                 # Derived from the trust flag (D-02) — no separate stored source.
                 security_gated=not user_allowed,
                 config_schema=meta["config_schema"],
+                reads=meta.get("reads", []),
+                process=meta.get("process", ""),
+                writes=meta.get("writes", []),
             )
         )
 

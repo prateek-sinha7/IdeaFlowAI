@@ -89,7 +89,7 @@ reachable in normal operation.
 Feature: Admin dashboard
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com" with is_admin true
+    Given I am signed in as "admin@velocity.ai" with is_admin true
 
   @S-11-01
   Scenario: The admin dashboard renders its own shell
@@ -117,7 +117,7 @@ Feature: Admin dashboard
   @S-11-04
   Scenario: An admin cannot delete their own account
     When I cold-load "/admin"
-    Then no delete control exists for "qa-admin@flowinqa.com"
+    Then no delete control exists for "admin@velocity.ai"
     And a delete control exists for each of the other users
     # admin.py:616. The absence of the control on your own row IS the guard's
     # visible half.
@@ -150,10 +150,10 @@ Feature: Admin dashboard
 
     Examples:
       | email                      |
-      | qa-enterprise@flowinqa.com |
-      | qa-pro@flowinqa.com        |
-      | qa-basic@flowinqa.com      |
-    # qa-enterprise is the important row: same tier as the admin, no admin flag.
+      | enterprise@velocity.ai |
+      | pro@velocity.ai        |
+      | basic@velocity.ai      |
+    # enterprise@velocity.ai is the important row: same tier as the admin, no admin flag.
     # It proves the gate is on the role, not on the tier.
 
   @S-11-08
@@ -165,7 +165,7 @@ Feature: Admin dashboard
 
   @S-11-09
   Scenario: The admin API refuses a non-admin directly
-    Given I hold a valid token for "qa-basic@flowinqa.com"
+    Given I hold a valid token for "basic@velocity.ai"
     When I call the admin users endpoint with that token
     Then the response is a 403
     # Drive the API, not the UI. A hidden route is not an access control.
@@ -175,7 +175,7 @@ Feature: Admin dashboard
   @S-11-10
   Scenario: Search filters the users table
     When I cold-load "/admin"
-    And I type "qa-pro" into the user search
+    And I type "pro@velocity.ai" into the user search
     Then only matching rows remain
     When I clear the search
     Then all rows return
@@ -190,7 +190,7 @@ Feature: Admin dashboard
 
   @S-11-12
   Scenario: A non-admin is not offered the entry point
-    Given I am signed in as "qa-pro@flowinqa.com"
+    Given I am signed in as "pro@velocity.ai"
     When I open the account menu
     Then I do NOT see "Admin Dashboard"
 

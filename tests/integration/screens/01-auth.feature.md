@@ -91,7 +91,7 @@ Feature: Signing in
   Scenario: Signing in with valid credentials lands on the dashboard
     Given I have no auth token
     When I cold-load "/login"
-    And I fill the email field with "qa-admin@flowinqa.com"
+    And I fill the email field with "admin@velocity.ai"
     And I fill the password field with the seeded password
     And I click "Sign in"
     Then the URL becomes "/dashboard"
@@ -102,7 +102,7 @@ Feature: Signing in
   # An admin lands on /dashboard like everyone else. Do not expect /admin —
   # the admin surface is reached from the account menu, not from login.
   Scenario: An administrator is not redirected to the admin surface
-    When I sign in as "qa-admin@flowinqa.com"
+    When I sign in as "admin@velocity.ai"
     Then the URL becomes "/dashboard"
     And the URL is NOT "/admin"
 
@@ -114,15 +114,15 @@ Feature: Signing in
 
     Examples:
       | email                      | tier       | admin |
-      | qa-admin@flowinqa.com      | enterprise | yes   |
-      | qa-enterprise@flowinqa.com | enterprise | no    |
-      | qa-pro@flowinqa.com        | pro        | no    |
-      | qa-basic@flowinqa.com      | basic      | no    |
+      | admin@velocity.ai      | enterprise | yes   |
+      | enterprise@velocity.ai | enterprise | no    |
+      | pro@velocity.ai        | pro        | no    |
+      | basic@velocity.ai      | basic      | no    |
 
   @S-01-05
   Scenario: Signing in with a bad password is refused
     When I cold-load "/login"
-    And I fill the email field with "qa-admin@flowinqa.com"
+    And I fill the email field with "admin@velocity.ai"
     And I fill the password field with "not-the-password"
     And I click "Sign in"
     Then I remain on "/login"
@@ -277,7 +277,7 @@ Feature: Signing in
 
 - **Do not assert on the token's value**, only its presence. It is a bearer
   credential; a failing assertion would print it into CI logs.
-- The dev password is `flowin-e2e-pass`, overridable via `E2E_BASE_PASSWORD`.
+- The dev password is `Velocity!Dev2026`, overridable via `E2E_BASE_PASSWORD`.
   Read it from the env in tests rather than hardcoding it.
 - Sign-in is the slowest step in the suite. Prefer seeding the token directly into
   `localStorage` for scenarios whose subject is not authentication — but keep at

@@ -127,3 +127,41 @@ class TestFinalizerDegradeSurfacesOnPipelineComplete:
             "goldens pin); this proves the fix only ever SETS 'degraded', "
             "never 'completed'"
         )
+
+
+def _finalizer_that_marks(**marks):
+    """A fake finalizer that first sets commit-outcome flags on the ectx, as the
+    real step commits would have during the run, then publishes degraded."""
+    inner = _fake_finalizer("degraded")
+
+    async def _finalize(run_id, ectx, *, candidate_status="completed"):
+        for key, value in marks.items():
+            setattr(ectx, key, value)
+        return await inner(run_id, ectx, candidate_status=candidate_status)
+
+    return _finalize
+
+
+class TestACommitDegradeNamesItsCause:
+    """Live (run 53d022e9): a degrade caused by the commit path was persisted as
+    "degraded: agent(s) failed: " with an EMPTY agent list — no reason at all."""
+
+    @pytest.mark.asyncio
+    async def test_files_left_out_of_the_history_are_named(self) -> None:
+        marks = {"commit_excluded_files": {"build/ui/components/button.png": "unknown binary"}}
+        with patch.object(engine_mod, "finalize_terminal_run", _finalizer_that_marks(**marks)):
+            events = await _drive("custom")
+
+        data = _pipeline_complete_events(events)[0]["data"]
+        assert data.get("status") == "degraded"
+        assert "build/ui/components/button.png" in (data.get("degraded_reason") or "")
+
+    @pytest.mark.asyncio
+    async def test_a_refused_commit_says_why(self) -> None:
+        marks = {"last_commit_blocked": True, "last_commit_block_reason": "secret_detected"}
+        with patch.object(engine_mod, "finalize_terminal_run", _finalizer_that_marks(**marks)):
+            events = await _drive("custom")
+
+        data = _pipeline_complete_events(events)[0]["data"]
+        assert data.get("status") == "degraded"
+        assert "secret" in (data.get("degraded_reason") or "")

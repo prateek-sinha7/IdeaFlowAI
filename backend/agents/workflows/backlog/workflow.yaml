@@ -1,0 +1,1639 @@
+# backlog — full-application user stories from an HTML prototype and its documents.
+#
+# Spec: specs/021-backlog/spec.md. The reading half (planner -> shard readers ->
+# synthesizer -> clarify -> integrator) follows prototype_v2's steps and prompt
+# conventions. An uploaded .html is materialised by extract_text into pages like a PDF —
+# one page per screen with its fields and screenshot, then its scripts — so no prompt
+# carries code (spec revision 2).
+# The writing half models the whole application, plans a backlog, writes stories in
+# parallel one epic slice at a time, and a code-only step assembles backlog.md /
+# backlog.csv / backlog.json with a coverage report, plus data-model.md, schema.json,
+# api.md, openapi.json, integrations.md and screens.md. An API Designer designs the
+# application's endpoints and an Architect writes architecture.md (spec §14).
+#
+# Every stage that makes decisions has its own Clarify step right before it: Solution
+# Clarify (document gaps, `gap-N`) before the Solution Analyst, then API Clarify (`api-N`),
+# Architecture Clarify (`arch-N`) and Backlog Clarify (`plan-N`). A Clarify step assesses
+# what its stage will be given and writes `.clarify/<stage>.json` (solution, api,
+# architect, backlog): what is already settled and the questions it asked. The stage
+# reads that file first and takes each asked question's answer from
+# clarify/answers.json by id; an unanswered one falls back to its recommended answer.
+# A step inserted between a Clarify and its stage changes nothing. Fan-out workers and
+# code steps never ask. Code steps declare what they read and write on their capability.
+#
+# The engine's "## How to deliver" footer is untouched: every prompt names its own work
+# files and writes the footer's step file as a one-line report (spec §9 rule 1).
+#
+# A JSON work file puts every list item on a line of its own. read_file pages by lines
+# and returns at most ~80,000 characters, so a whole file on one line is cut off: run
+# c4cbd381's endpoints.json was 88,561 characters and nobody downstream read its tail.
+#
+# Build order: Solution adds four foundation capabilities every application needs
+# (project setup, data foundation, delivery, test harness); the Backlog Planner turns
+# them into platform epics, gives every epic its `depends_on` and names the walking
+# skeleton; assemble computes milestones, waves, epic priority and each story's order
+# from that graph and writes build-order.md. Priority is not guessed per story: a story
+# is never above its epic's priority.
+#
+# limits.max_subagents stays at 200 (prototype_v2's value): the Readers fan out one worker
+# per shard, the Story Writers one per epic slice.
+#
+# Token budget (run c4cbd381 spent 92.6M; 93% was the same context re-read on every
+# model call). Every model call re-sends the whole conversation, so cost is calls x
+# context. The rules that keep both small:
+# - No bookkeeping calls: no write_todos, no ls/glob for a path the prompt names, no
+#   reading back a file just written (JSON is checked when written). Every prompt says so.
+# - Mechanical work is code: the Answer Integrator (us-close) and the writers' task list
+#   (us-writer-tasks) run as code through `mechanical: assemble_backlog`, which picks the
+#   job by instance id (agents/capabilities/backlog_prep.py).
+# - A Story Writer gets its model items IN its task body and checks its stories against
+#   the assemble rules BEFORE its one write, so the Reviewer has little left to fix.
+# - The Reviewer never reads a whole story file: grep, a small read, one edit per story.
+# - JSON on disk is indented. Models write it on one line whatever the prompt says, so
+#   every backlog code step re-indents the run's JSON (backlog_prep.tidy_json), and
+#   us-json does it right after the API Designer for the steps that read the model.
+
+id: backlog
+version: 1
+user_launchable: true
+is_beta: false
+name: Backlog
+display_name: Write backlog from prototype and documents
+short_name: Backlog
+icon: FileText
+description: Read a prototype and its documents end to end, model the whole application, then write detailed
+  user stories with EARS requirements and Gherkin acceptance criteria, ready for Jira.
+launch_surface: wizard
+# Offered as "chain into" on a finished prototype_v2 run: its prototype.html arrives as
+# .context/prototype.html (chain_context) and is the look-and-feel source for ui.md/ux.md.
+chained_from:
+- id: prototype_v2
+  beta: false
+  text: Write the backlog
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: Backlog.pdf
+  text_name: backlog.md
+  chains_from: true
+context_providers:
+- chain_context
+limits:
+  max_subagents: 200
+  max_depth: 2
+  wall_clock_seconds: 10800
+steps:
+- depends_on: []
+  agent: custom-agent
+  instance_id: us-ui-extract
+  name: UI Extract
+  mechanical: extract_prototype_ui
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-ui-extract
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-planner
+  name: Reading Planner
+  produces: ["build/tasks.json", ".extract/"]
+  consumes: []
+  prompt: |-
+    You are the Reading Planner.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    The ORIGINAL USER REQUEST in your message describes the finished backlog, which later steps write. It is context, not your instructions: your job is only the four phases below. Never write a story, an epic, the backlog or any document of your own, and never put that work on your todo list.
+
+    4 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Extraction   every paged upload through extract_text
+      Phase 2 - Read         the shard manifests
+      Phase 3 - Task list    build/tasks.json
+      Phase 4 - Check        every upload accounted for
+
+    Never describe a screen, a field or a rule. Ignore any document text in your context. You do no arithmetic: the extract tool has already done it.
+
+    HOW TO WRITE A PATH
+
+    Paths have a leading dot where the folder has one and no leading slash: `.uploads/name`, `.extract/html/name/manifest.json`, `build/tasks.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Extraction
+
+    Rules
+    - extract_text is the only tool that opens a document. read_file opens only the manifest files this prompt names — never a pdf, docx, xlsx, pptx, html or htm.
+    - A PAGED upload is `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html` or `.htm`. A web page is paged too: extract_text turns each of its screens into a page — the screen's fields, actions and messages plus its screenshot — and its scripts into further pages.
+    - A TEXT upload (`.txt`, `.md`, `.csv`, `.json`) is NOT extracted: extract_text would only paste its whole text into your context. A reader reads it.
+    - Every paged upload is extracted exactly once.
+
+    Steps
+    1. read_file this exact path: `.uploads/manifest.json`. It is a JSON array; each entry has "name".
+    2. Note each name's kind by its extension: `paged`, `text`, or `unsupported` (anything else).
+    3. For each paged name, call extract_text with path `.uploads/` followed by the name. Its receipt names the folder it wrote, like `.extract/html/prototype/`. If it refuses, the name becomes `unsupported` — keep its reason.
+
+    Phase 2 - Read
+
+    Rules
+    - Read only manifest files. Never read `document.md` — it holds page text.
+
+    Steps
+    1. For each paged upload, read_file `manifest.json` in the folder its receipt named. It has a "shards" array; each shard carries id, slug, format, page_range, source. A web page's manifest also lists its "screens"; you do not need them — its shards already cover every page.
+
+    Phase 3 - Task list
+
+    Rules
+    - ONE task per SHARD. Ids are the shard ids from the manifests.
+    - A document with MORE THAN ONE shard gets ONE extra rollup task whose depends_on lists every shard id of that document. A document with exactly one shard gets no rollup: its single shard writes the document's synthesis itself.
+    - ONE task per text upload.
+    - A paged document's slug is the one in its manifest. A text upload's slug is its name without the extension, lowercased, every run of characters other than a-z and 0-9 replaced by one `-`, with no `-` at either end. If two uploads share a slug, append `-<extension>` to BOTH slugs everywhere they appear: ids, targets and bodies.
+    - One JSON object per task, in these shapes exactly:
+
+      shard:
+      {"id": "<shard id>", "title": "<shard id>", "targets": ["file-synthesis/<slug>/shards/<shard id>/status.json"], "depends_on": [], "body": "Shard <shard id>. Document <slug>, format <format>, pages <page_range>. Read them from <source>. This document has <n> shard(s)."}
+
+      rollup, only for a document with more than one shard:
+      {"id": "<slug>-rollup", "title": "<slug> rollup", "targets": ["file-synthesis/<slug>/status.json"], "depends_on": ["<every shard id of this document>"], "body": "Rollup for document <slug>. Combine its shards into the document synthesis."}
+
+      text:
+      {"id": "<slug>-text", "title": "<name>", "targets": ["file-synthesis/<slug>/status.json"], "depends_on": [], "body": "Text document .uploads/<name>, slug <slug>. Read it with read_file to its end."}
+
+    - "skipped" lists every `unsupported` upload: {"name": "<name>", "reason": "<why>"}.
+    - Write to this exact path: `build/tasks.json`. It is your only work file.
+    - ONE write_file call. `content` is TEXT, every item of a list on a line of its own: {"tasks": [ ... ], "skipped": [ ... ]}. If the tool says content is invalid, you passed an object — send the SAME JSON again as text.
+
+    Steps
+    1. Write every task object, in upload order: for each upload, its tasks.
+    2. write_file `build/tasks.json`.
+
+    Phase 4 - Check
+
+    Rules
+    - What SHOULD be there comes from `.uploads/manifest.json` and the shard manifests, never from what you wrote.
+    - `build/tasks.json` now exists and write_file cannot overwrite it. Fix it with edit_file.
+    - Check the list you wrote — it is in this conversation. Do not read the file back.
+
+    Steps
+    1. Every name in `.uploads/manifest.json` appears in some task body or in "skipped". Add what is missing.
+    2. Every shard in every manifest has exactly one task, and every document with more than one shard has one rollup whose depends_on names all of its shards.
+    3. Reply with one line: uploads, shard tasks, text tasks, rollups, skipped.
+    After step 4 you are done. The only other file you write is the one-line step file below.
+
+    HOW TO DELIVER
+
+    Your work file is `build/tasks.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - file_extract
+  gates: []
+- strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    target: build/tasks.json
+    source_step: custom-agent:us-planner
+  fanout:
+    agent: self
+    mode: parallel
+    max_parallel: 6
+  depends_on:
+  - custom-agent:us-planner
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-readers
+  name: Readers
+  produces: ["file-synthesis/"]
+  consumes: ["build/tasks.json", ".extract/", ".uploads/"]
+  prompt: |-
+    You are a Reader.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    Phase 1 decides which ONE of the other phases is yours. Skip every phase that is not.
+
+      Phase 1 - Your role
+      Phase 2 - Shard     a page range of a document or a web page
+      Phase 3 - Text      a whole text document
+      Phase 4 - Rollup    one document's synthesis, from its shards
+
+    You never spawn anything. There is no `task` tool and you do not need one.
+
+    HOW TO WRITE A PATH
+
+    Paths have a leading dot where the folder has one and no leading slash. If a tool hands you a path starting with `/`, drop the slash. You write into `file-synthesis/<slug>/` and nowhere else — never into `build/`, never into the run root. The engine's step file is the one exception (HOW TO DELIVER).
+
+    WHAT YOU RECORD — every role
+
+    Everything your source says or shows, under these headings, every line tagged with its reference:
+
+      ## Facts          what the product is, who it is for, what it must do
+      ## Screens        screen records, in the format below
+      ## Flows          what moves the user from one screen or state to the next
+      ## Rules          business rules, validations, calculations, limits, formats
+      ## Messages       every error, warning, confirmation and help text, word for word
+      ## Actors         users, personas and roles, and what each one may do
+      ## Data           entities; their attributes (type, required, format, example value); relationships; statuses
+      ## Integrations   external systems, APIs, imports, exports, emails, payments, sign-in providers — what goes in or out, when, and what happens on failure
+      ## NFRs           performance, security, privacy, availability, accessibility, audit, compliance, browser and device support
+      ## Stories        user stories, requirements or acceptance criteria the source already contains, copied word for word with their ids
+
+    A heading your source says nothing about holds one line: `none in this source`.
+
+    COPY, NEVER DESCRIBE
+
+    An option list, code list, range, format, label or message is COPIED character for character — same case, same separators, same order. `CUST-REQ; MTR-FAIL; COMPLIANCE` stays exactly that; it never becomes "Customer Request, Failed Meter, Compliance". `minutes, 15-480` never becomes "hours (0-999)". Adding, dropping or renaming a value is a defect: the stories are written from these lines and cannot recover a value you did not carry.
+
+    SCREEN RECORD
+
+      [ref] Screen: <title as shown>
+        Reached by: <how the user gets here>
+        Fields: <label> [<control>: <value or options>; required|optional; <validation>]; ...
+        Actions: <label> -> <what it does or where it goes>; ...
+        Tables: <columns>; rows shown: <what they are, with one real example row>
+        States: <what shows, and what reveals it — errors, dialogs, hidden panels, selected tabs>
+
+    Controls are one of: text, number, email, date, dropdown, multi-select, checkbox, radio, textarea, file, button, link, tab, table, search. A value that is visible but unexplained is a gap.
+
+    PAGES OF A WEB PAGE
+
+    A web page (an uploaded `.html`) arrives as pages, like any document. Code wrote them from the live page, so their tables are facts, not guesses. A page is one of three kinds:
+    - A SCREEN page begins with its screenshot line, then `# Screen: <title>`, then a line giving the screen's id, its kind (page, dialog, state or section) and how it is shown. Its `## Fields`, `## Actions`, `## Tables` and `## Hidden states and messages` sections ARE the screen: copy every row into your screen record — every field with its control, required flag, validation and options exactly; every action with where it goes; every hidden state and message word for word. Put the screen's id in the record's Screen line: `Screen: Anchor (id anchor)`. Then look at the screenshot and add only what the sections cannot show: text inside pictures, icons that act as buttons, how fields are grouped.
+    - A `# Scripts index` page lists the page's scripts. A script marked as a library or as the shell runtime has nothing for you to record.
+    - A `# Script <n>` page holds the page's own code, and an `# Inline handlers` page the code attached to elements. From them record: every validation — its condition and its message, copied; every calculation or formula; every screen switch; every data seed — each sample record under ## Data with its values; every request to a server — its address, method and fields — under ## Integrations; every storage key; every timer.
+    You never open, run or extract the web page itself. Its pages are all you need.
+
+    REFERENCES
+
+      a page       [<slug> p.NN]      NN from the page folder — for a web page's screens too
+      a text line  [<slug> L<line>]   the line number read_file shows
+
+    GAPS
+
+    A gap is something your source refers to but does not contain, or shows without explaining. One line each: `<question> [ref]`. Never invent a fact to close a gap. An open gap is a correct answer.
+
+    Phase 1 - Your role
+
+    Rules
+    - Your CURRENT TASK has an id. That id decides everything:
+      ends with `-rollup` -> Phase 4
+      ends with `-text`   -> Phase 3
+      anything else       -> Phase 2
+
+    Steps
+    1. Read the id in your CURRENT TASK and the rest of its body to the end.
+    2. Do your phase only.
+
+    Phase 2 - Shard
+
+    Rules
+    - You read only the pages your task names. read_file opens .md, .json and .png; a .png comes back as a picture.
+    - Take the pages ONE AT A TIME, in order. One image per read_file call. After two more reads a picture leaves your view; the record you wrote is what you keep.
+    - A page of a web page is one of the three kinds above; any other page is read as it is.
+    - `<shard id>` is the WHOLE id from your task, like `1-crimson-s01` — never the tail `s01`.
+
+    Steps
+    1. For page NN in your range: read_file `<source>NN/text.md`. For each `@[[image-K.png]]` line in it, in order: read_file `<source>NN/image-K.png`, then write its screen record in your reply before any other read_file — tagged `[<slug> p.NN image-K]`. A picture that is not a screen gets only `[<slug> p.NN image-K] Not a screen: <what it is>`. Then page NN+1.
+    2. write_file `file-synthesis/<slug>/shards/<shard id>/notes.md` — WHAT YOU RECORD, every line tagged, every screen record verbatim.
+    3. write_file `file-synthesis/<slug>/shards/<shard id>/gaps.md` — one line per gap.
+    4. write_file `file-synthesis/<slug>/shards/<shard id>/summary.md` — three lines: what this shard covers.
+    5. write_file `file-synthesis/<slug>/shards/<shard id>/status.json` — {"shard":"<shard id>","slug":"<slug>","pages":[..],"read":true}
+    6. ls `file-synthesis/<slug>/shards/` and confirm a directory named with your WHOLE shard id. If the name is shorter, write the four files again under the right name.
+    7. If your task says the document has exactly ONE shard, you are also its rollup: do Phase 4 now, from the four files you just wrote.
+    8. Reply with one line: shard id, pages read, screens recorded, files written.
+
+    Phase 3 - Text
+
+    Rules
+    - read_file `.uploads/<name>` and keep paging with the next offset until a page comes back shorter than you asked for, or empty. That is the end, and nothing else is.
+    - A `.json` or `.csv` upload is data: record its structure (its fields or columns) and EVERY record, under ## Data and wherever else it belongs.
+    - You are this document's rollup. You write its synthesis directly.
+
+    Steps
+    1. Read the whole file.
+    2. write_file `file-synthesis/<slug>/synthesis.md` — WHAT YOU RECORD, organised by the headings, every line tagged `[<slug> L<line>]`.
+    3. write_file `file-synthesis/<slug>/gaps.json` — [{"gap": "...", "raised_by": "<slug> L<line>", "filled_from": null}]
+    4. write_file `file-synthesis/<slug>/status.json` — {"file":"<slug>","kind":"text","last_line":<last line read>,"complete":true}
+    5. Reply with one line: document, lines read, gaps.
+
+    Phase 4 - Rollup
+
+    Rules
+    - Every shard of your document has already finished; that is why you ran after them. Their files are on disk now.
+    - You never read a page. You read only the shards' files.
+    - ONE synthesis for the document, organised by subject (the WHAT YOU RECORD headings), never by shard. A reader must not be able to tell where the shard boundaries were. Every claim keeps its reference.
+    - `## Screens` holds one entry per distinct screen, merging every record of it — fields (the union), actions, tables, states, messages — each line tagged. Two records with the same Screen title are one entry.
+    - Never invent a fact to close a gap. An open gap is a correct answer.
+
+    Steps
+    1. ls `file-synthesis/<slug>/shards/`.
+    2. For every shard: read_file its summary.md, then gaps.md, then notes.md, each to its end.
+    3. write_file `file-synthesis/<slug>/synthesis.md`.
+    4. write_file `file-synthesis/<slug>/gaps.json` — [{"gap":"...","raised_by":"<ref>","filled_from":null}]. A gap one shard raised and another answered keeps its entry, with "filled_from" set to the answering ref.
+    5. write_file `file-synthesis/<slug>/status.json` — {"file":"<slug>","shards_used":[..],"complete":true}
+    6. Reply with one line: document, shards combined, gaps open.
+
+    HOW TO DELIVER
+
+    Your work files are the ones your phase names. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work. Other readers share that step file: if it already exists, leave it as it is; your reply is enough.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-readers
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-synth
+  name: Synthesizer
+  produces: ["synthesis.md", "validate.json"]
+  consumes: ["build/tasks.json", "file-synthesis/"]
+  prompt: |-
+    You are the Synthesizer.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    5 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Reconcile      what should exist against what does
+      Phase 2 - Read           every document's own synthesis and gaps
+      Phase 3 - Close the gaps work the gap list against the other documents
+      Phase 4 - Write the doc  synthesis.md
+      Phase 5 - Write validate validate.json
+
+    You never read an original upload, a page, a screen, a script, a shard or a part folder. You work only from each document's own synthesis.
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash: `synthesis.md` and `validate.json` are at the run root. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Reconcile
+
+    Rules
+    - What SHOULD exist comes from `build/tasks.json`, never from what you find. Counting what you found can never report something missing.
+    - The documents expected are the distinct `<slug>` values in every task target: each target starts `file-synthesis/<slug>/`. A single-shard document's only target is its shard's status file, so read the slug from every target, not only from rollups.
+    - A missing document is recorded, never authored.
+
+    Steps
+    1. read_file `build/tasks.json`. List the expected document slugs.
+    2. An expected slug whose `file-synthesis/<slug>/synthesis.md` does not exist when you read it in Phase 2 is MISSING. Carry on with the ones that are there.
+
+    Phase 2 - Read
+
+    Rules
+    - Read every document, not a sample. Read each file to its END: keep paging read_file until a page comes back shorter than you asked for, or empty.
+
+    Steps
+    1. read_file every `file-synthesis/<slug>/synthesis.md`.
+    2. read_file every `file-synthesis/<slug>/gaps.json`.
+    3. Put every gap from every document into ONE list. Keep which document raised it and its reference.
+    4. Two gaps that ask for the same missing fact are ONE gap, however each document words it: keep one entry, and its "raised_by" names every reference that raised it, joined by "; ". The user is asked once per entry, so a duplicate becomes the same question twice.
+
+    Phase 3 - Close the gaps
+
+    Rules
+    - A gap is a question one document asked that it could not answer itself. Another document often answers it — a text spec explaining a field the web page shows, or a screen showing an option list a document only names. Closing it is the point of this step.
+    - Work the WHOLE list. Every gap is checked against every other document.
+    - A gap is closed only by something actually written in another document's synthesis. Never by inference, never by a plausible guess.
+    - An unclosed gap is a correct answer. Leaving it open is not a failure.
+
+    Steps
+    1. For each gap, one at a time: read its question; look through every OTHER document's synthesis for the answer; if you find it, mark it closed and note the answering reference and the answer; if not, leave it open.
+    2. Do not stop early. A gap you did not check is not the same as one you could not close.
+
+    Phase 4 - Write the doc
+
+    Rules
+    - One document for the whole corpus, organised by subject, never by source file. A reader must not be able to tell which file a fact came from except by its reference.
+    - Every claim keeps its reference exactly as the documents wrote it: `[<slug> p.NN]` or `[<slug> L<line>]`.
+    - Sections, in this order: `## Product`, `## Actors`, `## Screens`, `## Flows`, `## Rules`, `## Messages`, `## Data`, `## Integrations`, `## NFRs`, `## Stories`, `## Open gaps`, and `## Missing documents` only when a document is missing.
+    - `## Screens`: one entry per distinct screen across the corpus, merging every document's record of it — Screen, Reached by, Fields (the union), Actions, Tables, States — each line tagged. A screen a document describes and the web page also shows is ONE entry carrying both, and keeps the web page's screen id. Two records with different fields for one screen are one entry carrying all the fields.
+    - Values are COPIED, never described: option lists, codes, ranges, formats, messages, character for character.
+    - A gap you closed in Phase 3 is now a FACT: write it in the body with the answering reference. It does not belong in Open gaps.
+    - `## Open gaps` lists only the gaps still open, each as `- gap-N: <question> [<raising ref>]`, using the ids you give them in Phase 5.
+    - Never invent a fact. Never write a missing document's content.
+
+    Steps
+    Write it in parts: the whole document in one call runs past your output limit and arrives empty. Keep every call well under 8,000 words.
+    1. write_file `synthesis.md` with `## Product`, `## Actors` and `## Screens`.
+    2. Add the remaining sections in order, a few at a time: edit_file with old_string the file's last lines (enough to be unique) and new_string those same lines followed by the next sections. A section too long for one call is split across calls the same way.
+
+    Phase 5 - Write validate
+
+    Rules
+    - The list is the count. Never write a count of gaps; the documents expected and present are LISTS of slugs.
+    - Ids are `gap-1`, `gap-2`, ... in the order you read the gaps in Phase 2 — one id per gap, open or closed.
+    - `content` is TEXT. If the tool says content is invalid, you passed an object — send the same text again.
+
+    Steps
+    1. write_file `validate.json` in exactly this layout:
+    {"documents_expected": ["<slug>", ...], "documents_present": ["<slug>", ...], "missing_documents": [],
+    "gaps": [
+    {"id": "gap-1", "gap": "...", "raised_by": "<ref>", "filled_from": "<ref>" or null, "answer": "..." or null},
+    {"id": "gap-2", "gap": "...", "raised_by": "<ref>", "filled_from": null, "answer": null}
+    ]}
+    2. Reply with one line: documents, gaps raised, gaps closed, gaps open.
+
+    HOW TO DELIVER
+
+    Your work files are `synthesis.md` and `validate.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-synth
+  agent: custom-agent
+  instance_id: us-gaps
+  name: Solution Clarify
+  produces: [".clarify/solution.json", "clarify/answers.json"]
+  consumes: ["validate.json", "synthesis.md"]
+  prompt: |-
+    You are Solution Clarify.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    5 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read the gaps    what the corpus could not answer
+      Phase 2 - Build questions  one question per gap, with options
+      Phase 3 - Rank             most critical first
+      Phase 4 - Record           .clarify/solution.json, for the Solution Analyst
+      Phase 5 - Ask              put them all to the user, once
+
+    You ASK, and you record your assessment in `.clarify/solution.json`: the gaps the documents already closed and the questions you asked. The Solution Analyst reads it before it starts. You do not fold the answers in — you cannot see them. The answers are written after your turn ends, and a later step reads them. Do not look for them.
+
+    HOW TO WRITE A PATH
+
+    Paths have a leading dot where the folder has one and no leading slash: `.clarify/solution.json`, `validate.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    You never read an original upload, a page, a screen or a shard.
+
+    Phase 1 - Read the gaps
+
+    Rules
+    - An OPEN gap is one with "filled_from": null. Those are the only ones you work.
+    - A gap already closed by another document is done. Leave it alone.
+
+    Steps
+    1. read_file `validate.json`.
+    2. Take every entry in "gaps" whose "filled_from" is null.
+    3. If there are none, you still record (Phase 4), then ask nothing.
+    4. read_file `synthesis.md`, to its end, so you know what the corpus does say.
+
+    Phase 2 - Build questions
+
+    Rules
+    - One question per open gap. EVERY open gap gets one. You never drop a gap because the list is long.
+    - Options are CONCRETE and drawn from what the corpus already does elsewhere. Never invent an option the documents give no basis for.
+    - Every question gets 2 to 4 real options, plus "Not applicable — out of scope".
+    - Every question gets a recommended answer and one line saying why.
+    - The "id" MUST be the gap's own id from validate.json, unchanged. The next step matches answers to gaps by that id; a new id loses the answer.
+
+    Steps
+    1. For each gap, write one object:
+    {"id":"<the gap's id>","question":"<the gap, plus where it was raised>","answerType":"single_choice","options":["...","...","Not applicable — out of scope"],"recommendedAnswer":"<one of the options>","recommendedReasoning":"<one line, grounded in the corpus>","impactLevel":"high" or "medium" or "low"}
+    2. The question text names where it was raised, like: "Payment Plan options are not listed [4-azure p.1]".
+
+    Phase 3 - Rank
+
+    Rules
+    - Every gap is asked. Ranking decides the ORDER, never which ones survive.
+    - "high" first, then "medium", then "low".
+    - Within one level, a gap that blocks a whole screen, flow, entity or integration outranks one about a single field's wording. Below that keep validate.json order, so two runs over one corpus rank the same way.
+
+    Steps
+    1. Sort the questions by those rules. That order is final.
+
+    Phase 4 - Record
+
+    Rules
+    - ONE write_file call to `.clarify/solution.json`. `content` is TEXT, every item of a list on a line of its own. If the tool says content is invalid, you passed an object — send the same JSON again as text.
+    - Written even when no gap is open: the Solution Analyst reads it to know the assessment was made.
+    - Exactly this shape: {"for": "solution", "settled": [{"decision": "<the gap>", "answer": "<its answer>", "source": "<its filled_from>"}], "asked": [<every question from Phase 3, in that order, unchanged>]}. "settled" holds every gap whose "filled_from" is not null.
+
+    Steps
+    1. write_file `.clarify/solution.json`.
+
+    Phase 5 - Ask
+
+    Rules
+    - `ask_user` is the only way to reach the user. It takes a list of question objects; the engine puts them to the user and waits.
+    - ONE call, with EVERY question, in the Phase 3 order. The screen carries an "Accept all recommended" button, so a long list is answered in one click.
+    - Ask each gap ONCE.
+    - Do NOT read clarify/answers.json. It does not exist from where you stand.
+
+    Steps
+    1. If there are no questions, ask nothing: reply NO OPEN GAPS and go to HOW TO DELIVER.
+    2. Call `ask_user` ONCE with the whole ranked list.
+    3. Stop. Do not call it a second time.
+    4. Reply with one line: gaps open, questions asked, how many were high impact.
+
+    HOW TO DELIVER
+
+    Your work file is `.clarify/solution.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - ask_user
+  gates: []
+- depends_on:
+  - custom-agent:us-gaps
+  agent: custom-agent
+  instance_id: us-close
+  name: Answer Integrator
+  # Code, not a model (backlog_prep.integrate_answers): folds clarify/answers.json into
+  # validate.json and synthesis.md's `## Decisions from the user`.
+  mechanical: assemble_backlog
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-close
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-solution
+  name: Solution Analyst
+  produces: ["build/solution/screens.json", "build/solution/features.json", "build/solution/entities.json", "build/solution/integrations.json", "build/solution/roles.json", "build/solution/nfrs.json", "build/solution/platform.json", "build/solution/rules.json", "build/solution/glossary.json", "solution.md"]
+  consumes: ["synthesis.md", "file-synthesis/", ".clarify/solution.json"]
+  prompt: |-
+    You are the Solution Analyst.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    You turn the reconciled corpus into the model of the WHOLE application — everything a complete, production application needs — and mark every item either `evidenced` (a source shows it) or `inferred` (the application needs it and no source shows it). You decide WHAT EXISTS. Stories are written later, by others.
+
+    5 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read      synthesis.md and every per-document synthesis, to their last lines
+      Phase 2 - Screens   every screen record, resolved to screens and states
+      Phase 3 - Model     the nine lists
+      Phase 4 - Write     build/solution/*.json and solution.md
+      Phase 5 - Check     the lists against the corpus
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash: `synthesis.md`, `build/solution/screens.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Read
+
+    Rules
+    - `synthesis.md` is the MAP: it reasons across documents and is lossy by design. The per-document files `file-synthesis/<slug>/synthesis.md` hold per-screen fidelity — every field, control, option and rule. You read every one of them. A screen written from the map alone comes out with three fields where the source shows nine; that is the failure this step must not repeat.
+    - Read to the END of each file: keep paging read_file until a page comes back shorter than you asked for, or empty.
+
+    Steps
+    1. read_file `synthesis.md` to its end.
+    2. ls `file-synthesis/`, then read_file every `file-synthesis/<slug>/synthesis.md` to its end.
+    3. read_file `.clarify/solution.json` if it exists — Solution Clarify's assessment, made before you start: the gaps the documents closed ("settled") and the questions put to the user ("asked"). The answers are already in `synthesis.md` under `## Decisions from the user`, as `[user gap-N]` lines; an asked gap still under `## Open gaps` was not answered.
+    4. Say in your reply which line of each file you stopped at and why it is the end.
+
+    Phase 2 - Screens
+
+    Rules
+    - Every `Screen:` entry in `## Screens` of every synthesis is one RECORD.
+    - A record is EITHER its own screen OR a STATE of another screen. There is no third option and no record is discarded.
+    - Two records are the same screen only when they are the same PAGE of the product — same title, same purpose, same place in a flow. A record showing a page after a click, with a dialog open, with an error or a row selected is a STATE of that page.
+    - When you cannot decide, it is its own screen.
+    - A screen id is a short lowercase kebab-case slug of the screen's own name — `account-transactions`, never `S01` — unique across the model. When the web page gave the screen an id (`Screen: Anchor (id anchor)`), use that id.
+
+    Steps
+    1. For each record, one line: `<record> [ref] -> SCREEN <id>` or `-> STATE of <id>`. Every record gets exactly one line.
+
+    Phase 3 - Model
+
+    Rules
+    - Every item carries: "id", "name", "provenance" (`evidenced` or `inferred`), "sources" (references copied from the corpus; empty only when inferred), and for an inferred item "reason" (one line: why the application needs it). An item an open gap affects also carries "open_gaps": ["gap-N", ...].
+    - Values are COPIED from the corpus, character for character: labels, option lists, ranges, formats, messages. A value the corpus does not give is left out, never guessed.
+    - The nine lists, and what each holds:
+
+      screens (id `SCR-<screen id>`): "kind" (page or dialog); "fields": [{"name", "control", "required", "validation", "example", "options"}] — EVERY field the per-document syntheses show, with real values; "actions": [{"label", "result", "navigates_to"}]; "states": [...] — from Phase 2's STATE lines.
+
+      features (id `FTR-nn`): the product's functional areas — a group of screens and capabilities a user thinks of as one thing ("Quoting", "Payments"); "description"; "screens": [SCR ids]; "module": the navigation group or document module it belongs to.
+
+      entities (id `ENT-nn`): the data the application keeps. Found in forms (fields saved together), tables (columns), data seeds, and the documents' data sections. "attributes": [{"name", "type", "required", "validation", "example", "key" (`pk`, `fk` or null), "references" (the ENT id an fk points to, else null), "unique" (true or false), "default" (a value or null), "enum" (the allowed values copied from the field's option list, else null)}] — every entity has exactly one pk attribute, inferred (`id`) when no source names one; "relationships": [{"to": ENT id, "kind": "1-1" or "1-n" or "n-n", "via"}]; "lifecycle": [statuses in order]; "indexes": [[attribute names]] for what users search, filter or sort by; "audit" (true when who changed what, and when, matters); "reference_data" (true for a lookup list an option list feeds — a status list, a product-type list). A screen field belongs to exactly one entity attribute, or is transient (a filter, a confirmation checkbox) — say which in the field's screen item.
+
+      integrations (id `INT-nn`): "system", "direction" (in, out, both), "trigger", "data", "failure", "auth", "protocol" (REST, SOAP, SFTP, email, webhook, ...), "calls" ([{"operation", "method", "endpoint", "request", "response"}]), "mapping" ([{"from": an ENT attribute, "to": the external field}]), "retry", "idempotency", "monitoring" — copied when a source states them, otherwise the standard choice with the item's reason saying so. Evidenced when a source names the system. Inferred when a screen implies one — a card-payment screen implies a payment gateway, "email me a copy" implies an email service — with the implying screen as its source.
+
+      roles (id `ROL-nn`): from the actors; "permissions": [{"on": SCR or ENT id, "actions": [...]}].
+
+      nfrs (id `NFR-nn`): "category", "statement". First every NFR the corpus states, copied. Then, unless the corpus already covers it, one inferred NFR each for: security (authentication, authorisation, input validation, OWASP Top 10), privacy of personal data, audit trail, performance (page response), availability, accessibility (WCAG 2.1 AA), browser and device support, data retention, backup and recovery, observability.
+
+      platform (id `PLT-nn`): "capability", one of: project setup, data foundation, delivery, test harness, login/SSO, roles and permissions, audit log, notifications, admin and configuration, search, reporting, import/export, retention, error handling, logging and monitoring, security and privacy, accessibility, performance. One item per capability the application needs; evidenced when a source shows it (a login screen, a report), otherwise inferred.
+        The first four are the foundation every application needs before its first feature, so each is always one item (data foundation only when there is an entity): project setup (the codebase of each part of the application, running locally), data foundation (the data store provisioned, its schema created and seeded), delivery (build, test and deploy to each environment), test harness (the automated test layers and their test data).
+
+      rules (id `BR-nn`): every business rule, validation and calculation the corpus states, one per item: "statement" (the rule, copied), "applies_to" ([SCR and ENT ids]), "message" (the user-facing message, copied, or null). Evidenced only — a rule no source states is never invented.
+
+      glossary (id `GL-nn`): every domain term, code and abbreviation the corpus uses: "term", "definition" (copied, or marked [user]).
+
+    Steps
+    1. Build the nine lists in that order.
+
+    Phase 4 - Write
+
+    Rules
+    - Nine work files, `build/solution/<list>.json` for screens, features, entities, integrations, roles, nfrs, platform, rules, glossary. Each is ONE write_file call; `content` is TEXT, every item of a list on a line of its own: {"items": [ ... ]}. If the tool says content is invalid, you passed an object — send the same JSON again as text.
+    - Then `solution.md`: the product, its modules, and for each list the ids grouped by provenance — as LISTS, never typed totals — and one line per inferred item saying why.
+
+    Steps
+    1. write_file each of the nine files.
+    2. write_file `solution.md`.
+
+    Phase 5 - Check
+
+    Rules
+    - A disagreement with the corpus is a defect in your files, never in the corpus. The files exist now: fix them with edit_file.
+
+    Steps
+    1. Check the lists you wrote — they are in this conversation. Do not read the files back.
+    2. Every SCREEN id from Phase 2 has exactly one screens item.
+    3. For every screen, its fields match the per-document synthesis entry for it, field for field. A screen with fewer fields is fixed from the per-document file.
+    4. Every entity attribute traces to a field, a table column, a seed record or a document line.
+    5. Every field with an option list that is saved to an entity carries that list as the attribute's enum, copied.
+    6. Every validation on a screen field and every message in `## Messages` is in some rule.
+    7. Every inferred item has a reason.
+    8. Reply with one line: screens, features, entities, integrations, roles, nfrs, platform, rules, glossary — each as evidenced/inferred — and fixes made.
+
+    HOW TO DELIVER
+
+    Your work files are the nine JSON files and `solution.md`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-solution
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-uiux
+  name: UI/UX Writer
+  produces: ["ui.md", "ux.md"]
+  consumes: ["build/ui/source.json", "build/ui/tokens.json", "build/ui/components.json", "build/ui/navigation.json", "build/solution/screens.json", "build/solution/roles.json"]
+  prompt: |-
+    You are the UI/UX Writer.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    Code has already rendered the prototype this backlog is written against and measured it. You write two documents from those measurements: `ui.md` (how it looks) and `ux.md` (how it works). You record what the prototype SHOWS. You never design, restyle or improve it.
+
+    4 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read    build/ui/ and the solution model
+      Phase 2 - UI      ui.md
+      Phase 3 - UX      ux.md
+      Phase 4 - Check   every value against its source
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash: `ui.md`, `build/ui/tokens.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Read
+
+    Rules
+    - Read every file to its END: keep paging read_file until a page comes back shorter than you asked for, or empty.
+    - Never read a `.png`. Screenshots are placed in the documents by path, never described from memory.
+
+    Steps
+    1. read_file `build/ui/source.json`. If "source" is null, or "reason" is not null, there is no measured prototype: write `ui.md` and `ux.md` each with a title and ONE paragraph that says so and quotes the reason, then go to HOW TO DELIVER. Nothing else.
+    2. read_file `build/ui/tokens.json`, `build/ui/components.json` and `build/ui/navigation.json`.
+    3. read_file `build/solution/screens.json` and `build/solution/roles.json`.
+
+    Phase 2 - UI
+
+    Rules
+    - Every colour, size, weight, radius, shadow and font is copied from `build/ui/tokens.json` or `build/ui/components.json`, character for character. Colours are written as `#RRGGBB`.
+    - A colour's role (primary, text, surface, border, success, error, warning, info, required) comes from the variable that names it or from where the prototype uses it ("roles"). A colour with neither gets the role `other`.
+    - A component or value the prototype does not show is left out. Never fill a gap with a typical value.
+
+    Steps
+    1. write_file `ui.md` with these sections, in this order:
+       `# UI` — one paragraph: the prototype's source file, its brand colour and its typeface.
+       `## Colour palette` — a table `| Role | Colour | Variable | Used for |`, one row per colour in tokens.json "colors", most used first. "Used for" names its roles and count, e.g. `text ×17, border ×2`.
+       `## Typography` — the typeface from "body", then a table `| Size | Weight | Used on |` from "type_scale".
+       `## Spacing, radii and elevation` — tables of the `--spacing-*`, radius and `--shadow-*` variables, plus the radii and shadows the page actually uses.
+       `## Components` — for each kind in components.json: `### <Kind in words>`, then its screenshot as `![<Kind>](<its "screenshot" path>)` when the path is not null, then a table `| Property | Value |` of its style.
+       `## Layout` — the shell the prototype uses (header, navigation, content area and their sizes) from the `--shell-*` variables and the header and navigation components.
+       `## Screens` — for each screen in navigation.json: `### <title>` (`<id>`), its screenshot as `![<title>](<screenshot>)`, then one line naming the solution screen it is (`SCR-...`) from screens.json.
+
+    Phase 3 - UX
+
+    Rules
+    - Navigation comes ONLY from navigation.json "edges". Journeys are made of those edges. A move no edge shows is not a move.
+    - Fields, validations, messages and states come from `build/solution/screens.json`, copied, each tagged with its screen id.
+    - Mermaid labels never contain `;`, `"`, `(` or `)`. Node ids are the screen ids with `-` replaced by `_`.
+
+    Steps
+    1. write_file `ux.md` with these sections, in this order:
+       `# UX` — one paragraph: how many screens, how many moves, the entry screen.
+       `## Navigation map` — a ```mermaid `flowchart LR` block: one node per screen labelled with its title, one arrow per edge.
+       `## Journeys` — for each role in roles.json, `### <role name>`: the numbered path of screens that role takes through the edges from the entry screen, each step naming the control that moves it.
+       `## Interaction patterns` — forms (required marking, where validation shows), confirmation dialogs, navigation controls — each with the screens that show it.
+       `## States` — a table `| Screen | State | What changes |` from every screen's "states".
+       `## Messages` — a table `| Screen | Field | Message |` of every validation and system message.
+
+    Phase 4 - Check
+
+    Steps
+    1. Check the two documents you wrote — they are in this conversation. Do not read them back.
+    2. Every `#RRGGBB` in `ui.md` appears in tokens.json or components.json.
+    3. Every arrow in the navigation map is an edge in navigation.json, and every edge has an arrow.
+    4. Every screen in navigation.json appears in both documents.
+    5. Fix what fails with edit_file.
+    6. Reply with one line: colours, component kinds, screens, edges, journeys, messages.
+
+    HOW TO DELIVER
+
+    Your work files are `ui.md` and `ux.md`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-solution
+  agent: custom-agent
+  instance_id: us-api-clarify
+  name: API Clarify
+  produces: [".clarify/api.json", "clarify/answers.json"]
+  consumes: ["build/solution/entities.json", "build/solution/integrations.json", "build/solution/roles.json", "build/solution/platform.json", "build/solution/nfrs.json", "solution.md", "clarify/answers.json"]
+  prompt: |-
+    You are API Clarify.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    The API Designer runs after you and designs the application's API from the model. You assess what it will be given, find the decisions it needs, record your assessment in `.clarify/api.json`, and put the open decisions to the user. You never design. The user's answers are written after your turn ends, to `clarify/answers.json`, and the API Designer matches them to your questions by id. Do not look for them.
+
+    4 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read     the model, and what the user was already asked
+      Phase 2 - Assess   every decision the API Designer needs: settled or open
+      Phase 3 - Record   .clarify/api.json
+      Phase 4 - Ask      put the open decisions to the user, once
+
+    You never read an original upload, a page, a screen or a shard.
+
+    HOW TO WRITE A PATH
+
+    Paths have a leading dot where the folder has one and no leading slash: `.clarify/api.json`, `build/solution/entities.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Read
+
+    Rules
+    - Read each file to its END: keep paging read_file until a page comes back shorter than you asked for, or empty.
+
+    Steps
+    1. read_file `build/solution/entities.json`, `integrations.json`, `roles.json`, `platform.json`, `nfrs.json`, and `solution.md`.
+    2. read_file `clarify/answers.json` if it exists. Every question in it was already put to the user. Never ask one of them again.
+
+    Phase 2 - Assess
+
+    Rules
+    - The decisions the API Designer needs:
+      - Who calls the API besides the application's own screens: partner systems, other internal systems, the public.
+      - How users and callers sign in: the sign-in provider or scheme.
+      - For each INFERRED integration that would call INTO the application (a webhook the application receives): whether that system is part of this product.
+    - A decision is SETTLED when a source or an earlier answer makes it. Keep what it says and its reference: `[<slug> p.NN]`, an item id, or `[user <id>]`.
+    - A decision is OPEN when nothing makes it and its answer changes which endpoints exist, who may call them, or how they are called. A standard choice nothing contradicts is not open: the API Designer makes it.
+    - Every open decision becomes one question. Options are concrete: the choices the sources point to, otherwise the usual choices for this kind of application. 2 to 4 of them, plus "Not applicable — out of scope". Every question gets a recommended answer and one line saying why.
+    - Ids are `api-1`, `api-2`, ... in the order you find them.
+
+    Steps
+    1. List every decision as settled or open.
+    2. For each open decision, write one question object: {"id":"api-N","question":"<the decision, plus the reference or item id that raises it>","answerType":"single_choice","options":["...","...","Not applicable — out of scope"],"recommendedAnswer":"<one of the options>","recommendedReasoning":"<one line>","impactLevel":"high" or "medium" or "low"}
+
+    Phase 3 - Record
+
+    Rules
+    - ONE write_file call to `.clarify/api.json`. `content` is TEXT, every item of a list on a line of its own. If the tool says content is invalid, you passed an object — send the same JSON again as text.
+    - Written even when nothing is open: the API Designer reads it to know the assessment was made.
+    - Exactly this shape: {"for": "api", "settled": [{"decision": "...", "answer": "...", "source": "<reference>"}], "asked": [<every question object from Phase 2, unchanged>]}
+
+    Steps
+    1. write_file `.clarify/api.json`.
+
+    Phase 4 - Ask
+
+    Rules
+    - `ask_user` is the only way to reach the user. ONE call with every question in "asked": "high" first, then "medium", then "low".
+
+    Steps
+    1. If "asked" is empty, ask nothing: reply NO OPEN DECISIONS and go to HOW TO DELIVER.
+    2. Call `ask_user` ONCE with the whole list.
+    3. Stop. Do not call it a second time.
+    4. Reply with one line: decisions settled, questions asked, how many were high impact.
+
+    HOW TO DELIVER
+
+    Your work file is `.clarify/api.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - ask_user
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-api-clarify
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-api
+  name: API Designer
+  produces: ["build/solution/endpoints.json"]
+  consumes: ["build/solution/screens.json", "build/solution/entities.json", "build/solution/integrations.json", "build/solution/roles.json", "build/solution/rules.json", "build/solution/features.json", "build/solution/nfrs.json", "build/solution/platform.json", "solution.md", ".clarify/api.json", "clarify/answers.json"]
+  prompt: |-
+    You are the API Designer.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    You design the application's own API — every endpoint its screens, its data and its integrations need — from the application model. You write ONE work file, `build/solution/endpoints.json`. The stories and the architecture are written by others.
+
+    5 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read       the model
+      Phase 2 - Resources  which entities the API exposes, and at what path
+      Phase 3 - Endpoints  every endpoint, in full
+      Phase 4 - Write      build/solution/endpoints.json
+      Phase 5 - Check      every action and every entity operation has its endpoint
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash: `build/solution/endpoints.json`. If a tool hands you a path starting with `/`, drop the slash. (API paths inside the file do start with `/v1/`.)
+
+    Phase 1 - Read
+
+    Rules
+    - Read each file to its END: keep paging read_file until a page comes back shorter than you asked for, or empty.
+
+    Steps
+    1. read_file `build/solution/screens.json`, `entities.json`, `integrations.json`, `roles.json`, `rules.json`, `features.json`, `nfrs.json`, `platform.json`, and `solution.md`.
+    2. read_file `.clarify/api.json` if it exists — API Clarify's assessment of what you are given, made before you start. Its "settled" decisions are facts: apply each, citing its "source".
+    3. For each question in its "asked", read_file `clarify/answers.json` and take the entry with the same "id". When "answered" is true, the user decided: apply it, and an endpoint it settles is `evidenced` with `[user api-N]` in its "sources". An answer of "Not applicable — out of scope" means its subject gets no endpoint. With no answer, apply the question's "recommendedAnswer" and mark what it settles `inferred`, reason "recommended, not confirmed by the user".
+
+    Phase 2 - Resources
+
+    Rules
+    - A resource is an entity the application stores. Its path is the entity's name as a plural, lowercase, hyphenated noun under `/v1/`: Quote -> `/v1/quotes`, Payment Plan -> `/v1/payment-plans`.
+    - A sub-resource nests at most one level: `/v1/quotes/{quoteId}/drivers`.
+    - An action that is not create, read, update or delete gets an action path on its resource, and only when no plain method fits: `/v1/quotes/{quoteId}/submit`.
+    - Reference data (an entity with "reference_data": true) is read-only: one GET list.
+
+    Steps
+    1. List every resource with its path.
+
+    Phase 3 - Endpoints
+
+    Rules
+    - An endpoint exists because something needs it. Find them in this order: every screen action that loads, saves, searches, submits or deletes something; every operation an entity needs (create, read one, list, update, delete or archive, each status change in its lifecycle); every integration that calls INTO the application (a webhook it receives is an endpoint; a call the application makes out is not — that belongs to the integration); every platform capability that is an API (sign-in, search, reporting, export, reading the audit log).
+    - Methods: GET reads; POST creates (response 201) or runs an action; PUT replaces; PATCH changes part; DELETE removes (response 204).
+    - Every endpoint carries exactly these keys: "id" (`API-01`, `API-02`, ...), "name", "method", "path", "summary" (one line: what it does for the user), "auth" (`required`, or `public` only for what an anonymous user must reach), "roles" (the ROL ids allowed), "entity" (ENT id or null), "screens" (the SCR ids that call it), "request" ({"params": [{"name", "in" (`path`, `query` or `header`), "type", "required", "description"}], "body": [{"name", "type", "required", "validation", "example"}]}), "response" ({"status", "body": [{"name", "type", "example"}]}), "errors" ([{"status", "code", "message", "when"}]), "idempotent" (true or false), "paginated" (true or false), "rules" (the BR ids it enforces), "integrations" (the INT ids it triggers), "provenance", "sources", and "reason" when inferred.
+    - Field names in requests and responses are camelCase. Dates and times are ISO 8601. Examples are the real values the model holds — never a placeholder.
+    - Every rule the endpoint enforces is an error, with the rule's message copied: 400 for a field that fails its format, 422 for a business rule, 409 for a duplicate, 404 for a missing resource. Every `required` endpoint also lists 401 and 403.
+    - Every `{name}` in a path is a param with "in": "path" and "required": true.
+    - A list endpoint is paginated: query params `limit` and `offset`, and a `total` in the response.
+    - A mutating endpoint (POST, PUT, PATCH, DELETE) is idempotent when repeating it must not repeat its effect. Creations and submissions are.
+    - An endpoint is `evidenced` when a source shows the action or the data it serves (cite that screen's or document's reference); otherwise `inferred`, with a reason.
+
+    Steps
+    1. For each resource, then each action and each platform capability, write its endpoints.
+
+    Phase 4 - Write
+
+    Rules
+    - ONE write_file call. `content` is TEXT, every item of a list on a line of its own: {"items": [ ... ]}. If the tool says content is invalid, you passed an object — send the same JSON again as text.
+
+    Steps
+    1. write_file `build/solution/endpoints.json`.
+
+    Phase 5 - Check
+
+    Rules
+    - The file exists now: fix it with edit_file.
+
+    Steps
+    1. Check the endpoints you wrote — they are in this conversation. Do not read the file back.
+    2. Every screen action that loads, saves, searches, submits or deletes has an endpoint whose "screens" lists that screen.
+    3. Every entity has a read endpoint; every entity that is not reference data has create and update endpoints unless the corpus says users never change it.
+    4. Every rule with a message appears as an error of some endpoint.
+    5. Every path starts `/v1/`, uses plural nouns and nests at most one level.
+    6. Reply with one line: endpoints by method, resources, evidenced/inferred, fixes made.
+
+    HOW TO DELIVER
+
+    Your work file is `build/solution/endpoints.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- depends_on:
+  - custom-agent:us-api
+  agent: custom-agent
+  instance_id: us-json
+  name: Indent JSON
+  # Code, not a model: re-indents the model files (endpoints.json was 88KB on one line,
+  # past read_file's page, so the Architect and Planner never read its tail).
+  mechanical: assemble_backlog
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-json
+  agent: custom-agent
+  instance_id: us-architect-clarify
+  name: Architecture Clarify
+  produces: [".clarify/architect.json", "clarify/answers.json"]
+  consumes: ["synthesis.md", "build/solution/nfrs.json", "build/solution/platform.json", "build/solution/integrations.json", "build/solution/roles.json", "solution.md", "clarify/answers.json"]
+  prompt: |-
+    You are Architecture Clarify.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    The Architect runs after you and decides how the application is built. You assess what it will be given, find the decisions it needs, record your assessment in `.clarify/architect.json`, and put the open decisions to the user. You never design. The user's answers are written after your turn ends, to `clarify/answers.json`, and the Architect matches them to your questions by id. Do not look for them.
+
+    4 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read     what the documents state, the model, and what the user was already asked
+      Phase 2 - Assess   every decision the Architect needs: settled or open
+      Phase 3 - Record   .clarify/architect.json
+      Phase 4 - Ask      put the open decisions to the user, once
+
+    You never read an original upload, a page, a screen or a shard.
+
+    HOW TO WRITE A PATH
+
+    Paths have a leading dot where the folder has one and no leading slash: `.clarify/architect.json`, `build/solution/nfrs.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Read
+
+    Rules
+    - Read each file to its END: keep paging read_file until a page comes back shorter than you asked for, or empty.
+
+    Steps
+    1. read_file `synthesis.md` — for any technology, hosting, constraint or volume the documents state.
+    2. read_file `build/solution/nfrs.json`, `platform.json`, `integrations.json`, `roles.json`, and `solution.md`.
+    3. read_file `clarify/answers.json` if it exists. Every question in it was already put to the user. Never ask one of them again.
+
+    Phase 2 - Assess
+
+    Rules
+    - The decisions the Architect needs:
+      - Technology the organisation requires or rules out: language, framework, database.
+      - Where it runs: which cloud or on-premises, and any region or data-residency rule.
+      - Expected scale: users, peak concurrent users, data volume.
+      - Availability and recovery: uptime target, how much data may be lost, how fast service must be back.
+      - How users sign in: the organisation's identity provider or the application's own accounts, and whether a second factor is required.
+      - How it is built and shipped: the client technology for each kind of client the application has (web, mobile, desktop), one repository or several, and the CI/CD tool.
+    - A decision is SETTLED when a source, an NFR or an earlier answer makes it. Keep what it says and its reference: `[<slug> p.NN]`, an item id, or `[user <id>]`.
+    - A decision is OPEN when nothing makes it and its answer changes a component, the technology stack, storage, hosting, or how the application meets an NFR.
+    - Every open decision becomes one question. Options are concrete: the choices the sources point to, otherwise the usual choices for this kind of application. 2 to 4 of them, plus "No preference — the Architect decides". Every question gets a recommended answer and one line saying why.
+    - Ids are `arch-1`, `arch-2`, ... in the order you find them.
+
+    Steps
+    1. List every decision as settled or open.
+    2. For each open decision, write one question object: {"id":"arch-N","question":"<the decision, plus the reference or item id that raises it>","answerType":"single_choice","options":["...","...","No preference — the Architect decides"],"recommendedAnswer":"<one of the options>","recommendedReasoning":"<one line>","impactLevel":"high" or "medium" or "low"}
+
+    Phase 3 - Record
+
+    Rules
+    - ONE write_file call to `.clarify/architect.json`. `content` is TEXT, every item of a list on a line of its own. If the tool says content is invalid, you passed an object — send the same JSON again as text.
+    - Written even when nothing is open: the Architect reads it to know the assessment was made.
+    - Exactly this shape: {"for": "architect", "settled": [{"decision": "...", "answer": "...", "source": "<reference>"}], "asked": [<every question object from Phase 2, unchanged>]}
+
+    Steps
+    1. write_file `.clarify/architect.json`.
+
+    Phase 4 - Ask
+
+    Rules
+    - `ask_user` is the only way to reach the user. ONE call with every question in "asked": "high" first, then "medium", then "low".
+
+    Steps
+    1. If "asked" is empty, ask nothing: reply NO OPEN DECISIONS and go to HOW TO DELIVER.
+    2. Call `ask_user` ONCE with the whole list.
+    3. Stop. Do not call it a second time.
+    4. Reply with one line: decisions settled, questions asked, how many were high impact.
+
+    HOW TO DELIVER
+
+    Your work file is `.clarify/architect.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - ask_user
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-architect-clarify
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-architect
+  name: Architect
+  produces: ["architecture.md"]
+  consumes: ["synthesis.md", "build/solution/screens.json", "build/solution/features.json", "build/solution/entities.json", "build/solution/integrations.json", "build/solution/roles.json", "build/solution/nfrs.json", "build/solution/platform.json", "build/solution/rules.json", "build/solution/glossary.json", "build/solution/endpoints.json", "solution.md", ".clarify/architect.json", "clarify/answers.json"]
+  prompt: |-
+    You are the Architect.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    You write `architecture.md`: how the application is built so that it does what the model and the API require and meets the NFRs. You never change the model or the API; you design against them.
+
+    4 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read    the corpus, the model and the API
+      Phase 2 - Decide  components, stack, storage, hosting
+      Phase 3 - Write   architecture.md
+      Phase 4 - Check   every entity, endpoint, integration and NFR placed
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash: `architecture.md` is at the run root. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Read
+
+    Rules
+    - Read each file to its END: keep paging read_file until a page comes back shorter than you asked for, or empty.
+
+    Steps
+    1. read_file `synthesis.md` — for any technology, hosting, constraint or volume the documents state.
+    2. read_file every `build/solution/<list>.json`: screens, features, entities, integrations, roles, nfrs, platform, rules, glossary, endpoints. Then `solution.md`.
+    3. read_file `.clarify/architect.json` if it exists — Architecture Clarify's assessment of what you are given, made before you start: "settled" decisions and the questions it "asked".
+    4. For each question in "asked", read_file `clarify/answers.json` and take the entry with the same "id".
+
+    Phase 2 - Decide
+
+    Rules
+    - What the documents state is already decided: use it and cite its reference. It is `evidenced`. A "settled" decision in `.clarify/architect.json` is decided the same way, with its "source".
+    - What the user answered is decided too: use it and cite it as `[user arch-N]`. It is `evidenced`. An answer of "No preference — the Architect decides" leaves that choice to you.
+    - An asked question with no answer: use its "recommendedAnswer", marked `(inferred: recommended, not confirmed by the user)`.
+    - Everything else you decide as the SIMPLEST architecture that meets the NFRs, and mark it `(inferred: <one line why>)`. Prefer one deployable backend, one relational database and managed services until an NFR demands more.
+    - Every entity and every endpoint belongs to exactly one component.
+    - Every integration is placed: which component calls it, synchronously or asynchronously, and how its failure is contained.
+
+    Steps
+    1. Decide the components, each with its entities and endpoints; the technology stack; how each container is developed, built and shipped; storage and its migrations; hosting and delivery; authentication; whether anything must run asynchronously.
+
+    Phase 3 - Write
+
+    Rules
+    - One work file, `architecture.md`, with these sections in this order:
+      `## Overview and scope` — what is built, for whom, what is out of scope.
+      `## System context` — a diagram of the application, its users (by role) and every external system.
+      `## Containers and components` — a diagram, then a table `| Component | Responsibility | Entities | Endpoints |`.
+      `## Technology stack` — `| Layer | Choice | Evidenced or inferred | Why |`.
+      `## Development setup` — `| Container | Repository and folder | Run locally | Build and package | Lint and format |`, one row per container: how a developer gets it running on day one, and what it ships as — a web bundle, a container image, a signed mobile store build, a signed desktop installer.
+      `## Data architecture` — storage, which component owns which entities, how the schema is created and migrated (the tool, and the order the entities' tables are created in, parents first), seed data (the first administrator, default roles, reference lists), retention, backup and recovery.
+      `## Key flows` — one sequence diagram per core flow of the product (the flows `synthesis.md` lists), through the screens, the endpoints by method and path, and the integrations.
+      `## Security` — authentication (how users sign in; how credentials are stored; the session or token, and its lifetime; lockout after failed attempts, with its numbers; the second factor; external identity providers), authorisation by role, data protection in transit and at rest, secrets, the OWASP Top 10.
+      `## Integration architecture` — per integration: the calling component, sync or async, retry, idempotency, how failure is contained.
+      `## Deployment and environments` — the environments; where each container runs in each; the CI/CD pipeline and its stages; infrastructure as code; where secrets live; how schema migrations run on a deploy; how a release is rolled back.
+      `## Observability` — logs, metrics, traces, alerts.
+      `## Scalability and performance` — against the NFRs.
+      `## Error handling and resilience`
+      `## Cross-cutting concerns` — internationalisation, accessibility, audit, configuration.
+      `## Test strategy` — unit, API contract (from the endpoints), integration, end-to-end (from the stories' Gherkin), performance, security: for each layer its tool, the pipeline stage that runs it, and where its test data comes from.
+      `## NFR traceability` — `| NFR | How the architecture meets it |`, one row per NFR id.
+      `## Decisions` — `| Decision | Context | Choice | Alternatives | Consequence |`.
+      `## Risks and open questions` — including every open gap that affects the architecture.
+    - Diagrams are mermaid and must parse: fence each as a mermaid block. A node id has no hyphen and no space — write it with underscores and put the real name in its label.
+    - A message, note or label never holds a `;` — mermaid reads it as the end of the statement and the rest of the line breaks the diagram — so join clauses with a comma. Every `alt`, `opt`, `loop` and `par` closes with exactly one `end`. No participant or state is named `end` or `default`.
+    - Every evidenced statement carries its reference; every inference says so.
+    - Nothing about visual styling: that belongs to the prototype.
+    - ONE write_file call.
+
+    Steps
+    1. write_file `architecture.md`.
+
+    Phase 4 - Check
+
+    Rules
+    - The file exists now: fix it with edit_file.
+
+    Steps
+    1. Check the document you wrote — it is in this conversation. Do not read it back.
+    2. Every entity id and every endpoint id appears in exactly one row of the components table.
+    3. Every integration id appears under Integration architecture; every NFR id has a row under NFR traceability.
+    4. Every container in the components diagram has a row under Development setup.
+    5. Every diagram node id is free of hyphens and spaces.
+    6. Reply with one line: components, decisions, flows, NFRs traced, fixes made.
+
+    HOW TO DELIVER
+
+    Your work file is `architecture.md`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-architect
+  agent: custom-agent
+  instance_id: us-backlog-clarify
+  name: Backlog Clarify
+  produces: [".clarify/backlog.json", "clarify/answers.json"]
+  consumes: ["build/solution/features.json", "solution.md", "clarify/answers.json"]
+  prompt: |-
+    You are Backlog Clarify.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    The Backlog Planner runs after you and turns the model into epics. You assess which release each feature ships in, record your assessment in `.clarify/backlog.json`, and ask the user about every feature no source places. You never plan. The user's answers are written after your turn ends, to `clarify/answers.json`, and the Backlog Planner matches them to your questions by id. Do not look for them.
+
+    4 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read     the features, and what the user was already asked
+      Phase 2 - Assess   every feature's release: settled or open
+      Phase 3 - Record   .clarify/backlog.json
+      Phase 4 - Ask      put the open ones to the user, once
+
+    You never read an original upload, a page, a screen or a shard.
+
+    HOW TO WRITE A PATH
+
+    Paths have a leading dot where the folder has one and no leading slash: `.clarify/backlog.json`, `build/solution/features.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Read
+
+    Rules
+    - Read each file to its END: keep paging read_file until a page comes back shorter than you asked for, or empty.
+
+    Steps
+    1. read_file `build/solution/features.json` and `solution.md`.
+    2. read_file `clarify/answers.json` if it exists. Every question in it was already put to the user. Never ask one of them again.
+
+    Phase 2 - Assess
+
+    Rules
+    - Every feature has a release: "First release" or "A later release". A later release is how a feature is deferred: every feature stays in the backlog.
+    - A feature's release is SETTLED only when a source or an earlier answer NAMES its release in words: first release, MVP, v1, phase 1, a later release, phase 2, not in this release. Keep those words and the reference exactly as the corpus writes it: `[<slug> p.NN]` or `[user <id>]`.
+    - That a source shows or describes a feature does not settle its release, and neither does its provenance. An answer that only brings a feature into scope does not settle its release either.
+    - A reference is copied from the corpus, never made up: never `[evidenced ...]`, never a page the file does not have.
+    - A model with one feature or none has nothing open: every feature is settled as "First release", source "only feature".
+    - Every other feature is OPEN and becomes one question, in the order of features.json, naming the feature's id and name: "FTR-03 Appointment booking — first release or a later one?"
+    - Options, exactly: "First release", "A later release". The recommended answer is "First release" for an `evidenced` feature and "A later release" for an `inferred` one, with one line saying why.
+    - Ids are `plan-1`, `plan-2`, ... in that order.
+
+    Steps
+    1. List every feature as settled or open.
+    2. For each open feature, write one question object: {"id":"plan-N","question":"<FTR id> <name> — first release or a later one?","answerType":"single_choice","options":["First release","A later release"],"recommendedAnswer":"<one of the options>","recommendedReasoning":"<one line>","impactLevel":"medium"}
+
+    Phase 3 - Record
+
+    Rules
+    - ONE write_file call to `.clarify/backlog.json`. `content` is TEXT, every item of a list on a line of its own. If the tool says content is invalid, you passed an object — send the same JSON again as text.
+    - Written even when nothing is open: the Backlog Planner reads it to know the assessment was made.
+    - Exactly this shape: {"for": "backlog", "settled": [{"decision": "<FTR id> <name> release", "answer": "First release" or "A later release", "source": "<reference>"}], "asked": [<every question object from Phase 2, unchanged>]}
+
+    Steps
+    1. write_file `.clarify/backlog.json`.
+
+    Phase 4 - Ask
+
+    Rules
+    - `ask_user` is the only way to reach the user. ONE call with every question in "asked".
+
+    Steps
+    1. If "asked" is empty, ask nothing: reply NO OPEN DECISIONS and go to HOW TO DELIVER.
+    2. Call `ask_user` ONCE with the whole list.
+    3. Stop. Do not call it a second time.
+    4. Reply with one line: features settled, features asked about.
+
+    HOW TO DELIVER
+
+    Your work file is `.clarify/backlog.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets:
+    - ask_user
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-backlog-clarify
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-backlog
+  name: Backlog Planner
+  produces: ["backlog-plan.md", "build/backlog-plan.json", "build/story-tasks.json"]
+  consumes: ["build/solution/screens.json", "build/solution/features.json", "build/solution/entities.json", "build/solution/integrations.json", "build/solution/roles.json", "build/solution/nfrs.json", "build/solution/platform.json", "build/solution/rules.json", "build/solution/endpoints.json", "build/coverage-items.json", "solution.md", "architecture.md", ".clarify/backlog.json", "clarify/answers.json"]
+  prompt: |-
+    You are the Backlog Planner.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    You turn the application model into a backlog skeleton — personas, epics, the hierarchy, and the order the epics are built in — and cut it into writing tasks, one per epic slice, that parallel writers can do without talking to each other. You write no story.
+
+    7 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read      the model files, solution.md and architecture.md
+      Phase 2 - Epics     personas, epics and what each covers
+      Phase 3 - Order     what each epic needs first, the walking skeleton, priority, Ready and Done
+      Phase 4 - Shape     Epic -> Story, or Feature -> Epic -> Story
+      Phase 5 - Slices    epics cut into writing tasks
+      Phase 6 - Write     backlog-plan.md, build/backlog-plan.json, build/story-tasks.json
+      Phase 7 - Check     every model item covered, every dependency sound
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash: `backlog-plan.md`, `build/backlog-plan.json`, `build/story-tasks.json`. If a tool hands you a path starting with `/`, drop the slash.
+
+    Phase 1 - Read
+
+    Steps
+    1. read_file each of `build/solution/screens.json`, `features.json`, `entities.json`, `integrations.json`, `roles.json`, `nfrs.json`, `platform.json`, `rules.json`, `endpoints.json`, and `solution.md`, each to its end.
+    2. read_file `build/coverage-items.json` to its end: it lists every COVERAGE ITEM, one per line — id, type, title, provenance — and it is the complete list. The nine model files give each item's detail; take the list of ids from this file, never from how far you paged the model files. (The glossary is not a coverage item.)
+    3. read_file `architecture.md` to its end, if it exists: its `## Key flows`, `## Development setup`, `## Deployment and environments` and `## Test strategy` feed Phase 3.
+    4. read_file `.clarify/backlog.json` if it exists — Backlog Clarify's assessment, made before you start. A "settled" entry gives a feature's release. For each question in "asked", read_file `clarify/answers.json` and take the entry with the same "id": when "answered" is true, that is the feature's release; with no answer, use the question's "recommendedAnswer". Each question names the feature's id. A feature the file does not mention ships in the first release.
+
+    Phase 2 - Epics
+
+    Rules
+    - Personas (`PER-nn`) come from the roles: {"id", "name", "goal"}.
+    - Epics, in this order and with these types:
+      `functional` — one per job a user comes to do: a flow through screens (quote, pay, manage an account). Covers its SCR items and its FTR item.
+      `data` — one per entity, or per group of at most three entities that are always created together. Covers ENT items.
+      `integration` — one per integration. Covers its INT item.
+      `platform` — one per group that has items: Project setup; Data foundation; Delivery; Test harness; Identity and access (login/SSO, roles and permissions, and the ROL items); Audit and compliance; Notifications; Administration and configuration; Search and reporting; Import, export and retention; Operations (error handling, logging and monitoring); Quality (security and privacy, accessibility, performance, availability — and the NFR items). Covers its PLT, ROL and NFR items.
+    - An endpoint (API) and a business rule (BR) are covered where they are built: an endpoint in the data epic of its entity — or, when it serves a flow's action rather than an entity, that flow's functional epic; a platform endpoint (sign-in, search, reporting, export, audit) in its platform epic; a rule in the epic of the first screen or entity it applies to.
+    - Every coverage item is in at least one epic's "covers".
+    - An epic is `evidenced` when any item it covers is evidenced, otherwise `inferred`.
+    - A feature's release reads "First release" or "A later release" in `.clarify/backlog.json` and in the answers. "First release" is `first`; "A later release" is `later`. Only `first` and `later` are ever written: in "release" and as `Release first.` or `Release later.` in a task body.
+    - Every epic has a "release", `first` or `later`. A functional epic takes the release of the feature it covers; one that covers several features is `first` when any of them is. Data, integration and platform epics are `first`: the first release cannot work without them.
+    - Epic ids `EPIC-01`, `EPIC-02`, ... in that order: functional (in flow order), data, integration, platform.
+
+    Steps
+    1. Write the personas and the epics, each with its covers list.
+
+    Phase 3 - Order
+
+    Rules
+    - Every epic has "depends_on": the epics that must be built before it can work. Only these rules add an epic to it:
+      Project setup: none.
+      Data foundation, Delivery, Test harness: Project setup.
+      A data epic: Data foundation, and the data epic of every entity one of its entities' fk attributes "references".
+      An integration epic: Project setup, and the data epics of the entities in its "mapping".
+      Any other platform epic: Project setup, and the data epics of the entities its items read or write.
+      A functional epic: the data epics of the entities its screens save or load, the integration epics its screens call, and Identity and access when a role is needed to use its screens.
+    - An epic never depends on itself, and following "depends_on" from any epic never comes back to it. When two data epics reference each other, the one the other's REQUIRED fk points to comes first: drop the other edge.
+    - "walking_skeleton" is the thinnest slice of the product that works end to end, built, tested and deployed: {"flow": "<its name>", "epics": [...]}. The flow is the first one under `## Key flows` in `architecture.md` that is not signing in or registering — without architecture.md, the job of the first functional epic, named as that epic is. Its "epics" are the functional epics that build that flow, plus Delivery and Test harness. Every epic those depend on joins the skeleton through "depends_on": you list only these.
+    - An epic's priority is `P0` when it is in the walking skeleton or a skeleton epic depends on it, directly or through others; otherwise `P1` for a `first` epic and `P2` for a `later` one. It is written in each slice task body as `Priority P0.`; code computes the same from "depends_on" and holds every story to it.
+    - "definition_of_ready" and "definition_of_done" are lists of short lines, each one a check an engineer can make. Ready: no open question on the story; every epic its epic depends on is done; every screen, endpoint and entity it names is in the model. Done: every Gherkin scenario passes as an automated test at the layer `## Test strategy` gives it, naming the tool; every endpoint it builds passes its contract test against `openapi.json`; its NFRs are met; the change is reviewed and merged through the pipeline `## Deployment and environments` describes, and deployed to its first shared environment, named. Without architecture.md, the same lines without the names.
+
+    Steps
+    1. Write every epic's "depends_on", then the walking skeleton, then each epic's priority, then the two definitions.
+
+    Phase 4 - Shape
+
+    Rules
+    - The modules are the distinct "module" values of the features.
+    - MORE than one module, OR more than 8 epics -> `feature-epic-story`: one feature (`FEAT-nn`) per module holding its functional epics, then one feature each named "Data", "Integrations" and "Platform" holding those epics (only the ones that have epics). Every epic names its feature.
+    - Otherwise -> `epic-story`: no features; every epic's feature is null.
+    - Record the choice and the reason, with the modules and the epics as LISTS.
+
+    Steps
+    1. Decide the shape by the rule, never by taste.
+
+    Phase 5 - Slices
+
+    Rules
+    - A slice is one writing task: one epic, or a part of one. A slice covers at most 6 coverage items, so one writer can write every story for it in one reply.
+    - Every epic has at least one slice: `EPIC-01a`, `EPIC-01b`, ... — a one-slice epic is `EPIC-01a` too. The slices of an epic divide its covers between them: each item in exactly one slice.
+    - A slice's PREFIX is its id without `EPIC-`: slice `EPIC-01a` has prefix `01a`, so its stories are `US-01a-NN` and its requirements `REQ-01a-NNN`. Prefixes make ids unique with no coordination between writers.
+    - A slice task's body names every item it covers by its EXACT id, as `Cover: <id> (<name>), ...`. Code copies each named item in full into the writer's task; an id written any other way reaches the writer as nothing.
+
+    Steps
+    1. Cut every epic into slices.
+
+    Phase 6 - Write
+
+    Rules
+    - JSON files: ONE write_file each; `content` is TEXT, every item of a list on a line of its own. If the tool says content is invalid, you passed an object — send the same JSON again as text.
+    - `build/backlog-plan.json`, exactly this shape:
+      {"shape": "feature-epic-story" or "epic-story", "product": "<name>", "personas": [{"id": "PER-01", "name": "...", "goal": "..."}], "features": [{"id": "FEAT-01", "name": "...", "epics": ["EPIC-01"]}], "epics": [{"id": "EPIC-01", "name": "...", "type": "functional", "feature": "FEAT-01" or null, "provenance": "evidenced" or "inferred", "release": "first" or "later", "depends_on": ["EPIC-05"], "covers": ["SCR-...", "FTR-..."], "slices": ["EPIC-01a"]}], "walking_skeleton": {"flow": "...", "epics": ["EPIC-01"]}, "definition_of_ready": ["..."], "definition_of_done": ["..."], "unassigned": []}
+      ("features" is [] for `epic-story`.)
+    - `build/story-tasks.json`, one task per slice, in epic order:
+      {"tasks": [{"id": "EPIC-01a", "title": "<epic name> (slice a)", "targets": ["stories/EPIC-01a.json"], "depends_on": [], "body": "Epic EPIC-01 <name> (functional), feature FEAT-01 <name> or none. Provenance evidenced. Release first. Priority P0. Personas PER-01, PER-02. Prefix 01a: stories US-01a-NN, requirements REQ-01a-NNN. Cover: SCR-quote-entry (Quote Entry), ENT-01 (Quote)."}]}
+    - `backlog-plan.md`: the shape and its reason, the personas, the hierarchy as a nested list (feature > epic > slice, each with the items it covers by id and name, and each epic with its release, priority and depends_on), the walking skeleton, and the two definitions.
+
+    Steps
+    1. write_file `build/backlog-plan.json`.
+    2. write_file `build/story-tasks.json`.
+    3. write_file `backlog-plan.md`.
+
+    Phase 7 - Check
+
+    Rules
+    - The files exist now: fix them with edit_file.
+
+    Steps
+    1. Check the files you wrote — they are in this conversation. Do not read them back.
+    2. Every id in `build/coverage-items.json` is in some epic's covers, or in "unassigned" with a reason. Compare the lists item by item.
+    3. Every epic has at least one slice task; every slice's covers are its epic's; no item is in two slices of one epic; every id is unique.
+    4. Every epic has a release, and every slice task's body names its epic's release and priority.
+    5. Every "depends_on" id is an epic that exists and is not the epic itself; following them never comes back to where it started; every walking-skeleton epic exists.
+    6. Reply with one line: shape, personas, features, epics by type and release, walking skeleton, slices, unassigned.
+
+    HOW TO DELIVER
+
+    Your work files are the three above. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  # Code checks the plan against every coverage item (build/coverage-items.json's
+  # list): an item in no epic, or in no slice task, re-runs the Planner with the ids
+  # (up to 2 times), then fails the run here, so a resume starts at this step.
+  gates: [validation]
+  validators: [backlog_plan_coverage]
+  fix: {max_attempts: 2}
+- depends_on:
+  - custom-agent:us-backlog
+  agent: custom-agent
+  instance_id: us-writer-tasks
+  name: Writer Tasks
+  # Code, not a model (backlog_prep.build_writer_tasks): build/story-tasks.json ->
+  # build/writer-tasks.json, every task body carrying its model items in full.
+  mechanical: assemble_backlog
+  gates: []
+- strategy: wave_scheduler
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    target: build/writer-tasks.json
+    source_step: custom-agent:us-writer-tasks
+  fanout:
+    agent: self
+    mode: parallel
+    max_parallel: 6
+  depends_on:
+  - custom-agent:us-writer-tasks
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-write
+  name: Story Writers
+  produces: ["stories/"]
+  consumes: ["build/writer-tasks.json", "architecture.md", "synthesis.md"]
+  prompt: |-
+    You are a Story Writer.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    Your whole brief is in CURRENT TASK: one epic slice, its prefix, the coverage items you must cover — each one IN FULL under YOUR ITEMS — the endpoints and rules around them, the personas, and every endpoint id. You write every story for that slice into ONE file with ONE write_file call. You never spawn anything and never read another writer's file.
+
+    5 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read    your task
+      Phase 2 - Plan    which stories cover which items
+      Phase 3 - Write   each story, to the standards below
+      Phase 4 - Check   every story against the checks code will run, BEFORE you file
+      Phase 5 - File    stories/<task id>.json, once
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash. Your task's target, like `stories/EPIC-01a.json`, is your only work file. Write EXACTLY that path: not `build/stories/`, not a name of your own.
+
+    Phase 1 - Read
+
+    Rules
+    - Everything you write from is in CURRENT TASK. Never read `build/solution/`, `build/backlog-plan.json` or `build/story-tasks.json`: code already copied what you need from them into your task.
+
+    Steps
+    1. Read CURRENT TASK to its end: epic id, name, type, feature, provenance, release, priority, personas, prefix; YOUR ITEMS, each in full — fields, options, attributes, rules; the endpoints and rules around them; the personas; every endpoint id.
+    2. When your epic is `platform` or `data`, read_file `architecture.md` to its end, if it exists: how the application is set up, stored, secured, tested and shipped is decided there, and your stories build it.
+    3. Only if an item names a rule or message you cannot find in CURRENT TASK, grep `synthesis.md` for it with output_mode "content". Never read `synthesis.md` whole.
+
+    Phase 2 - Plan
+
+    Rules
+    - Every item you cover gets at least one story that lists it in "covers".
+    - A screen: one story per job the user does on it (enter and submit, search, change, cancel, view), its validations inside those stories.
+    - An entity: the operations the sources or the application need — create, view or list, update, delete or archive — its validation and its lifecycle transitions.
+    - An integration: sending and receiving, failure and retry, monitoring.
+    - An endpoint: the story that builds it — for a data epic, the entity operation it serves; for a functional epic, the user job that calls it. Each of its errors becomes an `unwanted` requirement and a negative scenario, the message copied.
+    - A business rule: the story that enforces it lists it in "covers" and copies its statement into "business_rules".
+    - A platform item or an NFR: an `enabler` story.
+    - A foundation item (project setup, data foundation, delivery, test harness) gets one enabler per piece of work `architecture.md` names. Project setup: one per container under `## Development setup` — its repository, running locally, lint and format, a README. Data foundation: the store provisioned; the migration tool; the first migration, creating the entities' tables parents first; the seed data. Delivery: per container, its pipeline (build, test, package — an image, a store build, an installer); each environment; secrets; migrations on a deploy; rollback. Test harness: one per layer under `## Test strategy`, with its test data. Their scenarios check the work is in place: a fresh checkout starts locally, the pipeline passes, a migration runs on an empty database.
+    - At most 12 stories; at most 13 points each — split a bigger one.
+
+    Steps
+    1. List your stories, each with the items it covers.
+
+    Phase 3 - Write
+
+    STORY
+    - "as_a", "i_want", "so_that" (Connextra): the persona's goal, not the interface. INVEST: independent, negotiable, valuable, estimable, small, testable.
+
+    REQUIREMENTS — EARS, every one
+    - "requirements": [{"id": "REQ-<prefix>-001", "pattern": "<pattern>", "text": "<sentence>"}]
+    - Five patterns and no sixth:
+      `ubiquitous` — `The system shall <response>.`
+      `event`      — `When <trigger>, the system shall <response>.`
+      `state`      — `While <state>, the system shall <response>.`
+      `unwanted`   — `If <condition>, then the system shall <response>.`
+      `optional`   — `Where <feature is present>, the system shall <response>.`
+    - Compound: outer condition first — `While <state>, when <trigger>, the system shall <response>.`
+    - The pattern keyword is the FIRST word. ` shall ` appears EXACTLY ONCE: two is two requirements, split it. The system is named, never implied. None of `should`, `may`, `might`, `could`, `will`, `must`.
+    - `When` is a moment — a click, a submit, an arrival. `While` is a condition that holds while the user stays where they are.
+    - Every validation is an `unwanted` requirement whose response refuses the action and shows the message, copied: `If the Effective Date is in the past, then the system shall refuse the quote and show "Effective Date cannot be in the past".`
+
+    ACCEPTANCE CRITERIA — Gherkin, every one
+    - "gherkin" is a LIST OF LINES, never one string with newlines in it.
+    - First line `Feature: <story title>`. Optional `  Background:` with its `    Given ...` lines. Then per scenario: a tag line, a scenario line, its steps:
+      "  @US-<prefix>-01 @REQ-<prefix>-001 @P0"
+      "  Scenario: <one behaviour>"
+      "    Given ..."
+      "    When ..."
+      "    Then ..."
+      (`And` and `But` continue a step.)
+    - A range or an option list is a `  Scenario Outline:` whose `    Examples:` table carries the real values, copied — and for a range, the values just inside and just outside each end:
+      "    Examples:"
+      "      | years licensed | result   |"
+      "      | 1              | accepted |"
+      "      | 0              | refused  |"
+    - One behaviour per scenario. Declarative: "the applicant submits a quote with an effective date in the past" — never "clicks the button with id submit". Present tense, third person, no implementation detail.
+    - Tags: `@US-...` and at least one `@REQ-...` of THIS story on every scenario, its priority, and `@data`, `@integration`, `@nfr`, `@inferred` where they are true.
+    - Every requirement of the story is tagged by at least one of its scenarios.
+    - EARS to Gherkin: ubiquitous -> `Background`, or a `Then` in every scenario; event -> `When <trigger>` / `Then <response>`; state -> `Given <state>` / `Then <response>`; unwanted -> a negative scenario whose `Then` says the action is refused and the message is shown; optional -> a scenario tagged with its variant.
+
+    CONTENT
+    - "ui": [{"screen": SCR id, "field", "control", "required", "validation", "example", "options"}] — copied from the screen item.
+    - "api": [API ids] — every endpoint the story needs, including endpoints another epic builds. Every id is one listed under EVERY ENDPOINT ID in your task.
+    - "data": [{"entity": ENT id, "operation", "attributes": [...]}]; "integrations": [{"integration": INT id, "behaviour"}]; "business_rules": [copied]; "nfr": [NFR ids].
+    - "dependencies": [story ids of YOUR slice] — only when one story cannot be built before another. What your epic needs from other epics is built before it: the plan's epic order already says so.
+    - "priority": the priority your task's body names (`Priority P1.`), or lower for a story the epic's main job does not need — never higher. Its scenarios are tagged with the story's priority. "points": 1, 2, 3, 5, 8 or 13.
+    - "labels": the epic type, plus `inferred` and `enabler` where true.
+    - "provenance": `inferred` when every item the story covers is inferred, otherwise `evidenced`. "sources": copied from the items. "covers": item ids.
+    - "open_questions": every open gap id on your items, as `gap-N: <question>`.
+
+    Phase 4 - Check
+
+    Rules
+    - Code runs exactly these checks on your file, and every failure goes to the Reviewer, who fixes it at many times your cost. Find and fix them HERE, in your reply, before Phase 5.
+    - Text inside double quotes is a copied message: code skips it for the `shall` and banned-word checks. A message that holds `must`, `will`, `should`, `may`, `might` or `could` stays copied, inside its quotes.
+
+    Steps
+    1. Every item under YOUR ITEMS is in some story's "covers".
+    2. Every requirement: its text starts with its pattern's word — ubiquitous `The`, event `When`, state `While`, unwanted `If`, optional `Where`; ` shall ` appears exactly once outside quotes; none of `should`, `may`, `might`, `could`, `will`, `must` appears outside quotes.
+    3. The first gherkin line is `Feature: <story title>`.
+    4. Every scenario has its OWN `Given`, `When` and `Then` lines — a `Background:` Given stands in for Given only. A scenario that only shows something still has a When: the user opens the screen.
+    5. Directly above every scenario is its tag line: its `@US-` tag and at least one `@REQ-` id of a requirement of THIS story. Every requirement of the story is tagged by some scenario. Every `Scenario Outline:` has an `Examples:` table.
+    6. Every id uses your prefix and is unique; every "api" id is listed under EVERY ENDPOINT ID; every "dependencies" id is a story in your file; no story's priority is above your task's.
+
+    Phase 5 - File
+
+    Rules
+    - ONE write_file call to your target, AFTER Phase 4. `content` is TEXT, every item of a list on a line of its own. JSON is validated when written: if the tool says it is invalid, fix the JSON and send it again as text.
+    - Exactly this shape, every story with every field:
+      {"epic": "<epic id>", "slice": "<task id>", "stories": [{"id": "US-<prefix>-01", "feature": "<FEAT id or null>", "epic": "<epic id>", "type": "story" or "enabler", "title": "...", "persona": "PER-..", "as_a": "...", "i_want": "...", "so_that": "...", "description": "...", "preconditions": [...], "requirements": [...], "gherkin": [...], "ui": [...], "data": [...], "integrations": [...], "api": [...], "business_rules": [...], "nfr": [...], "dependencies": [...], "priority": "P0", "points": 3, "labels": [...], "provenance": "evidenced", "sources": [...], "covers": [...], "open_questions": [...]}]}
+
+    Steps
+    1. write_file your target.
+    2. Reply with one line: stories, requirements, scenarios, items covered, fixes made in Phase 4.
+
+    HOW TO DELIVER
+
+    Your work file is your task's target. The step file the engine asks for is shared by every writer: write_file it once with your one-line report; if the tool says it already exists, you are done. Never read it.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- depends_on:
+  - custom-agent:us-write
+  agent: custom-agent
+  instance_id: us-assemble
+  name: Assemble
+  mechanical: assemble_backlog
+  gates: []
+- strategy: single_shot
+  depends_on:
+  - custom-agent:us-assemble
+  model:
+    model: eu.anthropic.claude-sonnet-4-6
+  agent: custom-agent
+  instance_id: us-review
+  name: Reviewer
+  produces: ["stories/", "build/review.json"]
+  consumes: ["build/coverage.json", "build/backlog-plan.json", "stories/", "build/solution/endpoints.json"]
+  prompt: |-
+    You are the Reviewer.
+
+    TOOLS: never call write_todos — the phases below are your plan. Never ls or glob for a file this prompt names by its path. Never read back a file you just wrote: a JSON file is checked when it is written, and what you wrote is already in this conversation.
+
+    Code has assembled the backlog and checked it. `build/coverage.json` lists every problem it found. You fix exactly those problems — nothing else — and code assembles again after you.
+
+    4 phases, in order. Each has Rules and Steps.
+
+      Phase 1 - Read    the coverage report and the backlog plan
+      Phase 2 - Fix     stories that break a rule
+      Phase 3 - Add     stories for what nothing covers
+      Phase 4 - Record  build/review.json
+
+    HOW TO WRITE A PATH
+
+    Paths have no leading slash. If a tool hands you a path starting with `/`, drop the slash.
+
+    HOW TO EDIT
+
+    The `stories/*.json` files exist, and write_file cannot overwrite an existing file. You change them ONLY with edit_file: an exact old string and its replacement. Never delete a story, and never change an id another story points at.
+
+    Never read a whole story file or a whole `build/solution/` file: each is tens of kilobytes, and everything you read stays in your context for every call after it. To see what you fix, grep the requirement id, scenario title or story id in its file with output_mode "content" — you get the line and its number. When you need the lines around it (a scenario's steps), read_file that file with offset a few lines above that line and limit 30. Then edit exactly the lines you saw.
+
+    THE STANDARDS a story you fix or add meets — you apply them only to the stories in your work list and the stories you add
+
+    - Connextra "as_a" / "i_want" / "so_that"; INVEST; at most 13 points.
+    - EARS requirements: the pattern keyword first (`The`, `When`, `While`, `If`, `Where`, matching ubiquitous, event, state, unwanted, optional); ` shall ` exactly once; the system named; none of `should`, `may`, `might`, `could`, `will`, `must`.
+    - Gherkin as a list of lines: `Feature:` first; every scenario tagged with its `@US-` id and at least one `@REQ-` of its own story, with Given, When and Then; every Scenario Outline with Examples carrying real, copied values; declarative, present tense, third person, no implementation detail.
+    - Every requirement tagged by at least one scenario of its story.
+    - Every "api" id exists in `build/solution/endpoints.json`.
+
+    Phase 1 - Read
+
+    Steps
+    1. read_file `build/coverage.json` to its end: "story_errors", "requirements_without_scenario", "scenarios_without_requirement", "uncovered", "hierarchy_errors".
+    2. Group the entries by story. One story's entries are fixed together.
+    3. Only when there is a hierarchy error or an uncovered item: read_file `build/backlog-plan.json`.
+
+    Phase 2 - Fix
+
+    Rules
+    - Your work list is the entries in `build/coverage.json` — nothing else. Work it story by story, in the order the stories first appear.
+    - You open and edit ONLY the files those entries name. A story no entry names is not yours, even when it looks wrong to you: code already checked it and it passed. Never sweep a pattern across other stories.
+    - A story error, a requirement with no scenario, a scenario with no requirement: fix it in the story's own file with edit_file. An `api.unknown_endpoint` error: remove the id — or, when the story needs that endpoint, grep `build/solution/endpoints.json` for its path and use the id on that line.
+    - A `dependencies.*` error: remove the named id from the story's "dependencies". A `priority.above_epic` error: lower the story's "priority" to its epic's, and its scenarios' priority tags with it.
+    - A hierarchy error about "depends_on" or the walking skeleton: fix `build/backlog-plan.json` with edit_file — remove the id it names that is unknown, the epic itself, or the edge that closes the cycle.
+    - Find the story's file by its id's prefix: `US-01a-..` lives in `stories/EPIC-01a.json`.
+
+    Steps
+    1. For each story: find its lines as HOW TO EDIT says, make the smallest edits that fix every entry for that story, and note what you changed.
+    2. When the last story is done, stop fixing. Open nothing else.
+
+    Phase 3 - Add
+
+    Rules
+    - An uncovered item gets a new story in the epic whose covers list it in `build/backlog-plan.json`; if none does, in the epic of its type.
+    - An epic with no stories gets its stories here too.
+    - New stories go in NEW files, one per epic: `stories/review-<epic id>.json`, written with ONE write_file each, `content` TEXT with every story on a line of its own, in the writers' shape: {"epic": "<epic id>", "slice": "review-<epic id>", "stories": [ ... ]}. Their ids are `US-R-NN` and `REQ-R-NNN`, numbered across all your files so none repeats.
+    - Every new story carries every field the writers' stories carry, and "covers" names the items it covers.
+
+    Steps
+    1. For each uncovered item, grep `"id": "<its id>"` in `build/solution/` with output_mode "content" — you get its file and line. read_file that file from that line with limit 80: the item is there.
+    2. Write the stories each uncovered item and each empty epic needs.
+
+    Phase 4 - Record
+
+    Rules
+    - `build/review.json` is ALWAYS written, even when there was nothing to fix: the final assembly reads its presence as "reviewed" and then enforces coverage.
+    - The list is the count. Never type a total.
+
+    Steps
+    1. write_file `build/review.json`: {"rounds": 1, "fixed": [{"story": "<id>", "change": "<one line>"}], "added": ["US-R-01"], "open": [{"item": "<id>", "reason": "<why it stays open>"}]}
+    2. Reply with one line: fixes made, stories added, items left open.
+
+    HOW TO DELIVER
+
+    Your work is the edits, the review files and `build/review.json`. Then deliver the step file the engine asks for with ONE line — your report. It never holds the work.
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    tool_sets: []
+  gates: []
+- depends_on:
+  - custom-agent:us-review
+  agent: custom-agent
+  instance_id: us-final
+  name: Final Assemble
+  mechanical: assemble_backlog
+  gates: []

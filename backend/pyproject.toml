@@ -41,6 +41,8 @@ dependencies = [
     "pypdf==6.16.1",
     # Layout-aware PDF text + image boxes for app/agents/tools/file_extract_tools.py (spec 019).
     "pdfplumber==0.11.10",
+    # Markdown -> HTML for Backlog.pdf (agents/capabilities/backlog_export.py).
+    "markdown-it-py==4.2.0",
     # Browser automation for headless render validation. PRODUCTION, not test:
     # app/agents/render_check.py imports playwright.async_api at runtime and
     # app/agents/validators/html_render.py registers it as a Validator
@@ -414,6 +416,9 @@ name = "agents.capabilities must not import the execution kernel or the web laye
 type = "forbidden"
 source_modules = ["agents.capabilities"]
 forbidden_modules = ["agents.execution_engine", "app"]
+ignore_imports = [
+    "agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract",
+]
 
 # ---------------------------------------------------------------------------
 # Runtime port boundary (Phase 09 / RUNTIME-01 / T-09-01-03): the runtime port

@@ -6,6 +6,7 @@ RESERVED ``.uploads/`` prefix so agents can ``read_file`` them, and extractable
 documents (pdf/docx/pptx) are text-extracted at ingest into a ``.txt`` sidecar +
 a ``manifest.json`` entry — the stable contract 30-02's ``uploaded_files``
 context provider reads to make the text sticky in every subsequent ``agent_input``.
+HTML/HTM files are accepted as raw uploads with no text extraction.
 
 Per POR §2 (D-07, amended): only DOCUMENTS go to the sandbox. Images are
 payload-transient (handled on the message path, 30-03), so image mimes / exts are
@@ -20,7 +21,7 @@ Design constraints honoured:
     the nullable ``owner_id``) is the principal (P13/P25 precedent). Owner +
     workspace is thereby stamped on everything persisted.
   * **Caps (T-30-02) — enforced BEFORE any sandbox write**: an ext allow-list
-    ({pdf,docx,xlsx,pptx,txt,md,csv,json}) → 415 on miss; the per-file byte cap
+    ({pdf,docx,xlsx,pptx,txt,md,csv,json,html,htm}) → 415 on miss; the per-file byte cap
     (``file_extract._MAX_FILE_BYTES``, the single source, imported not
     re-declared) → 413; a document-count cap (≤20) and an aggregate byte cap →
     413. Every file is read + validated first; a single rejection writes nothing.
@@ -55,7 +56,6 @@ else:
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 
 from app.agents.sandbox import (
-    RESERVED_PATHS,
     FamilyLockTimeout,
     RunSandbox,
     _UPLOADS_PREFIX,
@@ -127,7 +127,7 @@ def _resolve_chain_root_or_404(run_id: str, user_id: str) -> str:
 # Document-only allow-list (T-30-04): the ext set that may land in the sandbox.
 # Images are payload-transient (30-03) → rejected here.
 _ALLOWED_EXTS: frozenset[str] = frozenset(
-    {"pdf", "docx", "xlsx", "pptx", "txt", "md", "csv", "json"}
+    {"pdf", "docx", "xlsx", "pptx", "txt", "md", "csv", "json", "html", "htm"}
 )
 # The subset that carries an extractable-text sidecar (the sticky-context source).
 # `xlsx` is deliberately absent (spec 019, FR-037): no openpyxl is vendored, so a
@@ -729,21 +729,18 @@ def _manifest_lock(sandbox: RunSandbox):
 # Read-only by construction: there is no write path here, and both endpoints run
 # the SAME two-layer owner check the upload endpoint above uses.
 
-# Derive the refused-read set from the canonical RESERVED_PATHS registry
-# (V2-Q7, Requirement 18 AC 2). These paths are refused at the single-file read
-# endpoint and .chain-legacy/ is also refused. All other reserved subtrees that
-# are listed in the Workspace tab (.agents/, .chain/, .verify/, .browser/,
-# .context/) ARE served by the endpoint — the listing is what the viewer shows.
-_SANDBOX_READ_REFUSED: frozenset[str] = frozenset(
-    {p for p in RESERVED_PATHS if p in (".uploads/", ".logs/", ".chain-legacy/")}
-)
+# Every file the Workspace tab lists is readable here (the listing hides only git
+# metadata), so a listed .uploads/, .logs/ or .extract/ file opens rather than 404s.
 
 # Per-file read cap. A sandbox can hold an arbitrarily large agent-written file;
 # this endpoint feeds a browser preview, so it refuses rather than streams.
 # Raised from 2 MB when the viewer learned to show images and PDFs: a deck's
 # `.verify/presentation.pdf` is ~0.5 MB for 12 slides, so a long deck was the
 # one artifact the gate writes that the cap would have refused to show.
-_SANDBOX_MAX_READ_BYTES = 8 * 1024 * 1024  # 8 MB
+# Raised from 8 MB to the workspace-zip cap when the backlog workflow's
+# Backlog.pdf and Backlog.zip (14-18 MB) were refused both in the viewer and
+# on download.
+_SANDBOX_MAX_READ_BYTES = 64 * 1024 * 1024  # 64 MB
 
 # The ONLY extensions served inline, and only ever as text/plain.
 #
@@ -1021,10 +1018,8 @@ async def download_sandbox_zip(
     apart — is blocked by every browser after a handful, and a ppt_v2 workspace
     is 36 files. Built with the stdlib ``zipfile``, so no dependency.
 
-    Contents are exactly ``list_files()``: the reserved and git-metadata subtrees
-    are excluded there (derived from the canonical RESERVED_PATHS and
-    GIT_METADATA_PATHS registries, V2-Q7 / Requirement 18 AC 2), so the archive
-    holds what the workspace view showed and nothing else. Every entry is
+    Contents are exactly ``list_files()`` — every sandbox file, ``.git/`` included,
+    so the archive holds what the workspace view showed and nothing else. Every entry is
     re-resolved through ``path_for``, which raises on any escape — a symlink
     planted in the sandbox cannot pull a host file into the archive.
 
@@ -1160,14 +1155,7 @@ async def read_sandbox_file(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace expired"
         )
 
-    # Refused paths derived from RESERVED_PATHS at module level (_SANDBOX_READ_REFUSED).
-    # See the constant definition above for the rationale of which paths are refused
-    # vs. served (V2-Q7, Requirement 18 AC 2).
     rel = path.lstrip("/")
-    if any(rel.startswith(p) for p in _SANDBOX_READ_REFUSED):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
-        )
 
     # Ref-scoped single-file read (Requirement 17 AC2): use git show when a
     # validated ref is supplied — HEAD never moves.

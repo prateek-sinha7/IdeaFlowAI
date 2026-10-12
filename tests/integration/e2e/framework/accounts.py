@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import os
 
-PASSWORD = os.environ.get("E2E_BASE_PASSWORD", "flowin-e2e-pass")
+PASSWORD = os.environ.get("E2E_BASE_PASSWORD", "Velocity!Dev2026")
 
-ADMIN = "qa-admin@flowinqa.com"
-ENTERPRISE = "qa-enterprise@flowinqa.com"
-PRO = "qa-pro@flowinqa.com"
-BASIC = "qa-basic@flowinqa.com"
+ADMIN = "admin@velocity.ai"
+ENTERPRISE = "enterprise@velocity.ai"
+PRO = "pro@velocity.ai"
+BASIC = "basic@velocity.ai"
 
 BY_ROLE = {
     "admin": ADMIN,

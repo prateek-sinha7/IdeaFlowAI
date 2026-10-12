@@ -60,7 +60,7 @@ MIGRATION, PPT_V2, PRESENTATION, PROTOTYPE (again), USER STORIES.
 Feature: Analytics
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
     And I have completed runs across more than one pipeline type
 
   @S-10-01
@@ -163,7 +163,7 @@ Feature: Analytics
 
   @S-10-13
   Scenario: A user with no runs sees an empty state
-    Given I am signed in as "qa-basic@flowinqa.com" with no runs
+    Given I am signed in as "basic@velocity.ai" with no runs
     When I cold-load "/analytics"
     Then all tiles report zero
     And I am shown an empty state rather than a broken chart

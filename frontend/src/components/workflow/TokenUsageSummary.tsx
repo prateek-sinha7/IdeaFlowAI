@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import { Zap } from "lucide-react";
 import type { PipelineRunState } from "@/types/index";
+import { runUsage } from "@/lib/runStats";
 
 interface TokenUsageSummaryProps {
   pipelineState: PipelineRunState;
@@ -16,23 +17,20 @@ function formatTokens(n: number): string {
 }
 
 export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryProps) {
-  const { totalTokens, totalInputTokens, totalOutputTokens, cacheReadTokens, cacheWriteTokens } = pipelineState;
+  const { totalTokens, totalInputTokens, totalOutputTokens, agents } = pipelineState;
 
   // Don't render if no token data yet
   if (!totalTokens && !totalInputTokens) return null;
 
-  const input = totalInputTokens ?? 0;
-  const output = totalOutputTokens ?? 0;
-  const total = totalTokens ?? (input + output);
-  const cacheRead = cacheReadTokens ?? 0;
-  const cacheWrite = cacheWriteTokens ?? 0;
+  // Shown exactly as the backend counts them (agents/capabilities/token_usage.py):
+  // input = uncached input + cache write, total = input + output. Cache reads are
+  // never in them — only Analytics shows those. Each figure is the larger of the
+  // engine's run total (complete at the end, incl. calls made outside any step) and
+  // the steps' sum (the only figure while the run is live).
+  const output = Math.max(totalOutputTokens ?? 0, runUsage(agents, "outputTokens"));
+  const input = Math.max(totalInputTokens ?? ((totalTokens ?? 0) - output), runUsage(agents, "inputTokens"));
+  const total = input + output;
 
-  const hasCaching = cacheRead > 0 || cacheWrite > 0;
-
-  // Steps tab: compact single line — total · input · output. `input` is the FULL
-  // prompt total `total` was derived from (gross: uncached + cache_read + cache_write
-  // per ChatBedrockConverse convention), so the two visible parts reconstruct the
-  // stated total. Cache breakdown is surfaced on the Analytics page, not here.
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -44,18 +42,15 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
       <span className="text-[10px] font-semibold text-ink-500 uppercase tracking-wider flex-shrink-0">
         Token Usage
       </span>
-      <span className="text-[10px] font-bold text-ink-900 flex-shrink-0">
+      <span data-testid="token-usage-total" className="text-[10px] font-bold text-ink-900 flex-shrink-0">
         {formatTokens(total)} total
       </span>
       <span className="text-[10px] text-ink-400 flex-shrink-0">·</span>
-      <span
-        className="text-[10px] text-ink-500 flex-shrink-0"
-        title={hasCaching ? `Total context sent: ${formatTokens(input)} (${formatTokens(cacheRead)} cached)` : undefined}
-      >
+      <span data-testid="token-usage-input" className="text-[10px] text-ink-500 flex-shrink-0">
         {formatTokens(input)} input
       </span>
       <span className="text-[10px] text-ink-400 flex-shrink-0">·</span>
-      <span className="text-[10px] text-ink-500 flex-shrink-0">
+      <span data-testid="token-usage-output" className="text-[10px] text-ink-500 flex-shrink-0">
         {formatTokens(output)} output
       </span>
     </motion.div>

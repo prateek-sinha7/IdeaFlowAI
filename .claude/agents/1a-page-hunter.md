@@ -65,7 +65,7 @@ for this page immediately, which is what keeps context fresh and investigation i
 Velocity, this repo's local dev app.
 
 - Base URL: `http://localhost:3000` (backend `http://localhost:8000`)
-- Sign in: `qa-admin@flowinqa.com` / `flowin-e2e-pass` (admin, enterprise) unless the
+- Sign in: `admin@velocity.ai` / `Velocity!Dev2026` (admin, enterprise) unless the
   orchestrator names a different account
 - Sign-in flow: go to `/login`, fill `input[type="email"]` and `input[type="password"]`, click
   `button:has-text("Sign in")`, wait for `/dashboard`
@@ -523,12 +523,12 @@ Workers run one at a time in the SAME Chrome profile, so the session persists be
   the token). A token being present is NOT enough — verify WHICH account it belongs to (the
   account menu, or `GET /api/auth/me` with the token). A previous worker has already handed over
   a session signed in as the WRONG user, which silently made a page look empty. If it is not
-  qa-admin, sign out and sign in as qa-admin before you judge anything on your page.
+  admin@velocity.ai, sign out and sign in as admin@velocity.ai before you judge anything on your page.
   Only run the sign-in flow when there is no token, or when your assignment needs a different
   account.
-- **On finish:** leave the browser SIGNED IN as `qa-admin@flowinqa.com` on a normal app page.
+- **On finish:** leave the browser SIGNED IN as `admin@velocity.ai` on a normal app page.
   If your probing signed you out, cleared storage, or switched to another tier account, sign
-  back in as qa-admin before you return. The next worker inherits whatever you leave.
+  back in as admin@velocity.ai before you return. The next worker inherits whatever you leave.
 - The only exception is an assignment that is inherently signed-out; say so explicitly in your
   COVERAGE line so the orchestrator knows the handoff was intentional.
 - Never leave a page mid-modal, mid-upload, or on a stuck/blank screen. Clean state, every time.

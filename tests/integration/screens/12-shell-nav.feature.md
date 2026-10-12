@@ -56,7 +56,7 @@ same browser profile.
 Feature: Shell and navigation
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   @S-12-01
   Scenario: The header is present on every authenticated screen
@@ -119,7 +119,7 @@ Feature: Shell and navigation
 
   @S-12-08
   Scenario: A non-admin does not
-    Given I am signed in as "qa-pro@flowinqa.com"
+    Given I am signed in as "pro@velocity.ai"
     When I open the account menu
     Then I do NOT see "Admin Dashboard"
 

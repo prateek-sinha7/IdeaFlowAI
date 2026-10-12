@@ -233,8 +233,8 @@ def test_search_filters_the_users_table(page, shot):
     open_admin(page)
     everyone = page.locator("tbody tr").count()
 
-    with shot("filtered", 'When I type "qa-pro" into the user search'):
-        page.fill(L.SEARCH, "qa-pro")
+    with shot("filtered", 'When I type "pro@velocity.ai" into the user search'):
+        page.fill(L.SEARCH, "pro@velocity.ai")
         expect(page.locator("tbody tr")).to_have_count(1)
 
     expect(page.locator(L.row(accounts.PRO))).to_be_visible()
@@ -333,7 +333,7 @@ def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot, disposa
     The admin checkbox is left alone. A second local admin trips the break-glass
     invariant and locks every admin out of the product (D-31).
     """
-    address = f"e2e-{uuid.uuid4().hex[:12]}@flowinqa.com"
+    address = f"e2e-{uuid.uuid4().hex[:12]}@velocity.ai"
     admin_page = disposable_user.admin_page
 
     open_admin(page)

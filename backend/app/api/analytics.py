@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from agents.capabilities.model_pricing import estimate_cost_usd
+from agents.capabilities.token_usage import normalize_usage, usage_cost_usd
 from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.database import get_db
@@ -282,11 +282,14 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
 
     for r in runs:
         usage = _parse_token_usage(r.token_usage)
-        r_in = int(_num(usage.get("total_input_tokens")))
-        r_out = int(_num(usage.get("total_output_tokens")))
-        r_total = int(_num(usage.get("total_tokens"))) or (r_in + r_out)
-        r_cache_read = int(_num(usage.get("total_cache_read_tokens")))
-        r_cache_write = int(_num(usage.get("total_cache_write_tokens")))
+        # Old and new rows side by side: normalize_usage puts both in the current
+        # meaning — input/total WITHOUT cache reads, which are counted on their own.
+        norm = normalize_usage(usage, prefix="total_")
+        r_in = norm["input_tokens"]
+        r_out = norm["output_tokens"]
+        r_total = norm["total_tokens"]
+        r_cache_read = norm["cache_read_tokens"]
+        r_cache_write = norm["cache_write_tokens"]
         r_cost = _num(usage.get("estimated_cost_usd"))
         # ISS-034 — an UNMEASURED run contributes NOTHING to the delta, never a
         # fabricated $0 baseline. ``_num`` coerces an absent key to 0.0, so summing
@@ -360,22 +363,16 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
             if aname:
                 agent_names[aid] = aname
 
-            a_in = int(_num(ag.get("input_tokens")))
-            a_out = int(_num(ag.get("output_tokens")))
-            a_total = int(_num(ag.get("total_tokens"))) or (a_in + a_out)
-            a_cr = int(_num(ag.get("cache_read_tokens")))
-            a_cw = int(_num(ag.get("cache_write_tokens")))
+            a_norm = normalize_usage(ag)
+            a_in = a_norm["input_tokens"]
+            a_out = a_norm["output_tokens"]
+            a_total = a_norm["total_tokens"]
             # Resolve cost against the agent's own model if present; fall back to
             # the run-level model (key) so legacy runs without per-agent model_id
             # still get a cost estimate.
             a_model = ag.get("model_id") or r.model_id or ""
-            a_cost = estimate_cost_usd(
-                a_model or None,
-                input_tokens=max(0, a_in - a_cr - a_cw),
-                output_tokens=a_out,
-                cache_read_tokens=a_cr,
-                cache_write_tokens=a_cw,
-                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            a_cost = usage_cost_usd(
+                a_model or None, a_norm, cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL
             )
 
             av = agents_acc[aid]

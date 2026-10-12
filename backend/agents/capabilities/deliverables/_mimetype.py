@@ -23,7 +23,11 @@ _EXTENSION_MIMETYPES: dict[str, str] = {
     ".html": "text/html",
     ".htm": "text/html",
     ".md": "text/markdown",
+    ".pdf": "application/pdf",
 }
+
+# Binary deliverables: never inlined as text; served from the sandbox file.
+BINARY_MIMETYPES: frozenset[str] = frozenset({"application/pdf"})
 
 # Per-resolver-strategy defaults (used when the strategy is not name-inferred).
 _STRATEGY_MIMETYPES: dict[str, str] = {

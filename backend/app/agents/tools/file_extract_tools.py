@@ -4,12 +4,15 @@ Materialise an uploaded document into a folder of pages an agent can work with:
 layout-aware text with @[[image-N.png]] placeholders in reading order, and one cropped
 image per picture that preserves the annotation arrows the embedded image loses.
 
-ONE ENTRY POINT FOR EVERY FORMAT (FR-039). `extract_text` takes a .pdf, .docx, .xlsx or
-.pptx and the agent never learns which one needed a converter: an Office file is turned
-into a PDF by LibreOffice (see `soffice.py`), cached as .extract/{format}/{slug}/source.pdf, and then
-runs through exactly the same materialiser. There is no second extractor and no second
-on-disk layout — an agent that must know a document's container format in order to pick
-a tool has been handed the implementation as an interface.
+ONE ENTRY POINT FOR EVERY FORMAT (FR-039). `extract_text` takes a .pdf, .docx, .xlsx,
+.pptx, .html or .htm and the agent never learns which one needed a converter: an Office
+file is turned into a PDF by LibreOffice (see `soffice.py`), cached as
+.extract/{format}/{slug}/source.pdf, and then runs through exactly the same materialiser.
+An .html/.htm file is opened in a headless browser (or, if none can launch, read
+statically) and materialised screen by screen — see `html_extract.py` (spec 021). There
+is no second extractor and no second on-disk layout — an agent that must know a
+document's container format in order to pick a tool has been handed the implementation
+as an interface.
 
 The four tools:
   - extract_text(path, pages="") — materialise a document into .extract/{format}/{slug}/pages/NN/
@@ -74,7 +77,10 @@ _EXTRACT_PREFIX = ".extract/"
 #                unknown input.
 _TEXT_FORMATS = frozenset({"txt", "md", "csv", "json"})
 _PAGED_FORMATS = frozenset({"pdf", "docx", "xlsx", "pptx"})
-_SUPPORTED_FORMATS = _TEXT_FORMATS | _PAGED_FORMATS
+# .html and .htm both land in ONE format directory ("html", spec 021 §6.1) and take
+# their own browser/static route — never the pdfium pipeline _PAGED_FORMATS drives.
+_HTML_FORMATS = frozenset({"html", "htm"})
+_SUPPORTED_FORMATS = _TEXT_FORMATS | _PAGED_FORMATS | _HTML_FORMATS
 _CONVERTED_FORMATS = frozenset({"docx", "xlsx", "pptx"})
 
 # A plain-text file is returned inline, so it needs a ceiling the paged route does
@@ -110,6 +116,14 @@ def _doc_rel(source_format: str, slug: str) -> str:
 def _format_of(filename: str) -> str:
     """Lowercase extension without the dot ("report.DOCX" -> "docx")."""
     return os.path.splitext(filename)[1].lstrip(".").lower()
+
+
+def _canonical_format(fmt: str) -> str:
+    """.html and .htm share ONE format directory: "html" (spec 021 §6.1).
+
+    Every other format directory is its own extension, unchanged.
+    """
+    return "html" if fmt in _HTML_FORMATS else fmt
 
 
 def _pagination_note(converted_by: str | None) -> str:
@@ -192,7 +206,7 @@ def _missing_source_message(relpath: str, base_error: str) -> str:
     when every page it needs is already materialised beside it.
     """
     filename = os.path.basename(relpath)
-    rel = _doc_rel(_format_of(filename), _slug_from_filename(filename))
+    rel = _doc_rel(_canonical_format(_format_of(filename)), _slug_from_filename(filename))
     doc_dir, err = _resolve_path(rel)
     if err or doc_dir is None or not (doc_dir / "manifest.json").is_file():
         return base_error
@@ -347,6 +361,8 @@ def file_info(path: str = "") -> str:
                 status = "✓ plain text — extract_text returns its content directly"
             elif fmt in _PAGED_FORMATS:
                 status = "✓ extract_text materialises it into .extract/"
+            elif fmt in _HTML_FORMATS:
+                status = "✓ extract_text materialises it into .extract/, screen by screen"
             else:
                 status = "✗ unsupported — these tools read " + ", ".join(
                     "." + f for f in sorted(_SUPPORTED_FORMATS)
@@ -1004,10 +1020,20 @@ def _inline_text(relpath: str, filename: str, source_format: str) -> str:
 async def extract_text(path: str, pages: str = "", file_type: str = "") -> str:
     """Materialise a document into .extract/{format}/{slug}/pages/NN/.
 
-    Accepts .pdf, .docx, .xlsx and .pptx through ONE entry point; an Office file
-    is converted to PDF by LibreOffice first. Use `pages` ("1-5", "3") to limit
-    work on large documents. Returns a receipt naming the materialised pages.
+    Accepts .pdf, .docx, .xlsx, .pptx, .html and .htm through ONE entry point; an
+    Office file is converted to PDF by LibreOffice first, an HTML file is opened in
+    a headless browser (spec 021). Use `pages` ("1-5", "3") to limit work on large
+    paged documents — HTML materialises every screen in one pass; there is no
+    partial-page selection for it. Returns a receipt naming the materialised pages.
     """
+    filename = os.path.basename(path)
+    fmt = file_type.strip().lower().lstrip(".") if file_type else _format_of(filename)
+    if fmt in _HTML_FORMATS:
+        # HTML never touches pdfium — kept OUTSIDE _locked_call/_PDFIUM_LOCK so a
+        # slow browser extraction never blocks a concurrent PDF materialisation
+        # (spec 021 R-07: the HTML route is a new branch, the PDF/Office routes
+        # stay byte-identical).
+        return await asyncio.to_thread(_extract_html_sync, path, file_type)
     # The materialiser is CPU/subprocess-heavy and SYNCHRONOUS. The runtime
     # invokes tool callables on the event loop, so running it inline starves
     # the whole server (observed live: four concurrent extract_text calls froze
@@ -1076,6 +1102,18 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
 
     filename = os.path.basename(path)
     supported = ", ".join("." + f for f in sorted(_SUPPORTED_FORMATS))
+
+    # Belt-and-suspenders: html/htm is routed to _extract_html_sync by the async
+    # extract_text() entry point and must never reach this function — the PDF/
+    # Office branch below would otherwise hand it to LibreOffice as if it were a
+    # convertible Office format (it is in _SUPPORTED_FORMATS for file_info's
+    # inventory listing, but it is not in _PAGED_FORMATS or _TEXT_FORMATS).
+    early_format = (file_type.strip().lower().lstrip(".") if file_type else _format_of(filename))
+    if early_format in _HTML_FORMATS:
+        return (
+            f"{filename} is HTML — call extract_text (the async entry point), not "
+            f"_extract_text_sync directly (internal error: html reached the PDF/Office pipeline)."
+        )
 
     if file_type:
         source_format = file_type.strip().lower().lstrip(".")
@@ -1374,6 +1412,95 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
         )
 
     return "\n".join(lines) + _pagination_note(converted_by)
+
+
+# ---------------------------------------------------------------------------
+# HTML/HTM route (spec 021 T12) — screens, not pages. Kept OUTSIDE _PDFIUM_LOCK
+# (see extract_text() above): this never touches pdfium, and a browser open is
+# slow enough that serialising it behind the PDF lock would stall every
+# concurrent PDF materialisation for no reason.
+# ---------------------------------------------------------------------------
+
+
+def _extract_html_sync(path: str, file_type: str = "") -> str:
+    """Materialise an .html/.htm upload into .extract/html/{slug}/ (spec 021, FR-010..FR-013).
+
+    Both extensions land under the SAME format directory ("html") — a `.htm`
+    re-upload of the same document must not fork into a second folder. One page
+    per screen (fields, actions, tables, hidden states, a screenshot), then the
+    page's own scripts, built by `html_extract.materialise_html` — see that
+    module for the browser/static route split. Never raises: any failure in
+    either route comes back as readable text, matching every other route here.
+    """
+    if _SANDBOX is None:
+        return "document tools not bound to a run sandbox (internal error)"
+
+    filename = os.path.basename(path)
+    supported = ", ".join("." + f for f in sorted(_SUPPORTED_FORMATS))
+
+    if file_type:
+        raw_format = file_type.strip().lower().lstrip(".")
+    else:
+        raw_format = _format_of(filename)
+    if raw_format not in _HTML_FORMATS:
+        return (
+            f"cannot extract {filename} as html: .{raw_format or '(no extension)'} is not "
+            f".html or .htm. Supported: {supported}."
+        )
+
+    source_bytes, err = _read_bytes(path)
+    if err:
+        return _missing_source_message(path, err)
+
+    slug = _slug_from_filename(filename)
+    doc_dir, err = _resolve_path(_doc_rel("html", slug))
+    if err:
+        return err
+    source_path, err = _resolve_path(path)
+    if err:
+        return err
+
+    # Lazy import, matching this module's PDF-library convention: the factory
+    # imports file_extract_tools at composition time and must not pull
+    # Playwright into every run that never touches an HTML upload.
+    from app.agents.tools import html_extract
+
+    try:
+        result = html_extract.materialise_html(source_path, source_bytes, doc_dir, filename, slug)
+    except Exception as e:  # noqa: BLE001 — never-raise discipline (module docstring)
+        return f"failed to materialise {filename}: {e}"
+
+    manifest = result["manifest"]
+    page_count = manifest.get("page_count", 0)
+    screens = manifest.get("screens", [])
+    rendered_by = result["rendered_by"]
+
+    lines = [
+        f"Materialised {filename} -> {_doc_rel('html', slug)}/ "
+        f"({page_count} page(s) total)\n"
+    ]
+    if result["rebuilt"]:
+        lines.append(f"Processed: {page_count} page(s) (rebuilt)")
+    else:
+        lines.append("Processed: 0 pages (nothing new to materialise — source unchanged)")
+    lines.append("")
+    lines.append(f"Screens: {len(screens)} (rendered by {rendered_by})")
+    if result.get("static_reason"):
+        lines.append(f"  static fallback: {result['static_reason']}")
+    totals = manifest.get("totals", {})
+    lines.append(f"Document totals: {page_count} page(s), {totals.get('chars', 0):,} characters")
+    shards = manifest.get("shards", [])
+    if shards:
+        lines.append(
+            f"Shards: {len(shards)} — "
+            + ", ".join(
+                f"{sh['id']} pages {sh['page_range']} (~{sh['est_tokens']:,} tok)"
+                for sh in shards
+            )
+        )
+    lines.append("")
+    lines.append(f"Read it with: read_file {_doc_rel('html', slug)}/document.md")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ single blob, which reads a lot better for this than httpyac's response pane.
    - `VELOCITY-AI-Local.postman_environment.json`
 2. Select the **VELOCITY-AI Local** environment (top-right environment picker)
    before running anything — it carries `apiRoot` and the seeded QA login
-   (`qa-admin@flowinqa.com` / `flowin-e2e-pass`) built in.
+   (`admin@velocity.ai` / `Velocity!Dev2026`) built in.
 3. Requires a backend running locally at `http://localhost:8000` (see
    `tools/api/runs/run.sh`).
 4. Requires a Postman version with SSE/streaming support (desktop app, v11+)

@@ -64,6 +64,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
         "validator",
         "screens_plan_coverage",
     ),  # pdf_to_prototype — Architect screen-plan coverage
+    ("validator", "backlog_plan_coverage"),  # backlog — every coverage item in the plan
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -80,6 +81,8 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("task_parser", "screen_plan"),  # prototype v3 — screens.json expanded by code
     ("mechanical", "publish"),  # A10 — no-model step kinds, palette-visible
     ("mechanical", "assemble_prototype"),  # prototype v3
+    ("mechanical", "assemble_backlog"),  # spec 021 — backlog
+    ("mechanical", "extract_prototype_ui"),  # backlog UI/UX — prototype look and feel
     ("tool", "ask_user"),  # mid-run clarification tool (HITL)
     ("gate", "human"),
     ("gate", "before-human"),  # spec 014 — PRE-step HITL half of the human-gate split
@@ -405,3 +408,22 @@ def test_install_is_deleted() -> None:
     # successor, not a parallel path.
     assert not hasattr(registry_mod, "install")
     assert not hasattr(registry_mod, "_register_builtins")
+
+
+# The composer rail shows what a mechanical step reads, does and writes. A step
+# that declares no consumes/produces of its own falls back to these defaults.
+_MECHANICAL_WITH_IO = ("assemble_backlog", "assemble_prototype", "extract_prototype_ui", "publish")
+
+
+@pytest.mark.parametrize("name", _MECHANICAL_WITH_IO)
+def test_mechanical_capabilities_describe_reads_process_writes(name: str) -> None:
+    meta = CapabilityRegistry().describe("mechanical", name)
+    assert meta["reads"] and all(isinstance(p, str) and p for p in meta["reads"]), meta
+    assert meta["writes"] and all(isinstance(p, str) and p for p in meta["writes"]), meta
+    assert meta["process"].strip(), meta
+    assert meta["description"].strip(), "description must stay as it was"
+
+
+def test_describe_of_an_undescribed_capability_has_empty_io() -> None:
+    meta = CapabilityRegistry().describe("mechanical", "no_such_capability")
+    assert meta["reads"] == [] and meta["writes"] == [] and meta["process"] == ""

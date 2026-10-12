@@ -140,7 +140,7 @@ and a `Blocked / denied only` toggle. Rows read
 Feature: Run detail
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
     And a completed run exists that I own
 
   @S-07-01

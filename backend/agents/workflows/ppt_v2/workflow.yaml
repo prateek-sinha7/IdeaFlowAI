@@ -39,7 +39,7 @@ user_launchable: true
 # ppt_v2 is launchable, so false — same as ppt.
 is_beta: false
 name: PPT v2
-display_name: "Pitch an idea (Detailed)"
+display_name: "Pitch an idea (Depth)"
 short_name: PPT v2
 icon: Presentation
 description: Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file.

@@ -231,10 +231,10 @@ class Settings(BaseSettings):
     # maximum" rather than truncating with small per-agent budgets. This value
     # is applied uniformly to ALL agents by the factory, overriding the per-agent
     # `max_tokens` declared in AGENT.md (which is retained only as documentation).
-    # 32768 is the largest value proven against the deployed Claude Haiku 4.5
-    # profile and is safe across the selectable Claude models (Opus 4.x caps at
-    # 32k output). Raise via the MAX_OUTPUT_TOKENS env var only after confirming
-    # the active model accepts it, or Bedrock returns a ValidationException.
+    # A model the catalog lists runs at its own ceiling instead
+    # (model_catalog.max_output_tokens: Haiku 4.5 64K, Sonnet 4.6+/Opus 4.6+/Fable
+    # 128K); this value is the cap for any model it does not list. Raise it only
+    # after confirming the model accepts it, or Bedrock returns a ValidationException.
     MAX_OUTPUT_TOKENS: int = 32768
 
     # ---- Bedrock prompt caching (default ON) ----
@@ -247,9 +247,9 @@ class Settings(BaseSettings):
     BEDROCK_PROMPT_CACHE_TTL: str = "5m"
 
     # ---- Extended-thinking budget (enable-only, default ON) ----
-    # Extended thinking is enabled by the non-zero default; 0 disables it. Values are clamped to
-    # [1024, MAX_OUTPUT_TOKENS-1] in build_model. Threads a thinking budget into
-    # both provider branches of build_model when > 0.
+    # Extended thinking is enabled by the non-zero default; 0 disables it. Only the
+    # on/off switch now: the budget itself is derived from the call's max_tokens
+    # (max_tokens - 1, floor 1024) in build_model, so it scales with each model's cap.
     THINKING_BUDGET_TOKENS: int = 32767
 
     # ---- SSE transport down-channel (CHAT-07 / D-13) ----
@@ -408,7 +408,10 @@ class Settings(BaseSettings):
     # model turns + 142 tool nodes doing real work (12 `edit_file` repairs) and was
     # cut off one step after writing its screenshot. 400 was sized for a smaller
     # prototype; it stopped being a runaway backstop and became a work ceiling.
-    AGENT_RECURSION_LIMIT: int = 1000
+    # Raised 1000 -> 2500 after run 5ab1be23: the backlog Reviewer was cut off at
+    # 360 tool calls with its fixes unfinished. The platform must not be the
+    # ceiling on a reviewer with genuine volume of work.
+    AGENT_RECURSION_LIMIT: int = 2500
     # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
     # D6 (KAN-139): raised to 168 hours (7 days) to cover the revision-parent seed
     # window — the old 48h was too short for users creating revisions the next day.

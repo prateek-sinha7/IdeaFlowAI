@@ -120,20 +120,14 @@ def _extract_text(content: Any) -> str:
 def _usage_from_response(resp: Any) -> Usage:
     """Extract ``{input,output,cache_read,cache_write}_tokens`` off a response.
 
-    Reads the standard ``AIMessage.usage_metadata``. Degrade-safe: a missing / ``None``
-    ``usage_metadata`` (or any missing sub-key) yields all-zeros and never raises. The
-    prompt-cache split lives in ``usage_metadata["input_token_details"]`` on Bedrock
-    (``cache_read`` / ``cache_creation``); it is absent on ChatAnthropic / scripted /
-    no-cache turns → ``(0, 0)``. Mirrors ``deep_agent_runner._cache_token_counts``.
+    The one usage record (agents/capabilities/token_usage.py): input is uncached
+    input + cache write, cache reads kept apart. Degrade-safe: a missing / ``None``
+    ``usage_metadata`` yields all-zeros and never raises.
     """
-    meta = getattr(resp, "usage_metadata", None) or {}
-    details = meta.get("input_token_details") or {}
-    return {
-        "input_tokens": int(meta.get("input_tokens", 0) or 0),
-        "output_tokens": int(meta.get("output_tokens", 0) or 0),
-        "cache_read_tokens": int(details.get("cache_read", 0) or 0),
-        "cache_write_tokens": int(details.get("cache_creation", 0) or 0),
-    }
+    from agents.capabilities.token_usage import usage_from_metadata  # noqa: PLC0415
+
+    u = usage_from_metadata(getattr(resp, "usage_metadata", None))
+    return {k: u[k] for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")}
 
 
 async def cached_invoke(

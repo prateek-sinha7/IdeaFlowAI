@@ -3,7 +3,7 @@ id: BUG-014-B-GROUNDED-CONTEXT
 type: bug
 kind: event
 title: BUG-014-B — grounded fix spec
-status: open
+status: resolved
 applies_to:
   phases: []
   modules:
@@ -34,7 +34,7 @@ verification:
   status: required
   test_files: []
 compact_summary: 'sse-starlette emits CRLF frame boundaries but useRunStream splits on LF-LF, so zero live SSE frames were parsed; fixed by normalizing CRLF to LF and reading {type, data} from the payload.'
-last_updated: '2026-08-14'
+last_updated: 2026-10-01
 author: 'Prateek Sinha <2000152842@hexaware.com>'
 author_source: applies-to-glob
 ---
@@ -77,3 +77,13 @@ The `\n\n` split + `event:`-line parse date to `0429faef` (Phase 29-07, 2026-07-
 - **Core RED→GREEN (new useRunStream unit test):** feed the parser the ACTUAL backend wire — a chunk `"id: 1\r\ndata: {\"type\":\"questionnaire_ready\",\"data\":{\"pipeline_run_id\":\"r\",\"questions\":[{\"question_id\":\"q1\",\"question_text\":\"Q?\"}]}}\r\n\r\n"` — and assert `onMessage` fires once with `{type:"questionnaire_ready", data:{...questions...}}`. RED before (0 calls / type===""), GREEN after. Add a second case for a multi-frame chunk (`\r\n\r\n`×2) → 2 dispatches, and a legacy `\n\n`+`event:` case → still parses (tolerance).
 - **Mock parity:** update `mockSse.ts` to the real wire; the full mocked SSE/streaming/chat/reconnect e2e stay green (now testing the true format).
 - Executor does NOT run live Bedrock. **Orchestrator live-proof (the acceptance):** fresh top-level prototype launch → clarify surfaces on the LIVE screen within ~30s (no reopen) → answer → build progress streams live → review gate surfaces LIVE → approve → continues; live agent progress increments (not "0/0").
+
+## Resolution
+
+Verified fixed in the current code on 2026-10-01 (feat/user-stories-v2 @ 3b08b2ba8) by static review: a first-pass check and an independent adversarial re-check both found every claim of this card fixed. No tests were run for this closure.
+
+**Fixed by:** cea22ba55 (BUG-014-B parser repair) + 120c0ee4f (SSE-003 post-append CRLF normalization)
+
+**Evidence:** Card claims: (1) CRLF split never matches, (2) envelope {type,data} not unwrapped, (3) mockSse encodes the wrong wire. Checked in source. (1) useRunStream.ts:~405-409 appends the raw chunk, then runs buf.replace(/\r\n/g,"\n") on the accumulated buffer, then indexOf("\n\n") split. (2) sseFrame.ts:35-44 uses parsed.type and parsed.data when type is a string, and falls back to the event: line plus the flat payload otherwise. dispatchBlock (useRunStream.ts:~228) calls parseSseBlock and keeps the seq cursor, the keepalive skip and stream_attached live→setPhase("live"). (3) e2e/fixtures/mockSse.ts:468-469 emits `id: N\r\ndata: {"type","data"}\r\n\r\n`. useRunStream.test.ts has the required cases: single CRLF frame, multi-frame chunk, legacy event: shape, and a CRLF split across chunks. The backend is unchanged, with sse-starlette 3.0.2 still pinned.
+
+**Left over (outside this card's claims):** None for the card's claims. Verified by static reading only, as instructed, so no tests were run. Outside the card's scope fence: RunConnectionProvider.tsx:~562 still normalizes per chunk (`decode(...).replace(/\r\n/g,"\n")`), the pre-SSE-003 pattern. A CRLF split across chunk boundaries could leak a stray \r there. That is a separate code path (sendCommand streamed POST), not what the card describes.

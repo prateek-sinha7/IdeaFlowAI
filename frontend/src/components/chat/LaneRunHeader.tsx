@@ -20,6 +20,7 @@ import { AlertTriangle, Check, ChevronLeft, X } from "lucide-react";
 
 import type { PipelineRunState } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
+import { readBackOrigin } from "@/lib/navigation";
 import type { RunLaneState } from "./RunChatLane";
 
 /**
@@ -301,6 +302,9 @@ export function LaneRunHeader({
   // The back link always renders (mock fidelity). `onBackToHistory` overrides the
   // exact target (wired by 39-05); the default navigates back to the prior view
   // (the run history / dashboard) so the link is present + functional now.
+  // Names the list screen Back returns to (Runs or the dashboard).
+  const [backLabel, _setBackLabel] = useState(() => readBackOrigin().label === "runs" ? "Back to runs" : "Back to dashboard");
+
   const handleBack =
     onBackToHistory ??
     (() => {
@@ -320,7 +324,7 @@ export function LaneRunHeader({
           className="inline-flex items-center gap-[7px] font-sans text-[13px] font-medium text-ink-500 transition-colors hover:text-ink-900"
         >
           <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.7} />
-          Back to history
+          {backLabel}
         </button>
         {actions && <div className="flex items-center gap-1.5">{actions}</div>}
       </div>

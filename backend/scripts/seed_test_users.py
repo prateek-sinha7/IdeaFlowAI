@@ -19,18 +19,17 @@ Usage (from backend/):
     E2E_BASE_PASSWORD=secret uv run python scripts/seed_test_users.py
 
 Creates:
-    qa-basic@flowinqa.com       (tier=basic)
-    qa-pro@flowinqa.com         (tier=pro)
-    qa-enterprise@flowinqa.com  (tier=enterprise)
-    qa-admin@flowinqa.com       (tier=enterprise, is_admin=True)
+    basic@velocity.ai       (tier=basic)
+    pro@velocity.ai         (tier=pro)
+    enterprise@velocity.ai  (tier=enterprise)
+    admin@velocity.ai       (tier=enterprise, is_admin=True)
 
-Password for all: env E2E_BASE_PASSWORD or "flowin-e2e-pass".
+Password for all: env E2E_BASE_PASSWORD or "Velocity!Dev2026".
 
 NOTE: the pool's password policy (12+ chars, mixed case/digits/symbols)
-applies. The default "flowin-e2e-pass" does NOT satisfy it, so set
-E2E_BASE_PASSWORD to a compliant value; the script fails loudly with
-Cognito's own InvalidPasswordException rather than silently creating an
-unusable account.
+applies. The default "Velocity!Dev2026" satisfies it; an E2E_BASE_PASSWORD
+override must too, or the script fails loudly with Cognito's own
+InvalidPasswordException rather than silently creating an unusable account.
 
 Safe to re-run: existing users are reconciled in place (password + tier +
 group membership reset).
@@ -50,13 +49,13 @@ from app.core.config import settings  # noqa: E402
 from app.models.database import SessionLocal  # noqa: E402
 from app.models.user import User  # noqa: E402
 
-PASSWORD = os.environ.get("E2E_BASE_PASSWORD", "flowin-e2e-pass")
+PASSWORD = os.environ.get("E2E_BASE_PASSWORD", "Velocity!Dev2026")
 
 SEED_USERS = [
-    {"email": "qa-basic@flowinqa.com", "tier": "basic", "is_admin": False},
-    {"email": "qa-pro@flowinqa.com", "tier": "pro", "is_admin": False},
-    {"email": "qa-enterprise@flowinqa.com", "tier": "enterprise", "is_admin": False},
-    {"email": "qa-admin@flowinqa.com", "tier": "enterprise", "is_admin": True},
+    {"email": "basic@velocity.ai", "tier": "basic", "is_admin": False},
+    {"email": "pro@velocity.ai", "tier": "pro", "is_admin": False},
+    {"email": "enterprise@velocity.ai", "tier": "enterprise", "is_admin": False},
+    {"email": "admin@velocity.ai", "tier": "enterprise", "is_admin": True},
 ]
 
 # Mirrors app/api/admin.py's write-path map. Duplicated deliberately rather

@@ -179,6 +179,10 @@ _VOLATILE_STRIP_KEYS = frozenset(
         "cache_write_tokens",
         "total_cache_read_tokens",
         "total_cache_write_tokens",
+        # ``usage_version`` (agents/capabilities/token_usage.py) marks agent_complete /
+        # pipeline_complete usage in the current meaning (input excludes cache reads).
+        # Metadata-only, NOT in _REQUIRED_DATA_KEYS — stripped like the cache keys.
+        "usage_version",
         # ── Additive-but-parity-neutral image_count key (image-input Wave 1 / edw) ──
         # The engine stamps ``image_count`` on ``agent_input`` ONLY when image blocks
         # ride the dispatch (>0). No workflow opts in this wave, so it is NEVER emitted

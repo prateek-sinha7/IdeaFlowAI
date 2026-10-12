@@ -27,6 +27,7 @@ import type { RunLaneState } from "@/components/chat/RunChatLane";
 import { Tabs } from "@/components/ui/Tabs";
 import type { WorkflowType, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState } from "@/types/index";
 import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
+import { SandboxPdfPreview } from "@/components/preview/SandboxPdfPreview";
 import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFile, getRunSandboxFileBlob, getRunSandboxZip, resolveRunDeliverable } from "@/lib/api";
 import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { isPlausibleFilePath } from "@/lib/parsers/filePath";
@@ -181,6 +182,9 @@ function AppBuilderIDEPreview({
 //                          mitigation, asserted in the component tests.
 //   • text/markdown     → MarkdownPreview.
 //   • application/zip…  → the AppBuilder file-bundle view (parsed from content).
+//   • application/pdf   → the browser's PDF viewer. The bytes are read from the
+//                          run's workspace by the declared filename; the inline
+//                          content is the deliverable's text form, not the PDF.
 //   • anything else     → a safe download affordance — never inline/execute an
 //                          unknown type (T-18-06).
 // A raw HTML deliverable that sets no background of its own renders on the
@@ -206,13 +210,29 @@ function withDarkIframeDefault(html: string, dark: boolean): string {
 function GenericDeliverablePreview({
   deliverable,
   agentOutputs,
+  runId,
 }: {
   deliverable: GenericDeliverable;
   agentOutputs?: import("@/components/results/FilesTab").AgentOutputItem[];
+  runId?: string;
 }) {
   const { theme } = useTheme();
   const mimetype = (deliverable.mimetype || "").toLowerCase();
   const content = deliverable.content || "";
+
+  if (mimetype === "application/pdf" && runId && deliverable.filename) {
+    return (
+      <SandboxPdfPreview
+        runId={runId}
+        path={deliverable.filename}
+        fallback={
+          <div className="flex h-full items-center justify-center px-6 text-sm text-ink-500">
+            {deliverable.filename} could not be loaded. It can be downloaded from the Files tab.
+          </div>
+        }
+      />
+    );
+  }
 
   // HTML → sandboxed iframe (NO allow-same-origin — see T-18-05 above).
   if (mimetype === "text/html" || mimetype.startsWith("text/html")) {
@@ -374,6 +394,9 @@ function RefVersionPreview({
 
 type PanelTab = "preview" | "files" | "thinking" | "audit" | "workspace";
 
+// Same set as page.tsx's REOPEN_TERMINAL_STATUSES (the backend's TERMINAL_STATUSES).
+const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "degraded", "diverted"]);
+
 interface PreviewPanelProps {
   userStoryContent?: string;
   pptContent?: string;
@@ -391,6 +414,9 @@ interface PreviewPanelProps {
   // URL already carries. The Version menu writes the URL through this same
   // chokepoint so a pin is shareable and survives a later tab switch.
   onTabSelect?: (tab: string, version?: string | null) => void;
+  /** Open a still-running family member as the live run. A pinned version is a
+   *  saved snapshot, and a run that has not finished has saved nothing yet. */
+  onOpenLiveRun?: (runId: string, tab: string) => void;
   workflowType?: WorkflowType;
   /** Raw pipeline type — not normalised. Used to distinguish od_ppt from ppt for download. */
   rawPipelineType?: string;
@@ -759,7 +785,7 @@ function RunDataSkeleton() {
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, isLoadingRunData, runFamily, liveRunId, pinnedVersion, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload, specRevisionCount = 0 }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, onOpenLiveRun, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, isLoadingRunData, runFamily, liveRunId, pinnedVersion, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload, specRevisionCount = 0 }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
   // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
@@ -869,6 +895,13 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     // member: the target route then equalled the current pathname and
     // DashboardLayout's pushState guard swallowed the click entirely.
     const memberIdx = sortedMembers.findIndex((m) => m.id === memberId);
+    // A version still running has no saved agent outputs, so pinning it rendered
+    // an empty Steps page. Follow it live instead — what opening it directly does.
+    const member = sortedMembers[memberIdx];
+    if (member && memberId !== unpinnedRunId && !TERMINAL_RUN_STATUSES.has(member.status) && onOpenLiveRun) {
+      onOpenLiveRun(memberId, tab);
+      return;
+    }
     onTabSelect?.(tab, memberId === unpinnedRunId || memberIdx < 0 ? null : String(memberIdx + 1));
     if (memberId === unpinnedRunId) {
       setViewingVersion(null); // back to live
@@ -884,7 +917,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       console.warn("[revision-family] read-only version fetch failed", err);
       setViewingVersion(null);
     }
-  }, [unpinnedRunId, sortedMembers, onTabSelect, activeTab]);
+  }, [unpinnedRunId, sortedMembers, onTabSelect, onOpenLiveRun, activeTab]);
 
   // B22 fix: resolve the tag to its family member and route through the
   // handleSelectVersion chokepoint so Steps/agents/outputs follow the version.
@@ -1009,6 +1042,8 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     : detectedType === "prototype_revision" ? "prototype"
     : detectedType === "prototype_large_revision" ? "prototype"
     : detectedType === "prototype_feature_revision" ? "prototype"
+    : detectedType === "prototype_v2_revision" ? "prototype"
+    : detectedType === "prototype_v2_feature_revision" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
     : detectedType;
 
@@ -1611,7 +1646,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     //    custom/unknown deliverable, and for any first-party type that lacked
     //    first-party content but carries a generic deliverable.
     if (effGenericDeliverable?.content) {
-      return <GenericDeliverablePreview deliverable={effGenericDeliverable} agentOutputs={effAgentOutputs} />;
+      return <GenericDeliverablePreview deliverable={effGenericDeliverable} agentOutputs={effAgentOutputs} runId={activeRunId ?? undefined} />;
     }
 
     return null;

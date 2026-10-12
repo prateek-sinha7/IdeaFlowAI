@@ -20,9 +20,10 @@ type StepSelectionWire = {
   tools?: AgentToolGrants;
   strategy?: "fanout_batch" | "wave_scheduler" | "task_loop";
   task_source?: {
-    kind: "parsed";
+    kind: "parsed" | "custom_path";
     parser: string;
     target?: string;
+    path?: string;
     source_step: string;
   };
   fanout?: { agent?: "self"; mode?: "parallel"; max_parallel?: number };
@@ -412,7 +413,10 @@ function agentToManifestStep(
           parser: ts.parser,
           source_step: ts.source_step,
           ...(ts.target ? { target: ts.target } : {}),
+          ...(ts.path ? { path: ts.path } : {}),
         };
+        // A path belongs only to a custom_path source; a switch back to a parser drops it.
+        if (ts.kind !== "custom_path") delete step.task_source.path;
       }
       const fanout = selections?.[agent.id]?.fanout;
       if (fanout) {

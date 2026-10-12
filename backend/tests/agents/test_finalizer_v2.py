@@ -2435,3 +2435,40 @@ class TestResumeReFinalization:
             f"expected exactly one post_run dispatch across two finalize calls "
             f"for the same outcome, got {len(post_run_rows)}: {hook_run_rows}"
         )
+
+
+class TestFilesLeftOutOfTheHistory:
+    """A file the binary scan left out of a step commit (run 53d022e9's screenshots)
+    means the history is not the whole run: publish degraded, never tag it."""
+
+    def test_left_out_files_degrade_and_suppress_the_tag(self, tmp_path: Path) -> None:
+        if not shutil.which("git"):
+            pytest.skip("git not available")
+
+        sandbox, run_id = _setup_sandbox(tmp_path)
+        _plant_output(sandbox)
+        _plant_logs(sandbox, run_id)
+        ectx = _make_ectx(run_id, sandbox)
+        ectx.commit_excluded_files = {"build/ui/components/button.png": "unknown binary type"}
+
+        from agents.execution_engine import engine as eng  # noqa: PLC0415
+        eng._finalize_terminal_run_started.discard(run_id)
+
+        def _good_session() -> MagicMock:
+            m = MagicMock()
+            m.query.return_value.filter.return_value.first.return_value = MagicMock()
+            return m
+
+        with (
+            patch("app.models.database.SessionLocal", side_effect=_good_session),
+            patch("app.models.workflow.WorkflowRun", MagicMock()),
+            patch("app.models.run_finalization.RunFinalization", MagicMock()),
+        ):
+            record = asyncio.run(
+                eng.finalize_terminal_run(run_id, ectx, candidate_status="completed")
+            )
+
+        assert record is not None
+        assert record.published_status == "degraded"
+        assert record.degraded_reason == "files_not_saved"
+        assert "v1" not in sandbox.list_tags()

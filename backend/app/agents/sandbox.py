@@ -65,13 +65,10 @@ logger = logging.getLogger("app.agents.sandbox")
 _DELIVERABLE_EXCLUDE: frozenset[str] = frozenset(
     {
         "PLANNER.md",  # engine planning artifact
+        ".family.lock",  # revision-family lock file (family_lock_path) — engine plumbing
         ".git",  # git repository metadata — Requirement 9
         ".gitignore",  # git configuration file — Requirement 9
         "skills",  # staged skill bodies must not ship in user deliverables — Requirement 9
-        # family_lock's lock file (see _family_lock_path): it sits in the
-        # revision-root dir, which IS a root run's sandbox, so an upload (which
-        # takes the lock) otherwise ships an empty `.family.lock` block.
-        ".family.lock",
     }
 )
 
@@ -223,21 +220,26 @@ RESERVED_PATHS: frozenset[str] = frozenset(
 # sidecar for the agent to READ, replacing the old behaviour of pasting every
 # document's full text into the message of every agent that declared them. The
 # app_builder, dotnet and mulesoft guides already name that path.
+# `.extract/` for the same reason: `extract_text` materialises an upload there and its
+# receipt tells the agent to `read_file .extract/<format>/<name>/document.md`. Without
+# this entry every such read was refused, so readers never saw a page or its image.
 AGENT_READABLE_RESERVED: frozenset[str] = frozenset(
     {
         ".context/",
         ".agents/",
         ".uploads/",
+        ".extract/",
     }
 )
 
-# Excluded from listing, deliverable walk, deliverable counting, zip, and public
-# share — but NOT a "reserved subtree" in the RESERVED_PATHS sense. These are
-# Git internals that must be invisible to the product layer without needing the
-# full engine-reservation treatment (no agent tool guard, no gitignore seeding,
-# no cross-run seed guard is needed because Git already prevents writing them via
-# its own mechanics). Kept separate so enforcement points that need BOTH sets can
-# use ``RESERVED_PATHS | GIT_METADATA_PATHS`` while the family-lock and seeding
+# Excluded from the deliverable walk, deliverable counting and public share (the
+# Workspace listing and its zip show them) — but NOT a "reserved subtree" in the
+# RESERVED_PATHS sense. These are Git internals that stay out of the deliverable
+# without needing the full engine-reservation treatment (no agent tool guard, no
+# gitignore seeding, no cross-run seed guard is needed because Git already
+# prevents writing them via its own mechanics). Kept separate so enforcement
+# points that need BOTH sets can use ``RESERVED_PATHS | GIT_METADATA_PATHS``
+# while the family-lock and seeding
 # logic can stay cleanly scoped to ``RESERVED_PATHS``.
 GIT_METADATA_PATHS: frozenset[str] = frozenset(
     {
@@ -262,32 +264,16 @@ _DELIVERABLE_EXCLUDED_EXACT: frozenset[str] = frozenset(
     p for p in RESERVED_PATHS | GIT_METADATA_PATHS if not p.endswith("/")
 )
 
-# Sets for the WORKSPACE LISTING (list_files). Same as the deliverable sets EXCEPT
-# that .chain/, .context/, and .agents/ are deliberately VISIBLE in the listing
-# (Requirement 4 AC 10, Requirement 8 AC 7) — they appear in the Workspace tab but
-# are excluded from the deliverable walk.
-# `.verify/` is visible too (spec 017 viewable media): render_pptx's PNG/PDF
-# verdict evidence is the artifact a reviewer opens the Workspace tab to see.
-# It stays excluded from the deliverable and remains write-reserved.
-_LISTING_VISIBLE: frozenset[str] = frozenset(
-    {".chain/", ".context/", ".agents/", ".verify/"}
-)
-_LISTING_EXCLUDED_PREFIXES: tuple[str, ...] = tuple(
-    sorted(
-        p
-        for p in (RESERVED_PATHS - _LISTING_VISIBLE) | GIT_METADATA_PATHS
-        if p.endswith("/")
-    )
-)
-_LISTING_EXCLUDED_EXACT: frozenset[str] = frozenset(
-    p
-    for p in (RESERVED_PATHS - _LISTING_VISIBLE) | GIT_METADATA_PATHS
-    if not p.endswith("/")
-)
+# The WORKSPACE LISTING (list_files) excludes nothing: the Workspace tab shows every
+# file in the sandbox, reserved subtrees and git metadata included, while the
+# deliverable walk above still excludes them all.
 
 
-def payload_allowlist(output_basename: str) -> frozenset[str]:
-    """Return the exact three normalized paths that the engine may force-stage.
+def payload_allowlist(output_basename: str, text_basename: str | None = None) -> frozenset[str]:
+    """Return the exact normalized paths that the engine may force-stage: three, or four
+    with a binary deliverable's declared text form (``text_basename``, the
+    ``DeliverableSpec.text_name`` such as ``backlog.md`` beside ``Backlog.pdf``), which is
+    validated exactly like ``output_basename`` so a chained run gets text, not only bytes.
 
     This is the ONLY exception to ``RESERVED_PATHS``: the engine is allowed to
     force-stage these three exact paths and no others.  The exception is expressed
@@ -310,25 +296,26 @@ def payload_allowlist(output_basename: str) -> frozenset[str]:
     Lives in the registry block (rather than with the payload builder in task 5.2)
     because task 4.4 (wave 8) needs it before the payload builder exists.
     """
-    if "/" in output_basename or "\\" in output_basename:
-        raise ValueError(
-            f"payload_allowlist: output_basename contains a path separator: {output_basename!r}"
-        )
-    if output_basename in (".", ".."):
-        raise ValueError(
-            f"payload_allowlist: output_basename must not be '.' or '..': {output_basename!r}"
-        )
-    lower = output_basename.lower()
-    if lower in ("logs.jsonl", "summary.md"):
-        raise ValueError(
-            f"payload_allowlist: output_basename collides with a reserved payload name: "
-            f"{output_basename!r}"
-        )
+    names = [output_basename] + ([text_basename] if text_basename else [])
+    for name in names:
+        if "/" in name or "\\" in name:
+            raise ValueError(
+                f"payload_allowlist: output_basename contains a path separator: {name!r}"
+            )
+        if name in (".", ".."):
+            raise ValueError(
+                f"payload_allowlist: output_basename must not be '.' or '..': {name!r}"
+            )
+        if name.lower() in ("logs.jsonl", "summary.md"):
+            raise ValueError(
+                f"payload_allowlist: output_basename collides with a reserved payload name: "
+                f"{name!r}"
+            )
     return frozenset(
         {
             ".chain/logs.jsonl",
             ".chain/summary.md",
-            f".chain/{output_basename}",
+            *(f".chain/{name}" for name in names),
         }
     )
 
@@ -769,16 +756,10 @@ class RunSandbox:
         — and the only case it would add (an empty directory) is one an agent
         cannot produce through ``write_file`` anyway.
 
-        The reserved subtrees ``.uploads/`` and ``.logs/`` are excluded on the
-        same grounds they are excluded from the deliverable: ``.uploads/`` is the
-        owner's own upload staging (already listed by its manifest) and ``.logs/``
-        is the engine-owned run trace, surfaced through the audit view rather than
-        as workspace files.
-
-        ``.agents/`` (agent transcripts), ``.chain/`` (engine chain payload), and
-        ``.context/`` (what the run was given — design material and selections) are
-        listed here but excluded from the deliverable walk — they appear in the
-        Workspace tab but never in the deliverable zip or ``WorkflowRun.output``.
+        EVERY file is listed — reserved subtrees (``.extract/``, ``.uploads/``,
+        ``.logs/``, ``.agents/`` …) and git metadata (``.git/``, ``.gitignore``)
+        included — while the deliverable walk still excludes them all, so they
+        appear in the Workspace tab but never in ``WorkflowRun.output``.
 
         ``os.walk`` does not follow symlinks, and ``is_file()`` drops dangling
         links, FIFOs and sockets — so a symlink planted in the sandbox cannot
@@ -796,20 +777,14 @@ class RunSandbox:
                 if dirnames:
                     truncated = True
                 dirnames[:] = []
+            # Walk .git/ last: its objects grow with every commit, and the
+            # _LIST_MAX_FILES cap must never push real run files out of the listing.
+            dirnames.sort(key=lambda d: (d == ".git", d))
             for name in sorted(filenames):
                 full = Path(dirpath) / name
                 if not full.is_file():
                     continue
                 relpath = full.relative_to(self.root).as_posix()
-                # Derive exclusions from the canonical registry (V2-Q7, Requirement 18
-                # AC 2). Uses pre-computed module-level sets from RESERVED_PATHS and
-                # GIT_METADATA_PATHS. .chain/, .context/, and .agents/ are DELIBERATELY
-                # VISIBLE in the Workspace listing (Requirement 4 AC 10, Requirement 8
-                # AC 7). All other reserved paths and git metadata are excluded.
-                if relpath.startswith(_LISTING_EXCLUDED_PREFIXES):
-                    continue
-                if relpath in _LISTING_EXCLUDED_EXACT:
-                    continue
                 if len(files) >= _LIST_MAX_FILES:
                     return sorted(files, key=lambda f: f["path"]), True
                 try:
@@ -1082,18 +1057,11 @@ class RunSandbox:
             fn()
         except Exception as exc:  # noqa: BLE001 — best-effort, must never raise
             logger.warning(
-                "git_init_sandbox failed run=%s/%s: %s — continuing without git",
+                "git_init_sandbox failed run=%s/%s: %s",
                 self.user_seg,
                 self.run_seg,
                 exc,
             )
-            # Reflect reality (Task 3.6, sandbox-git-versioning-v2, Requirement 3).
-            # The engine's own fallback flips has_git only when this call RAISES,
-            # which it never does — so without this the sandbox kept claiming
-            # has_git=True over a failed init, and the finalizer degraded every
-            # otherwise-clean run on ref/tag creation instead of taking the no-git
-            # path the has_git=False branches exist for.
-            self.has_git = False
 
     def list_files_at_ref(self, ref: str) -> list[str]:
         """Return the list of file relpaths tracked at ``ref`` (Requirement 17 AC2).

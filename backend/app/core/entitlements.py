@@ -24,8 +24,12 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype",
         "prototype_revision",
         "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
+        "prototype_v2_revision",  # spec 022
+        "prototype_v2_feature_revision",  # spec 022
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
+        "backlog",  # file-manifest workflow: full-application user stories from a prototype (spec 021)
+        "backlog_revision",  # spec 022
     },
     "pro": {
         "user_stories",
@@ -36,10 +40,14 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype",
         "prototype_revision",
         "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
+        "prototype_v2_revision",  # spec 022
+        "prototype_v2_feature_revision",  # spec 022
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",
         "app_builder_revision",
+        "backlog",  # file-manifest workflow: full-application user stories from a prototype (spec 021)
+        "backlog_revision",  # spec 022
     },
     "enterprise": {
         "user_stories",
@@ -50,6 +58,8 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "prototype",
         "prototype_revision",
         "prototype_v2",  # file-manifest copy of the DB-composed Prototype v2
+        "prototype_v2_revision",  # spec 022
+        "prototype_v2_feature_revision",  # spec 022
         "prototype_large_revision",  # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder",
@@ -79,6 +89,8 @@ TIER_PIPELINES: dict[str, set[str]] = {
         # reference fan-out fixture — entitled so its canvas rendering can be
         # compared against a real workflow.
         "sample_subagents_parallel",
+        "backlog",  # file-manifest workflow: full-application user stories from a prototype (spec 021)
+        "backlog_revision",  # spec 022
     },
 }
 

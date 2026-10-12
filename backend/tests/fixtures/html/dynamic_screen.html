@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Dynamic Screen</title>
+</head>
+<body>
+<script>
+(function () {
+  var section = document.createElement('section');
+  section.id = 'dynamic-screen';
+  section.innerHTML =
+    '<h2>Dynamic Screen</h2>' +
+    '<label for="dyn-field">Note</label>' +
+    '<input id="dyn-field" name="note" type="text">' +
+    '<button type="button" data-goto="elsewhere">Go</button>';
+  document.body.appendChild(section);
+})();
+</script>
+</body>
+</html>

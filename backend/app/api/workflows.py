@@ -484,6 +484,7 @@ def get_workflow(
                 "kind": step.task_source.kind,
                 "parser": step.task_source.parser,
                 "target": step.task_source.target,
+                "path": step.task_source.path,
             }
         steps.append(
             WorkflowStepDetail(

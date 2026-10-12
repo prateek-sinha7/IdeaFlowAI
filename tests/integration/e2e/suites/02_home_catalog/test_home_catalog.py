@@ -266,7 +266,7 @@ def test_a_saved_override_changes_the_catalog_cards_agent_estimate(page_as, shot
     D-10 is resolved. The card advertises the same agent count regardless of
     whether the signed-in user has a saved override of that built-in.
 
-    qa-admin owns "My app_builder", a 1-step override; qa-basic owns none.
+    admin@velocity.ai owns "My app_builder", a 1-step override; basic@velocity.ai owns none.
     """
     counts = {}
     for role in ("admin", "basic"):

@@ -151,13 +151,16 @@ def cap(monkeypatch):
 
 
 def test_build_model_anthropic_thinking_enabled(monkeypatch, cap):
+    # THINKING_BUDGET_TOKENS only switches thinking on; the budget comes from the
+    # model's own output cap (Haiku 4.5: 64,000), kept below max_tokens.
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setattr(settings, "THINKING_BUDGET_TOKENS", 3000)
     from app.agents.model_factory import build_model
 
-    build_model()
+    build_model("claude-haiku-4-5-20251001")
 
-    assert cap.last["thinking"] == {"type": "enabled", "budget_tokens": 3000}
+    assert cap.last["max_tokens"] == 64000
+    assert cap.last["thinking"] == {"type": "enabled", "budget_tokens": 63999}
     # thinking requires temperature=1 on Anthropic.
     assert cap.last["temperature"] == 1
 
@@ -190,8 +193,8 @@ def test_build_model_bedrock_thinking_enabled(monkeypatch, cap):
 
     extra = cap.last["additional_model_request_fields"]
     assert extra["thinking"]["type"] == "enabled"
-    assert extra["thinking"]["budget_tokens"] == 3000
-    assert extra["thinking"]["budget_tokens"] < settings.MAX_OUTPUT_TOKENS
+    assert cap.last["max_tokens"] == 64000  # the model's own cap
+    assert extra["thinking"]["budget_tokens"] == 63999  # below max_tokens
     assert cap.last["temperature"] == 1
 
 
@@ -207,24 +210,27 @@ def test_build_model_bedrock_thinking_disabled(monkeypatch, cap):
 
 
 def test_build_model_thinking_budget_clamped_to_ceiling(monkeypatch, cap):
-    # A budget far above the output ceiling clamps to <resolved max_tokens> - 1
-    # (which, with no max_tokens override, is settings.MAX_OUTPUT_TOKENS - 1).
+    # The budget is the call's max_tokens - 1: an explicit smaller cap bounds it,
+    # and a model the catalog does not list keeps MAX_OUTPUT_TOKENS.
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setattr(settings, "THINKING_BUDGET_TOKENS", 10_000_000)
     from app.agents.model_factory import build_model
 
-    build_model()
+    build_model("claude-haiku-4-5-20251001", max_tokens=8000)
+    assert cap.last["thinking"]["budget_tokens"] == 7999
 
+    build_model("claude-unlisted-model")
+    assert cap.last["max_tokens"] == settings.MAX_OUTPUT_TOKENS
     assert cap.last["thinking"]["budget_tokens"] == settings.MAX_OUTPUT_TOKENS - 1
 
 
 def test_build_model_thinking_budget_clamped_to_floor(monkeypatch, cap):
-    # A tiny positive budget clamps UP to the 1024 floor.
+    # A small max_tokens never takes the budget below the 1024 floor.
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setattr(settings, "THINKING_BUDGET_TOKENS", 500)
     from app.agents.model_factory import build_model
 
-    build_model()
+    build_model(max_tokens=600)
 
     assert cap.last["thinking"]["budget_tokens"] == 1024
 

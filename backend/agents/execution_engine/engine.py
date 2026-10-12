@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import dataclasses
 import shutil
 import time
 import uuid
@@ -92,6 +93,9 @@ from agents.capabilities.validators.severity import render_coverage_status  # no
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager  # noqa: E402
 from agents.execution_engine.fanout import FanoutWorkerFailed  # noqa: E402
 from agents.capabilities.assemble_step import AssembleStepFailed  # noqa: E402
+from agents.capabilities.backlog_assemble import (  # noqa: E402
+    AssembleBacklogFailed,
+)
 
 # _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
 # function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
@@ -105,9 +109,13 @@ from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngi
 from agents.execution_engine.context import ExecutionContext  # noqa: E402
 from agents.execution_engine.resolver import WorkflowResolver  # noqa: E402
 from agents.execution_engine.run_log import RunLog, RunTrace  # noqa: E402
-from agents.execution_engine.state_machine import get_state_machine  # noqa: E402
+from agents.execution_engine.state_machine import TERMINAL_STATES, get_state_machine  # noqa: E402
 from agents.capabilities.model_catalog import ModelCatalog  # noqa: E402
-from agents.capabilities.model_pricing import estimate_cost_usd  # noqa: E402
+from agents.capabilities.token_usage import (  # noqa: E402
+    USAGE_VERSION,
+    usage_cost_full_usd,
+    usage_cost_usd,
+)
 from agents.factory import AgentContext, create_runner  # noqa: E402
 from agents.model_policy import ModelResolver  # noqa: E402
 from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic_slug  # noqa: E402
@@ -188,12 +196,37 @@ _GENERIC_AGENT_ERROR_MESSAGE = "The model rejected this request."
 # ARN/region/model-id can reach the client no matter what the provider said. An
 # unrecognised fault keeps the original generic message verbatim, so this is
 # additive — existing behaviour is the default, not a special case.
+_THROTTLED_AGENT_ERROR = "The model was rate-limited."
+_CREDENTIAL_AGENT_ERROR = (
+    "The model could not be reached — a provider credential or permission problem "
+    "(the run's cloud session may have expired)."
+)
+_UNAVAILABLE_AGENT_ERROR = "The model service was temporarily unavailable."
+_TIMEOUT_AGENT_ERROR = "The model did not respond in time."
+# A fresh call can succeed where these failed (fan-out retries a worker on them);
+# any other category is deterministic and fails at once.
+TRANSIENT_AGENT_ERRORS: frozenset[str] = frozenset(
+    {_THROTTLED_AGENT_ERROR, _UNAVAILABLE_AGENT_ERROR, _TIMEOUT_AGENT_ERROR}
+)
+
+
+class StepRaised(Exception):
+    """A step's strategy raised an exception the engine has no dedicated handler for.
+
+    ``_guarded_step`` has already logged it and emitted the step's ``agent_error``;
+    ``_execute_impl`` ends the run with one ``pipeline_failed`` carrying the message."""
+
+    def __init__(self, step_id: str, message: str) -> None:
+        super().__init__(message)
+        self.step_id = step_id
+        self.message = message
+
 _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (
         ("too large", "too long", "exceeds", "maximum context", "payload"),
         "The request was too large for the model — the agent's context grew past the limit.",
     ),
-    (("throttl", "rate limit", "too many requests"), "The model was rate-limited."),
+    (("throttl", "rate limit", "too many requests"), _THROTTLED_AGENT_ERROR),
     # Widened after run 54da544c: an expired STS session says "The security token
     # included in the request is invalid" — which matched NONE of the original
     # needles, so a pure credential failure rendered as the generic message and
@@ -214,10 +247,23 @@ _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
             "forbidden",
             "signature",
         ),
-        "The model could not be reached — a provider credential or permission problem "
-        "(the run's cloud session may have expired).",
+        _CREDENTIAL_AGENT_ERROR,
     ),
-    (("timeout", "timed out", "read timeout"), "The model did not respond in time."),
+    # A provider-side 5xx: it used to render as the generic "rejected" message, which
+    # read as the request being wrong and could not be told apart from a refusal.
+    (
+        (
+            "serviceunavailable",
+            "service unavailable",
+            "internalserverexception",
+            "internal server error",
+            "modelnotready",
+            "overloaded",
+            "bad gateway",
+        ),
+        _UNAVAILABLE_AGENT_ERROR,
+    ),
+    (("timeout", "timed out", "read timeout"), _TIMEOUT_AGENT_ERROR),
     # Run 17de7ccb: the Validator drove a browser for 133 model turns and 142 tool
     # nodes — 12 of them real `edit_file` fixes — then LangGraph's step counter hit
     # AGENT_RECURSION_LIMIT and raised GraphRecursionError. It rendered as "the
@@ -295,6 +341,15 @@ def _format_validation_feedback(issues: list[dict] | None) -> str:
 # is the commit hash on success, ``""`` on no-change or blocked.  ``no_change``
 # mirrors CommitResult.no_change — a genuine empty tree is not a failure.
 from dataclasses import dataclass as _dataclass  # noqa: E402
+
+
+# What a degraded run says when a whole commit was refused (keyed by block_reason).
+_COMMIT_BLOCK_REASONS: dict[str, str] = {
+    "staging_failed": "The run's files could not be staged, so they were not saved to its history.",
+    "pre_commit_hook_blocked": "A pre-commit hook refused to save the run's files to its history.",
+    "secret_detected": "The secret scan found a secret-like value, so the run's files were not saved to its history.",
+    "scan_error_fail_closed": "The secret scan failed, so the run's files were not saved to its history.",
+}
 
 
 @_dataclass(frozen=True)
@@ -580,6 +635,7 @@ async def commit_in_sandbox(
             _stage_exc,
         )
         ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+        ectx.last_commit_block_reason = "staging_failed"  # type: ignore[attr-defined]
         return CommitInSandboxResult(
             blocked=True,
             block_reason="staging_failed",
@@ -676,6 +732,7 @@ async def commit_in_sandbox(
             getattr(step, "agent_id", "?"),
         )
         ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+        ectx.last_commit_block_reason = "pre_commit_hook_blocked"  # type: ignore[attr-defined]
         return CommitInSandboxResult(
             blocked=True,
             block_reason="pre_commit_hook_blocked",
@@ -700,27 +757,36 @@ async def commit_in_sandbox(
                 _secret_marker,
             )
             ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+            ectx.last_commit_block_reason = "secret_detected"  # type: ignore[attr-defined]
             return CommitInSandboxResult(
                 blocked=True,
                 block_reason="secret_detected",
             )
 
-        # Binary scan for any binary-staged entries.
+        # Binary scan for any binary-staged entries. A refused binary is taken
+        # out of the index and the REST of the step still commits: one refused
+        # file used to block every commit of the run, leaving the history empty.
+        # The refused file stays in the working tree, never enters git, and is
+        # recorded so the run ends degraded and names it.
+        _refused: dict[str, str] = {}
         for _bf_name, _bf_bytes in staged_binary_entries:
             _bin_reason = scan_staged_binary(_bf_name, _bf_bytes)
             if _bin_reason is not None:
-                logger.warning(
-                    "commit_in_sandbox: MANDATORY binary scan BLOCKED commit for "
-                    "run=%s step=%s file=%r — diff stays in working tree",
-                    getattr(ectx, "run_id", "?"),
-                    getattr(step, "agent_id", "?"),
-                    _bf_name,
-                )
-                ectx.last_commit_blocked = True  # type: ignore[attr-defined]
-                return CommitInSandboxResult(
-                    blocked=True,
-                    block_reason="binary_secret_detected",
-                )
+                _refused[_bf_name] = _bin_reason
+        if _refused:
+            _ws._git("reset", "-q", "--", *sorted(_refused))  # type: ignore[attr-defined]
+            logger.warning(
+                "commit_in_sandbox: MANDATORY binary scan EXCLUDED %s from the commit "
+                "for run=%s step=%s — the files stay in the working tree",
+                sorted(_refused),
+                getattr(ectx, "run_id", "?"),
+                getattr(step, "agent_id", "?"),
+            )
+            _excluded = getattr(ectx, "commit_excluded_files", None)
+            if _excluded is None:
+                _excluded = {}
+                ectx.commit_excluded_files = _excluded  # type: ignore[attr-defined]
+            _excluded.update(_refused)
     except Exception as _scan_exc:  # noqa: BLE001
         # The import or scan itself failing is a real problem — fail closed:
         # block the commit rather than silently skip the mandatory scan.
@@ -731,6 +797,7 @@ async def commit_in_sandbox(
             getattr(ectx, "run_id", "?"),
         )
         ectx.last_commit_blocked = True  # type: ignore[attr-defined]
+        ectx.last_commit_block_reason = "scan_error_fail_closed"  # type: ignore[attr-defined]
         return CommitInSandboxResult(
             blocked=True,
             block_reason="scan_error_fail_closed",
@@ -1030,6 +1097,26 @@ def _compute_chain_depth(chain_source_run_id: str, db: "Any") -> int:
 # ---------------------------------------------------------------------------
 
 
+def effective_deliverable(spec: "Any", sandbox: "Any") -> "Any":
+    """The deliverable a finished run declares.
+
+    A spec with a ``text_name`` (a binary deliverable, e.g. ``Backlog.pdf``) keeps
+    its binary when that file is on disk; otherwise its text form becomes the
+    deliverable, with the text form's name and mimetype. Decided by the file,
+    never by the workflow. Any other spec is returned unchanged.
+    """
+    text_name = getattr(spec, "text_name", None)
+    if not text_name:
+        return spec
+    try:
+        present = sandbox is not None and sandbox.path_for(spec.name).is_file()
+    except (ValueError, TypeError):
+        present = False
+    if present:
+        return spec
+    return dataclasses.replace(spec, name=text_name, text_name=None, mimetype=None)
+
+
 def _write_chain_payload(run_id: str, ectx: "ExecutionContext") -> None:
     """Write the .chain/{run_id}/ payload for a terminal run (Requirement 20).
 
@@ -1120,10 +1207,12 @@ def _write_chain_payload(run_id: str, ectx: "ExecutionContext") -> None:
     try:
         _deliverable = getattr(ectx, "deliverable", None)
         _deliv_name = getattr(_deliverable, "name", None) if _deliverable else None
-        if _deliv_name:
-            _src = sandbox.root / _deliv_name
+        # A binary deliverable's text form travels with it: the next workflow reads text.
+        _text_name = getattr(_deliverable, "text_name", None) if _deliverable else None
+        for _name in dict.fromkeys(n for n in (_deliv_name, _text_name) if n):
+            _src = sandbox.root / _name
             if _src.is_file():
-                shutil.copy2(_src, full_chain_dir / Path(_deliv_name).name)
+                shutil.copy2(_src, full_chain_dir / Path(_name).name)
     except Exception:  # noqa: BLE001
         logger.warning(
             "_write_chain_payload: failed to copy deliverable for run=%s",
@@ -1341,6 +1430,17 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
     _deliv_strategy: str = (
         (getattr(_deliverable, "strategy", None) or "") if _deliverable else ""
     )
+    # A binary deliverable's declared text form (``text_name``: backlog.md beside
+    # Backlog.pdf) travels with it, so a run chained from it gets text, not only bytes.
+    # Only a plain basename on disk is staged — anything else is ignored.
+    _text_name: str = (getattr(_deliverable, "text_name", None) or "") if _deliverable else ""
+    _text_basename: str = ""
+    if _output_basename and _text_name and _text_name != _output_basename and _Path(_text_name).name == _text_name:
+        try:
+            if sandbox.path_for(_text_name).is_file():
+                _text_basename = _text_name
+        except ValueError:  # escapes the sandbox
+            _text_basename = ""
 
     # ── serialized_sandbox: the declared name is NOMINAL, not a file ────────
     # `deliverable.name` is a literal on-disk basename only for the file-backed
@@ -1444,7 +1544,7 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
         from app.agents.sandbox import payload_allowlist as _payload_allowlist  # noqa: PLC0415
 
         if _output_basename:
-            _allowlist = _payload_allowlist(_output_basename)
+            _allowlist = _payload_allowlist(_output_basename, _text_basename or None)
         else:
             # Metadata-only snapshot — no output file in the allowlist.
             _allowlist = frozenset({".chain/logs.jsonl", ".chain/summary.md"})
@@ -1550,6 +1650,21 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
                 run_id,
                 exc_info=True,
             )
+
+    # ── Copy the binary deliverable's text form beside it ────────────────────
+    if _text_basename:
+        try:
+            import shutil as _shutil3  # noqa: PLC0415
+
+            _shutil3.copy2(sandbox.path_for(_text_basename), _staging_abs / _text_basename)
+        except Exception:  # noqa: BLE001 — not staged, so stage_exact never names a missing file
+            logger.warning(
+                "build_flat_payload: failed to copy text form %r for run=%s",
+                _text_basename,
+                run_id,
+                exc_info=True,
+            )
+            _allowlist = _allowlist - {f".chain/{_text_basename}"}
 
     # ── Write summary.md — all fields knowable before the commit (Req 4 AC 7)
     # ── Task 5.4: call render_summary_md with fully resolved field values. ───
@@ -2267,6 +2382,11 @@ async def finalize_terminal_run(
             attempt.degrade(
                 _built_payload.non_chainable_reason or "payload_not_chainable"
             )
+        # A file the binary scan left out of a step commit: the rest of the run
+        # is in git and the payload stays chainable, but the history is not the
+        # whole run, so the run publishes degraded and is not tagged.
+        if getattr(ectx, "commit_excluded_files", None):
+            attempt.degrade("files_not_saved")
 
         # ────────────────────────────────────────────────────────────────────
         # Step 6: Commit through the primitive (no_change on crash-replay)
@@ -6357,18 +6477,47 @@ class ExecutionEngine:
                         total=len(ordered_agents),
                         results=results,
                     )
+                elif getattr(step, "mechanical", None) == "assemble_backlog":
+                    # spec 021: stories/*.json → backlog.md/.csv/.json + coverage.json, by
+                    # code. Same adapter shape as assemble_prototype.
+                    from agents.capabilities.backlog_assemble import (
+                        MechanicalAssembleBacklogStrategy,
+                    )
+
+                    strategy = MechanicalAssembleBacklogStrategy(
+                        spec=spec,
+                        index=cursor,
+                        total=len(ordered_agents),
+                        results=results,
+                    )
+                elif getattr(step, "mechanical", None) == "extract_prototype_ui":
+                    # The prototype's look and feel → build/ui/, by code (headless
+                    # Chromium). Same adapter shape as assemble_backlog.
+                    from agents.capabilities.prototype_ui_extract import (
+                        MechanicalExtractPrototypeUiStrategy,
+                    )
+
+                    strategy = MechanicalExtractPrototypeUiStrategy(
+                        spec=spec,
+                        index=cursor,
+                        total=len(ordered_agents),
+                        results=results,
+                    )
                 else:
                     strategy = _registry.resolve("strategy", strategy_name)
                 # RESUME-02 (D-10): the SINGLE per-step retry/reuse wrapper. Dormant
                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
                 _terminated = False
-                async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+                _credential_failed_id: str | None = None
+                async for event in self._guarded_step(step, ectx, strategy, spec.id, pipeline_run_id):
                     # F3 (13-06): observe agent_error events for the terminal
                     # semantics decision (no mutation — the event flows unchanged).
                     if event.get("type") == "agent_error":
                         _failed_id = event.get("data", {}).get("agent_id")
                         if _failed_id:
                             _failed_agent_ids.add(_failed_id)
+                        if event.get("data", {}).get("error") == _CREDENTIAL_AGENT_ERROR:
+                            _credential_failed_id = _failed_id or spec.id
                     # ── ISS-091: a TERMINAL event arriving through the stream ends
                     # the RUN, not just the step. The inline review gate's reject
                     # handler (_run_agent :4458) cancels the run and returns — but a
@@ -6394,6 +6543,29 @@ class ExecutionEngine:
                     # build-scratch reset) still runs on its normal path. The event
                     # is already emitted by the producer — do NOT emit a second one.
                     await self._persist_budget_snapshot_if_active(ectx)
+                    return
+                if _credential_failed_id:
+                    # Every later step would call the same provider with the same dead
+                    # credential and fail within a second (run 715c1279: 8 steps, then
+                    # a missing-file error that hid the cause). Stop here, naming the
+                    # cause, so a resume after the credential is fixed starts at this step.
+                    _cur = self._state_machine.get_state(pipeline_run_id)
+                    if _cur not in ("cancelled", "failed", "diverted"):
+                        self._state_machine.transition(pipeline_run_id, "failed")
+                    await self._persist_budget_snapshot_if_active(ectx, force=True)
+                    yield {
+                        "type": "pipeline_failed",
+                        "data": {
+                            "pipeline_type": pipeline_type,
+                            "pipeline_run_id": pipeline_run_id,
+                            "total_duration": round(time.time() - total_start, 2),
+                            "agents_completed": cursor,
+                            "agents_total": len(ordered_agents),
+                            "agents_failed": [_credential_failed_id],
+                            "error": _CREDENTIAL_AGENT_ERROR,
+                            "timestamp": _now(),
+                        },
+                    }
                     return
 
                 # ── WR-02 (13 review fix): keep the review payload fresh ─────────
@@ -7357,12 +7529,12 @@ class ExecutionEngine:
                 },
             }
             return
-        except AssembleStepFailed as _assemble_exc:
-            # Prototype v3: the mechanical assemble step found the build below its
+        except (AssembleStepFailed, AssembleBacklogFailed) as _assemble_exc:
+            # Prototype v3 / spec 021: the mechanical assemble step found the build below its
             # coverage threshold (or nothing to assemble). prototype.html and
-            # build/validation.json are already written for inspection; the run
-            # ends here with ONE pipeline_failed naming the missing screens — the
-            # Presenter must never present a build the validator rejected (run 5).
+            # build/validation.json (or backlog.md/.csv/.json) are already written for
+            # inspection; the run ends here with ONE pipeline_failed naming the missing
+            # items — the Presenter must never present a build the validator rejected (run 5).
             self._state_machine.transition(pipeline_run_id, "failed")
             await self._persist_budget_snapshot_if_active(ectx, force=True)
             yield {
@@ -7409,7 +7581,34 @@ class ExecutionEngine:
                 },
             }
             return
+        except StepRaised as _raised:
+            # A step's strategy raised (run 48b0811e: blr-write's task list did not
+            # parse). Its agent_error is already out; ONE pipeline_failed names the step
+            # and the message, so every driver records the reason. No further steps.
+            self._state_machine.transition(pipeline_run_id, "failed")
+            await self._persist_budget_snapshot_if_active(ectx, force=True)
+            _pending_terminal_event = {
+                "type": "pipeline_failed",
+                "data": {
+                    "pipeline_type": pipeline_type,
+                    "pipeline_run_id": pipeline_run_id,
+                    "total_duration": round(time.time() - total_start, 2),
+                    "agents_completed": cursor,
+                    "agents_total": len(ordered_agents),
+                    "agents_failed": [_raised.step_id],
+                    "error": _raised.message,
+                    "timestamp": _now(),
+                },
+            }
+            return
         finally:
+            # Captured FIRST, before any await below: the exception (if any) this
+            # finally is running under. An unhandled one (a mechanical step's
+            # TypeError, run 05832e65) never moves the state machine off
+            # "generating", which the status derivation below reads as completed.
+            import sys as _sys
+
+            _exc_in_flight = _sys.exc_info()[1]
             # T7 (spec 018, FR-009): the ONLY point every exit from this try
             # crosses — normal completion, each of the three excepts above, an
             # unhandled exception, AND GeneratorExit (the consumer abandons this
@@ -7442,6 +7641,11 @@ class ExecutionEngine:
                 _candidate_status_fin = (
                     "completed" if _sm_state_fin == "generating" else _sm_state_fin
                 )
+                # Still "generating" under an ordinary exception = the run crashed.
+                # GeneratorExit / CancelledError are BaseException, not Exception:
+                # their paths keep today's derivation.
+                if _sm_state_fin == "generating" and isinstance(_exc_in_flight, Exception):
+                    _candidate_status_fin = "failed"
             except Exception:  # noqa: BLE001
                 _candidate_status_fin = (
                     getattr(ectx, "final_status", None) or "completed"
@@ -7607,7 +7811,9 @@ class ExecutionEngine:
         # gone too. serialized_sandbox returns None when the sandbox holds 0 deliverable
         # files (the legacy count>0 guard); the engine then falls back to streamed_text
         # — byte-identical to the legacy code-gen→text fall-through.
-        ectx.deliverable = compiled.deliverable
+        ectx.deliverable = effective_deliverable(
+            compiled.deliverable, getattr(getattr(ectx, "runner", None), "sandbox", None)
+        )
         ectx.last_streamed = results[-1]["output"] if results else ""
 
         _deliverable_strategy = compiled.deliverable.strategy or "streamed_text"
@@ -7692,6 +7898,7 @@ class ExecutionEngine:
 
         from app.core.config import settings as _settings
 
+        _run_model = model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID
         _tok_in = sum(r.get("input_tokens", 0) or 0 for r in results)
         _tok_out = sum(r.get("output_tokens", 0) or 0 for r in results)
         # ISS-032: run-total prompt-cache split (0 under the scripted model → the
@@ -7759,18 +7966,18 @@ class ExecutionEngine:
             # _VOLATILE_STRIP_KEYS so the goldens stay byte/event-identical.
             "total_cache_read_tokens": _cache_read,
             "total_cache_write_tokens": _cache_write,
-            # ISS-032: price the UNCACHED input split (input − cache) plus the
-            # cache_read/cache_write tiers via the ONE shared estimate_cost_usd —
-            # no double-count (input_tokens is the TOTAL incl. cache; subtract once).
-            # Under the scripted model cache=0 → uncached=total and the cost is
-            # unchanged, so the goldens stay byte/event-identical.
-            "estimated_cost_usd": estimate_cost_usd(
-                model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
-                input_tokens=max(0, _tok_in - _cache_read - _cache_write),
-                output_tokens=_tok_out,
-                cache_read_tokens=_cache_read,
-                cache_write_tokens=_cache_write,
-                cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL,
+            # Each agent priced at its OWN model (a run mixes Sonnet and Haiku; one
+            # run-level model priced all of run c4cbd381 as Haiku: $21.60 for $61.43),
+            # the four counts at their own rates (agents/capabilities/token_usage.py).
+            # Aux calls carry no model id: priced at the run's model.
+            "estimated_cost_usd": round(
+                sum(usage_cost_usd(r.get("model_id") or _run_model, r,
+                                   cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL)
+                    for r in results)
+                + sum(usage_cost_usd(_run_model, u,
+                                     cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL)
+                      for u in aux_token_usage),
+                6,
             ),
             # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base —
             # every input token at 1x, no cache tiers. ``full - estimated`` is the
@@ -7779,11 +7986,13 @@ class ExecutionEngine:
             # is 1.25x input). Same shared estimate_cost_usd (INV-12) — no second
             # rate table. Additive + stripped by _VOLATILE_STRIP_KEYS, so the
             # goldens stay byte/event-identical (INV-3).
-            "estimated_cost_full_usd": estimate_cost_usd(
-                model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
-                input_tokens=_tok_in,
-                output_tokens=_tok_out,
+            "estimated_cost_full_usd": round(
+                sum(usage_cost_full_usd(r.get("model_id") or _run_model, r) for r in results)
+                + sum(usage_cost_full_usd(_run_model, u) for u in aux_token_usage),
+                6,
             ),
+            # input/total exclude cache reads (agents/capabilities/token_usage.py).
+            "usage_version": USAGE_VERSION,
             "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
         }
         # ── F3 (13-06): degraded completion — STRICTLY CONDITIONAL fields ───────
@@ -7878,6 +8087,23 @@ class ExecutionEngine:
         # DORMANT on every run where no pre_commit hook fires ⇒ INV-3 byte-parity holds.
         if getattr(ectx, "last_commit_blocked", False):
             _pipeline_complete_data["status"] = "degraded"
+            # Name the cause: without it the run was persisted as "degraded:
+            # agent(s) failed: " with an empty agent list.
+            _pipeline_complete_data.setdefault(
+                "degraded_reason",
+                _COMMIT_BLOCK_REASONS.get(
+                    getattr(ectx, "last_commit_block_reason", ""),
+                    "The run's files could not be saved to its history.",
+                ),
+            )
+        _not_saved = getattr(ectx, "commit_excluded_files", None) or {}
+        if _not_saved:
+            _pipeline_complete_data["status"] = "degraded"
+            _pipeline_complete_data.setdefault(
+                "degraded_reason",
+                "Not saved to the run's history (refused by the binary scan): "
+                + ", ".join(sorted(_not_saved)),
+            )
         # QA-PS-027 / ISS-721: the CONTENT signal. Every degrade check above is
         # presence/absence — an exception raised, a budget cap, a blocked commit,
         # a declared file that did not materialize — so an agent that never got
@@ -8879,7 +9105,11 @@ class ExecutionEngine:
         deliverable = getattr(ectx, "deliverable", None)
         if getattr(deliverable, "strategy", None) != "single_file":
             return None
-        return getattr(deliverable, "name", None) or None
+        return (
+            getattr(deliverable, "text_name", None)
+            or getattr(deliverable, "name", None)
+            or None
+        )
 
     def _check_artifact_fallback(
         self,
@@ -9810,6 +10040,7 @@ class ExecutionEngine:
                     )
 
                 output_chunks: list[str] = []
+                _reply_from = 0
 
                 # ── ISS-004 (19-03): streamed agent_chunk sanitizer (chunk-straddle) ──
                 # The buffer is (re)constructed per retry-attempt below (so a fallback
@@ -9888,7 +10119,12 @@ class ExecutionEngine:
                 # unit-style _run_agent invocations) the loop runs exactly one attempt with
                 # the already-built ``agent`` — today's behavior, parity-safe.
                 if _resolver is not None and hasattr(_resolver, "set_chain"):
-                    _resolver.set_chain(_resolved_model_id)
+                    # Pass the step's ModelPolicy so a manifest `model.fallback` is honoured;
+                    # without it the chain was always the tier descent (Haiku → none).
+                    _resolver.set_chain(
+                        _resolved_model_id,
+                        getattr(getattr(ectx, "current_step", None), "model", None),
+                    )
                 # Bound: chain length when armed, else a single attempt.
                 _max_attempts = (
                     len(getattr(_resolver, "_chain", []) or [None]) if _resolver else 1
@@ -9911,18 +10147,16 @@ class ExecutionEngine:
                     # Reset per-attempt accumulators so a retried attempt re-streams from
                     # scratch (Pitfall 4) — the deliverable reflects the successful attempt.
                     output_chunks = []
+                    _reply_from = 0  # where the final message starts (reply: last_message)
                     # ISS-004: a fresh chunk-straddle buffer per attempt so a re-stream
                     # never inherits a held tail from the throttled prior attempt (the FE
                     # discards prior agent_chunk events on agent_model_fallback/reset_output).
                     _chunk_sanitizer = _ChunkStreamSanitizer(
                         getattr(agent, "sanitize_output", None)
                     )
-                    agent_input_tokens = 0
-                    agent_output_tokens = 0
-                    # ISS-032: reset the cache split too so a re-streamed attempt
-                    # does not inherit the throttled prior attempt's counts.
-                    agent_cache_read_tokens = 0
-                    agent_cache_write_tokens = 0
+                    # Token counters are NOT reset here: a throttled attempt's model
+                    # calls already ran and were billed, so their usage stays in the
+                    # agent's totals (they were silently dropped before).
                     # task_progress records appended this attempt (so a retry does not double
                     # count the prototype build checklist on re-stream).
                     _attempt_task_count = 0
@@ -9980,6 +10214,7 @@ class ExecutionEngine:
                                         event.get("cache_write_tokens", 0) or 0
                                     )
                                 elif etype == "tool_call":
+                                    _reply_from = len(output_chunks)
                                     # ── Prototype task progress ──────────────────────────────
                                     # report_task_complete carries the task in its args; record
                                     # it (number/title/summary) so the task_progress event below
@@ -10043,6 +10278,7 @@ class ExecutionEngine:
                                         except Exception:
                                             pass
                                 elif etype == "tool_result":
+                                    _reply_from = len(output_chunks)
                                     yield {
                                         "type": "tool_result",
                                         "data": {
@@ -10350,6 +10586,14 @@ class ExecutionEngine:
                     return
 
                 output = "".join(output_chunks)
+                # ``reply: last_message`` (opt-in per step, spec 022 §11): the output is the
+                # step's final message — the text after its last tool call or result — so
+                # words written between tool calls never reach the review card, the step
+                # transcript or the typed artifact. A final message with no text keeps all.
+                if getattr(getattr(ectx, "current_step", None), "reply", "all") == "last_message":
+                    _final_message = "".join(output_chunks[_reply_from:])
+                    if _final_message.strip():
+                        output = _final_message
 
                 # ── WR-01 (13 review fix): sanitize fabricated tool-call XML HERE ────────
                 # The runner's done-event sanitizer (F4 / 13-02) is inert on this path —
@@ -10579,6 +10823,8 @@ class ExecutionEngine:
                         # below; 0 under the scripted characterization model).
                         "cache_read_tokens": agent_cache_read_tokens,
                         "cache_write_tokens": agent_cache_write_tokens,
+                        # Internal: the run cost prices each agent at its own model.
+                        "model_id": _resolved_model_id,
                         # ISS-028: the task identity of THIS completed invocation ("" for a
                         # single_shot agent) so the terminal degraded decision can subtract
                         # COMPLETED (agent_id, task_number, visit_count) triples from
@@ -10654,6 +10900,8 @@ class ExecutionEngine:
                         # golden-neutral; the WS collector sums these into the run totals).
                         "cache_read_tokens": agent_cache_read_tokens,
                         "cache_write_tokens": agent_cache_write_tokens,
+                        # input/total exclude cache reads (agents/capabilities/token_usage.py).
+                        "usage_version": USAGE_VERSION,
                     },
                 }
 
@@ -12977,6 +13225,16 @@ class ExecutionEngine:
         original_content = original.content
         history_summary = f"{len(version_history)} version(s) exist for this artifact."
 
+        # Opt-in workspace mode (E1/E2): read separately and guarded so the
+        # later compile/ValueError below keeps its v1 ordering. lru_cached.
+        try:
+            _revision_mode = compile_for_run(
+                f"{target_artifact_type.removesuffix('_output')}_revision"
+            ).deliverable.revision_context
+        except Exception:  # noqa: BLE001
+            _revision_mode = "artifact"
+        _workspace_mode = _revision_mode == "workspace"
+
         # Compose the revision context message with three clearly separated sections
         revision_context = (
             f"=== ORIGINAL ARTIFACT (type: {target_artifact_type}) ===\n"
@@ -12989,6 +13247,13 @@ class ExecutionEngine:
             f"{instruction}\n"
             f"=== END REVISION INSTRUCTION ==="
         )
+        if _workspace_mode:
+            revision_context = (
+                f"=== REVISION INSTRUCTION ===\n{instruction}\n"
+                f"=== END REVISION INSTRUCTION ===\n\n"
+                "The original run's files are in this folder (the run's workspace); "
+                "find what you need with grep/glob/read_file."
+            )
 
         # ISS-735 (QA-PS-021, decision 2a — no new column): a parent the completion
         # gate degraded (e.g. compensated content, FIX-612/615/634) must not seed its
@@ -13003,7 +13268,7 @@ class ExecutionEngine:
             ).get_run(parent_run_id)
         except Exception:  # noqa: BLE001 — best-effort read, never block a revision
             _parent_row = None
-        if getattr(_parent_row, "status", None) == "degraded":
+        if not _workspace_mode and getattr(_parent_row, "status", None) == "degraded":
             revision_context += (
                 "\n\n=== PARENT RUN STATUS ===\n"
                 "The original run completed degraded: "
@@ -13104,7 +13369,8 @@ class ExecutionEngine:
         # ingress, which this path never traverses; and the parent deck embedded
         # in revision_context already physically realizes the template.
         # gate_agent_ids=[]: no inter-agent HITL gate on a panel revision — None
-        # would fall back to the static gate set.
+        # would fall back to the static gate set. Manifests that opt in with
+        # deliverable.revision_context: workspace honour their declared human gates.
         final_output: str | None = None
         terminal_failed = False
         async for event in self.execute(
@@ -13119,7 +13385,11 @@ class ExecutionEngine:
             user_id=owner_id,
             model_id=model_id,
             od_context=None,
-            gate_agent_ids=[],
+            gate_agent_ids=(
+                [s.agent_id for s in _compiled_revision.steps if "human" in (s.gates or [])]
+                if _workspace_mode
+                else []
+            ),
             parent_run_id=parent_run_id,
             # FIX-171: thread the narrator milestone_sink so chat_reply cards
             # (pipeline_start "Revision started", pipeline_complete "Delivered")
@@ -14039,6 +14309,35 @@ class ExecutionEngine:
 
         return dataclasses.replace(compiled, steps=new_steps), _user_by_agent
 
+    async def _guarded_step(self, step, ectx: ExecutionContext, strategy, step_id: str, run_id: str):
+        """``_dispatch_step_with_retry``, with an exception the step's strategy raises
+        made visible: logged at ERROR with the step id, then the step's ``agent_error``
+        (unless the step already emitted a non-recoverable one), then ``StepRaised`` so
+        the run ends with a ``pipeline_failed`` naming it. Run 48b0811e's wave step raised
+        on an unparsable task list before its agent_start; the error escaped the engine
+        and the run was failed with no event, no log line and no reason saved. The
+        engine's own terminal exceptions keep their handlers in ``_execute_impl``, and a run
+        that already ended (a cancel racing the step) re-raises exactly as before."""
+        reported = False
+        try:
+            async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+                if event.get("type") == "agent_error" and (event.get("data") or {}).get("recoverable") is False:
+                    reported = True
+                yield event
+        except (BudgetExceeded, AssembleStepFailed, AssembleBacklogFailed, FanoutWorkerFailed):
+            raise  # the run-level handlers in _execute_impl own these
+        except Exception as exc:  # noqa: BLE001 — made visible, then re-raised as StepRaised
+            if self._state_machine.get_state(run_id) in TERMINAL_STATES:
+                raise
+            message = str(exc) or type(exc).__name__
+            logger.error("step %s raised: %s", step_id, message, exc_info=True)
+            if not reported:
+                yield {
+                    "type": "agent_error",
+                    "data": {"agent_id": step_id, "error": message, "recoverable": False},
+                }
+            raise StepRaised(step_id, message) from exc
+
     async def _dispatch_step_with_retry(self, step, ectx: ExecutionContext, strategy):
         """Drive one step's strategy with retry-on-transient + content-hash reuse.
 
@@ -14771,6 +15070,12 @@ class ExecutionEngine:
                         aid = payload.get("agent_id")
                         if aid:
                             agent_complete_events.add(aid)
+                    # A step whose output failed validation after its attempts ended
+                    # with agent_complete THEN a non-recoverable agent_error (the
+                    # validation-exhausted arm): it did not complete, and a resume
+                    # must re-run it rather than skip past it.
+                    elif row_type == "agent_error" and payload.get("recoverable") is False:
+                        agent_complete_events.discard(payload.get("agent_id"))
             except Exception:  # noqa: BLE001 — offline / schema-less harness → no evidence
                 pass
             try:
@@ -14940,7 +15245,18 @@ class ExecutionEngine:
             complete_by_artifact = (
                 agent_id in produced_agents and agent_id in agent_complete_events
             )
-            if complete_by_artifact or agent_id in completed_step_events:
+            # A mechanical step writes plain files, never a typed artifact, and emits
+            # agent_complete only after its work succeeded — so that event alone is
+            # its completion evidence. Without this every mechanical step read as
+            # incomplete and a resume restarted the run from step 0 (run 2867387c).
+            complete_mechanical = bool(getattr(step, "mechanical", None)) and (
+                agent_id in agent_complete_events
+            )
+            if (
+                complete_by_artifact
+                or complete_mechanical
+                or agent_id in completed_step_events
+            ):
                 continue
             return i
 

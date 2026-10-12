@@ -13,7 +13,7 @@ implementations, so `capture/_scenarios.py`'s bidirectional link does not apply 
 them (see the suite's own `test_handoff_and_gates.py` for the scenario-linked
 tests). They carry `@pytest.mark.issue(...)` per the test-writer contract instead.
 
-**Selectors below were confirmed live** (real Chrome, `qa-admin@flowinqa.com`,
+**Selectors below were confirmed live** (real Chrome, `admin@velocity.ai`,
 against a running dev stack) before this file was written, not guessed:
 
   * `/create/prototype` → "Advanced" → a "Use my version" checkbox. CHECKED by

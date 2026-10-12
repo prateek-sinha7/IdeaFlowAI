@@ -21,8 +21,8 @@
  *   3. Seeded users (qa-basic / qa-pro / qa-enterprise + admin):
  *        python3.11 backend/scripts/seed_test_users.py
  *      Creds resolve from env with seed-script defaults:
- *        E2E_BASE_PASSWORD (default "flowin-e2e-pass")
- *        E2E_ENTERPRISE_EMAIL (default "qa-enterprise@flowinqa.com")
+ *        E2E_BASE_PASSWORD (default "Velocity!Dev2026")
+ *        E2E_ENTERPRISE_EMAIL (default "enterprise@velocity.ai")
  *      The `authedPage` fixture logs in as `enterprise` (unlocks custom + app_builder).
  *
  * Run ONLY this suite live:

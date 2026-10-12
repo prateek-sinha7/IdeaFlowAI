@@ -33,6 +33,7 @@ import { useCallback, useState } from "react";
 
 import { resizeImage } from "@/lib/resizeImage";
 import { extractFileText, getToken } from "@/lib/api";
+import { withoutOne } from "@/lib/uploadTypes";
 import type { ChatAttachment } from "@/types/index";
 
 /** A live attachment draft: the pinned `ChatAttachment` ref PLUS the payload
@@ -342,7 +343,7 @@ export function useChatAttachments(): UseChatAttachments {
     setAttachments((prev) => {
       const removed = prev.find((a) => a.id === id);
       if (removed) {
-        setFileContents((fc) => fc.filter((f) => f.name !== removed.name));
+        setFileContents((fc) => withoutOne(fc, removed.name));
       }
       return prev.filter((a) => a.id !== id);
     });

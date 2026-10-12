@@ -189,9 +189,12 @@ class TaskSource:
     INV-5).
     """
 
-    kind: str = "none"  # none | inline | parsed | file
+    kind: str = "none"  # none | inline | parsed | file | custom_path
     parser: str | None = None  # capability name, e.g. "heading_tasks"
     target: str | None = None  # file/section the tasks come from
+    # kind custom_path: the ONE file the tasks are read from — no fallback to
+    # build/tasks.json or the producer's reply. May hold {revision_n}.
+    path: str | None = None
     source_step: str | None = None  # DECLARED task-plan producer step id (CR-05)
     spec_step: str | None = None  # DECLARED spec producer step id (CR-05)
 
@@ -383,6 +386,17 @@ class DeliverableSpec:
     # deliverable. Default None → today's behavior (the named file, as the last
     # agent wrote it, IS the deliverable) is completely unchanged.
     publish_from_glob: str | None = None
+    # DECLARED text form of a binary deliverable (e.g. name "Backlog.pdf",
+    # text_name "backlog.md"). Steps write and read this file; final_output carries
+    # its text, so no binary is ever inlined. When ``name`` is missing at the end of
+    # the run, ``text_name`` becomes the deliverable. Default None → unchanged.
+    text_name: str | None = None
+    # DECLARED revision-message mode. "artifact" (default) pastes the parent's
+    # deliverable into the revision message as today. "workspace" sends only the
+    # instruction and a pointer to the run's workspace, where the parent's files
+    # already are (revisions share the family folder, ADR-0040); it also turns on
+    # the step's declared human gates in a revision (E2).
+    revision_context: str = "artifact"
 
 
 @dataclass
@@ -498,6 +512,12 @@ class Step:
     # doesn't set it keeps the existing "redo is a no-op" behaviour — INV-3). Default
     # False ⇒ DORMANT on every existing manifest.
     redoable: bool = False
+    # What the step's output is — its review card, its step transcript, its typed
+    # artifact: "all" (every word the step streamed, joined, as always) or
+    # "last_message" (only its final message: the text after its last tool call or
+    # result, so words written between tool calls never reach a reviewer). Default
+    # "all" ⇒ every existing step is byte-identical.
+    reply: str = "all"
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     tools: ToolPermissions = field(default_factory=ToolPermissions)  # INV-9 / §8

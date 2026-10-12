@@ -22,7 +22,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup, WaveWorkerEntry, AttachedSkillEntry, AttachedHookEntry } from "@/types/index";
-import { formatDuration, formatTokenCount } from "@/lib/runStats";
+import { formatDuration, formatTokenCount, sumWorkers } from "@/lib/runStats";
 import { getToken, getCapabilities } from "@/lib/api";
 import { stepActivity, toolCallFailed, toolKind } from "@/lib/runChain";
 import { useClipboardCopy } from "@/hooks/useClipboardCopy";
@@ -869,7 +869,7 @@ const WAVE_WORKER_STATE = {
 /** A task agent one wave member spawned via spawn_subagents — the third level.
  *  Nothing in the File Ingestion workflow spawns any more, so this is dormant
  *  here; it lights up for a workflow whose agents discover work at run time. */
-function WaveChildRow({ child, n }: { child: { agent: string; status: string; worker?: number; error?: string }; n: number }) {
+function WaveChildRow({ child, n, modelLabels }: { modelLabels: Record<string, string>; child: { agent: string; status: string; worker?: number; error?: string; modelId?: string }; n: number }) {
   const done = /complete|done|success/i.test(child.status);
   const failed = /fail|error/i.test(child.status);
   return (
@@ -886,6 +886,12 @@ function WaveChildRow({ child, n }: { child: { agent: string; status: string; wo
         <span className="w-[13px] h-[13px] flex-none rounded-full bg-brand-fill border border-brand grid place-items-center"><span className="w-1 h-1 rounded-full bg-brand animate-pulse" /></span>
       )}
       <span className="text-[10.5px] text-ink-500 font-mono">Task {n}</span>
+      {child.modelId && (
+        <span data-testid="wave-child-model" className="inline-flex items-center gap-1 text-[9px] text-ink-400">
+          <Cpu className="h-2.5 w-2.5 flex-none" />
+          {resolveModelLabel(child.modelId, modelLabels)}
+        </span>
+      )}
       {child.error && (
         <span data-testid="wave-child-error" title={child.error} className="text-[10px] text-ink-400 truncate max-w-[55%]">{child.error}</span>
       )}
@@ -936,6 +942,11 @@ function WaveWorkerRow({ worker, onOpen }: { worker: WaveWorkerEntry; onOpen?: (
           {calls} call{calls === 1 ? "" : "s"}
         </span>
       )}
+      {(worker.totalTokens ?? 0) > 0 && (
+        <span data-testid="wave-worker-tokens" className="text-[10px] font-mono text-ink-300">
+          {formatTokenCount(worker.totalTokens ?? 0)} tok
+        </span>
+      )}
       <span className={`text-[10px] font-medium ${state.cls}`}>{state.label}</span>
       {onOpen && <ChevronRight className="h-[15px] w-[15px] flex-none text-line-faint" />}
     </button>
@@ -946,17 +957,19 @@ function WaveWorkerRow({ worker, onOpen }: { worker: WaveWorkerEntry; onOpen?: (
  *  A wave_scheduler step runs its waves SEQUENTIALLY, so wave 2's tasks only
  *  start once wave 1's have finished; flattening them hid that ordering. */
 function WaveSection({
-  waveIndex, status, workers, childrenByParent, defaultOpen, onOpenWorker,
+  waveIndex, status, workers, childrenByParent, defaultOpen, onOpenWorker, modelLabels,
 }: {
+  modelLabels: Record<string, string>;
   waveIndex: number | null;
   status?: string;
   workers: WaveWorkerEntry[];
-  childrenByParent: Map<string, Array<{ agent: string; status: string; worker?: number; error?: string }>>;
+  childrenByParent: Map<string, Array<{ agent: string; status: string; worker?: number; error?: string; modelId?: string }>>;
   defaultOpen: boolean;
   onOpenWorker?: (taskId: string) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const done = workers.filter(w => w.status === "done").length;
+  const waveTokens = sumWorkers({ waveWorkers: workers }, "totalTokens");
   const chip = status ? waveStatusChip(status) : null;
   return (
     <div data-testid="wave-section" data-wave-index={waveIndex ?? ""} className="rounded-[10px] border border-line-faint-row">
@@ -971,6 +984,9 @@ function WaveSection({
         </span>
         {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip.cls}`}>{chip.label}</span>}
         <span className="flex-1" />
+        {waveTokens > 0 && (
+          <span data-testid="wave-section-tokens" className="text-[11px] font-mono text-ink-400">{formatTokenCount(waveTokens)} tok</span>
+        )}
         <span data-testid="wave-section-progress" className="text-[11px] font-mono text-brand">{done} / {workers.length} done</span>
       </button>
       {open && (
@@ -984,7 +1000,7 @@ function WaveSection({
                 <WaveWorkerRow worker={w} onOpen={onOpenWorker} />
                 {kids.length > 0 && (
                   <div data-testid="wave-child-list" className="mt-1 ml-5 space-y-1 border-l border-line-faint-row pl-2.5">
-                    {kids.map((c, i) => <WaveChildRow key={`${w.taskId}-${c.worker ?? i}`} child={c} n={i + 1} />)}
+                    {kids.map((c, i) => <WaveChildRow key={`${w.taskId}-${c.worker ?? i}`} child={c} n={i + 1} modelLabels={modelLabels} />)}
                   </div>
                 )}
               </div>
@@ -996,10 +1012,10 @@ function WaveSection({
   );
 }
 
-function WaveWorkersBlock({ workers, waves, onOpenWorker }: { workers: WaveWorkerEntry[]; waves?: WaveGroup[]; onOpenWorker?: (taskId: string) => void }) {
+function WaveWorkersBlock({ workers, waves, onOpenWorker, modelLabels }: { workers: WaveWorkerEntry[]; waves?: WaveGroup[]; onOpenWorker?: (taskId: string) => void; modelLabels: Record<string, string> }) {
   // Task agents a worker spawned name their parent's task id — group them so each
   // worker row carries its own children (the third level of the tree).
-  const childrenByParent = new Map<string, Array<{ agent: string; status: string; worker?: number; error?: string }>>();
+  const childrenByParent = new Map<string, Array<{ agent: string; status: string; worker?: number; error?: string; modelId?: string }>>();
   for (const w of waves ?? []) {
     for (const wk of w.workers) {
       if (!wk.parentTaskId) continue;
@@ -1033,6 +1049,7 @@ function WaveWorkersBlock({ workers, waves, onOpenWorker }: { workers: WaveWorke
   const plan = (waves ?? []).find(w => w.waveTotal !== undefined);
   const waveTotal = plan?.waveTotal ?? waveOrder.length;
   const wavesDone = (waves ?? []).filter(w => w.status === "completed").length;
+  const allTokens = sumWorkers({ waveWorkers: workers }, "totalTokens");
   return (
     <div data-testid="wave-workers-block" className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
       <div className="flex items-center gap-2 mb-3">
@@ -1045,6 +1062,9 @@ function WaveWorkersBlock({ workers, waves, onOpenWorker }: { workers: WaveWorke
             knows and all it should say (SC-001). */}
         <span className="text-[11px] font-semibold text-ink-800">Waves &amp; tasks</span>
         <span className="flex-1" />
+        {allTokens > 0 && (
+          <span data-testid="wave-workers-tokens" className="text-[11px] font-mono text-ink-400">{formatTokenCount(allTokens)} tok</span>
+        )}
         <span data-testid="wave-workers-progress" className="text-[11px] font-mono text-brand">
           {wavesDone} / {waveTotal} wave{waveTotal === 1 ? "" : "s"}
         </span>
@@ -1061,6 +1081,7 @@ function WaveWorkersBlock({ workers, waves, onOpenWorker }: { workers: WaveWorke
             workers={byWave.get(idx) ?? []}
             childrenByParent={childrenByParent}
             onOpenWorker={onOpenWorker}
+            modelLabels={modelLabels}
             // The wave still in flight is the one worth looking at; a finished
             // wave collapses so a 20-task wave 0 does not bury wave 1.
             defaultOpen={waveOrder.length === 1 || (byWave.get(idx) ?? []).some(w => w.status === "running")}
@@ -1366,9 +1387,11 @@ export function AgentDetailPanel({
     { dagEdges },
   );
 
+  // A wave step's own usage is its members' sum — shown while the wave runs too.
+  const stepTokens = agent.totalTokens || sumWorkers(agent, "totalTokens");
   const metaBits = [
     isDone && agent.duration != null ? formatDuration(agent.duration) : null,
-    isDone && agent.totalTokens != null && agent.totalTokens > 0 ? `${formatTokenCount(agent.totalTokens)} tok` : null,
+    (isDone || agent.waveWorkers?.length) && stepTokens > 0 ? `${formatTokenCount(stepTokens)} tok` : null,
   ].filter(Boolean);
 
   return (
@@ -1435,7 +1458,7 @@ export function AgentDetailPanel({
               />
               {metaBits.length > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-ink-200 font-mono flex-none">
-                  {metaBits.includes(`${formatTokenCount(agent.totalTokens ?? 0)} tok`) && <Cpu className="h-2.5 w-2.5" />}
+                  {metaBits.includes(`${formatTokenCount(stepTokens)} tok`) && <Cpu className="h-2.5 w-2.5" />}
                   {metaBits.join(" · ")}
                 </span>
               )}
@@ -1482,7 +1505,15 @@ export function AgentDetailPanel({
                     of `construction` below, which is specific to the build/task-loop
                     agent. */}
                 {agent.waveWorkers && agent.waveWorkers.length > 0 && (
-                  <WaveWorkersBlock workers={agent.waveWorkers} waves={waveGroups} onOpenWorker={onOpenWorker} />
+                  <WaveWorkersBlock
+                    workers={agent.waveWorkers}
+                    // The run's waves span every wave step; keep this step's own, or an
+                    // earlier step's waves leak into the counts (Story Writers read
+                    // "6 / 1 wave": its 5 done + the Readers' 1, over the Readers' total).
+                    waves={waveGroups?.filter(w => !w.step || w.step === agent.id)}
+                    onOpenWorker={onOpenWorker}
+                    modelLabels={modelLabels}
+                  />
                 )}
 
                 {/* construction fan-out (build agent) */}

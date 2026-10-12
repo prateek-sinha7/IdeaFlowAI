@@ -39,79 +39,67 @@ const base = {
   completedCount: 0,
 } as PipelineRunState;
 
-describe("TokenUsageSummary — Steps bar (cache detail removed, shown on Analytics page)", () => {
-  // Cache tokens are NO LONGER shown inline in the Steps bar — they live on the
-  // Analytics page. The Steps bar shows total · uncached-input · output.
-  // When caching is active, "input" = uncached portion; the tooltip carries the gross.
+describe("TokenUsageSummary — total · input · output as the backend counts them, never cache reads", () => {
+  // The backend's input already excludes cache reads (agents/capabilities/
+  // token_usage.py): input = uncached + cache write, total = input + output.
 
-  it("Spec A: with cacheReadTokens > 0 shows uncached input (gross - cache_read)", () => {
-    // input=70K, cacheRead=60K → uncached = 70K - 60K = 10K = "10.0K input"
+  it("Spec A: shows the fields as sent — cache reads appear nowhere", () => {
     render(
       <TokenUsageSummary
         pipelineState={{
           ...base,
-          totalTokens: 100000,
-          totalInputTokens: 70000,
-          totalOutputTokens: 30000,
-          cacheReadTokens: 60000,
-        } as PipelineRunState}
-      />,
-    );
-    // No "cached" label in Steps bar — that lives on Analytics
-    expect(screen.queryByText(/cached/i)).toBeNull();
-    expect(screen.getByText(/input/i)).toBeTruthy();
-    // output still shown
-    expect(screen.getByText(/30\.0K output/)).toBeTruthy();
-  });
-
-  it("Spec B: no caching — shows gross input unchanged", () => {
-    render(
-      <TokenUsageSummary
-        pipelineState={{
-          ...base,
-          totalTokens: 100000,
-          totalInputTokens: 70000,
-          totalOutputTokens: 30000,
-        } as PipelineRunState}
-      />,
-    );
-    expect(screen.queryByText(/cached/i)).toBeNull();
-    expect(screen.getByText(/70\.0K input/)).toBeTruthy();
-    expect(screen.getByText(/30\.0K output/)).toBeTruthy();
-  });
-
-  it("Spec B2: cacheReadTokens=0 shows gross input (no caching active)", () => {
-    render(
-      <TokenUsageSummary
-        pipelineState={{
-          ...base,
-          totalTokens: 100000,
-          totalInputTokens: 70000,
-          totalOutputTokens: 30000,
-          cacheReadTokens: 0,
-        } as PipelineRunState}
-      />,
-    );
-    expect(screen.queryByText(/cached/i)).toBeNull();
-    expect(screen.getByText(/70\.0K input/)).toBeTruthy();
-  });
-
-  it("Spec C: with cacheWriteTokens > 0 no 'written' label in Steps bar", () => {
-    render(
-      <TokenUsageSummary
-        pipelineState={{
-          ...base,
-          totalTokens: 100000,
-          totalInputTokens: 70000,
+          totalTokens: 40000,
+          totalInputTokens: 10000,
           totalOutputTokens: 30000,
           cacheReadTokens: 60000,
           cacheWriteTokens: 5000,
         } as PipelineRunState}
       />,
     );
-    // "written" is only on the Analytics page, never in the Steps bar
-    expect(screen.queryByText(/written/i)).toBeNull();
-    expect(screen.queryByText(/cached/i)).toBeNull();
+    expect(screen.getByText("40.0K total")).toBeTruthy();
+    expect(screen.getByText("10.0K input")).toBeTruthy();
+    expect(screen.getByText("30.0K output")).toBeTruthy();
+    expect(screen.queryByText(/cached|cache read|written/i)).toBeNull();
+  });
+
+  it("Spec B: live — a running wave's finished members count before the engine's totals exist", () => {
+    render(
+      <TokenUsageSummary
+        pipelineState={{
+          ...base,
+          totalTokens: 1_300_000,
+          totalInputTokens: 1_200_000,
+          totalOutputTokens: 100_000,
+          agents: [
+            { status: "done", inputTokens: 1_200_000, outputTokens: 100_000 },
+            { status: "running", waveWorkers: [
+              { taskId: "a", status: "done", inputTokens: 500_000, outputTokens: 50_000 },
+              { taskId: "b", status: "running" },
+            ] },
+          ],
+        } as unknown as PipelineRunState}
+      />,
+    );
+    expect(screen.getByText("1.7M input")).toBeTruthy();
+    expect(screen.getByText("150.0K output")).toBeTruthy();
+    expect(screen.getByText("1.9M total")).toBeTruthy();
+  });
+
+  it("Spec C: the engine's totals win when larger — they include calls made outside any step", () => {
+    render(
+      <TokenUsageSummary
+        pipelineState={{
+          ...base,
+          totalTokens: 1_121_000,
+          totalInputTokens: 896_000,
+          totalOutputTokens: 225_000,
+          agents: [{ status: "done", inputTokens: 416_000, outputTokens: 80_000 }],
+        } as unknown as PipelineRunState}
+      />,
+    );
+    expect(screen.getByText("896.0K input")).toBeTruthy();
+    expect(screen.getByText("225.0K output")).toBeTruthy();
+    expect(screen.getByText("1.1M total")).toBeTruthy();
   });
 
   it("Spec D: total is always rendered", () => {

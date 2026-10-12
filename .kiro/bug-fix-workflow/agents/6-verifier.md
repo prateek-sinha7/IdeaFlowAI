@@ -64,7 +64,7 @@ Invocation by test kind:
 ## 3. Re-run the original reproduction by hand
 The step nobody else does. Take the repro from the CARD/register (not the test).
 For browser cards: `browser` MCP tool at `http://localhost:3000`, sign in
-`qa-admin@flowinqa.com` / `flowin-e2e-pass` (or the card's tier), SAME conditions
+`admin@velocity.ai` / `Velocity!Dev2026` (or the card's tier), SAME conditions
 the validator recorded. Capture an after-screenshot beside the before. For
 code-level cards: confirm the defective code path is gone.
 

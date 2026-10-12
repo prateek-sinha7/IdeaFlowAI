@@ -97,7 +97,7 @@ one actually does, and where its screenshot, fingerprint and spec live.
 
 - **Real Google Chrome 151**, not Playwright's bundled Chromium — driven over CDP
   with `--browser chrome`, so what was captured is what a user sees.
-- Signed in as `qa-admin@flowinqa.com` (tier `enterprise`, `is_admin` true), which
+- Signed in as `admin@velocity.ai` (tier `enterprise`, `is_admin` true), which
   is the only account that can reach every screen including `/admin`.
 - Served from the **main checkout** (`feat/conditional-gates`, with uncommitted
   changes present), not from this worktree. The specs describe that build.

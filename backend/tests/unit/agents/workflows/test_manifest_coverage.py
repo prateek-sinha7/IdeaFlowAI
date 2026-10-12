@@ -41,7 +41,7 @@ _MANIFEST_BACKED_IDS = sorted(
 
 
 def test_exactly_18_keys() -> None:
-    """The coverage set is every manifest-backed pipeline — currently 35.
+    """The coverage set is every manifest-backed pipeline — currently 39.
 
     (The test NAME is historical — the pin has moved several times and renaming
     the test would churn its id. The number below is the contract.)
@@ -70,12 +70,17 @@ def test_exactly_18_keys() -> None:
     Went 36 -> 35: pdf_to_prototype deleted; prototype_v2 ("Build a prototype
     from documents") replaces it.
 
+    Went 35 -> 36 with spec 021: the backlog workflow.
+
+    Went 36 -> 39 with spec 022: prototype_v2_revision, prototype_v2_feature_revision
+    and backlog_revision.
+
     Includes the ``sample_*`` fixture manifests: ``SUPPORTED_PIPELINE_TYPES``
     is derived from disk (ADR-0005), so every directory with a
     ``workflow.yaml`` is in scope — "zero exemptions among pipelines that
     actually have a workflow.yaml" is the rule.
     """
-    assert len(_MANIFEST_BACKED_IDS) == 35, (
+    assert len(_MANIFEST_BACKED_IDS) == 39, (
         f"manifest-backed pipeline count changed to {len(_MANIFEST_BACKED_IDS)} "
         f"— a workflow.yaml was added or removed. Confirm it is intentional, then "
         f"update this pin: {_MANIFEST_BACKED_IDS}"

@@ -158,6 +158,12 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # tool set — minimal by design, and expected to be deleted once that tool
     # set is covered by real pipelines.
     "ex_playwright_smoke_test",
+    # spec 022: revision pipelines of prototype_v2 and backlog. planner: skip so the
+    # revision dispatch can run them (_handle_revision refuses planner: run); reached
+    # like prototype_large/feature_revision above, not by the run_revision WS frame.
+    "prototype_v2_revision",
+    "prototype_v2_feature_revision",
+    "backlog_revision",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -291,6 +297,11 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     # which this manifest does not declare, so omitting it here made the test demand
     # defaults the manifest never had.
     "sc001-test-fixture": [],
+    # clarify.mode: skip — spec 022 revision pipelines; the revision request is the
+    # whole brief, no clarify round-trip (same as prototype_feature_revision).
+    "prototype_v2_revision": [],
+    "prototype_v2_feature_revision": [],
+    "backlog_revision": [],
 }
 # The fallback for any id absent from the dict above — the *_revision manifests
 # (ppt_revision, prototype_revision, user_stories_revision, app_builder_revision),

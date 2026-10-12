@@ -670,6 +670,22 @@ async def view_shared_run(token: str):
         "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
     }
 
+    from agents.capabilities.deliverables._mimetype import BINARY_MIMETYPES
+
+    if mimetype in BINARY_MIMETYPES and run.deliverable_filename:
+        # output holds the text form; the deliverable itself is the sandbox file.
+        from app.agents.sandbox import RunSandbox
+        from app.api.run_files import _resolve_chain_root_or_404
+
+        try:
+            root_id = _resolve_chain_root_or_404(run.id, run.user_id)
+            path = RunSandbox(run.user_id, root_id, runs_root=settings.RUNS_ROOT).path_for(
+                run.deliverable_filename
+            )
+            data = path.read_bytes()
+        except (ValueError, OSError):
+            raise HTTPException(status_code=404, detail="Share not found or expired.") from None
+        return _Resp(content=data, media_type=mimetype, headers=share_headers)
     if mimetype == "text/html":
         return HTMLResponse(content=output, headers=share_headers)
     if mimetype in ("text/markdown", "text/plain"):

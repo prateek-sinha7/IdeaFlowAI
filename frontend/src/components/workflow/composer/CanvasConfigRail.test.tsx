@@ -655,12 +655,14 @@ describe("CanvasConfigRail — the Gate select and Prompt User (ADR-0013)", () =
 
 // ── Config tab: code-step kind + task-list parser (engine capabilities, selectable) ──
 describe("CanvasConfigRail — Config tab capabilities", () => {
-  it("renders the 'Node type' control on the Config tab; the parser control only when fanning out", async () => {
+  it("the 'Node type' toggle sits on Overview (AI agent picked, prompt shown); Config has none; the parser control only when fanning out", async () => {
     renderRail();
+    const toggle = await screen.findByRole("radiogroup", { name: /^node type$/i });
+    expect(within(toggle).getByRole("radio", { name: /ai agent/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByRole("combobox", { name: /^code step$/i })).toBeNull();
     await openTab(/config/i);
-    await screen.findByLabelText(/^node type$/i);
-    expect(screen.getByText(/node type/i, { selector: "p" })).toBeInTheDocument();
-    expect(screen.queryByLabelText(/^code step$/i)).toBeNull();
+    await screen.findByLabelText(/^Design context: Design system$/i);
+    expect(screen.queryByRole("radiogroup", { name: /^node type$/i })).toBeNull();
     expect(screen.queryByLabelText(/^task source type$/i)).toBeNull();
   });
 
@@ -680,20 +682,80 @@ describe("CanvasConfigRail — Config tab capabilities", () => {
     expect(sel?.task_source?.target).toBe("build/screens.json");
   });
 
+  it("waves offer a 4th 'Custom path' source; picking it reads revisions/{revision_n}/tasks.json, and the path box edits it", async () => {
+    const { onSelection } = renderRail({
+      selection: {
+        strategy: "wave_scheduler",
+        task_source: { kind: "parsed", parser: "json_tasks", target: "build/tasks.json", source_step: "prototype-plan" },
+      },
+    });
+    await openTab(/config/i);
+    const select = await screen.findByLabelText(/^task source type$/i);
+    await userEvent.selectOptions(select, "custom_path");
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.task_source).toEqual({
+      kind: "custom_path", parser: "json_tasks", path: "revisions/{revision_n}/tasks.json", source_step: "prototype-plan",
+    });
+  });
+
+  it("a saved custom path shows as 'Custom path' with its file; editing the box patches the path", async () => {
+    const { onSelection } = renderRail({
+      selection: {
+        strategy: "wave_scheduler",
+        task_source: { kind: "custom_path", parser: "json_tasks", path: "revisions/{revision_n}/tasks.json", source_step: "prototype-plan" },
+      },
+    });
+    await openTab(/config/i);
+    expect(await screen.findByLabelText(/^task source type$/i)).toHaveValue("custom_path");
+    const box = screen.getByLabelText(/^task file path$/i);
+    expect(box).toHaveValue("revisions/{revision_n}/tasks.json");
+    fireEvent.change(box, { target: { value: "plans/tasks.json" } });
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.task_source).toMatchObject({ kind: "custom_path", path: "plans/tasks.json" });
+  });
+
+  it("the custom path is waves-only", async () => {
+    renderRail({
+      selection: {
+        strategy: "fanout_batch",
+        task_source: { kind: "parsed", parser: "heading_tasks", source_step: "prototype-plan" },
+      },
+    });
+    await openTab(/config/i);
+    const batchSelect = await screen.findByLabelText(/^task source type$/i);
+    expect(within(batchSelect).queryByText(/custom path/i)).toBeNull();
+  });
+
+  it("changing the source agent keeps a custom path", async () => {
+    const { onSelection } = renderRail({
+      selection: {
+        strategy: "wave_scheduler",
+        task_source: { kind: "custom_path", parser: "json_tasks", path: "revisions/{revision_n}/tasks.json", source_step: "prototype-plan" },
+      },
+    });
+    await openTab(/config/i);
+    await userEvent.selectOptions(screen.getByLabelText(/task source agent/i), "researcher");
+    const [, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(sel?.task_source).toEqual({
+      kind: "custom_path", parser: "json_tasks", path: "revisions/{revision_n}/tasks.json", source_step: "researcher",
+    });
+  });
+
   it('"Node type" → Code picks the first code step; the radios then switch to "Assemble the prototype"', async () => {
     const onMechanicalChange = vi.fn();
     renderRail({ onMechanicalChange });
-    await openTab(/config/i);
-    const select = await screen.findByLabelText(/^node type$/i);
-    await userEvent.selectOptions(select, "code");
+    const code = await screen.findByRole("radio", { name: /^code$/i });
+    await waitFor(() => expect(code).toBeEnabled());
+    await userEvent.click(code);
     expect(onMechanicalChange).toHaveBeenCalledWith("writer", "publish");
   });
 
   it("a code step shows the 'Code step' dropdown; picking another kind calls onMechanicalChange", async () => {
     const onMechanicalChange = vi.fn();
     renderRail({ onMechanicalChange, agent: { ...WRITER, mechanical: "publish" } });
-    await openTab(/config/i);
-    const select = await screen.findByLabelText(/^code step$/i);
+    // On Overview, in place of the prompt.
+    const select = await screen.findByRole("combobox", { name: /^code step$/i });
+    expect(screen.queryByText(/^prompt$/i)).toBeNull();
     expect(select).toHaveValue("publish");
     expect(within(select).getByText("Assemble the prototype")).toBeInTheDocument();
     await userEvent.selectOptions(select, "assemble_prototype");
@@ -724,7 +786,7 @@ describe("CanvasConfigRail — Config tab capabilities", () => {
   it("renders three 'Design context' checkboxes for an AI agent", async () => {
     renderRail();
     await openTab(/config/i);
-    await screen.findByLabelText(/^node type$/i);
+    await screen.findByLabelText(/^Design context: Design system$/i);
 
     // AI agent should show all three checkboxes
     expect(screen.getByLabelText(/^Design context: Design system$/i)).toBeInTheDocument();
@@ -734,8 +796,8 @@ describe("CanvasConfigRail — Config tab capabilities", () => {
 
   it("no 'Design context' checkboxes render for a code step", async () => {
     renderRail({ agent: { ...WRITER, mechanical: "publish" } });
+    await screen.findByRole("combobox", { name: /^code step$/i });
     await openTab(/config/i);
-    await screen.findByLabelText(/^code step$/i);
     expect(screen.queryByLabelText(/^Design context:/i)).toBeNull();
   });
 
@@ -743,7 +805,7 @@ describe("CanvasConfigRail — Config tab capabilities", () => {
     const onInjectsChange = vi.fn();
     renderRail({ agent: { ...WRITER, injects: ["design_system"] }, onInjectsChange });
     await openTab(/config/i);
-    await screen.findByLabelText(/^node type$/i);
+    await screen.findByLabelText(/^Design context: Template$/i);
 
     const templateCheckbox = screen.getByLabelText(/^Design context: Template$/i) as HTMLInputElement;
     expect(templateCheckbox.checked).toBe(false);

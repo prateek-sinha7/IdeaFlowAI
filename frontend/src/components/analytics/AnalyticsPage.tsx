@@ -279,9 +279,12 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const outputTokens = tokenTotals?.output ?? 0;
   const cacheReadTokens = tokenTotals?.cache_read ?? 0;
   const cacheWriteTokens = tokenTotals?.cache_write ?? 0;
-  // Uncached input = gross input − cache_read − cache_write (Bedrock convention:
-  // input_tokens in usage_metadata is the gross total including all cache tiers).
-  const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+  // The backend's input already excludes cache reads (agents/capabilities/
+  // token_usage.py): input = uncached + cache write, total = input + output. Cache
+  // reads come on their own — shown here, and only here, in the app.
+  const uncachedInputTokens = Math.max(0, inputTokens - cacheWriteTokens);
+  // The four-part bar spans every token the models were sent, cache reads included.
+  const barTotal = totalTokens + cacheReadTokens;
   const hasCacheData = cacheReadTokens > 0 || cacheWriteTokens > 0;
   const completedCount = kpis?.completed ?? 0;
   const failedCount = kpis?.failed ?? 0;
@@ -681,28 +684,28 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                           <motion.div className="h-full bg-brand"
                             style={{ borderRadius: "9999px 0 0 9999px" }}
                             initial={{ width: 0 }}
-                            animate={{ width: `${(uncachedInputTokens / totalTokens) * 100}%` }}
+                            animate={{ width: `${(uncachedInputTokens / barTotal) * 100}%` }}
                             transition={{ duration: 0.8, ease: "easeOut" }}
                             title={`New input: ${formatTokens(uncachedInputTokens)}`}
                           />
                           <motion.div className="h-full"
                             style={{ background: "var(--status-amber)" }}
                             initial={{ width: 0 }}
-                            animate={{ width: `${(cacheReadTokens / totalTokens) * 100}%` }}
+                            animate={{ width: `${(cacheReadTokens / barTotal) * 100}%` }}
                             transition={{ duration: 0.8, ease: "easeOut", delay: 0.05 }}
                             title={`Cache read: ${formatTokens(cacheReadTokens)}`}
                           />
                           <motion.div className="h-full"
                             style={{ background: "var(--status-amber-border)" }}
                             initial={{ width: 0 }}
-                            animate={{ width: `${(cacheWriteTokens / totalTokens) * 100}%` }}
+                            animate={{ width: `${(cacheWriteTokens / barTotal) * 100}%` }}
                             transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
                             title={`Cache write: ${formatTokens(cacheWriteTokens)}`}
                           />
                           <motion.div className="h-full rounded-r-full"
                             style={{ background: "var(--brand-on-dark)" }}
                             initial={{ width: 0 }}
-                            animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
+                            animate={{ width: `${(outputTokens / barTotal) * 100}%` }}
                             transition={{ duration: 0.8, ease: "easeOut", delay: 0.15 }}
                             title={`Output: ${formatTokens(outputTokens)}`}
                           />

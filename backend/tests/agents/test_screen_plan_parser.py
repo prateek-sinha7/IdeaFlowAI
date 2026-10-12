@@ -427,3 +427,40 @@ def test_v4_write_back_keeps_extra_keys_on_existing_transitions():
         "source": "REQ-001",
     }
     assert tr[1] == {"label": "Next", "attr": "data-goto", "to": "other"}
+
+
+# ── with a design template seeded ───────────────────────────────────────────────
+
+class _FilesSandbox:
+    def __init__(self, files):
+        self.files = files
+
+    def read(self, path):
+        return self.files.get(path)
+
+    def write(self, path, text):
+        self.files[path] = text
+
+
+_TEMPLATE_EXAMPLE = ("<html><head><style>.register{display:grid}.chip-ok{color:green}.field{padding:4px}"
+                     ".tabs{gap:2px}</style></head><body><main></main></body></html>")
+
+
+def test_a_templated_task_names_the_template_files_and_classes_not_the_shells():
+    sandbox = _FilesSandbox({
+        "build/screens.json": '{"screens": [{"id": "pets", "title": "Pets"}]}',
+        "spec.md": "### pets\n- Fields:\n| Field | Control |\n|---|---|\n| Name | text |\n",
+        ".context/design/template/example.html": _TEMPLATE_EXAMPLE,
+    })
+    body = ScreenPlanParser().parse_preferring_target("", sandbox=sandbox)[0].body
+    assert "read_file `.context/design/template/example.html`" in body
+    assert "Use the template's classes: chip-ok, field, register." in body   # runtime classes (tabs) listed apart
+    assert "form-control" not in body and "Use ONLY these classes" not in body
+    assert "at least 1 fields (`<input>`, `<select>` or `<textarea>`)" in body
+    assert 'class="screen" id="pets"' in body and 'data-tab="PANEL"' in body
+
+
+def test_without_a_template_the_task_is_the_shells():
+    sandbox = _FilesSandbox({"build/screens.json": '{"screens": [{"id": "pets", "title": "Pets"}]}'})
+    body = ScreenPlanParser().parse_preferring_target("", sandbox=sandbox)[0].body
+    assert "Use ONLY these classes" in body and ".context/design/template" not in body

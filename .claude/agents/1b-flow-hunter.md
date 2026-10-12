@@ -34,7 +34,7 @@ Also read `bug-hunter/WORKFLOW.md` § "Driving the UI" and the target definition
 bug-hunter/velocity.json
 ```
 
-App `http://localhost:3000`, sign in `qa-admin@flowinqa.com` / `flowin-e2e-pass`.
+App `http://localhost:3000`, sign in `admin@velocity.ai` / `Velocity!Dev2026`.
 
 ---
 

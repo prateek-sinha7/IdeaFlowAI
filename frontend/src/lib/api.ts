@@ -1630,8 +1630,8 @@ export async function resolveRunDeliverable(
   // `user_stories`, `user_stories_revision` and `custom`. Root still wins
   // OUTRIGHT: the `.chain/` pass runs only after every root candidate has missed,
   // so nothing that resolves today resolves differently (ppt_v2's root `.pptx`
-  // still beats a chained `.html`). `.chain/` is listed (`_LISTING_VISIBLE`) and
-  // served (it is not in `_SANDBOX_READ_REFUSED`), and both callers already take
+  // still beats a chained `.html`). `.chain/` is listed and served like every
+  // reserved subtree (only git metadata is hidden), and both callers already take
   // the basename of the returned path for display and for the download filename.
   return candidates.map(at).find(Boolean)
     ?? candidates.map((c) => at(`.chain/${c}`)).find(Boolean)
@@ -2212,6 +2212,13 @@ export interface CapabilityEntry {
   description: string;
   security_gated: boolean;
   config_schema: Record<string, unknown>;
+  /** Code steps only, when the backend declares them: the files it reads and
+   *  writes by default (a folder ends in "/") and one plain line on what it
+   *  does in between. The rail's Reads / Process / Writes card prefers the
+   *  step's own consumes/produces and falls back to these. */
+  reads?: string[];
+  process?: string;
+  writes?: string[];
 }
 
 /** One model-picker entry from the capability palette's model catalog. */

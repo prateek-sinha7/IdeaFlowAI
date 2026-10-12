@@ -8,7 +8,7 @@ Authorization: Bearer {{jwt}}
 	if (sc === 401) {
 		console.log('SKIP: not authenticated (401) — set a real admin {{jwt}} to exercise this assertion');
 	} else if (sc === 403) {
-		console.log('SKIP: authenticated but not an admin (403) — the QA admin (qa-admin@flowinqa.com) has is_admin=True, see backend/scripts/seed_test_users.py');
+		console.log('SKIP: authenticated but not an admin (403) — the QA admin (admin@velocity.ai) has is_admin=True, see backend/scripts/seed_test_users.py');
 	} else if (sc !== 200) {
 		console.error('FAIL: expected 200, got', sc, body);
 	} else if (!Array.isArray(body) || !body.every(u => typeof u.is_admin === 'boolean')) {
@@ -19,7 +19,7 @@ Authorization: Bearer {{jwt}}
 }}
 
 ### Admin - List users (non-admin token, expect 403)
-# Swap {{jwt}} for a non-admin user's token (e.g. qa-basic@flowinqa.com) to
+# Swap {{jwt}} for a non-admin user's token (e.g. basic@velocity.ai) to
 # exercise this — with the default admin {{jwt}} this will actually 200,
 # which is also a valid, logged outcome below.
 GET {{apiRoot}}/api/admin/users

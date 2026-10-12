@@ -48,7 +48,7 @@ including all the conditional-gate fixtures.
 Feature: Run history
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
     And I have runs in more than one state
 
   @S-06-01

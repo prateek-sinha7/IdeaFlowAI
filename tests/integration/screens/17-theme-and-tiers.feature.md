@@ -46,15 +46,15 @@ enterprise ladder, and there is **no seeded hexaware account** to test against.
 See D-16.
 
 The **role** gate (`is_admin`) is independent of the **tier** gate —
-`qa-enterprise` has the same entitlements as `qa-admin` but no admin access, which
+`enterprise@velocity.ai` has the same entitlements as `admin@velocity.ai` but no admin access, which
 is what makes it the useful control.
 
 | Account | Tier | Admin | Account menu | Admin route |
 |---|---|---|---|---|
-| qa-admin | enterprise | yes | 6 items | reachable |
-| qa-enterprise | enterprise | no | 5 items | redirects to `/dashboard` |
-| qa-pro | pro | no | 5 items | redirects |
-| qa-basic | basic | no | 5 items | redirects |
+| admin@velocity.ai | enterprise | yes | 6 items | reachable |
+| enterprise@velocity.ai | enterprise | no | 5 items | redirects to `/dashboard` |
+| pro@velocity.ai | pro | no | 5 items | redirects |
+| basic@velocity.ai | basic | no | 5 items | redirects |
 
 **Observed lock matrix** (from `capture/64`, `67`, `68`):
 
@@ -146,11 +146,11 @@ Feature: Tier and role gating
 
     Examples:
       | email                      | count | admin   |
-      | qa-admin@flowinqa.com      | 6     | present |
-      | qa-enterprise@flowinqa.com | 5     | absent  |
-      | qa-pro@flowinqa.com        | 5     | absent  |
-      | qa-basic@flowinqa.com      | 5     | absent  |
-    # qa-enterprise is the control: same tier as the admin, no admin flag. It
+      | admin@velocity.ai      | 6     | present |
+      | enterprise@velocity.ai | 5     | absent  |
+      | pro@velocity.ai        | 5     | absent  |
+      | basic@velocity.ai      | 5     | absent  |
+    # enterprise@velocity.ai is the control: same tier as the admin, no admin flag. It
     # proves the gate is on is_admin and not on entitlement.
 
   @S-17-06
@@ -162,9 +162,9 @@ Feature: Tier and role gating
 
     Examples:
       | email                      |
-      | qa-enterprise@flowinqa.com |
-      | qa-pro@flowinqa.com        |
-      | qa-basic@flowinqa.com      |
+      | enterprise@velocity.ai |
+      | pro@velocity.ai        |
+      | basic@velocity.ai      |
 
   @S-17-07
   Scenario Outline: Deliverable access matches the tier
@@ -175,8 +175,8 @@ Feature: Tier and role gating
 
     Examples:
       | email                      | plan       | includes              |
-      | qa-basic@flowinqa.com      | Basic      | Product Requirements  |
-      | qa-enterprise@flowinqa.com | Enterprise | Custom Workflow       |
+      | basic@velocity.ai      | Basic      | Product Requirements  |
+      | enterprise@velocity.ai | Enterprise | Custom Workflow       |
 
   @S-17-08
   @defect
@@ -184,7 +184,7 @@ Feature: Tier and role gating
   # seven ex_A* fixtures are launchable on the catalog but listed nowhere here.
   # One of the two surfaces is wrong about what the plan includes.
   Scenario: Deliverable Access omits workflows the catalog offers
-    Given I am signed in as "qa-enterprise@flowinqa.com"
+    Given I am signed in as "enterprise@velocity.ai"
     When I cold-load "/dashboard"
     Then "Branch on a decision" is launchable
     When I cold-load "/settings/usage"
@@ -217,7 +217,7 @@ Feature: Tier and role gating
 
   @S-17-11
   Scenario: Entitlement is enforced by the backend, not only the badge
-    Given I hold a valid token for "qa-basic@flowinqa.com"
+    Given I hold a valid token for "basic@velocity.ai"
     When I request a launch of a pipeline my tier does not cover
     Then the backend refuses it
     # ISS-055 recorded a period where launch never checked entitlement at all
@@ -226,8 +226,8 @@ Feature: Tier and role gating
 
   @S-17-12
   Scenario: One user's runs are invisible to another
-    Given "qa-pro@flowinqa.com" has runs
-    When I cold-load "/runs" as "qa-basic@flowinqa.com"
+    Given "pro@velocity.ai" has runs
+    When I cold-load "/runs" as "basic@velocity.ai"
     Then none of those runs are listed
     And opening one of their run URLs directly does not reveal its contents
 ```
@@ -238,5 +238,5 @@ Feature: Tier and role gating
   theme every later screenshot in the run.
 - The tier scenarios need four real sessions. Sign-in is the slowest step in the
   suite — seed tokens directly for everything except the auth feature file itself.
-- `qa-enterprise` is the highest-value fixture in this file. It is the only account
+- `enterprise@velocity.ai` is the highest-value fixture in this file. It is the only account
   that separates *what you may run* from *what you may administer*.

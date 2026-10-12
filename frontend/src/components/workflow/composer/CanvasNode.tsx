@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle, ChevronLeft, ChevronRight, Bot, Code } from "lucide-react";
+import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle, ChevronLeft, ChevronRight, Code } from "lucide-react";
 import { getRole, hasToolOverride, type StepSelection } from "../AgentsPopup";
+import { stepKind } from "./stepKind";
 import type { AgentDef, WorkflowType } from "@/types/index";
 import type { CapabilityModelEntry } from "@/lib/api";
 import { userWorkflowsApi } from "@/store/api/userWorkflows";
@@ -655,13 +656,16 @@ export function CanvasNode({
             empty. */}
         <div className={`flex items-center gap-2.5 ${renaming ? "pr-6" : "pr-11"}`}>
           <div
-            className={`grid h-[30px] w-[30px] flex-none place-items-center rounded-[9px] font-sans text-[11px] font-bold ${avatarCls}`}
+            className={`grid h-[30px] w-[30px] flex-none place-items-center rounded-[9px] font-sans text-[11px] font-bold ${
+              agent.mechanical && !selected ? "bg-(--code-string)/12 text-(--code-string)" : avatarCls
+            }`}
           >
-            {agent.mechanical ? (
-              <Code className="h-4 w-4" aria-label="Code step" />
-            ) : (
-              <Bot className="h-4 w-4" aria-label="AI agent" />
-            )}
+            {/* How the step runs — the shared rule (stepKind.ts), same mark
+                as the config rail's header. */}
+            {(() => {
+              const k = stepKind(agent, selection);
+              return <k.Icon className="h-4 w-4" aria-label={k.label} />;
+            })()}
           </div>
           <div className="min-w-0 flex-1">
             {renaming ? (

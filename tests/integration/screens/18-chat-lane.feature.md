@@ -134,7 +134,7 @@ type.
 Feature: The concierge chat lane
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   # ---------- Structure ----------
 

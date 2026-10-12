@@ -4,17 +4,17 @@
  * user (backend/scripts/seed_test_users.py). NO mocks — exercises real Bedrock.
  *
  * Creds come from env (falling back to the seed-script defaults):
- *   E2E_BASE_PASSWORD (default "flowin-e2e-pass")
- *   E2E_<TIER>_EMAIL  (default qa-<tier>@flowinqa.com)
+ *   E2E_BASE_PASSWORD (default "Velocity!Dev2026")
+ *   E2E_<TIER>_EMAIL  (default <tier>@velocity.ai)
  */
 import { test as base, expect, type Page } from "@playwright/test";
 import { TOKEN_KEY } from "./constants";
 
 const API = process.env.E2E_API_URL || "http://localhost:8000";
-const PASSWORD = process.env.E2E_BASE_PASSWORD || "flowin-e2e-pass";
+const PASSWORD = process.env.E2E_BASE_PASSWORD || "Velocity!Dev2026";
 
 function emailFor(tier: "basic" | "pro" | "enterprise") {
-  return process.env[`E2E_${tier.toUpperCase()}_EMAIL`] || `qa-${tier}@flowinqa.com`;
+  return process.env[`E2E_${tier.toUpperCase()}_EMAIL`] || `${tier}@velocity.ai`;
 }
 
 export async function loginLive(page: Page, tier: "basic" | "pro" | "enterprise" = "enterprise") {

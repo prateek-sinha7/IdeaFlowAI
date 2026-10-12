@@ -84,7 +84,7 @@ each carrying `+ Add` and a `title="View capabilities"` button.
 Feature: Overlays
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   @S-15-01
   Scenario: Inspecting a catalog workflow describes it without launching

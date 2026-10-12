@@ -180,7 +180,7 @@ def test_theme_is_a_per_browser_preference_not_per_account(page, shot):
 def test_the_account_menu_reflects_the_role_not_the_tier(page_as, shot, role, count, admin_entry):
     """Scenario: The account menu reflects the role, not the tier
 
-    qa-enterprise is the control: the same entitlements as qa-admin, no admin
+    enterprise@velocity.ai is the control: the same entitlements as admin@velocity.ai, no admin
     flag. It is what proves the gate is on `is_admin` and not on the tier.
     """
     page = page_as(role)

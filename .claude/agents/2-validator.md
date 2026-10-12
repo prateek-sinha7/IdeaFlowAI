@@ -44,7 +44,7 @@ You handle **one bug per invocation**.
 - `velocity.json` — routes, selectors,
   quirks, recipes. **A documented quirk is known behaviour, not the bug you are validating.**
 
-App `http://localhost:3000`, sign in `qa-admin@flowinqa.com` / `flowin-e2e-pass` unless the
+App `http://localhost:3000`, sign in `admin@velocity.ai` / `Velocity!Dev2026` unless the
 entry names a different tier.
 
 ---
@@ -83,7 +83,7 @@ after each change, until you can name what flips it:
 |---|---|
 | Timing | click immediately vs after the page settles; fast double actions |
 | Entry path | deep link / cold load vs click-through from another screen |
-| Account | `qa-admin` vs `qa-enterprise` vs `qa-pro` vs `qa-basic` |
+| Account | `admin@velocity.ai` vs `enterprise@velocity.ai` vs `pro@velocity.ai` vs `basic@velocity.ai` |
 | Theme | light vs dark (`data-theme` on `<html>`) |
 | Viewport | narrow vs wide |
 | Run state | a run that is generating vs completed vs failed |

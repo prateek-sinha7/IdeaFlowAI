@@ -27,24 +27,274 @@ which is what D-15/C was for.
 Import discipline: this seam is app-side and imports ONLY ``agents.*`` ports (the
 alias resolver, the manifest compiler) and the ``od_context`` loaders — never the
 execution kernel's private internals or a web-layer module — so import-linter's
-kernel/web contracts stay green.
-
-The sandbox helpers this module used to hold have moved out, because the
-execution kernel is their caller and import-linter's "kernel imports only
-capability ports (scaffold)" contract forbids ``agents.execution_engine.engine ->
-app.api``:
-
-* the ``.context/`` design-input writer/reader (``write_od_context_to_sandbox`` /
-  ``rebuild_od_context_from_sandbox`` / ``context_already_present``) lives in
-  ``app.services.od_context_sandbox``;
-* the ``.context/user-prompt.md`` writer and the inline-attachment stripper
-  (``write_user_prompt_to_sandbox`` / ``strip_inline_attachments`` /
-  ``USER_PROMPT_PATH``) live kernel-side in
-  ``agents.execution_engine.user_prompt`` (stdlib-only, so the dependency points
-  inward).
+kernel/web contracts stay 4 kept / 0 broken.
 """
 
 from __future__ import annotations
+
+import json
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+
+def _write_od_context_to_sandbox(sandbox: object, od_context: dict) -> None:
+    """Write the OpenDesign context to ``.context/`` in the run sandbox.
+
+    Layout (Requirement 23 AC 2–3):
+    - ``.context/selections.json``          — wizard choices (template_id, ds_id, …)
+    - ``.context/design/design-system.md``  — design-system token body
+    - ``.context/design/craft.md``          — concatenated craft rules (may be empty)
+    - ``.context/design/template/SKILL.md`` — template skill body (if present)
+    - ``.context/design/template/<path>``   — the template's files (example.html,
+      assets/template.html, references/*.md, …) from template_files
+    - ``.context/design/<name>``            — the design system's tokens.css /
+      components.html from ds_files
+
+    Best-effort, never-raising: a write failure logs a warning and continues.
+    The writer attribute is probed via duck-typing so harness paths (where
+    sandbox may be None or a bare mock) are always safe.
+    """
+    writer = getattr(sandbox, "write", None)
+    if not callable(writer):
+        return
+
+    def _safe_write(relpath: str, content: str) -> None:
+        try:
+            writer(relpath, content)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "_write_od_context_to_sandbox: failed to write %s",
+                relpath,
+                exc_info=True,
+            )
+
+    # ── selections.json — the wizard choices persisted for resume/restart ────
+    selections: dict = {
+        "template_id": od_context.get("template_id"),
+        "ds_id": od_context.get("ds_id"),
+        "template_name": od_context.get("template_name"),
+        "ds_name": od_context.get("ds_name"),
+        "no_template": od_context.get("no_template", False),
+        "is_design_system_required": od_context.get("is_design_system_required"),
+    }
+    _safe_write(".context/selections.json", json.dumps(selections, indent=2))
+
+    # ── .context/design/ — the full design material ──────────────────────────
+    ds_body = od_context.get("ds_body") or ""
+    if ds_body:
+        _safe_write(".context/design/design-system.md", ds_body)
+
+    craft_block = od_context.get("craft_block") or ""
+    if craft_block:
+        _safe_write(".context/design/craft.md", craft_block)
+
+    template_body = od_context.get("template_body") or ""
+    if template_body:
+        _safe_write(".context/design/template/SKILL.md", template_body)
+
+    # template_files: example.html, assets/template.html, references/*.md, …
+    for rel, content in (od_context.get("template_files") or {}).items():
+        if content:
+            _safe_write(f".context/design/template/{rel}", content)
+
+    # ds_files: the design system's tokens.css / components.html, beside its body
+    for name, content in (od_context.get("ds_files") or {}).items():
+        if content:
+            _safe_write(f".context/design/{name}", content)
+
+
+USER_PROMPT_PATH = ".context/user-prompt.md"
+
+_ATTACHMENT_BLOCK_RE = re.compile(
+    r"\n*=== Attached: (.+?) ===\n[\s\S]*?\n=== End: \1 ===", re.MULTILINE
+)
+
+
+def strip_inline_attachments(user_message: str) -> str:
+    """Replace the wizard's inlined ``=== Attached: … ===`` blocks with a pointer.
+
+    For a workflow that extracts its uploads itself (a step granted the
+    ``file_extract`` tool set), the pasted document text lets the first agent
+    skip its own job and do the whole workflow from the prompt. The files are
+    already in ``.uploads/`` (listed in ``.uploads/manifest.json``), so only
+    their names are kept.
+    """
+    names = _ATTACHMENT_BLOCK_RE.findall(user_message or "")
+    if not names:
+        return user_message
+    stripped = _ATTACHMENT_BLOCK_RE.sub("", user_message).rstrip()
+    listing = "\n".join(f"- .uploads/{n}" for n in names)
+    return (
+        f"{stripped}\n\nAttached files (uploaded to .uploads/, listed in "
+        f".uploads/manifest.json; their text is not included here):\n{listing}"
+    )
+
+
+def write_user_prompt_to_sandbox(sandbox: object, user_message: str) -> None:
+    """Write the user's request to ``.context/user-prompt.md``.
+
+    Only the first agent gets the request inline; this file lets any later agent
+    with ``read_files`` read it too. ``.context/`` is reserved (agents cannot
+    write it) and agent-readable. A chained run's inherited
+    ``=== CONTEXT FROM PREVIOUS PIPELINE`` block is stripped, matching the clean
+    brief downstream agents see. A revision overwrites the file with its own
+    request. Best-effort, never-raising.
+    """
+    writer = getattr(sandbox, "write", None)
+    if not callable(writer) or not user_message:
+        return
+    brief = user_message.split("\n\n=== CONTEXT FROM PREVIOUS PIPELINE")[0].strip()
+    if not brief:
+        return
+    try:
+        writer(USER_PROMPT_PATH, brief + "\n")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "write_user_prompt_to_sandbox: failed to write %s",
+            USER_PROMPT_PATH,
+            exc_info=True,
+        )
+
+
+def context_already_present(sandbox: object) -> bool:
+    """Return True if ``.context/`` already has design inputs written.
+
+    Checks for ``.context/selections.json`` — that is the sentinel file
+    ``write_od_context_to_sandbox`` always writes first. Its presence means
+    the root run already seeded the shared sandbox's ``.context/`` directory.
+
+    A revision run that shares the physical sandbox with its root must not
+    silently overwrite the family's design inputs (Requirement 8 AC 3 — the
+    inheritance rule). The function is duck-typed on the ``read`` attribute so
+    harness paths where ``sandbox`` is None or a bare mock are safe.
+    """
+    reader = getattr(sandbox, "read", None)
+    if not callable(reader):
+        return False
+    try:
+        content = reader(".context/selections.json")
+        return bool(content)
+    except Exception:  # noqa: BLE001 — treat any read failure as absent
+        return False
+
+
+def write_od_context_to_sandbox(
+    sandbox: object,
+    od_context: dict | None,
+    *,
+    explicit_selection: bool = False,
+) -> None:
+    """Public entry point: write ``od_context`` into ``.context/`` if non-None.
+
+    Called by the engine's ``_execute_impl`` immediately after the sandbox is
+    provisioned (before step 1) and before any agent receives its context
+    (Requirement 23 AC 1). Also the rebuild target for ``resume_run``
+    (Requirement 23 AC 6): when the DB column is no longer the source of truth,
+    rebuild_od_context_from_sandbox() reads back the same files this writes.
+
+    No-op when ``od_context`` is None (non-OD runs) — byte/event-identical
+    to the pre-task-8.1 behavior (INV-3).
+
+    Inheritance guard (Requirement 8 AC 3 / SGV2-task-6.8): a revision run
+    shares the physical sandbox with its root, so ``.context/`` is ONE directory
+    per sandbox — the same design inputs the root wrote are the inputs the
+    revision sees. If the directory is already populated and the caller did NOT
+    supply an explicit template/design-system selection, skip the write entirely.
+    ``explicit_selection=True`` is set only when the launch request carried a
+    resolved template or design-system choice (i.e. ``od_context`` was loaded
+    from a non-trivial template_id / design_system_id), letting a deliberate
+    override on a revision replace the family's inherited inputs.
+    """
+    if not od_context:
+        return
+    # Inheritance guard: do not overwrite a parent run's design inputs unless
+    # the caller explicitly requested a new template/design-system selection.
+    if context_already_present(sandbox) and not explicit_selection:
+        logger.debug(
+            "write_od_context_to_sandbox: .context/ already present and "
+            "no explicit selection — preserving inherited design inputs"
+        )
+        return
+    _write_od_context_to_sandbox(sandbox, od_context)
+
+
+def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
+    """Rebuild ``od_context`` from ``.context/`` files after a backend restart.
+
+    Reads the files written by ``write_od_context_to_sandbox`` and reconstructs
+    the ``od_context`` dict so ``resume_run`` can pass it to ``_execute_impl``
+    without relying on the ``od_context_json`` DB column (Requirement 23 AC 6).
+
+    Returns ``None`` when ``.context/selections.json`` is absent (non-OD run or
+    the sandbox pre-dates task 8.1) — callers fall back to the DB column in that
+    case so existing resumed runs are unaffected (INV-3 backward compat).
+
+    The reader attribute is probed via duck-typing so harness paths are safe.
+    """
+    reader = getattr(sandbox, "read", None)
+    if not callable(reader):
+        return None
+
+    selections_raw = reader(".context/selections.json")
+    if not selections_raw:
+        # No .context/ written — either a non-OD run or a pre-task-8.1 sandbox.
+        return None
+
+    try:
+        selections: dict = json.loads(selections_raw)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "rebuild_od_context_from_sandbox: failed to parse .context/selections.json",
+            exc_info=True,
+        )
+        return None
+
+    # Rebuild the dict from the individual files. Missing files produce empty
+    # strings, which is the same as the loader returning empty — safe to pass.
+    ds_body = reader(".context/design/design-system.md") or ""
+    craft_block = reader(".context/design/craft.md") or ""
+    template_body = reader(".context/design/template/SKILL.md") or ""
+
+    # Rebuild template_files: the seed + reference files under .context/design/template/
+    # excluding SKILL.md itself (that is template_body above).
+    template_files: dict[str, str] = {}
+    list_fn = getattr(sandbox, "list_files", None)
+    if callable(list_fn):
+        try:
+            listed, _ = list_fn()
+            template_prefix = ".context/design/template/"
+            for entry in listed:
+                path: str = entry["path"]
+                if (
+                    path.startswith(template_prefix)
+                    and path != f"{template_prefix}SKILL.md"
+                ):
+                    rel = path[len(template_prefix) :]  # e.g. "assets/template.html"
+                    content = reader(path)
+                    if content:
+                        template_files[rel] = content
+        except Exception:  # noqa: BLE001
+            pass  # best-effort; missing template_files degrades to inline inject
+
+    ds_files = {name: body for name in ("tokens.css", "components.html")
+                if (body := reader(f".context/design/{name}"))}
+
+    od_context: dict = {
+        "template_id": selections.get("template_id"),
+        "ds_id": selections.get("ds_id"),
+        "template_name": selections.get("template_name"),
+        "ds_name": selections.get("ds_name"),
+        "no_template": selections.get("no_template", False),
+        "is_design_system_required": selections.get("is_design_system_required"),
+        "ds_body": ds_body,
+        "craft_block": craft_block,
+        "template_body": template_body,
+        "template_files": template_files,
+        "ds_files": ds_files,
+    }
+    return od_context
 
 
 def resolve_launch_od_context(

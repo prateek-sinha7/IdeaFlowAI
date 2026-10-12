@@ -68,7 +68,7 @@ describe("AgentDetailPanel — the plan's totals", () => {
   // The totals ride on the run store's wave GROUPS (a panel prop), while the rows
   // come off the agent — so the test has to supply both, exactly as the run view does.
   const groups = [
-    { waveIndex: 0, step: "pb-build", taskIds: ["layout"], status: "running",
+    { waveIndex: 0, step: "wave-step", taskIds: ["layout"], status: "running",
       waveTotal: 4, taskTotal: 34, workers: [] },
   ] as never;
   const rows = {
@@ -83,6 +83,23 @@ describe("AgentDetailPanel — the plan's totals", () => {
     expect(screen.getByTestId("wave-section-progress")).toHaveTextContent("0 / 1 done");
   });
 
+  it("counts only this step's waves when an earlier wave step ran in the same run", () => {
+    // Run 3976f8ce: the Readers' single finished wave leaked into Story Writers,
+    // whose header read "6 / 1 wave" (5 done + Readers' 1, over Readers' total).
+    const mixed = [
+      { waveIndex: 0, step: "readers", taskIds: ["r1"], status: "completed", waveTotal: 1, taskTotal: 3, workers: [] },
+      { waveIndex: 0, step: "wave-step", taskIds: ["a"], status: "completed", waveTotal: 3, taskTotal: 3, workers: [] },
+      { waveIndex: 1, step: "wave-step", taskIds: ["b"], status: "running", waveTotal: 3, taskTotal: 3, workers: [] },
+    ] as never;
+    render(<AgentDetailPanel agent={agent({
+      waveWorkers: [
+        { taskId: "a", status: "done", workerIndex: 0, waveIndex: 0 },
+        { taskId: "b", status: "running", workerIndex: 1, waveIndex: 1 },
+      ],
+    })} waveGroups={mixed} onBack={() => {}} />);
+    expect(screen.getByTestId("wave-workers-progress")).toHaveTextContent("1 / 3 waves");
+  });
+
   it("falls back to the waves on screen when no plan totals were sent", () => {
     render(<AgentDetailPanel agent={agent({
       waveWorkers: [
@@ -92,5 +109,30 @@ describe("AgentDetailPanel — the plan's totals", () => {
     })} onBack={() => {}} />);
     expect(screen.getByTestId("wave-workers-progress")).toHaveTextContent("0 / 1 wave");
     expect(screen.getByTestId("wave-section-progress")).toHaveTextContent("1 / 2 done");
+  });
+});
+
+describe("AgentDetailPanel — model on wave members and sub-agents", () => {
+  const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+  it("shows the step's model chip in the header of a wave step", () => {
+    render(<AgentDetailPanel agent={agent({
+      modelId: HAIKU,
+      waveWorkers: [{ taskId: "layout", status: "running", workerIndex: 0, waveIndex: 0, modelId: HAIKU }],
+    })} onBack={() => {}} />);
+    expect(screen.getAllByText(/Claude Haiku 4 5|Claude Haiku 4\.5/).length).toBeGreaterThan(0);
+  });
+
+  it("labels a sub-agent row with the model it ran on", () => {
+    const groups = [
+      { waveIndex: 0, step: "wave-step", taskIds: ["layout"], status: "running",
+        workers: [{ agent: "helper", status: "running", worker: 0, parentTaskId: "layout", modelId: HAIKU }] },
+    ] as never;
+    render(<AgentDetailPanel
+      agent={agent({ waveWorkers: [{ taskId: "layout", status: "running", workerIndex: 0, waveIndex: 0 }] })}
+      waveGroups={groups}
+      onBack={() => {}}
+    />);
+    expect(screen.getByTestId("wave-child-model")).toHaveTextContent(/Claude Haiku 4/);
   });
 });

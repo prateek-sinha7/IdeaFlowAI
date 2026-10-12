@@ -73,6 +73,36 @@ def normalize_model_id(model_id: str) -> str:
     return _SUFFIX_RE.sub("", key)
 
 
+# Each model's own output ceiling (the Claude API model table), keyed on the bare
+# family so every Bedrock form of an id (eu./us./global. prefix, date, -v1:0)
+# resolves. A model not listed returns None and keeps the configured global cap.
+_MAX_OUTPUT_TOKENS_BY_FAMILY: dict[str, int] = {
+    "claude-haiku-4-5": 64000,
+    **{
+        family: 128000
+        for family in (
+            "claude-sonnet-4-6",
+            "claude-sonnet-5",
+            "claude-sonnet-5-5",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-opus-5-5",
+            "claude-fable-5",
+            "claude-fable-5-1",
+        )
+    },
+}
+
+
+def max_output_tokens(model_id: str | None) -> int | None:
+    """The model's own max output tokens, or None when the family is not listed."""
+    if not model_id:
+        return None
+    return _MAX_OUTPUT_TOKENS_BY_FAMILY.get(normalize_model_id(model_id))
+
+
 # Reasoning-effort levels OpenAI documents for the GPT-5.6 family, and the
 # superset any `Reasoning.levels` is drawn from. Confirmed against Bedrock
 # 2026-09-22: Sol and Luna accept exactly these six and reject anything else

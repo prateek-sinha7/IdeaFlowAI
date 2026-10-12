@@ -54,6 +54,48 @@ logger = logging.getLogger(__name__)
 # json_tasks parser (NOT heading_tasks; waves need the depends_on/conflict_keys surface).
 _DEFAULT_PARSER = "json_tasks"
 
+# A revision writes its own files under revisions/<n>/, n = 1, 2, 3 ... one folder per
+# revision of the run's family (spec 022 §11). A custom_path task source may name that
+# folder as {revision_n}: it resolves to the highest all-digit folder under revisions/,
+# which is the current revision's, since the family lock runs one revision at a time.
+REVISION_TOKEN = "{revision_n}"
+
+
+def latest_revision_number(sandbox: Any) -> int | None:
+    """The highest all-digit folder name under ``revisions/``, or None when there is none."""
+    try:
+        root = sandbox.path_for("revisions")
+    except (AttributeError, ValueError):
+        return None
+    if not root.is_dir():
+        return None
+    return max((int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()), default=None)
+
+
+def resolve_revision_path(path: str, sandbox: Any) -> str:
+    """``path`` with ``{revision_n}`` replaced by the current revision's number."""
+    n = latest_revision_number(sandbox)
+    if n is None:
+        raise ValueError(
+            f"wave_scheduler: task_source path {path!r} names the current revision, "
+            "but there is no revisions/<n>/ folder"
+        )
+    return path.replace(REVISION_TOKEN, str(n))
+
+
+def read_custom_path(path: str, sandbox: Any) -> str:
+    """The text of the one file a ``custom_path`` task source names.
+
+    No fallback — not to build/tasks.json, not to the producer step's reply — so a
+    missing or empty file stops the step before any task runs.
+    """
+    if REVISION_TOKEN in path:
+        path = resolve_revision_path(path, sandbox)
+    text = sandbox.read(path) if sandbox is not None else None
+    if not (text or "").strip():
+        raise ValueError(f"wave_scheduler: task_source path {path!r} is missing or empty")
+    return text
+
 
 class WaveBuildError(Exception):
     """A wave plan is unschedulable — a dependency cycle or an unknown ``depends_on`` ref.
@@ -225,7 +267,9 @@ class WaveSchedulerStrategy:
         parser = self._registry.resolve("task_parser", parser_name)
         target = getattr(task_source, "target", None) if task_source else None
         sandbox = getattr(runner, "sandbox", None)
-        if hasattr(parser, "parse_preferring_target"):
+        if getattr(task_source, "kind", None) == "custom_path":
+            tasks = parser.parse(read_custom_path(task_source.path, sandbox))
+        elif hasattr(parser, "parse_preferring_target"):
             tasks = parser.parse_preferring_target(
                 plan_output, sandbox=sandbox, target=target
             )

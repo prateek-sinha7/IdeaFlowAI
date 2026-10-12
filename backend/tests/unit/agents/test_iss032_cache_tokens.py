@@ -23,7 +23,7 @@ import pathlib
 import pytest
 
 from agents.capabilities.model_pricing import estimate_cost_usd
-from app.agents.deep_agent_runner import _cache_token_counts
+from agents.capabilities.token_usage import usage_from_metadata
 from tests.agents.characterization._normalize import (
     _VOLATILE_STRIP_KEYS,
     _normalize_event,
@@ -33,12 +33,22 @@ _HAIKU_EU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
 # ── 1. Runner extraction ───────────────────────────────────────────────────
+# The usage record (agents/capabilities/token_usage.py): input = uncached + cache
+# write; cache reads kept apart, never inside input or total.
+
+
+def _split(meta: object) -> tuple[int, int]:
+    u = usage_from_metadata(meta)
+    return u["cache_read_tokens"], u["cache_write_tokens"]
 
 
 def test_cache_token_counts_extracts_split() -> None:
-    assert _cache_token_counts(
-        {"input_token_details": {"cache_read": 60000, "cache_creation": 5000}}
-    ) == (60000, 5000)
+    u = usage_from_metadata(
+        {"input_tokens": 70000, "output_tokens": 900,
+         "input_token_details": {"cache_read": 60000, "cache_creation": 5000}}
+    )
+    assert u == {"input_tokens": 10000, "output_tokens": 900, "total_tokens": 10900,
+                 "cache_read_tokens": 60000, "cache_write_tokens": 5000}
 
 
 @pytest.mark.parametrize(
@@ -51,19 +61,14 @@ def test_cache_token_counts_extracts_split() -> None:
     ],
 )
 def test_cache_token_counts_defaults_zero(meta: object) -> None:
-    assert _cache_token_counts(meta) == (0, 0)
+    assert _split(meta) == (0, 0)
 
 
 def test_cache_token_counts_partial_dict_defaults_missing() -> None:
     # Only cache_read present → cache_write (cache_creation) defaults 0, no raise.
-    assert _cache_token_counts({"input_token_details": {"cache_read": 1234}}) == (
-        1234,
-        0,
-    )
+    assert _split({"input_token_details": {"cache_read": 1234}}) == (1234, 0)
     # None-valued sub-keys degrade to 0 (int(... or 0)), never raises.
-    assert _cache_token_counts(
-        {"input_token_details": {"cache_read": None, "cache_creation": None}}
-    ) == (0, 0)
+    assert _split({"input_token_details": {"cache_read": None, "cache_creation": None}}) == (0, 0)
 
 
 # ── 2. Usage-event wiring (source-pin) ─────────────────────────────────────
@@ -71,11 +76,8 @@ def test_cache_token_counts_partial_dict_defaults_missing() -> None:
 
 def test_usage_event_emits_both_cache_keys_source_pin() -> None:
     src = pathlib.Path("app/agents/deep_agent_runner.py").read_text(encoding="utf-8")
-    # The on_chat_model_end usage-emit dict must carry both cache keys.
-    assert '"cache_read_tokens": _cr' in src
-    assert '"cache_write_tokens": _cw' in src
-    # And the helper is the single extraction seam.
-    assert "def _cache_token_counts" in src
+    # The on_chat_model_end usage-emit is the one usage record, both cache keys included.
+    assert 'yield {"type": "usage", **usage_from_metadata(meta)}' in src
 
 
 # ── 3. Cost split (no double-count) ────────────────────────────────────────

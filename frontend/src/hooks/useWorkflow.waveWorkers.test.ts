@@ -126,6 +126,42 @@ describe("wave worker nesting (agent_start/agent_complete with task_id)", () => 
   });
 });
 
+describe("wave/fan-out model id", () => {
+  const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+  it("records each member's model and lends the first one to the step, whose own agent_start has none", () => {
+    const state = runFrames([
+      ...HEAD,
+      { type: "agent_start", agent_id: "wave-step", task_id: "task-1", wave_index: 0, worker_index: 0, model_id: HAIKU },
+    ]);
+
+    expect(state.agents[0].waveWorkers?.[0].modelId).toBe(HAIKU);
+    expect(state.agents[0].modelId).toBe(HAIKU);
+  });
+
+  it("keeps the step's model when the step's own agent_complete has none", () => {
+    const state = runFrames([
+      ...HEAD,
+      { type: "agent_start", agent_id: "wave-step", task_id: "task-1", wave_index: 0, worker_index: 0, model_id: HAIKU },
+      { type: "agent_complete", agent_id: "wave-step", task_id: "task-1", wave_index: 0, worker_index: 0, model_id: HAIKU },
+      { type: "agent_complete", agent_id: "wave-step" },
+    ]);
+
+    expect(state.agents[0].status).toBe("done");
+    expect(state.agents[0].modelId).toBe(HAIKU);
+  });
+
+  it("keeps a member's model when its agent_complete arrives without one", () => {
+    const state = runFrames([
+      ...HEAD,
+      { type: "agent_start", agent_id: "wave-step", task_id: "task-1", wave_index: 0, worker_index: 0, model_id: HAIKU },
+      { type: "agent_complete", agent_id: "wave-step", task_id: "task-1", wave_index: 0, worker_index: 0 },
+    ]);
+
+    expect(state.agents[0].waveWorkers?.[0].modelId).toBe(HAIKU);
+  });
+});
+
 describe("wave_skipped — a wave that ran with zero tasks", () => {
   it("flags the parent agent without altering its status", () => {
     const state = runFrames([

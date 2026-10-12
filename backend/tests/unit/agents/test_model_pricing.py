@@ -252,8 +252,17 @@ def test_both_cost_sites_use_the_shared_pricing_function(site: Path) -> None:
     per-token rate literal of its own — so a rate change has exactly one home
     (``agents/capabilities/model_catalog.py``) and the two sites cannot drift."""
     src = _read_cost_site(site)
+    # Directly, or through agents/capabilities/token_usage.py — which prices every
+    # usage record with that same estimate_cost_usd (checked below), so a rate
+    # change still has exactly one home.
     assert (
-        _SHARED_IMPORT in src
+        _SHARED_IMPORT in src or "from agents.capabilities.token_usage import" in src
     ), f"{site.name} must import the shared pricing function ({_SHARED_IMPORT})"
     found = [lit for lit in _RATE_LITERALS if lit in src]
     assert not found, f"{site.name} carries hand-rolled rate literal(s) {found}"
+
+
+def test_token_usage_prices_through_the_shared_pricing_function() -> None:
+    src = (_BACKEND / "agents" / "capabilities" / "token_usage.py").read_text()
+    assert _SHARED_IMPORT in src
+    assert not [lit for lit in _RATE_LITERALS if lit in src]

@@ -710,3 +710,178 @@ def test_field_count_against_the_spec_marks_thin_screens_degraded():
     assert a1["fields"] == {"expected": 5, "found": 1} and a1["status"] == "degraded"
     assert any("fields: 1 built of 5" in i for i in a1["issues"])
     assert a2["fields"] == {"expected": 5, "found": 5} and a2["status"] == "ok"
+
+
+# ── the design template (template_kit) ──────────────────────────────────────────
+from agents.capabilities.assemble_step import GUARD_CSS, nav_pages  # noqa: E402
+from agents.capabilities.template_kit import TEMPLATE_DIR, load_template_kit  # noqa: E402
+
+_EXAMPLE = """<!doctype html><html><head>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans">
+<style>:root{--accent:#0f62fe;--bg:#fff;--fg:#161616;--navy:#001d6c}
+body{display:grid}.topbar{background:var(--navy)}.nav-item{color:#fff}.nav-item.is-active{font-weight:700}
+.card{border:1px solid var(--accent)}.screen{padding:4px}</style></head>
+<body><header class="topbar" id="accounts"><span class="brand-name">Northstar</span>
+<nav class="nav"><a class="nav-item is-active" data-page-link="accounts" onclick="go()">Accounts</a>
+<a class="nav-item" data-page-link="queue">Queue</a></nav></header>
+<main class="page"><section class="screen">example page</section></main>
+<div class="toast">Saved</div><script>function go(){}</script></body></html>"""
+_INV = json.dumps({"title": "PawCare", "entry": "list", "screens": [
+    {"id": "list", "title": "Pets", "transitions": [{"label": "New", "attr": "data-goto", "to": "pet-create"}]},
+    {"id": "pet-create", "title": "Pet Create"},
+    {"id": "reports", "title": "Reports"},
+]})
+_PARTS = {s: f'<section class="screen" id="{s}"><input id="n"><select id="k"></select></section>'
+          for s in ("list", "pet-create", "reports")}
+
+
+def _kit(files):
+    return load_template_kit(lambda p: files.get(p[len(TEMPLATE_DIR) + 1:]))
+
+
+def test_no_template_files_means_no_kit():
+    assert _kit({}) is None
+
+
+def test_a_template_brings_its_frame_css_and_theme_and_keeps_the_runtime():
+    doc, validation = assemble(parse_inventory(_INV), _PARTS, template=_kit({"example.html": _EXAMPLE}),
+                               theme='{"primary": "#ff385c", "background": "#fafafa", "surface": "#eeeeee"}')
+    assert 'class="shell-header"' not in doc and '<header class="topbar">' in doc
+    assert '<main id="slot-content" class="page">' in doc
+    # The template's nav items become the prototype's screens, record pages left out.
+    assert '<a class="nav-item" href="#list" data-goto="list">Pets</a>' in doc
+    assert 'data-goto="pet-create">' not in doc.split('id="slot-content"')[0]
+    assert "links[k].classList.toggle('is-active', " in doc
+    # The frame keeps its look and loses its behaviour and example content.
+    assert 'id="accounts"' not in doc and "data-page-link" not in doc and "onclick" not in doc
+    assert "Saved" not in doc and "example page" not in doc and ">PawCare<" in doc
+    # CSS order: shell, template, guard, theme — and the DS lands on declared vars only.
+    assert doc.index(".nav-item.is-active") < doc.index(GUARD_CSS) < doc.index("--accent:#ff385c")
+    assert "--bg:#fafafa" in doc and "--surface:" not in doc.split(GUARD_CSS)[1]
+    assert "fonts.googleapis.com" in doc
+    assert validation["template"]["frame"] == "template"
+    # The dark bar's own --navy takes the DS too (no primary_dark given, so primary).
+    assert validation["template"]["themed_vars"] == ["--accent", "--bg", "--navy"]
+    assert "--navy:#ff385c" in doc
+
+
+def test_a_template_without_a_frame_keeps_the_shell_frame_with_its_css():
+    doc, validation = assemble(parse_inventory(_INV), _PARTS,
+                               template=_kit({"example.html": "<style>.card{color:red}</style><p>x</p>"}))
+    assert 'class="shell-header"' in doc and ".card{color:red}" in doc and GUARD_CSS in doc
+    assert validation["template"]["frame"] == "shell"
+
+
+def test_fields_are_counted_as_controls_when_builders_use_the_template():
+    spec = "### list\n| Field | Control |\n|---|---|\n| Name | text |\n| Kind | select |\n"
+    kit = _kit({"example.html": _EXAMPLE})
+    _, with_template = assemble(parse_inventory(_INV), _PARTS, template=kit, spec=spec)
+    _, shell_only = assemble(parse_inventory(_INV), _PARTS, spec=spec)
+    by_id = lambda v: {s["id"]: s for s in v["screens"]}  # noqa: E731
+    assert by_id(with_template)["list"]["fields"]["found"] == 2
+    assert by_id(shell_only)["list"]["fields"]["found"] == 0   # no form-control class
+
+
+def test_record_pages_reached_from_a_list_stay_out_of_the_menu():
+    inv = parse_inventory(_INV)
+    assert [s.id for s in nav_pages(inv)] == ["list", "reports"]
+    lonely = parse_inventory(json.dumps({"entry": "a", "screens": [{"id": "a"}, {"id": "b-edit", "title": "B Edit"}]}))
+    assert [s.id for s in nav_pages(lonely)] == ["a", "b-edit"]   # nothing leads to it: it stays
+
+
+# ── sections: a menu of product areas, the area's pages as tabs ─────────────────
+from agents.capabilities.assemble_step import SECTION_CSS, nav_model  # noqa: E402
+
+_SECTIONED = json.dumps({"title": "PawCare", "entry": "pets", "screens": [
+    {"id": "login", "title": "Sign in", "section": "_auth",
+     "transitions": [{"label": "Sign in", "attr": "data-submit", "to": "pets"}]},
+    {"id": "pets", "title": "Pets", "section": "Care",
+     "transitions": [{"label": "New", "attr": "data-goto", "to": "pet-create"}]},
+    {"id": "visits", "title": "Visit history", "section": "Care", "tab": "Visits"},
+    {"id": "pet-create", "title": "Pet Create", "section": "Care"},
+    {"id": "users", "title": "Users", "section": "Admin"},
+    {"id": "my-profile", "title": "My Profile", "section": "Admin"},
+]})
+_SEC_PARTS = {s: f'<section class="screen" id="{s}"><p>{s}</p></section>'
+              for s in ("login", "pets", "visits", "pet-create", "users", "my-profile")}
+
+
+def test_the_menu_is_the_sections_and_the_sections_pages_are_tabs():
+    doc, validation = assemble(parse_inventory(_SECTIONED), _SEC_PARTS)
+    nav = doc.split('<nav id="slot-nav"')[1].split("</nav>")[0]
+    assert nav.count("data-section=") == 2 and ">Care<" in nav and ">Admin<" in nav
+    assert "Sign in" not in nav and "Pet Create" not in nav
+    tabs = doc.split('<nav id="slot-tabs"')[1].split("</nav>")[0]
+    assert 'data-tabs-for="care"' in tabs and ">Visits<" in tabs    # the short tab label
+    assert "pet-create" not in tabs                                   # a record page is not a tab
+    # The prototype opens on the app, not on a sign-in wall; a create page lights its
+    # list's section and tab.
+    assert validation["entry"] == "pets" and 'var ENTRY = "pets"' in doc
+    place = json.loads(doc.split("var PLACE = ")[1].split(", ACTIVE")[0])
+    assert place["pet-create"] == ["care", "pets"] and place["login"] == ["_auth", ""]
+    # The account menu replaces the shell's greeting; the build status is not shipped.
+    assert 'data-goto="my-profile">My profile</a>' in doc and 'data-goto="login">Sign out</a>' in doc
+    assert "Welcome, Reviewer" not in doc and 'class="shell-status"' not in doc.split("</style>")[-1]
+    assert SECTION_CSS in doc
+
+
+def test_without_sections_the_menu_is_flat_as_before():
+    doc, _ = assemble(parse_inventory(_INV), _PARTS)
+    assert "data-section" not in doc and 'id="slot-tabs"' not in doc and "var PLACE" not in doc
+    assert nav_model(parse_inventory(_INV)) is None
+    assert 'class="nav-link" href="#list"' in doc
+
+
+def test_a_template_frame_gets_sections_its_demo_content_removed_and_the_menu_at_the_avatar():
+    example = _EXAMPLE.replace("</nav></header>",
+                               '</nav><span class="env-pill">UAT</span><span class="brand-sub">SPECIALTY</span>'
+                               '<input placeholder="Search accounts…"><span class="avatar">AR</span></header>')
+    doc, _ = assemble(parse_inventory(_SECTIONED), _SEC_PARTS, template=_kit({"example.html": example}))
+    header = doc.split('<header class="topbar">')[1].split("</header>")[0]
+    assert "UAT" not in header and "SPECIALTY" not in header and ">AR<" not in header
+    assert 'placeholder="Search…"' in header and 'class="proto-user"' in header
+    assert 'class="nav-item" href="#pets" data-goto="pets" data-section="care">Care<' in header
+    assert "var PLACE" in doc and '"is-active"' in doc      # the template's own active class
+
+
+def test_a_control_that_moves_the_user_loses_its_data_show():
+    # Run 87e02c32: Sign in carried data-submit and data-show; the runtime checks
+    # data-show first, so it only ever showed the error and never signed in.
+    inv = parse_inventory(json.dumps({"entry": "login", "screens": [
+        {"id": "login", "transitions": [{"label": "Sign in", "attr": "data-submit", "to": "home"}]},
+        {"id": "home"}]}))
+    part = ('<section class="screen" id="login"><button data-submit="home" data-show="err">Sign in</button>'
+            '<div class="state" id="err">Wrong password</div></section>')
+    doc, validation = assemble(inv, {"login": part, "home": '<section class="screen" id="home"></section>'})
+    button = doc.split("Sign in</button>")[0].rsplit("<button", 1)[1]
+    assert 'data-submit="home"' in button and "data-show" not in button
+    login = next(s for s in validation["screens"] if s["id"] == "login")
+    assert any("removed data-show" in i for i in login["issues"])
+
+
+def test_every_page_sits_in_the_templates_own_column():
+    example = _EXAMPLE.replace('<section class="screen">example page</section>',
+                               '<section class="screen"><div class="wrap">example page</div></section>')
+    kit = _kit({"example.html": example})
+    parts = dict(_PARTS, reports='<section class="screen" id="reports"><div class="wrap"><p>r</p></div></section>')
+    doc, _ = assemble(parse_inventory(_INV), parts, template=kit)
+    assert '<section class="screen active" id="list"><div class="wrap"><input' in doc     # wrapped by code
+    assert doc.count('<div class="wrap"><div class="wrap">') == 0                          # never twice
+    assert doc.index(":where(#slot-nav,#slot-tabs)") < doc.index(".nav-item{")   # reset first: the template wins
+
+
+def test_a_sign_in_page_that_leads_nowhere_is_wired_into_the_app():
+    # Run 9b6f1bfb: Sign In was a plain submit button, and nothing led from Login into the app.
+    parts = dict(_SEC_PARTS, login='<section class="screen" id="login"><form><input id="u">'
+                                   '<button type="submit" class="btn btn-primary">Sign in</button></form></section>')
+    doc, validation = assemble(parse_inventory(_SECTIONED), parts)
+    assert '<button type="submit" class="btn btn-primary" data-submit="pets">Sign in</button>' in doc
+    login = next(s for s in validation["screens"] if s["id"] == "login")
+    assert any("sign-in button wired to pets" in i for i in login["issues"])
+
+
+def test_a_sign_in_page_that_already_leads_into_the_app_is_left_alone():
+    parts = dict(_SEC_PARTS, login='<section class="screen" id="login">'
+                                   '<button class="btn" data-submit="users">Go</button></section>')
+    doc, _ = assemble(parse_inventory(_SECTIONED), parts)
+    assert 'data-submit="users">Go</button>' in doc and 'data-submit="pets"' not in doc.split('id="login"')[1].split("</section>")[0]

@@ -411,10 +411,25 @@ def scan_for_secret(payload: str) -> str | None:
     if not payload:
         return None
     for pattern in _SECRET_PATTERNS:
-        m = pattern.search(payload)
-        if m:
-            return m.group(0)[:16]  # truncated marker (never log the full secret)
+        for m in pattern.finditer(payload):
+            if not _is_aws_doc_example(m.group(0)):
+                return m.group(0)[:16]  # truncated marker (never log the full secret)
     return None
+
+
+# AWS's published documentation credentials. An API spec derived from AWS docs
+# carries them as "example" values (run 3976f8ce); they grant nothing. Only these
+# exact values are exempt — any other key still blocks.
+_AWS_DOC_EXAMPLES = frozenset({"AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
+_QUOTED_VALUE = re.compile(r"['\"]([^'\"\s]+)['\"]$")
+
+
+def _is_aws_doc_example(matched: str) -> bool:
+    """True when a match is exactly one of the AWS doc examples (bare, or as the quoted value of an assignment)."""
+    if matched in _AWS_DOC_EXAMPLES:
+        return True
+    quoted = _QUOTED_VALUE.search(matched)
+    return quoted is not None and quoted.group(1) in _AWS_DOC_EXAMPLES
 
 
 # ---------------------------------------------------------------------------

@@ -121,3 +121,16 @@ def test_contract_task_count_as_numeric_string_mismatch_raises(parser):
     assert "plan incomplete" in msg
     assert "task_count=2" in msg
     assert "1 task" in msg
+
+
+def test_a_task_list_that_is_json_as_a_whole_is_used_as_is_despite_fences_in_its_bodies(parser):
+    # Revision 48b0811e's revisions/3/tasks.json (a verbatim copy): valid JSON whose task
+    # bodies quote ```json snippets of build/solution/screens.json. The fence search used
+    # to hand the first snippet to json.loads, and the wave step failed before any task.
+    from pathlib import Path
+
+    text = (Path(__file__).parents[1] / "fixtures/agents/json_tasks/revision-48b0811e-tasks.json").read_text()
+    assert "```json" in text
+    tasks = parser.parse(text)
+    assert [t.id for t in tasks] == ["T1", "T2", "T3"]
+    assert tasks[0].targets and all("```json" not in t.id for t in tasks)

@@ -91,7 +91,7 @@ instead." Spec 016 ships this so an append cannot silently destroy the deliverab
 Feature: Composing a workflow
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   @S-04-01
   Scenario: A brand-new composer opens empty

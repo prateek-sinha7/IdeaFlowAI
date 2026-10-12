@@ -37,7 +37,7 @@ import { getToken, getChainContext, getRunFamily, getWorkflow, postCancel, postR
 // T9 (015-frontend-routing, FR-001/FR-004): every mainView-setting call site
 // below additionally pushes the matching path via routes.*, additively.
 import { routes } from "@/lib/routes";
-import { goBackOr } from "@/lib/navigation";
+import { backToOrigin, goBackOr, rememberBackOrigin } from "@/lib/navigation";
 import { isComposerWorkflow, runConfigFromManifest } from "@/store/api/userWorkflows";
 import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
@@ -552,6 +552,16 @@ export function DashboardLayout({
     window.history.pushState(null, "", targetRoute);
   }, [contentSourceRunId, pinnedVersion]);
 
+  // A still-running family member picked in the Version menu opens as the live
+  // run (a real navigation, so its stream attaches), not as a saved snapshot.
+  const handleOpenLiveRun = useCallback((runId: string, tab: string) => {
+    const routeFor: Record<string, (id: string) => string> = {
+      preview: routes.runDetail, thinking: routes.runSteps, files: routes.runFiles,
+      workspace: routes.runWorkspace, audit: routes.runAudit,
+    };
+    router.push((routeFor[tab] ?? routes.runDetail)(runId));
+  }, [router]);
+
   // The app-level SSE connection — the sole run transport (44-06). Commands ride
   // its REST up-channel; useRunStream owns Last-Event-ID replay.
   const runConnection = useRunConnection();
@@ -595,6 +605,13 @@ export function DashboardLayout({
       setMainView(initialMainView);
     }
   }, [initialMainView]);
+
+  // The Runs list and the dashboard record themselves as the place a run's
+  // Back returns to (backToOrigin).
+  useEffect(() => {
+    if (mainView === "history") rememberBackOrigin("runs", window.location.pathname + window.location.search);
+    else if (mainView === "home") rememberBackOrigin("dashboard", routes.dashboard());
+  }, [mainView]);
 
   // Which Account Settings tab a navigation asked for, plus a monotonic nonce so
   // that asking for the SAME tab twice still forces a fresh mount (see
@@ -1305,6 +1322,45 @@ export function DashboardLayout({
     if (onResetPipeline) onResetPipeline();
   }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
 
+  // prototype_v2 revision — through the revisions endpoint, which classifies the
+  // request into the v2 Fast or Depth pipeline (spec 022 §7). v1 keeps the diff path.
+  const handleRevisePrototypeV2 = useCallback((instruction: string) => {
+    if (!contentSourceRunId) return;
+    setMainView("execution");
+    void postRevision(getToken() ?? "", contentSourceRunId, {
+      target_artifact_type: "prototype_v2_output",
+      instruction,
+    })
+      .then(({ run_id }) => {
+        if (run_id) {
+          runConnection.attachRun(run_id);
+          onRevisionLaunched?.(run_id);
+        }
+      })
+      .catch((e) => console.error("postRevision (prototype_v2) failed", e));
+    setWorkflowType("prototype_v2_revision" as WorkflowType);
+    if (onResetPipeline) onResetPipeline();
+  }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
+
+  // Backlog revision — same revisions-endpoint shape as custom (spec 022 §11.5).
+  const handleReviseBacklog = useCallback((instruction: string) => {
+    if (!contentSourceRunId) return;
+    setMainView("execution");
+    void postRevision(getToken() ?? "", contentSourceRunId, {
+      target_artifact_type: "backlog_output",
+      instruction,
+    })
+      .then(({ run_id }) => {
+        if (run_id) {
+          runConnection.attachRun(run_id);
+          onRevisionLaunched?.(run_id);
+        }
+      })
+      .catch((e) => console.error("postRevision (backlog) failed", e));
+    setWorkflowType("backlog_revision" as WorkflowType);
+    if (onResetPipeline) onResetPipeline();
+  }, [contentSourceRunId, runConnection, onRevisionLaunched, onResetPipeline]);
+
   // Handle incoming questionnaire data from WebSocket
   // FIX-201 (KAN-168): also clear questionnaireQuestions when questionnaireData
   // becomes null (run switch, questionnaire_complete, run terminal). Without this,
@@ -1783,7 +1839,8 @@ export function DashboardLayout({
       const resolvedTypeStr = resolvedType as string;
       const isPptType = resolvedTypeStr === "ppt" || resolvedTypeStr === "ppt_revision";
       const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "prototype_revision"
-        || resolvedTypeStr === "prototype_large_revision" || resolvedTypeStr === "prototype_feature_revision";
+        || resolvedTypeStr === "prototype_large_revision" || resolvedTypeStr === "prototype_feature_revision"
+        || resolvedTypeStr === "prototype_v2_revision" || resolvedTypeStr === "prototype_v2_feature_revision";
       if (isPptType) { odPptNotifId.current = notifId; }
       if (isProtoType) { odProtoNotifId.current = notifId; }
       // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
@@ -1988,7 +2045,7 @@ export function DashboardLayout({
       const chainNotifTitle = (chainBrief || briefMessage).slice(0, 60);
       addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision" || t === "prototype_v2_revision" || t === "prototype_v2_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, briefMessage, [], attachedHooks, { _display_title: chainBrief, ...(sourceRunId ? { source_workflow_run_id: sourceRunId } : {}) });
       } else {
@@ -2081,7 +2138,7 @@ export function DashboardLayout({
       const historyNotifTitle = (historyBrief || briefMessage).slice(0, 60);
       addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision" || t === "prototype_v2_revision" || t === "prototype_v2_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, briefMessage, [], attachedHooks, { _display_title: historyBrief, ...(run.id ? { source_workflow_run_id: run.id } : {}), ...(userWorkflowId ? { user_workflow_id: userWorkflowId } : {}) });
       } else {
@@ -2171,7 +2228,7 @@ export function DashboardLayout({
       const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision" || t === "prototype_v2_revision" || t === "prototype_v2_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -2211,7 +2268,7 @@ export function DashboardLayout({
       const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision" || t === "prototype_v2_revision" || t === "prototype_v2_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -2404,6 +2461,11 @@ export function DashboardLayout({
     // deliverable as ppt and must resolve to handleRevisePpt, not undefined.
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_v2" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
+    // Backlog before the prototype branch: its !!prototypeContent fallback would catch it.
+    (effectiveReviseType === "backlog" || effectiveReviseType === "backlog_revision") ? handleReviseBacklog :
+    // prototype_v2 before v1 for the same reason: a v2 run also carries prototype content.
+    (effectiveReviseType === "prototype_v2" || effectiveReviseType === "prototype_v2_revision"
+      || effectiveReviseType === "prototype_v2_feature_revision") ? handleRevisePrototypeV2 :
     (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
       || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
       || !!prototypeContent) ? handleRevisePrototype :
@@ -2427,10 +2489,15 @@ export function DashboardLayout({
       attachments?: import("@/types/index").ChatAttachment[],
       options?: SendMessageOptions,
     ) => {
-      if (onRunChatSend) onRunChatSend(text, attachments, options);
+      // A plain chat turn can launch a revision too (the Concierge starts a backlog
+      // revision without a proposal to confirm): follow it like a confirmed one.
+      const opts = onRevisionLaunched && !options?.onRevisionLaunched
+        ? { ...options, onRevisionLaunched }
+        : options;
+      if (onRunChatSend) onRunChatSend(text, attachments, opts);
       else onSendMessage?.(text);
     },
-    [onRunChatSend, onSendMessage],
+    [onRunChatSend, onSendMessage, onRevisionLaunched],
   );
 
   // Confirm a held consequential Concierge proposal: replay the confirm turn
@@ -2601,6 +2668,7 @@ export function DashboardLayout({
       ? pptContent
       : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
         || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
+        || effectiveReviseType === "prototype_v2_revision" || effectiveReviseType === "prototype_v2_feature_revision"
         ? prototypeContent
         : userStoryContent; // user_stories, custom, app_builder, and revision variants
   const laneDerivedFilename = deriveDeliverableFilename(
@@ -3286,20 +3354,10 @@ export function DashboardLayout({
                       // navigation, the live run title (clean backend title, else
                       // the submitted brief), and the generic run type (SC-001 —
                       // the pipeline_type string, never a workflow-name branch).
-                      // ISS-741 (QA-SG-003): pop the `/runs` entry the run
-                      // row click came from instead of PUSHING a second one —
-                      // the extra entry left `/runs/{id}` on the stack, so Run
-                      // History's own (correct) Back popped straight back into
-                      // this run and the two screens looped. Same guard as
-                      // handleBackNav; the URL-sync effect above re-syncs
-                      // mainView, so setMainView is only needed on the
-                      // no-history-to-pop fallback.
-                      onBackToHistory={() => {
-                        goBackOr(router, () => {
-                          setMainView("history");
-                          router.push(routes.runHistory());
-                        });
-                      }}
+                      // Back returns to the list the run was opened from (Runs
+                      // or the dashboard), popping every tab/wizard entry since —
+                      // a pop, not a push, so ISS-741's Runs<->run loop stays fixed.
+                      onBackToHistory={() => backToOrigin(router)}
                       runTitle={runHeaderTitle}
                       runTitleFull={runHeaderTitleFull}
                       runType={effectiveReviseType || pipelineState?.pipeline_type}
@@ -3400,6 +3458,7 @@ export function DashboardLayout({
                       runInput={submittedBrief}
                       deepLinkTarget={deepLinkTarget}
                       onTabSelect={handlePreviewPanelTabSelect}
+                      onOpenLiveRun={handleOpenLiveRun}
                       // Phase 32 (plan 06 → 07/08) — additive gate/clarify passthrough
                       // so a future Steps surface can host the SAME inline gate/clarify
                       // affordances the lane uses. Mirrors the RunChatLane wiring;

@@ -63,7 +63,7 @@ plus a `Blocked / denied only` toggle and `Export`.
 Feature: Run states
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   @S-14-01
   Scenario: A failed run explains itself and offers a way forward

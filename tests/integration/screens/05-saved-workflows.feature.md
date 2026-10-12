@@ -71,7 +71,7 @@ is the full ppt wizard: `NEW PRESENTATION`, template gallery, `Advanced 3 agents
 Feature: Saved workflows
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
     And I own at least one saved workflow
 
   @S-05-01

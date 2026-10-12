@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SkillMarkdown } from "@/components/ui/SkillMarkdown";
 import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -291,12 +292,16 @@ function getCapabilities(agent: AgentDef): string[] {
 export function AgentPromptSection({
   agent,
   surfaceOnly = false,
+  expanded = false,
 }: {
   agent: AgentDef;
   /** ND-7: when set, omit all write affordances — read-only prompt view only. */
   surfaceOnly?: boolean;
+  /** Open on mount and let the prompt take most of the viewport (the canvas
+   *  rail, where the prompt is the thing you came to read). */
+  expanded?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(expanded);
   const [promptData, setPromptData] = useState<AgentPromptData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -310,7 +315,9 @@ export function AgentPromptSection({
     if (!open || promptData !== null) return;
     const token = getToken();
     if (!token) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError(null);
     getAgentPrompt(token, agent.id)
       .then(d => { setPromptData(d); })
@@ -447,7 +454,7 @@ export function AgentPromptSection({
                       <textarea
                         value={draftContent}
                         onChange={e => setDraftContent(e.target.value)}
-                        rows={12}
+                        rows={expanded ? 28 : 12}
                         aria-label="Custom agent prompt"
                         name="agent-prompt"
                         className="w-full px-3 py-2 text-[11px] font-mono bg-surface-white text-ink-900 border border-line-control rounded-lg focus:outline-none focus:border-ink-400 resize-none leading-relaxed transition-colors"
@@ -474,9 +481,17 @@ export function AgentPromptSection({
                       </div>
                     </div>
                   ) : (
-                    <p className="px-4 pb-4 pt-1 text-[13px] text-white font-sans leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto">
+                    expanded && displayContent ? (
+                      // The canvas rail reads it rendered, on a light sheet so
+                      // the shared markdown styles (ink on paper) stay legible.
+                      <div className="mx-3 mb-3 max-h-[70vh] overflow-y-auto rounded-lg bg-surface-white px-3 py-2.5 font-sans text-[12.5px] leading-relaxed text-ink-800">
+                        <SkillMarkdown content={displayContent} />
+                      </div>
+                    ) : (
+                    <p className={`px-4 pb-4 pt-1 text-[13px] text-white font-sans leading-relaxed whitespace-pre-wrap overflow-x-auto ${expanded ? "max-h-[70vh]" : "max-h-64"} overflow-y-auto`}>
                       {displayContent || <span className="text-ink-400 italic">No prompt body found.</span>}
                     </p>
+                    )
                   )}
                 </>
               )}
@@ -1122,7 +1137,9 @@ export function CapabilityPaletteSection({
     let cancelled = false;
     const jwt = token ?? getToken();
     if (!jwt) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Not authenticated.");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
@@ -1409,10 +1426,13 @@ export type StepSelection = {
   // the generic `_apply_selections` overlay carries it through unchanged.
   strategy?: "fanout_batch" | "wave_scheduler" | "task_loop";
   task_source?: {
-    kind: "parsed";
+    /** `custom_path` (waves only): the tasks come from exactly `path`, no fallback. */
+    kind: "parsed" | "custom_path";
     parser: string;
     /** Wave steps name the file the parsed list is written to. */
     target?: string;
+    /** `custom_path` only: the file the tasks are read from; may hold `{revision_n}`. */
+    path?: string;
     source_step: string;
   };
   fanout?: { agent?: "self"; mode?: "parallel"; max_parallel?: number };
@@ -1583,12 +1603,22 @@ export function modelChangePatch(
   };
 }
 
+/** A code step on offer: its name, description and — when the backend
+ *  declares them — the files it reads/writes by default and what it does. */
+export interface MechanicalOption {
+  name: string;
+  description: string;
+  reads?: string[];
+  process?: string;
+  writes?: string[];
+}
+
 export function useAgentCapabilities(token?: string | null) {
   const [validatorOptions, setValidatorOptions] = useState<string[]>([]);
   const [gateOptions, setGateOptions] = useState<string[]>([]);
   const [modelOptions, setModelOptions] = useState<CapabilityModelEntry[]>([]);
   const [taskParserOptions, setTaskParserOptions] = useState<{ name: string; description: string }[]>([]);
-  const [mechanicalOptions, setMechanicalOptions] = useState<{ name: string; description: string }[]>([]);
+  const [mechanicalOptions, setMechanicalOptions] = useState<MechanicalOption[]>([]);
   const [capabilities, setCapabilities] = useState<CapabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1597,7 +1627,9 @@ export function useAgentCapabilities(token?: string | null) {
     let cancelled = false;
     const jwt = token ?? getToken();
     if (!jwt) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Not authenticated.");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
@@ -1626,7 +1658,7 @@ export function useAgentCapabilities(token?: string | null) {
         setMechanicalOptions(
           palette.capabilities
             .filter((c) => c.kind === "mechanical" && c.user_allowed)
-            .map((c) => ({ name: c.name, description: c.description })),
+            .map((c) => ({ name: c.name, description: c.description, reads: c.reads, process: c.process, writes: c.writes })),
         );
         // DECIDE-02: the model lever offers the WHOLE catalog (all tiers).
         setModelOptions(palette.model_catalog);
@@ -2564,7 +2596,13 @@ export function AgentsPopup({
     () => workflowCanvasModel(manifestSteps, agents),
     [manifestSteps, agents],
   );
-  const canvasAgents = manifestSteps?.length ? canvasModel.agents : agents;
+  // The manifest projection is only the STARTING tree. Every canvas edit
+  // (node type, rename, prompt, sub-agent) hands the whole edited tree up
+  // through `onReorder`, so from the first edit on `agents` IS the canvas;
+  // re-projecting the manifest over it silently undid every edit.
+  const [treeEdited, setTreeEdited] = useState(false);
+  useEffect(() => setTreeEdited(false), [manifestSteps]);
+  const canvasAgents = manifestSteps?.length && !treeEdited ? canvasModel.agents : agents;
   // Bumped by the Save button — see CanvasView's resetLayoutSignal doc.
   const [canvasResetLayoutSignal, setCanvasResetLayoutSignal] = useState(0);
   // The Canvas's Brief node is purely a display affordance in this modal — the
@@ -2664,6 +2702,7 @@ export function AgentsPopup({
   const handleTreeChange = useCallback(
     (next: AgentDef[]) => {
       stageEdit();
+      setTreeEdited(true);
       onReorder?.(next);
     },
     [stageEdit, onReorder],
@@ -2680,6 +2719,7 @@ export function AgentsPopup({
     // Last, not first: the restore above goes through `handleSelectionsChange`,
     // which would otherwise re-arm the snapshot with the edit being undone.
     openSnapshot.current = null;
+    setTreeEdited(false);
     onClose();
   }, [onReorder, handleSelectionsChange, onClose]);
 

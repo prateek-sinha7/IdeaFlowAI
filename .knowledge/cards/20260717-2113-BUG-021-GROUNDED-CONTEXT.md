@@ -3,7 +3,7 @@ id: BUG-021-GROUNDED-CONTEXT
 type: bug
 kind: event
 title: BUG-021 — grounded fix spec
-status: open
+status: resolved
 applies_to:
   phases: []
   modules:
@@ -22,7 +22,7 @@ verification:
   status: required
   test_files: []
 compact_summary: 'useRunChat.messages was never cleared on a fresh non-revision launch, so the prior run''s transcript bled through until new frames streamed; seedRunChatTranscript([]) now resets it.'
-last_updated: '2026-08-14'
+last_updated: 2026-10-01
 author: 'Imran Yousaf <imrany@hexaware.com>'
 author_source: code-commit
 ---
@@ -69,3 +69,13 @@ seedRunChatTranscript([]);
 - Branch **feat/ui-2** (NEVER main/staging). Worktrees OFF → sequential. **NO commit trailer.** **NEVER push.**
 - FE cwd-sensitive: vitest/Playwright from inside `frontend/`; kill :3000 before mocked Playwright. Use `localhost:3000` (NOT 127.0.0.1) for any browser check.
 - Executor: verify via `tsc` + vitest (+ a mocked Playwright spec IF it authors one and :3000 is free). Do NOT run live Bedrock; do NOT kill the orchestrator's :3000 dev server unless it needs Playwright — coordinate by deferring the live proof to the orchestrator. STATE.md quirk: prefer the quick-task table; if `progress:` clobbered restore total_phases:37 completed_phases:35 total_plans:208 completed_plans:207 percent:95.
+
+## Resolution
+
+Verified fixed in the current code on 2026-10-01 (feat/user-stories-v2 @ 3b08b2ba8) by static review: a first-pass check and an independent adversarial re-check both found every claim of this card fixed. No tests were run for this closure.
+
+**Fixed by:** 6cede3af6
+
+**Evidence:** The card makes one defect: a fresh non-revision launch never cleared useRunChat.messages. frontend/src/app/[...view]/page.tsx:4287 now calls seedRunChatTranscript([]) inside the onStartPipeline handler (opens :4231, isRevision at :4232), within `if (!isRevision) {` (:4268). Revisions skip it (:4301 comment). useRunChat.ts:736-743 seedTranscript clears seenRef, sets lastSeqRef=0, calls setMessages([]), and folds no frames for []. The history-open seed calls (:2820, :3221) are unchanged. The card's dashboard/page.tsx path no longer exists. Commit 6cede3af6 added the line, a source-lock test and useRunChat Test 16. Checked by reading only; no tests run.
+
+**Left over (outside this card's claims):** none (the card's status: open and its manual live-proof requirement are bookkeeping, not code defects)

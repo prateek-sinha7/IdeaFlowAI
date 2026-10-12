@@ -139,6 +139,11 @@ class FanoutWorkerFailed(Exception):
         super().__init__(f"{len(failed)} fan-out worker(s) failed: {names}")
 
 
+# How many times a fan-out worker is re-run after a transient model failure (a
+# timeout, throttling, a provider 5xx) before it counts as failed.
+_TRANSIENT_WORKER_RETRIES = 2
+
+
 def _select_workers(requests: list[dict], ctx: Any, step: Any) -> list[dict]:
     """Resolve each request to a concrete worker agent id (FANOUT-03).
 
@@ -461,11 +466,15 @@ async def run_fanout(
         idx = worker["index"]
         agent_id = worker["agent_id"]
         # A depth segment is added when nested (RESEARCH A4) so child thread ids never
-        # collide across fan-out levels.
+        # collide across fan-out levels. A wave worker's thread is keyed by its task,
+        # not its slot: the slot index restarts every wave, and a reused slot thread
+        # replayed the previous task's history — one cut reply (run 3976f8ce) failed
+        # every later task on that slot. A resume of the same task keeps its thread.
+        slot = worker.get("task_id") or idx
         if depth > 0:
-            thread_id = f"{run_id}:{step_id}:d{depth}:{idx}"
+            thread_id = f"{run_id}:{step_id}:d{depth}:{slot}"
         else:
-            thread_id = f"{run_id}:{step_id}:{idx}"
+            thread_id = f"{run_id}:{step_id}:{slot}"
 
         # Allocate the engine-selected isolated workspace for this worker (FANOUT-05).
         # The worker reads shared-read parent refs but WRITES isolated. When no
@@ -509,73 +518,106 @@ async def run_fanout(
         # stay complete (the best-available output was delivered).
         saw_complete = False
         agent_error_msg: str | None = None
-        try:
-            async for _child_event in runner.run_worker(
-                step,
-                ctx,
-                worker_index=idx,
-                # The worker's plan-global task id (s01…), so a NESTED fan-out this
-                # worker performs can name the parent it came from. None on
-                # non-wave fan-out → the whole chain stays dormant.
-                task_id=worker.get("task_id"),
-                task_author_id=worker.get("task_author_id"),
-                thread_id=thread_id,
-                agent_id=agent_id,
-                input=worker["input"],
-                # WR-05: the wave width — the worker's "task i of N" header.
-                total_workers=len(selected),
-                **worker_kwargs,
+        # The model the worker actually ran on, read off its own agent_start /
+        # agent_complete — the engine resolves it (user override, step, default), so
+        # the result event reports what ran rather than a guess made before spawn.
+        worker_model: str | None = None
+        # One stuck or throttled model call used to fail the whole run with every
+        # other worker done (run 2867387c: 67/68 workers). A transient failure gets a
+        # fresh call on a new checkpoint thread, so the retry does not resume the
+        # stalled one; a deterministic error still fails at once.
+        from agents.execution_engine.engine import TRANSIENT_AGENT_ERRORS  # noqa: PLC0415
+
+        attempt = 0
+        attempt_thread = thread_id
+        while True:
+            saw_complete = False
+            agent_error_msg = None
+            try:
+                async for _child_event in runner.run_worker(
+                    step,
+                    ctx,
+                    worker_index=idx,
+                    # The worker's plan-global task id (s01…), so a NESTED fan-out this
+                    # worker performs can name the parent it came from. None on
+                    # non-wave fan-out → the whole chain stays dormant.
+                    task_id=worker.get("task_id"),
+                    task_author_id=worker.get("task_author_id"),
+                    thread_id=attempt_thread,
+                    agent_id=agent_id,
+                    input=worker["input"],
+                    # WR-05: the wave width — the worker's "task i of N" header.
+                    total_workers=len(selected),
+                    **worker_kwargs,
+                ):
+                    # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only);
+                    # the terminal agent_complete carries the worker's token usage.
+                    if _child_event.get("type") in ("agent_start", "agent_complete"):
+                        worker_model = (_child_event.get("data") or {}).get("model_id") or worker_model
+                    if _child_event.get("type") == "agent_complete":
+                        saw_complete = True
+                        worker_tokens += int(
+                            (_child_event.get("data") or {}).get("total_tokens") or 0
+                        )
+                    elif _child_event.get("type") == "agent_error":
+                        # Capture provider failures (credentials, rate limits, etc.).
+                        agent_error_msg = (_child_event.get("data") or {}).get(
+                            "error"
+                        ) or "agent_error"
+
+                    # Optional side channel (additive, default-off): a caller that
+                    # supplied event_queue gets this worker's raw per-agent event too.
+                    # None for every existing caller — dead branch, zero behavior change.
+                    # RESUME-06 companion: stamp worker identity at PUSH time (this loop is
+                    # the only place that knows it) on a COPY — never mutate the dict
+                    # ``run_worker`` yields, it may be re-read/re-yielded elsewhere.
+                    if event_queue is not None:
+                        _data = dict(_child_event.get("data") or {})
+                        _data["worker_index"] = idx
+                        _data["task_id"] = worker.get("task_id")
+                        _data["task_author_id"] = worker.get("task_author_id")
+                        event_queue.put_nowait({**_child_event, "data": _data})
+
+            except asyncio.CancelledError:
+                # This worker's task was cancelled (the run was stopped mid-flight). Flip
+                # the row terminal ``cancelled`` (FANOUT-11) and re-raise so asyncio.gather
+                # propagates the cancellation; the ``finally`` teardown reclaims this
+                # worker's allocated workspace (no leak).
+                if row_id is not None:
+                    open_rows.pop(idx, None)
+                    await runner.update_subagent_run(row_id, status="cancelled")
+                raise
+            except Exception as exc:  # noqa: BLE001 — a failed worker must not abort siblings
+                logger.warning("fan-out worker %s (%s) failed: %s", idx, agent_id, exc)
+                status = "failed"
+                # Carry WHY on the result event. Without it a failed row can only say
+                # "Failed", and the reader is left guessing between a budget refusal,
+                # a tool error and a model error — three very different problems.
+                worker_error = f"{type(exc).__name__}: {exc}"[:400]
+
+            # Provider failures are YIELDED as agent_error events, not raised. If we saw an
+            # error but NO agent_complete, the worker must be recorded failed (not complete).
+            # Timeouts yield both agent_error + agent_complete — those correctly stay complete
+            # (best-available output was delivered).
+            if agent_error_msg is not None and not saw_complete:
+                status = "failed"
+                worker_error = agent_error_msg[:400]
+            if (
+                status == "failed"
+                and not saw_complete
+                and agent_error_msg in TRANSIENT_AGENT_ERRORS
+                and attempt < _TRANSIENT_WORKER_RETRIES
             ):
-                # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only);
-                # the terminal agent_complete carries the worker's token usage.
-                if _child_event.get("type") == "agent_complete":
-                    saw_complete = True
-                    worker_tokens += int(
-                        (_child_event.get("data") or {}).get("total_tokens") or 0
-                    )
-                elif _child_event.get("type") == "agent_error":
-                    # Capture provider failures (credentials, rate limits, etc.).
-                    agent_error_msg = (_child_event.get("data") or {}).get(
-                        "error"
-                    ) or "agent_error"
-
-                # Optional side channel (additive, default-off): a caller that
-                # supplied event_queue gets this worker's raw per-agent event too.
-                # None for every existing caller — dead branch, zero behavior change.
-                # RESUME-06 companion: stamp worker identity at PUSH time (this loop is
-                # the only place that knows it) on a COPY — never mutate the dict
-                # ``run_worker`` yields, it may be re-read/re-yielded elsewhere.
-                if event_queue is not None:
-                    _data = dict(_child_event.get("data") or {})
-                    _data["worker_index"] = idx
-                    _data["task_id"] = worker.get("task_id")
-                    _data["task_author_id"] = worker.get("task_author_id")
-                    event_queue.put_nowait({**_child_event, "data": _data})
-
-        except asyncio.CancelledError:
-            # This worker's task was cancelled (the run was stopped mid-flight). Flip
-            # the row terminal ``cancelled`` (FANOUT-11) and re-raise so asyncio.gather
-            # propagates the cancellation; the ``finally`` teardown reclaims this
-            # worker's allocated workspace (no leak).
-            if row_id is not None:
-                open_rows.pop(idx, None)
-                await runner.update_subagent_run(row_id, status="cancelled")
-            raise
-        except Exception as exc:  # noqa: BLE001 — a failed worker must not abort siblings
-            logger.warning("fan-out worker %s (%s) failed: %s", idx, agent_id, exc)
-            status = "failed"
-            # Carry WHY on the result event. Without it a failed row can only say
-            # "Failed", and the reader is left guessing between a budget refusal,
-            # a tool error and a model error — three very different problems.
-            worker_error = f"{type(exc).__name__}: {exc}"[:400]
-
-        # Provider failures are YIELDED as agent_error events, not raised. If we saw an
-        # error but NO agent_complete, the worker must be recorded failed (not complete).
-        # Timeouts yield both agent_error + agent_complete — those correctly stay complete
-        # (best-available output was delivered).
-        if agent_error_msg is not None and not saw_complete:
-            status = "failed"
-            worker_error = agent_error_msg[:400]
+                attempt += 1
+                attempt_thread = f"{thread_id}:retry{attempt}"
+                logger.warning(
+                    "fan-out worker %s (%s): %s — retrying on a fresh call (%d/%d)",
+                    idx, agent_id, agent_error_msg, attempt, _TRANSIENT_WORKER_RETRIES,
+                )
+                status = "complete"
+                worker_error = None
+                continue
+            break
 
         if row_id is not None:
             open_rows.pop(idx, None)
@@ -675,6 +717,8 @@ async def run_fanout(
             "task_id": worker.get("task_id"),
             "task_author_id": worker.get("task_author_id"),
         }
+        if worker_model:
+            result["model_id"] = worker_model
         if worker_error:
             result["error"] = worker_error
         if artifact_refs:

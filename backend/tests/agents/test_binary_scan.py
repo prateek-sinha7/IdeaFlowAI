@@ -70,7 +70,7 @@ def _make_zipslip_bytes() -> bytes:
 
 
 # A recognisable secret pattern: AWS access key id (AKIA + 16 uppercase alnum).
-_AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
+_AWS_KEY = "AKIAQ3EGRL7ZXBV2WK4P"
 
 # A recognisable OpenAI/Anthropic style key: sk- + 24+ alnum chars.
 _SK_KEY = "sk-" + "B" * 24

@@ -16,7 +16,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
 import { createUserWorkflow, getToken, getWorkflowDetail, isNotFoundError, setWorkflowOverrideEnabled, extractFileText, stageRunFile } from "@/lib/api";
-import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isImageUpload, isTextUpload } from "@/lib/uploadTypes";
+import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isImageUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
 import { agentsFromManifest } from "@/lib/manifestAgents";
 import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
@@ -619,8 +619,8 @@ export function useBriefAttachments() {
     setAttachedFiles((p) => {
       const removedName = p[idx]?.name;
       if (removedName) {
-        setAttachedFileContents((c) => c.filter((f) => f.name !== removedName));
-        setStagedUploads((s) => s.filter((f) => f.name !== removedName));
+        setAttachedFileContents((c) => withoutOne(c, removedName));
+        setStagedUploads((s) => withoutOne(s, removedName));
       }
       return p.filter((_, i) => i !== idx);
     });
@@ -879,6 +879,20 @@ const TYPE_CONFIG: Partial<Record<string, PageCopy>> = {
     tag: "Add features to an existing prototype",
     heading: "What features should be added?",
     subtitle: "Extend an existing prototype with new functionality while preserving the existing implementation.",
+    placeholder: "e.g. Add real-time notifications and user preferences panel to the existing dashboard.",
+    icon: Layout,
+  },
+  prototype_v2_revision: {
+    tag: "Iterate on an existing v2 prototype",
+    heading: "What should change?",
+    subtitle: "Surgically refine an existing v2 prototype — preserve the rest of the design exactly as-is.",
+    placeholder: "e.g. Swap the side filter for a top tab bar and add a dark-mode toggle.",
+    icon: Layout,
+  },
+  prototype_v2_feature_revision: {
+    tag: "Add features to an existing v2 prototype",
+    heading: "What features should be added?",
+    subtitle: "Extend an existing v2 prototype with new functionality while preserving the existing implementation.",
     placeholder: "e.g. Add real-time notifications and user preferences panel to the existing dashboard.",
     icon: Layout,
   },

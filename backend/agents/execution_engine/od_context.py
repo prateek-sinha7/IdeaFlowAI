@@ -100,6 +100,10 @@ def load_prototype_context(
         ds_body           — full DESIGN.md body (tokens, typography, spacing)
         craft_block       — concatenated craft rule bodies (if any)
         is_design_system_required — always None for prototype (always required)
+        template_files    — the template's files by path (example.html,
+                            assets/template.html, references/*.md, …), seeded to
+                            .context/design/template/ — its SKILL.md names them
+        ds_files          — the design system's tokens.css / components.html
 
     Raises:
         LookupError: if the template or design system cannot be found.
@@ -158,6 +162,7 @@ def load_prototype_context(
             raise LookupError(f"Prototype template '{template_id}' not found")
 
     # ── Load design system ─────────────────────────────────────────────────
+    ds_files: dict[str, str] = {}
     if custom_ds_body:
         ds_id = design_system_id or "custom"
         ds_body = (
@@ -172,6 +177,7 @@ def load_prototype_context(
             raise LookupError(f"Design system '{design_system_id}' not found")
         ds_id = design_system_id
         ds_body = ds["body"]
+        ds_files = od_loader.get_design_system_files(design_system_id)
 
     # ── Load craft rules ───────────────────────────────────────────────────
     craft_required = template.get("craft_required") or []
@@ -194,6 +200,9 @@ def load_prototype_context(
         # _humanize_slug fallback (od_loader.py:151 / od_loader.py:375).
         "template_name": template.get("name"),
         "ds_name": ds.get("name", ds_id) if not custom_ds_body else ds_id,
+        # A custom upload has no folder, so no files; a catalog template brings its own.
+        "template_files": od_loader.get_template_files(template_id),
+        "ds_files": ds_files,
     }
 
 
@@ -319,18 +328,11 @@ def load_ppt_od_context(
     # ("read assets/template.html", "references/layouts.md"). Carrying the actual
     # files lets file-granted deck agents execute those steps instead of
     # fabricating tool syntax against a tool-less prompt (live-model failure mode).
-    template_files: dict[str, str] = {}
-    seed = od_loader.get_template_seed(template_id)
-    if seed:
-        template_files["assets/template.html"] = seed
-    for _ref_name, _ref_content in (
-        od_loader.get_template_references(template_id) or {}
-    ).items():
-        # get_template_references keys by stem; the SKILL.md instructions name the
-        # files with their .md extension — seed at the exact instructed paths.
-        if not _ref_name.endswith(".md"):
-            _ref_name = f"{_ref_name}.md"
-        template_files[f"references/{_ref_name}"] = _ref_content
+    # The same set the web loader seeds: assets/template.html, references/*.md at
+    # the exact instructed paths, plus example.html and the rest of assets/.
+    template_files = od_loader.get_template_files(template_id)
+    ds_files = (od_loader.get_design_system_files(design_system_id)
+                if is_design_system_required and design_system_id and not custom_ds_body else {})
 
     return {
         "template_id": template_id,
@@ -340,4 +342,5 @@ def load_ppt_od_context(
         "craft_block": "",  # decks do not inject craft rules
         "is_design_system_required": is_design_system_required,
         "template_files": template_files,
+        "ds_files": ds_files,
     }

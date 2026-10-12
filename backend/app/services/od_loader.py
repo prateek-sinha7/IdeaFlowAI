@@ -292,6 +292,36 @@ def get_template_references(template_id: str) -> dict[str, str]:
     return out
 
 
+# What of a template folder a run needs. SKILL.md is the template body and travels
+# separately; scripts/, docs/, LICENSE, READMEs and binaries stay out.
+_TEMPLATE_ROOT_FILES = ("example.html", "template.json")
+_TEMPLATE_FILE_DIRS = ("assets", "references", "templates", "palettes", "examples")
+_TEMPLATE_TEXT_EXTS = frozenset({".html", ".htm", ".css", ".js", ".md", ".json", ".svg", ".txt"})
+
+
+def get_template_files(template_id: str) -> dict[str, str]:
+    """Every text file a run needs from the template, keyed by its path inside the
+    template folder: ``example.html``, ``assets/template.html``, ``references/*.md``, …
+
+    The template's SKILL.md tells the agent to open these by those paths, so they are
+    seeded to ``.context/design/template/<path>``. Empty for an unknown template."""
+    root = _TEMPLATES_DIR / (template_id or "")
+    if not template_id or not root.is_dir() or root.resolve().parent != _TEMPLATES_DIR.resolve():
+        return {}
+    paths = [root / name for name in _TEMPLATE_ROOT_FILES]
+    for folder in _TEMPLATE_FILE_DIRS:
+        if (root / folder).is_dir():
+            paths.extend(sorted((root / folder).rglob("*")))
+    out: dict[str, str] = {}
+    for path in paths:
+        if (path.is_file() and path.suffix.lower() in _TEMPLATE_TEXT_EXTS
+                and path.stem.lower() != "readme"):
+            body = _read_file(path)
+            if body is not None:
+                out[path.relative_to(root).as_posix()] = body
+    return out
+
+
 def get_template_preview_path(template_id: str) -> Path | None:
     """Filesystem path to the template's example.html, or ``None`` if the
     template doesn't exist or has no preview file."""
@@ -427,6 +457,25 @@ def get_design_system(ds_id: str) -> dict[str, Any] | None:
         if ds["id"] == ds_id:
             return ds
     return None
+
+
+# Beside DESIGN.md, some design systems ship their tokens as CSS and a components page.
+_DS_EXTRA_FILES = ("tokens.css", "components.html")
+
+
+def get_design_system_files(ds_id: str) -> dict[str, str]:
+    """The design system's files beyond DESIGN.md, keyed by file name; empty when it
+    has none or does not exist."""
+    if get_design_system(ds_id) is None:
+        return {}
+    out: dict[str, str] = {}
+    for name in _DS_EXTRA_FILES:
+        path = _DESIGN_SYSTEMS_DIR / ds_id / name
+        if path.is_file():
+            body = _read_file(path)
+            if body is not None:
+                out[name] = body
+    return out
 
 
 def get_design_system_preview_path(ds_id: str) -> Path | None:

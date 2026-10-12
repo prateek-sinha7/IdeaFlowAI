@@ -88,7 +88,7 @@ stays visible on Shell B. Shell A replaces it with a `Back to dashboard` button.
 Feature: Launching a workflow
 
   Background:
-    Given I am signed in as "qa-admin@flowinqa.com"
+    Given I am signed in as "admin@velocity.ai"
 
   # ---------- Shell A: the wizard ----------
 

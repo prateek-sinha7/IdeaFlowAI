@@ -54,7 +54,7 @@ in the foreground. It's a thin wrapper around
 `scripts/local-dev/setup-backend.sh` + `run-backend.sh` — use those directly
 if you want more control.
 
-`setup-backend.sh` seeds `qa-admin@flowinqa.com` / `flowin-e2e-pass` (see
+`setup-backend.sh` seeds `admin@velocity.ai` / `Velocity!Dev2026` (see
 `backend/scripts/seed_test_users.py`) — that's what `http-client.env.json`'s
 `local` environment logs in as. Agent steps also need real LLM access
 (`ANTHROPIC_API_KEY` or AWS Bedrock credentials in `backend/.env`) to

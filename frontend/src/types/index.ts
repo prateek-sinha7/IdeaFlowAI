@@ -200,6 +200,8 @@ export interface WaveWorker {
   parentTaskId?: string;
   /** Why this worker failed, verbatim from the backend. */
   error?: string;
+  /** Model this sub-agent ran on (`data.model_id`), when the backend sends it. */
+  modelId?: string;
 }
 
 /**
@@ -390,7 +392,7 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_v2" | "ppt_revision" | "prototype" | "prototype_v2" | "prototype_revision" | "prototype_large_revision" | "prototype_feature_revision" | "prototype_v2_revision" | "prototype_v2_feature_revision" | "app_builder" | "app_builder_revision" | "custom" | "custom_revision" | "backlog" | "backlog_revision" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
 
 // Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
 // run (websocket.py), and the revision drainer can persist "revising". The raw
@@ -904,6 +906,9 @@ export interface AgentRunState {
   duration: number | null;
   error: string | null;
   index: number;
+  /** Cache split of inputTokens (a wave step: its members' sums), off agent_complete. */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
@@ -1017,12 +1022,26 @@ export interface WaveWorkerEntry {
   attachedHooks?: AttachedHookEntry[];
   validationIssues?: ValidationIssue[];
   validationPassed?: boolean;
-  /** Per-member usage and timing, off its own agent_complete. */
+  /** Per-member usage and timing, off its own agent_complete. The token counts
+   *  cover EVERY attempt: a wave-repair re-run reuses the task_id, and its
+   *  agent_complete must add to what the first try cost, never replace it. */
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  /** What this member's finished earlier attempts spent — the base a re-run's
+   *  own agent_complete is added onto. */
+  earlierInputTokens?: number;
+  earlierOutputTokens?: number;
+  earlierTotalTokens?: number;
+  earlierCacheReadTokens?: number;
+  earlierCacheWriteTokens?: number;
+  /** Cache split of this member's input (every attempt), off its agent_complete. */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   durationMs?: number;
   startedAt?: number;
+  /** Model this member ran on, off its own agent_start / agent_complete. */
+  modelId?: string;
 }
 
 /** A source of context for an agent — either a summarized prior-agent output,

@@ -184,7 +184,7 @@ def _build_validation_target(
     if factory is None:
         return ctx
     deliverable = getattr(ctx, "deliverable", None)
-    name = getattr(deliverable, "name", None)
+    name = getattr(deliverable, "text_name", None) or getattr(deliverable, "name", None)
     if not name:
         return ctx
     # On a revision run the ``revision_validation`` post-step stashes the parent

@@ -215,7 +215,7 @@ function sseResponse(blocks: string[]) {
 }
 
 /** A plain JSON Response (the unchanged /messages path). */
-function jsonResponse() {
+function jsonResponse(payload: Record<string, unknown> = {}) {
   return {
     ok: true,
     headers: {
@@ -223,7 +223,7 @@ function jsonResponse() {
         k.toLowerCase() === "content-type" ? "application/json" : null,
     },
     body: null,
-    json: async () => ({}),
+    json: async () => payload,
   } as unknown as Response;
 }
 
@@ -416,6 +416,27 @@ describe("RunConnectionProvider — sendCommand drains a streamed POST body (m0o
       expect(received).toHaveLength(0);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  it("Test 7: a JSON /messages response that launched a revision returns its run id, at the top level or in a confirmed proposal", async () => {
+    for (const payload of [
+      { channel: "revision", revision_run_id: "rev-1" }, // launched straight from the chat turn
+      { proposal: { revision_run_id: "rev-1" } }, // a confirmed proposal (FIX-211)
+    ]) {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(payload)));
+      try {
+        const { result } = renderHook(() => useRunConnection(), {
+          wrapper: RunConnectionProvider,
+        });
+        let ret: string | null = null;
+        await act(async () => {
+          ret = await result.current.sendCommand("run-9", { text: "change it" });
+        });
+        expect(ret).toBe("rev-1");
+      } finally {
+        vi.unstubAllGlobals();
+      }
     }
   });
 });

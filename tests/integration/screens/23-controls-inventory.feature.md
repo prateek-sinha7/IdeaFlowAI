@@ -647,7 +647,7 @@ Feature: Controls addressable only by their text
     Then a "Start a run" control is offered
     When I activate it
     Then I land on a launch surface
-    # The empty-state CTA. Reachable today with qa-pro/basic/enterprise, all of
+    # The empty-state CTA. Reachable today with pro@, basic@ and enterprise@velocity.ai, all of
     # which have zero runs.
 
   @S-23-55

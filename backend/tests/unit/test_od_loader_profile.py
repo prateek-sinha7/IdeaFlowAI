@@ -14,8 +14,9 @@ got wrong once:
   ``base_profile = "pdf_to_prototype"``, which is not ``"prototype"``, and landed
   on the DECK loader.
 
-A `template_files` key in the result is the deck loader's signature — the web
-loader passes its template through as prompt text and seeds nothing to disk.
+Both loaders seed the template's files, so the deck loader's signature is its
+conditional design system: ``is_design_system_required`` is a bool for a deck and
+``None`` for a page (a page template always requires one).
 """
 
 import pytest
@@ -33,7 +34,7 @@ def _resolve(pipeline_type, template_id=_WEB_TEMPLATE):
 
 
 def _is_deck(od):
-    return "template_files" in (od or {})
+    return (od or {}).get("is_design_system_required") is not None
 
 
 @pytest.mark.parametrize(
@@ -82,3 +83,19 @@ def test_no_opendesign_declaration_resolves_nothing():
     )
     assert od is None
     assert base == "prototype_v2"
+
+
+def test_a_page_run_seeds_the_files_its_template_names():
+    """The template's SKILL.md tells the agent to open example.html,
+    assets/template.html and references/checklist.md. Run 05b11d19 had only
+    SKILL.md in .context/design/template/, so the agent found none of them."""
+    _, od = _resolve("prototype_v2", template_id="underwriting-workbench")
+    files = od["template_files"]
+    assert {"example.html", "assets/template.html", "references/checklist.md"} <= set(files)
+    assert "SKILL.md" not in files and not any(p.startswith("scripts/") for p in files)
+    assert "<style" in files["example.html"]
+
+
+def test_the_design_systems_css_tokens_travel_with_it():
+    _, od = _resolve("prototype_v2")      # linear-app ships tokens.css + components.html
+    assert set(od["ds_files"]) == {"tokens.css", "components.html"}

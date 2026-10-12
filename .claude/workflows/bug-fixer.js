@@ -60,8 +60,8 @@ Driving the UI:
 - READ velocity.json BEFORE the first browser action — routes, selectors, quirks,
   recipes, page structure. A recipe is a ready-made steps array; use it, do not paraphrase it.
 - App http://localhost:3000, backend http://localhost:8000. Sign in
-  qa-admin@flowinqa.com / flowin-e2e-pass (admin, enterprise). Other tiers: qa-enterprise@,
-  qa-pro@, qa-basic@ flowinqa.com, same password. Everyone uses qa-admin unless the bug is
+  admin@velocity.ai / Velocity!Dev2026 (admin, enterprise). Other tiers: enterprise@,
+  pro@, basic@ velocity.ai, same password. Everyone uses admin@velocity.ai unless the bug is
   tier-specific — changing account or theme changes GLOBAL state other work depends on.
   Already signed in? \`!!localStorage.getItem('auth_token')\` — never return the token itself.
 - Quirks that bite: bare "/" always redirects to /login (use /dashboard); "+ Add" and

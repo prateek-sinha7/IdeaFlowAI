@@ -44,7 +44,7 @@ def _delete_by_email(admin_page, address: str) -> None:
 def test_duplicate_email_create_shows_an_error_toast(page, shot):
     """Resubmitting an already-used email must surface the server's 409
     message to the admin, not fail silently."""
-    dup_email = f"zz-iss324-{uuid.uuid4().hex[:8]}@flowinqa.com"
+    dup_email = f"zz-iss324-{uuid.uuid4().hex[:8]}@velocity.ai"
 
     page.goto("/admin")
     expect(page.get_by_text(L.HEADING)).to_be_visible()

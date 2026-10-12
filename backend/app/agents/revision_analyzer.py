@@ -13,6 +13,7 @@ import asyncio
 import logging
 import time
 
+from agents.capabilities.token_usage import usage_from_metadata
 from app.core.parsing import parse_analyzer_output  # noqa: F401
 
 logger = logging.getLogger("app.agents.revision_analyzer")
@@ -175,24 +176,9 @@ async def run_analyzer(
                     "name": "Prototype Revision Analyzer",
                     "duration": duration,
                     "output_length": len(response.content),
-                    "input_tokens": (
-                        getattr(response.usage_metadata, "input_tokens", 0)
-                        if hasattr(response, "usage_metadata")
-                        and response.usage_metadata
-                        else 0
-                    ),
-                    "output_tokens": (
-                        getattr(response.usage_metadata, "output_tokens", 0)
-                        if hasattr(response, "usage_metadata")
-                        and response.usage_metadata
-                        else 0
-                    ),
-                    "total_tokens": (
-                        getattr(response.usage_metadata, "total_tokens", 0)
-                        if hasattr(response, "usage_metadata")
-                        and response.usage_metadata
-                        else 0
-                    ),
+                    # usage_metadata is a dict — getattr() on it always read 0, so
+                    # this step's tokens were never counted. The one usage record:
+                    **usage_from_metadata(getattr(response, "usage_metadata", None)),
                 },
             }
         )

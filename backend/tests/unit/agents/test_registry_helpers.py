@@ -90,8 +90,16 @@ def _all_non_revision_non_internal_agents() -> set[str]:
 # custom pool" behaviour in commit d1a338fd — "custom workflow with prototype/ppt
 # agents now runs correctly"; ``custom`` was never part of the legacy-parity
 # guarantee.)
+# spec 022: revision pipelines composed of custom-agent steps (plus, for prototype_v2,
+# the reused prototype-revision-analyzer). No AGENT.md declares them as its
+# pipeline_type, so their client-supplied agent allow-list is EMPTY by design: a
+# revision never takes agent ids from the client, and the mint counts the compiled
+# plan instead (run_commands._compiled_step_count). Asserted separately below.
+_COMPOSED_REVISION_PIPELINES = frozenset(
+    {"prototype_v2_revision", "prototype_v2_feature_revision"}
+)
 _AGREEING_REVISION_PIPELINES = sorted(
-    REVISION_BASE_MAP.keys()
+    set(REVISION_BASE_MAP.keys()) - _COMPOSED_REVISION_PIPELINES
 )  # excludes od_ppt_revision
 _AGREEING_BASE_PIPELINES = ["user_stories", "app_builder"]
 _CUSTOM_POOL = set(PIPELINE_AGENTS["custom"])
@@ -150,6 +158,12 @@ class TestAllowListAgreeingPipelines:
             f"unexpected={real - expected}, missing={expected - real}"
         )
         assert real, f"expected a non-empty allow-list for {pipeline_type!r}"
+
+    @pytest.mark.parametrize("pipeline_type", sorted(_COMPOSED_REVISION_PIPELINES))
+    def test_composed_revision_allow_list_is_empty(self, pipeline_type: str):
+        """A composed revision accepts no client-supplied agent ids at all."""
+        assert pipeline_type in REVISION_BASE_MAP
+        assert allowed_custom_agent_ids(pipeline_type) == set()
 
     def test_revision_pipelines_are_tight(self):
         """A revision allow-list is exactly that revision pipeline's agents —

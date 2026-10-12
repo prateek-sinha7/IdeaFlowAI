@@ -142,7 +142,7 @@ def test_an_admin_additionally_sees_the_admin_entry(page, shot):
 def test_a_non_admin_does_not(page, shot):
     """Scenario: A non-admin does not"""
     page.goto("/dashboard")
-    with shot("account-menu-pro", "When I open the account menu as qa-pro"):
+    with shot("account-menu-pro", "When I open the account menu as pro@velocity.ai"):
         open_menu(page)
 
     # The rest of the menu is still there — the assertion is about ONE missing
