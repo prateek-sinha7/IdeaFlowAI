@@ -1222,7 +1222,18 @@ jobs:
           #                      writer's value.
           # Values are never echoed for any outcome — only key names and the
           # action taken (created/updated/deleted/unchanged/skipped).
-          declare -i PARAMS_PUSHED=0 PARAMS_DELETED=0 PARAMS_UNCHANGED=0 PARAMS_SKIPPED=0
+          declare -i PARAMS_PUSHED=0 PARAMS_DELETED=0 PARAMS_UNCHANGED=0 PARAMS_SKIPPED=0 PARAMS_NOT_CLEARED=0
+          declare -a NOT_CLEARED_KEYS=()
+
+          # A delete-if-empty key the deploy role is not allowed to probe or
+          # delete. Recorded (key name only) and reported once, as a warning,
+          # after the push — see the AccessDenied branches in put_param.
+          note_not_cleared() {
+            local key="$1" action="$2"
+            echo "  not cleared: ${key} (empty in GitHub; deploy role lacks ${action})"
+            NOT_CLEARED_KEYS+=("$key")
+            PARAMS_NOT_CLEARED+=1
+          }
 
           put_param() {
             local key="$1" value="$2" type="${3:-String}" policy="${4:-delete-if-empty}"
@@ -1232,12 +1243,13 @@ jobs:
                 exit 1
               fi
               if [[ "$policy" == "preserve-if-empty" ]]; then
-                # No AWS call at all — deliberately, and NOT because the role
-                # lacks the permission (it holds ssm:GetParameter, see
-                # github_oidc.tf sid=SSMManageParameters). An unmanaged key is
-                # simply not this pipeline's business on this run: we do not
-                # need to know whether the other owner has written one, because
-                # either way the action is the same — nothing.
+                # No AWS call at all — deliberately, and NOT because of the
+                # role's permissions (github_oidc.tf sid=SSMManageParameters
+                # grants ssm:GetParameter; the live role may lag it). An
+                # unmanaged key is simply not this pipeline's business on this
+                # run: we do not need to know whether the other owner has
+                # written one, because either way the action is the same —
+                # nothing.
                 echo "  skipped: ${key} (not set in GitHub — left to its other owner, e.g. terraform)"
                 PARAMS_SKIPPED+=1
                 return
@@ -1249,12 +1261,13 @@ jobs:
               # The existence probe MUST distinguish "there is no such
               # parameter" from "the call failed". It previously used
               # `2>/dev/null` and treated every non-zero exit as absence, so an
-              # AccessDenied — which is exactly what happened before the role
-              # was granted Get and Delete — was reported as "no existing
-              # parameter". The clear never happened, the log said "unchanged",
-              # and the stale value stayed live on the host. Only
-              # ParameterNotFound means absent; anything else is surfaced and
-              # fails the deploy.
+              # AccessDenied was silently reported as "no existing parameter".
+              # Only ParameterNotFound means absent. github_oidc.tf
+              # (sid=SSMManageParameters) grants Get and Delete, but the live
+              # role may lag it (PutParameter only), so AccessDenied on the
+              # probe or the delete is reported as "not cleared" plus one
+              # aggregated warning, NOT a failure: the stale value stays, as it
+              # always did, but visibly. Any other error still fails the deploy.
               #
               # NO `--with-decryption`, deliberately. This is an existence check
               # only. For a SecureString the call returns ciphertext and makes
@@ -1277,6 +1290,11 @@ jobs:
                   --name "${SSM_PREFIX}/${key}" \
                   --region "$AWS_REGION" \
                   --no-cli-pager >/dev/null 2>"$del_err"; then
+                  if grep -q 'AccessDenied' "$del_err"; then
+                    rm -f "$del_err"
+                    note_not_cleared "$key" "ssm:DeleteParameter"
+                    return
+                  fi
                   cat "$del_err" >&2
                   echo "::error::Failed to delete '${key}' after it was cleared in GitHub."
                   echo "::error::The parameter exists, so the stale value is still live on the host. Confirm ssm:DeleteParameter is granted to the '${DEPLOY_ENV}' deploy role (infra/terraform/bootstrap/github_oidc.tf, sid=SSMManageParameters)."
@@ -1290,12 +1308,12 @@ jobs:
                 rm -f "$probe_err"
                 echo "  unchanged: ${key} (empty, no existing parameter)"
                 PARAMS_UNCHANGED+=1
+              elif grep -q 'AccessDenied' "$probe_err"; then
+                rm -f "$probe_err"
+                note_not_cleared "$key" "ssm:GetParameter"
               else
                 cat "$probe_err" >&2
                 echo "::error::Could not determine whether '${key}' exists in SSM, so it cannot be cleared safely."
-                if grep -q 'AccessDenied' "$probe_err"; then
-                  echo "::error::This is an authorization failure, NOT an absent parameter. Confirm ssm:GetParameter and ssm:DeleteParameter are granted to the '${DEPLOY_ENV}' deploy role (infra/terraform/bootstrap/github_oidc.tf, sid=SSMManageParameters) and that terraform apply has run."
-                fi
                 rm -f "$probe_err"
                 exit 1
               fi
@@ -1460,7 +1478,10 @@ jobs:
           put_param "llm/inference_profile_id" "$BEDROCK_INFERENCE_PROFILE_ID" "String" "delete-if-empty"
           put_param "llm/coding_model_id"      "$BEDROCK_CODING_MODEL_ID"      "String" "delete-if-empty"
 
-          echo "Config push complete: ${PARAMS_PUSHED} pushed, ${PARAMS_DELETED} deleted, ${PARAMS_UNCHANGED} unchanged, ${PARAMS_SKIPPED} skipped (owned elsewhere)."
+          echo "Config push complete: ${PARAMS_PUSHED} pushed, ${PARAMS_DELETED} deleted, ${PARAMS_UNCHANGED} unchanged, ${PARAMS_SKIPPED} skipped (owned elsewhere), ${PARAMS_NOT_CLEARED} not cleared."
+          if (( PARAMS_NOT_CLEARED > 0 )); then
+            echo "::warning::${PARAMS_NOT_CLEARED} key(s) are empty in GitHub but could not be cleared in SSM (${NOT_CLEARED_KEYS[*]}): the '${DEPLOY_ENV}' deploy role lacks ssm:GetParameter and/or ssm:DeleteParameter. Any existing SSM value for them stays live on the host. An AWS admin must apply infra/terraform/bootstrap/github_oidc.tf (sid=SSMManageParameters: ssm:GetParameter + ssm:DeleteParameter on /velocityai/${DEPLOY_ENV}/*)."
+          fi
 
       # ── Bedrock inference profile / region consistency check ──────────
       # FIX-BEDROCK-01: the deployed AWS_REGION and the configured Bedrock
@@ -1568,6 +1589,7 @@ jobs:
           COMPOSE_PROD_GZ="$(gzip -9 -c docker-compose.prod.yml | base64 -w 0)"
           RECONCILE_GZ="$(gzip -9 -c infra/scripts/reconcile-host-config.sh | base64 -w 0)"
           SECRETS_LOADER_GZ="$(gzip -9 -c infra/scripts/velocityai-load-secrets.sh | base64 -w 0)"
+          HOST_COMMON_GZ="$(gzip -9 -c infra/scripts/lib/host-common.sh | base64 -w 0)"
 
           {
             echo '#!/bin/bash'
@@ -1582,6 +1604,7 @@ jobs:
             echo "COMPOSE_PROD_GZ='${COMPOSE_PROD_GZ}'"
             echo "RECONCILE_GZ='${RECONCILE_GZ}'"
             echo "SECRETS_LOADER_GZ='${SECRETS_LOADER_GZ}'"
+            echo "HOST_COMMON_GZ='${HOST_COMMON_GZ}'"
             # Comment-only lines are ~26 KB of remote-deploy.sh and pushed this
             # payload past ssm-run's 57,344-byte guard. bash never reads them, and
             # the script has no heredocs, so the executed code is unchanged.

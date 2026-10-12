@@ -2151,3 +2151,90 @@ def test_deploy_payload_assembly_strips_comments_when_remote_deploy_has_no_hered
         "remote-deploy.sh gained a heredoc; the deploy payload comment strip is "
         "no longer safe. Remove the heredoc or stop stripping comments."
     )
+
+
+def _deploy_ssm_push_run(workflows_path) -> str:
+    """Return the `run` body of the deploy job's SSM config-push step."""
+    workflow = yaml.safe_load((workflows_path / "deploy.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    matches = [s for s in steps if s.get("name") == "Push config to SSM Parameter Store"]
+    assert len(matches) == 1, "deploy job must have exactly one SSM config-push step"
+    return matches[0]["run"]
+
+
+def test_deploy_ssm_probe_warns_not_fails_when_get_parameter_denied(workflows_path):
+    """A role with ssm:PutParameter only must not fail the delete-if-empty probe.
+
+    AccessDenied on the existence probe is recorded as "not cleared" and
+    reported once as a warning; it must not exit before the final else.
+    """
+    run = _deploy_ssm_push_run(workflows_path)
+
+    marker = """elif grep -q 'AccessDenied' "$probe_err"; then"""
+    assert marker in run, "probe must have an AccessDenied branch"
+    branch = run.split(marker, 1)[1]
+    else_match = re.search(r"^\s*else\s*$", branch, re.MULTILINE)
+    assert else_match, "AccessDenied branch must be followed by a final else"
+    branch_body = branch[: else_match.start()]
+    assert 'note_not_cleared "$key" "ssm:GetParameter"' in branch_body
+    assert not re.search(r"\bexit\b", branch_body), (
+        "AccessDenied on the probe must warn, not fail the deploy"
+    )
+    assert "::warning::" in run and "NOT_CLEARED_KEYS" in run
+    # The aggregated warning is emitted only when something was not cleared.
+    guard = "if (( PARAMS_NOT_CLEARED > 0 )); then"
+    assert guard in run
+    assert run.index(guard) < run.index("::warning::${PARAMS_NOT_CLEARED} key(s)")
+
+
+def test_deploy_ssm_probe_still_fails_when_error_is_not_access_denied(workflows_path):
+    """Only AccessDenied degrades; any other probe error still fails closed."""
+    run = _deploy_ssm_push_run(workflows_path)
+
+    not_found = run.split("""elif grep -q 'ParameterNotFound' "$probe_err"; then""", 1)
+    assert len(not_found) == 2, "ParameterNotFound branch must remain"
+    assert "unchanged: ${key} (empty, no existing parameter)" in not_found[1].split("elif", 1)[0]
+
+    after_denied = run.split("""elif grep -q 'AccessDenied' "$probe_err"; then""", 1)[1]
+    else_match = re.search(r"^\s*else\s*$", after_denied, re.MULTILINE)
+    assert else_match
+    fi_match = re.search(r"^\s*fi\s*$", after_denied[else_match.end():], re.MULTILINE)
+    assert fi_match
+    final_else = after_denied[else_match.end(): else_match.end() + fi_match.start()]
+    assert "exit 1" in final_else, "non-AccessDenied probe errors must still fail the deploy"
+    assert "::error::" in final_else
+
+    # The delete path degrades the same way: AccessDenied warns and returns,
+    # any other delete-parameter error still exits 1.
+    delete_marker = """if grep -q 'AccessDenied' "$del_err"; then"""
+    assert delete_marker in run, "delete-parameter must have an AccessDenied branch"
+    fi_line = re.compile(r"^\s*fi\s*$", re.MULTILINE)
+    delete_branch, delete_rest = fi_line.split(run.split(delete_marker, 1)[1], maxsplit=1)
+    assert 'note_not_cleared "$key" "ssm:DeleteParameter"' in delete_branch
+    assert "return" in delete_branch
+    assert not re.search(r"\bexit\b", delete_branch), (
+        "AccessDenied on delete-parameter must warn, not fail the deploy"
+    )
+    delete_failure = fi_line.split(delete_rest, maxsplit=1)[0]
+    assert "::error::Failed to delete" in delete_failure
+    assert "exit 1" in delete_failure, "non-AccessDenied delete errors must still fail the deploy"
+
+
+def test_deploy_payload_ships_host_common_when_reconcile_requires_it(workflows_path):
+    """reconcile-host-config.sh hard-requires lib/host-common.sh; the deploy ships it."""
+    deploy_yml = (workflows_path / "deploy.yml").read_text(encoding="utf-8")
+    remote_deploy = (workflows_path.parent / "scripts" / "remote-deploy.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        'HOST_COMMON_GZ="$(gzip -9 -c infra/scripts/lib/host-common.sh | base64 -w 0)"'
+        in deploy_yml
+    )
+    assert """echo "HOST_COMMON_GZ='${HOST_COMMON_GZ}'\"""" in deploy_yml
+
+    unpack_line = 'unpack "$HOST_COMMON_GZ" "${APP_DIR}/lib/host-common.sh"'
+    reconcile_call = 'bash "${APP_DIR}/reconcile-host-config.sh"'
+    assert unpack_line in remote_deploy
+    assert reconcile_call in remote_deploy
+    assert remote_deploy.index(unpack_line) < remote_deploy.index(reconcile_call)
