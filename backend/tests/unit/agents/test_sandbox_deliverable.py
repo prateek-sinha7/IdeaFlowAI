@@ -601,7 +601,9 @@ def test_git_artifacts_listed_in_list_files(tmp_path: Path) -> None:
     assert "prototype.html" in paths, "deliverable file must appear in list_files"
     assert ".git/config" in paths, ".git tree is listed"
     assert ".gitignore" in paths, ".gitignore is listed"
-    assert any(p.startswith("skills/") for p in paths), "skills/ is listed like every reserved subtree"
+    assert any(
+        p.startswith("skills/") for p in paths
+    ), "skills/ is listed like every reserved subtree"
     assert not truncated
 
 

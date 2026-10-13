@@ -47,13 +47,18 @@ def _unassigned_ids(unassigned: list) -> set[str]:
         if isinstance(entry, str):
             ids.add(entry)
         elif isinstance(entry, dict):
-            ids.update(v for v in (entry.get("id"), entry.get("item")) if isinstance(v, str))
+            ids.update(
+                v for v in (entry.get("id"), entry.get("item")) if isinstance(v, str)
+            )
     return ids
 
 
 def plan_coverage_gaps(sandbox: Any) -> tuple[list[str], list[str]]:
     """(ids in no epic and not unassigned, ids an epic covers but no slice task names)."""
-    solution = {kind: parse_solution_kind(sandbox.read(f"{SOLUTION_DIR}/{kind}.json")) for kind in SOLUTION_KINDS}
+    solution = {
+        kind: parse_solution_kind(sandbox.read(f"{SOLUTION_DIR}/{kind}.json"))
+        for kind in SOLUTION_KINDS
+    }
     items = collect_coverage_items(solution)
     plan = parse_backlog_plan(sandbox.read(BACKLOG_PLAN_PATH))
     covered: set[str] = set()
@@ -87,22 +92,39 @@ class BacklogPlanCoverageValidator:
         if sandbox is None:
             return issues
         if sandbox.read(BACKLOG_PLAN_PATH) is None:
-            issues.append(Issue("P0", f"{BACKLOG_PLAN_PATH} was not written. Write it, and "
-                                      f"{STORY_TASKS_PATH}, as your prompt describes."))
+            issues.append(
+                Issue(
+                    "P0",
+                    f"{BACKLOG_PLAN_PATH} was not written. Write it, and "
+                    f"{STORY_TASKS_PATH}, as your prompt describes.",
+                )
+            )
         else:
             missing, untasked = plan_coverage_gaps(sandbox)
             if missing:
-                issues.append(Issue("P0", (
-                    f"{len(missing)} coverage item(s) are in no epic's covers and not in "
-                    f"\"unassigned\": {', '.join(missing)}. Add each to the \"covers\" of the epic "
-                    f"that builds it in {BACKLOG_PLAN_PATH}, and name it in one of that epic's slice "
-                    f"tasks in {STORY_TASKS_PATH}. Both files exist: change them with edit_file. "
-                    f"The complete list is build/coverage-items.json.")))
+                issues.append(
+                    Issue(
+                        "P0",
+                        (
+                            f"{len(missing)} coverage item(s) are in no epic's covers and not in "
+                            f"\"unassigned\": {', '.join(missing)}. Add each to the \"covers\" of the epic "
+                            f"that builds it in {BACKLOG_PLAN_PATH}, and name it in one of that epic's slice "
+                            f"tasks in {STORY_TASKS_PATH}. Both files exist: change them with edit_file. "
+                            f"The complete list is build/coverage-items.json."
+                        ),
+                    )
+                )
             if untasked:
-                issues.append(Issue("P0", (
-                    f"{len(untasked)} coverage item(s) are in an epic's covers but no slice task in "
-                    f"{STORY_TASKS_PATH} names them: {', '.join(untasked)}. Add each to a slice task "
-                    f"of its epic (its body's Cover list) with edit_file.")))
+                issues.append(
+                    Issue(
+                        "P0",
+                        (
+                            f"{len(untasked)} coverage item(s) are in an epic's covers but no slice task in "
+                            f"{STORY_TASKS_PATH} names them: {', '.join(untasked)}. Add each to a slice task "
+                            f"of its epic (its body's Cover list) with edit_file."
+                        ),
+                    )
+                )
         await _record(target, issues)
         return issues
 
@@ -112,7 +134,19 @@ async def _record(target: Any, issues: list[Issue]) -> None:
     record = getattr(getattr(target, "runner", None), "record_validation_result", None)
     if record is None:
         return
-    worst = next((map_severity(s) for s in ("P0", "P1", "P2", "P3") if any(i.severity == s for i in issues)), None)
+    worst = next(
+        (
+            map_severity(s)
+            for s in ("P0", "P1", "P2", "P3")
+            if any(i.severity == s for i in issues)
+        ),
+        None,
+    )
     attempt = int((getattr(target, "task_meta", None) or {}).get("attempt", 0))
-    await record(getattr(target, "step", "") or "", _NAME, severity=worst, attempt=attempt,
-                 issues=[{"severity": i.severity, "message": i.message} for i in issues])
+    await record(
+        getattr(target, "step", "") or "",
+        _NAME,
+        severity=worst,
+        attempt=attempt,
+        issues=[{"severity": i.severity, "message": i.message} for i in issues],
+    )

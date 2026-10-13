@@ -21,6 +21,7 @@ Layout: the cover is printed on its own (full bleed, no footer) and prepended to
 body. The body is printed twice — the first pass only to read, from the PDF outline
 Chromium builds out of the headings, which page each contents entry landed on.
 """
+
 from __future__ import annotations
 
 import base64
@@ -44,26 +45,82 @@ ZIP_NAME = "Backlog.zip"
 
 # Every deliverable of the backlog workflow, in the order the zip lists them.
 DELIVERABLES = (
-    "backlog.md", "backlog.csv", "backlog.json", "build-order.md",
-    "solution.md", "architecture.md", "data-model.md", "schema.json",
-    "api.md", "openapi.json", "integrations.md", "screens.md", "ui.md", "ux.md", "gaps.md",
+    "backlog.md",
+    "backlog.csv",
+    "backlog.json",
+    "build-order.md",
+    "solution.md",
+    "architecture.md",
+    "data-model.md",
+    "schema.json",
+    "api.md",
+    "openapi.json",
+    "integrations.md",
+    "screens.md",
+    "ui.md",
+    "ux.md",
+    "gaps.md",
 )
 
 # The Markdown deliverables in reading order — what it is, how it is built, then the
 # backlog — each with the one line its chapter opener carries.
 PDF_SECTIONS = (
-    ("solution.md", "Solution", "What the product is — its features, roles, rules and scope."),
-    ("architecture.md", "Architecture", "How it is built — context, containers, key flows and decisions."),
-    ("data-model.md", "Data model", "The entities the product keeps, their attributes and relationships."),
-    ("api.md", "API", "Every endpoint — its purpose, roles, rules and the stories it serves."),
-    ("integrations.md", "Integrations", "The external systems the product talks to, and how."),
-    ("screens.md", "Screens", "Every screen — how it is reached, its fields, actions and states."),
-    ("ui.md", "UI", "How the product looks — palette, typography, components and every screen, as the prototype shows them."),
-    ("ux.md", "UX", "How the product works — navigation, journeys, patterns, states and messages."),
-    ("build-order.md", "Build order", "What to build first — milestones, waves and the dependencies between epics."),
-    ("backlog.md", "Backlog", "Features, epics and user stories with requirements and acceptance criteria."),
+    (
+        "solution.md",
+        "Solution",
+        "What the product is — its features, roles, rules and scope.",
+    ),
+    (
+        "architecture.md",
+        "Architecture",
+        "How it is built — context, containers, key flows and decisions.",
+    ),
+    (
+        "data-model.md",
+        "Data model",
+        "The entities the product keeps, their attributes and relationships.",
+    ),
+    (
+        "api.md",
+        "API",
+        "Every endpoint — its purpose, roles, rules and the stories it serves.",
+    ),
+    (
+        "integrations.md",
+        "Integrations",
+        "The external systems the product talks to, and how.",
+    ),
+    (
+        "screens.md",
+        "Screens",
+        "Every screen — how it is reached, its fields, actions and states.",
+    ),
+    (
+        "ui.md",
+        "UI",
+        "How the product looks — palette, typography, components and every screen, as the prototype shows them.",
+    ),
+    (
+        "ux.md",
+        "UX",
+        "How the product works — navigation, journeys, patterns, states and messages.",
+    ),
+    (
+        "build-order.md",
+        "Build order",
+        "What to build first — milestones, waves and the dependencies between epics.",
+    ),
+    (
+        "backlog.md",
+        "Backlog",
+        "Features, epics and user stories with requirements and acceptance criteria.",
+    ),
     # Only when the final assembly left coverage items without a story.
-    ("gaps.md", "Gaps", "The coverage items no story covers yet, and the coverage numbers."),
+    (
+        "gaps.md",
+        "Gaps",
+        "The coverage items no story covers yet, and the coverage numbers.",
+    ),
 )
 
 # Sub-headings listed under each chapter in the contents: h2 everywhere; the backlog
@@ -78,14 +135,28 @@ _TOC_DEFAULT_LEVELS = (2,)
 DEFAULT_BRAND = "#3C2CDA"
 INK_900, INK_800, INK_600, INK_500 = "#15161A", "#20222B", "#5B5C63", "#6E6F76"
 WARM, LINE = "#F6F4EE", "#E6E3DB"
-_GENERIC_FONTS = {"serif", "sans-serif", "monospace", "system-ui", "-apple-system", "blinkmacsystemfont",
-                  "ui-sans-serif", "ui-serif", "cursive", "fantasy", "inherit", "initial"}
+_GENERIC_FONTS = {
+    "serif",
+    "sans-serif",
+    "monospace",
+    "system-ui",
+    "-apple-system",
+    "blinkmacsystemfont",
+    "ui-sans-serif",
+    "ui-serif",
+    "cursive",
+    "fantasy",
+    "inherit",
+    "initial",
+}
 
 
 def _mix(color: str, other: str, t: float) -> str:
-    a = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
-    b = [int(other[i:i + 2], 16) for i in (1, 3, 5)]
-    return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b, strict=False))
+    a = [int(color[i : i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i : i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(
+        f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b, strict=False)
+    )
 
 
 def _theme(sandbox: Any) -> dict[str, str]:
@@ -99,7 +170,12 @@ def _theme(sandbox: Any) -> dict[str, str]:
         tokens = {}
     if (tokens.get("brand") or {}).get("primary"):
         brand = tokens["brand"]["primary"]
-    first = str((tokens.get("body") or {}).get("font_family") or "").split(",")[0].strip().strip("\"'")
+    first = (
+        str((tokens.get("body") or {}).get("font_family") or "")
+        .split(",")[0]
+        .strip()
+        .strip("\"'")
+    )
     if first and first.lower() not in _GENERIC_FONTS:
         font = f'"{first}", '
     # A light brand (yellow, cyan) cannot carry white cover text or read as heading
@@ -109,29 +185,50 @@ def _theme(sandbox: Any) -> dict[str, str]:
             break
         brand = _mix(brand, "#000000", 0.18)
     return {
-        "brand": brand, "dark": _mix(brand, "#000000", 0.28), "light": _mix(brand, "#FFFFFF", 0.22),
-        "fill": _mix(brand, "#FFFFFF", 0.90), "tint": _mix(brand, "#FFFFFF", 0.95),
-        "border": _mix(brand, "#FFFFFF", 0.80), "eyebrow": _mix(brand, "#FFFFFF", 0.72), "font": font,
+        "brand": brand,
+        "dark": _mix(brand, "#000000", 0.28),
+        "light": _mix(brand, "#FFFFFF", 0.22),
+        "fill": _mix(brand, "#FFFFFF", 0.90),
+        "tint": _mix(brand, "#FFFFFF", 0.95),
+        "border": _mix(brand, "#FFFFFF", 0.80),
+        "eyebrow": _mix(brand, "#FFFFFF", 0.72),
+        "font": font,
     }
 
 
 def _font_faces() -> str:
     faces = []
-    for name, rng in (("manrope-latin", "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, "
-                                         "U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"),
-                      ("manrope-latin-ext", "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, "
-                                            "U+1E00-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF")):
+    for name, rng in (
+        (
+            "manrope-latin",
+            "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, "
+            "U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+        ),
+        (
+            "manrope-latin-ext",
+            "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, "
+            "U+1E00-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF",
+        ),
+    ):
         path = _VENDOR / f"{name}.woff2"
         if not path.exists():
             continue
         data = base64.b64encode(path.read_bytes()).decode()
-        faces.append("@font-face{font-family:Manrope;font-weight:200 800;font-style:normal;"
-                     f"src:url(data:font/woff2;base64,{data}) format('woff2');unicode-range:{rng};}}")
+        faces.append(
+            "@font-face{font-family:Manrope;font-weight:200 800;font-style:normal;"
+            f"src:url(data:font/woff2;base64,{data}) format('woff2');unicode-range:{rng};}}"
+        )
     return "".join(faces)
 
 
 def _css(t: dict[str, str]) -> str:
-    BRAND, BRAND_FILL, BRAND_TINT, BRAND_BORDER, FONT = t["brand"], t["fill"], t["tint"], t["border"], t["font"]
+    BRAND, BRAND_FILL, BRAND_TINT, BRAND_BORDER, FONT = (
+        t["brand"],
+        t["fill"],
+        t["tint"],
+        t["border"],
+        t["font"],
+    )
     return f"""
 @page {{ size: A4; margin: 20mm 17mm 20mm 17mm; }}
 * {{ box-sizing: border-box; }}
@@ -225,6 +322,7 @@ figure.diagram figcaption {{ margin-top: 8pt; font-size: 7.5pt; letter-spacing: 
            font-variant-numeric: tabular-nums; }}
 """
 
+
 def _cover_css(t: dict[str, str]) -> str:
     BRAND, BRAND_DARK, FONT = t["brand"], t["dark"], t["font"]
     return f"""
@@ -278,7 +376,9 @@ def _markdown() -> Any:
     return md
 
 
-_GK_HEAD = re.compile(r"^(\s*)(Feature|Background|Scenario Outline|Scenario Template|Scenario|Rule|Examples|Scenarios):")
+_GK_HEAD = re.compile(
+    r"^(\s*)(Feature|Background|Scenario Outline|Scenario Template|Scenario|Rule|Examples|Scenarios):"
+)
 _GK_STEP = re.compile(r"^(\s*)(Given|When|Then|And|But)\b")
 
 
@@ -306,8 +406,9 @@ def _strip_tags(fragment: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
 
 
-def _chapter(index: int, name: str, title: str, lede: str, text: str, md: Any,
-             embed: Any = None) -> tuple[str, list[tuple]]:
+def _chapter(
+    index: int, name: str, title: str, lede: str, text: str, md: Any, embed: Any = None
+) -> tuple[str, list[tuple]]:
     """One chapter's HTML and its contents entries ``(level, anchor, title)``.
 
     The document's own first ``# heading`` becomes the opener's source line; the
@@ -316,7 +417,7 @@ def _chapter(index: int, name: str, title: str, lede: str, text: str, md: Any,
     first = re.match(r"\s*<h1>(.*?)</h1>", rendered, re.S)
     source = _strip_tags(first.group(1)) if first else ""
     if first:
-        rendered = rendered[first.end():]
+        rendered = rendered[first.end() :]
     levels = _TOC_LEVELS.get(name, _TOC_DEFAULT_LEVELS)
     entries: list[tuple] = [(1, name, title)]
     count = 0
@@ -335,18 +436,34 @@ def _chapter(index: int, name: str, title: str, lede: str, text: str, md: Any,
     # "REQ-23a-012" over three lines to widen a prose column reads as broken.
     rendered = _SHORT_CELL.sub(r'<td class="nw">\1</td>', rendered)
     # A colour in a table gets its swatch; an image path under build/ui/ is embedded.
-    rendered = _CELL.sub(lambda m: m.group(1) + _HEX_COLOR.sub(
-        r'<span class="sw" style="background:#\1"></span>#\1', m.group(2)) + m.group(3), rendered)
+    rendered = _CELL.sub(
+        lambda m: m.group(1)
+        + _HEX_COLOR.sub(
+            r'<span class="sw" style="background:#\1"></span>#\1', m.group(2)
+        )
+        + m.group(3),
+        rendered,
+    )
     if embed is not None:
-        rendered = _IMG.sub(lambda m: m.group(1) + embed(html.unescape(m.group(2))) + m.group(3), rendered)
+        rendered = _IMG.sub(
+            lambda m: m.group(1) + embed(html.unescape(m.group(2))) + m.group(3),
+            rendered,
+        )
     opener = (
         f'<header class="opener"><div class="num">{index:02d}</div>'
         f'<div class="eyebrow">Chapter {index:02d}</div><h1>{html.escape(title)}</h1>'
         f'<p class="lede">{html.escape(lede)}</p>'
-        + (f'<div class="source">{html.escape(source)} · {html.escape(name)}</div>' if source else "")
+        + (
+            f'<div class="source">{html.escape(source)} · {html.escape(name)}</div>'
+            if source
+            else ""
+        )
         + "</header>"
     )
-    return f'<section class="chapter" id="{name}">{opener}<div class="doc">{rendered}</div></section>', entries
+    return (
+        f'<section class="chapter" id="{name}">{opener}<div class="doc">{rendered}</div></section>',
+        entries,
+    )
 
 
 def _toc(entries: list[tuple], pages: dict[str, int] | None) -> str:
@@ -357,18 +474,26 @@ def _toc(entries: list[tuple], pages: dict[str, int] | None) -> str:
         if level == 1:
             chapter += 1
             label = f'<span class="n">{chapter:02d}</span>{label}'
-        rows.append(f'<li class="lvl{level}"><a href="#{hid}"><span class="t">{label}</span>'
-                    f'<span class="dots"></span><span class="p">{page}</span></a></li>')
-    return ('<nav class="toc"><div class="eyebrow">Contents</div><div class="title">Table of contents</div>'
-            f'<ol>{"".join(rows)}</ol></nav>')
+        rows.append(
+            f'<li class="lvl{level}"><a href="#{hid}"><span class="t">{label}</span>'
+            f'<span class="dots"></span><span class="p">{page}</span></a></li>'
+        )
+    return (
+        '<nav class="toc"><div class="eyebrow">Contents</div><div class="title">Table of contents</div>'
+        f'<ol>{"".join(rows)}</ol></nav>'
+    )
 
 
 def _sections(sandbox: Any) -> list[tuple[str, str, str, str]]:
-    present = [(name, title, lede, sandbox.read(name)) for name, title, lede in PDF_SECTIONS]
+    present = [
+        (name, title, lede, sandbox.read(name)) for name, title, lede in PDF_SECTIONS
+    ]
     return [p for p in present if p[3]]
 
 
-def build_html(sandbox: Any, pages: dict[str, int] | None = None) -> tuple[str, list[tuple]]:
+def build_html(
+    sandbox: Any, pages: dict[str, int] | None = None
+) -> tuple[str, list[tuple]]:
     """The body (contents + chapters) as one HTML page, and its contents entries.
 
     ``pages`` maps an entry's anchor to its printed page number; ``None`` prints a
@@ -406,27 +531,47 @@ def _stats(sandbox: Any) -> tuple[str, list[tuple[str, int]]]:
         data = json.loads(sandbox.read("backlog.json") or "{}")
     except ValueError:
         data = {}
-    backlog, solution, stories = data.get("backlog") or {}, data.get("solution") or {}, data.get("stories") or []
+    backlog, solution, stories = (
+        data.get("backlog") or {},
+        data.get("solution") or {},
+        data.get("stories") or [],
+    )
 
     def n(value: Any) -> int:
         return len(value) if isinstance(value, (list, dict)) else int(value or 0)
 
-    points = sum(int(s.get("points") or 0) for s in stories if isinstance(s, dict)
-                 and str(s.get("points") or "0").isdigit())
+    points = sum(
+        int(s.get("points") or 0)
+        for s in stories
+        if isinstance(s, dict) and str(s.get("points") or "0").isdigit()
+    )
     stats = [
-        ("Features", n(backlog.get("features"))), ("Epics", n(backlog.get("epics"))),
+        ("Features", n(backlog.get("features"))),
+        ("Epics", n(backlog.get("epics"))),
         ("User stories", len(stories)),
-        ("Requirements", sum(len(s.get("requirements") or []) for s in stories if isinstance(s, dict))),
-        ("Story points", points), ("Endpoints", n(solution.get("endpoints"))),
-        ("Screens", n(solution.get("screens"))), ("Entities", n(solution.get("entities"))),
+        (
+            "Requirements",
+            sum(
+                len(s.get("requirements") or []) for s in stories if isinstance(s, dict)
+            ),
+        ),
+        ("Story points", points),
+        ("Endpoints", n(solution.get("endpoints"))),
+        ("Screens", n(solution.get("screens"))),
+        ("Entities", n(solution.get("entities"))),
     ]
-    return str(backlog.get("product") or "Product backlog"), [s for s in stats if s[1]][:8]
+    return str(backlog.get("product") or "Product backlog"), [s for s in stats if s[1]][
+        :8
+    ]
 
 
 def build_cover(sandbox: Any, today: _dt.date | None = None) -> str:
     product, stats = _stats(sandbox)
     today = today or _dt.date.today()
-    cells = "".join(f'<div class="stat"><b>{v:,}</b><span>{html.escape(k)}</span></div>' for k, v in stats)
+    cells = "".join(
+        f'<div class="stat"><b>{v:,}</b><span>{html.escape(k)}</span></div>'
+        for k, v in stats
+    )
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         f"<style>{_font_faces()}{_cover_css(_theme(sandbox))}</style></head><body><div class=\"cover\">"
@@ -469,24 +614,40 @@ _DRAW_DIAGRAMS = """async (theme) => {
   return [drawn, failed];
 }"""
 
+
 def _mermaid_theme(t: dict[str, str]) -> dict[str, str]:
     return {
-        "primaryColor": t["fill"], "primaryBorderColor": t["brand"], "primaryTextColor": INK_900,
-        "secondaryColor": t["tint"], "tertiaryColor": WARM, "lineColor": INK_500, "textColor": INK_800,
-        "mainBkg": t["fill"], "nodeBorder": t["brand"], "clusterBkg": t["tint"], "clusterBorder": t["border"],
-        "actorBkg": t["fill"], "actorBorder": t["brand"], "signalColor": INK_600, "noteBkgColor": "#FFF8E1",
-        "fontFamily": f"{t['font']}Manrope, Helvetica, Arial, sans-serif", "fontSize": "13px",
+        "primaryColor": t["fill"],
+        "primaryBorderColor": t["brand"],
+        "primaryTextColor": INK_900,
+        "secondaryColor": t["tint"],
+        "tertiaryColor": WARM,
+        "lineColor": INK_500,
+        "textColor": INK_800,
+        "mainBkg": t["fill"],
+        "nodeBorder": t["brand"],
+        "clusterBkg": t["tint"],
+        "clusterBorder": t["border"],
+        "actorBkg": t["fill"],
+        "actorBorder": t["brand"],
+        "signalColor": INK_600,
+        "noteBkgColor": "#FFF8E1",
+        "fontFamily": f"{t['font']}Manrope, Helvetica, Arial, sans-serif",
+        "fontSize": "13px",
     }
+
 
 _FOOTER = (
     '<div style="width:100%;margin:0 17mm;padding-top:5px;border-top:0.5px solid #E6E3DB;display:flex;'
     'justify-content:space-between;font:8px Helvetica,Arial,sans-serif;color:#8A8B82">'
-    '<span>{product} · Product backlog</span>'
+    "<span>{product} · Product backlog</span>"
     '<span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>'
 )
 
 
-async def _print(browser: Any, page_html: str, *, footer: str | None, theme: dict[str, str] | None) -> bytes:
+async def _print(
+    browser: Any, page_html: str, *, footer: str | None, theme: dict[str, str] | None
+) -> bytes:
     page = await browser.new_page()
     try:
         await page.set_content(page_html, wait_until="load", timeout=180_000)
@@ -495,10 +656,19 @@ async def _print(browser: Any, page_html: str, *, footer: str | None, theme: dic
             await page.add_script_tag(path=str(MERMAID_JS))
             drawn, failed = await page.evaluate(_DRAW_DIAGRAMS, _mermaid_theme(theme))
             logger.info("backlog_export: diagrams drawn=%s failed=%s", drawn, failed)
-        options: dict[str, Any] = {"format": "A4", "print_background": True, "prefer_css_page_size": True,
-                                   "outline": True, "tagged": True}
+        options: dict[str, Any] = {
+            "format": "A4",
+            "print_background": True,
+            "prefer_css_page_size": True,
+            "outline": True,
+            "tagged": True,
+        }
         if footer:
-            options.update(display_header_footer=True, header_template="<span></span>", footer_template=footer)
+            options.update(
+                display_header_footer=True,
+                header_template="<span></span>",
+                footer_template=footer,
+            )
         return await page.pdf(**options)
     finally:
         await page.close()
@@ -519,7 +689,12 @@ def _outline_pages(pdf: bytes, entries: list[tuple]) -> dict[str, int]:
             if isinstance(item, list):
                 walk(item)
             else:
-                flat.append((" ".join(str(item.title).split()), reader.get_destination_page_number(item) + 1))
+                flat.append(
+                    (
+                        " ".join(str(item.title).split()),
+                        reader.get_destination_page_number(item) + 1,
+                    )
+                )
 
     walk(reader.outline)
     pages: dict[str, int] = {}
@@ -539,8 +714,13 @@ def _merge(cover: bytes, body: bytes, product: str) -> bytes:
     writer = PdfWriter()
     writer.append(PdfReader(io.BytesIO(cover)), import_outline=False)
     writer.append(PdfReader(io.BytesIO(body)))
-    writer.add_metadata({"/Title": f"{product} — Product backlog", "/Author": "VelocityAI",
-                         "/Creator": "VelocityAI backlog workflow"})
+    writer.add_metadata(
+        {
+            "/Title": f"{product} — Product backlog",
+            "/Author": "VelocityAI",
+            "/Creator": "VelocityAI backlog workflow",
+        }
+    )
     out = io.BytesIO()
     writer.write(out)
     return out.getvalue()

@@ -16,7 +16,10 @@ import pytest
 from tests.agents._scripted_model import _drive
 
 import agents.execution_engine.engine as engine_mod
-from agents.execution_engine.engine import _CREDENTIAL_AGENT_ERROR, _sanitize_agent_error
+from agents.execution_engine.engine import (
+    _CREDENTIAL_AGENT_ERROR,
+    _sanitize_agent_error,
+)
 
 
 def _failing_dispatch(message: str, dispatched: list):
@@ -24,8 +27,10 @@ def _failing_dispatch(message: str, dispatched: list):
         agent_id = getattr(step, "agent_id", "?")
         dispatched.append(agent_id)
         yield {"type": "agent_start", "data": {"agent_id": agent_id}}
-        yield {"type": "agent_error",
-               "data": {"agent_id": agent_id, "error": message, "recoverable": True}}
+        yield {
+            "type": "agent_error",
+            "data": {"agent_id": agent_id, "error": message, "recoverable": True},
+        }
 
     return _dispatch
 
@@ -33,8 +38,11 @@ def _failing_dispatch(message: str, dispatched: list):
 @pytest.mark.asyncio
 async def test_a_credential_failure_fails_the_run_at_that_step():
     dispatched: list = []
-    with patch.object(engine_mod.ExecutionEngine, "_dispatch_step_with_retry",
-                      _failing_dispatch(_CREDENTIAL_AGENT_ERROR, dispatched)):
+    with patch.object(
+        engine_mod.ExecutionEngine,
+        "_dispatch_step_with_retry",
+        _failing_dispatch(_CREDENTIAL_AGENT_ERROR, dispatched),
+    ):
         events = await _drive("custom")
 
     assert len(dispatched) == 1, dispatched
@@ -48,14 +56,24 @@ async def test_a_credential_failure_fails_the_run_at_that_step():
 async def test_any_other_step_error_keeps_the_old_behaviour():
     # Control: a non-credential failure still lets the run carry on to later steps.
     dispatched: list = []
-    with patch.object(engine_mod.ExecutionEngine, "_dispatch_step_with_retry",
-                      _failing_dispatch("The model rejected this request.", dispatched)):
+    with patch.object(
+        engine_mod.ExecutionEngine,
+        "_dispatch_step_with_retry",
+        _failing_dispatch("The model rejected this request.", dispatched),
+    ):
         await _drive("custom")
     assert len(dispatched) > 1
 
 
 def test_provider_5xx_names_itself_and_credentials_still_classify():
     assert _sanitize_agent_error("ServiceUnavailableException: try again") == (
-        "The model service was temporarily unavailable.")
-    assert _sanitize_agent_error("ExpiredTokenException: expired") == _CREDENTIAL_AGENT_ERROR
-    assert _sanitize_agent_error("Read timeout on endpoint URL") == "The model did not respond in time."
+        "The model service was temporarily unavailable."
+    )
+    assert (
+        _sanitize_agent_error("ExpiredTokenException: expired")
+        == _CREDENTIAL_AGENT_ERROR
+    )
+    assert (
+        _sanitize_agent_error("Read timeout on endpoint URL")
+        == "The model did not respond in time."
+    )

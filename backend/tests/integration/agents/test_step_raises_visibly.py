@@ -64,7 +64,9 @@ async def _drive(monkeypatch, events: list[dict], *, cancel_first: bool = False)
     orig_resolve = CapabilityRegistry.resolve
 
     def _resolve(self, kind, name, *a, **k):
-        return raising if kind == "strategy" else orig_resolve(self, kind, name, *a, **k)
+        return (
+            raising if kind == "strategy" else orig_resolve(self, kind, name, *a, **k)
+        )
 
     monkeypatch.setattr(CapabilityRegistry, "resolve", _resolve)
     orig_compile = engine_mod.compile_for_run
@@ -79,7 +81,9 @@ async def _drive(monkeypatch, events: list[dict], *, cancel_first: bool = False)
     orig_create_runner = factory_mod.create_runner
 
     def _create_runner(agent_id, ctx, **kw):
-        ctx.model = ScriptedFakeChatModel([_ScriptedTurn(texts=["never reached"], usage=(1, 1))])
+        ctx.model = ScriptedFakeChatModel(
+            [_ScriptedTurn(texts=["never reached"], usage=(1, 1))]
+        )
         return orig_create_runner(agent_id, ctx, **kw)
 
     monkeypatch.setattr(factory_mod, "create_runner", _create_runner)
@@ -89,35 +93,58 @@ async def _drive(monkeypatch, events: list[dict], *, cancel_first: bool = False)
         return None
 
     engine._dual_write_artifact = _noop  # type: ignore[assignment]
-    async for ev in engine.execute(agents=[], user_message="build a backlog", pipeline_run_id=run_id,
-                                   pipeline_type="user_stories", session_id="step-raises"):
+    async for ev in engine.execute(
+        agents=[],
+        user_message="build a backlog",
+        pipeline_run_id=run_id,
+        pipeline_type="user_stories",
+        session_id="step-raises",
+    ):
         events.append(ev)
     return first
 
 
 @pytest.mark.asyncio
-async def test_a_step_that_raises_before_agent_start_fails_the_run_with_its_message(monkeypatch, caplog):
+async def test_a_step_that_raises_before_agent_start_fails_the_run_with_its_message(
+    monkeypatch, caplog
+):
     caplog.set_level(logging.ERROR, logger="agents.execution_engine.engine")
     events: list[dict] = []
     first = await _drive(monkeypatch, events)  # no exception escapes execute()
 
     errors = [e["data"] for e in events if e.get("type") == "agent_error"]
-    assert [(d["agent_id"], d["error"], d["recoverable"]) for d in errors] == [(first, MESSAGE, False)]
-    assert "seq" in errors[0]  # stamped by execute(), so it is stored with the run's events
+    assert [(d["agent_id"], d["error"], d["recoverable"]) for d in errors] == [
+        (first, MESSAGE, False)
+    ]
+    assert (
+        "seq" in errors[0]
+    )  # stamped by execute(), so it is stored with the run's events
     failed = [e["data"] for e in events if e.get("type") == "pipeline_failed"]
-    assert len(failed) == 1 and failed[0]["error"] == MESSAGE and failed[0]["agents_failed"] == [first]
+    assert (
+        len(failed) == 1
+        and failed[0]["error"] == MESSAGE
+        and failed[0]["agents_failed"] == [first]
+    )
     assert not [e for e in events if e.get("type") == "pipeline_complete"]
-    assert any(r.levelno == logging.ERROR and first in r.getMessage() and MESSAGE in r.getMessage()
-               for r in caplog.records)
+    assert any(
+        r.levelno == logging.ERROR
+        and first in r.getMessage()
+        and MESSAGE in r.getMessage()
+        for r in caplog.records
+    )
 
 
 @pytest.mark.asyncio
-async def test_a_step_that_raises_after_the_run_was_cancelled_propagates_as_before(monkeypatch):
+async def test_a_step_that_raises_after_the_run_was_cancelled_propagates_as_before(
+    monkeypatch,
+):
     # A cancelled run allows no transition to "failed"; the guard must not report it.
     events: list[dict] = []
     with pytest.raises(RuntimeError, match="raced the cancel"):
         await _drive(monkeypatch, events, cancel_first=True)
-    assert not [e for e in events if e.get("type") in ("agent_error", "pipeline_failed")]
+    assert not [
+        e for e in events if e.get("type") in ("agent_error", "pipeline_failed")
+    ]
 
 
 @pytest.mark.asyncio
@@ -128,10 +155,19 @@ async def test_the_revision_driver_saves_the_reason_on_the_run(monkeypatch):
 
     class _Engine:
         async def _handle_revision(self, *, websocket_send_fn, **_):
-            await websocket_send_fn({"type": "agent_error",
-                                     "data": {"agent_id": "custom-agent:blr-write", "error": MESSAGE,
-                                              "recoverable": False}})
-            await websocket_send_fn({"type": "pipeline_failed", "data": {"error": MESSAGE}})
+            await websocket_send_fn(
+                {
+                    "type": "agent_error",
+                    "data": {
+                        "agent_id": "custom-agent:blr-write",
+                        "error": MESSAGE,
+                        "recoverable": False,
+                    },
+                }
+            )
+            await websocket_send_fn(
+                {"type": "pipeline_failed", "data": {"error": MESSAGE}}
+            )
 
     row = SimpleNamespace(id="rev-1", status="revising", error=None, completed_at=None)
 
@@ -160,8 +196,74 @@ async def test_the_revision_driver_saves_the_reason_on_the_run(monkeypatch):
     monkeypatch.setattr(rc, "_cleanup_pipeline", lambda *_a, **_k: None)
     queue: asyncio.Queue = asyncio.Queue()
     await rc._drive_revision_to_queue(
-        workflow_run_id="rev-1", parent_run_id="parent-1", target_artifact_type="backlog_output",
-        instruction="x", user=SimpleNamespace(id="u-1", preferred_model=None),
-        cancel_event=asyncio.Event(), event_queue=queue,
+        workflow_run_id="rev-1",
+        parent_run_id="parent-1",
+        target_artifact_type="backlog_output",
+        instruction="x",
+        user=SimpleNamespace(id="u-1", preferred_model=None),
+        cancel_event=asyncio.Event(),
+        event_queue=queue,
     )
     assert (row.status, row.error) == ("failed", MESSAGE)
+
+
+@pytest.mark.asyncio
+async def test_drive_revision_to_queue_persists_bounded_reason_when_driver_raises(
+    monkeypatch,
+):
+    import app.api.run_commands as rc
+
+    class _Engine:
+        async def _handle_revision(self, **_):
+            raise RuntimeError("provider disconnected")
+
+    row = SimpleNamespace(id="rev-2", status="revising", error=None, completed_at=None)
+
+    class _Query:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return row
+
+    class _Db:
+        def query(self, *_a, **_k):
+            return _Query()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    import agents.execution_engine.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _Engine())
+    monkeypatch.setattr(rc, "_get_db", lambda: _Db())
+    monkeypatch.setattr(rc, "_apply_terminal_output_columns", lambda *a, **k: None)
+    monkeypatch.setattr(rc, "_cleanup_pipeline", lambda *_a, **_k: None)
+    queue: asyncio.Queue = asyncio.Queue()
+
+    await rc._drive_revision_to_queue(
+        workflow_run_id="rev-2",
+        parent_run_id="parent-1",
+        target_artifact_type="backlog_output",
+        instruction="x",
+        user=SimpleNamespace(id="u-1", preferred_model=None),
+        cancel_event=asyncio.Event(),
+        event_queue=queue,
+    )
+
+    assert (row.status, row.error) == (
+        "failed",
+        "Revision failed: provider disconnected",
+    )
+    assert await queue.get() == {
+        "type": "error",
+        "data": {
+            "error": "Revision failed: provider disconnected",
+            "code": "revision_error",
+            "recoverable": True,
+        },
+    }
+    assert await queue.get() is None

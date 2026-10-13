@@ -526,7 +526,13 @@ class CapabilityRegistry:
             discover()
         return _META.get(
             (kind, name),
-            {"description": "", "config_schema": {}, "reads": [], "process": "", "writes": []},
+            {
+                "description": "",
+                "config_schema": {},
+                "reads": [],
+                "process": "",
+                "writes": [],
+            },
         )
 
     def resolve(self, kind: str, name: str) -> object:

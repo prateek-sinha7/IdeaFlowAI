@@ -127,7 +127,15 @@ def _usage_from_response(resp: Any) -> Usage:
     from agents.capabilities.token_usage import usage_from_metadata  # noqa: PLC0415
 
     u = usage_from_metadata(getattr(resp, "usage_metadata", None))
-    return {k: u[k] for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")}
+    return {
+        k: u[k]
+        for k in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+        )
+    }
 
 
 async def cached_invoke(

@@ -175,15 +175,15 @@ class TestGitMetadataPathsEnforcement:
         assert not is_deliverable_relpath(".gitignore")
 
     def test_listing_excluded_prefixes_excludes_git_prefix(self) -> None:
-        """list_files must also exclude .git/ (via _LISTING_EXCLUDED_PREFIXES)."""
-        from app.agents.sandbox import _LISTING_EXCLUDED_PREFIXES
+        """The Workspace listing no longer has a hidden-prefix policy."""
+        import app.agents.sandbox as sandbox_module
 
-        assert ".git/" in _LISTING_EXCLUDED_PREFIXES
+        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
 
     def test_listing_excluded_exact_excludes_gitignore(self) -> None:
-        from app.agents.sandbox import _LISTING_EXCLUDED_EXACT
+        import app.agents.sandbox as sandbox_module
 
-        assert ".gitignore" in _LISTING_EXCLUDED_EXACT
+        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_EXACT")
 
     def test_share_excluded_set_includes_git_metadata_paths(self) -> None:
         """_SHARE_EXCLUDED in runs.py must include all GIT_METADATA_PATHS entries."""
@@ -968,35 +968,26 @@ class TestListFilesExcludesRegistry:
     def test_listing_excluded_prefixes_excludes_hidden_reserved_entries(
         self,
     ) -> None:
-        from app.agents.sandbox import RESERVED_PATHS, _LISTING_EXCLUDED_PREFIXES
+        import app.agents.sandbox as sandbox_module
 
-        hidden = {e for e in RESERVED_PATHS if e not in self._VISIBLE_IN_LISTING}
-        for entry in hidden:
-            if entry.endswith("/"):
-                assert (
-                    entry in _LISTING_EXCLUDED_PREFIXES
-                ), f"_LISTING_EXCLUDED_PREFIXES should exclude {entry!r}"
+        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
 
     def test_listing_excluded_prefixes_does_not_exclude_visible_entries(
         self,
     ) -> None:
-        from app.agents.sandbox import _LISTING_EXCLUDED_PREFIXES
+        import app.agents.sandbox as sandbox_module
 
-        for visible in self._VISIBLE_IN_LISTING:
-            assert visible not in _LISTING_EXCLUDED_PREFIXES, (
-                f"_LISTING_EXCLUDED_PREFIXES should NOT exclude visible entry "
-                f"{visible!r}"
-            )
+        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
 
     def test_listing_excluded_exact_excludes_gitignore(self) -> None:
-        from app.agents.sandbox import _LISTING_EXCLUDED_EXACT
+        import app.agents.sandbox as sandbox_module
 
-        assert ".gitignore" in _LISTING_EXCLUDED_EXACT
+        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_EXACT")
 
     def test_listing_excluded_prefixes_excludes_git_prefix(self) -> None:
-        from app.agents.sandbox import _LISTING_EXCLUDED_PREFIXES
+        import app.agents.sandbox as sandbox_module
 
-        assert ".git/" in _LISTING_EXCLUDED_PREFIXES
+        assert not hasattr(sandbox_module, "_LISTING_EXCLUDED_PREFIXES")
 
     def test_list_files_excludes_uploads_and_logs(self, tmp_path: Path) -> None:
         """Functional: .uploads/ and .logs/ must not appear in list_files()."""
@@ -1017,15 +1008,9 @@ class TestListFilesExcludesRegistry:
         paths = {f["path"] for f in files}
 
         assert "prototype.html" in paths, "list_files must include regular files"
-        assert not any(
-            p.startswith(".uploads/") for p in paths
-        ), ".uploads/ must be excluded from list_files"
-        assert not any(
-            p.startswith(".logs/") for p in paths
-        ), ".logs/ must be excluded from list_files"
-        assert not any(
-            p.startswith("skills/") for p in paths
-        ), "skills/ must be excluded from list_files"
+        assert ".uploads/doc.pdf" in paths
+        assert ".logs/run.jsonl" in paths
+        assert "skills/writing.md" in paths
 
     def test_list_files_excludes_chain_legacy(self, tmp_path: Path) -> None:
         from app.agents.sandbox import RunSandbox
@@ -1042,9 +1027,7 @@ class TestListFilesExcludesRegistry:
         files, _ = sb.list_files()
         paths = {f["path"] for f in files}
 
-        assert not any(
-            p.startswith(".chain-legacy/") for p in paths
-        ), ".chain-legacy/ must be excluded from list_files"
+        assert ".chain-legacy/old-run/summary.md" in paths
 
     def test_list_files_keeps_chain_context_agents_visible(
         self, tmp_path: Path
@@ -1088,52 +1071,40 @@ class TestReadSandboxFileRefusesRegistry:
         pytest.importorskip("fastapi", reason="fastapi not installed")
 
     def test_sandbox_read_refused_contains_uploads(self) -> None:
-        from app.api.run_files import _SANDBOX_READ_REFUSED
+        import app.api.run_files as run_files
 
-        assert ".uploads/" in _SANDBOX_READ_REFUSED
+        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
 
     def test_sandbox_read_refused_contains_logs(self) -> None:
-        from app.api.run_files import _SANDBOX_READ_REFUSED
+        import app.api.run_files as run_files
 
-        assert ".logs/" in _SANDBOX_READ_REFUSED
+        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
 
     def test_sandbox_read_refused_contains_chain_legacy(self) -> None:
-        from app.api.run_files import _SANDBOX_READ_REFUSED
+        import app.api.run_files as run_files
 
-        assert ".chain-legacy/" in _SANDBOX_READ_REFUSED
+        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
 
     def test_sandbox_read_refused_is_subset_of_reserved_paths(self) -> None:
         """_SANDBOX_READ_REFUSED must only contain entries from RESERVED_PATHS."""
-        from app.api.run_files import _SANDBOX_READ_REFUSED
-        from app.agents.sandbox import RESERVED_PATHS
+        import app.api.run_files as run_files
 
-        assert _SANDBOX_READ_REFUSED.issubset(RESERVED_PATHS), (
-            "_SANDBOX_READ_REFUSED in run_files.py must be a subset of "
-            "RESERVED_PATHS — no independent literal list (Requirement 18 AC 2)"
-        )
+        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
 
     def test_read_sandbox_file_guard_blocks_uploads_nested_path(self) -> None:
-        from app.api.run_files import _SANDBOX_READ_REFUSED
+        import app.api.run_files as run_files
 
-        refused_path = ".uploads/manifest.json"
-        is_refused = any(refused_path.startswith(p) for p in _SANDBOX_READ_REFUSED)
-        assert (
-            is_refused
-        ), f"Path '{refused_path}' should be refused by _SANDBOX_READ_REFUSED"
+        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
 
     def test_read_sandbox_file_guard_blocks_logs_nested_path(self) -> None:
-        from app.api.run_files import _SANDBOX_READ_REFUSED
+        import app.api.run_files as run_files
 
-        refused_path = ".logs/run-abc.jsonl"
-        is_refused = any(refused_path.startswith(p) for p in _SANDBOX_READ_REFUSED)
-        assert is_refused
+        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
 
     def test_read_sandbox_file_guard_blocks_chain_legacy_nested_path(self) -> None:
-        from app.api.run_files import _SANDBOX_READ_REFUSED
+        import app.api.run_files as run_files
 
-        refused_path = ".chain-legacy/old-run/summary.md"
-        is_refused = any(refused_path.startswith(p) for p in _SANDBOX_READ_REFUSED)
-        assert is_refused
+        assert not hasattr(run_files, "_SANDBOX_READ_REFUSED")
 
 
 # ---------------------------------------------------------------------------
@@ -1155,35 +1126,13 @@ class TestReadSandboxFileGuardSourceVerification:
         """The _SANDBOX_READ_REFUSED constant must reference RESERVED_PATHS,
         not hard-code a literal frozenset of strings."""
         src = self._source()
-        # Find the _SANDBOX_READ_REFUSED definition block
-        m = re.search(
-            r"_SANDBOX_READ_REFUSED\s*:\s*frozenset\[str\]\s*=\s*frozenset\s*\(\s*\{([\s\S]*?)\}\s*\)",
-            src,
-        )
-        # If we can find a literal frozenset body, it should reference RESERVED_PATHS
-        # or be derived from it — not contain raw path string literals
-        if m:
-            body = m.group(1)
-            # Body should reference RESERVED_PATHS by name, not list literal strings
-            assert "RESERVED_PATHS" in body or "p for p in" in body, (
-                "_SANDBOX_READ_REFUSED should be derived from RESERVED_PATHS, "
-                "not a hard-coded literal set"
-            )
-        else:
-            # If the pattern doesn't match, check RESERVED_PATHS appears near the definition
-            assert (
-                "RESERVED_PATHS" in src
-            ), "run_files.py should reference RESERVED_PATHS for _SANDBOX_READ_REFUSED"
+        assert "_SANDBOX_READ_REFUSED" not in src
 
     def test_sandbox_read_refused_contains_required_entries_in_source(self) -> None:
         """The source must express refusal of .uploads/, .logs/, .chain-legacy/."""
         src = self._source()
-        # Either via RESERVED_PATHS (which contains them) or literal
-        # The key assertion: RESERVED_PATHS import must exist
-        assert (
-            "from app.agents.sandbox import" in src
-        ), "run_files.py must import from app.agents.sandbox (RESERVED_PATHS)"
-        assert "RESERVED_PATHS" in src, "run_files.py must reference RESERVED_PATHS"
+        assert "_SANDBOX_READ_REFUSED" not in src
+        assert "def read_sandbox_file" in src
 
 
 # ---------------------------------------------------------------------------

@@ -317,7 +317,7 @@ export function AgentPromptSection({
     if (!token) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setError(null);
     getAgentPrompt(token, agent.id)
       .then(d => { setPromptData(d); })
@@ -1139,7 +1139,7 @@ export function CapabilityPaletteSection({
     if (!jwt) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Not authenticated.");
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setLoading(false);
       return;
     }
@@ -1629,7 +1629,7 @@ export function useAgentCapabilities(token?: string | null) {
     if (!jwt) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Not authenticated.");
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setLoading(false);
       return;
     }

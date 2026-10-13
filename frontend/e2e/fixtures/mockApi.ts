@@ -838,6 +838,13 @@ export class MockApi {
       return json({ workflow_id: id, exec_runs });
     }
 
+    // --- run workspace listing (Workspace tab): GET /api/runs/{id}/sandbox ---
+    // Must be a well-formed SandboxListing; the catch-all `{}` has no `files`,
+    // which crashes SandboxTab (artifactGroups(undefined)) once it is selected.
+    const sandboxMatch = path.match(/\/api\/runs\/([^/]+)\/sandbox$/);
+    if (sandboxMatch && method === "GET") {
+      return json({ run_id: sandboxMatch[1], expired: false, truncated: false, files: [] });
+    }
     // --- runs (history) ---
     const runDetailMatch = path.match(/\/api\/runs\/([^/]+)(\/chain-context)?$/);
     if (runDetailMatch) {

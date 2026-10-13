@@ -340,6 +340,26 @@ class KernelServices:
     def static_check(self, html_path):
         return _static_check(html_path)
 
+    async def materialise_html(
+        self,
+        source_path,
+        source_bytes: bytes,
+        output_dir,
+        source_name: str,
+        output_stem: str,
+    ) -> None:
+        """Materialise an HTML document through the app-side browser adapter."""
+        from app.agents.tools.html_extract import materialise_html
+
+        await asyncio.to_thread(
+            materialise_html,
+            source_path,
+            source_bytes,
+            output_dir,
+            source_name,
+            output_stem,
+        )
+
     async def render_check(self, html_path):
         from app.agents.render_check import render_check
 
@@ -1586,6 +1606,10 @@ class KernelServices:
             )
 
         # ── (1) Resolve workflow_ref (R-12) ──────────────────────────────────────
+        target_manifest_json: dict[str, Any] | None = None
+        target_model_overrides: dict[str, Any] | None = None
+        target_attached_skills: list[dict[str, Any]] | None = None
+        target_attached_hooks: list[dict[str, Any]] | None = None
         if workflow_ref == "self":
             target_pipeline_type = self._pipeline_type
             target_agents: list | None = self._ordered_agents
@@ -1615,13 +1639,16 @@ class KernelServices:
             # Case 2 / Case 3 branching, moved verbatim to
             # ``app.api.run_commands._resolve_saved_trigger_target``. The kernel
             # must not import app.api (import-linter).
-            (
-                target_pipeline_type,
-                target_agents,
-                target_compiled,
-            ) = get_trigger_launch_port().resolve_saved_workflow(
+            target = get_trigger_launch_port().resolve_saved_workflow(
                 workflow_ref, ectx.owner_id
             )
+            target_pipeline_type = target.pipeline_type
+            target_agents = target.agents
+            target_compiled = target.compiled
+            target_manifest_json = target.manifest_json
+            target_model_overrides = target.model_overrides
+            target_attached_skills = target.attached_skills
+            target_attached_hooks = target.attached_hooks
 
         # ── (3)/(4) Mint via T27's core — parent_run_id + owner_id/workspace_id
         # unconditionally inherited from ectx (R-15) ─────────────────────────────
@@ -1640,13 +1667,14 @@ class KernelServices:
             compiled=target_compiled,
             od_context=None,
             validated_images=[],
-            model_overrides={},
+            model_overrides=target_model_overrides or {},
             user=SimpleNamespace(id=ectx.owner_id),
             source_workflow_run_id=None,
             selections=None,
             gate_agent_ids=None,
-            attached_skills=None,
-            attached_hooks=None,
+            attached_skills=target_attached_skills,
+            attached_hooks=target_attached_hooks,
+            manifest_json=target_manifest_json,
             parent_run_id_override=ectx.run_id,
             owner_id_override=ectx.owner_id,
             workspace_id_override=ectx.workspace_id,

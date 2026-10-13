@@ -305,6 +305,50 @@ server {
         proxy_send_timeout 5400s;
         proxy_cache        off;
     }
+    # Multipart document uploads. The server-wide 1m cap stays for every other
+    # route; only these three take files. Caps mirror the backend: run_files.py
+    # (40 MiB per request) and file_extract.py (10 MiB per file), plus headroom
+    # for multipart framing. Exact-match locations win over every prefix and
+    # regex location, so the 1m default cannot shadow them. No add_header here:
+    # it would replace the server-level security headers in these blocks.
+    location = /api/runs/uploads/stage {
+        client_max_body_size 45m;
+        client_body_timeout 120s;
+        limit_req zone=velocityai_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+        proxy_buffering    off;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 120s;
+    }
+    location = /api/files/extract-text {
+        client_max_body_size 12m;
+        client_body_timeout 120s;
+        limit_req zone=velocityai_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+        proxy_buffering    off;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 120s;
+    }
+    # Live-run upload (POST /api/runs/{id}/files). Disjoint from the SSE regex
+    # above: that one ends in /events/stream, this one in /files.
+    location ~ ^/api/runs/[^/]+/files/?$ {
+        client_max_body_size 45m;
+        client_body_timeout 120s;
+        limit_req zone=velocityai_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+        proxy_buffering    off;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 120s;
+    }
     location /api/ {
         limit_req zone=velocityai_api burst=20 nodelay;
         limit_req_status 429;

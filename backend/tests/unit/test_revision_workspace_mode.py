@@ -57,7 +57,10 @@ def _compile(deliverable: dict):
 
 def test_compiler_reads_workspace_default_and_rejects_unknown() -> None:
     base = {"strategy": "single_file", "name": "x.html"}
-    assert _compile({**base, "revision_context": "workspace"}).deliverable.revision_context == "workspace"
+    assert (
+        _compile({**base, "revision_context": "workspace"}).deliverable.revision_context
+        == "workspace"
+    )
     assert _compile(base).deliverable.revision_context == "artifact"
     with pytest.raises(CompilerError, match=r"'bogus'.*t-revctx"):
         _compile({**base, "revision_context": "bogus"})
@@ -86,17 +89,31 @@ def _seed_parent(factory, *, kind: str, content: str, status: str = "completed")
     try:
         s.add(
             WorkflowRun(
-                id=run_id, user_id=OWNER, owner_id=OWNER, workspace_id=WS,
-                title="t", type="prototype", status=status, input="t",
+                id=run_id,
+                user_id=OWNER,
+                owner_id=OWNER,
+                workspace_id=WS,
+                title="t",
+                type="prototype",
+                status=status,
+                input="t",
                 error="boom" if status == "degraded" else None,
             )
         )
         s.add(
             ArtifactRef(
-                id=str(uuid.uuid4()), run_id=run_id, owner_id=OWNER, workspace_id=WS,
-                kind=kind, producer_step="s", producer_agent="a", content=content,
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=OWNER,
+                workspace_id=WS,
+                kind=kind,
+                producer_step="s",
+                producer_agent="a",
+                content=content,
                 content_hash=hashlib.sha256(content.encode()).hexdigest(),
-                location=f"artifact_refs/{kind}", version=1, visibility="workspace",
+                location=f"artifact_refs/{kind}",
+                version=1,
+                visibility="workspace",
             )
         )
         s.commit()
@@ -149,9 +166,13 @@ def _stub_workspace_pipeline(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_workspace_mode_sends_only_instruction_and_pointer(db_factory, monkeypatch):
+async def test_workspace_mode_sends_only_instruction_and_pointer(
+    db_factory, monkeypatch
+):
     _stub_workspace_pipeline(monkeypatch)
-    parent = _seed_parent(db_factory, kind="widget_output", content="PARENT BODY", status="degraded")
+    parent = _seed_parent(
+        db_factory, kind="widget_output", content="PARENT BODY", status="degraded"
+    )
     kw = await _revise(monkeypatch, parent, "widget_output")
     assert kw["user_message"] == WORKSPACE_MESSAGE
     assert "=== ORIGINAL ARTIFACT" not in kw["user_message"]
@@ -163,7 +184,9 @@ async def test_workspace_mode_sends_only_instruction_and_pointer(db_factory, mon
 
 @pytest.mark.asyncio
 async def test_v1_revision_message_and_gates_unchanged(db_factory, monkeypatch):
-    parent = _seed_parent(db_factory, kind="prototype_output", content="<html>old</html>")
+    parent = _seed_parent(
+        db_factory, kind="prototype_output", content="<html>old</html>"
+    )
     kw = await _revise(monkeypatch, parent, "prototype_output")
     assert kw["user_message"] == (
         "=== ORIGINAL ARTIFACT (type: prototype_output) ===\n<html>old</html>\n"
@@ -187,7 +210,9 @@ async def test_opted_in_pipeline_gates_declared_human_steps(db_factory, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_v1_feature_revision_declares_human_gates_but_does_not_opt_in(db_factory, monkeypatch):
+async def test_v1_feature_revision_declares_human_gates_but_does_not_opt_in(
+    db_factory, monkeypatch
+):
     parent = _seed_parent(db_factory, kind="prototype_feature_output", content="x")
     kw = await _revise(monkeypatch, parent, "prototype_feature_output")
     assert kw["gate_agent_ids"] == []

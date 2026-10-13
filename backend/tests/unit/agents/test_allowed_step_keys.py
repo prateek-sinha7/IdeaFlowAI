@@ -58,6 +58,7 @@ _VALID_PARSER = "heading_tasks"
 _DISPOSITIONS: dict[str, tuple[object, object]] = {
     "agent": ("step-x", lambda s, c: s.agent_id == "step-x"),
     "strategy": (_VALID_STRATEGY, lambda s, c: s.strategy == _VALID_STRATEGY),
+    "reply": ("last_message", lambda s, c: s.reply == "last_message"),
     # A10 — the no-model mechanical step kind (plan.py:Step.mechanical).
     "mechanical": ("publish", lambda s, c: s.mechanical == "publish"),
     "gates": ([_VALID_GATE], lambda s, c: s.gates == [_VALID_GATE]),

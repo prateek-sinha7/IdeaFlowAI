@@ -51,6 +51,8 @@ import { WorkflowDetailView } from "@/components/savedworkflows/WorkflowDetailVi
 // `/workflows/{id}/run` — see the wizardMode early-return below for why.
 import { LaunchWizard } from "@/components/workflow/LaunchWizard";
 import type { LaunchMode } from "@/lib/launchDraft";
+import { LaunchErrorBanner } from "@/components/layout/LaunchErrorBanner";
+import { UPLOADS_MISSING_MESSAGE, isUploadsMissingError } from "@/lib/uploadErrors";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -817,6 +819,9 @@ export default function DashboardPage() {
   // (failed, cancelled, gate paused, gate resumed). An object, not an id, so a
   // run's second gate re-fires the DashboardLayout effect.
   const [backgroundRunTransition, setBackgroundRunTransition] = useState<DashboardLayoutProps["backgroundRunTransition"]>(null);
+  // A launch the server refused pre-mint with a user-actionable reason (today
+  // only `uploads_missing`). Cleared on the next launch attempt or on dismiss.
+  const [launchError, setLaunchError] = useState<string | null>(null);
   // BUG-012: the durable viewed-run-type — the REAL type of the run that produced
   // the on-screen content (fullRun.type), threaded to DashboardLayout so the
   // PreviewPanel render dispatch keys on the viewed run's type even for runs
@@ -4126,6 +4131,10 @@ export default function DashboardPage() {
   }
 
   return (
+    <>
+    {launchError && (
+      <LaunchErrorBanner message={launchError} onDismiss={() => setLaunchError(null)} />
+    )}
     <DashboardLayout
       activeChatId={activeChatId}
       messages={messages}
@@ -4209,6 +4218,7 @@ export default function DashboardPage() {
       initialSettingsSection={initialSettingsSectionFor(parsedView)}
       pinnedVersion={pinnedVersionFor(parsedView)}
       onStartPipeline={(type, message, agentIds, attachedHooks, extraParams) => {
+        setLaunchError(null);
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
         // (revision or fresh — it is the run's input either way), reset per run.
@@ -4379,6 +4389,9 @@ export default function DashboardPage() {
           // that assumed the launch had already started.
           launchPendingRef.current = false;
           resetPipeline();
+          // The server refused a launch whose documents never reached it
+          // (pre-mint 422 uploads_missing): say so instead of failing silently.
+          if (isUploadsMissingError(err)) setLaunchError(UPLOADS_MISSING_MESSAGE);
           if (process.env.NODE_ENV !== "production") {
             console.error("Pipeline launch failed:", err);
           }
@@ -4463,5 +4476,6 @@ export default function DashboardPage() {
       isAdmin={user?.is_admin ?? false}
       waves={runStore.viewed.waveGroups}
     />
+    </>
   );
 }

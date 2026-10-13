@@ -55,6 +55,12 @@ from pydantic import BaseModel
 from agents.artifact_store.store import get_artifact_store
 from agents.workflows.plan import CompiledWorkflow
 from agents.capabilities.model_pricing import estimate_cost_usd
+from agents.capabilities.token_usage import (
+    USAGE_VERSION,
+    normalize_usage,
+    usage_cost_full_usd,
+    usage_cost_usd,
+)
 from app.agents.chat_runner import ChatRunner
 from app.agents.modes import get_mode_prompt
 from app.agents.sandbox import FamilyLockTimeout, family_lock
@@ -99,6 +105,11 @@ from app.api.run_engine import (
 # API-001 (task.md R-05): the single canonical terminal-status set (engine.py —
 # see its own docstring for why it now exists beside NON_TERMINAL_RUN_STATUSES).
 from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
+from agents.execution_engine.trigger_port import (
+    ResolvedTriggeredWorkflow,
+    TriggerLaunchPort,
+    register_trigger_launch_port,
+)
 
 logger = logging.getLogger("app.api.run_commands")
 
@@ -1626,12 +1637,14 @@ async def _dispose_concierge_proposal(
         # prototype_feature_revision) already contain "_revision" embedded in their
         # middle — removesuffix("_revision") would give "prototype_large", not
         # "prototype". Remap these explicitly before the generic suffix strip.
-        if wr_type in ("prototype_large_revision", "prototype_feature_revision"):
-            base_type = "prototype"
-        elif wr_type.endswith("_revision"):
-            base_type = wr_type.removesuffix("_revision")
-        else:
-            base_type = wr_type
+        from agents.registry import REVISION_BASE_MAP
+
+        base_type = REVISION_BASE_MAP.get(
+            wr_type,
+            wr_type.removesuffix("_revision")
+            if wr_type.endswith("_revision")
+            else wr_type,
+        )
         # Two OD remap tables used to sit here (_OD_FALLBACK_MAP, _OD_TARGET_REMAP),
         # rewriting od_prototype/od_ppt targets onto their real revision pipelines.
         # They were a workaround for an incomplete alias table — the alias covered
@@ -1659,6 +1672,8 @@ async def _dispose_concierge_proposal(
         # The full analysis (## Solution Plan) is now produced by the engine as
         # step 0 of the manifest (produces_solution_plan: true) — no app-layer
         # run_analyzer call needed here (revision-pipeline-refactor).
+        if base_type == "prototype_v2" and target == "prototype_output":
+            target = "prototype_v2_output"
         if target == "prototype_output":
             _tier = await _classify_revision_tier(
                 instruction,
@@ -1668,6 +1683,20 @@ async def _dispose_concierge_proposal(
             target = _REVISION_TIER_TARGET_MAP.get(_tier, "prototype_output")
             logger.info(
                 "▶ prototype revision tier selected (concierge path): %r → pipeline=%s (run=%s)",
+                _tier,
+                f"{target.removesuffix('_output')}_revision",
+                run_id,
+            )
+        elif target == "prototype_v2_output":
+            _tier = await _classify_revision_tier(
+                instruction,
+                run_id,
+                model_id=getattr(current_user, "preferred_model", None),
+            )
+            target = _V2_REVISION_TIER_TARGET_MAP.get(_tier, "prototype_v2_output")
+            logger.info(
+                "▶ prototype v2 revision tier selected (concierge path): %r → "
+                "pipeline=%s (run=%s)",
                 _tier,
                 f"{target.removesuffix('_output')}_revision",
                 run_id,
@@ -2521,6 +2550,77 @@ def _reject(
     )
 
 
+def _manifest_seeds_uploads(manifest_json: dict | None) -> bool:
+    """True when the launch manifest's ``seed_files.from_run`` copies anything
+    under ``.uploads/`` into the new run (see ``_seed_from_prior_run``)."""
+    from app.agents.sandbox import _UPLOADS_PREFIX
+
+    seed = (manifest_json or {}).get("seed_files")
+    names = seed.get("from_run") if isinstance(seed, dict) else None
+    if not isinstance(names, list):
+        return False
+    return any(
+        str(name).lstrip("/").removeprefix("./").startswith(_UPLOADS_PREFIX)
+        for name in names
+    )
+
+
+def _guard_uploads_present(
+    *,
+    content: str,
+    staged_upload_ids: list[str] | None,
+    admitted_source_run_id: str | None,
+    manifest_json: dict | None,
+    plan: object,
+) -> None:
+    """Refuse a fresh launch whose documents never reached the server.
+
+    The brief carries the wizard's inlined ``=== Attached: … ===`` blocks, no
+    ``staged_upload_ids`` came with it, and the compiled plan has a step granted
+    the ``file_extract`` tool set — i.e. a workflow that reads its documents
+    from ``.uploads/``. A fresh run's sandbox is new, so ``.uploads/manifest.json``
+    cannot exist and the run would fail only after its first agent spent minutes
+    looking for files. Deny BEFORE the mint (no WorkflowRun row, no sandbox),
+    like every other ingress denial in ``launch_run``.
+
+    A chained launch whose source passed chain admission
+    (``admitted_source_run_id``) may reuse a sandbox whose ``.uploads/`` already
+    exists, and a manifest whose ``seed_files`` copies ``.uploads/`` content
+    seeds it after the mint; both are logged and allowed. A request source id
+    that admission dropped gets a fresh sandbox, so it is guarded like any
+    fresh launch.
+
+    Keyed on the declared tool set only, never a workflow name (SC-001). Logs
+    counts only — never file names or document content.
+    """
+    from agents.execution_engine.user_prompt import parse_inline_attachments
+    from app.api.run_files import declares_file_extract
+
+    attachment_count = len(parse_inline_attachments(content))
+    if attachment_count == 0 or staged_upload_ids or not declares_file_extract(plan):
+        return
+    if admitted_source_run_id or _manifest_seeds_uploads(manifest_json):
+        logger.warning(
+            "launch carries %d inline attachment(s) but no staged uploads "
+            "(chained or seeded launch, not rejected)",
+            attachment_count,
+        )
+        return
+    logger.warning(
+        "launch rejected (uploads_missing): %d inline attachment(s), no staged "
+        "uploads, workflow reads .uploads/",
+        attachment_count,
+    )
+    raise _reject(
+        "uploads_missing",
+        "The attached documents were not uploaded, so this workflow cannot read "
+        "them. Re-attach the files and launch again.",
+        http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        recoverable=True,
+        attachment_count=attachment_count,
+    )
+
+
 def _require_tier_entitlement(
     current_user: User, principal: Principal, pipeline_type: str
 ) -> None:
@@ -3202,6 +3302,86 @@ async def _launch_run_core(
     return response_body
 
 
+# Workflow-trigger adapter: app-layer resolution and minting remain outside the kernel.
+def _resolve_saved_trigger_target(
+    workflow_ref: str, owner_id: str
+) -> ResolvedTriggeredWorkflow:
+    """Resolve complete owner-scoped saved-workflow launch state for a trigger."""
+    from app.api.user_workflows import _owned
+
+    db = _get_db()
+    try:
+        row = _owned(db, workflow_ref, SimpleNamespace(id=owner_id))
+        manifest_json = row.manifest_json
+        base_pipeline_type = row.base_pipeline_type
+        row_agents_json = row.agents
+        row_id = row.id
+        attached_hooks = row.attached_hooks
+        attached_skills = row.attached_skills
+        model_overrides = row.model_overrides
+    finally:
+        db.close()
+
+    if isinstance(manifest_json, dict) and "steps" in manifest_json:
+        from agents.execution_engine.engine import (
+            _CAPABILITY_REGISTRY,
+            _WORKFLOW_COMPILER,
+        )
+        from agents.workflows.manifest import build_manifest_from_dict
+
+        raw_manifest = dict(manifest_json)
+        raw_manifest.setdefault("id", f"user-workflow-{row_id}")
+        raw_manifest.setdefault(
+            "deliverable", {"strategy": "streamed_text", "name": "output.md"}
+        )
+        raw_manifest.setdefault("planner", "skip")
+        raw_manifest.setdefault("clarify", {"mode": "skip", "defaults": []})
+        raw_manifest.setdefault("capabilities", {})
+        parsed_manifest = build_manifest_from_dict(raw_manifest, f"workflow:{row_id}")
+        compiled = _WORKFLOW_COMPILER.compile(
+            parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+        )
+        persisted_manifest = dict(raw_manifest)
+        persisted_manifest["_trust"] = "db"
+        return ResolvedTriggeredWorkflow(
+            pipeline_type=base_pipeline_type,
+            compiled=compiled,
+            manifest_json=persisted_manifest,
+            model_overrides=model_overrides,
+            attached_skills=attached_skills,
+            attached_hooks=attached_hooks,
+        )
+
+    from agents.loader import load_agent_spec
+
+    agent_ids = json.loads(row_agents_json) if row_agents_json else []
+    agents = [load_agent_spec(agent_id) for agent_id in agent_ids]
+    if agents:
+        from app.api.composition_order import presort_specs
+
+        agents = presort_specs(agents)
+    return ResolvedTriggeredWorkflow(
+        pipeline_type=base_pipeline_type,
+        agents=agents,
+        model_overrides=model_overrides,
+        attached_skills=attached_skills,
+        attached_hooks=attached_hooks,
+    )
+
+
+async def _launch_triggered_run(**launch_kwargs: Any) -> dict:
+    """Resolve the launch core at call time so tests can patch the seam."""
+    return await _launch_run_core(**launch_kwargs)
+
+
+register_trigger_launch_port(
+    TriggerLaunchPort(
+        resolve_saved_workflow=_resolve_saved_trigger_target,
+        launch_run=_launch_triggered_run,
+    )
+)
+
+
 @router.post("")
 async def launch_run(
     body: LaunchCommand,
@@ -3781,6 +3961,26 @@ async def launch_run(
         _chain_admission.source_id
     )  # None for declaration_gate
 
+    # ── Uploads-present gate (dev 413 RCA) — last ingress denial before the mint.
+    # The plan is the one the engine will run: the launch-compiled override when
+    # there is one, else the file manifest compile_for_run(pipeline_type) loads.
+    _uploads_plan = compiled
+    if _uploads_plan is None:
+        try:
+            _uploads_plan = _compile_for_run(pipeline_type)
+        except Exception:  # noqa: BLE001 — no plan, no file_extract step to protect
+            _uploads_plan = None
+    _guard_uploads_present(
+        content=content,
+        staged_upload_ids=body.staged_upload_ids,
+        # The admitted id, not the raw request field: only an admitted source
+        # makes the run reuse the chain-root sandbox (_find_chain_root walks
+        # source_run_id, which _launch_run_core writes from this same value).
+        admitted_source_run_id=_admitted_source_id,
+        manifest_json=persisted_manifest,
+        plan=_uploads_plan,
+    )
+
     # ── Mint the WorkflowRun + spawn the driver (mirror websocket.py:1912-1966) ─
     # ═══ JOIN POINT ═════════════════════════════════════════════════════════
     # All 3 LaunchSource branches reconverge HERE — delegates to the shared core
@@ -3867,19 +4067,17 @@ def _apply_terminal_output_columns(
     Workflow-agnostic (SC-001 — no workflow/agent name).
     """
     agent_outputs_collector: list[dict] = []
-    current_agent: dict = {}
+    open_agents: dict[tuple, dict] = {}
     final_output = ""
     deliverable_mimetype: str | None = None
     deliverable_filename: str | None = None
-    # ISS-418: pipeline_complete-level token totals (include aux spend — see below).
-    _pc_total_input: int | None = None
-    _pc_total_output: int | None = None
-    _pc_total_tokens: int | None = None
-    for utype, data in events:
-        if not isinstance(data, dict):
-            data = {}
-        if utype == "agent_start":
-            current_agent = {
+    run_totals: dict | None = None
+
+    def _row(data: dict) -> dict:
+        key = (data.get("agent_id"), data.get("task_id") or "")
+        row = open_agents.get(key)
+        if row is None:
+            row = open_agents[key] = {
                 "agent_id": data.get("agent_id"),
                 "name": data.get("name"),
                 "role": data.get("role"),
@@ -3891,15 +4089,33 @@ def _apply_terminal_output_columns(
                 "tool_calls": [],
                 "thinking_text": "",
             }
+            if data.get("task_id"):
+                row["task_id"] = data.get("task_id")
+                row["task_author_id"] = data.get("task_author_id")
+        return row
+
+    def _close(data: dict) -> dict:
+        row = _row(data)
+        open_agents.pop((data.get("agent_id"), data.get("task_id") or ""), None)
+        return row
+
+    for utype, data in events:
+        if not isinstance(data, dict):
+            data = {}
+        if utype == "agent_start":
+            _close(data)
+            _row(data)
         elif utype == "agent_input":
-            current_agent["input_prompt"] = data.get("context_message")
-            current_agent["context_sources"] = data.get("context_sources", [])
+            row = _row(data)
+            row["input_prompt"] = data.get("context_message")
+            row["context_sources"] = data.get("context_sources", [])
         elif utype == "agent_thinking":
-            current_agent["thinking_text"] = (
-                current_agent.get("thinking_text") or ""
-            ) + data.get("thinking", "")
+            row = _row(data)
+            row["thinking_text"] = (row.get("thinking_text") or "") + data.get(
+                "thinking", ""
+            )
         elif utype == "tool_call":
-            current_agent.setdefault("tool_calls", []).append(
+            _row(data).setdefault("tool_calls", []).append(
                 {
                     "tool": data.get("tool"),
                     "args": data.get("args", {}),
@@ -3908,57 +4124,42 @@ def _apply_terminal_output_columns(
                 }
             )
         elif utype == "tool_result":
-            # FIFO, not LIFO. The tool_call event carries no call id, so the only
-            # thing to pair on is the tool NAME — and results come back in call
-            # order. Walking newest-first handed result #1 to the LAST outstanding
-            # call and shifted every result after it by one, so any step with two
-            # same-named calls (a composed agent reading three artifacts) recorded
-            # a wrong audit trail. Matching oldest-unresolved-first is correct for
-            # in-order results and no worse than LIFO for out-of-order ones.
-            for tc in current_agent.get("tool_calls", []):
-                if tc.get("tool") == data.get("tool") and tc.get("result") is None:
-                    tc["result"] = data.get("result")
+            for tool_call in _row(data).get("tool_calls", []):
+                if (
+                    tool_call.get("tool") == data.get("tool")
+                    and tool_call.get("result") is None
+                ):
+                    tool_call["result"] = data.get("result")
                     break
         elif utype == "agent_chunk":
-            current_agent["output"] = current_agent.get("output", "") + data.get(
-                "chunk", ""
-            )
+            row = _row(data)
+            row["output"] = row.get("output", "") + data.get("chunk", "")
         elif utype == "agent_complete":
-            current_agent["duration"] = data.get("duration")
-            current_agent["input_tokens"] = data.get("input_tokens", 0)
-            current_agent["output_tokens"] = data.get("output_tokens", 0)
-            current_agent["total_tokens"] = data.get("total_tokens", 0)
-            current_agent["cache_read_tokens"] = data.get("cache_read_tokens", 0)
-            current_agent["cache_write_tokens"] = data.get("cache_write_tokens", 0)
-            # ISS-165: the engine already emits the resolved per-agent model on this
-            # event (engine.py agent_complete payload) — carry it into agent_outputs
-            # so it survives past the live stream instead of only being visible
-            # while the SSE connection is open.
-            current_agent["model_id"] = data.get("model_id")
-            if current_agent.get("agent_id"):
-                agent_outputs_collector.append(current_agent)
-            current_agent = {}
+            row = _close(data)
+            row["duration"] = data.get("duration")
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+            ):
+                row[key] = data.get(key, 0)
+            if data.get("usage_version") is not None:
+                row["usage_version"] = data.get("usage_version")
+            row["model_id"] = data.get("model_id")
+            if row.get("agent_id"):
+                agent_outputs_collector.append(row)
         elif utype == "agent_error":
-            current_agent["error"] = data.get("error")
-            if current_agent.get("agent_id"):
-                agent_outputs_collector.append(current_agent)
-            current_agent = {}
+            row = _close(data)
+            row["error"] = data.get("error")
+            if row.get("agent_id"):
+                agent_outputs_collector.append(row)
         elif utype == "pipeline_complete":
             final_output = data.get("final_output", "")
             deliverable_mimetype = data.get("deliverable_mimetype")
             deliverable_filename = data.get("deliverable_filename")
-            # ISS-418: the engine folds aux-token spend (SmartPlanner, clarify
-            # one-shot, validation fix-loop sub-agent) into the pipeline_complete
-            # event's own total_input_tokens / total_output_tokens fields via
-            # aux_token_usage (engine.py:3712-3757). Those tokens NEVER appear in
-            # any agent_complete event, so re-summing agent_outputs_collector below
-            # structurally undercounts every run that used those code paths.
-            # Capture the event-level totals here; they will override the
-            # agent_outputs_collector re-sum when they are higher (which they
-            # always are when aux spend exists — never lower by construction).
-            _pc_total_input = data.get("total_input_tokens")
-            _pc_total_output = data.get("total_output_tokens")
-            _pc_total_tokens = data.get("total_tokens")
+            run_totals = data
     if final_output:
         wr.output = final_output
     if deliverable_mimetype is not None:
@@ -3967,57 +4168,57 @@ def _apply_terminal_output_columns(
         wr.deliverable_filename = deliverable_filename
     if agent_outputs_collector:
         wr.agent_outputs = json.dumps(agent_outputs_collector)
-    # CWF-002 (fix b): record the run's EFFECTIVE model BEFORE the cost computation so the
-    # estimate_cost_usd line reads the real model instead of the BEDROCK default fallback.
     wr.model_id = model_id
-    total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
-    total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
-    total_cache_read = sum(
-        a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector
-    )
-    total_cache_write = sum(
-        a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector
-    )
-    # ISS-418: prefer the pipeline_complete event's own totals when they are larger
-    # (aux tokens are already folded in there by the engine). The event-level totals
-    # are absent on durable tails from before the engine emitted them — fall back to
-    # the agent_outputs re-sum in that case (legacy behaviour, safe degrade).
-    try:
-        _pc_in = int(_pc_total_input or 0)
-        _pc_out = int(_pc_total_output or 0)
-        if _pc_in + _pc_out > total_input + total_output:
-            total_input = _pc_in
-            total_output = _pc_out
-    except (TypeError, ValueError):
-        pass  # bad/missing event fields — keep agent_outputs re-sum
-    if total_input + total_output > 0:
+    if run_totals is not None and run_totals.get("total_input_tokens") is not None:
+        usage = normalize_usage(run_totals, prefix="total_")
+        run_model = wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID
+        cost = run_totals.get("estimated_cost_usd")
+        if cost is None:
+            cost = usage_cost_usd(
+                run_model,
+                usage,
+                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            )
+        cost_full = run_totals.get("estimated_cost_full_usd")
+        if cost_full is None:
+            cost_full = usage_cost_full_usd(run_model, usage)
+    else:
+        fallback_model = wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID
+        rows = [
+            (row.get("model_id") or fallback_model, normalize_usage(row))
+            for row in agent_outputs_collector
+        ]
+        usage = {
+            key: sum(row_usage[key] for _, row_usage in rows)
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+            )
+        }
+        cost = sum(
+            usage_cost_usd(
+                row_model,
+                row_usage,
+                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            )
+            for row_model, row_usage in rows
+        )
+        cost_full = sum(
+            usage_cost_full_usd(row_model, row_usage) for row_model, row_usage in rows
+        )
+    if usage["input_tokens"] + usage["output_tokens"] > 0:
         wr.token_usage = json.dumps(
             {
-                "total_input_tokens": total_input,
-                "total_output_tokens": total_output,
-                "total_tokens": total_input + total_output,
-                "total_cache_read_tokens": total_cache_read,
-                "total_cache_write_tokens": total_cache_write,
-                "estimated_cost_usd": estimate_cost_usd(
-                    wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
-                    input_tokens=max(
-                        0, total_input - total_cache_read - total_cache_write
-                    ),
-                    output_tokens=total_output,
-                    cache_read_tokens=total_cache_read,
-                    cache_write_tokens=total_cache_write,
-                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
-                ),
-                # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base, so
-                # Analytics can report the SIGNED effect of prompt caching. Rows written
-                # before this key existed simply lack it — every reader is a tolerant
-                # json.loads and the Analytics fold treats an absent key as a ZERO delta
-                # (never a fabricated $0 baseline), so no migration is needed.
-                "estimated_cost_full_usd": estimate_cost_usd(
-                    wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
-                    input_tokens=total_input,
-                    output_tokens=total_output,
-                ),
+                "total_input_tokens": usage["input_tokens"],
+                "total_output_tokens": usage["output_tokens"],
+                "total_tokens": usage["input_tokens"] + usage["output_tokens"],
+                "total_cache_read_tokens": usage["cache_read_tokens"],
+                "total_cache_write_tokens": usage["cache_write_tokens"],
+                "estimated_cost_usd": round(float(cost or 0), 6),
+                "estimated_cost_full_usd": round(float(cost_full or 0), 6),
+                "usage_version": USAGE_VERSION,
             }
         )
     if not wr.completed_at:
@@ -4561,6 +4762,16 @@ def _has_active_chain_revision(db, parent_run_id: str, user_id: str) -> bool:
         return False
 
 
+def _compiled_step_count(pipeline_type: str) -> int:
+    """Return the compiled plan's step count, or zero when unavailable."""
+    from agents.execution_engine.engine import compile_for_run
+
+    try:
+        return len(compile_for_run(pipeline_type).steps)
+    except Exception:
+        return 0
+
+
 def _mint_revision_row(
     db,
     *,
@@ -4612,6 +4823,7 @@ def _mint_revision_row(
     # so any cycle / cross-owner / missing-ancestor failure is surfaced here,
     # before any lock is taken.  The root id is the lock key (Requirement 10 AC 1).
     revision_root_id = _revision_chain_root_id(db, parent_run_id, user.id)
+    plan_step_count = _compiled_step_count(revision_pipeline_type)
 
     # ── Acquire the cross-process family lock (Requirement 10 AC 1-2) ────────
     # The active-run check, existence gate, entitlement gate, and the DB row
@@ -4651,7 +4863,7 @@ def _mint_revision_row(
             # "this pipeline exists" and moves the engine's check earlier, before the row
             # is minted.
             _rev_agents = get_pipeline_agents(revision_pipeline_type)
-            if not _rev_agents:
+            if not _rev_agents and not plan_step_count:
                 raise _reject(
                     "revision_unsupported",
                     f"Revisions aren't available for this workflow yet — {revision_pipeline_type!r} "
@@ -4704,7 +4916,8 @@ def _mint_revision_row(
                 type=revision_pipeline_type,
                 status="revising",
                 input=instruction,
-                agent_count=(len(_rev_agents) or 1) + extra_agent_count,
+                agent_count=(max(len(_rev_agents), plan_step_count) or 1)
+                + extra_agent_count,
             )
             db.add(wr)
             db.commit()
@@ -5415,6 +5628,13 @@ _REVISION_TIER_TARGET_MAP: dict[str, str] = {
 }
 
 
+_V2_REVISION_TIER_TARGET_MAP: dict[str, str] = {
+    "small": "prototype_v2_output",
+    "large": "prototype_v2_feature_output",
+    "feature": "prototype_v2_feature_output",
+}
+
+
 async def _classify_revision_tier(
     instruction: str,
     parent_run_id: str,
@@ -5600,6 +5820,19 @@ async def create_revision(
             f"{effective_target.removesuffix('_output')}_revision",
             run_id,
         )
+    elif body.target_artifact_type == "prototype_v2_output":
+        tier = await _classify_revision_tier(
+            body.instruction,
+            run_id,
+            model_id=getattr(current_user, "preferred_model", None),
+        )
+        effective_target = _V2_REVISION_TIER_TARGET_MAP.get(tier, "prototype_v2_output")
+        logger.info(
+            "▶ prototype v2 revision tier selected: %r → pipeline=%s (run=%s)",
+            tier,
+            f"{effective_target.removesuffix('_output')}_revision",
+            run_id,
+        )
     # ─────────────────────────────────────────────────────────────────────────
 
     # Allocate the child run ID and queue now that the tier is known.
@@ -5682,6 +5915,7 @@ async def _drive_revision_to_queue(
     pipeline_failed_seen = False
     degraded_seen = False
     pipeline_cancelled_seen = False
+    terminal_error: str | None = None
     # ISS-152: this driver is a fourth caller of the shared
     # _apply_terminal_output_columns mapping (BUG-R03, INV-12) — mirrors the launch
     # driver's raw_events/monotonic_start (this file, _drive_launch_to_queue) so a
@@ -5692,9 +5926,20 @@ async def _drive_revision_to_queue(
 
     async def _queue_send(event: dict) -> None:
         nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
-        nonlocal pipeline_cancelled_seen
+        nonlocal pipeline_cancelled_seen, terminal_error
         etype = event.get("type")
-        raw_events.append((etype or "", event.get("data") or {}))
+        event_data = event.get("data") or {}
+        raw_events.append((etype or "", event_data))
+        if (
+            etype in {"agent_error", "pipeline_failed", "error"}
+            and terminal_error is None
+        ):
+            terminal_error = str(
+                event_data.get("error")
+                or event_data.get("message")
+                or event_data.get("code")
+                or "Revision failed"
+            )[:2000]
         if etype == "pipeline_cancelled":
             pipeline_cancelled_seen = True
         if etype == "pipeline_complete":
@@ -5713,6 +5958,8 @@ async def _drive_revision_to_queue(
             )
             if swr:
                 swr.status = new_status
+                if new_status in {"failed", "degraded"}:
+                    swr.error = terminal_error
                 swr.completed_at = datetime.now(timezone.utc)
                 # ISS-152: the SOLE event→column mapping (_apply_terminal_output_columns),
                 # reused byte-for-byte from the launch driver — the driver's OWN monotonic
@@ -5758,6 +6005,7 @@ async def _drive_revision_to_queue(
             else "failed"
         )
     except ValueError as exc:
+        terminal_error = str(exc)[:2000]
         await event_queue.put(
             {
                 "type": "error",
@@ -5785,11 +6033,12 @@ async def _drive_revision_to_queue(
         _persist_terminal_status("cancelled")
     except Exception as exc:
         logger.error("REST revision driver failed: %s", exc, exc_info=True)
+        terminal_error = f"Revision failed: {exc}"[:2000]
         await event_queue.put(
             {
                 "type": "error",
                 "data": {
-                    "error": f"Revision failed: {exc}",
+                    "error": terminal_error,
                     "code": "revision_error",
                     "recoverable": True,
                 },

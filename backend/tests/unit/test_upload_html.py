@@ -80,7 +80,11 @@ def _seed_user(env) -> _FakeUser:
 
     db = env["Session"]()
     try:
-        u = User(id=str(uuid.uuid4()), email=f"u-{uuid.uuid4().hex[:8]}@example.com", cognito_sub=f"sub-{uuid.uuid4().hex[:8]}")
+        u = User(
+            id=str(uuid.uuid4()),
+            email=f"u-{uuid.uuid4().hex[:8]}@example.com",
+            cognito_sub=f"sub-{uuid.uuid4().hex[:8]}",
+        )
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -117,7 +121,9 @@ def _seed_run(env, *, user_id, run_id=None) -> str:
         db.close()
 
 
-@pytest.mark.allow_io("tests require in-memory SQLite database and file I/O for upload endpoint")
+@pytest.mark.allow_io(
+    "tests require in-memory SQLite database and file I/O for upload endpoint"
+)
 class TestHtmlHtmUploadToRun:
     """Test POST a .html and .htm to the run upload endpoint."""
 
@@ -134,7 +140,9 @@ class TestHtmlHtmUploadToRun:
             files={"files": ("test.html", html_content, "text/html")},
         )
 
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert (
+            resp.status_code == 200
+        ), f"Expected 200, got {resp.status_code}: {resp.text}"
         data = resp.json()
         assert data["run_id"] == run_id
         assert len(data["files"]) == 1
@@ -168,7 +176,9 @@ class TestHtmlHtmUploadToRun:
             files={"files": ("test.htm", htm_content, "text/html")},
         )
 
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert (
+            resp.status_code == 200
+        ), f"Expected 200, got {resp.status_code}: {resp.text}"
         data = resp.json()
         assert data["run_id"] == run_id
         assert len(data["files"]) == 1
@@ -220,7 +230,9 @@ class TestHtmlHtmUploadToRun:
             assert entry["has_text"] is False
 
 
-@pytest.mark.allow_io("tests require in-memory SQLite database for extract-text endpoint")
+@pytest.mark.allow_io(
+    "tests require in-memory SQLite database for extract-text endpoint"
+)
 class TestHtmlExtractTextEndpoint:
     """Test POST a .html to /api/files/extract-text → 200 with text == ''."""
 
@@ -236,7 +248,9 @@ class TestHtmlExtractTextEndpoint:
             files={"file": ("test.html", html_content, "text/html")},
         )
 
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert (
+            resp.status_code == 200
+        ), f"Expected 200, got {resp.status_code}: {resp.text}"
         data = resp.json()
         assert data["filename"] == "test.html"
         assert data["text"] == ""
@@ -254,14 +268,18 @@ class TestHtmlExtractTextEndpoint:
             files={"file": ("test.htm", htm_content, "text/html")},
         )
 
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert (
+            resp.status_code == 200
+        ), f"Expected 200, got {resp.status_code}: {resp.text}"
         data = resp.json()
         assert data["filename"] == "test.htm"
         assert data["text"] == ""
         assert data["truncated"] is False
 
 
-@pytest.mark.allow_io("tests require in-memory SQLite database for unsupported type validation")
+@pytest.mark.allow_io(
+    "tests require in-memory SQLite database for unsupported type validation"
+)
 class TestUnsupportedFileTypeReturns415:
     """Test that .exe and other unsupported types return 415."""
 
@@ -278,7 +296,9 @@ class TestUnsupportedFileTypeReturns415:
             files={"files": ("test.exe", exe_content, "application/octet-stream")},
         )
 
-        assert resp.status_code == 415, f"Expected 415, got {resp.status_code}: {resp.text}"
+        assert (
+            resp.status_code == 415
+        ), f"Expected 415, got {resp.status_code}: {resp.text}"
         assert "Unsupported file type" in resp.json()["detail"]
 
     def test_exe_to_extract_text_returns_415(self, env):
@@ -293,7 +313,9 @@ class TestUnsupportedFileTypeReturns415:
             files={"file": ("test.exe", exe_content, "application/octet-stream")},
         )
 
-        assert resp.status_code == 415, f"Expected 415, got {resp.status_code}: {resp.text}"
+        assert (
+            resp.status_code == 415
+        ), f"Expected 415, got {resp.status_code}: {resp.text}"
         assert "Unsupported file type" in resp.json()["detail"]
 
 

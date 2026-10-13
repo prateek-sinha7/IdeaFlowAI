@@ -91,11 +91,13 @@ def test_a_page_run_seeds_the_files_its_template_names():
     SKILL.md in .context/design/template/, so the agent found none of them."""
     _, od = _resolve("prototype_v2", template_id="underwriting-workbench")
     files = od["template_files"]
-    assert {"example.html", "assets/template.html", "references/checklist.md"} <= set(files)
+    assert {"example.html", "assets/template.html", "references/checklist.md"} <= set(
+        files
+    )
     assert "SKILL.md" not in files and not any(p.startswith("scripts/") for p in files)
     assert "<style" in files["example.html"]
 
 
 def test_the_design_systems_css_tokens_travel_with_it():
-    _, od = _resolve("prototype_v2")      # linear-app ships tokens.css + components.html
+    _, od = _resolve("prototype_v2")  # linear-app ships tokens.css + components.html
     assert set(od["ds_files"]) == {"tokens.css", "components.html"}

@@ -18,8 +18,13 @@ def test_a_real_shaped_access_key_still_blocks():
 
 
 def test_a_real_key_next_to_the_example_still_blocks():
-    assert scan_for_secret("AKIAIOSFODNN7EXAMPLE AKIAQ3EGRL7ZXBV2WK4P") == "AKIAQ3EGRL7ZXBV2"
+    assert (
+        scan_for_secret("AKIAIOSFODNN7EXAMPLE AKIAQ3EGRL7ZXBV2WK4P")
+        == "AKIAQ3EGRL7ZXBV2"
+    )
 
 
 def test_a_real_secret_assignment_still_blocks():
-    assert scan_for_secret('secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYREALKEY1"') is not None
+    assert (
+        scan_for_secret('secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYREALKEY1"') is not None
+    )

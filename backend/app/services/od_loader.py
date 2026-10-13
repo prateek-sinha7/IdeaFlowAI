@@ -296,7 +296,9 @@ def get_template_references(template_id: str) -> dict[str, str]:
 # separately; scripts/, docs/, LICENSE, READMEs and binaries stay out.
 _TEMPLATE_ROOT_FILES = ("example.html", "template.json")
 _TEMPLATE_FILE_DIRS = ("assets", "references", "templates", "palettes", "examples")
-_TEMPLATE_TEXT_EXTS = frozenset({".html", ".htm", ".css", ".js", ".md", ".json", ".svg", ".txt"})
+_TEMPLATE_TEXT_EXTS = frozenset(
+    {".html", ".htm", ".css", ".js", ".md", ".json", ".svg", ".txt"}
+)
 
 
 def get_template_files(template_id: str) -> dict[str, str]:
@@ -306,7 +308,11 @@ def get_template_files(template_id: str) -> dict[str, str]:
     The template's SKILL.md tells the agent to open these by those paths, so they are
     seeded to ``.context/design/template/<path>``. Empty for an unknown template."""
     root = _TEMPLATES_DIR / (template_id or "")
-    if not template_id or not root.is_dir() or root.resolve().parent != _TEMPLATES_DIR.resolve():
+    if (
+        not template_id
+        or not root.is_dir()
+        or root.resolve().parent != _TEMPLATES_DIR.resolve()
+    ):
         return {}
     paths = [root / name for name in _TEMPLATE_ROOT_FILES]
     for folder in _TEMPLATE_FILE_DIRS:
@@ -314,8 +320,11 @@ def get_template_files(template_id: str) -> dict[str, str]:
             paths.extend(sorted((root / folder).rglob("*")))
     out: dict[str, str] = {}
     for path in paths:
-        if (path.is_file() and path.suffix.lower() in _TEMPLATE_TEXT_EXTS
-                and path.stem.lower() != "readme"):
+        if (
+            path.is_file()
+            and path.suffix.lower() in _TEMPLATE_TEXT_EXTS
+            and path.stem.lower() != "readme"
+        ):
             body = _read_file(path)
             if body is not None:
                 out[path.relative_to(root).as_posix()] = body

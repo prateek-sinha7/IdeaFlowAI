@@ -221,6 +221,7 @@ class StepRaised(Exception):
         self.step_id = step_id
         self.message = message
 
+
 _AGENT_ERROR_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (
         ("too large", "too long", "exceeds", "maximum context", "payload"),
@@ -1433,9 +1434,16 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
     # A binary deliverable's declared text form (``text_name``: backlog.md beside
     # Backlog.pdf) travels with it, so a run chained from it gets text, not only bytes.
     # Only a plain basename on disk is staged — anything else is ignored.
-    _text_name: str = (getattr(_deliverable, "text_name", None) or "") if _deliverable else ""
+    _text_name: str = (
+        (getattr(_deliverable, "text_name", None) or "") if _deliverable else ""
+    )
     _text_basename: str = ""
-    if _output_basename and _text_name and _text_name != _output_basename and _Path(_text_name).name == _text_name:
+    if (
+        _output_basename
+        and _text_name
+        and _text_name != _output_basename
+        and _Path(_text_name).name == _text_name
+    ):
         try:
             if sandbox.path_for(_text_name).is_file():
                 _text_basename = _text_name
@@ -1656,7 +1664,9 @@ def build_flat_payload(run_id: str, ectx: "ExecutionContext") -> "Payload":
         try:
             import shutil as _shutil3  # noqa: PLC0415
 
-            _shutil3.copy2(sandbox.path_for(_text_basename), _staging_abs / _text_basename)
+            _shutil3.copy2(
+                sandbox.path_for(_text_basename), _staging_abs / _text_basename
+            )
         except Exception:  # noqa: BLE001 — not staged, so stage_exact never names a missing file
             logger.warning(
                 "build_flat_payload: failed to copy text form %r for run=%s",
@@ -4758,7 +4768,7 @@ class ExecutionEngine:
         # an offset. The wave_scheduler strategy reads ``is_resuming`` to enable its
         # mid-wave worker filter (a completed wave/worker is not re-invoked). False for
         # every normal run (the mid-wave filter is dormant — byte/event-identical).
-        ectx.is_resuming = _resume_from > 0
+        ectx.is_resuming = _is_resume
         # T16 (R-12, R-14, R-20, F-06): the run's topic slug, computed ONCE here from
         # the user's run input and reused by every step — never recomputed per step,
         # or two steps (the preamble's filename vs. the artifact-guarantee check)
@@ -4987,17 +4997,25 @@ class ExecutionEngine:
         # A workflow that extracts its uploads itself (a step granted the declared
         # ``file_extract`` tool set) must not also receive the wizard's inlined
         # document text: with every page in its prompt the first agent does the
-        # whole workflow on its own. The files are in .uploads/, so keep only names.
+        # whole workflow on its own. Strip a document's text ONLY when
+        # .uploads/manifest.json lists that file — a document that never reached
+        # the sandbox has its inline text as the run's only copy, so it is kept
+        # (and prepare_brief_for_uploads logs a WARNING). The listing maps each
+        # header to a stored name with run_files' sanitize + de-duplicate rule as
+        # it applies to an EMPTY manifest. A reused sandbox (admitted chain root,
+        # or .uploads/ seeded from another run) already holds names: run_files
+        # then stores a new same-named upload under a "-N" name while the listing
+        # points at the older file. .uploads/manifest.json is the authoritative
+        # list there.
         if any("file_extract" in (s.tools.tool_sets or []) for s in compiled.steps):
             from agents.execution_engine.user_prompt import (
-                strip_inline_attachments,
-                write_user_prompt_to_sandbox,
+                strip_attachments_if_uploaded,
             )
+            from app.agents.sandbox import stored_upload_namer
 
-            _stripped = strip_inline_attachments(user_message)
-            if _stripped != user_message:
-                user_message = _stripped
-                write_user_prompt_to_sandbox(sandbox, user_message)
+            user_message = strip_attachments_if_uploaded(
+                sandbox, user_message, name_for=stored_upload_namer()
+            )
         # ── Roster seam (ADR-0003, refined by ADR-0008) ───────────────────────────
         # The plan FILLS IN the roster; it never overrules a caller that has one.
         # ``not agents`` is the load-bearing discriminator: rebuilding whenever the
@@ -6509,14 +6527,19 @@ class ExecutionEngine:
                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
                 _terminated = False
                 _credential_failed_id: str | None = None
-                async for event in self._guarded_step(step, ectx, strategy, spec.id, pipeline_run_id):
+                async for event in self._guarded_step(
+                    step, ectx, strategy, spec.id, pipeline_run_id
+                ):
                     # F3 (13-06): observe agent_error events for the terminal
                     # semantics decision (no mutation — the event flows unchanged).
                     if event.get("type") == "agent_error":
                         _failed_id = event.get("data", {}).get("agent_id")
                         if _failed_id:
                             _failed_agent_ids.add(_failed_id)
-                        if event.get("data", {}).get("error") == _CREDENTIAL_AGENT_ERROR:
+                        if (
+                            event.get("data", {}).get("error")
+                            == _CREDENTIAL_AGENT_ERROR
+                        ):
                             _credential_failed_id = _failed_id or spec.id
                     # ── ISS-091: a TERMINAL event arriving through the stream ends
                     # the RUN, not just the step. The inline review gate's reject
@@ -7644,7 +7667,9 @@ class ExecutionEngine:
                 # Still "generating" under an ordinary exception = the run crashed.
                 # GeneratorExit / CancelledError are BaseException, not Exception:
                 # their paths keep today's derivation.
-                if _sm_state_fin == "generating" and isinstance(_exc_in_flight, Exception):
+                if _sm_state_fin == "generating" and isinstance(
+                    _exc_in_flight, Exception
+                ):
                     _candidate_status_fin = "failed"
             except Exception:  # noqa: BLE001
                 _candidate_status_fin = (
@@ -7812,7 +7837,8 @@ class ExecutionEngine:
         # files (the legacy count>0 guard); the engine then falls back to streamed_text
         # — byte-identical to the legacy code-gen→text fall-through.
         ectx.deliverable = effective_deliverable(
-            compiled.deliverable, getattr(getattr(ectx, "runner", None), "sandbox", None)
+            compiled.deliverable,
+            getattr(getattr(ectx, "runner", None), "sandbox", None),
         )
         ectx.last_streamed = results[-1]["output"] if results else ""
 
@@ -7971,12 +7997,20 @@ class ExecutionEngine:
             # the four counts at their own rates (agents/capabilities/token_usage.py).
             # Aux calls carry no model id: priced at the run's model.
             "estimated_cost_usd": round(
-                sum(usage_cost_usd(r.get("model_id") or _run_model, r,
-                                   cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL)
-                    for r in results)
-                + sum(usage_cost_usd(_run_model, u,
-                                     cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL)
-                      for u in aux_token_usage),
+                sum(
+                    usage_cost_usd(
+                        r.get("model_id") or _run_model,
+                        r,
+                        cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL,
+                    )
+                    for r in results
+                )
+                + sum(
+                    usage_cost_usd(
+                        _run_model, u, cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL
+                    )
+                    for u in aux_token_usage
+                ),
                 6,
             ),
             # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base —
@@ -7987,7 +8021,10 @@ class ExecutionEngine:
             # rate table. Additive + stripped by _VOLATILE_STRIP_KEYS, so the
             # goldens stay byte/event-identical (INV-3).
             "estimated_cost_full_usd": round(
-                sum(usage_cost_full_usd(r.get("model_id") or _run_model, r) for r in results)
+                sum(
+                    usage_cost_full_usd(r.get("model_id") or _run_model, r)
+                    for r in results
+                )
                 + sum(usage_cost_full_usd(_run_model, u) for u in aux_token_usage),
                 6,
             ),
@@ -10147,7 +10184,9 @@ class ExecutionEngine:
                     # Reset per-attempt accumulators so a retried attempt re-streams from
                     # scratch (Pitfall 4) — the deliverable reflects the successful attempt.
                     output_chunks = []
-                    _reply_from = 0  # where the final message starts (reply: last_message)
+                    _reply_from = (
+                        0  # where the final message starts (reply: last_message)
+                    )
                     # ISS-004: a fresh chunk-straddle buffer per attempt so a re-stream
                     # never inherits a held tail from the throttled prior attempt (the FE
                     # discards prior agent_chunk events on agent_model_fallback/reset_output).
@@ -10590,7 +10629,10 @@ class ExecutionEngine:
                 # step's final message — the text after its last tool call or result — so
                 # words written between tool calls never reach the review card, the step
                 # transcript or the typed artifact. A final message with no text keeps all.
-                if getattr(getattr(ectx, "current_step", None), "reply", "all") == "last_message":
+                if (
+                    getattr(getattr(ectx, "current_step", None), "reply", "all")
+                    == "last_message"
+                ):
                     _final_message = "".join(output_chunks[_reply_from:])
                     if _final_message.strip():
                         output = _final_message
@@ -13386,7 +13428,11 @@ class ExecutionEngine:
             model_id=model_id,
             od_context=None,
             gate_agent_ids=(
-                [s.agent_id for s in _compiled_revision.steps if "human" in (s.gates or [])]
+                [
+                    s.agent_id
+                    for s in _compiled_revision.steps
+                    if "human" in (s.gates or [])
+                ]
                 if _workspace_mode
                 else []
             ),
@@ -14309,7 +14355,9 @@ class ExecutionEngine:
 
         return dataclasses.replace(compiled, steps=new_steps), _user_by_agent
 
-    async def _guarded_step(self, step, ectx: ExecutionContext, strategy, step_id: str, run_id: str):
+    async def _guarded_step(
+        self, step, ectx: ExecutionContext, strategy, step_id: str, run_id: str
+    ):
         """``_dispatch_step_with_retry``, with an exception the step's strategy raises
         made visible: logged at ERROR with the step id, then the step's ``agent_error``
         (unless the step already emitted a non-recoverable one), then ``StepRaised`` so
@@ -14321,10 +14369,18 @@ class ExecutionEngine:
         reported = False
         try:
             async for event in self._dispatch_step_with_retry(step, ectx, strategy):
-                if event.get("type") == "agent_error" and (event.get("data") or {}).get("recoverable") is False:
+                if (
+                    event.get("type") == "agent_error"
+                    and (event.get("data") or {}).get("recoverable") is False
+                ):
                     reported = True
                 yield event
-        except (BudgetExceeded, AssembleStepFailed, AssembleBacklogFailed, FanoutWorkerFailed):
+        except (
+            BudgetExceeded,
+            AssembleStepFailed,
+            AssembleBacklogFailed,
+            FanoutWorkerFailed,
+        ):
             raise  # the run-level handlers in _execute_impl own these
         except Exception as exc:  # noqa: BLE001 — made visible, then re-raised as StepRaised
             if self._state_machine.get_state(run_id) in TERMINAL_STATES:
@@ -14334,7 +14390,11 @@ class ExecutionEngine:
             if not reported:
                 yield {
                     "type": "agent_error",
-                    "data": {"agent_id": step_id, "error": message, "recoverable": False},
+                    "data": {
+                        "agent_id": step_id,
+                        "error": message,
+                        "recoverable": False,
+                    },
                 }
             raise StepRaised(step_id, message) from exc
 
@@ -15074,7 +15134,10 @@ class ExecutionEngine:
                     # with agent_complete THEN a non-recoverable agent_error (the
                     # validation-exhausted arm): it did not complete, and a resume
                     # must re-run it rather than skip past it.
-                    elif row_type == "agent_error" and payload.get("recoverable") is False:
+                    elif (
+                        row_type == "agent_error"
+                        and payload.get("recoverable") is False
+                    ):
                         agent_complete_events.discard(payload.get("agent_id"))
             except Exception:  # noqa: BLE001 — offline / schema-less harness → no evidence
                 pass
@@ -15542,6 +15605,10 @@ class ExecutionEngine:
             run_manifest = getattr(wr, "manifest_json", None)
         finally:
             db.close()
+
+        # A resume is a new attempt over durable state. Drop only this run's stale
+        # process-local terminal state; durable rows and events remain authoritative.
+        self._state_machine.forget_run(run_id)
 
         # ── Migration 0040: a run launched from a Composer manifest must resume as
         # THAT workflow. Before this, the registry branch below rebuilt the roster

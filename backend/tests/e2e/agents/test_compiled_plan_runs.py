@@ -110,7 +110,7 @@ def test_dispatchable_count_is_13() -> None:
     Went 31 -> 30 when the ``pdf_to_prototype`` manifest was removed, together
     with its dedicated test, in aa8673cc (GitLab dev sync #12).
     """
-    assert len(_DISPATCHABLE) == 30
+    assert len(_DISPATCHABLE) == 34
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
     # The three agentless fixtures must stay out — they cannot be dispatched.
@@ -120,7 +120,7 @@ def test_dispatchable_count_is_13() -> None:
             "if it now has them, that is a real change — update this list"
         )
     # Parametrized coverage = 30 dispatchable.
-    assert len(_PARAMS) == 30
+    assert len(_PARAMS) == 34
 
 
 @pytest.mark.asyncio
@@ -177,7 +177,12 @@ async def test_runs_from_compiled_plan(pipeline_type: str) -> None:
     # automatically, and a workflow that loses its routing goes back to strict
     # equality on its own.
     is_conditional = any(getattr(s, "route", None) for s in compiled.steps)
-    if is_conditional:
+    has_human_gate = any(
+        any(gate in {"human", "before-human"} for gate in s.gates)
+        or "ask_user" in (s.tools.tool_sets or [])
+        for s in compiled.steps
+    )
+    if is_conditional or has_human_gate:
         assert set(started) <= set(compiled_ids), (
             f"{pipeline_type}: agents ran that the compiled plan does not declare: "
             f"{sorted(set(started) - set(compiled_ids))} — the run did not source "

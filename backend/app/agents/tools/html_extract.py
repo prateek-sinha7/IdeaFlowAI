@@ -253,7 +253,12 @@ def materialise_html(
         page_dir.mkdir(parents=True, exist_ok=True)
         manifest_pages[str(page_num)] = _write_screen_page(page_dir, rec)
         screens_meta.append(
-            {"page": page_num, "id": rec["id"], "title": rec["title"], "kind": rec["kind"]}
+            {
+                "page": page_num,
+                "id": rec["id"],
+                "title": rec["title"],
+                "kind": rec["kind"],
+            }
         )
 
     if script_records:
@@ -276,7 +281,9 @@ def materialise_html(
                 page_num += 1
                 page_dir = pages_dir / f"{page_num:02d}"
                 page_dir.mkdir(parents=True, exist_ok=True)
-                md = _render_script_chunk_md(rec["index"], rec["src"], part, len(chunks), chunk)
+                md = _render_script_chunk_md(
+                    rec["index"], rec["src"], part, len(chunks), chunk
+                )
                 (page_dir / "text.md").write_text(md)
                 manifest_pages[str(page_num)] = {"images": [], "chars": len(md)}
 
@@ -316,7 +323,8 @@ def materialise_html(
     shard_basis = {
         "safe_budget": _fet._SHARD_SAFE_BUDGETS[_fet._SHARD_DEFAULT_MODEL],
         "agent_reserve": _fet._SHARD_RESERVE_TOKENS,
-        "usable": _fet._SHARD_SAFE_BUDGETS[_fet._SHARD_DEFAULT_MODEL] - _fet._SHARD_RESERVE_TOKENS,
+        "usable": _fet._SHARD_SAFE_BUDGETS[_fet._SHARD_DEFAULT_MODEL]
+        - _fet._SHARD_RESERVE_TOKENS,
         "model": _fet._SHARD_DEFAULT_MODEL,
         "page_cap": _fet._SHARD_PAGE_CAP,
     }
@@ -350,7 +358,9 @@ def materialise_html(
         text_path = pages_dir / f"{n:02d}" / "text.md"
         text = text_path.read_text() if text_path.is_file() else ""
         text = doc_ref_re.sub(rf"@[[pages/{n:02d}/\1]]", text)
-        doc_parts.append(f"\n\n<!-- ================= PAGE {n} ================= -->\n\n" + text)
+        doc_parts.append(
+            f"\n\n<!-- ================= PAGE {n} ================= -->\n\n" + text
+        )
     (tmp_dir / "document.md").write_text("".join(doc_parts))
 
     os.rename(tmp_dir, doc_dir)
@@ -419,7 +429,9 @@ def _gather_browser(source_path: Path) -> tuple[list[dict], list[dict], list[dic
 
                     extract = json.loads(page.evaluate(_EXTRACT_SCRIPT, selector))
                     screenshot = _screenshot_screen(page, selector)
-                    screen_records.append(_screen_record_from_extract(s, extract, screenshot))
+                    screen_records.append(
+                        _screen_record_from_extract(s, extract, screenshot)
+                    )
 
                 scripts_list = json.loads(page.evaluate(_LIST_SCRIPT))
                 script_records = []
@@ -429,12 +441,24 @@ def _gather_browser(source_path: Path) -> tuple[list[dict], list[dict], list[dic
                     length = entry.get("length", 0)
                     if entry.get("defines_prototype"):
                         script_records.append(
-                            {"index": idx, "src": src, "length": length, "category": "shell_runtime", "content": None}
+                            {
+                                "index": idx,
+                                "src": src,
+                                "length": length,
+                                "category": "shell_runtime",
+                                "content": None,
+                            }
                         )
                         continue
                     if src:
                         script_records.append(
-                            {"index": idx, "src": src, "length": length, "category": "library", "content": None}
+                            {
+                                "index": idx,
+                                "src": src,
+                                "length": length,
+                                "category": "library",
+                                "content": None,
+                            }
                         )
                         continue
                     content = _read_script_content(page, idx)
@@ -491,7 +515,9 @@ def _looks_minified(text: str) -> bool:
     return avg > _MINIFIED_AVG_LINE_CHARS
 
 
-def _screen_record_from_extract(s: dict, extract: dict, screenshot: bytes | None) -> dict:
+def _screen_record_from_extract(
+    s: dict, extract: dict, screenshot: bytes | None
+) -> dict:
     if "error" in extract:
         return {
             "id": s["id"],
@@ -530,15 +556,33 @@ def _screen_record_from_extract(s: dict, extract: dict, screenshot: bytes | None
 
 
 _VOID_TAGS = {
-    "area", "base", "br", "col", "embed", "hr", "img", "input",
-    "link", "meta", "param", "source", "track", "wbr",
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
 }
 
 
 class _Node:
     __slots__ = ("tag", "attrs", "children", "parent", "data")
 
-    def __init__(self, tag: str | None, attrs: dict | None = None, parent: "_Node | None" = None, data: str | None = None):
+    def __init__(
+        self,
+        tag: str | None,
+        attrs: dict | None = None,
+        parent: "_Node | None" = None,
+        data: str | None = None,
+    ):
         self.tag = tag  # None for a text node
         self.attrs = attrs or {}
         self.children: list[_Node] = []
@@ -555,7 +599,11 @@ class _TreeBuilder(html.parser.HTMLParser):
         self._stack: list[_Node] = [self.root]
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        node = _Node(tag, {k: (v if v is not None else "") for k, v in attrs}, parent=self._stack[-1])
+        node = _Node(
+            tag,
+            {k: (v if v is not None else "") for k, v in attrs},
+            parent=self._stack[-1],
+        )
         self._stack[-1].children.append(node)
         if tag not in _VOID_TAGS:
             self._stack.append(node)
@@ -669,7 +717,12 @@ def _collect_candidates(root: _Node) -> list[_Node]:
     candidates = []
     for el in _iter_elements(root):
         is_main_child = id(el) in main_children
-        if el.tag in ("section", "form") or is_main_child or _matches_dialog(el) or _matches_markers(el):
+        if (
+            el.tag in ("section", "form")
+            or is_main_child
+            or _matches_dialog(el)
+            or _matches_markers(el)
+        ):
             if _has_control_descendant(el):
                 candidates.append(el)
     return candidates
@@ -689,7 +742,9 @@ def _filter_candidates(candidates: list[_Node]) -> list[_Node]:
         return sum(1 for o in candidates if o is not el and _contains(el, o)) >= 2
 
     kept = [el for el in candidates if not is_wrapper(el)]
-    return [el for el in kept if not any(o is not el and _contains(o, el) for o in kept)]
+    return [
+        el for el in kept if not any(o is not el and _contains(o, el) for o in kept)
+    ]
 
 
 def _title_of(node: _Node) -> str:
@@ -715,7 +770,9 @@ def _selector_of(node: _Node) -> str:
     parts: list[str] = []
     n: _Node | None = node
     while n is not None and n.tag is not None and n.tag != "body":
-        siblings = [c for c in (n.parent.children if n.parent else []) if c.tag == n.tag]
+        siblings = [
+            c for c in (n.parent.children if n.parent else []) if c.tag == n.tag
+        ]
         idx = siblings.index(n) + 1 if n in siblings else 1
         parts.insert(0, f"{n.tag}:nth-of-type({idx})")
         if n.parent is not None and n.parent.attrs.get("id"):
@@ -741,7 +798,16 @@ def _finalize_screens(found: list[tuple[_Node, str, str, str | None]]) -> list[d
             sid = base_id
         title = _title_of(el) or sid
         selector = forced_selector if forced_selector else _selector_of(el)
-        screens.append({"id": sid, "title": title, "kind": kind, "selector": selector, "show": show, "node": el})
+        screens.append(
+            {
+                "id": sid,
+                "title": title,
+                "kind": kind,
+                "selector": selector,
+                "show": show,
+                "node": el,
+            }
+        )
     return screens
 
 
@@ -763,7 +829,9 @@ def _static_detect(root_body: _Node) -> list[dict]:
         for el in _iter_elements(root_body):
             if el.tag == "div" and _has_class_token(el, "dialog"):
                 sid = el.attrs.get("id", "")
-                found.append((el, "dialog", f"window.__prototype.openDialog('{sid}')", None))
+                found.append(
+                    (el, "dialog", f"window.__prototype.openDialog('{sid}')", None)
+                )
     else:
         candidates = _collect_candidates(root_body)
         top = _filter_candidates(candidates)
@@ -809,11 +877,20 @@ def _label_of(el: _Node, doc_root: _Node) -> str:
         cls = n.attrs.get("class") or ""
         if any(t in cls for t in ("field", "form-group", "form-field")):
             for cand in _iter_self_and_elements(n):
-                if cand.tag == "label" or "label" in (cand.attrs.get("class") or "").split():
+                if (
+                    cand.tag == "label"
+                    or "label" in (cand.attrs.get("class") or "").split()
+                ):
                     return _clean(_text_content(cand))
             break
         n = n.parent
-    return _clean(el.attrs.get("aria-label") or el.attrs.get("placeholder") or el.attrs.get("name") or el.attrs.get("id") or "")
+    return _clean(
+        el.attrs.get("aria-label")
+        or el.attrs.get("placeholder")
+        or el.attrs.get("name")
+        or el.attrs.get("id")
+        or ""
+    )
 
 
 def _field_of(el: _Node, doc_root: _Node) -> dict:
@@ -830,7 +907,9 @@ def _field_of(el: _Node, doc_root: _Node) -> dict:
             if opt.tag == "option":
                 label = _clean(_text_content(opt))
                 val = opt.attrs.get("value")
-                options.append(f"{label} [value={val}]" if val and val != label else label)
+                options.append(
+                    f"{label} [value={val}]" if val and val != label else label
+                )
     return {
         "label": _label_of(el, doc_root),
         "control": control,
@@ -841,8 +920,18 @@ def _field_of(el: _Node, doc_root: _Node) -> dict:
 
 
 def _action_of(el: _Node) -> dict:
-    text = _clean(_text_content(el)) or el.attrs.get("aria-label") or el.attrs.get("title") or ""
-    return {"text": text, "tag": el.tag, "attrs": _kept_attrs(el), "visible": _is_visible_static(el)}
+    text = (
+        _clean(_text_content(el))
+        or el.attrs.get("aria-label")
+        or el.attrs.get("title")
+        or ""
+    )
+    return {
+        "text": text,
+        "tag": el.tag,
+        "attrs": _kept_attrs(el),
+        "visible": _is_visible_static(el),
+    }
 
 
 def _table_of(el: _Node) -> dict:
@@ -850,13 +939,21 @@ def _table_of(el: _Node) -> dict:
     caption = _clean(_text_content(caption_el)) if caption_el else ""
 
     thead = next((c for c in _iter_elements(el) if c.tag == "thead"), None)
-    header_row = next((c for c in _iter_elements(thead) if c.tag == "tr"), None) if thead else None
+    header_row = (
+        next((c for c in _iter_elements(thead) if c.tag == "tr"), None)
+        if thead
+        else None
+    )
     if header_row is None:
         all_rows = [c for c in _iter_elements(el) if c.tag == "tr"]
         header_row = all_rows[0] if all_rows else None
     columns = []
     if header_row is not None:
-        columns = [_clean(_text_content(th)) for th in _iter_elements(header_row) if th.tag == "th"]
+        columns = [
+            _clean(_text_content(th))
+            for th in _iter_elements(header_row)
+            if th.tag == "th"
+        ]
 
     tbody = next((c for c in _iter_elements(el) if c.tag == "tbody"), None)
     scope = tbody if tbody is not None else el
@@ -867,11 +964,24 @@ def _table_of(el: _Node) -> dict:
             if cells:
                 body_rows.append([_clean(_text_content(c)) for c in cells])
 
-    return {"caption": caption, "columns": columns, "rows": body_rows[:5], "row_count": len(body_rows)}
+    return {
+        "caption": caption,
+        "columns": columns,
+        "rows": body_rows[:5],
+        "row_count": len(body_rows),
+    }
 
 
 _ACTION_TAGS = {"button", "a"}
-_ACTION_DATA_ATTRS = ("data-goto", "data-opens", "data-submit", "data-closes", "data-tab", "data-show", "data-hide")
+_ACTION_DATA_ATTRS = (
+    "data-goto",
+    "data-opens",
+    "data-submit",
+    "data-closes",
+    "data-tab",
+    "data-show",
+    "data-hide",
+)
 
 
 def _is_action_el(e: _Node) -> bool:
@@ -906,17 +1016,38 @@ def _extract_static_screen(node: _Node, doc_root: _Node) -> dict:
                     out.append(el)
         return out
 
-    fields = [_field_of(el, doc_root) for el in all_matching(lambda e: e.tag in ("input", "select", "textarea"))]
+    fields = [
+        _field_of(el, doc_root)
+        for el in all_matching(lambda e: e.tag in ("input", "select", "textarea"))
+    ]
     actions = [_action_of(el) for el in all_matching(_is_action_el)]
     tables = [_table_of(el) for el in all_matching(lambda e: e.tag == "table")]
 
     hidden = []
     for el in all_matching(_is_hidden_candidate):
-        if not _is_visible_static(el) or _has_class_token(el, "state") or el.attrs.get("role") == "alert" or "aria-live" in el.attrs:
-            hidden.append({"id": el.attrs.get("id", ""), "class": el.attrs.get("class", ""), "text": _clean(_text_content(el))[:500]})
+        if (
+            not _is_visible_static(el)
+            or _has_class_token(el, "state")
+            or el.attrs.get("role") == "alert"
+            or "aria-live" in el.attrs
+        ):
+            hidden.append(
+                {
+                    "id": el.attrs.get("id", ""),
+                    "class": el.attrs.get("class", ""),
+                    "text": _clean(_text_content(el))[:500],
+                }
+            )
 
     text = " | ".join(_clean(_text_content(n)) for n in nodes)
-    return {"fields": fields, "actions": actions, "tables": tables, "hidden": hidden, "text": text[:40000], "text_length": len(text)}
+    return {
+        "fields": fields,
+        "actions": actions,
+        "tables": tables,
+        "hidden": hidden,
+        "text": text[:40000],
+        "text_length": len(text),
+    }
 
 
 def _static_scripts(root: _Node) -> list[dict]:
@@ -926,13 +1057,35 @@ def _static_scripts(root: _Node) -> list[dict]:
         src = el.attrs.get("src") or ""
         content = _text_content(el) if not src else ""
         if re.search(r"__prototype\s*=", content):
-            records.append({"index": i, "src": src, "length": len(content), "category": "shell_runtime", "content": None})
+            records.append(
+                {
+                    "index": i,
+                    "src": src,
+                    "length": len(content),
+                    "category": "shell_runtime",
+                    "content": None,
+                }
+            )
         elif src:
-            records.append({"index": i, "src": src, "length": 0, "category": "library", "content": None})
+            records.append(
+                {
+                    "index": i,
+                    "src": src,
+                    "length": 0,
+                    "category": "library",
+                    "content": None,
+                }
+            )
         else:
             category = "library" if _looks_minified(content) else "own"
             records.append(
-                {"index": i, "src": src, "length": len(content), "category": category, "content": content if category == "own" else None}
+                {
+                    "index": i,
+                    "src": src,
+                    "length": len(content),
+                    "category": category,
+                    "content": content if category == "own" else None,
+                }
             )
     return records
 
@@ -945,8 +1098,17 @@ def _static_handlers(root: _Node) -> list[dict]:
     for el in _iter_elements(root):
         for name, val in el.attrs.items():
             if _ON_ATTR_RE.match(name):
-                element_name = el.tag + (f"#{el.attrs['id']}" if el.attrs.get("id") else "")
-                out.append({"element": element_name, "text": _clean(_text_content(el))[:60], "event": name, "code": val})
+                element_name = el.tag + (
+                    f"#{el.attrs['id']}" if el.attrs.get("id") else ""
+                )
+                out.append(
+                    {
+                        "element": element_name,
+                        "text": _clean(_text_content(el))[:60],
+                        "event": name,
+                        "code": val,
+                    }
+                )
     return out
 
 
@@ -987,8 +1149,26 @@ def _gather_static(source_bytes: bytes) -> tuple[list[dict], list[dict], list[di
 # Page rendering — shared by both routes (spec §6.1 text.md format)
 # ---------------------------------------------------------------------------
 
-_VALIDATION_ATTR_ORDER = ("pattern", "min", "max", "minlength", "maxlength", "step", "type")
-_ACTION_ATTR_ORDER = ("data-goto", "data-opens", "data-submit", "data-closes", "data-tab", "data-show", "data-hide", "href", "onclick")
+_VALIDATION_ATTR_ORDER = (
+    "pattern",
+    "min",
+    "max",
+    "minlength",
+    "maxlength",
+    "step",
+    "type",
+)
+_ACTION_ATTR_ORDER = (
+    "data-goto",
+    "data-opens",
+    "data-submit",
+    "data-closes",
+    "data-tab",
+    "data-show",
+    "data-hide",
+    "href",
+    "onclick",
+)
 
 
 def _validation_of(attrs: dict) -> str:
@@ -996,7 +1176,9 @@ def _validation_of(attrs: dict) -> str:
 
 
 def _action_target(attrs: dict) -> str:
-    return "; ".join(f"{k}={attrs[k]}" for k in _ACTION_ATTR_ORDER if attrs.get(k) not in (None, ""))
+    return "; ".join(
+        f"{k}={attrs[k]}" for k in _ACTION_ATTR_ORDER if attrs.get(k) not in (None, "")
+    )
 
 
 def _render_screen_md(rec: dict, has_screenshot: bool) -> str:
@@ -1004,7 +1186,9 @@ def _render_screen_md(rec: dict, has_screenshot: bool) -> str:
     if has_screenshot:
         lines.append("@[[image-1.png]]")
     lines.append(f"# Screen: {rec['title']}")
-    lines.append(f"id: {rec['id']} · kind: {rec['kind']} · selector: {rec['selector']} · shown by: {rec['show']}")
+    lines.append(
+        f"id: {rec['id']} · kind: {rec['kind']} · selector: {rec['selector']} · shown by: {rec['show']}"
+    )
     lines.append("")
 
     lines.append("## Fields")
@@ -1016,14 +1200,18 @@ def _render_screen_md(rec: dict, has_screenshot: bool) -> str:
         validation = _validation_of(attrs)
         options = f.get("options")
         opt_val = "; ".join(options) if options else attrs.get("value", "")
-        lines.append(f"| {f.get('label', '')} | {f.get('control', '')} | {required} | {validation} | {opt_val} |")
+        lines.append(
+            f"| {f.get('label', '')} | {f.get('control', '')} | {required} | {validation} | {opt_val} |"
+        )
     lines.append("")
 
     lines.append("## Actions")
     lines.append("| Label | Goes to or does |")
     lines.append("|---|---|")
     for a in rec.get("actions", []):
-        lines.append(f"| {a.get('text', '')} | {_action_target(a.get('attrs') or {})} |")
+        lines.append(
+            f"| {a.get('text', '')} | {_action_target(a.get('attrs') or {})} |"
+        )
     lines.append("")
 
     lines.append("## Tables")
@@ -1067,15 +1255,24 @@ def _write_screen_page(page_dir: Path, rec: dict) -> dict:
 
 
 def _render_scripts_index_md(records: list[dict]) -> str:
-    lines = ["# Scripts index", "", "| # | Src | Length | Defines window.__prototype | Category |", "|---|---|---|---|---|"]
+    lines = [
+        "# Scripts index",
+        "",
+        "| # | Src | Length | Defines window.__prototype | Category |",
+        "|---|---|---|---|---|",
+    ]
     for r in records:
         defines = "yes" if r["category"] == "shell_runtime" else "no"
         src = r["src"] or "(inline)"
-        lines.append(f"| {r['index']} | {src} | {r['length']} | {defines} | {r['category']} |")
+        lines.append(
+            f"| {r['index']} | {src} | {r['length']} | {defines} | {r['category']} |"
+        )
     return "\n".join(lines) + "\n"
 
 
-def _render_script_chunk_md(index: int, src: str, part: int, total: int, chunk: str) -> str:
+def _render_script_chunk_md(
+    index: int, src: str, part: int, total: int, chunk: str
+) -> str:
     lines = [f"# Script {index}"]
     if total > 1:
         lines.append(f"part {part} of {total}")
@@ -1089,7 +1286,14 @@ def _render_script_chunk_md(index: int, src: str, part: int, total: int, chunk: 
 
 
 def _render_handlers_md(handlers: list[dict]) -> str:
-    lines = ["# Inline handlers", "", "| Element | Text | Event | Code |", "|---|---|---|---|"]
+    lines = [
+        "# Inline handlers",
+        "",
+        "| Element | Text | Event | Code |",
+        "|---|---|---|---|",
+    ]
     for h in handlers:
-        lines.append(f"| {h.get('element', '')} | {h.get('text', '')} | {h.get('event', '')} | {h.get('code', '')} |")
+        lines.append(
+            f"| {h.get('element', '')} | {h.get('text', '')} | {h.get('event', '')} | {h.get('code', '')} |"
+        )
     return "\n".join(lines) + "\n"

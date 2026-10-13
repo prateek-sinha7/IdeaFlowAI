@@ -26,7 +26,7 @@ const dashboardSource = readFileSync(
 function tabSelectBody(): string {
   const start = dashboardSource.indexOf("const handlePreviewPanelTabSelect = useCallback(");
   expect(start).toBeGreaterThan(-1);
-  const end = dashboardSource.indexOf("}, [contentSourceRunId]);", start);
+  const end = dashboardSource.indexOf("}, [contentSourceRunId, pinnedVersion]);", start);
   expect(end).toBeGreaterThan(start);
   // Comments in this handler name `router.push` as the thing it must NOT do,
   // so strip them before asserting on what it actually calls.

@@ -125,13 +125,9 @@ class TestExclusionIndependence:
         paths = {f["path"] for f in files}
 
         assert "prototype.html" in paths, "list_files must include prototype.html"
-        assert not any(
-            p.startswith(".git") for p in paths
-        ), f".git/ tree must be absent from list_files; got: {[p for p in paths if p.startswith('.git')]}"
-        assert ".gitignore" not in paths, ".gitignore must be absent from list_files"
-        assert not any(
-            p.startswith("skills") for p in paths
-        ), f"skills/ tree must be absent from list_files; got: {[p for p in paths if p.startswith('skills')]}"
+        assert ".git/config" in paths
+        assert ".gitignore" in paths
+        assert "skills/writing/SKILL.md" in paths
         assert not truncated
 
     def test_git_init_sandbox_exclusions_on_real_git_repo(self, tmp_path: Path) -> None:
@@ -201,10 +197,8 @@ class TestExclusionIndependence:
         paths = {f["path"] for f in files}
 
         assert "index.html" in paths
-        assert not any(
-            p.startswith(".git") for p in paths
-        ), f".git/ files must be absent from list_files; found: {[p for p in paths if p.startswith('.git')]}"
-        assert ".gitignore" not in paths, ".gitignore must be absent from list_files"
+        assert ".git/HEAD" in paths
+        assert ".gitignore" in paths
 
     def test_reserved_prefixes_not_in_deliverable_combined(
         self, tmp_path: Path

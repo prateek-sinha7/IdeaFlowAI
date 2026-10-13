@@ -41,8 +41,17 @@ STEP_IDS = [
 ]
 # Every file the assembler and the export write: code rebuilds them after the writers, so a
 # revision never edits one (user decision 16:02).
-CODE_BUILT = (DEFAULT_DELIVERABLE, "backlog.csv", "backlog.json", BUILD_ORDER_PATH, *NEW_DOCUMENT_FILES,
-              GAPS_PATH, PDF_NAME, ZIP_NAME, COVERAGE_PATH)
+CODE_BUILT = (
+    DEFAULT_DELIVERABLE,
+    "backlog.csv",
+    "backlog.json",
+    BUILD_ORDER_PATH,
+    *NEW_DOCUMENT_FILES,
+    GAPS_PATH,
+    PDF_NAME,
+    ZIP_NAME,
+    COVERAGE_PATH,
+)
 
 
 @pytest.fixture(scope="module")
@@ -60,9 +69,16 @@ def _prompt(compiled, agent_id: str) -> str:
 
 # ── 1. manifest shape ────────────────────────────────────────────────────────────────
 
+
 def test_manifest_steps_and_mechanical_steps(compiled):
     assert [s.agent_id for s in compiled.steps] == STEP_IDS
-    assert [s.mechanical for s in compiled.steps] == [None, None, None, None, "assemble_backlog"]
+    assert [s.mechanical for s in compiled.steps] == [
+        None,
+        None,
+        None,
+        None,
+        "assemble_backlog",
+    ]
 
 
 def test_gates_by_step(compiled):
@@ -77,7 +93,9 @@ def test_gates_by_step(compiled):
 
 def test_only_the_analyst_is_a_human_gate_agent(compiled):
     # _handle_revision passes these as gate_agent_ids under E2.
-    assert [s.agent_id for s in compiled.steps if "human" in s.gates] == ["custom-agent:blr-analyst"]
+    assert [s.agent_id for s in compiled.steps if "human" in s.gates] == [
+        "custom-agent:blr-analyst"
+    ]
 
 
 def test_no_step_declares_a_validator(compiled):
@@ -89,12 +107,19 @@ def test_write_step_reads_exactly_the_revision_task_list(compiled):
     assert write.strategy == "wave_scheduler"
     ts = write.task_source
     assert (ts.kind, ts.path, ts.parser, ts.source_step, ts.target) == (
-        "custom_path", "revisions/{revision_n}/tasks.json", "json_tasks", "custom-agent:blr-plan", None,
+        "custom_path",
+        "revisions/{revision_n}/tasks.json",
+        "json_tasks",
+        "custom-agent:blr-plan",
+        None,
     )
 
 
 def test_the_plan_produces_the_task_list_the_writers_consume(compiled):
-    plan, write = _step(compiled, "custom-agent:blr-plan"), _step(compiled, "custom-agent:blr-write")
+    plan, write = (
+        _step(compiled, "custom-agent:blr-plan"),
+        _step(compiled, "custom-agent:blr-write"),
+    )
     path = write.task_source.path
     assert path == "revisions/{revision_n}/tasks.json"
     assert list(plan.produces) == [path]
@@ -104,7 +129,9 @@ def test_the_plan_produces_the_task_list_the_writers_consume(compiled):
     from agents.execution_engine.engine import ExecutionEngine
     from agents.execution_engine.resolver import WorkflowResolver
 
-    result = WorkflowResolver().validate(ExecutionEngine._specs_from_plan(None, compiled.steps))
+    result = WorkflowResolver().validate(
+        ExecutionEngine._specs_from_plan(None, compiled.steps)
+    )
     assert result.satisfiable, result.errors
     assert ("custom-agent:blr-plan", "custom-agent:blr-write", path) in {
         (e.from_agent_id, e.to_agent_id, e.artifact_type) for e in result.edges
@@ -116,28 +143,41 @@ def test_the_last_step_is_the_existing_assembly(compiled):
     assert (last.mechanical, last.is_leaf) == ("assemble_backlog", True)
     # Not a backlog code job (backlog_prep.BACKLOG_CODE_JOBS), so it assembles and exports.
     from agents.capabilities.backlog_prep import BACKLOG_CODE_JOBS
+
     assert last.agent_id.rsplit(":", 1)[-1] not in BACKLOG_CODE_JOBS
 
 
 def test_deliverable_revises_the_workspace(compiled):
     d = compiled.deliverable
-    assert (d.strategy, d.name, d.text_name, d.revises_existing, d.revision_context) == \
-        ("single_file", "Backlog.pdf", "backlog.md", True, "workspace")
+    assert (
+        d.strategy,
+        d.name,
+        d.text_name,
+        d.revises_existing,
+        d.revision_context,
+    ) == ("single_file", "Backlog.pdf", "backlog.md", True, "workspace")
 
 
 # ── 2. transcript contract ───────────────────────────────────────────────────────────
 
+
 def test_prompts_read_earlier_step_transcripts_at_their_real_paths(compiled):
-    relpaths = [agent_output_relpath(index=i, agent_id=s.agent_id) for i, s in enumerate(compiled.steps)]
+    relpaths = [
+        agent_output_relpath(index=i, agent_id=s.agent_id)
+        for i, s in enumerate(compiled.steps)
+    ]
     assert relpaths[0] == ".agents/01-custom-agent_blr-analyst.md"
     assert relpaths[0] in _prompt(compiled, "custom-agent:blr-plan")
     assert relpaths[0] in _prompt(compiled, "custom-agent:blr-review")
     for i, step in enumerate(compiled.steps):
         for path in re.findall(r"\.agents/\d\d-[\w.-]+\.md", step.prompt or ""):
-            assert path in relpaths[:i], f"{step.agent_id} reads {path}, not an earlier step's transcript"
+            assert (
+                path in relpaths[:i]
+            ), f"{step.agent_id} reads {path}, not an earlier step's transcript"
 
 
 # ── 3. prompt contracts ──────────────────────────────────────────────────────────────
+
 
 def test_analyst_prompt_states_its_reply_contract(compiled):
     prompt = _prompt(compiled, "custom-agent:blr-analyst")
@@ -145,7 +185,11 @@ def test_analyst_prompt_states_its_reply_contract(compiled):
         "A message that calls a tool holds the tool call and nothing else",
         "Your last message calls no tool. It is the spec, exactly as you wrote it to its file, starting with its `Spec:` line",
         "`Spec: revisions/<n>/revision-spec.md`",
-        "## Request", "## Findings", "## Changes", "## Out of scope", "## Open questions",
+        "## Request",
+        "## Findings",
+        "## Changes",
+        "## Out of scope",
+        "## Open questions",
         "### C<N>: ",
     ):
         assert needle in prompt, needle
@@ -163,16 +207,31 @@ def test_analyst_prompt_numbers_the_revision_and_handles_a_redo(compiled):
         assert needle in prompt, needle
 
 
-@pytest.mark.parametrize("agent_id", ["custom-agent:blr-analyst", "custom-agent:blr-plan", "custom-agent:blr-write", "custom-agent:blr-review"])
+@pytest.mark.parametrize(
+    "agent_id",
+    [
+        "custom-agent:blr-analyst",
+        "custom-agent:blr-plan",
+        "custom-agent:blr-write",
+        "custom-agent:blr-review",
+    ],
+)
 def test_no_prompt_globs_the_revisions_folder(compiled, agent_id):
     # glob lists files only: glob('revisions/*') returned [] in revision 0924fe8a, and the
     # Analyst numbered the revision 1 while revisions/1-3 existed. The folder pattern may
     # appear only in the warning against it.
-    rest = _prompt(compiled, agent_id).replace("never glob a folder pattern such as `revisions/*`", "")
-    assert "`revisions/*`" not in rest and "glob revisions/*" not in rest.replace("glob revisions/*/revision-spec.md", "")
+    rest = _prompt(compiled, agent_id).replace(
+        "never glob a folder pattern such as `revisions/*`", ""
+    )
+    assert "`revisions/*`" not in rest and "glob revisions/*" not in rest.replace(
+        "glob revisions/*/revision-spec.md", ""
+    )
 
 
-@pytest.mark.parametrize("agent_id", ["custom-agent:blr-analyst", "custom-agent:blr-plan", "custom-agent:blr-review"])
+@pytest.mark.parametrize(
+    "agent_id",
+    ["custom-agent:blr-analyst", "custom-agent:blr-plan", "custom-agent:blr-review"],
+)
 def test_prompt_names_every_file_code_builds(compiled, agent_id):
     prompt = _prompt(compiled, agent_id)
     for path in CODE_BUILT:
@@ -228,7 +287,9 @@ def test_review_prompt_limits_changes_and_names_the_statuses(compiled):
     for needle in (
         "Only the files the spec's changes name.",
         "`revisions/<n>/revision-review.md`",
-        "`done`", "`fixed now`", "`not possible`",
+        "`done`",
+        "`fixed now`",
+        "`not possible`",
         "Never a document code builds",
         "A new file only when a spec change creates it",
     ):
@@ -237,6 +298,7 @@ def test_review_prompt_limits_changes_and_names_the_statuses(compiled):
 
 
 # ── 4. a backlog parent mints backlog_revision ───────────────────────────────────────
+
 
 class _Query:
     def first(self):
@@ -267,15 +329,22 @@ def test_backlog_parent_mints_backlog_revision_with_five_agents(monkeypatch):
     assert get_pipeline_agents("backlog_revision") == []
     db = _Db()
     run_id, rev_type = rc._mint_revision_row(
-        db, user=SimpleNamespace(id="u1"), caller_tier="pro", parent_run_id="p1",
-        target_artifact_type="backlog_output", instruction="close the gaps",
+        db,
+        user=SimpleNamespace(id="u1"),
+        caller_tier="pro",
+        parent_run_id="p1",
+        target_artifact_type="backlog_output",
+        instruction="close the gaps",
     )
     assert rev_type == "backlog_revision"
     [row] = db.added
     assert row.type == "backlog_revision" and row.agent_count == 5 and row.id == run_id
 
 
-@pytest.mark.parametrize("tier,allowed", [("hexaware", True), ("pro", True), ("enterprise", True), ("basic", False)])
+@pytest.mark.parametrize(
+    "tier,allowed",
+    [("hexaware", True), ("pro", True), ("enterprise", True), ("basic", False)],
+)
 def test_backlog_revision_entitlement_by_tier(tier, allowed):
     assert can_run_pipeline(tier, "backlog_revision")[0] is allowed
 
@@ -286,13 +355,18 @@ def test_backlog_revision_base_is_backlog():
 
 # ── 5. revision re-assembly picks up edited and review-file stories ──────────────────
 
+
 def test_second_assembly_shows_changed_title_and_new_review_story():
     sandbox = _two_level_sandbox()
     _write_json(sandbox, "build/review.json", {"rounds": 1, "fixed": [], "open": []})
     ctx = SimpleNamespace(
         runner=SimpleNamespace(sandbox=sandbox),
-        deliverable=DeliverableSpec(strategy="single_file", name="Backlog.pdf",
-                                    text_name="backlog.md", revises_existing=True),
+        deliverable=DeliverableSpec(
+            strategy="single_file",
+            name="Backlog.pdf",
+            text_name="backlog.md",
+            revises_existing=True,
+        ),
     )
     assemble_backlog(ctx)
     assert "Create a quote" in sandbox.files["backlog.md"]
@@ -302,27 +376,44 @@ def test_second_assembly_shows_changed_title_and_new_review_story():
     data["stories"][0]["title"] = "Draft a quote"
     _write_json(sandbox, "stories/EPIC-01.json", data)
     new = _story(
-        id="US-R-01", title="Export a quote", requirements=[_requirement(id="REQ-R-001")],
-        gherkin=["Feature: Export a quote", "  @US-R-01 @REQ-R-001 @P0", "  Scenario: Agent exports",
-                 "    Given a quote exists", "    When the agent exports it", "    Then a file is produced"],
+        id="US-R-01",
+        title="Export a quote",
+        requirements=[_requirement(id="REQ-R-001")],
+        gherkin=[
+            "Feature: Export a quote",
+            "  @US-R-01 @REQ-R-001 @P0",
+            "  Scenario: Agent exports",
+            "    Given a quote exists",
+            "    When the agent exports it",
+            "    Then a file is produced",
+        ],
     )
-    _write_json(sandbox, "stories/review-EPIC-01.json", {"epic": "EPIC-01", "stories": [new]})
+    _write_json(
+        sandbox, "stories/review-EPIC-01.json", {"epic": "EPIC-01", "stories": [new]}
+    )
 
     assemble_backlog(ctx)
     for path in ("backlog.md", "backlog.csv"):
         text = sandbox.files[path]
-        assert "Draft a quote" in text and "US-R-01" in text and "Export a quote" in text
+        assert (
+            "Draft a quote" in text and "US-R-01" in text and "Export a quote" in text
+        )
         assert "Create a quote" not in text
     assert "Backlog.pdf" not in sandbox.files
     assert json.loads(sandbox.files["build/coverage.json"])["mode"] == "final"
 
 
-@pytest.mark.parametrize("agent_id", ["custom-agent:blr-plan", "custom-agent:blr-review"])
+@pytest.mark.parametrize(
+    "agent_id", ["custom-agent:blr-plan", "custom-agent:blr-review"]
+)
 def test_later_steps_find_the_spec_line_wherever_it_is(compiled, agent_id):
     # The step transcript holds every word the Analyst streamed (engine: all text chunks
     # joined), so notes can sit above the spec; n comes from the `Spec:` line itself.
     prompt = _prompt(compiled, agent_id)
-    assert "Its `Spec: revisions/<n>/…` line gives n; any text above that line is not the spec." in prompt
+    assert (
+        "Its `Spec: revisions/<n>/…` line gives n; any text above that line is not the spec."
+        in prompt
+    )
     assert "Its first line" not in prompt
 
 

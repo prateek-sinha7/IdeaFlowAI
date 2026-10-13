@@ -7,12 +7,17 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from app.agents.deep_agent_runner import TRUNCATED_WRITE_MESSAGE, _TruncatedWriteGuardMiddleware
+from app.agents.deep_agent_runner import (
+    TRUNCATED_WRITE_MESSAGE,
+    _TruncatedWriteGuardMiddleware,
+)
 
 
 def _request(name, args, stop):
     call = {"name": name, "args": args, "id": "call-1"}
-    turn = AIMessage(content="", tool_calls=[call], response_metadata={"stopReason": stop})
+    turn = AIMessage(
+        content="", tool_calls=[call], response_metadata={"stopReason": stop}
+    )
     return SimpleNamespace(tool_call=call, state={"messages": [turn]})
 
 
@@ -35,8 +40,14 @@ def test_a_truncated_write_gets_the_explicit_error():
 
 
 def test_the_anthropic_stop_reason_key_is_read_too():
-    call = {"name": "write_file", "args": {"file_path": "a.md", "content": ""}, "id": "c"}
-    turn = AIMessage(content="", tool_calls=[call], response_metadata={"stop_reason": "max_tokens"})
+    call = {
+        "name": "write_file",
+        "args": {"file_path": "a.md", "content": ""},
+        "id": "c",
+    }
+    turn = AIMessage(
+        content="", tool_calls=[call], response_metadata={"stop_reason": "max_tokens"}
+    )
     result, ran = _run(SimpleNamespace(tool_call=call, state={"messages": [turn]}))
     assert not ran and result.content == TRUNCATED_WRITE_MESSAGE
 
@@ -59,6 +70,9 @@ def test_the_async_path_guards_too():
     async def handler(req):
         return "written"
 
-    result = asyncio.run(_TruncatedWriteGuardMiddleware().awrap_tool_call(
-        _request("write_file", {"file_path": "a.md"}, "max_tokens"), handler))
+    result = asyncio.run(
+        _TruncatedWriteGuardMiddleware().awrap_tool_call(
+            _request("write_file", {"file_path": "a.md"}, "max_tokens"), handler
+        )
+    )
     assert result.content == TRUNCATED_WRITE_MESSAGE

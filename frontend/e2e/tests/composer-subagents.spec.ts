@@ -220,6 +220,11 @@ test.describe("Composer sweep — add, rename, prompt, skill, sub-agent, remove,
 
     await page.getByRole("button", { name: "Canvas" }).click();
     await page.getByTestId(`canvas-node-${id}`).click();
+    // A saved (non-empty) custom prompt opens as rendered markdown; Edit swaps in the textarea.
+    await expect(page.getByTestId("agent-prompt-rendered")).toContainText(
+      "Summarize the brief in one paragraph.",
+    );
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(page.getByLabel("Custom agent prompt")).toHaveValue(
       "Summarize the brief in one paragraph.",
     );

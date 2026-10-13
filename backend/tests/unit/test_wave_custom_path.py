@@ -27,12 +27,21 @@ PLAN_REPLY = "Wrote 2 tasks: T1 and T2."
 
 
 def _step(task_source):
-    return SimpleNamespace(agent_id="custom-agent:blr-write", name="Revision Writers",
-                           task_source=task_source)
+    return SimpleNamespace(
+        agent_id="custom-agent:blr-write",
+        name="Revision Writers",
+        task_source=task_source,
+    )
 
 
-CUSTOM = _step(TaskSource(kind="custom_path", path=PATH, parser="json_tasks",
-                          source_step="custom-agent:blr-plan"))
+CUSTOM = _step(
+    TaskSource(
+        kind="custom_path",
+        path=PATH,
+        parser="json_tasks",
+        source_step="custom-agent:blr-plan",
+    )
+)
 
 
 class DiskSandbox:
@@ -75,17 +84,42 @@ class _Runner:
     async def run_fanout(self, requests, ctx, *, step=None, event_queue=None):
         self.dispatched.extend(requests)
         for i, _request in enumerate(requests):
-            yield {"type": "subagent_spawned",
-                   "data": {"worker": i, "agent": "w", "isolation": "shared_read", "depth": 0}}
+            yield {
+                "type": "subagent_spawned",
+                "data": {
+                    "worker": i,
+                    "agent": "w",
+                    "isolation": "shared_read",
+                    "depth": 0,
+                },
+            }
         for i, _request in enumerate(requests):
-            yield {"type": "subagent_result",
-                   "data": {"worker": i, "agent": "w", "row_id": f"r{i}", "status": "complete"}}
+            yield {
+                "type": "subagent_result",
+                "data": {
+                    "worker": i,
+                    "agent": "w",
+                    "row_id": f"r{i}",
+                    "status": "complete",
+                },
+            }
 
 
 def _task_list(*ids):
-    return json.dumps({"tasks": [
-        {"id": i, "title": i, "targets": [f"{i}.md"], "depends_on": [], "body": f"body of {i}"} for i in ids
-    ]})
+    return json.dumps(
+        {
+            "tasks": [
+                {
+                    "id": i,
+                    "title": i,
+                    "targets": [f"{i}.md"],
+                    "depends_on": [],
+                    "body": f"body of {i}",
+                }
+                for i in ids
+            ]
+        }
+    )
 
 
 def _write_task_list(disk, path, *ids):
@@ -111,11 +145,14 @@ def _dispatched(runner):
 
 # ── 1. the revision number ───────────────────────────────────────────────────────────
 
+
 def test_no_revisions_folder_has_no_latest_revision(tmp_path):
     assert latest_revision_number(DiskSandbox(tmp_path)) is None
 
 
-def test_the_latest_revision_is_the_highest_number_and_non_digit_names_are_ignored(tmp_path):
+def test_the_latest_revision_is_the_highest_number_and_non_digit_names_are_ignored(
+    tmp_path,
+):
     _mkdirs(tmp_path, "1", "2", "10", "fix-all-diagrams")
     assert latest_revision_number(DiskSandbox(tmp_path)) == 10
 
@@ -128,7 +165,9 @@ def test_a_file_named_like_a_revision_is_not_a_revision(tmp_path):
 
 def test_the_revision_token_resolves_to_the_latest_revision(tmp_path):
     _mkdirs(tmp_path, "1", "2", "10")
-    assert resolve_revision_path(PATH, DiskSandbox(tmp_path)) == "revisions/10/tasks.json"
+    assert (
+        resolve_revision_path(PATH, DiskSandbox(tmp_path)) == "revisions/10/tasks.json"
+    )
 
 
 def test_the_revision_token_needs_a_revisions_folder(tmp_path):
@@ -137,6 +176,7 @@ def test_the_revision_token_needs_a_revisions_folder(tmp_path):
 
 
 # ── 2. read_custom_path ──────────────────────────────────────────────────────────────
+
 
 def test_a_plain_custom_path_is_read_as_it_is(tmp_path):
     disk = DiskSandbox(tmp_path)
@@ -155,8 +195,11 @@ def test_a_missing_or_empty_custom_path_stops_the_step(tmp_path, text):
 
 # ── 3. WaveSchedulerStrategy.run ─────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
-async def test_custom_path_dispatches_the_latest_revisions_tasks_not_build_tasks(tmp_path):
+async def test_custom_path_dispatches_the_latest_revisions_tasks_not_build_tasks(
+    tmp_path,
+):
     disk = DiskSandbox(tmp_path)
     _write_task_list(disk, "build/tasks.json", "PARENT")
     _write_task_list(disk, "revisions/1/tasks.json", "OLD")
@@ -189,8 +232,14 @@ async def test_a_parsed_target_still_falls_back_to_build_tasks(tmp_path):
     disk = DiskSandbox(tmp_path)
     _write_task_list(disk, "build/tasks.json", "PARENT")
     runner = _Runner(disk)
-    step = _step(TaskSource(kind="parsed", parser="json_tasks", target="missing.json",
-                            source_step="custom-agent:blr-plan"))
+    step = _step(
+        TaskSource(
+            kind="parsed",
+            parser="json_tasks",
+            target="missing.json",
+            source_step="custom-agent:blr-plan",
+        )
+    )
 
     await _run(runner, step)
 
@@ -199,16 +248,21 @@ async def test_a_parsed_target_still_falls_back_to_build_tasks(tmp_path):
 
 # ── 4. the compiler ──────────────────────────────────────────────────────────────────
 
+
 def _compile_task_source(raw):
     return WorkflowCompiler()._compile_task_source(raw, "step blr-write", None, True)
 
 
 def test_custom_path_compiles_with_its_path():
-    ts = _compile_task_source({"kind": "custom_path", "path": PATH, "source_step": "custom-agent:blr-plan"})
+    ts = _compile_task_source(
+        {"kind": "custom_path", "path": PATH, "source_step": "custom-agent:blr-plan"}
+    )
     assert (ts.kind, ts.path, ts.target) == ("custom_path", PATH, None)
 
 
-@pytest.mark.parametrize("raw", [{"kind": "custom_path"}, {"kind": "custom_path", "path": "  "}])
+@pytest.mark.parametrize(
+    "raw", [{"kind": "custom_path"}, {"kind": "custom_path", "path": "  "}]
+)
 def test_custom_path_without_a_path_fails_compilation(raw):
     with pytest.raises(CompilerError, match="needs a 'path'"):
         _compile_task_source(raw)

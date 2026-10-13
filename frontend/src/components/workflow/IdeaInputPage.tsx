@@ -15,8 +15,11 @@ import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
-import { createUserWorkflow, getToken, getWorkflowDetail, isNotFoundError, setWorkflowOverrideEnabled, extractFileText, stageRunFile } from "@/lib/api";
+import { createUserWorkflow, getToken, getWorkflowDetail, isNotFoundError, setWorkflowOverrideEnabled, extractFileText } from "@/lib/api";
 import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isImageUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
+import { UPLOAD_TOO_LARGE_MESSAGE, isOverUploadLimit } from "@/lib/uploadErrors";
+import { uploadGateMessage, useStagedDocuments } from "@/hooks/useStagedDocuments";
+import { UploadChipStatus } from "./UploadChipStatus";
 import { agentsFromManifest } from "@/lib/manifestAgents";
 import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
@@ -497,6 +500,10 @@ function withPrototypeTaskLoop(
 /** Export for ComposerPage (INV-12 — single source, no duplication). */
 export { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType, AGENT_DELIVERABLE_MAP, withPrototypeTaskLoop };
 
+/** Brief note for a binary document whose stage AND in-browser preview both failed. */
+const BRIEF_STAGE_FAILED_PLACEHOLDER =
+  "[This document is attached; its content must be read from .uploads/ using the extract_text tool.]";
+
 /**
  * Shared attachment state for the Brief input box (KAN-91 / Image-input Wave 2).
  * Extracted so BOTH IdeaInputPage and ComposerPage's Simple view mount the SAME
@@ -505,7 +512,8 @@ export { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType, AGENT_D
  * (extractFileText) all live here once.
  */
 export function useBriefAttachments() {
-  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  // `stageKey` links a chip to its staging entry (absent when not staged).
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string; stageKey?: number }[]>([]);
   // KAN-91: file content stored separately so the textarea stays clean —
   // composed into the run message at send time via `fileBlocks` below.
   const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
@@ -516,14 +524,22 @@ export function useBriefAttachments() {
   // UPLD-05: raw documents are ALSO staged server-side at attach time (name →
   // stage_id), so launch can hand the backend the actual files — the inlined
   // text above only ever carried a capped flat extraction.
-  // `attachIndex` is the attach-order position (see `attachIndexRef` below) —
-  // the ONLY place true attach order survives, since these entries are appended
-  // as their `stageRunFile` responses resolve (arrival order, not attach order).
-  const [stagedUploads, setStagedUploads] = useState<{ name: string; stageId: string; attachIndex: number }[]>([]);
-  // Monotonic attach-order counter. A `useRef` (not `stagedUploads.length`,
-  // which races against concurrent in-flight stages) so it keeps increasing
-  // correctly across SEPARATE attach actions (drop 2 files, then 3 more).
-  const attachIndexRef = useRef(0);
+  // `stagedUploads` lists stages in response-ARRIVAL order; each entry's
+  // `attachIndex` (the stage key, stamped synchronously at attach time) is the
+  // ONLY place true attach order survives. Every outcome is tracked, so a failed
+  // stage is shown on its chip and blocks Run (`uploadGate`) instead of being
+  // swallowed.
+  const {
+    documents,
+    stagedUploads,
+    gate: uploadGate,
+    stage: stageDocument,
+    retry: retryStage,
+    remove: removeStage,
+    settle: settleUploads,
+  } = useStagedDocuments();
+  // Stage keys whose in-browser text preview failed (informational chip note).
+  const [previewFailedKeys, setPreviewFailedKeys] = useState<number[]>([]);
 
   const handleFiles = useCallback((files: FileList) => {
     Array.from(files).forEach((f) => {
@@ -539,6 +555,18 @@ export function useBriefAttachments() {
         });
         return;
       }
+      const isTextFile = isTextUpload(f.name);
+      const isBinaryFile = isBinaryUpload(f.name);
+      // UPLD-05: park the raw bytes server-side for EVERY document, text ones
+      // included, exactly as LaunchWizard does. `.uploads/` is the only thing a
+      // file-reading workflow opens, so a .md/.csv read client-side below would
+      // otherwise reach the run as inlined brief text only — missing from
+      // `.uploads/manifest.json`, and refused at launch (422 `uploads_missing`)
+      // by a workflow that reads its documents from there. The stage key is
+      // captured HERE, synchronously, before the async stage call fires — the
+      // client is the only place true attach order is known.
+      const jwt = isTextFile || isBinaryFile ? getToken() : null;
+      const stageKey = jwt ? stageDocument(f, jwt) : undefined;
       const meta = {
         name: f.name,
         size:
@@ -547,10 +575,9 @@ export function useBriefAttachments() {
             : f.size < 1048576
               ? `${(f.size / 1024).toFixed(1)}KB`
               : `${(f.size / 1048576).toFixed(1)}MB`,
+        ...(stageKey !== undefined ? { stageKey } : {}),
       };
       setAttachedFiles((p) => [...p, meta]);
-      const isTextFile = isTextUpload(f.name);
-      const isBinaryFile = isBinaryUpload(f.name);
       if (isTextFile) {
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -562,20 +589,10 @@ export function useBriefAttachments() {
         };
         reader.readAsText(f);
       } else if (isBinaryFile) {
-        const jwt = getToken();
-        if (jwt) {
-          // UPLD-05: park the raw bytes server-side too (fire-and-forget — a
-          // staging failure degrades to the pre-existing text-only behavior).
-          // `attachIndex` captured HERE, synchronously, before the async stage
-          // call fires — the client is the only place true attach order is
-          // known (the stage responses below resolve in arrival order).
-          const attachIndex = attachIndexRef.current++;
-          const stagedPromise = stageRunFile(jwt, f)
-            .then((res) => {
-              setStagedUploads((p) => [...p, { name: f.name, stageId: res.stage_id, attachIndex }]);
-              return true;
-            })
-            .catch(() => false);
+        if (jwt && stageKey !== undefined) {
+          // Over the per-file cap: the stage already failed without uploading,
+          // and the preview call would be refused the same way.
+          if (isOverUploadLimit(f.size)) return;
           extractFileText(jwt, f)
             .then((res) => {
               const truncNote = res.truncated
@@ -594,15 +611,14 @@ export function useBriefAttachments() {
               // agent the document is genuinely unreadable when it isn't. Only
               // when staging ALSO failed do we owe the brief an honest note —
               // and even then, never a phrase readable as "unreadable/empty".
-              stagedPromise.then((staged) => {
-                if (staged) return;
+              setPreviewFailedKeys((k) => [...k, stageKey]);
+              void settleUploads(stageKey).then((docs) => {
+                const doc = docs.find((d) => d.key === stageKey);
+                // Removed meanwhile, or staged after all: no note.
+                if (!doc || doc.status === "staged") return;
                 setAttachedFileContents((p) => [
                   ...p,
-                  {
-                    name: f.name,
-                    content:
-                      "[This document is attached; its content must be read from .uploads/ using the extract_text tool.]",
-                  },
+                  { name: f.name, content: BRIEF_STAGE_FAILED_PLACEHOLDER },
                 ]);
               });
             });
@@ -613,18 +629,33 @@ export function useBriefAttachments() {
       // Every ext the picker offers is handled above — the two branches together
       // cover DOCUMENT_EXTS, so a chip can no longer appear for a file we drop.
     });
-  }, []);
+  }, [stageDocument, settleUploads]);
 
   const removeFile = useCallback((idx: number) => {
-    setAttachedFiles((p) => {
-      const removedName = p[idx]?.name;
-      if (removedName) {
-        setAttachedFileContents((c) => withoutOne(c, removedName));
-        setStagedUploads((s) => withoutOne(s, removedName));
-      }
-      return p.filter((_, i) => i !== idx);
-    });
-  }, []);
+    const removed = attachedFiles[idx];
+    if (!removed) return;
+    setAttachedFiles((p) => p.filter((_, i) => i !== idx));
+    // Drop ONE block, not every block sharing the name (dev #18): two attached
+    // files with the same name must not both lose their text.
+    setAttachedFileContents((c) => withoutOne(c, removed.name));
+    if (removed.stageKey !== undefined) {
+      const key = removed.stageKey;
+      removeStage(key);
+      setPreviewFailedKeys((k) => k.filter((x) => x !== key));
+    }
+  }, [attachedFiles, removeStage]);
+
+  const retryFile = useCallback(async (key: number, name: string) => {
+    const jwt = getToken();
+    if (!jwt) return;
+    if (await retryStage(key, jwt)) {
+      // The stage now succeeded, so the note written for a doubly-failed upload
+      // is no longer true (FIX-562).
+      setAttachedFileContents((c) =>
+        c.filter((f) => !(f.name === name && f.content === BRIEF_STAGE_FAILED_PLACEHOLDER)),
+      );
+    }
+  }, [retryStage]);
 
   const removeImage = useCallback((idx: number) => {
     setAttachedImages((p) => p.filter((_, i) => i !== idx));
@@ -636,7 +667,23 @@ export function useBriefAttachments() {
     .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
     .join("");
 
-  return { attachedFiles, attachedFileContents, attachedImages, stagedUploads, handleFiles, removeFile, removeImage, fileBlocks };
+  return {
+    attachedFiles,
+    attachedFileContents,
+    attachedImages,
+    stagedUploads,
+    handleFiles,
+    removeFile,
+    removeImage,
+    fileBlocks,
+    /** Per-document staging state, keyed by each chip's `stageKey`. */
+    documents,
+    previewFailedKeys,
+    /** Run is allowed only when `kind === "ready"` (see `uploadGateMessage`). */
+    uploadGate,
+    retryFile,
+    settleUploads,
+  };
 }
 
 export type BriefAttachments = ReturnType<typeof useBriefAttachments>;
@@ -694,7 +741,16 @@ export function BriefAttachBox({
   belowExtra?: React.ReactNode;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { attachedFiles, attachedImages, handleFiles, removeFile, removeImage } = attachments;
+  const {
+    attachedFiles,
+    attachedImages,
+    handleFiles,
+    removeFile,
+    removeImage,
+    documents,
+    previewFailedKeys,
+    retryFile,
+  } = attachments;
 
   return (
     <>
@@ -742,18 +798,33 @@ export function BriefAttachBox({
           ABOVE the toolbar, which read as part of the textarea rather than as
           the result of the buttons below them. */}
       {(attachedFiles.length > 0 || attachedImages.length > 0 || belowExtra) && (
-        <div className="flex flex-wrap gap-1.5 border-t border-line-divider px-4 py-2.5">
-          {attachedFiles.map((file, idx) => (
-            <span
-              key={`file-${file.name}-${idx}`}
-              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
-            >
-              <Paperclip className="h-2.5 w-2.5" /> {file.name}
-              <button onClick={() => removeFile(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          ))}
+        <div className="flex flex-wrap gap-1.5 border-t border-line-divider px-4 py-2.5" aria-live="polite">
+          {attachedFiles.map((file, idx) => {
+            const key = file.stageKey;
+            const doc = key === undefined ? undefined : documents.find((d) => d.key === key);
+            // A too-large file fails the same way again, so it offers no Retry.
+            const onRetry =
+              key !== undefined && doc?.status === "failed" && doc.reason !== UPLOAD_TOO_LARGE_MESSAGE
+                ? () => void retryFile(key, file.name)
+                : undefined;
+            return (
+              <span
+                key={`file-${file.name}-${idx}`}
+                className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
+              >
+                <Paperclip className="h-2.5 w-2.5" /> {file.name}
+                <UploadChipStatus
+                  name={file.name}
+                  document={doc}
+                  previewFailed={key !== undefined && previewFailedKeys.includes(key)}
+                  onRetry={onRetry}
+                />
+                <button onClick={() => removeFile(idx)} aria-label={`Remove ${file.name}`} className="ml-1 text-ink-400 hover:text-status-failed">
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            );
+          })}
           {attachedImages.map((img, idx) => (
             <span
               key={`img-${img.name}-${idx}`}
@@ -1541,6 +1612,10 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     if (!ideaInput.trim() || pipelineAgents.length === 0) return;
     // For the migration meta-type, Run is gated on a sub-pipeline being chosen.
     if (isMigrationMeta && !migrationChoice) return;
+    // A document still uploading (its stage id would be missing from the
+    // payload) or one that failed to upload blocks Run — also reached via the
+    // Cmd/Ctrl+Enter shortcut, so the check lives here, not only on the button.
+    if (briefAttachments.uploadGate.kind !== "ready") return;
     // Mirrors ComposerPage.handleRunOnce: a workflow that declares opendesign
     // but has nothing to inject opens the picker instead of running.
     if (designMissing) {
@@ -1981,7 +2056,8 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                   {/* Run button */}
                   <button
                     onClick={handleRun}
-                    disabled={isSubmitting || !ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                    disabled={isSubmitting || !ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice) || briefAttachments.uploadGate.kind !== "ready"}
+                    aria-describedby={briefAttachments.uploadGate.kind !== "ready" ? "idea-upload-gate" : undefined}
                     className="flex items-center gap-2 rounded-xl bg-brand text-surface-white px-5 py-2.5 text-[13px] font-semibold hover:bg-brand-pressed transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     {pipelineAgents.length === 0
@@ -2012,6 +2088,16 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             {saveError && (
               <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">{saveError}</div>
             )}
+
+            {/* Why Run is blocked by the uploads — always mounted so the live
+                region announces changes; empty (no padding) while ready. */}
+            <p
+              id="idea-upload-gate"
+              role="status"
+              className={`px-4 pb-3 -mt-1 text-[11px] empty:p-0 empty:m-0 ${briefAttachments.uploadGate.kind === "failed" ? "text-status-failed" : "text-ink-500"}`}
+            >
+              {uploadGateMessage(briefAttachments.uploadGate)}
+            </p>
 
             {/* Save modal — reuses NameWorkflowModal (Phase 21). */}
             <AnimatePresence>

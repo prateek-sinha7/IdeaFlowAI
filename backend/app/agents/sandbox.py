@@ -17,7 +17,7 @@ import re
 import shutil
 import sys
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -269,7 +269,9 @@ _DELIVERABLE_EXCLUDED_EXACT: frozenset[str] = frozenset(
 # deliverable walk above still excludes them all.
 
 
-def payload_allowlist(output_basename: str, text_basename: str | None = None) -> frozenset[str]:
+def payload_allowlist(
+    output_basename: str, text_basename: str | None = None
+) -> frozenset[str]:
     """Return the exact normalized paths that the engine may force-stage: three, or four
     with a binary deliverable's declared text form (``text_basename``, the
     ``DeliverableSpec.text_name`` such as ``backlog.md`` beside ``Backlog.pdf``), which is
@@ -344,6 +346,50 @@ def _safe_segment(value: str, *, fallback: str) -> str:
     seg = _UNSAFE.sub("_", (value or "").strip())
     seg = seg.strip(".")  # ".", ".." → "" so they can never be a segment
     return (seg or fallback)[:128]
+
+
+def _dedupe_segment(safe: str, used: set[str]) -> str:
+    """Return ``safe`` — or ``safe`` with a ``-N`` suffix inserted before its extension —
+    that is not already in ``used`` (WR-01).
+
+    Two DISTINCT original filenames can sanitize to the same ``_safe_segment`` (e.g.
+    ``invoice#1.txt`` and ``invoice@1.txt`` both → ``invoice_1.txt``); without this the
+    second write silently clobbers the first's bytes + sidecar + manifest entry while the
+    response still reports both as stored. The first use keeps the bare name; each
+    subsequent collision takes the next free ``-2``, ``-3``… (``invoice_1.txt`` →
+    ``invoice_1-2.txt``), so no upload is ever silently overwritten and the caller is told
+    the ACTUAL stored name.
+    """
+    if safe not in used:
+        return safe
+    stem, dot, ext = safe.rpartition(".")
+    base, suffix = (stem, f".{ext}") if dot else (safe, "")
+    n = 2
+    while f"{base}-{n}{suffix}" in used:
+        n += 1
+    return f"{base}-{n}{suffix}"
+
+
+def stored_upload_namer() -> Callable[[str], str]:
+    """Return a mapper from an upload's original name to its ``.uploads/`` name.
+
+    Applies the write-side rule of ``app.api.run_files``: sanitize the basename
+    with ``_safe_segment``, then ``_dedupe_segment`` names that sanitize alike.
+    Each mapper keeps its own used-name set, so call it once per name, in order.
+    The set starts empty, so it matches ``run_files`` only for a sandbox with no
+    earlier uploads; ``run_files`` de-duplicates against the names already in
+    ``.uploads/manifest.json``, which stays the authoritative list.
+    """
+    used: set[str] = set()
+
+    def stored_name(name: str) -> str:
+        safe = _dedupe_segment(
+            _safe_segment(os.path.basename(name), fallback="upload"), used
+        )
+        used.add(safe)
+        return safe
+
+    return stored_name
 
 
 # ── Revision-family lock (sandbox-git-versioning-v2, Requirement 10) ─────────

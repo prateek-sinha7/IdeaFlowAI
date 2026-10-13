@@ -679,12 +679,14 @@ async def view_shared_run(token: str):
 
         try:
             root_id = _resolve_chain_root_or_404(run.id, run.user_id)
-            path = RunSandbox(run.user_id, root_id, runs_root=settings.RUNS_ROOT).path_for(
-                run.deliverable_filename
-            )
+            path = RunSandbox(
+                run.user_id, root_id, runs_root=settings.RUNS_ROOT
+            ).path_for(run.deliverable_filename)
             data = path.read_bytes()
         except (ValueError, OSError):
-            raise HTTPException(status_code=404, detail="Share not found or expired.") from None
+            raise HTTPException(
+                status_code=404, detail="Share not found or expired."
+            ) from None
         return _Resp(content=data, media_type=mimetype, headers=share_headers)
     if mimetype == "text/html":
         return HTMLResponse(content=output, headers=share_headers)

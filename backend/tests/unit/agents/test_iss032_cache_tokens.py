@@ -44,11 +44,19 @@ def _split(meta: object) -> tuple[int, int]:
 
 def test_cache_token_counts_extracts_split() -> None:
     u = usage_from_metadata(
-        {"input_tokens": 70000, "output_tokens": 900,
-         "input_token_details": {"cache_read": 60000, "cache_creation": 5000}}
+        {
+            "input_tokens": 70000,
+            "output_tokens": 900,
+            "input_token_details": {"cache_read": 60000, "cache_creation": 5000},
+        }
     )
-    assert u == {"input_tokens": 10000, "output_tokens": 900, "total_tokens": 10900,
-                 "cache_read_tokens": 60000, "cache_write_tokens": 5000}
+    assert u == {
+        "input_tokens": 10000,
+        "output_tokens": 900,
+        "total_tokens": 10900,
+        "cache_read_tokens": 60000,
+        "cache_write_tokens": 5000,
+    }
 
 
 @pytest.mark.parametrize(
@@ -68,7 +76,9 @@ def test_cache_token_counts_partial_dict_defaults_missing() -> None:
     # Only cache_read present → cache_write (cache_creation) defaults 0, no raise.
     assert _split({"input_token_details": {"cache_read": 1234}}) == (1234, 0)
     # None-valued sub-keys degrade to 0 (int(... or 0)), never raises.
-    assert _split({"input_token_details": {"cache_read": None, "cache_creation": None}}) == (0, 0)
+    assert _split(
+        {"input_token_details": {"cache_read": None, "cache_creation": None}}
+    ) == (0, 0)
 
 
 # ── 2. Usage-event wiring (source-pin) ─────────────────────────────────────

@@ -96,7 +96,7 @@ def _all_non_revision_non_internal_agents() -> set[str]:
 # revision never takes agent ids from the client, and the mint counts the compiled
 # plan instead (run_commands._compiled_step_count). Asserted separately below.
 _COMPOSED_REVISION_PIPELINES = frozenset(
-    {"prototype_v2_revision", "prototype_v2_feature_revision"}
+    {"prototype_v2_revision", "prototype_v2_feature_revision", "backlog_revision"}
 )
 _AGREEING_REVISION_PIPELINES = sorted(
     set(REVISION_BASE_MAP.keys()) - _COMPOSED_REVISION_PIPELINES

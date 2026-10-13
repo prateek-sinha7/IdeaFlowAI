@@ -201,6 +201,10 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "ex_validation_retry": [],
     # clarify.mode: skip - prototype_v2 reads requirements from uploaded documents.
     "prototype_v2": [],
+    "backlog": [],
+    "prototype_v2_revision": [],
+    "prototype_v2_feature_revision": [],
+    "backlog_revision": [],
     # clarify.mode: skip — spec 018 temporary playwright smoke test.
     "ex_playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
@@ -457,6 +461,10 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # ── planner: skip because the manifest plans for itself ─────────────────
     # prototype_v2 plans for itself too (fi-planner custom step) - planner: skip.
     "prototype_v2",
+    "backlog",
+    "prototype_v2_revision",
+    "prototype_v2_feature_revision",
+    "backlog_revision",
     # spec 018: a genuinely temporary smoke-test pipeline for the playwright
     # tool set — minimal by design, and expected to be deleted once that tool
     # set is covered by real pipelines.

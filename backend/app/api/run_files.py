@@ -59,6 +59,7 @@ from app.agents.sandbox import (
     FamilyLockTimeout,
     RunSandbox,
     _UPLOADS_PREFIX,
+    _dedupe_segment,
     _safe_segment,
     family_lock,
     is_deliverable_relpath,
@@ -172,28 +173,6 @@ async def _read_capped(upload: UploadFile, limit: int) -> "bytes | None":
             return None
         chunks.append(chunk)
     return b"".join(chunks)
-
-
-def _dedupe_segment(safe: str, used: set[str]) -> str:
-    """Return ``safe`` — or ``safe`` with a ``-N`` suffix inserted before its extension —
-    that is not already in ``used`` (WR-01).
-
-    Two DISTINCT original filenames can sanitize to the same ``_safe_segment`` (e.g.
-    ``invoice#1.txt`` and ``invoice@1.txt`` both → ``invoice_1.txt``); without this the
-    second write silently clobbers the first's bytes + sidecar + manifest entry while the
-    response still reports both as stored. The first use keeps the bare name; each
-    subsequent collision takes the next free ``-2``, ``-3``… (``invoice_1.txt`` →
-    ``invoice_1-2.txt``), so no upload is ever silently overwritten and the caller is told
-    the ACTUAL stored name.
-    """
-    if safe not in used:
-        return safe
-    stem, dot, ext = safe.rpartition(".")
-    base, suffix = (stem, f".{ext}") if dot else (safe, "")
-    n = 2
-    while f"{base}-{n}{suffix}" in used:
-        n += 1
-    return f"{base}-{n}{suffix}"
 
 
 async def _validate_uploads(
@@ -344,6 +323,10 @@ async def ingest_staged_uploads(
     from agents.authz import ScopedStore
 
     store = ScopedStore(owner_id=user_id, workspace_id=workspace_id)
+    # Stages whose documents reached _persist_documents without raising. That
+    # call is the only writer of `.uploads/manifest.json` here, so zero persisted
+    # stages means this launch's run has no manifest for its agents to read.
+    persisted = 0
     for stage_id in stage_ids:
         if not _STAGE_ID_RE.match(stage_id or ""):
             logger.warning(
@@ -400,6 +383,8 @@ async def ingest_staged_uploads(
                     run_id,
                     type(exc).__name__,
                 )
+        if validated and not failed:
+            persisted += 1
         shutil.rmtree(staging.root, ignore_errors=True)
         logger.info(
             "staged upload ingested: run=%s stage=%s files=%d failed=%s",
@@ -408,6 +393,28 @@ async def ingest_staged_uploads(
             0 if failed else len(validated),
             failed,
         )
+    if stage_ids and persisted == 0:
+        # Still best-effort (FIX-560): report, never raise. Counts only.
+        logger.warning(
+            "staged upload ingest finished but .uploads/manifest.json is absent: "
+            "run=%s stages=%d persisted=0",
+            run_id,
+            len(stage_ids),
+        )
+
+
+def declares_file_extract(plan: object) -> bool:
+    """True when any step of a compiled plan is granted the ``file_extract`` tool
+    set — the same declaration the engine keys its attachment strip on.
+
+    Keyed on the declared tool set only, never a workflow name or step id
+    (SC-001). ``None`` (no plan could be compiled) is False.
+    """
+    for step in getattr(plan, "steps", None) or []:
+        tools = getattr(step, "tools", None)
+        if "file_extract" in (getattr(tools, "tool_sets", None) or []):
+            return True
+    return False
 
 
 async def _persist_documents(

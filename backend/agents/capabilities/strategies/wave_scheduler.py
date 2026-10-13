@@ -69,7 +69,10 @@ def latest_revision_number(sandbox: Any) -> int | None:
         return None
     if not root.is_dir():
         return None
-    return max((int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()), default=None)
+    return max(
+        (int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()),
+        default=None,
+    )
 
 
 def resolve_revision_path(path: str, sandbox: Any) -> str:
@@ -93,7 +96,9 @@ def read_custom_path(path: str, sandbox: Any) -> str:
         path = resolve_revision_path(path, sandbox)
     text = sandbox.read(path) if sandbox is not None else None
     if not (text or "").strip():
-        raise ValueError(f"wave_scheduler: task_source path {path!r} is missing or empty")
+        raise ValueError(
+            f"wave_scheduler: task_source path {path!r} is missing or empty"
+        )
     return text
 
 

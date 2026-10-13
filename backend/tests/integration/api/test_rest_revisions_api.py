@@ -370,11 +370,20 @@ async def test_driver_happy_path_persists_output_columns(env, monkeypatch):
                 },
             }
         )
-        await send({"type": "agent_chunk", "data": {"chunk": "<html>revised</html>"}})
+        await send(
+            {
+                "type": "agent_chunk",
+                "data": {
+                    "agent_id": "user-stories-revision-agent",
+                    "chunk": "<html>revised</html>",
+                },
+            }
+        )
         await send(
             {
                 "type": "agent_complete",
                 "data": {
+                    "agent_id": "user-stories-revision-agent",
                     "duration": 2.1,
                     "input_tokens": 3944,
                     "output_tokens": 297,

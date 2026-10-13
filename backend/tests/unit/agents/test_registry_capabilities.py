@@ -412,14 +412,21 @@ def test_install_is_deleted() -> None:
 
 # The composer rail shows what a mechanical step reads, does and writes. A step
 # that declares no consumes/produces of its own falls back to these defaults.
-_MECHANICAL_WITH_IO = ("assemble_backlog", "assemble_prototype", "extract_prototype_ui", "publish")
+_MECHANICAL_WITH_IO = (
+    "assemble_backlog",
+    "assemble_prototype",
+    "extract_prototype_ui",
+    "publish",
+)
 
 
 @pytest.mark.parametrize("name", _MECHANICAL_WITH_IO)
 def test_mechanical_capabilities_describe_reads_process_writes(name: str) -> None:
     meta = CapabilityRegistry().describe("mechanical", name)
     assert meta["reads"] and all(isinstance(p, str) and p for p in meta["reads"]), meta
-    assert meta["writes"] and all(isinstance(p, str) and p for p in meta["writes"]), meta
+    assert meta["writes"] and all(
+        isinstance(p, str) and p for p in meta["writes"]
+    ), meta
     assert meta["process"].strip(), meta
     assert meta["description"].strip(), "description must stay as it was"
 

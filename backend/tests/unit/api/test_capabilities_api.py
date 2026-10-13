@@ -243,12 +243,22 @@ class TestTrustFlags:
         # The composer rail falls back to these when a step declares no
         # consumes/produces; `description` stays as it was.
         body = authed_client.get("/api/capabilities").json()
-        by_name = {e["name"]: e for e in body["capabilities"] if e["kind"] == "mechanical"}
-        for name in ("assemble_backlog", "assemble_prototype", "extract_prototype_ui", "publish"):
+        by_name = {
+            e["name"]: e for e in body["capabilities"] if e["kind"] == "mechanical"
+        }
+        for name in (
+            "assemble_backlog",
+            "assemble_prototype",
+            "extract_prototype_ui",
+            "publish",
+        ):
             e = by_name[name]
             assert e["reads"] and e["writes"] and e["process"], e
             assert e["description"], e
-        assert by_name["extract_prototype_ui"]["reads"] == [".context/prototype.html", ".uploads/"]
+        assert by_name["extract_prototype_ui"]["reads"] == [
+            ".context/prototype.html",
+            ".uploads/",
+        ]
 
     def test_task_parsers_present_with_descriptions(self, authed_client):
         # Task parsers including screen_plan surface with user_allowed and descriptions.

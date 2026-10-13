@@ -375,6 +375,77 @@ def test_unsatisfiable_custom_composition_rejected_pre_mint(env):
     assert _RecordingEngine.invoked is False
 
 
+_ATTACHED_BRIEF = (
+    "create prototype from given docs\n\n"
+    "=== Attached: Business_Process_Requirements 1.pdf ===\n"
+    "page text\n"
+    "=== End: Business_Process_Requirements 1.pdf ==="
+)
+
+
+@pytest.fixture
+def plan_roster(monkeypatch):
+    """Give the stub engine the real, stateless ``_specs_from_plan``: a
+    custom-agent workflow (prototype_v2) has no registry roster, so launch_run
+    rebuilds it from the compiled plan through the engine."""
+    monkeypatch.setattr(
+        _RecordingEngine,
+        "_specs_from_plan",
+        engine_mod.ExecutionEngine._specs_from_plan,
+        raising=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "extra_body",
+    [
+        {},
+        # prototype_v2 declares no ``chains_from``, so chain admission drops this
+        # id (declaration_gate) and the run would get a fresh, empty sandbox.
+        {"source_workflow_run_id": "00000000-0000-0000-0000-000000000001"},
+    ],
+    ids=["fresh", "source-not-admitted"],
+)
+def test_launch_rejects_uploads_missing_pre_mint_when_attachments_unstaged(
+    env, plan_roster, extra_body
+):
+    """Dev 413 RCA: the brief names attached documents but no stage id came with
+    it, and the workflow has a step granted the ``file_extract`` tool set (it
+    reads ``.uploads/``). The run could only fail minutes later, so the launch is
+    refused PRE-MINT with ``uploads_missing`` — no WorkflowRun, no execute."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    resp = _post_launch(
+        env, message=_ATTACHED_BRIEF, pipeline_type="prototype_v2", **extra_body
+    )
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "uploads_missing"
+    assert detail["attachment_count"] == 1
+    assert "Business_Process_Requirements" not in resp.text
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
+def test_launch_passes_uploads_gate_when_stage_ids_present(env, plan_roster):
+    """Positive control for the gate above: the SAME brief with a stage id is
+    not refused (an unknown stage is skipped at ingest, never a launch error)."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    resp = _post_launch(
+        env,
+        message=_ATTACHED_BRIEF,
+        pipeline_type="prototype_v2",
+        staged_upload_ids=["0" * 32],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert _run_count(env) == 1
+
+
 def test_missing_message_is_a_422_bad_payload(env):
     """A launch with no ``message`` is a malformed payload (pydantic 422) — no
     run is minted."""
@@ -570,24 +641,32 @@ async def test_driver_persists_full_agent_history_like_ws(env, monkeypatch):
             yield {
                 "type": "agent_input",
                 "data": {
+                    "agent_id": "a1",
                     "context_message": "PROMPT-TEXT",
                     "context_sources": ["upstream-1"],
                 },
             }
-            yield {"type": "agent_thinking", "data": {"thinking": "let me "}}
-            yield {"type": "agent_thinking", "data": {"thinking": "think..."}}
+            yield {
+                "type": "agent_thinking",
+                "data": {"agent_id": "a1", "thinking": "let me "},
+            }
+            yield {
+                "type": "agent_thinking",
+                "data": {"agent_id": "a1", "thinking": "think..."},
+            }
             yield {
                 "type": "tool_call",
-                "data": {"tool": "write_file", "args": {"path": "x"}},
+                "data": {"agent_id": "a1", "tool": "write_file", "args": {"path": "x"}},
             }
             yield {
                 "type": "tool_result",
-                "data": {"tool": "write_file", "result": "ok"},
+                "data": {"agent_id": "a1", "tool": "write_file", "result": "ok"},
             }
-            yield {"type": "agent_chunk", "data": {"chunk": "hello"}}
+            yield {"type": "agent_chunk", "data": {"agent_id": "a1", "chunk": "hello"}}
             yield {
                 "type": "agent_complete",
                 "data": {
+                    "agent_id": "a1",
                     "duration": 1.2,
                     "input_tokens": 10,
                     "output_tokens": 5,
@@ -836,30 +915,36 @@ def _seed_run_owned_by(env, owner_id: str) -> str:
     return run_id
 
 
-def test_owned_source_links_the_child(env):
-    """An owned ``source_workflow_run_id`` is persisted as the child's
-    ``parent_run_id`` (family lineage intact).
-
-    KAN-116 (Bug 2, ``run_commands.py``): parent linkage is now ONLY set for
-    REVISION pipelines (``pipeline_type`` ending ``_revision``) — a chained,
-    different-base-type launch must NOT inherit ``parent_run_id`` (it is not a
-    revision of the source). This test exercises the revision arm, which is the
-    one this guard still links.
-    """
+def test_owned_source_links_the_child(env, monkeypatch):
+    """An admitted owned source is persisted through source_run_id, not revision ancestry."""
     user = _seed_user(env)
     parent_id = _seed_run_owned_by(env, user.id)
     env["state"]["user"] = user
+    from app.api import run_commands as rc
+
+    monkeypatch.setattr(
+        rc,
+        "admit_chain_launch",
+        lambda *_args, **_kwargs: rc.ChainAdmission(
+            active=True,
+            source_id=parent_id,
+            record=None,
+            selection=None,
+            refusal_reason=None,
+        ),
+    )
 
     resp = _post_launch(
         env,
         message="continue from prior",
-        pipeline_type="user_stories_revision",
+        pipeline_type="user_stories",
         source_workflow_run_id=parent_id,
     )
     assert resp.status_code == 200, resp.text
     child = _latest_run(env)
     assert child.id == resp.json()["run_id"]
-    assert child.parent_run_id == parent_id
+    assert child.source_run_id == parent_id
+    assert child.parent_run_id is None
 
 
 def test_foreign_source_drops_the_link_but_still_launches(env):
@@ -995,6 +1080,7 @@ async def test_driver_persists_model_id_and_prices_non_circular(env, monkeypatch
             yield {
                 "type": "agent_complete",
                 "data": {
+                    "agent_id": "a1",
                     "duration": 1.2,
                     "input_tokens": _IN,
                     "output_tokens": _OUT,

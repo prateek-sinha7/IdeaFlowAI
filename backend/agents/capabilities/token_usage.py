@@ -22,6 +22,7 @@ sums. Cost comes from the four counts via :func:`usage_cost_usd`. Records carryi
 
 Pure stdlib (+ the sibling pricing module). Never raises.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -52,6 +53,7 @@ def normalize_usage(record: dict, *, prefix: str = "") -> dict[str, int]:
     """Any stored usage record → the current meaning. ``prefix`` reads run-level keys
     (``total_input_tokens`` …). A record without ``usage_version`` predates this module:
     its input and total still hold the cache reads, so they are subtracted here."""
+
     def num(key: str) -> int:
         try:
             return int(record.get(f"{prefix}{key}", 0) or 0)
@@ -71,7 +73,9 @@ def normalize_usage(record: dict, *, prefix: str = "") -> dict[str, int]:
     }
 
 
-def usage_cost_usd(model_id: str | None, usage: dict, *, cache_ttl: str = "5m") -> float:
+def usage_cost_usd(
+    model_id: str | None, usage: dict, *, cache_ttl: str = "5m"
+) -> float:
     """What a usage record cost on ``model_id``, each of the four counts at its own rate."""
     cache_write = int(usage.get("cache_write_tokens", 0) or 0)
     return estimate_cost_usd(
@@ -88,19 +92,39 @@ def usage_cost_full_usd(model_id: str | None, usage: dict) -> float:
     """The as-if-uncached counterfactual: every input token (cache read included) at 1x."""
     return estimate_cost_usd(
         model_id,
-        input_tokens=int(usage.get("input_tokens", 0) or 0) + int(usage.get("cache_read_tokens", 0) or 0),
+        input_tokens=int(usage.get("input_tokens", 0) or 0)
+        + int(usage.get("cache_read_tokens", 0) or 0),
         output_tokens=int(usage.get("output_tokens", 0) or 0),
     )
 
 
 if __name__ == "__main__":
     # Bedrock call: 5 uncached, 10 cache read, 5 cache write, 5 output.
-    u = usage_from_metadata({"input_tokens": 20, "output_tokens": 5,
-                             "input_token_details": {"cache_read": 10, "cache_creation": 5}})
-    assert u == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
-                 "cache_read_tokens": 10, "cache_write_tokens": 5}, u
+    u = usage_from_metadata(
+        {
+            "input_tokens": 20,
+            "output_tokens": 5,
+            "input_token_details": {"cache_read": 10, "cache_creation": 5},
+        }
+    )
+    assert u == {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
+        "cache_read_tokens": 10,
+        "cache_write_tokens": 5,
+    }, u
     assert normalize_usage({**u, "usage_version": 2}) == u
-    assert normalize_usage({"input_tokens": 20, "output_tokens": 5, "cache_read_tokens": 10,
-                            "cache_write_tokens": 5}) == u
+    assert (
+        normalize_usage(
+            {
+                "input_tokens": 20,
+                "output_tokens": 5,
+                "cache_read_tokens": 10,
+                "cache_write_tokens": 5,
+            }
+        )
+        == u
+    )
     assert usage_from_metadata(None)["total_tokens"] == 0
     print("ok")

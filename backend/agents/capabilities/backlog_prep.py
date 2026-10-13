@@ -21,6 +21,7 @@ re-indents the JSON the run has written, because models write it on one line.
 
 Pure stdlib; reaches the sandbox only through ``sandbox.read``/``.write``.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,8 +66,12 @@ def _answered(answers_text: str | None) -> dict[str, dict]:
     if not isinstance(entries, list):
         return {}
     return {
-        e["id"]: e for e in entries
-        if isinstance(e, dict) and e.get("id") and e.get("answered") and e.get("answer") is not None
+        e["id"]: e
+        for e in entries
+        if isinstance(e, dict)
+        and e.get("id")
+        and e.get("answered")
+        and e.get("answer") is not None
     }
 
 
@@ -85,7 +90,9 @@ def _without_section(lines: list[str], heading: str) -> list[str]:
     return out
 
 
-def fold_answers(synthesis: str, validate: dict, answered: dict[str, dict]) -> tuple[str, dict, int]:
+def fold_answers(
+    synthesis: str, validate: dict, answered: dict[str, dict]
+) -> tuple[str, dict, int]:
     """Pure core of ``integrate_answers``: (new synthesis, new validate, gaps closed).
 
     Idempotent: the decisions section is rebuilt from the answers every time."""
@@ -106,10 +113,17 @@ def fold_answers(synthesis: str, validate: dict, answered: dict[str, dict]) -> t
             decisions.append(f"- {question} — {answer} [user {gap['id']}]")
 
     lines = _without_section(synthesis.splitlines(), DECISIONS_HEADING)
-    lines = [ln for ln in lines if not ((m := _GAP_LINE_RE.match(ln)) and m.group(1) in closed)]
+    lines = [
+        ln
+        for ln in lines
+        if not ((m := _GAP_LINE_RE.match(ln)) and m.group(1) in closed)
+    ]
     if decisions:
         block = [DECISIONS_HEADING, "", *decisions, ""]
-        at = next((i for i, ln in enumerate(lines) if ln.strip() == OPEN_GAPS_HEADING), len(lines))
+        at = next(
+            (i for i, ln in enumerate(lines) if ln.strip() == OPEN_GAPS_HEADING),
+            len(lines),
+        )
         lines[at:at] = block
     return "\n".join(lines) + "\n", validate, len(closed)
 
@@ -125,7 +139,11 @@ def integrate_answers(sandbox: Any) -> str:
     new_synthesis, new_validate, closed = fold_answers(synthesis, validate, answered)
     sandbox.write(SYNTHESIS_PATH, new_synthesis)
     sandbox.write(VALIDATE_PATH, pretty_json(new_validate))
-    still_open = sum(1 for g in new_validate.get("gaps") or [] if isinstance(g, dict) and not g.get("filled_from"))
+    still_open = sum(
+        1
+        for g in new_validate.get("gaps") or []
+        if isinstance(g, dict) and not g.get("filled_from")
+    )
     return f"Answers folded in: {closed} gap(s) closed by the user, {still_open} still open."
 
 
@@ -133,34 +151,58 @@ def integrate_answers(sandbox: Any) -> str:
 
 
 def _endpoint_line(e: dict) -> str:
-    return f"{e.get('id')} {e.get('method')} {e.get('path')} — {e.get('name') or e.get('summary') or ''}".rstrip(" —")
+    return f"{e.get('id')} {e.get('method')} {e.get('path')} — {e.get('name') or e.get('summary') or ''}".rstrip(
+        " —"
+    )
 
 
-def enrich_task(task: dict, items: dict[str, dict], solution: dict[str, list[dict]],
-                plan: dict, endpoint_index: str) -> dict:
+def enrich_task(
+    task: dict,
+    items: dict[str, dict],
+    solution: dict[str, list[dict]],
+    plan: dict,
+    endpoint_index: str,
+) -> dict:
     """One writer task → the same task, its body carrying everything the writer reads."""
     body = str(task.get("body") or "")
     covered = list(dict.fromkeys(m for m in _ITEM_ID_RE.findall(body) if m in items))
     ids = set(covered)
-    related_eps = [e for e in solution.get("endpoints", [])
-                   if e.get("id") not in ids
-                   and (e.get("entity") in ids or ids & set(e.get("screens") or []))]
-    related_rules = [r for r in solution.get("rules", [])
-                     if r.get("id") not in ids and ids & set(r.get("applies_to") or [])]
+    related_eps = [
+        e
+        for e in solution.get("endpoints", [])
+        if e.get("id") not in ids
+        and (e.get("entity") in ids or ids & set(e.get("screens") or []))
+    ]
+    related_rules = [
+        r
+        for r in solution.get("rules", [])
+        if r.get("id") not in ids and ids & set(r.get("applies_to") or [])
+    ]
     sections = [
         body,
         "=== YOUR ITEMS — the full model item for every id your slice covers ===",
         *(json.dumps(items[i], ensure_ascii=False) for i in covered),
     ]
     if related_eps:
-        sections += ["=== ENDPOINTS YOUR ITEMS USE (built by other slices) ===",
-                     *(_endpoint_line(e) for e in related_eps)]
+        sections += [
+            "=== ENDPOINTS YOUR ITEMS USE (built by other slices) ===",
+            *(_endpoint_line(e) for e in related_eps),
+        ]
     if related_rules:
-        sections += ["=== RULES ON YOUR ITEMS (covered by other slices) ===",
-                     *(f"{r.get('id')}: {r.get('statement')}" + (f" Message: {r['message']}" if r.get("message") else "")
-                       for r in related_rules)]
-    sections += ["=== PERSONAS ===", *(json.dumps(p, ensure_ascii=False) for p in plan.get("personas") or []),
-                 "=== EVERY ENDPOINT ID — the only ids an \"api\" list may hold ===", endpoint_index]
+        sections += [
+            "=== RULES ON YOUR ITEMS (covered by other slices) ===",
+            *(
+                f"{r.get('id')}: {r.get('statement')}"
+                + (f" Message: {r['message']}" if r.get("message") else "")
+                for r in related_rules
+            ),
+        ]
+    sections += [
+        "=== PERSONAS ===",
+        *(json.dumps(p, ensure_ascii=False) for p in plan.get("personas") or []),
+        '=== EVERY ENDPOINT ID — the only ids an "api" list may hold ===',
+        endpoint_index,
+    ]
     return {**task, "body": "\n".join(sections)}
 
 
@@ -168,12 +210,21 @@ def build_writer_tasks(sandbox: Any) -> str:
     tasks_doc = _parse_json(sandbox.read(STORY_TASKS_PATH))
     tasks = tasks_doc.get("tasks") if isinstance(tasks_doc, dict) else None
     if not isinstance(tasks, list) or not tasks:
-        raise ValueError(f"{STORY_TASKS_PATH} is missing or holds no tasks — the Backlog Planner wrote none.")
-    solution = {k: parse_solution_kind(sandbox.read(f"{SOLUTION_DIR}/{k}.json")) for k in SOLUTION_KINDS}
+        raise ValueError(
+            f"{STORY_TASKS_PATH} is missing or holds no tasks — the Backlog Planner wrote none."
+        )
+    solution = {
+        k: parse_solution_kind(sandbox.read(f"{SOLUTION_DIR}/{k}.json"))
+        for k in SOLUTION_KINDS
+    }
     items = {it["id"]: it for lst in solution.values() for it in lst if it.get("id")}
     plan = parse_backlog_plan(sandbox.read(BACKLOG_PLAN_PATH))
     endpoint_index = "\n".join(_endpoint_line(e) for e in solution.get("endpoints", []))
-    out = [enrich_task(t, items, solution, plan, endpoint_index) for t in tasks if isinstance(t, dict)]
+    out = [
+        enrich_task(t, items, solution, plan, endpoint_index)
+        for t in tasks
+        if isinstance(t, dict)
+    ]
     sandbox.write(WRITER_TASKS_PATH, pretty_json({"tasks": out}))
     return f"Wrote {WRITER_TASKS_PATH}: {len(out)} writer task(s), each carrying its model items in full."
 
@@ -188,10 +239,18 @@ def pretty_json(data: Any) -> str:
 def json_paths(sandbox: Any) -> list[str]:
     """Every JSON file the backlog workflow writes, as far as the run has got."""
     paths = [
-        "build/tasks.json", VALIDATE_PATH, ANSWERS_PATH,
-        ".clarify/solution.json", ".clarify/api.json", ".clarify/architect.json", ".clarify/backlog.json",
+        "build/tasks.json",
+        VALIDATE_PATH,
+        ANSWERS_PATH,
+        ".clarify/solution.json",
+        ".clarify/api.json",
+        ".clarify/architect.json",
+        ".clarify/backlog.json",
         *(f"{SOLUTION_DIR}/{k}.json" for k in SOLUTION_KINDS),
-        BACKLOG_PLAN_PATH, STORY_TASKS_PATH, WRITER_TASKS_PATH, REVIEW_PATH,
+        BACKLOG_PLAN_PATH,
+        STORY_TASKS_PATH,
+        WRITER_TASKS_PATH,
+        REVIEW_PATH,
     ]
     reading = _parse_json(sandbox.read("build/tasks.json"))
     for task in (reading.get("tasks") if isinstance(reading, dict) else None) or []:
@@ -200,7 +259,11 @@ def json_paths(sandbox: Any) -> list[str]:
                 paths += [target, target[: -len("status.json")] + "gaps.json"]
     plan = parse_backlog_plan(sandbox.read(BACKLOG_PLAN_PATH))
     story_ids = list_story_task_ids(sandbox.read(STORY_TASKS_PATH))
-    story_ids += [f"review-{e['id']}" for e in plan["epics"] if isinstance(e, dict) and e.get("id")]
+    story_ids += [
+        f"review-{e['id']}"
+        for e in plan["epics"]
+        if isinstance(e, dict) and e.get("id")
+    ]
     paths += [f"{STORIES_DIR}/{i}.json" for i in story_ids]
     return list(dict.fromkeys(paths))
 
@@ -232,12 +295,21 @@ def write_coverage_items(sandbox: Any) -> str:
     plan is checked against exactly what coverage is measured on. Run 3976f8ce's
     planner paged endpoints.json (6,485 lines) only to ~line 3000 and never saw
     API-34..API-76; this file carries every id in one short read."""
-    solution = {kind: parse_solution_kind(sandbox.read(f"{SOLUTION_DIR}/{kind}.json")) for kind in SOLUTION_KINDS}
+    solution = {
+        kind: parse_solution_kind(sandbox.read(f"{SOLUTION_DIR}/{kind}.json"))
+        for kind in SOLUTION_KINDS
+    }
     items = collect_coverage_items(solution)
     rows = [
-        json.dumps({"id": item_id, "type": item["kind"],
-                    "title": " ".join(_item_title(item).split()),
-                    "provenance": item.get("provenance", "evidenced")}, ensure_ascii=False)
+        json.dumps(
+            {
+                "id": item_id,
+                "type": item["kind"],
+                "title": " ".join(_item_title(item).split()),
+                "provenance": item.get("provenance", "evidenced"),
+            },
+            ensure_ascii=False,
+        )
         for item_id, item in items.items()
     ]
     sandbox.write(COVERAGE_ITEMS_PATH, '{"items": [\n' + ",\n".join(rows) + "\n]}\n")
@@ -248,7 +320,9 @@ def write_coverage_items(sandbox: Any) -> str:
 # Every backlog code step then re-indents the run's JSON (tidy_json, in the adapter).
 BACKLOG_CODE_JOBS = {
     "us-close": integrate_answers,
-    "us-json": lambda sandbox: (f"JSON files indented for the steps that read them. "
-                                f"{write_coverage_items(sandbox)}"),
+    "us-json": lambda sandbox: (
+        f"JSON files indented for the steps that read them. "
+        f"{write_coverage_items(sandbox)}"
+    ),
     "us-writer-tasks": build_writer_tasks,
 }

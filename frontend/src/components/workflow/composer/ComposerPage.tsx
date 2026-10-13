@@ -30,6 +30,7 @@ import {
   orderedStagedUploadIds,
 } from "../IdeaInputPage";
 import { saveUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
+import { uploadGateMessage } from "@/hooks/useStagedDocuments";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import {
   addChildInTree,
@@ -1004,6 +1005,10 @@ export function ComposerPage({
     // — the backend fell back to the full 9-agent custom pool. Same guard
     // IdeaInputPage.handleRun already applies at its own call site.
     if (pipelineAgents.length === 0) return;
+    // A document still uploading (its stage id would be missing from the
+    // payload) or one that failed to upload blocks the run. Checked here too
+    // because Cmd/Ctrl+Enter reaches this handler without the button.
+    if (briefAttachments.uploadGate.kind !== "ready") return;
     // Lives HERE and not only on the Run button, because the button is not the
     // only way in: the Simple-view brief passes `onSubmitShortcut={() =>
     // handleRunOnce(briefText)}`, so Cmd/Ctrl+Enter launched straight past the
@@ -1219,6 +1224,10 @@ export function ComposerPage({
     capabilities,
     briefAttachments.fileBlocks,
     briefAttachments.attachedImages,
+    // Read inside the callback: without these a stage that resolved after the
+    // last change to the other deps launched with a stale (missing) stage id.
+    briefAttachments.stagedUploads,
+    briefAttachments.uploadGate,
     designLaunchParams,
     designMissing,
   ]);
@@ -1342,7 +1351,8 @@ export function ComposerPage({
             }
             handleRunOnce(briefText);
           }}
-          disabled={!onRun || isSubmitting}
+          disabled={!onRun || isSubmitting || briefAttachments.uploadGate.kind !== "ready"}
+          aria-describedby={briefAttachments.uploadGate.kind !== "ready" ? "composer-upload-gate" : undefined}
           title={
             !onRun
               ? "Run wiring lands in 41-06"
@@ -1402,6 +1412,16 @@ export function ComposerPage({
           )}
         </button>
       </div>
+
+      {/* Why Run once is blocked by the uploads — always mounted so the live
+          region announces changes; collapses to nothing while ready. */}
+      <p
+        id="composer-upload-gate"
+        role="status"
+        className={`flex-none px-[34px] pt-2 font-sans text-[11px] empty:p-0 ${briefAttachments.uploadGate.kind === "failed" ? "text-status-failed" : "text-ink-500"}`}
+      >
+        {uploadGateMessage(briefAttachments.uploadGate)}
+      </p>
 
       {/* Body */}
       <div className="min-h-0 flex-1">

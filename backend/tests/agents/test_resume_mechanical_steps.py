@@ -21,11 +21,29 @@ def _steps():
     steps = []
     for i in range(20):
         if i == WAVE:
-            steps.append(NS(agent_id=f"custom-agent:s{i}", strategy="wave_scheduler", mechanical=None))
+            steps.append(
+                NS(
+                    agent_id=f"custom-agent:s{i}",
+                    strategy="wave_scheduler",
+                    mechanical=None,
+                )
+            )
         elif i in (0, 4, 9, 14, 16, 19):
-            steps.append(NS(agent_id=f"custom-agent:s{i}", strategy=None, mechanical="assemble_backlog"))
+            steps.append(
+                NS(
+                    agent_id=f"custom-agent:s{i}",
+                    strategy=None,
+                    mechanical="assemble_backlog",
+                )
+            )
         else:
-            steps.append(NS(agent_id=f"custom-agent:s{i}", strategy="single_shot", mechanical=None))
+            steps.append(
+                NS(
+                    agent_id=f"custom-agent:s{i}",
+                    strategy="single_shot",
+                    mechanical=None,
+                )
+            )
     return steps
 
 

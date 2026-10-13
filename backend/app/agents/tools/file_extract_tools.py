@@ -206,7 +206,9 @@ def _missing_source_message(relpath: str, base_error: str) -> str:
     when every page it needs is already materialised beside it.
     """
     filename = os.path.basename(relpath)
-    rel = _doc_rel(_canonical_format(_format_of(filename)), _slug_from_filename(filename))
+    rel = _doc_rel(
+        _canonical_format(_format_of(filename)), _slug_from_filename(filename)
+    )
     doc_dir, err = _resolve_path(rel)
     if err or doc_dir is None or not (doc_dir / "manifest.json").is_file():
         return base_error
@@ -362,7 +364,9 @@ def file_info(path: str = "") -> str:
             elif fmt in _PAGED_FORMATS:
                 status = "✓ extract_text materialises it into .extract/"
             elif fmt in _HTML_FORMATS:
-                status = "✓ extract_text materialises it into .extract/, screen by screen"
+                status = (
+                    "✓ extract_text materialises it into .extract/, screen by screen"
+                )
             else:
                 status = "✗ unsupported — these tools read " + ", ".join(
                     "." + f for f in sorted(_SUPPORTED_FORMATS)
@@ -1108,7 +1112,9 @@ def _extract_text_sync(path: str, pages: str = "", file_type: str = "") -> str:
     # Office branch below would otherwise hand it to LibreOffice as if it were a
     # convertible Office format (it is in _SUPPORTED_FORMATS for file_info's
     # inventory listing, but it is not in _PAGED_FORMATS or _TEXT_FORMATS).
-    early_format = (file_type.strip().lower().lstrip(".") if file_type else _format_of(filename))
+    early_format = (
+        file_type.strip().lower().lstrip(".") if file_type else _format_of(filename)
+    )
     if early_format in _HTML_FORMATS:
         return (
             f"{filename} is HTML — call extract_text (the async entry point), not "
@@ -1466,7 +1472,9 @@ def _extract_html_sync(path: str, file_type: str = "") -> str:
     from app.agents.tools import html_extract
 
     try:
-        result = html_extract.materialise_html(source_path, source_bytes, doc_dir, filename, slug)
+        result = html_extract.materialise_html(
+            source_path, source_bytes, doc_dir, filename, slug
+        )
     except Exception as e:  # noqa: BLE001 — never-raise discipline (module docstring)
         return f"failed to materialise {filename}: {e}"
 
@@ -1482,13 +1490,17 @@ def _extract_html_sync(path: str, file_type: str = "") -> str:
     if result["rebuilt"]:
         lines.append(f"Processed: {page_count} page(s) (rebuilt)")
     else:
-        lines.append("Processed: 0 pages (nothing new to materialise — source unchanged)")
+        lines.append(
+            "Processed: 0 pages (nothing new to materialise — source unchanged)"
+        )
     lines.append("")
     lines.append(f"Screens: {len(screens)} (rendered by {rendered_by})")
     if result.get("static_reason"):
         lines.append(f"  static fallback: {result['static_reason']}")
     totals = manifest.get("totals", {})
-    lines.append(f"Document totals: {page_count} page(s), {totals.get('chars', 0):,} characters")
+    lines.append(
+        f"Document totals: {page_count} page(s), {totals.get('chars', 0):,} characters"
+    )
     shards = manifest.get("shards", [])
     if shards:
         lines.append(

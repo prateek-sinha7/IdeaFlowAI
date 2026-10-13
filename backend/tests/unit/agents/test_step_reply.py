@@ -41,8 +41,18 @@ class _NarratingRunner:
     async def astream_events(self, message):
         for i, note in enumerate(NOTES):
             yield {"type": "chunk", "chunk": note}
-            yield {"type": "tool_call", "tool": "grep", "args": {"pattern": f"p{i}"}, "id": f"c{i}"}
-            yield {"type": "tool_result", "tool": "grep", "result": "hit", "id": f"c{i}"}
+            yield {
+                "type": "tool_call",
+                "tool": "grep",
+                "args": {"pattern": f"p{i}"},
+                "id": f"c{i}",
+            }
+            yield {
+                "type": "tool_result",
+                "tool": "grep",
+                "result": "hit",
+                "id": f"c{i}",
+            }
         if self.final_text:
             yield {"type": "chunk", "chunk": SPEC[:20]}
             yield {"type": "chunk", "chunk": SPEC[20:]}
@@ -67,7 +77,10 @@ async def _drive(reply: str | None, *, final_text: bool = True):
     _settings.RUNS_ROOT = _RUNS_ROOT
     run_id = f"reply-{reply}-{final_text}"
     runner = _NarratingRunner(final_text)
-    orig_factory, orig_engine = factory_mod.create_runner, getattr(engine_mod, "create_runner", None)
+    orig_factory, orig_engine = (
+        factory_mod.create_runner,
+        getattr(engine_mod, "create_runner", None),
+    )
     factory_mod.create_runner = engine_mod.create_runner = lambda *a, **k: runner
 
     engine = ExecutionEngine()
@@ -90,8 +103,11 @@ async def _drive(reply: str | None, *, final_text: bool = True):
     ectx = ExecutionContext(run_id=run_id, owner_id="anon")
     ectx.disk_principal = "anon"
     ectx.model_resolver = ModelResolver(
-        session_model_id="claude-haiku-4-5-20251001", haiku_default=_settings.BEDROCK_INFERENCE_PROFILE_ID,
-        catalog=ModelCatalog(), _region_override="")
+        session_model_id="claude-haiku-4-5-20251001",
+        haiku_default=_settings.BEDROCK_INFERENCE_PROFILE_ID,
+        catalog=ModelCatalog(),
+        _region_override="",
+    )
     ectx.gate_agent_ids = [spec.id]
     if reply is not None:
         ectx.current_step = SimpleNamespace(reply=reply, model=None)
@@ -99,9 +115,20 @@ async def _drive(reply: str | None, *, final_text: bool = True):
     results: list[dict] = []
     try:
         async for _ in engine._run_agent(
-            spec, 0, [spec], "Revise it.", sandbox, run_id, "user_stories",
-            engine._default_planning_context("Revise it."), None, None,
-            "claude-haiku-4-5-20251001", results, None, ectx,
+            spec,
+            0,
+            [spec],
+            "Revise it.",
+            sandbox,
+            run_id,
+            "user_stories",
+            engine._default_planning_context("Revise it."),
+            None,
+            None,
+            "claude-haiku-4-5-20251001",
+            results,
+            None,
+            ectx,
         ):
             pass
     finally:
@@ -138,8 +165,12 @@ async def test_a_final_message_without_text_keeps_everything():
 
 def _compile_step(**step) -> object:
     manifest = WorkflowManifest(
-        id="t-reply", steps=[{"agent": "domain-analyst", **step}], deliverable={"strategy": "streamed_text"},
-        planner="skip", clarify={"mode": "auto", "defaults": []})
+        id="t-reply",
+        steps=[{"agent": "domain-analyst", **step}],
+        deliverable={"strategy": "streamed_text"},
+        planner="skip",
+        clarify={"mode": "auto", "defaults": []},
+    )
     return WorkflowCompiler().compile(manifest, CapabilityRegistry()).steps[0]
 
 

@@ -271,7 +271,9 @@ async def test_generator_exit_releases_session(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unhandled_exception_finalizes_as_failed_not_completed(monkeypatch) -> None:
+async def test_unhandled_exception_finalizes_as_failed_not_completed(
+    monkeypatch,
+) -> None:
     import agents.execution_engine.engine as engine_mod
 
     _install_release_spy(monkeypatch)
@@ -280,7 +282,9 @@ async def test_unhandled_exception_finalizes_as_failed_not_completed(monkeypatch
 
     async def _spy_finalize(run_id, ectx, *, candidate_status, **kw):
         statuses.append(candidate_status)
-        return await orig_finalize(run_id, ectx, candidate_status=candidate_status, **kw)
+        return await orig_finalize(
+            run_id, ectx, candidate_status=candidate_status, **kw
+        )
 
     monkeypatch.setattr(engine_mod, "finalize_terminal_run", _spy_finalize)
     engine, specs, restore = _build_single_agent_engine(monkeypatch)
@@ -296,7 +300,9 @@ async def test_unhandled_exception_finalizes_as_failed_not_completed(monkeypatch
         )
         await _advance_to(gen, "agent_start")
         with pytest.raises(TypeError):
-            await gen.athrow(TypeError("sequence item 0: expected str instance, int found"))
+            await gen.athrow(
+                TypeError("sequence item 0: expected str instance, int found")
+            )
     finally:
         restore()
 

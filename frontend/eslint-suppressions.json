@@ -259,7 +259,7 @@
   },
   "src/components/workflow/AgentsPopup.tsx": {
     "react-hooks/set-state-in-effect": {
-      "count": 3
+      "count": 1
     }
   },
   "src/components/workflow/IdeaInputPage.tsx": {
@@ -321,7 +321,7 @@
   },
   "src/components/workflow/composer/ComposerPage.tsx": {
     "react-hooks/exhaustive-deps": {
-      "count": 3
+      "count": 2
     },
     "react-hooks/set-state-in-effect": {
       "count": 3

@@ -553,7 +553,9 @@ async def run_fanout(
                     # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only);
                     # the terminal agent_complete carries the worker's token usage.
                     if _child_event.get("type") in ("agent_start", "agent_complete"):
-                        worker_model = (_child_event.get("data") or {}).get("model_id") or worker_model
+                        worker_model = (_child_event.get("data") or {}).get(
+                            "model_id"
+                        ) or worker_model
                     if _child_event.get("type") == "agent_complete":
                         saw_complete = True
                         worker_tokens += int(
@@ -612,7 +614,11 @@ async def run_fanout(
                 attempt_thread = f"{thread_id}:retry{attempt}"
                 logger.warning(
                     "fan-out worker %s (%s): %s — retrying on a fresh call (%d/%d)",
-                    idx, agent_id, agent_error_msg, attempt, _TRANSIENT_WORKER_RETRIES,
+                    idx,
+                    agent_id,
+                    agent_error_msg,
+                    attempt,
+                    _TRANSIENT_WORKER_RETRIES,
                 )
                 status = "complete"
                 worker_error = None

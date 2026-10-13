@@ -515,6 +515,21 @@ class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):
 # ---------------------------------------------------------------------------
 
 
+def _read_denied_message(name: str, path: str) -> str:
+    """The text an agent receives when the READ guard refuses a call.
+
+    The readable prefixes are listed from ``AGENT_READABLE_RESERVED`` itself, so
+    the message cannot drift from the guard (it used to name ``.context/`` only
+    while ``.agents/`` and ``.uploads/`` were readable too).
+    """
+    readable = ", ".join(sorted(AGENT_READABLE_RESERVED))
+    return (
+        f"Tool '{name}' is not permitted to read '{path}': "
+        f"that path is engine-reserved. "
+        f"Only paths under {readable} are readable by agents."
+    )
+
+
 TRUNCATED_WRITE_MESSAGE = (
     "Your output was cut off at the output token limit, so this call arrived without "
     "its content. Write the file in smaller parts: write_file the first sections, "
@@ -524,8 +539,10 @@ TRUNCATED_WRITE_MESSAGE = (
 
 def _last_turn_hit_max_tokens(state: Any) -> bool:
     """True when the latest model message stopped on the output token limit."""
-    messages = (state or {}).get("messages", []) if isinstance(state, dict) else (
-        getattr(state, "messages", None) or []
+    messages = (
+        (state or {}).get("messages", [])
+        if isinstance(state, dict)
+        else (getattr(state, "messages", None) or [])
     )
     for message in reversed(messages):
         if getattr(message, "type", None) == "ai":
@@ -588,7 +605,8 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
 
     **READ guard** — tools that read from the sandbox (``read_file``, ``ls``,
     ``glob``, ``grep``) are refused for any path under ``RESERVED_PATHS`` UNLESS the
-    normalised prefix is in ``AGENT_READABLE_RESERVED`` (i.e. ``.context/`` only).
+    normalised prefix is in ``AGENT_READABLE_RESERVED`` (the denial message lists
+    that constant's entries; see ``_read_denied_message``).
     ``.chain/`` is deliberately NOT in ``AGENT_READABLE_RESERVED``; an agent cannot
     read it directly — only authorized Workspace surfaces may (Requirement 18 AC 8).
 
@@ -712,11 +730,7 @@ class _ReservedPathGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                     path,
                 )
                 return ToolMessage(
-                    content=(
-                        f"Tool '{name}' is not permitted to read '{path}': "
-                        f"that path is engine-reserved. "
-                        f"Only paths under .context/ are readable by agents."
-                    ),
+                    content=_read_denied_message(name, path),
                     name=name,
                     tool_call_id=call.get("id") or "",
                     status="error",
@@ -1697,5 +1711,3 @@ def _extract_thinking(content: Any) -> str:
             if isinstance(rc, dict):
                 out.append(rc.get("text", ""))
     return "".join(out)
-
-

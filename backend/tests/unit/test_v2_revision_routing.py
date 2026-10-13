@@ -84,8 +84,7 @@ def test_every_transcript_path_in_a_prompt_is_an_earlier_step(pipeline):
     found = 0
     for i, step in enumerate(steps):
         earlier = {
-            agent_output_relpath(index=j, agent_id=steps[j].agent_id)
-            for j in range(i)
+            agent_output_relpath(index=j, agent_id=steps[j].agent_id) for j in range(i)
         }
         for path in _PATH_RE.findall(step.prompt or ""):
             found += 1
@@ -286,7 +285,9 @@ async def test_v1_concierge_unchanged(wired, tier, expected):
 )
 def test_existing_revisions_roster_equals_plan(pipeline):
     n = len(get_pipeline_agents(pipeline))
-    assert n == len(compile_for_run(pipeline).steps) == rc._compiled_step_count(pipeline)
+    assert (
+        n == len(compile_for_run(pipeline).steps) == rc._compiled_step_count(pipeline)
+    )
 
 
 @pytest.mark.parametrize(

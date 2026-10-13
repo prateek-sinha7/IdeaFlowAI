@@ -26,9 +26,9 @@ Writes ``build/ui/``:
   navigation.json   every screen (title, screenshot) and every ``goes to`` edge
   screens/          ``html_extract``'s per-screen materialisation (text.md + image-1.png)
 """
+
 from __future__ import annotations
 
-import asyncio
 import colorsys
 import json
 import logging
@@ -46,14 +46,23 @@ CHAINED_SOURCE = ".context/prototype.html"
 UPLOADS_DIR = ".uploads"
 
 # The variable names a design system uses for its brand colour, most specific first.
-_BRAND_VARS = ("--color-primary", "--primary", "--brand", "--color-brand", "--primary-color",
-               "--accent", "--color-accent")
+_BRAND_VARS = (
+    "--color-primary",
+    "--primary",
+    "--brand",
+    "--color-brand",
+    "--primary-color",
+    "--accent",
+    "--color-accent",
+)
 
 _COMPONENTS = {
     "button_primary": ".btn-primary, button.primary, .button-primary, button[type=submit]",
     "button": "button, .btn, [role=button]",
-    "input": ("input[type=text], input[type=email], input[type=password], input[type=search], "
-              "input[type=tel], input[type=number], input[type=date], input:not([type])"),
+    "input": (
+        "input[type=text], input[type=email], input[type=password], input[type=search], "
+        "input[type=tel], input[type=number], input[type=date], input:not([type])"
+    ),
     "select": "select",
     "textarea": "textarea",
     "checkbox": "input[type=checkbox], input[type=radio]",
@@ -118,7 +127,9 @@ _PROBE_JS = """(kinds) => {
 
 # ── colour helpers ────────────────────────────────────────────────────────────────
 
-_RGB = re.compile(r"rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)")
+_RGB = re.compile(
+    r"rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)"
+)
 _HEX = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
@@ -140,7 +151,7 @@ def to_hex(value: str) -> str | None:
 
 
 def _saturation(hex_color: str) -> tuple[float, float]:
-    r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    r, g, b = (int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
     _h, lightness, sat = colorsys.rgb_to_hls(r, g, b)
     return sat, lightness
 
@@ -148,9 +159,11 @@ def _saturation(hex_color: str) -> tuple[float, float]:
 def readable_on(hex_color: str) -> str:
     """White or near-black, whichever contrasts more with ``hex_color``. 0.179 is the
     WCAG relative luminance at which the two contrast equally."""
+
     def lin(c: float) -> float:
         return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-    r, g, b = (lin(int(hex_color[i:i + 2], 16) / 255) for i in (1, 3, 5))
+
+    r, g, b = (lin(int(hex_color[i : i + 2], 16) / 255) for i in (1, 3, 5))
     return "#FFFFFF" if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.179 else "#15161A"
 
 
@@ -180,16 +193,23 @@ def build_tokens(probe: dict) -> dict:
     shown = {c["hex"] for c in colors}
     for h, names in sorted(by_hex.items()):
         if h not in shown:
-            colors.append({"hex": h, "count": 0, "roles": {}, "variables": sorted(names)})
+            colors.append(
+                {"hex": h, "count": 0, "roles": {}, "variables": sorted(names)}
+            )
 
     def ranked(key: str) -> list[dict]:
         items = (probe.get("tally") or {}).get(key, {})
-        return [{"value": k, "count": v["count"]} for k, v in sorted(items.items(), key=lambda kv: -kv[1]["count"])]
+        return [
+            {"value": k, "count": v["count"]}
+            for k, v in sorted(items.items(), key=lambda kv: -kv[1]["count"])
+        ]
 
     scale = []
     for item in ranked("sizes"):
         size, weight, tag = (item["value"].split("|") + ["", "", ""])[:3]
-        scale.append({"size": size, "weight": weight, "tag": tag, "count": item["count"]})
+        scale.append(
+            {"size": size, "weight": weight, "tag": tag, "count": item["count"]}
+        )
 
     body = probe.get("body") or {}
     brand = None
@@ -198,8 +218,13 @@ def build_tokens(probe: dict) -> dict:
         if brand:
             break
     if not brand:  # the most-used saturated background: buttons, headers, active states
-        saturated = [c for c in colors if "background" in c["roles"] and _saturation(c["hex"])[0] > 0.35
-                     and 0.15 < _saturation(c["hex"])[1] < 0.85]
+        saturated = [
+            c
+            for c in colors
+            if "background" in c["roles"]
+            and _saturation(c["hex"])[0] > 0.35
+            and 0.15 < _saturation(c["hex"])[1] < 0.85
+        ]
         brand = saturated[0]["hex"] if saturated else None
     return {
         "title": probe.get("title") or "",
@@ -209,9 +234,15 @@ def build_tokens(probe: dict) -> dict:
         "type_scale": scale,
         "radii": ranked("radii"),
         "shadows": ranked("shadows"),
-        "body": {"font_family": body.get("fontFamily"), "font_size": body.get("fontSize"),
-                 "text": to_hex(body.get("color", "")), "background": to_hex(body.get("background", ""))},
-        "brand": ({"primary": brand, "on_primary": readable_on(brand)} if brand else None),
+        "body": {
+            "font_family": body.get("fontFamily"),
+            "font_size": body.get("fontSize"),
+            "text": to_hex(body.get("color", "")),
+            "background": to_hex(body.get("background", "")),
+        },
+        "brand": (
+            {"primary": brand, "on_primary": readable_on(brand)} if brand else None
+        ),
     }
 
 
@@ -230,17 +261,27 @@ def build_navigation(screens_dir: Path) -> dict:
         if not (title and sid):
             continue
         image = page.parent / "image-1.png"
-        screens.append({"id": sid.group(1), "title": title.group(1).strip(),
-                        "screenshot": f"{UI_DIR}/screens/pages/{page.parent.name}/image-1.png" if image.exists() else None})
+        screens.append(
+            {
+                "id": sid.group(1),
+                "title": title.group(1).strip(),
+                "screenshot": f"{UI_DIR}/screens/pages/{page.parent.name}/image-1.png"
+                if image.exists()
+                else None,
+            }
+        )
         seen = set()
         for label, target in _GOTO.findall(text):
             if (target, label) not in seen:
                 seen.add((target, label))
-                edges.append({"from": sid.group(1), "to": target, "label": label.strip()})
+                edges.append(
+                    {"from": sid.group(1), "to": target, "label": label.strip()}
+                )
     return {"screens": screens, "edges": edges}
 
 
 # ── the step ──────────────────────────────────────────────────────────────────────
+
 
 def find_source(sandbox: Any) -> str | None:
     """The prototype this backlog is written against, as a sandbox path, or None."""
@@ -267,11 +308,17 @@ def stage_chained_prototype(sandbox: Any) -> bool:
     target.write_bytes(chained.read_bytes())
     manifest_path = sandbox.path_for(f"{UPLOADS_DIR}/manifest.json")
     try:
-        entries = json.loads(manifest_path.read_text()) if manifest_path.exists() else []
+        entries = (
+            json.loads(manifest_path.read_text()) if manifest_path.exists() else []
+        )
     except ValueError:
         entries = []
-    if not any(isinstance(e, dict) and e.get("name") == "prototype.html" for e in entries):
-        entries.append({"name": "prototype.html", "mime": "text/html", "has_text": False})
+    if not any(
+        isinstance(e, dict) and e.get("name") == "prototype.html" for e in entries
+    ):
+        entries.append(
+            {"name": "prototype.html", "mime": "text/html", "has_text": False}
+        )
     manifest_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
     return True
 
@@ -283,29 +330,37 @@ async def _probe(source: Path, out: Path) -> tuple[dict, dict]:
         browser = await pw.chromium.launch(args=["--no-sandbox"])
         try:
             page = await browser.new_page(viewport={"width": 1440, "height": 900})
-            await page.goto(source.resolve().as_uri(), wait_until="load", timeout=60_000)
+            await page.goto(
+                source.resolve().as_uri(), wait_until="load", timeout=60_000
+            )
             await page.evaluate("document.fonts.ready")
             probe = await page.evaluate(_PROBE_JS, _COMPONENTS)
             (out / "components").mkdir(parents=True, exist_ok=True)
             for kind, record in (probe.get("components") or {}).items():
                 try:
                     await page.locator(f'[data-ui-probe="{kind}"]').first.screenshot(
-                        path=str(out / "components" / f"{kind}.png"), timeout=10_000)
+                        path=str(out / "components" / f"{kind}.png"), timeout=10_000
+                    )
                     record["screenshot"] = f"{UI_DIR}/components/{kind}.png"
                 except Exception as exc:  # noqa: BLE001 — a missing crop never loses the record
                     record["screenshot"] = None
-                    logger.info("extract_prototype_ui: no screenshot for %s (%s)", kind, exc)
+                    logger.info(
+                        "extract_prototype_ui: no screenshot for %s (%s)", kind, exc
+                    )
             components = probe.get("components") or {}
             for record in components.values():  # colours as #RRGGBB, like tokens.json
                 for key in ("color", "backgroundColor", "borderTopColor"):
-                    record["style"][key] = to_hex(record["style"].get(key, "")) or "transparent"
+                    record["style"][key] = (
+                        to_hex(record["style"].get(key, "")) or "transparent"
+                    )
             return probe, components
         finally:
             await browser.close()
 
 
-async def extract_prototype_ui(sandbox: Any) -> str:
+async def extract_prototype_ui(runner: Any) -> str:
     """Write ``build/ui/`` from the prototype; return the step's one-line reply."""
+    sandbox = runner.sandbox
     out = sandbox.path_for(UI_DIR)
     out.mkdir(parents=True, exist_ok=True)
     # The screenshots are regenerated from the prototype on any rerun, and the
@@ -314,50 +369,85 @@ async def extract_prototype_ui(sandbox: Any) -> str:
     staged = stage_chained_prototype(sandbox)
     source = find_source(sandbox)
     if source is None:
-        (out / "source.json").write_text(json.dumps(
-            {"source": None, "reason": "No prototype: no chained prototype.html and no HTML upload."}, indent=2))
+        (out / "source.json").write_text(
+            json.dumps(
+                {
+                    "source": None,
+                    "reason": "No prototype: no chained prototype.html and no HTML upload.",
+                },
+                indent=2,
+            )
+        )
         return "No prototype to extract: no chained prototype.html and no HTML upload."
 
     path = sandbox.path_for(source)
     try:
         probe, components = await _probe(path, out)
     except Exception as exc:  # noqa: BLE001 — no browser means no UI facts, never a failed run
-        (out / "source.json").write_text(json.dumps(
-            {"source": source, "reason": f"The prototype could not be rendered: {exc}"}, indent=2))
+        (out / "source.json").write_text(
+            json.dumps(
+                {
+                    "source": source,
+                    "reason": f"The prototype could not be rendered: {exc}",
+                },
+                indent=2,
+            )
+        )
         return f"Prototype {source} could not be rendered: {exc}"
 
     tokens = build_tokens(probe)
     (out / "tokens.json").write_text(json.dumps(tokens, indent=2))
     (out / "components.json").write_text(json.dumps(components, indent=2))
 
-    from app.agents.tools.html_extract import materialise_html
-
     screens_dir = out / "screens"
-    await asyncio.to_thread(materialise_html, path.resolve(), path.read_bytes(), screens_dir, path.name, "screens")
+    await runner.materialise_html(
+        path.resolve(),
+        path.read_bytes(),
+        screens_dir,
+        path.name,
+        "screens",
+    )
     navigation = build_navigation(screens_dir)
     (out / "navigation.json").write_text(json.dumps(navigation, indent=2))
-    (out / "source.json").write_text(json.dumps({"source": source, "reason": None}, indent=2))
-    return (("Staged the chained prototype as .uploads/prototype.html. " if staged else "")
-            + f"Extracted the look and feel of {source}: {len(tokens['colors'])} colours, "
-            f"{len(tokens['fonts'])} font(s), {len(components)} component kinds, "
-            f"{len(navigation['screens'])} screens, {len(navigation['edges'])} navigation edges.")
+    (out / "source.json").write_text(
+        json.dumps({"source": source, "reason": None}, indent=2)
+    )
+    return (
+        ("Staged the chained prototype as .uploads/prototype.html. " if staged else "")
+        + f"Extracted the look and feel of {source}: {len(tokens['colors'])} colours, "
+        f"{len(tokens['fonts'])} font(s), {len(components)} component kinds, "
+        f"{len(navigation['screens'])} screens, {len(navigation['edges'])} navigation edges."
+    )
 
 
-@register("mechanical", "extract_prototype_ui", user_allowed=True, description=(
-    "Reads the look and feel of the prototype a workflow is written against — a chained "
-    "prototype_v2 run's prototype.html, or an uploaded HTML — by rendering it in a headless "
-    "browser. Pure code, no AI. Writes build/ui/: the effective design tokens (palette by "
-    "usage, fonts, type scale, radii, shadows, brand colour), one screenshot per component "
-    "kind, one screenshot per screen and the navigation between screens."
-), reads=[".context/prototype.html", ".uploads/"], process=(
-    "Renders the prototype in a headless browser and measures what it shows: design tokens, "
-    "a screenshot per component kind and per screen, and the navigation between screens. "
-    "With no prototype it writes only build/ui/source.json, saying why."
-), writes=[
-    "build/ui/source.json", "build/ui/tokens.json", "build/ui/components.json",
-    "build/ui/navigation.json", "build/ui/components/", "build/ui/screens/", "build/ui/.gitignore",
-    ".uploads/prototype.html",
-])
+@register(
+    "mechanical",
+    "extract_prototype_ui",
+    user_allowed=True,
+    description=(
+        "Reads the look and feel of the prototype a workflow is written against — a chained "
+        "prototype_v2 run's prototype.html, or an uploaded HTML — by rendering it in a headless "
+        "browser. Pure code, no AI. Writes build/ui/: the effective design tokens (palette by "
+        "usage, fonts, type scale, radii, shadows, brand colour), one screenshot per component "
+        "kind, one screenshot per screen and the navigation between screens."
+    ),
+    reads=[".context/prototype.html", ".uploads/"],
+    process=(
+        "Renders the prototype in a headless browser and measures what it shows: design tokens, "
+        "a screenshot per component kind and per screen, and the navigation between screens. "
+        "With no prototype it writes only build/ui/source.json, saying why."
+    ),
+    writes=[
+        "build/ui/source.json",
+        "build/ui/tokens.json",
+        "build/ui/components.json",
+        "build/ui/navigation.json",
+        "build/ui/components/",
+        "build/ui/screens/",
+        "build/ui/.gitignore",
+        ".uploads/prototype.html",
+    ],
+)
 class _ExtractPrototypeUiRegistryStub:
     """Registry entry for the palette; the engine dispatches the strategy below."""
 
@@ -377,22 +467,45 @@ class MechanicalExtractPrototypeUiStrategy:
         spec = self._spec
         yield {
             "type": "agent_start",
-            "data": {"agent_id": spec.id, "name": spec.name, "role": getattr(spec, "role", None),
-                     "icon": getattr(spec, "icon", None), "index": self._index, "total": self._total},
+            "data": {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "role": getattr(spec, "role", None),
+                "icon": getattr(spec, "icon", None),
+                "index": self._index,
+                "total": self._total,
+            },
         }
         started = time.time()
-        content = await extract_prototype_ui(ctx.runner.sandbox)
+        content = await extract_prototype_ui(ctx.runner)
         yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": content}}
         duration = time.time() - started
-        self._results.append({
-            "agent_id": spec.id, "name": spec.name, "role": getattr(spec, "role", None),
-            "icon": getattr(spec, "icon", None), "output": content, "duration": duration,
-            "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
-            "cache_read_tokens": 0, "cache_write_tokens": 0,
-        })
+        self._results.append(
+            {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "role": getattr(spec, "role", None),
+                "icon": getattr(spec, "icon", None),
+                "output": content,
+                "duration": duration,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+            }
+        )
         yield {
             "type": "agent_complete",
-            "data": {"agent_id": spec.id, "name": spec.name, "duration": round(duration, 2),
-                     "output_length": len(content), "index": self._index, "total": self._total,
-                     "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+            "data": {
+                "agent_id": spec.id,
+                "name": spec.name,
+                "duration": round(duration, 2),
+                "output_length": len(content),
+                "index": self._index,
+                "total": self._total,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+            },
         }

@@ -84,7 +84,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         # consumed in Phase 4 (authored in the 15 manifests)
         "agent",
         "strategy",
-        "mechanical",   # A10 — the no-model step kind (plan.py:Step.mechanical)
+        "mechanical",  # A10 — the no-model step kind (plan.py:Step.mechanical)
         "gates",
         "hooks",  # declared executable-hook capabilities (08-08 / CR-01/WR-03)
         "validators",
@@ -98,8 +98,8 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "fix",
         "fanout",
         "route",
-        "produces",     # spec 014 / R-05b: declared typed-artifact kinds (R-27's produces check)
-        "consumes",     # R-29: the matching half — which upstream outputs reach this step
+        "produces",  # spec 014 / R-05b: declared typed-artifact kinds (R-27's produces check)
+        "consumes",  # R-29: the matching half — which upstream outputs reach this step
         "on_conflict",
         "retry",
         "injects",
@@ -111,8 +111,8 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "skills",  # per-step skill ids (R-01)
         "subagents",  # declarative child-step group (R-02/R-04)
         "produces_solution_plan",  # post-step solution-plan extraction flag
-        "redoable",     # declared-gate redo opt-in (REDO-GATE follow-up)
-        "reply",        # all | last_message: what the step's output is (spec 022 §11)
+        "redoable",  # declared-gate redo opt-in (REDO-GATE follow-up)
+        "reply",  # all | last_message: what the step's output is (spec 022 §11)
         # sandbox-git-versioning / Req 17, 18: declared output surface for fan-out
         # merge conflict-resolution. Read from the YAML verbatim; never registry-
         # validated (pure manifest-side declarations — INV-5).
@@ -173,7 +173,14 @@ _ALLOWED_FANOUT_KEYS: frozenset[str] = frozenset(
 # (INV-5): the conditional gate kernel owns the condition evaluation control flow, the
 # compiler only materializes the data.
 _ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
-    {"condition_agent", "outcomes", "default_next", "loop_max_iterations", "trigger_max_depth", "on_loop_exhausted"}
+    {
+        "condition_agent",
+        "outcomes",
+        "default_next",
+        "loop_max_iterations",
+        "trigger_max_depth",
+        "on_loop_exhausted",
+    }
 )
 
 # EXACTLY the keys a step ``route.outcomes:`` dict may declare (D-08 at the nested level /
@@ -183,9 +190,7 @@ _ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
 # ``feedback`` (R-28) is authored guidance injected into the target step's context on a
 # BACKWARD jump — still pure data (INV-5): the compiler only records the string, the
 # kernel decides when it applies.
-_ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset(
-    {"trigger", "target", "feedback"}
-)
+_ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset({"trigger", "target", "feedback"})
 
 # EXACTLY the §13 on_conflict policy set a step may declare (FANOUT-08). The kernel
 # ``_resolve_conflict`` dispatches on these four; an unknown policy is rejected at
@@ -219,17 +224,15 @@ _ALLOWED_TOOLS_KEYS: frozenset[str] = ALLOWED_GRANT_KEYS
 # Manifest trust context (CAP-03 / D-02)
 # ---------------------------------------------------------------------------
 
-# The trust levels a manifest source carries. ``file``, ``builtin`` and ``db``
-# are TRUSTED (engineer-authored, version-controlled) — they may reference any
-# registered capability. ``user`` is UNTRUSTED — every reference is
-# additionally checked against the per-capability ``user_allowed`` flag, so a
-# user manifest can never reference a privileged capability (exec/secrets/
-# spawn/powerful runtimes) the engineer did not mark user-grantable.
-_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
+# Only engineer-authored, version-controlled manifests are unrestricted.
+# Saved (``db``) workflows have their own bounded trust level (ADR-0054): they
+# retain the budget capabilities needed by Composer copies of built-ins, but
+# every declared capability is checked against ``saved_workflow_allowed``.
+_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin"})
 
 
 # ---------------------------------------------------------------------------
-# Trust-conditional Limits ceiling (FANOUT-09 / OBS-01 / 08-03/10-02 precedent)
+# Trust-conditional Limits ceiling (FANOUT-09 / OBS-01 / ADR-0054)
 # ---------------------------------------------------------------------------
 
 # The static budget-ceiling defaults the trust gate enforces against. These MIRROR the
@@ -237,11 +240,9 @@ _TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin", "db"})
 # / DEFAULT_MAX_DEPTH=2 / DEFAULT_WALL_CLOCK_SECONDS=900) but are DEFINED here so the
 # compiler never imports the kernel (the import-linter ``agents.workflows ↛
 # agents.execution_engine`` contract). The budget module is the RUNTIME enforcer; this is
-# the STATIC compile-time gate — a file/builtin manifest may RAISE a Limits cap above the
-# ceiling (engineer-authored, trusted), but a user/db manifest may only LOWER (it may not
-# raise a cap above the default ceiling — the 08-03 AGENT.md-only-lowers + 10-02 ceiling
-# precedent). The runtime concurrency clamp (min(declared, 4) in run_fanout) is the
-# backstop; THIS is the static gate.
+# the STATIC compile-time gate — file/builtin manifests may raise Limits unrestrictedly,
+# inline user manifests may only lower the defaults, and saved db manifests may raise only
+# to the largest values required by a shipped built-in (ADR-0054).
 _LIMITS_DEFAULT_CEILING: dict[str, int] = {
     "max_subagents": 8,
     "max_depth": 2,
@@ -249,6 +250,15 @@ _LIMITS_DEFAULT_CEILING: dict[str, int] = {
     # max_tokens has no module-constant default ceiling (uncapped unless declared); a
     # user/db manifest declaring max_tokens only constrains itself, so it is never a
     # "raise above the ceiling" — it is omitted from the raise-rejection set.
+}
+
+# Saved Composer copies need the budget half of trust without inheriting host access.
+# These values are the largest limits declared by shipped built-ins; ADR-0038 may later
+# replace this interim ceiling with an owner-configured budget policy.
+_LIMITS_SAVED_CEILING: dict[str, int] = {
+    "max_subagents": 200,
+    "max_depth": 2,
+    "wall_clock_seconds": 10800,
 }
 
 
@@ -265,31 +275,33 @@ _LIMITS_DEFAULT_CEILING: dict[str, int] = {
 #
 # Includes both trailing-slash form and bare name so a manifest author cannot
 # bypass the guard by omitting the slash. ``.chain-legacy/`` is the v2 addition.
-_COMPILER_RESERVED_PATHS: frozenset[str] = frozenset({
-    ".uploads/",
-    ".logs/",
-    ".verify/",
-    ".browser/",
-    ".agents/",
-    ".chain/",
-    ".context/",
-    "skills/",
-    "conversation_history/",
-    ".chain-legacy/",
-    ".extract/",
-    # bare names (no trailing slash) — also blocked
-    ".uploads",
-    ".logs",
-    ".verify",
-    ".browser",
-    ".agents",
-    ".chain",
-    ".context",
-    "skills",
-    "conversation_history",
-    ".chain-legacy",
-    ".extract",
-})
+_COMPILER_RESERVED_PATHS: frozenset[str] = frozenset(
+    {
+        ".uploads/",
+        ".logs/",
+        ".verify/",
+        ".browser/",
+        ".agents/",
+        ".chain/",
+        ".context/",
+        "skills/",
+        "conversation_history/",
+        ".chain-legacy/",
+        ".extract/",
+        # bare names (no trailing slash) — also blocked
+        ".uploads",
+        ".logs",
+        ".verify",
+        ".browser",
+        ".agents",
+        ".chain",
+        ".context",
+        "skills",
+        "conversation_history",
+        ".chain-legacy",
+        ".extract",
+    }
+)
 
 
 class WorkflowCompiler:
@@ -309,17 +321,15 @@ class WorkflowCompiler:
         """Compile ``manifest`` into a typed, validated ``CompiledWorkflow``.
 
         ``trust`` is the manifest's source/trust context (CAP-03 / D-02): ``file``
-        or ``builtin`` are TRUSTED (the default — the 15 file-backed manifests
-        compile unrestricted, so Phase-4/7 parity holds); ``user`` or ``db`` are
-        UNTRUSTED — every declared capability reference is additionally checked
-        against the registry's ``user_allowed`` flag, and a not-user-allowed
-        reference is a ``CompilerError`` NAMING the offending ``(kind, name)``.
+        or ``builtin`` are unrestricted engineer-authored sources; ``db`` is a
+        bounded saved-workflow source checked against ``saved_workflow_allowed``;
+        ``user`` is checked against ``user_allowed``. Rejected references raise a
+        ``CompilerError`` naming the offending ``(kind, name)``.
 
         Raises:
             CompilerError: if any declared capability reference is unknown to the
-                registry (naming the bad reference); under an untrusted ``trust``,
-                if a reference is registered but not ``user_allowed`` (naming the
-                ``(kind, name)``); or the Step DAG has a duplicate agent id / cycle.
+                registry (naming the bad reference), disallowed at the source's trust
+                level, or the Step DAG has a duplicate agent id / cycle.
         """
         trusted = trust in _TRUSTED_SOURCES
         # Recorded only so the tool_permission trace can name the workflow a step
@@ -341,14 +351,14 @@ class WorkflowCompiler:
         for cp in manifest.context_providers:
             if not registry.is_registered("context_provider", cp):
                 raise CompilerError(f"unknown context_provider '{cp}' in {where}")
-            self._check_trust(registry, "context_provider", cp, trusted, where)
+            self._check_trust(registry, "context_provider", cp, trust, where)
 
         # image-input Wave 1: validate declared input_provider references (mirrors the
         # context_provider loop exactly). Dormant — no manifest declares the key.
         for ip in getattr(manifest, "input_providers", []) or []:
             if not registry.is_registered("input_provider", ip):
                 raise CompilerError(f"unknown input_provider '{ip}' in {where}")
-            self._check_trust(registry, "input_provider", ip, trusted, where)
+            self._check_trust(registry, "input_provider", ip, trust, where)
 
         # ── Reserved-path guard on seed_files.from_run (Requirement 18 AC 9–13) ──
         # A declared cross-run file selector that names a reserved path is rejected
@@ -358,16 +368,15 @@ class WorkflowCompiler:
         # checked so a manifest author cannot bypass the guard by omitting the slash.
         self._validate_seed_files_reserved(manifest, where)
 
-        deliverable = self._compile_deliverable(manifest, registry, trusted)
+        deliverable = self._compile_deliverable(manifest, registry, trust)
 
         # ── Trust-conditional Limits materialization (FANOUT-09 / OBS-01) ─────
         # The formerly declared-but-inert ``manifest.limits`` is now materialized into
         # a typed ``Limits`` on the CompiledWorkflow (consumed by the run-entry
-        # BudgetManager.from_limits). Under a TRUSTED (file/builtin) manifest a Limits
-        # cap may RAISE above the default ceiling; under an UNTRUSTED (user/db) manifest
-        # a cap that RAISES any ceiling is a CompilerError naming the dimension (user/db
-        # may only LOWER — the 08-03/10-02 precedent).
-        limits = self._compile_limits(getattr(manifest, "limits", None), trusted, where)
+        # BudgetManager.from_limits). File/builtin manifests may raise limits;
+        # user manifests may only lower the defaults; saved db manifests are bounded
+        # by the larger, explicit ADR-0054 ceiling.
+        limits = self._compile_limits(getattr(manifest, "limits", None), trust, where)
 
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
         # R-09 regression guard (spec 014): _validate_dag's Kahn-algorithm graph
@@ -378,9 +387,9 @@ class WorkflowCompiler:
         # itself back this: the assertion inspects its live source rather than
         # duplicating/re-deriving its graph, so a future edit that folds route data
         # into the Kahn graph trips this immediately.
-        assert "route" not in inspect.getsource(self._validate_dag), (
-            "R-09 violated: _validate_dag must never reference step.route/outcomes"
-        )
+        assert "route" not in inspect.getsource(
+            self._validate_dag
+        ), "R-09 violated: _validate_dag must never reference step.route/outcomes"
         self._validate_dag(steps)
 
         # ── Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05) ───────
@@ -434,21 +443,13 @@ class WorkflowCompiler:
     # ── Trust-conditional Limits (FANOUT-09 / OBS-01 / 08-03/10-02 precedent) ──
 
     @staticmethod
-    def _compile_limits(raw_limits: object, trusted: bool, where: str) -> Limits:
-        """Materialize the workflow ``limits:`` dict → a typed ``Limits`` (trust-conditional).
+    def _compile_limits(raw_limits: object, trust: str, where: str) -> Limits:
+        """Materialize workflow limits and enforce the source-specific ceiling.
 
-        ``None`` (no ``limits:`` key) → the empty ``Limits()`` (every cap ``None`` →
-        run_fanout falls back to the module-constant defaults; parity — every existing
-        manifest is untouched). A declared block coerces each value onto the ``Limits``
-        slot.
-
-        Trust rule (the static budget ceiling gate): under a TRUSTED (file/builtin)
-        manifest a cap may RAISE above ``_LIMITS_DEFAULT_CEILING`` (engineer-authored).
-        Under an UNTRUSTED (user/db) manifest a cap that RAISES any ceiling is a
-        ``CompilerError`` NAMING the offending dimension — a user/db manifest may only
-        LOWER a cap (08-03 AGENT.md-only-lowers + 10-02 ceiling precedent). ``max_tokens``
-        is omitted from the raise-rejection set (it has no module-constant ceiling; a
-        user/db manifest declaring it only constrains itself).
+        ``None`` produces an empty ``Limits``. File/builtin manifests are
+        unrestricted; inline user manifests may only lower runtime defaults; saved
+        db manifests may raise to the explicit ADR-0054 ceiling. ``max_tokens`` has
+        no ambient default, so declaring it always narrows an otherwise uncapped run.
         """
         if raw_limits is None:
             return Limits()
@@ -464,16 +465,19 @@ class WorkflowCompiler:
                 f"unknown limits key(s) {sorted(extra)} in {where} — manifests are "
                 f"pure data; only {sorted(allowed)} are valid Limits caps (INV-5)"
             )
-        if not trusted:
-            # A user/db manifest may only LOWER a cap. A declared value ABOVE the default
-            # ceiling RAISES it → reject naming the dimension (the static budget gate).
-            for dim, ceiling in _LIMITS_DEFAULT_CEILING.items():
+        if trust not in _TRUSTED_SOURCES:
+            ceiling = (
+                _LIMITS_SAVED_CEILING if trust == "db" else _LIMITS_DEFAULT_CEILING
+            )
+            ceiling_name = "saved-workflow" if trust == "db" else "default"
+            for dim, maximum in ceiling.items():
                 declared = raw_limits.get(dim)
-                if declared is not None and int(declared) > ceiling:
+                if declared is not None and int(declared) > maximum:
                     raise CompilerError(
-                        f"limits.{dim}={declared} raises the cap above the default "
-                        f"ceiling {ceiling} in {where} — a user/db manifest may only "
-                        f"LOWER a budget cap, never raise it (FANOUT-09 / CAP-03)"
+                        f"limits.{dim}={declared} raises the cap above the "
+                        f"{ceiling_name} ceiling {maximum} in {where} — "
+                        f"{trust!r}-trust manifests may not exceed that ceiling "
+                        f"(FANOUT-09 / CAP-03 / ADR-0054)"
                     )
         return Limits(
             max_tokens=raw_limits.get("max_tokens"),
@@ -482,33 +486,30 @@ class WorkflowCompiler:
             wall_clock_seconds=raw_limits.get("wall_clock_seconds"),
         )
 
-    # ── Trust check (CAP-03 / D-02) ──────────────────────────────────────────
+    # ── Trust check (CAP-03 / D-02 / ADR-0054) ──────────────────────────────
 
     @staticmethod
     def _check_trust(
         registry: CapabilityRegistry,
         kind: str,
         name: str,
-        trusted: bool,
+        trust: str,
         where: str,
     ) -> None:
-        """Reject a not-user-allowed reference under an untrusted trust context.
-
-        A no-op for a trusted (``file``/``builtin``) manifest — the default path,
-        so every existing file-backed manifest compiles unrestricted (parity). For
-        an untrusted (``user``/``db``) manifest, a reference that is registered but
-        not ``user_allowed`` raises a ``CompilerError`` NAMING the ``(kind, name)``
-        (the seam that keeps exec/secrets/spawn off the user palette). Called at the
-        SAME per-reference site as ``is_registered`` — the validation path is not
-        forked. (The owner allow-list is a later-phase seam: DB manifests are Q5/
-        later, so a missing allow-list defaults to the ``user_allowed`` flag only.)
-        """
-        if trusted:
+        """Reject a capability not allowed at the manifest source's trust level."""
+        if trust in _TRUSTED_SOURCES:
             return
-        if not registry.is_user_allowed(kind, name):
+        if trust == "db":
+            is_allowed = registry.is_saved_workflow_allowed(kind, name)
+            trust_label = "saved-workflow"
+        else:
+            is_allowed = registry.is_user_allowed(kind, name)
+            trust_label = "user"
+        if not is_allowed:
             raise CompilerError(
-                f"capability ({kind!r}, {name!r}) is not user-allowed in {where} "
-                f"— a user/db manifest may not reference it (CAP-03)"
+                f"capability ({kind!r}, {name!r}) is not {trust_label}-allowed "
+                f"in {where} — a {trust!r}-trust manifest may not reference it "
+                f"(CAP-03 / ADR-0054)"
             )
 
     @staticmethod
@@ -780,7 +781,7 @@ class WorkflowCompiler:
             flat.extend(child_flat)
 
             child_own.task_source = self._compile_task_source(
-                raw_subagents.get("task_source"), where, registry, trusted
+                raw_subagents.get("task_source"), where, registry, trust
             )
             child_own.fanout = FanoutSpec(
                 mode="parallel",
@@ -901,7 +902,7 @@ class WorkflowCompiler:
         strategy = raw.get("strategy", "single_shot")
         if not registry.is_registered("strategy", strategy):
             raise CompilerError(f"unknown strategy '{strategy}' in {where}")
-        self._check_trust(registry, "strategy", strategy, trusted, where)
+        self._check_trust(registry, "strategy", strategy, trust, where)
 
         # ── Mechanical (no-model) step kind (A10) ─────────────────────────────
         # Validated as a plain closed set — deliberately NOT a registry capability
@@ -930,7 +931,7 @@ class WorkflowCompiler:
         for gate in gates:
             if not registry.is_registered("gate", gate):
                 raise CompilerError(f"unknown gate '{gate}' in {where}")
-            self._check_trust(registry, "gate", gate, trusted, where)
+            self._check_trust(registry, "gate", gate, trust, where)
 
         # At most ONE human-family gate per step. A HITL pause is keyed durably on
         # ``gate_key = f"{run_id}:{agent_id}:{visit_count}"`` (engine.py) — the gate
@@ -973,13 +974,13 @@ class WorkflowCompiler:
         for hook in hooks:
             if not registry.is_registered("hook", hook):
                 raise CompilerError(f"unknown hook '{hook}' in {where}")
-            self._check_trust(registry, "hook", hook, trusted, where)
+            self._check_trust(registry, "hook", hook, trust, where)
 
         validators = list(raw.get("validators", []) or [])
         for v in validators:
             if not registry.is_registered("validator", v):
                 raise CompilerError(f"unknown validator '{v}' in {where}")
-            self._check_trust(registry, "validator", v, trusted, where)
+            self._check_trust(registry, "validator", v, trust, where)
 
         compaction = raw.get("compaction")
         if compaction is not None and not registry.is_registered(
@@ -987,16 +988,16 @@ class WorkflowCompiler:
         ):
             raise CompilerError(f"unknown compaction '{compaction}' in {where}")
         if compaction is not None:
-            self._check_trust(registry, "compaction", compaction, trusted, where)
+            self._check_trust(registry, "compaction", compaction, trust, where)
 
         post_step = raw.get("post_step")
         if post_step is not None and not registry.is_registered("post_step", post_step):
             raise CompilerError(f"unknown post_step '{post_step}' in {where}")
         if post_step is not None:
-            self._check_trust(registry, "post_step", post_step, trusted, where)
+            self._check_trust(registry, "post_step", post_step, trust, where)
 
         task_source = self._compile_task_source(
-            raw.get("task_source"), where, registry, trusted
+            raw.get("task_source"), where, registry, trust
         )
 
         # ── Effective ToolPermissions (D-07 / INV-9) ─────────────────────────
@@ -1011,15 +1012,12 @@ class WorkflowCompiler:
         step_grant = self._compile_tool_grant(raw.get("tools"), where)
         # MCP-03 / MCP-04: validate + gate each declared ``tools.mcp`` server.tool
         # reference at the SAME per-reference site as is_registered (no forked path).
-        self._validate_mcp_grant(step_grant, gates, registry, trusted, where)
+        self._validate_mcp_grant(step_grant, gates, registry, trust, where)
 
         # ── GRANT-PATH (EXEC-01) — trust-conditional privileged-grant rules ──
-        # exec/network/secrets are ENGINEER-ONLY (file/builtin trust). A user/db
-        # manifest granting any of them is a CompilerError NAMING the grant + step
-        # (N3: exec is never user-grantable; T-10-02-01). file/builtin manifests may
-        # author them, but an exec grant additionally requires the security+approval
-        # gates (D-01, T-10-02-02). Both checks fire ONLY when a privileged perm is
-        # granted, so the un-granted path is untouched (parity).
+        # Host-reaching grants are engineer-only. Saved db workflows retain
+        # spawn_subagents (the budget half of trust) but lose exec/network/secrets;
+        # inline user and unknown sources lose all four privileges.
         if not trusted:
             granted_priv: list[str] = []
             if step_grant.exec:
@@ -1028,17 +1026,15 @@ class WorkflowCompiler:
                 granted_priv.append("network")
             if step_grant.secrets:
                 granted_priv.append("secrets")
-            # WR-01 fail-loud symmetry: spawn_subagents is engineer-only too — the
-            # trust-conditional ceiling already collapses it OFF, but rejecting the
-            # grant NAMES it instead of silently dropping it.
-            if step_grant.spawn_subagents:
+            if trust != "db" and step_grant.spawn_subagents:
                 granted_priv.append("spawn_subagents")
             if granted_priv:
                 raise CompilerError(
                     f"step grant of {granted_priv!r} is not permitted for "
-                    f"{trust!r}-trust manifests in {where} — "
-                    f"exec/network/secrets/spawn_subagents are engineer-only "
-                    f"(file/builtin trust)"
+                    f"{trust!r}-trust manifests in {where} — host-reaching "
+                    f"permissions require file/builtin trust; spawn_subagents "
+                    f"is additionally allowed only for saved db workflows "
+                    f"(CAP-03 / ADR-0054)"
                 )
 
         # D-01 GATES-REQUIRED: an exec-granting step MUST declare BOTH the
@@ -1092,7 +1088,9 @@ class WorkflowCompiler:
         consumes = list(raw.get("consumes") or [])
         reply = raw.get("reply", "all")
         if reply not in ("all", "last_message"):
-            raise CompilerError(f"reply {reply!r} in {where} is unknown — must be 'all' or 'last_message'")
+            raise CompilerError(
+                f"reply {reply!r} in {where} is unknown — must be 'all' or 'last_message'"
+            )
 
         # ── R-03 cross-field check (spec 014): gates:[conditional] ⇔ route: ────
         # A one-off check, NOT a generalized "capability requires gate" mechanism
@@ -1221,6 +1219,7 @@ class WorkflowCompiler:
             reply=reply,
             outputs=outputs,
             replaces=replaces,
+            trust=trust,
         )
 
     def _compile_task_source(
@@ -1228,7 +1227,7 @@ class WorkflowCompiler:
         raw_ts: object,
         where: str,
         registry: CapabilityRegistry,
-        trusted: bool,
+        trust: str,
     ) -> "TaskSource | None":
         """Map a ``task_source:`` dict → a typed ``TaskSource``.
 
@@ -1250,9 +1249,11 @@ class WorkflowCompiler:
         if parser is not None and not registry.is_registered("task_parser", parser):
             raise CompilerError(f"unknown task_parser '{parser}' in {where}")
         if parser is not None:
-            self._check_trust(registry, "task_parser", parser, trusted, where)
+            self._check_trust(registry, "task_parser", parser, trust, where)
         path = raw_ts.get("path")
-        if raw_ts.get("kind") == "custom_path" and not (isinstance(path, str) and path.strip()):
+        if raw_ts.get("kind") == "custom_path" and not (
+            isinstance(path, str) and path.strip()
+        ):
             raise CompilerError(
                 f"task_source kind 'custom_path' in {where} needs a 'path': the file the "
                 f"tasks are read from"
@@ -1433,7 +1434,9 @@ class WorkflowCompiler:
         if effort is not None:
             declared = raw_model.get("model")
             entry = ModelCatalog().resolve(declared) if declared else None
-            valid = entry.reasoning.levels if entry is not None else REASONING_EFFORT_LEVELS
+            valid = (
+                entry.reasoning.levels if entry is not None else REASONING_EFFORT_LEVELS
+            )
             if effort not in valid:
                 raise CompilerError(
                     f"invalid model effort {effort!r} in {where} — "
@@ -1545,7 +1548,7 @@ class WorkflowCompiler:
         step_grant: ToolPermissions,
         gates: list,
         registry: CapabilityRegistry,
-        trusted: bool,
+        trust: str,
         where: str,
     ) -> None:
         """Validate + gate the step's ``tools.mcp`` ``server.tool`` references (MCP-03/04).
@@ -1554,10 +1557,11 @@ class WorkflowCompiler:
         as every other capability check — no forked path):
 
           * MCP-03: split ``server.tool``; the ``mcp_server`` MUST be registered (else
-            ``CompilerError`` naming the offending ``server.tool``); under an UNTRUSTED
-            (user/db) manifest the server MUST be ``user_allowed`` (else CompilerError);
-            and the named ``tool`` MUST be in that server's exposed-tool allow-list
-            (else CompilerError naming the ``server.tool``).
+            ``CompilerError`` naming the offending ``server.tool``); user manifests
+            require ``user_allowed`` and saved db manifests require
+            ``saved_workflow_allowed`` (else CompilerError); the named ``tool`` MUST
+            be in that server's exposed-tool allow-list (else CompilerError naming
+            the ``server.tool``).
           * MCP-04: a POWERFUL/write server (``filesystem``/``postgres``, ``powerful=True``)
             requires the ``security`` gate on the step AND the ``secrets`` permission
             granted; a read-scoped server (gitlab_read/jira_read) binds ungated. A
@@ -1586,14 +1590,9 @@ class WorkflowCompiler:
                     f"unknown mcp_server.tool {ref!r} in {where} — no registered "
                     f"mcp_server {server!r} (MCP-03)"
                 )
-            # Trust check (CAP-03): a user/db manifest may not reference a
-            # not-user-allowed (powerful) server.
-            if not trusted and not registry.is_user_allowed("mcp_server", server):
-                raise CompilerError(
-                    f"mcp_server {server!r} (referenced as {ref!r} in {where}) is "
-                    f"not user-allowed — a user/db manifest may not reference it "
-                    f"(MCP-03 / CAP-03)"
-                )
+            # Trust check (CAP-03 / ADR-0054): user and saved-workflow sources
+            # each use their own fail-closed capability allow-list.
+            WorkflowCompiler._check_trust(registry, "mcp_server", server, trust, where)
             entry = CATALOG.get(server)
             if entry is None or not entry.is_tool_exposed(tool):
                 raise CompilerError(
@@ -1610,7 +1609,7 @@ class WorkflowCompiler:
                 )
 
     def _compile_deliverable(
-        self, manifest: WorkflowManifest, registry: CapabilityRegistry, trusted: bool
+        self, manifest: WorkflowManifest, registry: CapabilityRegistry, trust: str
     ) -> DeliverableSpec:
         """Validate + build the workflow's deliverable spec."""
         raw = manifest.deliverable or {}
@@ -1624,7 +1623,7 @@ class WorkflowCompiler:
                 registry,
                 "deliverable",
                 strategy,
-                trusted,
+                trust,
                 f"workflow '{manifest.id}'",
             )
         # DECLARED revision-intent (07-10 / WR-04): copied verbatim onto the compiled

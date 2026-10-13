@@ -420,7 +420,9 @@ def scan_for_secret(payload: str) -> str | None:
 # AWS's published documentation credentials. An API spec derived from AWS docs
 # carries them as "example" values (run 3976f8ce); they grant nothing. Only these
 # exact values are exempt — any other key still blocks.
-_AWS_DOC_EXAMPLES = frozenset({"AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
+_AWS_DOC_EXAMPLES = frozenset(
+    {"AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}
+)
 _QUOTED_VALUE = re.compile(r"['\"]([^'\"\s]+)['\"]$")
 
 

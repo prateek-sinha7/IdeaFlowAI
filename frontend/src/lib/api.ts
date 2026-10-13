@@ -329,6 +329,13 @@ export function isNotFoundError(e: unknown): boolean {
 // rejects with a typed, catchable ApiError instead of hanging. Generous (~30s) so
 // it never aborts a legitimately-slow brief ingest / large-deliverable fetch.
 const REQUEST_TIMEOUT_MS = 30_000;
+// Document uploads (stage + extract-text) carry multi-MB bodies; on a slow uplink
+// 30s aborts a legitimate upload. This is an END-TO-END client limit (body upload
+// plus server response): a 10 MiB document needs an uplink above ~85 KB/s to
+// finish in time. It is unrelated to nginx's `client_body_timeout 120s` on those
+// routes (infra/scripts/reconcile-host-config.sh), which only bounds the idle gap
+// between two successive body reads, not the whole upload.
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 /** Path of the refresh endpoint — never itself retried (see `fetchWithAuth`). */
 const REFRESH_PATH = "/api/auth/refresh";
@@ -2765,11 +2772,15 @@ export async function extractFileText(
 ): Promise<ExtractTextResponse> {
   const form = new FormData();
   form.append("file", file);
-  return request<ExtractTextResponse>("/api/files/extract-text", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
+  return request<ExtractTextResponse>(
+    "/api/files/extract-text",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+    UPLOAD_TIMEOUT_MS,
+  );
 }
 
 /**
@@ -2784,11 +2795,15 @@ export async function stageRunFile(
 ): Promise<{ stage_id: string; files: string[] }> {
   const form = new FormData();
   form.append("files", file);
-  return request<{ stage_id: string; files: string[] }>("/api/runs/uploads/stage", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
+  return request<{ stage_id: string; files: string[] }>(
+    "/api/runs/uploads/stage",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+    UPLOAD_TIMEOUT_MS,
+  );
 }
 
 // ── Audit / hook-runs endpoint (KAN-73) ─────────────────────────────────────

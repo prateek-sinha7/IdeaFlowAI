@@ -71,7 +71,7 @@ describe("ChatTokenWidget", () => {
     expect(screen.getByText("~$0.001")).toBeInTheDocument();
   });
 
-  it("shows the cached segment only when cacheReadTokens > 0", () => {
+  it("never shows a cached segment, even when cacheReadTokens > 0", () => {
     const { rerender } = render(
       <ChatTokenWidget
         pipelineState={state({ totalTokens: 5_000, totalInputTokens: 5_000 })}
@@ -88,8 +88,9 @@ describe("ChatTokenWidget", () => {
         })}
       />,
     );
-    // 2000 / 4000 = 50%
-    expect(screen.getByText(/2\.0K cached \(50%\)/)).toBeInTheDocument();
+    // Backend total/input exclude cache reads; they are shown on Analytics only.
+    expect(screen.queryByText(/cached/)).not.toBeInTheDocument();
+    expect(screen.getByText(/4\.0K/)).toBeInTheDocument();
   });
 
   it("renders nothing when there is no token data", () => {

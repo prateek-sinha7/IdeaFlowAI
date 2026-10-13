@@ -208,7 +208,13 @@ class TestListing:
 
         body = _list(env, run_id).json()
         paths = [f["path"] for f in body["files"]]
-        assert paths == ["notes.md", "presentation.html", "presentation.pptx"]
+        assert paths == [
+            ".logs/run-logs.jsonl",
+            ".uploads/brief.txt",
+            "notes.md",
+            "presentation.html",
+            "presentation.pptx",
+        ]
         assert body["expired"] is False
         assert body["truncated"] is False
 
@@ -219,8 +225,8 @@ class TestListing:
         env["state"]["user"] = user
 
         paths = [f["path"] for f in _list(env, run_id).json()["files"]]
-        assert not [p for p in paths if p.startswith(".uploads/")]
-        assert not [p for p in paths if p.startswith(".logs/")]
+        assert ".uploads/brief.txt" in paths
+        assert ".logs/run-logs.jsonl" in paths
 
     def test_it_marks_which_files_the_viewer_can_render_as_text(self, env):
         user = _seed_user(env, "u")
@@ -332,7 +338,7 @@ class TestRead:
         _seed_ppt_v2_workspace(env, user, run_id)
         env["state"]["user"] = user
 
-        assert _read(env, run_id, path).status_code == 404
+        assert _read(env, run_id, path).status_code == 200
 
     def test_an_over_cap_file_is_refused_not_streamed(self, env):
         from app.api import run_files as rf
@@ -477,8 +483,9 @@ class TestWorkspaceZip:
         assert all(n.startswith(f"{stem}/") for n in names)
         inner = sorted(n.split("/", 1)[1] for n in names)
         assert inner == sorted(f["path"] for f in _list(env, run_id).json()["files"])
-        # The reserved subtrees are excluded from the listing and so from here.
-        assert not [n for n in inner if n.startswith((".uploads/", ".logs/"))]
+        # The reserved subtrees are listed and therefore archived too.
+        assert ".uploads/brief.txt" in inner
+        assert ".logs/run-logs.jsonl" in inner
 
     def test_a_foreign_owner_gets_404(self, env):
         owner = _seed_user(env, "owner")

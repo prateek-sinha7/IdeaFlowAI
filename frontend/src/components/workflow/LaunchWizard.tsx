@@ -11,13 +11,20 @@ import {
   getToken,
   getMe,
   extractFileText,
-  stageRunFile,
   createUserWorkflow,
   handleSessionExpiry,
   getWorkflowDetail,
   setWorkflowOverrideEnabled,
 } from "@/lib/api";
 import { orderedStagedUploadIds } from "@/components/workflow/IdeaInputPage";
+import { UploadChipStatus } from "@/components/workflow/UploadChipStatus";
+import {
+  stagedUploadsOf,
+  uploadGateFor,
+  uploadGateMessage,
+  useStagedDocuments,
+} from "@/hooks/useStagedDocuments";
+import { UPLOAD_TOO_LARGE_MESSAGE, isOverUploadLimit } from "@/lib/uploadErrors";
 import { agentsFromManifest } from "@/lib/manifestAgents";
 import type { ManifestStep } from "@/types";
 import { buildLoginRedirect } from "@/lib/authRedirect";
@@ -58,6 +65,10 @@ import type { AgentDef } from "@/types/index";
 import { CUSTOM_AGENT_PREFIX } from "@/store/api/userWorkflows";
 import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
 import { DOCUMENT_AND_IMAGE_ACCEPT, isBinaryUpload, isTextUpload, withoutOne } from "@/lib/uploadTypes";
+
+/** Brief note for a document whose stage AND in-browser preview both failed. */
+const STAGE_FAILED_PLACEHOLDER =
+  "[This document is attached but its text could not be extracted in-browser; do not assume it is empty.]";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -256,7 +267,9 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [brief, setBrief] = useState("");
   const [discoveryAnswers, setDiscoveryAnswers] = useState<DiscoveryAnswers>(EMPTY_ANSWERS);
 
-  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  // `stageKey` links a chip to its `useStagedDocuments` entry (absent when the
+  // file is not staged, e.g. no token).
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string; stageKey?: number }[]>([]);
   // KAN-91: file content stored separately so the textarea stays clean.
   const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
   // Image-input Wave 2 (D3): images ride OUT-OF-BAND via the draft `images`
@@ -267,10 +280,22 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // ONLY inline the capped text extraction, so `.uploads/` was empty at launch and a
   // file-reading workflow (prototype_v2's `fi-planner` opens `.uploads/manifest.json`)
   // had nothing to read — unlaunchable from its own declared `launch_surface: wizard`.
-  // `attachIndex` is stamped synchronously below because these entries append in
-  // stage-RESPONSE order, not attach order.
-  const [stagedUploads, setStagedUploads] = useState<{ name: string; stageId: string; attachIndex: number }[]>([]);
-  const attachIndexRef = useRef(0);
+  // The attach index is stamped synchronously at attach time (the stage key)
+  // because stage responses arrive in any order. Every outcome — staging, staged,
+  // failed with a reason — is tracked, so a failed upload is shown on its chip and
+  // blocks Continue instead of launching a run with no files.
+  const {
+    documents: stagedDocuments,
+    gate: uploadGate,
+    stage: stageDocument,
+    retry: retryStage,
+    remove: removeStage,
+    settle: settleStages,
+    hasPending: hasPendingStages,
+    snapshot: stagedSnapshot,
+  } = useStagedDocuments();
+  // Stage keys whose in-browser text preview failed (informational chip note).
+  const [previewFailedKeys, setPreviewFailedKeys] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } =
@@ -773,15 +798,30 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   }, []);
 
   const removeFile = useCallback((idx: number) => {
-    setAttachedFiles((prev) => {
-      const removedName = prev[idx]?.name;
-      if (removedName) {
-        setAttachedFileContents((c) => withoutOne(c, removedName));
-        setStagedUploads((s) => withoutOne(s, removedName));
-      }
-      return prev.filter((_, i) => i !== idx);
-    });
-  }, []);
+    const removed = attachedFiles[idx];
+    if (!removed) return;
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx));
+    // Drop ONE block, not every block sharing the name (dev #18): two attached
+    // files with the same name must not both lose their text.
+    setAttachedFileContents((c) => withoutOne(c, removed.name));
+    if (removed.stageKey !== undefined) {
+      const key = removed.stageKey;
+      removeStage(key);
+      setPreviewFailedKeys((k) => k.filter((x) => x !== key));
+    }
+  }, [attachedFiles, removeStage]);
+
+  const retryUpload = useCallback(async (key: number, name: string) => {
+    const jwt = getToken();
+    if (!jwt) return;
+    if (await retryStage(key, jwt)) {
+      // The stage now succeeded, so the "could not be extracted" note written
+      // for a doubly-failed upload is no longer true (FIX-562).
+      setAttachedFileContents((c) =>
+        c.filter((f) => !(f.name === name && f.content === STAGE_FAILED_PLACEHOLDER)),
+      );
+    }
+  }, [retryStage]);
 
   const onFilesPicked = useCallback((files: FileList) => {
     Array.from(files).forEach((f) => {
@@ -798,31 +838,24 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         reader.readAsDataURL(f);
         return;
       }
-      const meta = {
-        name: f.name,
-        size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
-      };
-      setAttachedFiles((p) => [...p, meta]);
       const isTextFile = isTextUpload(f.name);
       const isBinaryFile = isBinaryUpload(f.name);
       const jwt = getToken();
       // UPLD-05: park the raw bytes server-side for EVERY document, text ones
-      // included (fire-and-forget — a staging failure degrades to the
-      // pre-existing text-only behavior). `.uploads/` is the only thing a
-      // file-reading workflow opens, so a .csv/.md read client-side below would
-      // otherwise reach the run as inlined brief text and nothing else — the
-      // attached file would be missing from `.uploads/manifest.json` entirely.
-      // `attachIndex` is captured HERE, synchronously, before the async call:
-      // the client is the only place true attach order is known.
-      const attachIndex = attachIndexRef.current++;
-      const stagedPromise = jwt && (isTextFile || isBinaryFile)
-        ? stageRunFile(jwt, f)
-            .then((res) => {
-              setStagedUploads((p) => [...p, { name: f.name, stageId: res.stage_id, attachIndex }]);
-              return true;
-            })
-            .catch(() => false)
-        : Promise.resolve(false);
+      // included. `.uploads/` is the only thing a file-reading workflow opens, so
+      // a .csv/.md read client-side below would otherwise reach the run as
+      // inlined brief text and nothing else — the attached file would be missing
+      // from `.uploads/manifest.json` entirely. The stage key is the attach index,
+      // captured HERE, synchronously, before the async call: the client is the
+      // only place true attach order is known. A failed stage is shown on the
+      // chip and blocks Continue (see `uploadGate`).
+      const stageKey = jwt && (isTextFile || isBinaryFile) ? stageDocument(f, jwt) : undefined;
+      const meta = {
+        name: f.name,
+        size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
+        ...(stageKey !== undefined ? { stageKey } : {}),
+      };
+      setAttachedFiles((p) => [...p, meta]);
       if (isTextFile) {
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -835,7 +868,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         };
         reader.readAsText(f);
       } else if (isBinaryFile) {
-        if (jwt) {
+        if (jwt && stageKey !== undefined) {
+          // Over the per-file cap: the stage already failed without uploading,
+          // and the preview call would be refused the same way.
+          if (isOverUploadLimit(f.size)) return;
           extractFileText(jwt, f)
             .then((res) => {
               const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
@@ -844,19 +880,19 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             .catch(() => {
               // The in-browser extraction is a best-effort PREVIEW; the server-side
               // stage above is what agents actually read via extract_text. If staging
-              // succeeded, say nothing — a "[could not extract text]" block convinces
-              // an agent the document is genuinely unreadable when it isn't. Only when
-              // staging ALSO failed do we owe the brief a note, and even then never a
-              // phrase readable as "unreadable/empty".
-              stagedPromise.then((staged) => {
-                if (staged) return;
+              // succeeded, say nothing in the brief — a "[could not extract text]"
+              // block convinces an agent the document is genuinely unreadable when it
+              // isn't (the chip notes the missing preview instead). Only when staging
+              // ALSO failed do we owe the brief a note, and even then never a phrase
+              // readable as "unreadable/empty".
+              setPreviewFailedKeys((k) => [...k, stageKey]);
+              void settleStages(stageKey).then((docs) => {
+                const doc = docs.find((d) => d.key === stageKey);
+                // Removed meanwhile, or staged after all: no note.
+                if (!doc || doc.status === "staged") return;
                 setAttachedFileContents((p) => [
                   ...p,
-                  {
-                    name: f.name,
-                    content:
-                      "[This document is attached but its text could not be extracted in-browser; do not assume it is empty.]",
-                  },
+                  { name: f.name, content: STAGE_FAILED_PLACEHOLDER },
                 ]);
               });
             });
@@ -865,7 +901,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         }
       }
     });
-  }, []);
+  }, [stageDocument, settleStages]);
 
   // ISS-155: validate what `handleLaunch` ACTUALLY consumes, not a proxy for it.
   // The previous form was `isChaining || brief.trim()` — chaining WAIVED the brief
@@ -982,8 +1018,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     }
   }, [mode, cfg.eyebrow, pipelineAgents, brief, selectedTemplateId, selectedDsId, isDeck, dsRequired]);
 
-  const handleLaunch = useCallback(() => {
+  const handleLaunch = useCallback(async () => {
     if (!canContinue || locked) return;
+    // Never launch ahead of an in-flight stage: its id would be missing from
+    // `staged_upload_ids` and the run's `.uploads/` would lack that file. The
+    // button is disabled while staging, so this await is a backstop; with
+    // nothing in flight the launch stays synchronous.
+    const docs = hasPendingStages() ? await settleStages() : stagedSnapshot();
+    if (uploadGateFor(docs).kind !== "ready") return;
     const sourceRunId = isChaining ? (sessionStorage.getItem(CHAIN_SOURCE_RUN_ID_KEY) ?? undefined) : undefined;
     sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
 
@@ -1008,8 +1050,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       gatesTouched,
       selections: selectionsRef.current,
       images: attachedImages,
-      // UPLD-05 — see the `stagedUploads` note above. Sorted back into attach order.
-      stagedUploadIds: orderedStagedUploadIds(stagedUploads),
+      // UPLD-05 — see the staging note above. Sorted back into attach order.
+      stagedUploadIds: orderedStagedUploadIds(stagedUploadsOf(docs)),
       // `agent_ids` is a SUBSET selector over a pipeline's REGISTERED agents:
       // run_commands.launch_run checks each id against registry.allowed_custom_agent_ids(),
       // which is built from AGENT.md `pipeline_type` frontmatter. 14 of the 35 file
@@ -1037,7 +1079,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     sessionStorage.setItem(draft.pendingKey, "true");
     router.push(routes.home());
   }, [
-    canContinue, locked, mode, isChaining, brief, attachedFileContents, attachedImages, stagedUploads,
+    canContinue, locked, mode, isChaining, brief, attachedFileContents, attachedImages,
+    hasPendingStages, settleStages, stagedSnapshot,
     dsRequired, isDeck, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
     discoveryAnswers, pipelineAgents, router,
   ]);
@@ -1203,15 +1246,30 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                 className="w-full resize-none rounded-[var(--radius-card)] bg-transparent px-5 py-4 text-[14px] leading-relaxed text-ink-900 placeholder:text-ink-400 focus:outline-none"
               />
               {attachedFiles.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 px-5 pb-2">
-                  {attachedFiles.map((file, idx) => (
-                    <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-[var(--radius-button)] bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
-                      <File className="h-2.5 w-2.5" /> {file.name}
-                      <button onClick={() => removeFile(idx)} aria-label={`Remove ${file.name}`} className="ml-1 text-ink-400 hover:text-status-failed">
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </span>
-                  ))}
+                <div className="flex flex-wrap gap-1.5 px-5 pb-2" aria-live="polite">
+                  {attachedFiles.map((file, idx) => {
+                    const key = file.stageKey;
+                    const doc = key === undefined ? undefined : stagedDocuments.find((d) => d.key === key);
+                    // A too-large file fails the same way again, so it offers no Retry.
+                    const onRetry =
+                      key !== undefined && doc?.status === "failed" && doc.reason !== UPLOAD_TOO_LARGE_MESSAGE
+                        ? () => void retryUpload(key, file.name)
+                        : undefined;
+                    return (
+                      <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-[var(--radius-button)] bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600">
+                        <File className="h-2.5 w-2.5" /> {file.name}
+                        <UploadChipStatus
+                          name={file.name}
+                          document={doc}
+                          previewFailed={key !== undefined && previewFailedKeys.includes(key)}
+                          onRetry={onRetry}
+                        />
+                        <button onClick={() => removeFile(idx)} aria-label={`Remove ${file.name}`} className="ml-1 text-ink-400 hover:text-status-failed">
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               {attachedImages.length > 0 && (
@@ -1385,6 +1443,16 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             </div>
           )}
 
+          {/* Why Continue is blocked by the uploads — always mounted so the live
+              region announces changes; empty while ready. */}
+          <p
+            id="launch-upload-gate"
+            role="status"
+            className={`mb-3 text-[11px] empty:mb-0 ${uploadGate.kind === "failed" ? "text-status-failed" : "text-ink-500"}`}
+          >
+            {uploadGateMessage(uploadGate)}
+          </p>
+
           <div className="flex gap-3">
             <button
               type="button"
@@ -1411,8 +1479,9 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             </button>
             <button
               type="button"
-              onClick={handleLaunch}
-              disabled={!canContinue || locked}
+              onClick={() => void handleLaunch()}
+              disabled={!canContinue || locked || uploadGate.kind !== "ready"}
+              aria-describedby={uploadGate.kind !== "ready" ? "launch-upload-gate" : undefined}
               className="flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-card)] bg-brand px-6 py-4 text-[14px] font-semibold text-white shadow-[var(--elevation-raised)] transition-all hover:bg-brand-pressed disabled:cursor-not-allowed disabled:bg-line-divider disabled:text-ink-400 disabled:shadow-none"
             >
               Continue

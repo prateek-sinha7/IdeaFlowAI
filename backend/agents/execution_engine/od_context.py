@@ -331,8 +331,11 @@ def load_ppt_od_context(
     # The same set the web loader seeds: assets/template.html, references/*.md at
     # the exact instructed paths, plus example.html and the rest of assets/.
     template_files = od_loader.get_template_files(template_id)
-    ds_files = (od_loader.get_design_system_files(design_system_id)
-                if is_design_system_required and design_system_id and not custom_ds_body else {})
+    ds_files = (
+        od_loader.get_design_system_files(design_system_id)
+        if is_design_system_required and design_system_id and not custom_ds_body
+        else {}
+    )
 
     return {
         "template_id": template_id,

@@ -76,7 +76,9 @@ def sandbox(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _upload(root: pathlib.Path, fixture_name: str, upload_name: str | None = None) -> str:
+def _upload(
+    root: pathlib.Path, fixture_name: str, upload_name: str | None = None
+) -> str:
     """Copy a fixture into .uploads/ and return its sandbox-relative path."""
     name = upload_name or fixture_name
     dest = root / ".uploads" / name
@@ -102,7 +104,10 @@ def _screen_page_text(root: pathlib.Path, manifest: dict, screen_id: str) -> str
 
 
 def _all_page_texts(root: pathlib.Path, manifest: dict) -> list[str]:
-    return [_page_text(root, manifest["slug"], n) for n in range(1, manifest["page_count"] + 1)]
+    return [
+        _page_text(root, manifest["slug"], n)
+        for n in range(1, manifest["page_count"] + 1)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +191,9 @@ class TestShellPrototype:
         manifest = _manifest(sandbox, "shell-prototype")
 
         for entry in manifest["screens"]:
-            page_dir = _doc_dir(sandbox, "shell-prototype") / "pages" / f"{entry['page']:02d}"
+            page_dir = (
+                _doc_dir(sandbox, "shell-prototype") / "pages" / f"{entry['page']:02d}"
+            )
             png = page_dir / "image-1.png"
             assert png.is_file(), f"missing screenshot for {entry['id']}"
             assert png.stat().st_size > 0
@@ -278,7 +285,9 @@ def test_static_fallback_on_launch_failure(sandbox, monkeypatch):
 
     # No screenshots on the static route.
     for entry in manifest["screens"]:
-        page_dir = _doc_dir(sandbox, "shell-prototype") / "pages" / f"{entry['page']:02d}"
+        page_dir = (
+            _doc_dir(sandbox, "shell-prototype") / "pages" / f"{entry['page']:02d}"
+        )
         assert not (page_dir / "image-1.png").exists()
         assert "@[[image-1.png]]" not in (page_dir / "text.md").read_text()
 
@@ -296,8 +305,18 @@ def test_manifest_has_every_pdf_manifest_key(sandbox):
     manifest = _manifest(sandbox, "generic-form")
 
     for key in (
-        "source", "source_sha256", "source_format", "converted_by", "slug",
-        "page_count", "scale", "created_at", "pages", "shards", "shard_basis", "totals",
+        "source",
+        "source_sha256",
+        "source_format",
+        "converted_by",
+        "slug",
+        "page_count",
+        "scale",
+        "created_at",
+        "pages",
+        "shards",
+        "shard_basis",
+        "totals",
     ):
         assert key in manifest, f"missing PDF-manifest key: {key}"
 
@@ -309,7 +328,17 @@ def test_manifest_has_every_pdf_manifest_key(sandbox):
 
     assert manifest["shards"], "expected at least one shard"
     for shard in manifest["shards"]:
-        for key in ("id", "slug", "format", "pages", "page_range", "est_tokens", "source", "out", "over_budget"):
+        for key in (
+            "id",
+            "slug",
+            "format",
+            "pages",
+            "page_range",
+            "est_tokens",
+            "source",
+            "out",
+            "over_budget",
+        ):
             assert key in shard, f"missing PDF-shard key: {key}"
 
 

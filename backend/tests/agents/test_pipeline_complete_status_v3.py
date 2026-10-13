@@ -148,8 +148,14 @@ class TestACommitDegradeNamesItsCause:
 
     @pytest.mark.asyncio
     async def test_files_left_out_of_the_history_are_named(self) -> None:
-        marks = {"commit_excluded_files": {"build/ui/components/button.png": "unknown binary"}}
-        with patch.object(engine_mod, "finalize_terminal_run", _finalizer_that_marks(**marks)):
+        marks = {
+            "commit_excluded_files": {
+                "build/ui/components/button.png": "unknown binary"
+            }
+        }
+        with patch.object(
+            engine_mod, "finalize_terminal_run", _finalizer_that_marks(**marks)
+        ):
             events = await _drive("custom")
 
         data = _pipeline_complete_events(events)[0]["data"]
@@ -158,8 +164,13 @@ class TestACommitDegradeNamesItsCause:
 
     @pytest.mark.asyncio
     async def test_a_refused_commit_says_why(self) -> None:
-        marks = {"last_commit_blocked": True, "last_commit_block_reason": "secret_detected"}
-        with patch.object(engine_mod, "finalize_terminal_run", _finalizer_that_marks(**marks)):
+        marks = {
+            "last_commit_blocked": True,
+            "last_commit_block_reason": "secret_detected",
+        }
+        with patch.object(
+            engine_mod, "finalize_terminal_run", _finalizer_that_marks(**marks)
+        ):
             events = await _drive("custom")
 
         data = _pipeline_complete_events(events)[0]["data"]

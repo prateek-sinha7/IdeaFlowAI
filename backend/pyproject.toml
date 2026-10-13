@@ -416,9 +416,6 @@ name = "agents.capabilities must not import the execution kernel or the web laye
 type = "forbidden"
 source_modules = ["agents.capabilities"]
 forbidden_modules = ["agents.execution_engine", "app"]
-ignore_imports = [
-    "agents.capabilities.prototype_ui_extract -> app.agents.tools.html_extract",
-]
 
 # ---------------------------------------------------------------------------
 # Runtime port boundary (Phase 09 / RUNTIME-01 / T-09-01-03): the runtime port

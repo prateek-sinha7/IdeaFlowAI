@@ -31,7 +31,7 @@ from app.agents.tools import file_extract_tools as fet
 from app.agents.tools import soffice
 
 NOT_BOUND = "document tools not bound to a run sandbox (internal error)"
-SUPPORTED = ".csv, .docx, .json, .md, .pdf, .pptx, .txt, .xlsx"
+SUPPORTED = ".csv, .docx, .htm, .html, .json, .md, .pdf, .pptx, .txt, .xlsx"
 PNOTE = (
     "\nNOTE: this document was converted by libreoffice; page numbers are "
     "the converter's pagination, which the authoring application may not share."
@@ -2809,6 +2809,8 @@ class TestModuleConstants:
             "txt",
             "md",
             "csv",
+            "htm",
+            "html",
             "json",
             "pdf",
             "docx",

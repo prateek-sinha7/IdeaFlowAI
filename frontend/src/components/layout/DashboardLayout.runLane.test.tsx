@@ -816,24 +816,48 @@ describe("DashboardLayout run lane", () => {
   });
 
   describe("Back to history", () => {
+    const seedOrigin = (len: number) =>
+      sessionStorage.setItem(
+        "velocity.backOrigin",
+        JSON.stringify({ label: "runs", path: routes.runHistory(), len }),
+      );
+
     it("goes to the history view when there is no earlier entry to pop", async () => {
+      seedOrigin(0);
+      const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {});
       const { user } = renderLayout();
 
       await user.click(screen.getByRole("button", { name: "Back to history" }));
 
-      expect(region("History page")).toBeInTheDocument();
       expect(router.push).toHaveBeenCalledWith(routes.runHistory());
       expect(router.back).not.toHaveBeenCalled();
+      expect(goSpy).not.toHaveBeenCalled();
+      goSpy.mockRestore();
+    });
+
+    it("falls back to the dashboard when no origin was recorded", async () => {
+      const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {});
+      const { user } = renderLayout();
+
+      await user.click(screen.getByRole("button", { name: "Back to history" }));
+
+      expect(router.push).toHaveBeenCalledWith("/dashboard");
+      expect(goSpy).not.toHaveBeenCalled();
+      goSpy.mockRestore();
     });
 
     it("pops the earlier history entry instead of pushing a second one", async () => {
+      seedOrigin(1);
+      const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {});
       const { user } = renderLayout();
       historyLength.mockReturnValue(2);
 
       await user.click(screen.getByRole("button", { name: "Back to history" }));
 
-      expect(router.back).toHaveBeenCalledTimes(1);
+      expect(goSpy).toHaveBeenCalledWith(-1);
       expect(router.push).not.toHaveBeenCalled();
+      expect(router.back).not.toHaveBeenCalled();
+      goSpy.mockRestore();
     });
   });
 

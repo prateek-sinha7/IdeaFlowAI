@@ -229,7 +229,7 @@ async def test_test_agent_counts_its_tokens_through_the_usage_sink() -> None:
 
     assert len(collected) == 1, f"the model call was not counted: {collected}"
     assert collected[0] == {
-        "input_tokens": 9412,
+        "input_tokens": 2412,
         "output_tokens": 388,
         "cache_read_tokens": 7000,
         "cache_write_tokens": 1200,

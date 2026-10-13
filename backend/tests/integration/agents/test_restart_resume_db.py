@@ -4106,10 +4106,14 @@ def test_apply_terminal_output_columns_populates_all_columns():
                 "icon": "🧠",
             },
         ),
-        ("agent_chunk", {"chunk": "domain analysis body"}),
+        (
+            "agent_chunk",
+            {"agent_id": "domain-analyst", "chunk": "domain analysis body"},
+        ),
         (
             "agent_complete",
             {
+                "agent_id": "domain-analyst",
                 "duration": 1.5,
                 "input_tokens": 100,
                 "output_tokens": 50,
@@ -4127,10 +4131,14 @@ def test_apply_terminal_output_columns_populates_all_columns():
                 "icon": "📋",
             },
         ),
-        ("agent_chunk", {"chunk": "# Backlog\n- story 1"}),
+        (
+            "agent_chunk",
+            {"agent_id": "backlog-compiler", "chunk": "# Backlog\n- story 1"},
+        ),
         (
             "agent_complete",
             {
+                "agent_id": "backlog-compiler",
                 "duration": 2.0,
                 "input_tokens": 200,
                 "output_tokens": 80,
@@ -4170,8 +4178,11 @@ def test_apply_terminal_output_columns_populates_all_columns():
     ], f"agent_outputs must carry every completed agent: {agents}"
     assert agents[0]["output"] == "domain analysis body"
     tu = _json.loads(wr.token_usage)
-    assert tu["total_input_tokens"] == 300 and tu["total_output_tokens"] == 130
-    assert tu["total_tokens"] == 430 and tu["total_cache_read_tokens"] == 10
+    # usage-v2 (agents/capabilities/token_usage.py): unversioned legacy events carry
+    # cache reads inside input_tokens, so they are subtracted (100 - 10 + 200 = 290);
+    # cache reads are reported separately and never counted in the total.
+    assert tu["total_input_tokens"] == 290 and tu["total_output_tokens"] == 130
+    assert tu["total_tokens"] == 420 and tu["total_cache_read_tokens"] == 10
     assert wr.duration == 3.5
     assert wr.deliverable_mimetype == "text/markdown"
     assert wr.deliverable_filename == "backlog.md"
@@ -4191,10 +4202,11 @@ def test_apply_terminal_output_columns_captures_per_agent_model_id():
 
     events = [
         ("agent_start", {"agent_id": "prototype-build", "name": "Build Agent"}),
-        ("agent_chunk", {"chunk": "built it"}),
+        ("agent_chunk", {"agent_id": "prototype-build", "chunk": "built it"}),
         (
             "agent_complete",
             {
+                "agent_id": "prototype-build",
                 "duration": 1.0,
                 "input_tokens": 10,
                 "output_tokens": 5,

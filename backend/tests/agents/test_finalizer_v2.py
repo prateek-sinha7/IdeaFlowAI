@@ -2449,9 +2449,12 @@ class TestFilesLeftOutOfTheHistory:
         _plant_output(sandbox)
         _plant_logs(sandbox, run_id)
         ectx = _make_ectx(run_id, sandbox)
-        ectx.commit_excluded_files = {"build/ui/components/button.png": "unknown binary type"}
+        ectx.commit_excluded_files = {
+            "build/ui/components/button.png": "unknown binary type"
+        }
 
         from agents.execution_engine import engine as eng  # noqa: PLC0415
+
         eng._finalize_terminal_run_started.discard(run_id)
 
         def _good_session() -> MagicMock:

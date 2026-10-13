@@ -278,8 +278,11 @@ def rebuild_od_context_from_sandbox(sandbox: object) -> dict | None:
         except Exception:  # noqa: BLE001
             pass  # best-effort; missing template_files degrades to inline inject
 
-    ds_files = {name: body for name in ("tokens.css", "components.html")
-                if (body := reader(f".context/design/{name}"))}
+    ds_files = {
+        name: body
+        for name in ("tokens.css", "components.html")
+        if (body := reader(f".context/design/{name}"))
+    }
 
     od_context: dict = {
         "template_id": selections.get("template_id"),
